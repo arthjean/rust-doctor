@@ -47,6 +47,11 @@ The health score is a weighted average across 5 dimensions (Security ×2.0, Reli
 
 The overall score is the weighted average of all dimension scores, clamped to [0, 100]. Fixing all instances of one rule removes the entire penalty for that rule.
 
+### Category-Filtered Scoring
+
+When running a targeted scan with the `--category` filter (e.g. `rust-doctor --category architecture`), the final overall health score represents **only** the active category's dimension rather than a weighted average of all 5 dimensions. This ensures that skipped dimensions (which would default to 100) do not artificially inflate or skew the rating. The terminal UI automatically adjusts to show a highly focused, auto-contracting **Category Card** displaying only the active dimension and its calibrated score.
+
+
 | Score | Label | Meaning |
 |---|---|---|
 | 75–100 | Great | Healthy codebase |

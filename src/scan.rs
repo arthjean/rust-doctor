@@ -71,6 +71,7 @@ pub fn scan_project(
         total_source_files,
         all_skipped_passes,
         total_elapsed,
+        resolved.category_filter,
     ))
 }
 
@@ -329,6 +330,7 @@ fn build_result(
     source_file_count: usize,
     mut skipped_passes: Vec<String>,
     elapsed: Duration,
+    category_filter: Option<crate::cli::CategoryFilter>,
 ) -> ScanResult {
     let error_count = diagnostics
         .iter()
@@ -342,7 +344,8 @@ fn build_result(
         .iter()
         .filter(|d| d.severity == Severity::Info)
         .count();
-    let (score, score_label, dimension_scores) = output::calculate_score(&diagnostics);
+    let (score, score_label, dimension_scores) =
+        output::calculate_score(&diagnostics, category_filter);
 
     skipped_passes.sort();
     skipped_passes.dedup();
@@ -435,7 +438,7 @@ mod tests {
             make_diagnostic("warn1", Severity::Warning, Some(3)),
             make_diagnostic("info1", Severity::Info, Some(4)),
         ];
-        let result = build_result(diags, 10, vec![], Duration::from_secs(1));
+        let result = build_result(diags, 10, vec![], Duration::from_secs(1), None);
         assert_eq!(result.error_count, 2);
         assert_eq!(result.warning_count, 1);
         assert_eq!(result.info_count, 1);
@@ -449,7 +452,7 @@ mod tests {
             "cargo-audit".to_string(),
             "cargo-deny".to_string(), // duplicate
         ];
-        let result = build_result(vec![], 0, skipped, Duration::ZERO);
+        let result = build_result(vec![], 0, skipped, Duration::ZERO, None);
         assert_eq!(result.skipped_passes.len(), 2);
         assert_eq!(result.skipped_passes[0], "cargo-audit"); // sorted
         assert_eq!(result.skipped_passes[1], "cargo-deny");
@@ -457,7 +460,7 @@ mod tests {
 
     #[test]
     fn build_result_empty_diagnostics_gives_perfect_score() {
-        let result = build_result(vec![], 5, vec![], Duration::from_millis(100));
+        let result = build_result(vec![], 5, vec![], Duration::from_millis(100), None);
         assert_eq!(result.score, 100);
         assert_eq!(result.error_count, 0);
         assert_eq!(result.warning_count, 0);

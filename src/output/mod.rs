@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn test_perfect_score() {
-        let (score, label, dims) = calculate_score(&[]);
+        let (score, label, dims) = calculate_score(&[], None);
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -80,7 +80,7 @@ mod tests {
             make_diag("rule1", Severity::Error),
             make_diag("rule2", Severity::Error),
         ];
-        let (score, label, dims) = calculate_score(&diags);
+        let (score, label, dims) = calculate_score(&diags, None);
         assert_eq!(dims.reliability, 97);
         assert_eq!(dims.security, 100);
         assert_eq!(score, 99);
@@ -95,7 +95,7 @@ mod tests {
             make_diag("w3", Severity::Warning),
             make_diag("w4", Severity::Warning),
         ];
-        let (score, label, dims) = calculate_score(&diags);
+        let (score, label, dims) = calculate_score(&diags, None);
         assert_eq!(dims.reliability, 97);
         assert_eq!(score, 99);
         assert_eq!(label, ScoreLabel::Great);
@@ -110,7 +110,7 @@ mod tests {
             make_diag("rule1", Severity::Error),
             make_diag("rule1", Severity::Error),
         ];
-        let (score, _, dims) = calculate_score(&diags);
+        let (score, _, dims) = calculate_score(&diags, None);
         assert_eq!(dims.reliability, 99);
         assert_eq!(score, 100);
     }
@@ -124,7 +124,7 @@ mod tests {
         for i in 0..20 {
             diags.push(make_diag(&format!("warn{i}"), Severity::Warning));
         }
-        let (score, label, dims) = calculate_score(&diags);
+        let (score, label, dims) = calculate_score(&diags, None);
         assert_eq!(dims.reliability, 70);
         assert_eq!(score, 93);
         assert_eq!(label, ScoreLabel::Great);
@@ -136,7 +136,7 @@ mod tests {
         for i in 0..100 {
             diags.push(make_diag(&format!("err{i}"), Severity::Error));
         }
-        let (score, label, dims) = calculate_score(&diags);
+        let (score, label, dims) = calculate_score(&diags, None);
         assert_eq!(dims.reliability, 0);
         assert_eq!(score, 77);
         assert_eq!(label, ScoreLabel::Great);
@@ -172,7 +172,7 @@ mod tests {
                 Category::Dependencies,
             ));
         }
-        let (score, label, dims) = calculate_score(&diags);
+        let (score, label, dims) = calculate_score(&diags, None);
         assert_eq!(dims.security, 0);
         assert_eq!(dims.reliability, 0);
         assert_eq!(dims.maintainability, 0);
@@ -199,7 +199,7 @@ mod tests {
             make_diag_with_category("sec1", Severity::Error, Category::Security),
             make_diag_with_category("sec2", Severity::Error, Category::Security),
         ];
-        let (_, _, dims) = calculate_score(&diags);
+        let (_, _, dims) = calculate_score(&diags, None);
         assert_eq!(dims.security, 97);
         assert_eq!(dims.reliability, 100);
         assert_eq!(dims.maintainability, 100);
@@ -213,13 +213,13 @@ mod tests {
             make_diag_with_category("sec1", Severity::Error, Category::Security),
             make_diag_with_category("sec2", Severity::Error, Category::Security),
         ];
-        let (score, _, _) = calculate_score(&diags);
+        let (score, _, _) = calculate_score(&diags, None);
         assert_eq!(score, 99);
     }
 
     #[test]
     fn test_empty_diagnostics_all_dimensions_100() {
-        let (score, label, dims) = calculate_score(&[]);
+        let (score, label, dims) = calculate_score(&[], None);
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -236,7 +236,7 @@ mod tests {
             make_diag_with_category("perf1", Severity::Warning, Category::Performance),
             make_diag_with_category("style1", Severity::Info, Category::Style),
         ];
-        let (_, _, dims) = calculate_score(&diags);
+        let (_, _, dims) = calculate_score(&diags, None);
         assert_eq!(dims.security, 99);
         assert_eq!(dims.performance, 99);
         assert_eq!(dims.maintainability, 100);
@@ -250,8 +250,27 @@ mod tests {
             make_diag_with_category("dep1", Severity::Warning, Category::Dependencies),
             make_diag_with_category("cargo1", Severity::Warning, Category::Cargo),
         ];
-        let (_, _, dims) = calculate_score(&diags);
+        let (_, _, dims) = calculate_score(&diags, None);
         assert_eq!(dims.dependencies, 99);
         assert_eq!(dims.security, 100);
+    }
+
+    #[test]
+    fn test_category_filtered_score() {
+        use crate::cli::CategoryFilter;
+        let diags = vec![
+            make_diag_with_category("arch1", Severity::Error, Category::Architecture),
+            make_diag_with_category("arch2", Severity::Error, Category::Architecture),
+            make_diag_with_category("sec1", Severity::Error, Category::Security),
+        ];
+        let (score_unfiltered, _, dims_unfiltered) = calculate_score(&diags, None);
+        assert_eq!(dims_unfiltered.maintainability, 97);
+        assert_eq!(dims_unfiltered.security, 99);
+        assert_ne!(score_unfiltered, dims_unfiltered.maintainability);
+
+        let (score_filtered, _, dims_filtered) =
+            calculate_score(&diags, Some(CategoryFilter::Architecture));
+        assert_eq!(dims_filtered.maintainability, 97);
+        assert_eq!(score_filtered, 97);
     }
 }

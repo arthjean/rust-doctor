@@ -24,7 +24,7 @@ https://github.com/user-attachments/assets/6766a5d8-9a47-4eb8-892e-76c1a23eb122
 - **Health score**: 0–100 with ASCII doctor face output
 - **MCP server**: integrate with Claude Code, Cursor, or any MCP-compatible AI tool
 - **Diff mode**: scan only changed files for fast CI feedback
-- **Category-specific scanning**: scan only specific diagnostic categories (e.g. `--category performance`) and automatically bypass unrelated slow passes (like cargo-audit, cargo-deny, cargo-geiger, etc.) for up to 35% faster scans!
+- **Category-specific scanning**: scan only specific diagnostic categories (e.g. `--category performance`), automatically bypass unrelated slow passes for up to 35% faster scans, and produce a beautifully focused, auto-contracting terminal Category Card displaying only the active dimension and its calibrated score.
 - **Workspace support**: scan all crates or select specific members
 - **Inline suppression**: `// rust-doctor-disable-next-line <rule>`
 - **Multiple output modes**: terminal, `--json`, `--score`, `--sarif`
@@ -400,6 +400,8 @@ println!("Score: {}/100 ({})", result.score, result.score_label);
 ## Score Calculation
 
 The score uses weighted dimension scoring across 5 dimensions (Security ×2.0, Reliability ×1.5, Maintainability ×1.0, Performance ×1.0, Dependencies ×1.0). Each dimension is scored as `100 - (unique_error_rules × 1.5) - (unique_warning_rules × 0.75) - (unique_info_rules × 0.25)`, and the overall score is the weighted average, clamped to 0–100.
+
+When running a targeted scan with the `--category` filter (e.g. `rust-doctor --category architecture`), the final overall health score represents exactly the score of the active category's dimension rather than a weighted average of all 5 dimensions. This ensures that skipped dimensions do not skew the rating.
 
 The score counts unique rules violated, not occurrences — fixing one instance of `.unwrap()` won't change the score, but eliminating all `.unwrap()` calls removes the penalty entirely.
 

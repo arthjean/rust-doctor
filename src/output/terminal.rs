@@ -4,7 +4,7 @@ use owo_colors::{OwoColorize, Stream};
 use std::collections::HashMap;
 use unicode_width::UnicodeWidthStr;
 
-use super::score::{SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD};
+use super::score::{Dimension, SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD, filter_dimension};
 
 const SCORE_BAR_WIDTH: usize = 40;
 
@@ -30,7 +30,7 @@ pub fn render_terminal(
     }
 
     // Print score box
-    print_score_box(result);
+    print_score_box(result, category_filter);
 }
 
 // ── Box layout helpers ───────────────────────────────────────────────────
@@ -57,7 +57,23 @@ fn empty_line(inner_width: usize) -> String {
 // ── Score box section renderers ──────────────────────────────────────────
 
 /// Render the doctor face and brand header.
-fn render_header(inner_width: usize, score: u32) {
+const fn pretty_category_name(filter: CategoryFilter) -> &'static str {
+    match filter {
+        CategoryFilter::ErrorHandling => "Error Handling",
+        CategoryFilter::Performance => "Performance",
+        CategoryFilter::Security => "Security",
+        CategoryFilter::Correctness => "Correctness",
+        CategoryFilter::Architecture => "Architecture",
+        CategoryFilter::Dependencies => "Dependencies",
+        CategoryFilter::Async => "Async",
+        CategoryFilter::Framework => "Framework",
+        CategoryFilter::Cargo => "Cargo",
+        CategoryFilter::Style => "Style",
+    }
+}
+
+#[allow(clippy::option_if_let_else)]
+fn render_header(inner_width: usize, score: u32, category_filter: Option<CategoryFilter>) {
     let (eyes, mouth) = if score >= SCORE_GOOD_THRESHOLD {
         ("◠ ◠", " ▽ ")
     } else if score >= SCORE_OK_THRESHOLD {
@@ -84,36 +100,82 @@ fn render_header(inner_width: usize, score: u32) {
         )
     );
     println!("{}", pad_line(inner_width, "└─────┘", 7));
-    println!(
-        "{}",
-        pad_line(
-            inner_width,
-            &format!(
-                "{}",
-                "rust-doctor".if_supports_color(Stream::Stdout, |t| t.bold())
-            ),
-            11,
+
+    let brand = if let Some(filter) = category_filter {
+        format!(
+            "{} [{}]",
+            "rust-doctor".if_supports_color(Stream::Stdout, |t| t.bold()),
+            pretty_category_name(filter).if_supports_color(Stream::Stdout, |t| t.cyan())
         )
-    );
+    } else {
+        "rust-doctor"
+            .if_supports_color(Stream::Stdout, |t| t.bold())
+            .to_string()
+    };
+    let plain_brand_len = if let Some(filter) = category_filter {
+        14 + pretty_category_name(filter).len()
+    } else {
+        11
+    };
+
+    println!("{}", pad_line(inner_width, &brand, plain_brand_len));
     println!("{}", empty_line(inner_width));
 }
 
 /// Render the dimension score bars.
-fn render_dimension_bars(inner_width: usize, result: &ScanResult, dim_text: &str) {
+#[allow(clippy::option_if_let_else)]
+fn render_dimension_bars(
+    inner_width: usize,
+    result: &ScanResult,
+    dim_text: &str,
+    category_filter: Option<CategoryFilter>,
+) {
     let ds = &result.dimension_scores;
-    let colored_dim = format!(
-        "{}: {}  {}: {}  {}: {}  {}: {}  {}: {}",
-        "Security".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.security.to_string(), ds.security),
-        "Reliability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.reliability.to_string(), ds.reliability),
-        "Maintainability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.maintainability.to_string(), ds.maintainability),
-        "Performance".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.performance.to_string(), ds.performance),
-        "Dependencies".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.dependencies.to_string(), ds.dependencies),
-    );
+    let active_dim = category_filter.map(filter_dimension);
+
+    let colored_dim = if let Some(active) = active_dim {
+        match active {
+            Dimension::Security => format!(
+                "{}: {}",
+                "Security".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&ds.security.to_string(), ds.security)
+            ),
+            Dimension::Reliability => format!(
+                "{}: {}",
+                "Reliability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&ds.reliability.to_string(), ds.reliability)
+            ),
+            Dimension::Maintainability => format!(
+                "{}: {}",
+                "Maintainability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&ds.maintainability.to_string(), ds.maintainability)
+            ),
+            Dimension::Performance => format!(
+                "{}: {}",
+                "Performance".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&ds.performance.to_string(), ds.performance)
+            ),
+            Dimension::Dependencies => format!(
+                "{}: {}",
+                "Dependencies".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&ds.dependencies.to_string(), ds.dependencies)
+            ),
+        }
+    } else {
+        format!(
+            "{}: {}  {}: {}  {}: {}  {}: {}  {}: {}",
+            "Security".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            colorize_by_score(&ds.security.to_string(), ds.security),
+            "Reliability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            colorize_by_score(&ds.reliability.to_string(), ds.reliability),
+            "Maintainability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            colorize_by_score(&ds.maintainability.to_string(), ds.maintainability),
+            "Performance".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            colorize_by_score(&ds.performance.to_string(), ds.performance),
+            "Dependencies".if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            colorize_by_score(&ds.dependencies.to_string(), ds.dependencies),
+        )
+    };
     println!("{}", pad_line(inner_width, &colored_dim, dim_text.width()));
     println!("{}", empty_line(inner_width));
 }
@@ -170,7 +232,8 @@ fn render_stats_footer(
 // ── Main score box ───────────────────────────────────────────────────────
 
 /// Print the ASCII doctor box with score.
-fn print_score_box(result: &ScanResult) {
+#[allow(clippy::option_if_let_else)]
+fn print_score_box(result: &ScanResult, category_filter: Option<CategoryFilter>) {
     let score = result.score;
     let label = &result.score_label;
 
@@ -178,10 +241,23 @@ fn print_score_box(result: &ScanResult) {
     let score_text = format!("{score} / 100  {label}");
     let bar = build_score_bar(score);
     let ds = &result.dimension_scores;
-    let dim_text = format!(
-        "Security: {}  Reliability: {}  Maintainability: {}  Performance: {}  Dependencies: {}",
-        ds.security, ds.reliability, ds.maintainability, ds.performance, ds.dependencies
-    );
+    let active_dim = category_filter.map(filter_dimension);
+
+    let dim_text = if let Some(active) = active_dim {
+        match active {
+            Dimension::Security => format!("Security: {}", ds.security),
+            Dimension::Reliability => format!("Reliability: {}", ds.reliability),
+            Dimension::Maintainability => format!("Maintainability: {}", ds.maintainability),
+            Dimension::Performance => format!("Performance: {}", ds.performance),
+            Dimension::Dependencies => format!("Dependencies: {}", ds.dependencies),
+        }
+    } else {
+        format!(
+            "Security: {}  Reliability: {}  Maintainability: {}  Performance: {}  Dependencies: {}",
+            ds.security, ds.reliability, ds.maintainability, ds.performance, ds.dependencies
+        )
+    };
+
     let info_part = if result.info_count > 0 {
         format!("  ℹ {} info(s)", result.info_count)
     } else {
@@ -220,13 +296,21 @@ fn print_score_box(result: &ScanResult) {
     if let Some(ref text) = skipped_text {
         widths.push(text.width());
     }
+
+    let plain_brand_len = if let Some(filter) = category_filter {
+        14 + pretty_category_name(filter).len()
+    } else {
+        11
+    };
+    widths.push(plain_brand_len);
+
     let max_width = widths.into_iter().max().unwrap_or(40).max(40);
     let iw = max_width + 2;
 
     // Render box
     println!("  {}{}{}", dim("┌"), dim(&"─".repeat(iw)), dim("┐"));
 
-    render_header(iw, score);
+    render_header(iw, score, category_filter);
 
     // Score + bar
     let colored_score = colorize_by_score(&score_text, score);
@@ -235,7 +319,7 @@ fn print_score_box(result: &ScanResult) {
     println!("{}", pad_line(iw, &bar.colored, bar.plain.width()));
     println!("{}", empty_line(iw));
 
-    render_dimension_bars(iw, result, &dim_text);
+    render_dimension_bars(iw, result, &dim_text, category_filter);
     render_stats_footer(iw, result, &stats, skipped_text.as_deref());
 
     println!("  {}{}{}", dim("└"), dim(&"─".repeat(iw)), dim("┘"));

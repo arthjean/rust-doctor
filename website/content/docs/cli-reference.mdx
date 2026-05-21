@@ -46,7 +46,7 @@ These are mutually exclusive — you can only use one output mode at a time.
 |---|---|
 | `--diff [BASE]` | Scan only changed files vs a base branch. Defaults to `auto` (detects main/master) |
 | `--project NAMES` | Scan only specific workspace members (comma-separated) |
-| `--category CATEGORY` | Scan only a specific diagnostic category (e.g. `performance`, `security`, `error-handling`). Bypasses unrelated and slow analysis passes for speed |
+| `--category CATEGORY` | Scan only a specific diagnostic category (e.g. `performance`, `security`, `error-handling`). Bypasses unrelated and slow analysis passes for speed, calibrates the overall score to represent *only* the active dimension, and renders a beautifully focused terminal Category Card. |
 
 ### CI integration
 
