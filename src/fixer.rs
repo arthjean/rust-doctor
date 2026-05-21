@@ -40,7 +40,7 @@ pub fn apply_fixes(diagnostics: &[Diagnostic], project_root: &Path) -> usize {
 
         // Sort fixes by line number (descending) to avoid offset shifts
         let mut sorted_fixes: Vec<&&CodeFix> = fixes.iter().collect();
-        sorted_fixes.sort_by(|a, b| b.line.cmp(&a.line));
+        sorted_fixes.sort_by_key(|b| std::cmp::Reverse(b.line));
 
         for fix in sorted_fixes {
             let line_idx = (fix.line as usize).saturating_sub(1);

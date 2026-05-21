@@ -46,6 +46,7 @@ These are mutually exclusive — you can only use one output mode at a time.
 |---|---|
 | `--diff [BASE]` | Scan only changed files vs a base branch. Defaults to `auto` (detects main/master) |
 | `--project NAMES` | Scan only specific workspace members (comma-separated) |
+| `--category CATEGORY` | Scan only a specific diagnostic category (e.g. `performance`, `security`, `error-handling`). Bypasses unrelated and slow analysis passes for speed |
 
 ### CI integration
 
@@ -105,4 +106,10 @@ Scan specific workspace members:
 
 ```bash
 rust-doctor --project api,core .
+```
+
+Scan only a specific category to optimize performance:
+
+```bash
+rust-doctor --category performance .
 ```

@@ -164,7 +164,9 @@ fn emit_output(
         let sarif_json = sarif::render_sarif(scan_result)?;
         println!("{sarif_json}");
     } else {
-        output::render_terminal(scan_result, resolved.verbose);
+        // --category implies verbose for the selected category
+        let effective_verbose = resolved.verbose || resolved.category_filter.is_some();
+        output::render_terminal(scan_result, effective_verbose, resolved.category_filter);
     }
     Ok(())
 }

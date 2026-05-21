@@ -1,5 +1,5 @@
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::rules::CustomRule;
+use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -73,6 +73,7 @@ impl CustomRule for HardcodedSecrets {
         let mut visitor = SecretVisitor {
             path,
             diagnostics: Vec::new(),
+            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -82,11 +83,29 @@ impl CustomRule for HardcodedSecrets {
 struct SecretVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
+    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for SecretVisitor<'_> {
+    fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
+        let was_in_test = self.in_test;
+        if has_test_attr(&i.attrs) {
+            self.in_test = true;
+        }
+        syn::visit::visit_item_fn(self, i);
+        self.in_test = was_in_test;
+    }
+
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_cfg_test(&i.attrs) {
+            return; // Skip entire #[cfg(test)] module
+        }
+        syn::visit::visit_item_mod(self, i);
+    }
+
     fn visit_local(&mut self, i: &'ast syn::Local) {
-        if let Some(init) = &i.init
+        if !self.in_test
+            && let Some(init) = &i.init
             && let syn::Expr::Lit(expr_lit) = init.expr.as_ref()
             && let syn::Lit::Str(lit_str) = &expr_lit.lit
             && lit_str.value().len() > 8
@@ -115,7 +134,8 @@ impl<'ast> Visit<'ast> for SecretVisitor<'_> {
     }
 
     fn visit_expr_assign(&mut self, i: &'ast syn::ExprAssign) {
-        if let syn::Expr::Lit(expr_lit) = i.right.as_ref()
+        if !self.in_test
+            && let syn::Expr::Lit(expr_lit) = i.right.as_ref()
             && let syn::Lit::Str(lit_str) = &expr_lit.lit
             && lit_str.value().len() > 8
             && let Some(name) = extract_field_name(&i.left)
@@ -141,7 +161,8 @@ impl<'ast> Visit<'ast> for SecretVisitor<'_> {
     }
 
     fn visit_item_const(&mut self, i: &'ast syn::ItemConst) {
-        if let syn::Expr::Lit(expr_lit) = i.expr.as_ref()
+        if !self.in_test
+            && let syn::Expr::Lit(expr_lit) = i.expr.as_ref()
             && let syn::Lit::Str(lit_str) = &expr_lit.lit
             && lit_str.value().len() > 8
         {
@@ -168,7 +189,8 @@ impl<'ast> Visit<'ast> for SecretVisitor<'_> {
     }
 
     fn visit_item_static(&mut self, i: &'ast syn::ItemStatic) {
-        if let syn::Expr::Lit(expr_lit) = i.expr.as_ref()
+        if !self.in_test
+            && let syn::Expr::Lit(expr_lit) = i.expr.as_ref()
             && let syn::Lit::Str(lit_str) = &expr_lit.lit
             && lit_str.value().len() > 8
         {
@@ -244,6 +266,7 @@ impl CustomRule for UnsafeBlockAudit {
         let mut visitor = UnsafeVisitor {
             path,
             diagnostics: Vec::new(),
+            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -253,27 +276,16 @@ impl CustomRule for UnsafeBlockAudit {
 struct UnsafeVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
+    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for UnsafeVisitor<'_> {
-    fn visit_expr_unsafe(&mut self, i: &'ast syn::ExprUnsafe) {
-        let span = i.unsafe_token.span();
-        self.diagnostics.push(Diagnostic {
-            file_path: self.path.to_path_buf(),
-            rule: "unsafe-block-audit".to_string(),
-            category: Category::Security,
-            severity: Severity::Warning,
-            message: "unsafe block — review for memory safety".to_string(),
-            help: Some("Document the safety invariant with a // SAFETY: comment".to_string()),
-            line: Some(span.start().line as u32),
-            column: Some(span.start().column as u32 + 1),
-            fix: None,
-        });
-        syn::visit::visit_expr_unsafe(self, i);
-    }
-
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
-        if i.sig.unsafety.is_some() {
+        let was_in_test = self.in_test;
+        if has_test_attr(&i.attrs) {
+            self.in_test = true;
+        }
+        if !self.in_test && i.sig.unsafety.is_some() {
             let span = i.sig.ident.span();
             self.diagnostics.push(Diagnostic {
                 file_path: self.path.to_path_buf(),
@@ -290,6 +302,34 @@ impl<'ast> Visit<'ast> for UnsafeVisitor<'_> {
             });
         }
         syn::visit::visit_item_fn(self, i);
+        self.in_test = was_in_test;
+    }
+
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_cfg_test(&i.attrs) {
+            return; // Skip entire #[cfg(test)] module
+        }
+        syn::visit::visit_item_mod(self, i);
+    }
+
+    fn visit_expr_unsafe(&mut self, i: &'ast syn::ExprUnsafe) {
+        if self.in_test {
+            syn::visit::visit_expr_unsafe(self, i);
+            return;
+        }
+        let span = i.unsafe_token.span();
+        self.diagnostics.push(Diagnostic {
+            file_path: self.path.to_path_buf(),
+            rule: "unsafe-block-audit".to_string(),
+            category: Category::Security,
+            severity: Severity::Warning,
+            message: "unsafe block — review for memory safety".to_string(),
+            help: Some("Document the safety invariant with a // SAFETY: comment".to_string()),
+            line: Some(span.start().line as u32),
+            column: Some(span.start().column as u32 + 1),
+            fix: None,
+        });
+        syn::visit::visit_expr_unsafe(self, i);
     }
 }
 
@@ -320,6 +360,7 @@ impl CustomRule for SqlInjectionRisk {
         let mut visitor = SqlVisitor {
             path,
             diagnostics: Vec::new(),
+            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -329,12 +370,29 @@ impl CustomRule for SqlInjectionRisk {
 struct SqlVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
+    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for SqlVisitor<'_> {
+    fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
+        let was_in_test = self.in_test;
+        if has_test_attr(&i.attrs) {
+            self.in_test = true;
+        }
+        syn::visit::visit_item_fn(self, i);
+        self.in_test = was_in_test;
+    }
+
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_cfg_test(&i.attrs) {
+            return; // Skip entire #[cfg(test)] module
+        }
+        syn::visit::visit_item_mod(self, i);
+    }
+
     fn visit_expr_method_call(&mut self, i: &'ast syn::ExprMethodCall) {
         let method_name = i.method.to_string();
-        if SQL_METHODS.contains(&method_name.as_str()) {
+        if !self.in_test && SQL_METHODS.contains(&method_name.as_str()) {
             // Check if any argument is a format! or format_args! macro
             for arg in &i.args {
                 if is_format_macro(arg) {
@@ -623,6 +681,68 @@ mod tests {
             fn main() {
                 let msg = format!("Hello {}", name);
                 println!("{}", msg);
+            }
+            "#,
+        );
+        assert!(diags.is_empty());
+    }
+
+    // --- test-code skipping ---
+
+    #[test]
+    fn test_hardcoded_secret_in_test_fn_skipped() {
+        let diags = check(
+            &HardcodedSecrets,
+            r#"
+            #[test]
+            fn test_auth() {
+                let api_key = "sk-1234567890abcdef";
+            }
+            "#,
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_hardcoded_secret_in_cfg_test_module_skipped() {
+        let diags = check(
+            &HardcodedSecrets,
+            r#"
+            #[cfg(test)]
+            mod tests {
+                fn helper() {
+                    let password = "super_secret_password_123";
+                }
+            }
+            "#,
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_unsafe_in_cfg_test_module_skipped() {
+        let diags = check(
+            &UnsafeBlockAudit,
+            r"
+            #[cfg(test)]
+            mod tests {
+                fn helper() {
+                    unsafe { std::ptr::null::<i32>().read(); }
+                }
+            }
+            ",
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_sql_injection_in_test_fn_skipped() {
+        let diags = check(
+            &SqlInjectionRisk,
+            r#"
+            #[test]
+            fn test_query() {
+                db.query(format!("SELECT * FROM users WHERE id = {}", user_id));
             }
             "#,
         );

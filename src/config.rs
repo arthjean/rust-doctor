@@ -1,4 +1,4 @@
-use crate::cli::{Cli, FailOn};
+use crate::cli::{CategoryFilter, Cli, FailOn};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -72,6 +72,7 @@ pub struct ResolvedConfig {
     pub rules_config: HashMap<String, RuleConfig>,
     pub enable_rules: Vec<String>,
     pub score_fail_below: Option<u32>,
+    pub category_filter: Option<CategoryFilter>,
 }
 
 /// Load configuration from `rust-doctor.toml` (first priority) or
@@ -165,6 +166,7 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
         rules_config: fc.rules_config,
         enable_rules: fc.ignore.enable,
         score_fail_below: fc.score.fail_below,
+        category_filter: cli.category,
     }
 }
 
@@ -187,6 +189,7 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
         rules_config: fc.rules_config,
         enable_rules: fc.ignore.enable,
         score_fail_below: fc.score.fail_below,
+        category_filter: None,
     }
 }
 

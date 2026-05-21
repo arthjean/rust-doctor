@@ -1,4 +1,5 @@
-use crate::diagnostics::{ScanResult, Severity};
+use crate::cli::CategoryFilter;
+use crate::diagnostics::{Category, ScanResult, Severity};
 use owo_colors::{OwoColorize, Stream};
 use std::collections::HashMap;
 use unicode_width::UnicodeWidthStr;
@@ -8,7 +9,11 @@ use super::score::{SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD};
 const SCORE_BAR_WIDTH: usize = 40;
 
 /// Render full scan results to stdout/stderr.
-pub fn render_terminal(result: &ScanResult, verbose: bool) {
+pub fn render_terminal(
+    result: &ScanResult,
+    verbose: bool,
+    category_filter: Option<CategoryFilter>,
+) {
     // Handle zero files — still show diagnostics (e.g., audit/machete findings)
     if result.source_file_count == 0 && result.diagnostics.is_empty() {
         eprintln!(
@@ -20,7 +25,7 @@ pub fn render_terminal(result: &ScanResult, verbose: bool) {
 
     // Print diagnostics grouped by severity
     if !result.diagnostics.is_empty() {
-        print_diagnostics(&result.diagnostics, verbose);
+        print_diagnostics(&result.diagnostics, verbose, category_filter);
         eprintln!();
     }
 
@@ -219,7 +224,7 @@ fn print_score_box(result: &ScanResult) {
     let iw = max_width + 2;
 
     // Render box
-    println!("  {}{}{}", dim("┌"), dim(&"─".repeat(iw)), dim("┐"),);
+    println!("  {}{}{}", dim("┌"), dim(&"─".repeat(iw)), dim("┐"));
 
     render_header(iw, score);
 
@@ -233,7 +238,7 @@ fn print_score_box(result: &ScanResult) {
     render_dimension_bars(iw, result, &dim_text);
     render_stats_footer(iw, result, &stats, skipped_text.as_deref());
 
-    println!("  {}{}{}", dim("└"), dim(&"─".repeat(iw)), dim("┘"),);
+    println!("  {}{}{}", dim("└"), dim(&"─".repeat(iw)), dim("┘"));
 }
 
 struct ScoreBar {
@@ -250,7 +255,7 @@ fn build_score_bar(score: u32) -> ScoreBar {
 
     let plain = format!("{filled_str}{empty_str}");
     let dimmed_empty = empty_str.if_supports_color(Stream::Stdout, |t| t.dimmed());
-    let colored = format!("{}{}", colorize_by_score(&filled_str, score), dimmed_empty,);
+    let colored = format!("{}{}", colorize_by_score(&filled_str, score), dimmed_empty);
 
     ScoreBar { plain, colored }
 }
@@ -269,6 +274,7 @@ fn colorize_by_score(text: &str, score: u32) -> String {
 struct DiagGroup<'a> {
     rule: &'a str,
     severity: Severity,
+    category: &'a Category,
     message: &'a str,
     help: Option<&'a str>,
     count: usize,
@@ -281,15 +287,42 @@ struct DiagOccurrence<'a> {
     column: Option<u32>,
 }
 
+/// Match a `CategoryFilter` variant to a `Category` variant.
+const fn matches_category(filter: CategoryFilter, category: &Category) -> bool {
+    matches!(
+        (filter, category),
+        (CategoryFilter::ErrorHandling, Category::ErrorHandling)
+            | (CategoryFilter::Performance, Category::Performance)
+            | (CategoryFilter::Security, Category::Security)
+            | (CategoryFilter::Correctness, Category::Correctness)
+            | (CategoryFilter::Architecture, Category::Architecture)
+            | (CategoryFilter::Dependencies, Category::Dependencies)
+            | (CategoryFilter::Async, Category::Async)
+            | (CategoryFilter::Framework, Category::Framework)
+            | (CategoryFilter::Cargo, Category::Cargo)
+            | (CategoryFilter::Style, Category::Style)
+    )
+}
+
 /// Print diagnostics grouped by rule, errors first.
 #[allow(clippy::too_many_lines)]
-fn print_diagnostics(diagnostics: &[crate::diagnostics::Diagnostic], verbose: bool) {
+fn print_diagnostics(
+    diagnostics: &[crate::diagnostics::Diagnostic],
+    verbose: bool,
+    category_filter: Option<CategoryFilter>,
+) {
     // Group by rule — borrow from diagnostics to avoid cloning strings
     let mut groups: HashMap<&str, DiagGroup<'_>> = HashMap::new();
     for d in diagnostics {
+        if let Some(cf) = category_filter {
+            if !matches_category(cf, &d.category) {
+                continue;
+            }
+        }
         let entry = groups.entry(&d.rule).or_insert_with(|| DiagGroup {
             rule: &d.rule,
             severity: d.severity,
+            category: &d.category,
             message: &d.message,
             help: d.help.as_deref(),
             count: 0,
@@ -343,17 +376,23 @@ fn print_diagnostics(diagnostics: &[crate::diagnostics::Diagnostic], verbose: bo
             );
         }
 
-        if verbose {
-            for occ in &group.occurrences {
-                let location: std::borrow::Cow<'_, str> = match (occ.line, occ.column) {
-                    (Some(l), Some(c)) => format!("{}:{}:{}", occ.file_path, l, c).into(),
-                    (Some(l), None) => format!("{}:{}", occ.file_path, l).into(),
-                    _ => std::borrow::Cow::Borrowed(occ.file_path.as_ref()),
-                };
-                eprintln!(
-                    "    {}",
-                    location.if_supports_color(Stream::Stderr, |t| t.dimmed())
-                );
+        if verbose || category_filter.is_some_and(|cf| matches_category(cf, group.category)) {
+            // When --category is set, only show verbose for matching groups
+            let show_verbose =
+                category_filter.is_none_or(|cf| matches_category(cf, group.category));
+
+            if show_verbose {
+                for occ in &group.occurrences {
+                    let location: std::borrow::Cow<'_, str> = match (occ.line, occ.column) {
+                        (Some(l), Some(c)) => format!("{}:{}:{}", occ.file_path, l, c).into(),
+                        (Some(l), None) => format!("{}:{}", occ.file_path, l).into(),
+                        _ => std::borrow::Cow::Borrowed(occ.file_path.as_ref()),
+                    };
+                    eprintln!(
+                        "    {}",
+                        location.if_supports_color(Stream::Stderr, |t| t.dimmed())
+                    );
+                }
             }
         }
 
@@ -459,27 +498,27 @@ mod tests {
         ];
         let result = make_result(70, diags, 1, 1, 0);
         // Should not panic — output goes to stdout/stderr
-        render_terminal(&result, false);
+        render_terminal(&result, false, None);
     }
 
     #[test]
     fn test_render_terminal_zero_diagnostics() {
         let result = make_result(100, vec![], 0, 0, 0);
-        render_terminal(&result, false);
+        render_terminal(&result, false, None);
     }
 
     #[test]
     fn test_render_terminal_verbose() {
         let diags = vec![make_diagnostic("rule-a", Severity::Warning)];
         let result = make_result(80, diags, 0, 1, 0);
-        render_terminal(&result, true);
+        render_terminal(&result, true, None);
     }
 
     #[test]
     fn test_render_terminal_with_skipped_passes() {
         let mut result = make_result(90, vec![], 0, 0, 0);
         result.skipped_passes = vec!["cargo-audit".to_string(), "cargo-deny".to_string()];
-        render_terminal(&result, false);
+        render_terminal(&result, false, None);
     }
 
     #[test]
@@ -487,7 +526,7 @@ mod tests {
         let mut result = make_result(100, vec![], 0, 0, 0);
         result.source_file_count = 0;
         // Should print "No Rust source files found" and return early
-        render_terminal(&result, false);
+        render_terminal(&result, false, None);
     }
 
     // --- print_diagnostics grouping ---
@@ -500,7 +539,7 @@ mod tests {
             make_diagnostic("other-rule", Severity::Error),
         ];
         // Should not panic; diagnostics are grouped by rule
-        print_diagnostics(&diags, false);
+        print_diagnostics(&diags, false, None);
     }
 
     #[test]
@@ -511,6 +550,24 @@ mod tests {
             make_diagnostic("err-rule", Severity::Error),
         ];
         // Should print errors, then warnings, then info
-        print_diagnostics(&diags, true);
+        print_diagnostics(&diags, true, None);
+    }
+    #[test]
+    fn test_render_terminal_with_category_filter() {
+        let diags = vec![
+            make_diagnostic("rule-a", Severity::Warning),
+            make_diagnostic("rule-b", Severity::Error),
+        ];
+        let result = make_result(70, diags, 1, 1, 0);
+        // Should not panic; verbose shown only for ErrorHandling category
+        render_terminal(&result, false, Some(CategoryFilter::ErrorHandling));
+    }
+
+    #[test]
+    fn test_render_terminal_with_non_matching_category_filter() {
+        let diags = vec![make_diagnostic("rule-a", Severity::Warning)];
+        let result = make_result(80, diags, 0, 1, 0);
+        // Performance filter should not show verbose for ErrorHandling diagnostics
+        render_terminal(&result, false, Some(CategoryFilter::Performance));
     }
 }

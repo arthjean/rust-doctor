@@ -24,6 +24,7 @@ https://github.com/user-attachments/assets/6766a5d8-9a47-4eb8-892e-76c1a23eb122
 - **Health score**: 0–100 with ASCII doctor face output
 - **MCP server**: integrate with Claude Code, Cursor, or any MCP-compatible AI tool
 - **Diff mode**: scan only changed files for fast CI feedback
+- **Category-specific scanning**: scan only specific diagnostic categories (e.g. `--category performance`) and automatically bypass unrelated slow passes (like cargo-audit, cargo-deny, cargo-geiger, etc.) for up to 35% faster scans!
 - **Workspace support**: scan all crates or select specific members
 - **Inline suppression**: `// rust-doctor-disable-next-line <rule>`
 - **Multiple output modes**: terminal, `--json`, `--score`, `--sarif`
@@ -112,6 +113,9 @@ rust-doctor --project core,api
 
 # Verbose output with file:line details
 rust-doctor --verbose
+
+# Scan only a specific diagnostic category (bypasses unrelated slow checks for speed)
+rust-doctor --category performance
 
 # Install missing external tools (cargo-deny, cargo-audit, etc.)
 rust-doctor --install-deps

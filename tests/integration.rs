@@ -64,6 +64,7 @@ fn fast_config() -> ResolvedConfig {
         rules_config: std::collections::HashMap::new(),
         enable_rules: vec![],
         score_fail_below: None,
+        category_filter: None,
     }
 }
 

@@ -197,15 +197,13 @@ impl CustomRule for BoxDynErrorInPublicApi {
 
         for item in &syntax.items {
             match item {
-                Item::Fn(func) => {
-                    if is_pub(&func.vis) && !has_test_attr(&func.attrs) {
-                        check_return_type_box_dyn_error(
-                            &func.sig.output,
-                            &func.sig.ident,
-                            path,
-                            &mut diagnostics,
-                        );
-                    }
+                Item::Fn(func) if is_pub(&func.vis) && !has_test_attr(&func.attrs) => {
+                    check_return_type_box_dyn_error(
+                        &func.sig.output,
+                        &func.sig.ident,
+                        path,
+                        &mut diagnostics,
+                    );
                 }
                 Item::Impl(imp) => {
                     for impl_item in &imp.items {
@@ -352,15 +350,13 @@ impl CustomRule for ResultUnitError {
 
         for item in &syntax.items {
             match item {
-                Item::Fn(func) => {
-                    if is_pub(&func.vis) && !has_test_attr(&func.attrs) {
-                        check_result_unit_error(
-                            &func.sig.output,
-                            &func.sig.ident,
-                            path,
-                            &mut diagnostics,
-                        );
-                    }
+                Item::Fn(func) if is_pub(&func.vis) && !has_test_attr(&func.attrs) => {
+                    check_result_unit_error(
+                        &func.sig.output,
+                        &func.sig.ident,
+                        path,
+                        &mut diagnostics,
+                    );
                 }
                 Item::Impl(imp) => {
                     for impl_item in &imp.items {

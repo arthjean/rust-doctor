@@ -73,8 +73,7 @@ impl ExternalTool {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+            .is_ok_and(|s| s.success())
     }
 
     /// Attempt to install this tool. Returns the process exit status.

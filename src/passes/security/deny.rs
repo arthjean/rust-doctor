@@ -18,6 +18,10 @@ impl AnalysisPass for DenyPass {
         "dependencies (cargo-deny)"
     }
 
+    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
+        filter.matches(&Category::Dependencies) || filter.matches(&Category::Cargo)
+    }
+
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_cargo_deny_available() {
             return Err(crate::error::PassError::Skipped {

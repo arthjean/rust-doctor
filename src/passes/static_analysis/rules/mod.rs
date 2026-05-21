@@ -302,6 +302,13 @@ impl AnalysisPass for RuleEnginePass {
         "custom rules"
     }
 
+    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
+        self.engine
+            .rules
+            .iter()
+            .any(|rule| filter.matches(&rule.category()))
+    }
+
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         Ok(self.engine.scan_with_config(
             project_root,

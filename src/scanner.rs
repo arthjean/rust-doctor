@@ -17,6 +17,12 @@ pub trait AnalysisPass: Send + Sync {
     /// Run the analysis and return diagnostics.
     /// The `project_root` is the absolute path to the project being scanned.
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError>;
+
+    /// Returns whether this pass can produce diagnostics for the given category filter.
+    /// Defaults to `true` for backward compatibility.
+    fn produces_category(&self, _filter: crate::cli::CategoryFilter) -> bool {
+        true
+    }
 }
 
 /// Result from a single analysis pass (internal).
@@ -339,6 +345,7 @@ mod tests {
             rules_config: std::collections::HashMap::new(),
             enable_rules: vec![],
             score_fail_below: None,
+            category_filter: None,
         }
     }
 

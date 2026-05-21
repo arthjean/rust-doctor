@@ -21,6 +21,10 @@ impl AnalysisPass for MsrvPass {
         "msrv"
     }
 
+    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
+        filter.matches(&Category::Cargo)
+    }
+
     fn run(&self, _project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         let mut diagnostics = Vec::new();
 

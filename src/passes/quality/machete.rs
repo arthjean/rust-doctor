@@ -15,6 +15,10 @@ impl AnalysisPass for MachetePass {
         "dependencies (cargo-machete)"
     }
 
+    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
+        filter.matches(&Category::Dependencies)
+    }
+
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_machete_available() {
             return Err(crate::error::PassError::Skipped {

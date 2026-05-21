@@ -183,29 +183,37 @@ fn build_passes(
 
     if resolved.lint {
         passes.push(Box::new(clippy::ClippyPass));
-        passes.push(Box::new(rules::RuleEnginePass::with_config(
-            rules::error_handling::all_rules()
-                .into_iter()
-                .chain(rules::performance::all_rules())
-                .chain(rules::complexity::all_rules())
-                .chain(rules::security::all_rules())
-                .chain(if has_async_runtime {
-                    rules::async_rules::all_rules()
-                } else {
-                    vec![]
-                })
-                .chain(rules::framework::rules_for_frameworks(
-                    &project_info.frameworks,
-                ))
-                .filter(|rule| {
-                    rule.default_enabled()
-                        || resolved.enable_rules.contains(&rule.name().to_string())
-                })
-                .collect(),
-            resolved.ignore_files.clone(),
-            resolved.ignore_rules.clone(),
-            resolved.enable_rules.clone(),
-        )));
+        let filtered_rules: Vec<Box<dyn rules::CustomRule>> = rules::error_handling::all_rules()
+            .into_iter()
+            .chain(rules::performance::all_rules())
+            .chain(rules::complexity::all_rules())
+            .chain(rules::security::all_rules())
+            .chain(if has_async_runtime {
+                rules::async_rules::all_rules()
+            } else {
+                vec![]
+            })
+            .chain(rules::framework::rules_for_frameworks(
+                &project_info.frameworks,
+            ))
+            .filter(|rule| {
+                let is_enabled = rule.default_enabled()
+                    || resolved.enable_rules.contains(&rule.name().to_string());
+                let matches_filter = resolved
+                    .category_filter
+                    .is_none_or(|cf| cf.matches(&rule.category()));
+                is_enabled && matches_filter
+            })
+            .collect();
+
+        if !filtered_rules.is_empty() {
+            passes.push(Box::new(rules::RuleEnginePass::with_config(
+                filtered_rules,
+                resolved.ignore_files.clone(),
+                resolved.ignore_rules.clone(),
+                resolved.enable_rules.clone(),
+            )));
+        }
     }
 
     if resolved.dependencies && !is_diff_mode {
@@ -227,6 +235,10 @@ fn build_passes(
     passes.push(Box::new(msrv::MsrvPass {
         rust_version: project_info.rust_version.clone(),
     }));
+
+    if let Some(cf) = resolved.category_filter {
+        passes.retain(|pass| pass.produces_category(cf));
+    }
 
     passes
 }
@@ -450,5 +462,90 @@ mod tests {
         assert_eq!(result.error_count, 0);
         assert_eq!(result.warning_count, 0);
         assert_eq!(result.info_count, 0);
+    }
+
+    #[test]
+    fn test_build_passes_category_filtering() {
+        use crate::cli::{CategoryFilter, FailOn};
+        use std::collections::HashMap;
+
+        let project_info = ProjectInfo {
+            root_dir: PathBuf::from("."),
+            name: "test-project".to_string(),
+            version: "0.1.0".to_string(),
+            edition: "2021".to_string(),
+            frameworks: vec![],
+            is_workspace: false,
+            member_count: 1,
+            has_build_script: false,
+            rust_version: Some("1.80.0".to_string()),
+            is_no_std: false,
+            package_metadata: serde_json::Value::Null,
+            workspace_members: vec![],
+        };
+
+        // Case 1: Filter = None (should include all configured passes: clippy, rules engine, dependencies, msrv)
+        let resolved = ResolvedConfig {
+            ignore_rules: vec![],
+            ignore_files: vec![],
+            lint: true,
+            dependencies: true,
+            verbose: false,
+            diff: None,
+            fail_on: FailOn::None,
+            rules_config: HashMap::new(),
+            enable_rules: vec![],
+            score_fail_below: None,
+            category_filter: None,
+        };
+        let passes = build_passes(&project_info, &resolved, false, false);
+        assert!(!passes.is_empty());
+        let names: Vec<&str> = passes.iter().map(|p| p.name()).collect();
+        assert!(names.contains(&"clippy"));
+        assert!(names.contains(&"custom rules"));
+        assert!(names.contains(&"msrv"));
+        assert!(names.contains(&"coverage"));
+
+        // Case 2: Filter = Performance (should include clippy, rule engine only if it has performance rules, no security/dependencies/msrv passes)
+        let resolved_perf = ResolvedConfig {
+            ignore_rules: vec![],
+            ignore_files: vec![],
+            lint: true,
+            dependencies: true,
+            verbose: false,
+            diff: None,
+            fail_on: FailOn::None,
+            rules_config: HashMap::new(),
+            enable_rules: vec![],
+            score_fail_below: None,
+            category_filter: Some(CategoryFilter::Performance),
+        };
+        let passes_perf = build_passes(&project_info, &resolved_perf, false, false);
+        let names_perf: Vec<&str> = passes_perf.iter().map(|p| p.name()).collect();
+        assert!(names_perf.contains(&"clippy"));
+        assert!(names_perf.contains(&"custom rules"));
+        assert!(!names_perf.contains(&"msrv"));
+        assert!(!names_perf.contains(&"coverage"));
+        assert!(!names_perf.contains(&"cargo-deny"));
+
+        // Case 3: Filter = Correctness (should include coverage, clippy, custom rules)
+        let resolved_correctness = ResolvedConfig {
+            ignore_rules: vec![],
+            ignore_files: vec![],
+            lint: true,
+            dependencies: true,
+            verbose: false,
+            diff: None,
+            fail_on: FailOn::None,
+            rules_config: HashMap::new(),
+            enable_rules: vec![],
+            score_fail_below: None,
+            category_filter: Some(CategoryFilter::Correctness),
+        };
+        let passes_corr = build_passes(&project_info, &resolved_correctness, false, false);
+        let names_corr: Vec<&str> = passes_corr.iter().map(|p| p.name()).collect();
+        assert!(names_corr.contains(&"clippy"));
+        assert!(names_corr.contains(&"coverage"));
+        assert!(!names_corr.contains(&"msrv"));
     }
 }

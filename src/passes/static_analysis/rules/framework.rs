@@ -1,6 +1,6 @@
 use crate::diagnostics::{Category, Diagnostic, Severity};
 use crate::discovery::Framework;
-use crate::rules::CustomRule;
+use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -104,6 +104,7 @@ impl CustomRule for TokioSpawnWithoutMove {
         let mut visitor = SpawnVisitor {
             path,
             diagnostics: Vec::new(),
+            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -113,9 +114,25 @@ impl CustomRule for TokioSpawnWithoutMove {
 struct SpawnVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
+    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for SpawnVisitor<'_> {
+    fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
+        let was_in_test = self.in_test;
+        if has_test_attr(&i.attrs) {
+            self.in_test = true;
+        }
+        syn::visit::visit_item_fn(self, i);
+        self.in_test = was_in_test;
+    }
+
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_cfg_test(&i.attrs) {
+            return; // Skip entire #[cfg(test)] module
+        }
+        syn::visit::visit_item_mod(self, i);
+    }
     fn visit_expr_call(&mut self, i: &'ast syn::ExprCall) {
         if let syn::Expr::Path(func_path) = i.func.as_ref() {
             let segments: Vec<String> = func_path
@@ -129,6 +146,7 @@ impl<'ast> Visit<'ast> for SpawnVisitor<'_> {
             if seg_strs.ends_with(&["spawn"])
                 && (seg_strs.len() == 1 || seg_strs.contains(&"tokio"))
                 && !i.args.is_empty()
+                && !self.in_test
                 && let Some(first_arg) = i.args.first()
                 && is_non_move_async_block(first_arg)
             {
@@ -269,6 +287,7 @@ impl CustomRule for ActixBlockingHandler {
             path,
             diagnostics: Vec::new(),
             in_handler: false,
+            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -279,6 +298,7 @@ struct ActixVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
     in_handler: bool,
+    in_test: bool,
 }
 
 /// Blocking call patterns detected in actix-web handlers.
@@ -336,11 +356,23 @@ const ACTIX_BLOCKING_SHORT: &[(&str, &str, &str)] = &[(
 impl<'ast> Visit<'ast> for ActixVisitor<'_> {
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         let was_in_handler = self.in_handler;
-        if i.sig.asyncness.is_some() && has_actix_extractor_params(&i.sig) {
+        let was_in_test = self.in_test;
+        if has_test_attr(&i.attrs) {
+            self.in_test = true;
+        }
+        if !self.in_test && i.sig.asyncness.is_some() && has_actix_extractor_params(&i.sig) {
             self.in_handler = true;
         }
         syn::visit::visit_item_fn(self, i);
         self.in_handler = was_in_handler;
+        self.in_test = was_in_test;
+    }
+
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_cfg_test(&i.attrs) {
+            return; // Skip entire #[cfg(test)] module
+        }
+        syn::visit::visit_item_mod(self, i);
     }
 
     fn visit_expr_call(&mut self, i: &'ast syn::ExprCall) {
@@ -632,5 +664,41 @@ mod tests {
     fn test_actix_gets_blocking_rule() {
         let rules = rules_for_frameworks(&[Framework::ActixWeb]);
         assert!(rules.iter().any(|r| r.name() == "actix-blocking-handler"));
+    }
+    // --- test-code skipping ---
+
+    #[test]
+    fn test_spawn_in_cfg_test_module_skipped() {
+        let diags = check(
+            &TokioSpawnWithoutMove,
+            r#"
+            #[cfg(test)]
+            mod tests {
+                fn test_helper() {
+                    tokio::spawn(async { println!("work"); });
+                }
+            }
+            "#,
+            "test.rs",
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_actix_blocking_in_cfg_test_module_skipped() {
+        let diags = check(
+            &ActixBlockingHandler,
+            r#"
+            #[cfg(test)]
+            mod tests {
+                async fn index(info: web::Json<Info>) -> impl Responder {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    "ok"
+                }
+            }
+            "#,
+            "test.rs",
+        );
+        assert!(diags.is_empty());
     }
 }

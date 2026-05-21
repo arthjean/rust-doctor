@@ -17,6 +17,10 @@ impl AnalysisPass for GeigerPass {
         "unsafe audit (cargo-geiger)"
     }
 
+    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
+        filter.matches(&Category::Security)
+    }
+
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_geiger_available() {
             return Err(crate::error::PassError::Skipped {

@@ -57,8 +57,7 @@ fn is_git_repo(dir: &Path) -> bool {
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(dir)
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Auto-detect the base branch by trying `main` then `master`.

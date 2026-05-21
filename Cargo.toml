@@ -27,7 +27,7 @@ syn = { version = "2", features = ["full", "parsing", "visit"] }
 toml = "1"
 tempfile = "3"
 thiserror = "2.0.18"
-rmcp = { version = "1.2.0", features = ["server", "transport-io", "macros"], optional = true }
+rmcp = { version = "~1.2", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1.50.0", features = ["rt-multi-thread"], optional = true }
 schemars = { version = "1", optional = true }
 

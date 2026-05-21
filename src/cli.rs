@@ -20,6 +20,10 @@ pub struct Cli {
     #[arg(long, short = 'v')]
     pub verbose: bool,
 
+    /// Filter verbose output to a specific category
+    #[arg(long, value_enum, value_name = "CATEGORY")]
+    pub category: Option<CategoryFilter>,
+
     /// Print only the bare integer score (for CI piping)
     #[arg(long, conflicts_with = "json")]
     pub score: bool,
@@ -99,6 +103,58 @@ impl std::fmt::Display for FailOn {
             Self::Info => write!(f, "info"),
             Self::None => write!(f, "none"),
         }
+    }
+}
+
+/// Category filter for `--category` flag.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CategoryFilter {
+    /// Error handling rules (unwrap-in-production, panic-in-library, etc.)
+    ErrorHandling,
+    /// Performance rules (excessive-clone, collect-then-iterate, etc.)
+    Performance,
+    /// Security rules (hardcoded-secrets, unsafe-block-audit, etc.)
+    Security,
+    /// Correctness rules
+    Correctness,
+    /// Architecture rules (high-cyclomatic-complexity, etc.)
+    Architecture,
+    /// Dependency audit rules
+    Dependencies,
+    /// Async rules (blocking-in-async, block-on-in-async)
+    Async,
+    /// Framework rules (tokio-main-missing, axum-handler-not-async, etc.)
+    Framework,
+    /// Cargo rules
+    Cargo,
+    /// Style rules (clippy style lints)
+    Style,
+}
+
+impl CategoryFilter {
+    /// Check if this filter matches the given diagnostic category.
+    pub const fn matches(&self, category: &crate::diagnostics::Category) -> bool {
+        matches!(
+            (self, category),
+            (
+                Self::ErrorHandling,
+                crate::diagnostics::Category::ErrorHandling
+            ) | (Self::Performance, crate::diagnostics::Category::Performance)
+                | (Self::Security, crate::diagnostics::Category::Security)
+                | (Self::Correctness, crate::diagnostics::Category::Correctness)
+                | (
+                    Self::Architecture,
+                    crate::diagnostics::Category::Architecture
+                )
+                | (
+                    Self::Dependencies,
+                    crate::diagnostics::Category::Dependencies
+                )
+                | (Self::Async, crate::diagnostics::Category::Async)
+                | (Self::Framework, crate::diagnostics::Category::Framework)
+                | (Self::Cargo, crate::diagnostics::Category::Cargo)
+                | (Self::Style, crate::diagnostics::Category::Style)
+        )
     }
 }
 
