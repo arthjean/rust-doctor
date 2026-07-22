@@ -114,6 +114,12 @@ pub enum SetupError {
 
     #[error("{0}")]
     NotInteractive(String),
+
+    #[error("installation failed{path_suffix}: {message}", path_suffix = path.as_ref().map_or_else(String::new, |value| format!(" for '{}'", value.display())))]
+    Install {
+        path: Option<PathBuf>,
+        message: String,
+    },
 }
 
 /// Errors from loading the config file (`rust-doctor.toml`).
