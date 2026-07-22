@@ -132,23 +132,37 @@ rust-doctor /path/to/project
 # Get bare score for CI
 rust-doctor --score
 
-# JSON output
+# JSON output (pretty, compact, or atomic file)
 rust-doctor --json
+rust-doctor --json-compact
+rust-doctor --json-out report.json
 
-# Scan only changed files
-rust-doctor --diff
+# SARIF for code-scanning consumers
+rust-doctor --sarif
+
+# Scan only changed files, including untracked files
+rust-doctor --scope changed --include-untracked
 
 # Scan against a specific branch
-rust-doctor --diff main
+rust-doctor --scope changed --base main
 
 # Fail CI on errors
-rust-doctor --fail-on error
+rust-doctor --blocking error
+
+# Require every mandatory analyzer to complete
+rust-doctor --require-complete
 
 # Scan specific workspace members
 rust-doctor --project core,api
 
 # Verbose output with file:line details
 rust-doctor --verbose
+
+# Hide warning details in terminal output and bound workspace concurrency
+rust-doctor --warnings hide --jobs 4
+
+# Audit findings hidden by inline rust-doctor directives
+rust-doctor --no-respect-inline-disables
 
 # Install missing external tools (cargo-deny, cargo-audit, etc.)
 rust-doctor --install-deps
@@ -158,7 +172,20 @@ rust-doctor --mcp
 
 # Setup wizard — configure AI agents automatically
 rust-doctor setup
+
+# Inspect effective rules or explain one source location
+rust-doctor rules list --category security
+rust-doctor why src/lib.rs:42
+
+# Report binary, toolchain, target, and OS versions without building the project
+rust-doctor version
 ```
+
+### Output contract
+
+Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer to stdout. `--json`, `--json-compact`, and `--sarif` write machine output to stdout; `--json-out` atomically writes JSON to the selected file instead.
+
+`--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
 
 ## Exit Codes
 
@@ -167,15 +194,16 @@ failure apart from a crash:
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success — scan completed and all quality gates passed |
-| `1` | Setup error — MCP server, setup wizard, or `--install-deps` failed |
-| `2` | Scan error — project discovery/compile failure or output rendering failed |
-| `3` | Quality gate failed — score below `[score] fail_below`, or `--fail-on` threshold reached |
+| `0` | Success: scan completed and all quality gates passed |
+| `1` | Setup error: MCP server, installer, or `--install-deps` failed |
+| `2` | Scan error: project discovery, analysis, or output rendering failed |
+| `3` | Quality gate failed: score below `[score] fail_below` or `--blocking` threshold reached |
+| `4` | Required analysis incomplete while `--require-complete` is active |
 
 Gate the build on a quality failure without masking a crash:
 
 ```bash
-rust-doctor --fail-on error
+rust-doctor --blocking error
 if [ $? -eq 3 ]; then
   echo "Quality gate failed"
   exit 1
@@ -353,16 +381,44 @@ cp -r skills/rust-doctor/ ~/.claude/skills/rust-doctor/
 
 The skill runs the `rust-doctor` CLI under the hood, parses the output, categorizes findings by priority, and provides actionable fix guidance with before/after code.
 
-## GitHub Actions
+## Editor diagnostics
+
+Build the binary with the editor server enabled:
+
+```bash
+cargo install rust-doctor --features lsp
+```
+
+The VS Code and Cursor extension lives in `editors/vscode`; the Zed extension lives in `editors/zed`. Both launch `rust-doctor --lsp`, use 300 ms file-local analysis by default, expose hover metadata and safe suppression actions, and keep project-wide on-save checks opt-in. See each editor directory for binary-path and packaging instructions.
+
+## Managed CI
+
+Install or preview the least-privilege GitHub workflow:
+
+```bash
+rust-doctor ci install --scope baseline --blocking warning
+rust-doctor ci install --dry-run
+rust-doctor ci config --review-comments=true --commit-status=true
+rust-doctor ci upgrade --version v1
+```
+
+`ci config` and `ci upgrade` mutate only the marker-owned workflow block. `ci install --pr` creates a branch and pull request only after local Git and provider validation succeeds. GitLab is supported as a gate-only scaffold with `rust-doctor ci install --provider gitlab`; comments, statuses and SARIF remain GitHub-only channels.
+
+The Action can also be configured directly:
 
 ```yaml
 - uses: arthjean/rust-doctor@v1
   with:
+    scope: baseline
+    blocking: warning
+    require-complete: true
+    comment: true
+    commit-status: true
+    sarif: true
     token: ${{ secrets.GITHUB_TOKEN }}
-    fail-on: warning
 ```
 
-The action posts a PR comment with the health score, error/warning counts, and top diagnostics.
+Pull requests resolve their base locally, then use the paginated GitHub API only when history is unavailable. Reporting channels degrade independently: a denied comment, status or SARIF permission does not replace the configured scan gate.
 
 ## Configuration
 
