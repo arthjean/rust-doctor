@@ -4,9 +4,9 @@
   "description": "Rust code health scanner — security, performance, correctness, architecture diagnostics",
   "version": "0.1.20",
   "title": "rust-doctor",
-  "websiteUrl": "https://github.com/ArthurDEV44/rust-doctor",
+  "websiteUrl": "https://github.com/arthjean/rust-doctor",
   "repository": {
-    "url": "https://github.com/ArthurDEV44/rust-doctor",
+    "url": "https://github.com/arthjean/rust-doctor",
     "source": "github"
   },
   "packages": [

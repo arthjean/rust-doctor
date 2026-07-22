@@ -4,7 +4,7 @@
   <a href="https://crates.io/crates/rust-doctor"><img alt="Crates.io" src="https://img.shields.io/crates/v/rust-doctor?logo=rust"></a>
   <a href="https://www.npmjs.com/package/rust-doctor"><img alt="npm" src="https://img.shields.io/npm/v/rust-doctor?logo=npm"></a>
   <a href="https://docs.rs/rust-doctor"><img alt="docs.rs" src="https://img.shields.io/docsrs/rust-doctor?logo=docsdotrs&label=docs.rs"></a>
-  <a href="https://github.com/ArthurDEV44/rust-doctor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ArthurDEV44/rust-doctor/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/arthjean/rust-doctor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/arthjean/rust-doctor/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://crates.io/crates/rust-doctor"><img alt="Downloads" src="https://img.shields.io/crates/d/rust-doctor?label=downloads"></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/crates/l/rust-doctor"></a>
   <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.85-blue?logo=rust">
@@ -100,18 +100,18 @@ cargo binstall rust-doctor
 ### Shell installer (Linux/macOS)
 
 ```bash
-curl -fsSL https://github.com/ArthurDEV44/rust-doctor/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/arthjean/rust-doctor/releases/latest/download/install.sh | bash
 ```
 
 ### PowerShell installer (Windows)
 
 ```powershell
-irm https://github.com/ArthurDEV44/rust-doctor/releases/latest/download/install.ps1 | iex
+irm https://github.com/arthjean/rust-doctor/releases/latest/download/install.ps1 | iex
 ```
 
 ### GitHub Releases
 
-Download pre-built binaries from [GitHub Releases](https://github.com/ArthurDEV44/rust-doctor/releases).
+Download pre-built binaries from [GitHub Releases](https://github.com/arthjean/rust-doctor/releases).
 
 Available platforms:
 - `x86_64-unknown-linux-gnu`
@@ -236,7 +236,7 @@ claude mcp add --transport stdio rust-doctor -- npx -y rust-doctor --mcp
 **Or via Claude Code plugin:**
 
 ```
-/plugin install rust-doctor@ArthurDEV44/rust-doctor
+/plugin install rust-doctor@arthjean/rust-doctor
 ```
 
 **Or add manually** to your `~/.claude/settings.json`:
@@ -332,7 +332,7 @@ rust-doctor setup  # choose "CLI + Skills", select Claude Code
 **Or via npx:**
 
 ```bash
-npx skills add https://github.com/ArthurDEV44/rust-doctor --skill rust-doctor
+npx skills add https://github.com/arthjean/rust-doctor --skill rust-doctor
 ```
 
 **Or copy manually:**
@@ -356,7 +356,7 @@ The skill runs the `rust-doctor` CLI under the hood, parses the output, categori
 ## GitHub Actions
 
 ```yaml
-- uses: ArthurDEV44/rust-doctor@v1
+- uses: arthjean/rust-doctor@v1
   with:
     token: ${{ secrets.GITHUB_TOKEN }}
     fail-on: warning

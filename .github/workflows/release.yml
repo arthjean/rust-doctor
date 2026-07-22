@@ -98,7 +98,7 @@ jobs:
           #!/bin/bash
           set -euo pipefail
 
-          REPO="ArthurDEV44/rust-doctor"
+          REPO="arthjean/rust-doctor"
           BINARY="rust-doctor"
 
           # Detect platform
@@ -127,7 +127,7 @@ jobs:
         run: |
           cat > artifacts/install.ps1 << 'INSTALLER'
           $ErrorActionPreference = "Stop"
-          $repo = "ArthurDEV44/rust-doctor"
+          $repo = "arthjean/rust-doctor"
           $binary = "rust-doctor"
 
           $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"

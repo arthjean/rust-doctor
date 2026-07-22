@@ -60,10 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Score formula, lint count, and library example corrections in README and website
 
-[unreleased]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.20...HEAD
-[0.1.20]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.19...v0.1.20
-[0.1.19]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.18...v0.1.19
-[0.1.18]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.17...v0.1.18
-[0.1.17]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.16...v0.1.17
-[0.1.16]: https://github.com/ArthurDEV44/rust-doctor/compare/v0.1.15...v0.1.16
-[0.1.15]: https://github.com/ArthurDEV44/rust-doctor/releases/tag/v0.1.15
+[unreleased]: https://github.com/arthjean/rust-doctor/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/arthjean/rust-doctor/compare/v0.1.19...v0.1.20
+[0.1.19]: https://github.com/arthjean/rust-doctor/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/arthjean/rust-doctor/compare/v0.1.17...v0.1.18
+[0.1.17]: https://github.com/arthjean/rust-doctor/compare/v0.1.16...v0.1.17
+[0.1.16]: https://github.com/arthjean/rust-doctor/compare/v0.1.15...v0.1.16
+[0.1.15]: https://github.com/arthjean/rust-doctor/releases/tag/v0.1.15

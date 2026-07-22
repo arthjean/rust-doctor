@@ -8,7 +8,7 @@ set -euo pipefail
 # with `id-token: write`; npm mints a short-lived credential per publish and
 # attaches a provenance attestation (--provenance). Configured ONCE PER PACKAGE
 # on npmjs.com (Settings > Trusted Publisher), all pointing at repo
-# ArthurDEV44/rust-doctor, workflow release.yml:
+# arthjean/rust-doctor, workflow release.yml:
 #   rust-doctor, @rust-doctor/darwin-x64, @rust-doctor/darwin-arm64,
 #   @rust-doctor/linux-x64, @rust-doctor/linux-arm64, @rust-doctor/win32-x64
 #

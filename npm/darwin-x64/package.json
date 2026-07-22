@@ -5,7 +5,7 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ArthurDEV44/rust-doctor"
+    "url": "https://github.com/arthjean/rust-doctor"
   },
   "os": ["darwin"],
   "cpu": ["x64"],

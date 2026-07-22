@@ -209,7 +209,7 @@ pub fn render_sarif(scan_result: &ScanResult) -> Result<String, serde_json::Erro
                 driver: ToolComponent {
                     name: TOOL_NAME,
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    information_uri: "https://github.com/ArthurDEV44/rust-doctor",
+                    information_uri: "https://github.com/arthjean/rust-doctor",
                     rules,
                 },
             },

@@ -19,7 +19,7 @@ reporting an issue.
 
 Report privately via one of:
 
-- GitHub's [private vulnerability reporting](https://github.com/ArthurDEV44/rust-doctor/security/advisories/new)
+- GitHub's [private vulnerability reporting](https://github.com/arthjean/rust-doctor/security/advisories/new)
 - Email: **arthur.jean@strivex.fr**
 
 Please include: affected version, reproduction steps, and the impact you

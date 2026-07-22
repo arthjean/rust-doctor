@@ -11,7 +11,7 @@ Thank you for your interest in contributing to rust-doctor!
 ## Setup
 
 ```bash
-git clone https://github.com/ArthurDEV44/rust-doctor.git
+git clone https://github.com/arthjean/rust-doctor.git
 cd rust-doctor
 git config core.hooksPath .githooks
 cargo build

@@ -5,9 +5,9 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ArthurDEV44/rust-doctor"
+    "url": "https://github.com/arthjean/rust-doctor"
   },
-  "homepage": "https://github.com/ArthurDEV44/rust-doctor",
+  "homepage": "https://github.com/arthjean/rust-doctor",
   "keywords": [
     "rust",
     "linting",

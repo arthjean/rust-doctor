@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question or discussion
-    url: https://github.com/ArthurDEV44/rust-doctor/discussions
+    url: https://github.com/arthjean/rust-doctor/discussions
     about: Ask usage questions or propose ideas before filing an issue.
   - name: Security vulnerability
-    url: https://github.com/ArthurDEV44/rust-doctor/security/advisories/new
+    url: https://github.com/arthjean/rust-doctor/security/advisories/new
     about: Report security issues privately — please do not open a public issue.

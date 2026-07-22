@@ -3,11 +3,11 @@
   "version": "0.1.20",
   "description": "Rust code health scanner — security, performance, correctness, architecture, and dependency diagnostics with MCP integration",
   "author": {
-    "name": "ArthurDEV44",
-    "url": "https://github.com/ArthurDEV44"
+    "name": "Arthur Jean",
+    "url": "https://github.com/arthjean"
   },
-  "homepage": "https://github.com/ArthurDEV44/rust-doctor",
-  "repository": "https://github.com/ArthurDEV44/rust-doctor",
+  "homepage": "https://github.com/arthjean/rust-doctor",
+  "repository": "https://github.com/arthjean/rust-doctor",
   "license": "MIT OR Apache-2.0",
   "keywords": ["rust", "linting", "code-quality", "diagnostics", "mcp"],
   "mcpServers": {
