@@ -1,220 +1,214 @@
-name: 'Rust Doctor'
-description: 'Scan your Rust project for health issues and get a score'
-author: 'rust-doctor'
+name: Rust Doctor
+description: Scan Rust changes with complete baseline, review, status, and SARIF reporting
+author: rust-doctor
 
 branding:
-  icon: 'activity'
-  color: 'green'
+  icon: activity
+  color: green
 
 inputs:
   directory:
-    description: 'Directory to scan'
+    description: Project directory, absolute or relative to the checkout
     required: false
-    default: '.'
-  fail-on:
-    description: 'Exit with failure when this severity is reached (error, warning, none)'
+    default: .
+  project:
+    description: Comma-separated Cargo package selectors
     required: false
-    default: 'none'
-  token:
-    description: 'GitHub token for posting PR comments'
+    default: ""
+  scope:
+    description: Scan scope, one of auto, full, changed, baseline, or staged
     required: false
-    default: ''
-  diff:
-    description: 'Run in diff mode on PRs (scan only changed files). Auto-detects: enabled on pull_request, disabled on push.'
+    default: auto
+  blocking:
+    description: Lowest blocking severity, one of error, warning, info, or none
     required: false
-    default: 'auto'
+    default: warning
+  require-complete:
+    description: Fail when required analysis is incomplete
+    required: false
+    default: "true"
+  comment:
+    description: Publish or update the sticky pull-request summary
+    required: false
+    default: "true"
+  review-comments:
+    description: Publish changed-line review comments, capped at 50
+    required: false
+    default: "false"
+  commit-status:
+    description: Publish the Rust Doctor commit status
+    required: false
+    default: "true"
   sarif:
-    description: 'Upload SARIF results to GitHub Code Scanning (requires write permissions)'
+    description: Upload canonical findings to GitHub Code Scanning
     required: false
-    default: 'false'
+    default: "true"
+  version:
+    description: Exact Rust Doctor version to install
+    required: false
+    default: 0.2.0
+  max-duration:
+    description: Optional wall-clock scan budget in seconds
+    required: false
+    default: ""
+  token:
+    description: GitHub token used only by enabled reporting channels
+    required: false
+    default: ""
 
 outputs:
   score:
-    description: 'Health score (0-100)'
+    description: Authoritative health score, or empty when unavailable
     value: ${{ steps.scan.outputs.score }}
   errors:
-    description: 'Number of errors found'
+    description: Error finding count
     value: ${{ steps.scan.outputs.errors }}
   warnings:
-    description: 'Number of warnings found'
+    description: Warning finding count
     value: ${{ steps.scan.outputs.warnings }}
+  outcome:
+    description: Report V1 outcome
+    value: ${{ steps.scan.outputs.outcome }}
+  completeness:
+    description: Report V1 completeness state
+    value: ${{ steps.scan.outputs.completeness }}
+  report-file:
+    description: Path to Report V1
+    value: ${{ steps.scan.outputs.report-file }}
   sarif-file:
-    description: 'Path to the generated SARIF file (if sarif input is true)'
-    value: ${{ steps.sarif-scan.outputs.sarif_file }}
+    description: Path to the generated SARIF file
+    value: ${{ steps.sarif.outputs.sarif-file }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Install rust-doctor
+    - name: Resolve scope and cache identity
+      id: prepare
       shell: bash
+      env:
+        INPUT_DIRECTORY: ${{ inputs.directory }}
+        INPUT_SCOPE: ${{ inputs.scope }}
+        INPUT_VERSION: ${{ inputs.version }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPOSITORY: ${{ github.repository }}
+        GH_TOKEN: ${{ inputs.token }}
+        RUNNER_TEMP: ${{ runner.temp }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/prepare.sh"
+
+    - name: Restore Rust Doctor binary
+      id: tool-cache
+      if: steps.prepare.outputs.skip != 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.cargo/bin/rust-doctor
+        key: rust-doctor-tool-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
+    - name: Install exact Rust Doctor version
+      if: steps.prepare.outputs.skip != 'true' && steps.tool-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
-        # Try cargo-binstall first (fast, pre-built binary)
-        if command -v cargo-binstall &> /dev/null; then
-          echo "Installing rust-doctor via cargo-binstall..."
-          cargo binstall rust-doctor --no-confirm --log-level warn 2>/dev/null || {
-            echo "cargo-binstall failed, falling back to cargo install..."
-            cargo install rust-doctor --locked
-          }
-        elif command -v cargo &> /dev/null; then
-          echo "Installing rust-doctor via cargo install..."
-          cargo install rust-doctor --locked
-        else
-          echo "::error::Neither cargo-binstall nor cargo found. Please ensure Rust toolchain is installed."
+        set -euo pipefail
+        [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+          echo "::error::version must be an exact semantic version"
           exit 1
+        }
+        if command -v cargo-binstall >/dev/null 2>&1; then
+          cargo binstall rust-doctor --no-confirm --locked --version "$INPUT_VERSION"
+        else
+          cargo install rust-doctor --locked --version "$INPUT_VERSION"
         fi
 
-    - name: Run rust-doctor scan
+    - name: Verify installed binary
+      if: steps.prepare.outputs.skip != 'true'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        installed=$(rust-doctor --version)
+        [[ "$installed" == *" $INPUT_VERSION" ]] || {
+          echo "::error::cached binary '$installed' does not match requested version $INPUT_VERSION"
+          exit 1
+        }
+
+    - name: Restore validated scan cache
+      if: steps.prepare.outputs.skip != 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ steps.prepare.outputs.scan-cache-path }}
+        key: rust-doctor-scan-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ steps.prepare.outputs.compiler-fingerprint }}-${{ steps.prepare.outputs.ruleset-fingerprint }}-${{ steps.prepare.outputs.config-fingerprint }}
+
+    - name: Run Report V1 scan
       id: scan
       shell: bash
       env:
-        INPUT_DIRECTORY: ${{ inputs.directory }}
-        INPUT_FAIL_ON: ${{ inputs.fail-on }}
-        INPUT_DIFF: ${{ inputs.diff }}
-        EVENT_NAME: ${{ github.event_name }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_BLOCKING: ${{ inputs.blocking }}
+        INPUT_REQUIRE_COMPLETE: ${{ inputs.require-complete }}
+        INPUT_MAX_DURATION: ${{ inputs.max-duration }}
+        RESOLVED_SCOPE: ${{ steps.prepare.outputs.scope }}
+        BASE_SHA: ${{ steps.prepare.outputs.base-sha }}
+        CHANGED_PATHS_FILE: ${{ steps.prepare.outputs.changed-paths-file }}
+        SCAN_ROOT: ${{ steps.prepare.outputs.scan-root }}
+        SKIP_SCAN: ${{ steps.prepare.outputs.skip }}
+        DEGRADED_REASON: ${{ steps.prepare.outputs.degraded-reason }}
+        RUNNER_TEMP: ${{ runner.temp }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/scan.sh"
+
+    - name: Render canonical SARIF
+      id: sarif
+      if: inputs.sarif == 'true' && steps.scan.outputs.report-file != ''
+      shell: bash
+      env:
+        REPORT_FILE: ${{ steps.scan.outputs.report-file }}
+        RUNNER_TEMP: ${{ runner.temp }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/sarif.sh"
+
+    - name: Upload SARIF
+      id: upload-sarif
+      if: inputs.sarif == 'true' && steps.sarif.outputs.sarif-file != ''
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@3b0bd1d116c0bde30213346b22d4f634d96a2fb0 # v3
+      with:
+        sarif_file: ${{ steps.sarif.outputs.sarif-file }}
+        category: rust-doctor
+
+    - name: Report unavailable SARIF channel
+      if: always() && steps.upload-sarif.outcome == 'failure'
+      shell: bash
       run: |
-        ARGS=("${INPUT_DIRECTORY}" "--json" "--require-complete" "--fail-on" "${INPUT_FAIL_ON}")
+        echo "::warning::Rust Doctor SARIF channel skipped: permission denied or upload unavailable"
 
-        # Resolve diff mode: 'auto' enables on PRs only, 'true'/'false' are explicit
-        USE_DIFF="false"
-        if [ "${INPUT_DIFF}" = "auto" ]; then
-          if [ "${EVENT_NAME}" = "pull_request" ] || [ "${EVENT_NAME}" = "pull_request_target" ]; then
-            USE_DIFF="true"
-          fi
-        elif [ "${INPUT_DIFF}" = "true" ]; then
-          USE_DIFF="true"
-        fi
-
-        if [ "${USE_DIFF}" = "true" ]; then
-          ARGS+=("--diff")
-        fi
-
-        # Run scan and capture output
-        set +e
-        RESULT=$(rust-doctor "${ARGS[@]}" 2>/dev/null)
-        EXIT_CODE=$?
-        set -e
-
-        if [ -z "$RESULT" ]; then
-          echo "::warning::rust-doctor produced no output"
-          echo "score=0" >> "$GITHUB_OUTPUT"
-          echo "errors=0" >> "$GITHUB_OUTPUT"
-          echo "warnings=0" >> "$GITHUB_OUTPUT"
-          exit $EXIT_CODE
-        fi
-
-        # Extract values from JSON and validate they are integers
-        SCORE=$(echo "$RESULT" | jq -r '.score // 0')
-        ERRORS=$(echo "$RESULT" | jq -r '.error_count // 0')
-        WARNINGS=$(echo "$RESULT" | jq -r '.warning_count // 0')
-        [[ "$SCORE" =~ ^[0-9]+$ ]] || SCORE=0
-        [[ "$ERRORS" =~ ^[0-9]+$ ]] || ERRORS=0
-        [[ "$WARNINGS" =~ ^[0-9]+$ ]] || WARNINGS=0
-
-        echo "score=${SCORE}" >> "$GITHUB_OUTPUT"
-        echo "errors=${ERRORS}" >> "$GITHUB_OUTPUT"
-        echo "warnings=${WARNINGS}" >> "$GITHUB_OUTPUT"
-
-        # Save full JSON for comment step using a unique temp file
-        # Use RUNNER_TEMP (job-isolated on GitHub-hosted runners) instead of shared /tmp
-        RESULT_FILE=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-result.XXXXXX.json")
-        echo "$RESULT" > "$RESULT_FILE"
-        echo "result_file=${RESULT_FILE}" >> "$GITHUB_OUTPUT"
-
-        exit $EXIT_CODE
-
-    - name: Post PR comment
-      if: inputs.token != '' && github.event_name == 'pull_request'
+    - name: Publish pull-request and status channels
+      if: inputs.token != '' && (inputs.comment == 'true' || inputs.review-comments == 'true' || inputs.commit-status == 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
-        SCORE: ${{ steps.scan.outputs.score }}
-        ERRORS: ${{ steps.scan.outputs.errors }}
-        WARNINGS: ${{ steps.scan.outputs.warnings }}
-        RESULT_FILE: ${{ steps.scan.outputs.result_file }}
+        REPORT_FILE: ${{ steps.scan.outputs.report-file }}
+        COMMENT_ENABLED: ${{ inputs.comment }}
+        REVIEW_COMMENTS_ENABLED: ${{ inputs.review-comments }}
+        COMMIT_STATUS_ENABLED: ${{ inputs.commit-status }}
+        EVENT_NAME: ${{ github.event_name }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
-        REPO: ${{ github.repository }}
-      run: |
-        # Validate inputs
-        [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "::warning::Invalid PR number, skipping comment"; exit 0; }
+        REPOSITORY: ${{ github.repository }}
+        COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        BASE_SHA: ${{ steps.prepare.outputs.base-sha }}
+        SERVER_URL: ${{ github.server_url }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+        SKIP_SCAN: ${{ steps.prepare.outputs.skip }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/report.sh"
 
-        # Determine emoji based on score
-        if [ "$SCORE" -ge 75 ]; then
-          EMOJI="✅"
-          LABEL="Great"
-        elif [ "$SCORE" -ge 50 ]; then
-          EMOJI="⚠️"
-          LABEL="Needs work"
-        else
-          EMOJI="❌"
-          LABEL="Critical"
-        fi
-
-        # Build comment body
-        COMMENT_BODY="${EMOJI} **Rust Doctor: ${SCORE}/100 — ${LABEL}**
-
-| Metric | Value |
-|--------|-------|
-| Score | ${SCORE}/100 |
-| Errors | ${ERRORS} |
-| Warnings | ${WARNINGS} |"
-
-        # Add top diagnostics if available
-        if [ -n "$RESULT_FILE" ] && [ -f "$RESULT_FILE" ]; then
-          TOP_DIAGS=$(jq -r '[.diagnostics[:5][] | "| \(.severity) | \(.rule | gsub("[|`<>]"; "")) | \(.message | gsub("[|`<>]"; "") | .[0:120]) |"] | join("\n")' "$RESULT_FILE" 2>/dev/null || true)
-          if [ -n "$TOP_DIAGS" ]; then
-            COMMENT_BODY="${COMMENT_BODY}
-
-<details>
-<summary>Top diagnostics</summary>
-
-| Severity | Rule | Message |
-|----------|------|---------|
-${TOP_DIAGS}
-
-</details>"
-          fi
-          rm -f "$RESULT_FILE"
-        fi
-
-        COMMENT_BODY="${COMMENT_BODY}
-
----
-*Generated by [rust-doctor](https://github.com/arthjean/rust-doctor)*"
-
-        # Write comment body to temp file to avoid shell metacharacter issues
-        COMMENT_FILE=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-comment.XXXXXX.md")
-        printf '%s' "${COMMENT_BODY}" > "$COMMENT_FILE"
-
-        # Find existing comment to update, or create new one
-        EXISTING_COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-          --jq '.[] | select(.body | contains("Rust Doctor:")) | .id' 2>/dev/null | head -1)
-
-        if [ -n "$EXISTING_COMMENT_ID" ]; then
-          gh api "repos/${REPO}/issues/comments/${EXISTING_COMMENT_ID}" \
-            -X PATCH -F body=@"${COMMENT_FILE}" > /dev/null
-          echo "Updated existing PR comment"
-        else
-          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-            -F body=@"${COMMENT_FILE}" > /dev/null
-          echo "Posted new PR comment"
-        fi
-
-        rm -f "$COMMENT_FILE"
-
-    - name: Generate SARIF report
-      id: sarif-scan
-      if: inputs.sarif == 'true'
+    - name: Enforce scan outcome
+      if: always() && steps.scan.outputs.exit-code != '0'
       shell: bash
       env:
-        INPUT_DIRECTORY: ${{ inputs.directory }}
+        EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
       run: |
-        SARIF_FILE="${RUNNER_TEMP:-/tmp}/rust-doctor-results.sarif"
-        rust-doctor "${INPUT_DIRECTORY}" --sarif > "$SARIF_FILE" 2>/dev/null || true
-        echo "sarif_file=${SARIF_FILE}" >> "$GITHUB_OUTPUT"
-
-    - name: Upload SARIF to GitHub Code Scanning
-      if: inputs.sarif == 'true' && steps.sarif-scan.outputs.sarif_file != ''
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: ${{ steps.sarif-scan.outputs.sarif_file }}
-        category: rust-doctor
+        [[ "$EXIT_CODE" =~ ^[1-4]$ ]] || EXIT_CODE=2
+        exit "$EXIT_CODE"
