@@ -1,6 +1,6 @@
 {
   "name": "rust-doctor",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "A unified code health tool for Rust — scan, score, and fix your codebase",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -24,11 +24,11 @@
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@rust-doctor/darwin-x64": "0.1.12",
-    "@rust-doctor/darwin-arm64": "0.1.12",
-    "@rust-doctor/linux-x64": "0.1.12",
-    "@rust-doctor/linux-arm64": "0.1.12",
-    "@rust-doctor/win32-x64": "0.1.12"
+    "@rust-doctor/darwin-x64": "0.2.0",
+    "@rust-doctor/darwin-arm64": "0.2.0",
+    "@rust-doctor/linux-x64": "0.2.0",
+    "@rust-doctor/linux-arm64": "0.2.0",
+    "@rust-doctor/win32-x64": "0.2.0"
   },
   "engines": {
     "node": ">=16"

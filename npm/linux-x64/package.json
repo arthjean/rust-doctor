@@ -1,6 +1,6 @@
 {
   "name": "@rust-doctor/linux-x64",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "rust-doctor native binary for Linux x64",
   "license": "MIT OR Apache-2.0",
   "repository": {
