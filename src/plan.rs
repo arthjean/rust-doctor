@@ -272,6 +272,11 @@ mod tests {
             warning_count,
             info_count,
             pass_timings: vec![],
+            suppressed_security: vec![],
+            planned_files: vec![],
+            analyzed_files: vec![],
+            compiler_evidence: vec![],
+            execution: crate::diagnostics::ScanExecution::default(),
         }
     }
 

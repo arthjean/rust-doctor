@@ -4,7 +4,82 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+thread_local! {
+    static ACTIVE_SCAN_CONTROL: std::cell::RefCell<Option<ScanControl>> = const { std::cell::RefCell::new(None) };
+    static LAST_PROCESS_STOP: std::cell::Cell<Option<ProcessStop>> = const { std::cell::Cell::new(None) };
+}
+
+/// Shared cancellation and deadline state for one complete scan.
+#[derive(Clone)]
+pub struct ScanControl {
+    cancel: Arc<AtomicBool>,
+    deadline: Option<Instant>,
+}
+
+impl ScanControl {
+    pub fn new(cancel: Arc<AtomicBool>, max_duration: Option<Duration>) -> Self {
+        Self {
+            cancel,
+            deadline: max_duration.and_then(|duration| Instant::now().checked_add(duration)),
+        }
+    }
+
+    pub fn unlimited() -> Self {
+        Self::new(Arc::new(AtomicBool::new(false)), None)
+    }
+
+    pub fn stop_reason(&self) -> Option<ProcessStop> {
+        if self.cancel.load(Ordering::Relaxed) {
+            Some(ProcessStop::Cancelled)
+        } else if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            Some(ProcessStop::TimedOut)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stop_reason().is_some()
+    }
+}
+
+/// Install scan control for one pass thread. Nested subprocess helpers inherit
+/// it without changing every `AnalysisPass` implementation signature.
+pub fn with_scan_control<T>(control: ScanControl, operation: impl FnOnce() -> T) -> T {
+    ACTIVE_SCAN_CONTROL.with(|slot| {
+        let previous = slot.replace(Some(control));
+        let result = operation();
+        slot.replace(previous);
+        result
+    })
+}
+
+pub fn current_scan_control() -> ScanControl {
+    ACTIVE_SCAN_CONTROL
+        .with(|slot| slot.borrow().clone())
+        .unwrap_or_else(ScanControl::unlimited)
+}
+
+pub fn record_process_stop(stop: Option<ProcessStop>) {
+    if let Some(stop) = stop {
+        LAST_PROCESS_STOP.with(|slot| slot.set(Some(stop)));
+    }
+}
+
+pub fn take_process_stop() -> Option<ProcessStop> {
+    LAST_PROCESS_STOP.with(std::cell::Cell::take)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessStop {
+    TimedOut,
+    Cancelled,
+}
 
 /// Check if a cargo subcommand (e.g. "audit", "deny", "clippy") is installed.
 /// Results are cached for the process lifetime.
@@ -47,7 +122,7 @@ pub struct ProcessOutput {
 /// Spawn a command as a new process-group leader so its descendants can be
 /// killed as a group later (US-008).
 ///
-/// On Unix, `process_group(0)` (std, stable since 1.64 — no `unsafe`, unlike a
+/// On Unix, `process_group(0)` (std, stable since 1.64, with no `unsafe`, unlike a
 /// hand-rolled `setpgid` via `pre_exec`, which `#![forbid(unsafe_code)]` would
 /// reject) makes the child's PGID equal its PID. On other platforms this is a
 /// plain spawn and the watchdog falls back to killing the direct child.
@@ -61,7 +136,7 @@ pub fn spawn_in_group(cmd: &mut Command) -> std::io::Result<Child> {
 }
 
 /// Kill a child process and (on Unix) its whole process group, so the `rustc`
-/// children of a `cargo` subprocess are terminated too — `Child::kill()` alone
+/// children of a `cargo` subprocess are terminated too. `Child::kill()` alone
 /// only reaps the direct child and leaves orphans (US-008).
 ///
 /// The reparented grandchildren are reaped by init after the group SIGKILL; the
@@ -109,25 +184,12 @@ pub fn run_with_timeout(
         });
     }
 
-    // Cancellable timeout watchdog
-    let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
     let child = Arc::new(Mutex::new(child));
-    let child_watcher = Arc::clone(&child);
-    let timed_out = Arc::new(AtomicBool::new(false));
-    let timed_out_watcher = Arc::clone(&timed_out);
-
-    let watcher = thread::spawn(move || {
-        if cancel_rx
-            .recv_timeout(Duration::from_secs(timeout_secs))
-            .is_err()
-            && let Ok(mut c) = child_watcher.lock()
-            && matches!(c.try_wait(), Ok(None))
-        {
-            kill_process_tree(&mut c); // SIGKILL the whole group, not just `cargo`
-            let _ = c.wait(); // Reap the direct child to avoid a zombie
-            timed_out_watcher.store(true, Ordering::Relaxed);
-        }
-    });
+    let watchdog = ProcessWatchdog::start(
+        Arc::clone(&child),
+        Duration::from_secs(timeout_secs),
+        current_scan_control(),
+    );
 
     // Read stdout with a cap to prevent OOM
     let mut output = String::new();
@@ -137,20 +199,26 @@ pub fn run_with_timeout(
     }
 
     // Cancel watchdog and reap child
-    let _ = cancel_tx.send(());
-    let _ = watcher.join();
+    let stop = watchdog.finish();
+    record_process_stop(stop);
 
     // Reap (or re-reap) the child. If the watchdog already killed+waited it on
     // timeout, this second `wait()` is a benign no-op (`ECHILD`, swallowed by
-    // `.ok()`) — it is intentionally NOT removed, since dropping it would leak a
+    // `.ok()`). It is intentionally retained because dropping it would leak a
     // zombie on the happy path where the watchdog never fired.
     let exit_code = child
         .lock()
         .ok()
         .and_then(|mut c| c.wait().ok().and_then(|s| s.code()));
 
-    let did_timeout = timed_out.load(Ordering::Relaxed);
-    tracing::debug!(exit_code, timed_out = did_timeout, "subprocess finished");
+    let did_timeout = stop == Some(ProcessStop::TimedOut);
+    let was_cancelled = stop == Some(ProcessStop::Cancelled);
+    tracing::debug!(
+        exit_code,
+        timed_out = did_timeout,
+        cancelled = was_cancelled,
+        "subprocess finished"
+    );
 
     Ok(ProcessOutput {
         stdout: output,
@@ -159,10 +227,51 @@ pub fn run_with_timeout(
     })
 }
 
+/// Watch a process that streams its output in the caller, such as Clippy.
+pub struct ProcessWatchdog {
+    stop_tx: mpsc::Sender<()>,
+    handle: thread::JoinHandle<Option<ProcessStop>>,
+}
+
+impl ProcessWatchdog {
+    pub fn start(child: Arc<Mutex<Child>>, pass_timeout: Duration, control: ScanControl) -> Self {
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let handle = thread::spawn(move || {
+            let started = Instant::now();
+            loop {
+                if stop_rx.recv_timeout(Duration::from_millis(50)).is_ok() {
+                    return None;
+                }
+                let reason = control.stop_reason().or_else(|| {
+                    (started.elapsed() >= pass_timeout).then_some(ProcessStop::TimedOut)
+                });
+                let Some(reason) = reason else {
+                    continue;
+                };
+                if let Ok(mut process) = child.lock()
+                    && matches!(process.try_wait(), Ok(None))
+                {
+                    kill_process_tree(&mut process);
+                    let _ = process.wait();
+                }
+                return Some(reason);
+            }
+        });
+        Self { stop_tx, handle }
+    }
+
+    pub fn finish(self) -> Option<ProcessStop> {
+        let _ = self.stop_tx.send(());
+        self.handle.join().ok().flatten()
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{kill_process_tree, spawn_in_group};
+    use super::{ProcessStop, ProcessWatchdog, ScanControl, kill_process_tree, spawn_in_group};
     use std::process::{Command, Stdio};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     // --- US-008: process-group spawn + tree kill ---
@@ -209,8 +318,46 @@ mod tests {
             "a SIGKILL'd process must not report success"
         );
         assert!(
-            start.elapsed() < Duration::from_secs(5),
+            start.elapsed() < Duration::from_secs(2),
             "group kill should terminate the child promptly"
         );
+    }
+
+    #[test]
+    fn test_watchdog_honors_the_global_deadline() {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = Arc::new(Mutex::new(spawn_in_group(&mut command).unwrap()));
+        let control = ScanControl::new(
+            Arc::new(AtomicBool::new(false)),
+            Some(Duration::from_millis(20)),
+        );
+        let watchdog = ProcessWatchdog::start(Arc::clone(&child), Duration::from_secs(30), control);
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(watchdog.finish(), Some(ProcessStop::TimedOut));
+    }
+
+    #[test]
+    fn test_watchdog_honors_cancellation_within_two_seconds() {
+        use std::sync::atomic::Ordering;
+
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = Arc::new(Mutex::new(spawn_in_group(&mut command).unwrap()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let control = ScanControl::new(Arc::clone(&cancel), None);
+        let watchdog = ProcessWatchdog::start(Arc::clone(&child), Duration::from_secs(30), control);
+
+        let started = Instant::now();
+        cancel.store(true, Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(watchdog.finish(), Some(ProcessStop::Cancelled));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

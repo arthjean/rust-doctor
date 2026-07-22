@@ -1,3 +1,5 @@
+use crate::diagnostics::{CanonicalDiagnostic, DiagnosticLocation, ReportV1};
+#[cfg(test)]
 use crate::diagnostics::{Diagnostic, ScanResult};
 use crate::{config, discovery};
 use rmcp::ErrorData as McpError;
@@ -92,6 +94,9 @@ pub(super) fn discover_and_resolve(
             crate::error::BootstrapError::Discovery(_) => {
                 "project discovery failed — check that `cargo metadata` runs successfully"
             }
+            crate::error::BootstrapError::Config(_) => {
+                "project configuration is invalid; fix rust-doctor.toml or ignore project config"
+            }
         };
         eprintln!("MCP bootstrap error: {e}");
         McpError::invalid_params(hint.to_string(), None)
@@ -126,6 +131,7 @@ pub(super) fn discover_and_resolve(
 
 /// Group individual diagnostics by rule, sorted by severity then count.
 /// Reduces thousands of findings to ~70 compact groups.
+#[cfg(test)]
 pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGroup> {
     let mut groups: HashMap<&str, Vec<&Diagnostic>> = HashMap::new();
     for diag in diagnostics {
@@ -177,6 +183,7 @@ pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGro
 
 /// Generate a complete markdown report of scan results.
 /// This is the sole output of the scan tool — no JSON, pure readable text.
+#[cfg(test)]
 pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]) -> String {
     use std::fmt::Write;
 
@@ -273,6 +280,116 @@ pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]
     }
 
     s
+}
+
+/// Group the canonical MCP-visible diagnostics without reinterpreting metadata.
+pub(super) fn group_report_diagnostics(
+    diagnostics: &[CanonicalDiagnostic],
+) -> Vec<DiagnosticGroup> {
+    let mut groups: HashMap<&str, Vec<&CanonicalDiagnostic>> = HashMap::new();
+    for diagnostic in diagnostics {
+        if diagnostic.visible_on.iter().any(|value| value == "mcp") {
+            groups.entry(&diagnostic.rule).or_default().push(diagnostic);
+        }
+    }
+    let mut result: Vec<DiagnosticGroup> = groups
+        .into_iter()
+        .filter_map(|(rule, diagnostics)| {
+            let first = diagnostics.first()?;
+            let examples = diagnostics
+                .iter()
+                .take(MAX_EXAMPLES_PER_GROUP)
+                .map(|diagnostic| match &diagnostic.location {
+                    DiagnosticLocation::Source { path, range } => DiagnosticExample {
+                        file_path: path.clone(),
+                        line: Some(range.start.line),
+                        column: Some(range.start.column),
+                    },
+                    DiagnosticLocation::Project => DiagnosticExample {
+                        file_path: "<project>".to_string(),
+                        line: None,
+                        column: None,
+                    },
+                })
+                .collect();
+            Some(DiagnosticGroup {
+                rule: rule.to_string(),
+                severity: first.severity.to_string(),
+                category: first.category.to_string(),
+                count: diagnostics.len(),
+                message: first.message.clone(),
+                help: diagnostics
+                    .iter()
+                    .find_map(|diagnostic| diagnostic.help.as_ref())
+                    .cloned(),
+                examples,
+            })
+        })
+        .collect();
+    result.sort_by(|left, right| {
+        let severity = |value: &str| match value {
+            "error" => 0,
+            "warning" => 1,
+            _ => 2,
+        };
+        severity(&left.severity)
+            .cmp(&severity(&right.severity))
+            .then(right.count.cmp(&left.count))
+    });
+    result
+}
+
+/// Render the MCP narrative from the same immutable Report V1 used by JSON.
+pub(super) fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> String {
+    use std::fmt::Write;
+    let mut output = String::with_capacity(8192);
+    let score = report
+        .score
+        .map_or_else(|| "n/a".to_string(), |value| value.to_string());
+    let label = report
+        .score_label
+        .map_or_else(|| "nothing to scan".to_string(), |value| value.to_string());
+    let _ = writeln!(
+        output,
+        "## {score}/100 ({label}) - {} files in {:.1}s",
+        report.source_file_count, report.elapsed
+    );
+    let _ = writeln!(
+        output,
+        "{} errors | {} warnings | {} info | {} rules triggered\n",
+        report.error_count,
+        report.warning_count,
+        report.info_count,
+        groups.len()
+    );
+    for group in groups {
+        let _ = writeln!(
+            output,
+            "- `{}` ({}, {}) x{}: {}",
+            group.rule, group.category, group.severity, group.count, group.message
+        );
+        if let Some(help) = &group.help {
+            let _ = writeln!(output, "  fix: {help}");
+        }
+        for example in &group.examples {
+            let _ = writeln!(
+                output,
+                "  at {}{}",
+                example.file_path,
+                example
+                    .line
+                    .map_or(String::new(), |line| format!(":{line}"))
+            );
+        }
+    }
+    if report.completeness.state != crate::diagnostics::CompletenessState::Complete {
+        let _ = writeln!(
+            output,
+            "\nAnalysis completeness: {:?}",
+            report.completeness.state
+        );
+    }
+    output
 }
 
 #[cfg(test)]

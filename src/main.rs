@@ -30,7 +30,15 @@ fn main() -> ExitCode {
     let (_target_dir, project_info, file_config) = match run::bootstrap_project(&cli) {
         Ok(result) => result,
         Err(e) => {
-            eprintln!("Error: {e}");
+            if cli.wants_json() {
+                if let Err(output_error) =
+                    run::emit_failure_report(&cli, "bootstrap", e.to_string())
+                {
+                    eprintln!("Error: {output_error}");
+                }
+            } else {
+                eprintln!("Error: {e}");
+            }
             return ExitCode::from(run::EXIT_SCAN_ERROR);
         }
     };
@@ -47,7 +55,13 @@ fn main() -> ExitCode {
     let scan_result = match run::run_scan(&cli, &project_info, &resolved) {
         Ok(result) => result,
         Err(e) => {
-            eprintln!("Error: {e}");
+            if cli.wants_json() {
+                if let Err(output_error) = run::emit_failure_report(&cli, "scan", e.to_string()) {
+                    eprintln!("Error: {output_error}");
+                }
+            } else {
+                eprintln!("Error: {e}");
+            }
             return ExitCode::from(run::EXIT_SCAN_ERROR);
         }
     };
@@ -55,7 +69,7 @@ fn main() -> ExitCode {
     // Apply fixes, emit output, show plan
     run::apply_fixes_if_requested(&cli, &scan_result);
 
-    if let Err(e) = run::emit_output(&cli, &scan_result, &resolved) {
+    if let Err(e) = run::emit_output(&cli, &scan_result, &resolved, &project_info) {
         eprintln!("Error: {e}");
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
@@ -66,7 +80,12 @@ fn main() -> ExitCode {
     if let Some(code) = run::check_score_gate(&scan_result, resolved.score_fail_below) {
         return code;
     }
-    if let Some(code) = run::check_fail_on_gate(&scan_result, resolved.fail_on) {
+    if let Some(code) = run::check_completeness_gate(&scan_result, cli.require_complete) {
+        return code;
+    }
+    if let Some(code) =
+        run::check_fail_on_gate_for_config(&scan_result, &resolved, resolved.fail_on)
+    {
         return code;
     }
 

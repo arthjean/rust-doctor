@@ -1,4 +1,4 @@
-use crate::diagnostics::ScanResult;
+use crate::diagnostics::{ReportV1, ScanMode, ScanResult};
 use crate::discovery::ProjectInfo;
 use crate::{config, scan};
 use rmcp::handler::server::wrapper::{Json, Parameters};
@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::RustDoctorServer;
-use super::helpers::{discover_and_resolve, format_scan_report, group_diagnostics};
+use super::helpers::{discover_and_resolve, format_report_scan, group_report_diagnostics};
 use super::rules::{get_all_rules_listing, get_rule_explanation};
 use super::types::{
     DeepAuditArgs, ExplainRuleInput, HealthCheckArgs, ScanInput, ScoreInput, ScoreOutput,
@@ -33,11 +33,19 @@ async fn run_scan_with_timeout(
     resolved: config::ResolvedConfig,
     offline: bool,
     tool: &str,
-) -> Result<ScanResult, McpError> {
+) -> Result<(ScanResult, ProjectInfo, config::ResolvedConfig), McpError> {
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_task = Arc::clone(&cancel);
     let scan_future = tokio::task::spawn_blocking(move || {
-        scan::scan_project_cancellable(&project_info, &resolved, offline, &[], true, &cancel_task)
+        let result = scan::scan_project_cancellable(
+            &project_info,
+            &resolved,
+            offline,
+            &[],
+            true,
+            &cancel_task,
+        )?;
+        Ok::<_, crate::error::ScanError>((result, project_info, resolved))
     });
 
     match tokio::time::timeout(Duration::from_secs(MCP_SCAN_TIMEOUT_SECS), scan_future).await {
@@ -80,10 +88,9 @@ impl RustDoctorServer {
         description = "Run a full Rust code health analysis on a project directory. \
 Use this tool when you need detailed diagnostics — it returns all findings with file:line precision. \
 Takes 5-30 seconds depending on project size. \
-Returns JSON with: diagnostics array (each has rule, severity, message, file_path, line, column, help), \
-score (0-100), score_label, source_file_count, elapsed_secs, error_count, warning_count, info_count, skipped_passes. \
+Returns a readable projection of canonical Report V1 diagnostics with stable rule metadata and locations. \
 Severity levels: error (bugs/security), warning (code smells), info (suggestions). \
-Runs 4 passes in parallel: clippy (55+ lints), 19 custom AST rules, cargo-audit (CVEs), cargo-machete (unused deps). \
+Runs Clippy, the canonical custom-rule catalog, and configured Cargo analyzers in parallel. \
 Set 'diff' to a branch name to only scan changed files. \
 After scanning, use explain_rule on any rule ID to get fix guidance.",
         annotations(
@@ -154,7 +161,8 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
 
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
-        let result = run_scan_with_timeout(project_info, resolved, offline, "scan").await?;
+        let (result, project_info, resolved) =
+            run_scan_with_timeout(project_info, resolved, offline, "scan").await?;
 
         // Send completion progress
         if let Some(ref token) = progress_token {
@@ -187,8 +195,14 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
             })
             .await;
 
-        let grouped = group_diagnostics(&result.diagnostics);
-        let report = format_scan_report(&result, &grouped);
+        let mode = if resolved.diff.is_some() {
+            ScanMode::Baseline
+        } else {
+            ScanMode::Full
+        };
+        let report = ReportV1::from_scan(&result, &project_info, &resolved, mode);
+        let grouped = group_report_diagnostics(&report.diagnostics);
+        let report = format_report_scan(&report, &grouped);
 
         Ok(CallToolResult::success(vec![Content::text(report)]))
     }
@@ -241,7 +255,8 @@ If you also need the diagnostics, use scan instead — it includes the score too
 
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
-        let result = run_scan_with_timeout(project_info, resolved, offline, "score").await?;
+        let (result, _project_info, _resolved) =
+            run_scan_with_timeout(project_info, resolved, offline, "score").await?;
 
         if let Some(ref token) = progress_token {
             let _ = client
@@ -302,8 +317,7 @@ For unknown rules, returns guidance to use list_rules.",
         description = "List all available rust-doctor rules as formatted markdown. \
 Use this to discover which checks exist before scanning, or to find a rule ID for explain_rule. \
 Instant response — no project scanning required. \
-Returns: 19 custom AST rules (grouped by Error Handling, Performance, Architecture, Security, Async, Framework), \
-55+ clippy lints with custom severity overrides, and 2 external tools (cargo-audit, cargo-machete). \
+Returns every canonical custom, Clippy, external, and project rule directly from the shared catalog. \
 Each entry shows rule ID, severity, and one-line summary.",
         annotations(
             title = "List Rules",

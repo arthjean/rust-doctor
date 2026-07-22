@@ -373,9 +373,19 @@ Create a `rust-doctor.toml` in your project root, or add `[package.metadata.rust
 verbose = false
 fail_on = "none"
 
+[rules.unwrap-in-production]
+severity = "error"
+surfaces = ["terminal", "score", "ci-failure", "pr-comment", "sarif", "mcp"]
+
+[categories.performance]
+severity = "info"
+
+[[path_overrides]]
+pattern = "tests/**"
+severity = "off"
+
 [ignore]
-rules = ["excessive-clone", "string-from-literal"]
-files = ["**/generated/**", "tests/**"]
+files = ["**/generated/**"]
 ```
 
 CLI flags override config file values.
@@ -391,35 +401,14 @@ let x = risky_call(); // rust-doctor-disable-line
 
 ## Rules
 
-### Custom AST Rules (19 rules) — heuristic
+### Custom AST Rules (19 rules) - heuristic
 
 These rules analyze the syntax tree only (via `syn`): no type resolution, no
 macro expansion. They run fast and offline, but emit a **heuristic** signal, not
-a type-checked verdict — calibrate confidence accordingly. Findings are tagged
-`heuristic` in `--json` and SARIF output, and marked `~heuristic` in the
-terminal. Rules flagged ⚠ have known structural blind spots (see below).
-
-| Category | Rule | Severity |
-|----------|------|----------|
-| Error Handling | `unwrap-in-production` ⚠ | Warning |
-| Error Handling | `panic-in-library` | Error |
-| Error Handling | `box-dyn-error-in-public-api` | Warning |
-| Error Handling | `result-unit-error` | Warning |
-| Performance | `excessive-clone` | Warning |
-| Performance | `string-from-literal` | Info |
-| Performance | `collect-then-iterate` | Warning |
-| Performance | `large-enum-variant` ⚠ | Warning |
-| Performance | `unnecessary-allocation` | Warning |
-| Architecture | `high-cyclomatic-complexity` | Warning |
-| Security | `hardcoded-secrets` | Error |
-| Security | `unsafe-block-audit` | Warning |
-| Security | `sql-injection-risk` ⚠ | Error |
-| Async | `blocking-in-async` ⚠ | Error |
-| Async | `block-on-in-async` | Error |
-| Framework | `tokio-main-missing` | Error |
-| Framework | `tokio-spawn-without-move` | Error |
-| Framework | `axum-handler-not-async` | Warning |
-| Framework | `actix-blocking-handler` | Warning |
+a type-checked verdict. The canonical catalog is built directly from the 19 rule
+implementations and the Clippy registry. MCP `list_rules` and `explain_rule`
+render that catalog, and tests assert these counts, so adding a rule does not
+require maintaining a second documentation table.
 
 #### Known heuristic limitations (⚠)
 
@@ -431,9 +420,9 @@ worth surfacing, but a finding is a prompt to look, not a confirmed defect:
 - `blocking-in-async` — flags known blocking calls by name inside async fns; cannot follow calls into other functions or resolve aliased imports.
 - `sql-injection-risk` — flags string-built queries heuristically; cannot confirm the interpolated value is actually untrusted input.
 
-### Clippy Lints (75+ with overrides) — type-aware
+### Clippy Lints (74 with overrides) - type-aware
 
-rust-doctor runs `cargo clippy` with pedantic, nursery, and cargo lint groups. 75+ lints have explicit category and severity overrides across: Error Handling, Performance, Security, Correctness, Architecture, Cargo, Async, Style. Unlike the custom rules above, clippy resolves types against the compiler, so its findings are more authoritative — they are **not** tagged `heuristic`.
+rust-doctor runs `cargo clippy` with pedantic, nursery, and cargo lint groups. Exactly 74 lints have explicit category and severity overrides across: Error Handling, Performance, Security, Correctness, Architecture, Cargo, Async, Style. Unlike the custom rules above, Clippy resolves types against the compiler, so its findings are more authoritative.
 
 ### External Tools (optional, auto-detected)
 

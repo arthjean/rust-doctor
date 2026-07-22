@@ -11,7 +11,7 @@ Exit codes:
   0  Success — scan completed and all quality gates passed
   1  Setup error — MCP server, setup wizard, or --install-deps failed
   2  Scan error — project discovery/compile failure or output rendering failed
-  3  Quality gate failed — score below [score] fail_below, or --fail-on threshold reached
+  3  Quality gate failed: score, --fail-on, or --require-complete threshold reached
 
 CI gating example:
   rust-doctor --fail-on error; if [ $? -eq 3 ]; then echo 'quality gate failed'; fi";
@@ -46,8 +46,16 @@ pub struct Cli {
     pub score: bool,
 
     /// Output full scan results as JSON
-    #[arg(long, conflicts_with_all = ["score", "sarif"])]
+    #[arg(long, conflicts_with_all = ["score", "sarif", "json_compact"])]
     pub json: bool,
+
+    /// Output Report V1 as compact JSON
+    #[arg(long, conflicts_with_all = ["score", "sarif", "json"])]
+    pub json_compact: bool,
+
+    /// Write Report V1 atomically to a file instead of stdout
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["score", "sarif"])]
+    pub json_out: Option<PathBuf>,
 
     /// Output results in SARIF 2.1.0 format (for GitHub Code Scanning, GitLab SAST)
     #[arg(long, conflicts_with_all = ["score", "json"])]
@@ -56,6 +64,38 @@ pub struct Cli {
     /// Scan only changed files vs a base branch
     #[arg(long, num_args = 0..=1, default_missing_value = "auto", value_name = "BASE")]
     pub diff: Option<String>,
+
+    /// Reporting scope for the scan
+    #[arg(long, value_enum, default_value_t = Scope::Full)]
+    pub scope: Scope,
+
+    /// Explicit files for --scope files (repeat or comma-separate)
+    #[arg(long, value_delimiter = ',', value_name = "PATHS")]
+    pub files: Vec<PathBuf>,
+
+    /// Git base ref for changed, lines, or baseline scope
+    #[arg(long, value_name = "REF")]
+    pub base: Option<String>,
+
+    /// Include Git-untracked, non-ignored files in changed or lines scope
+    #[arg(long)]
+    pub include_untracked: bool,
+
+    /// Analyze the exact Git index snapshot
+    #[arg(long, conflicts_with = "baseline")]
+    pub staged: bool,
+
+    /// Compare head findings with the resolved merge-base
+    #[arg(long, conflicts_with = "staged")]
+    pub baseline: bool,
+
+    /// One wall-clock budget for the complete scan, in seconds
+    #[arg(long, value_name = "SECONDS", value_parser = parse_positive_u64)]
+    pub max_duration: Option<u64>,
+
+    /// Fail the quality gate when required analysis is incomplete
+    #[arg(long)]
+    pub require_complete: bool,
 
     /// Fail the quality gate (exit code 3) when this severity is reached
     #[arg(long, value_enum)]
@@ -78,7 +118,7 @@ pub struct Cli {
     pub offline: bool,
 
     /// Run as an MCP (Model Context Protocol) stdio server for AI tool integration
-    #[arg(long, conflicts_with_all = ["score", "json"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out"])]
     pub mcp: bool,
 
     /// Ignore the project's rust-doctor.toml config file
@@ -90,6 +130,12 @@ pub struct Cli {
     pub project: Vec<String>,
 }
 
+impl Cli {
+    pub const fn wants_json(&self) -> bool {
+        self.json || self.json_compact || self.json_out.is_some()
+    }
+}
+
 /// Reject empty project name segments (e.g. `--project ,api` or `--project core,`)
 fn parse_non_empty(s: &str) -> Result<String, String> {
     if s.is_empty() {
@@ -97,6 +143,28 @@ fn parse_non_empty(s: &str) -> Result<String, String> {
     } else {
         Ok(s.to_string())
     }
+}
+
+fn parse_positive_u64(value: &str) -> Result<u64, String> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| "duration must be a positive integer".to_string())?;
+    if parsed == 0 {
+        Err("duration must be greater than zero".to_string())
+    } else {
+        Ok(parsed)
+    }
+}
+
+/// File-reporting scope. Staged and baseline are separate flags because they
+/// select an alternate source snapshot in addition to a reporting scope.
+#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Scope {
+    #[default]
+    Full,
+    Files,
+    Changed,
+    Lines,
 }
 
 /// When to exit with a non-zero status code
@@ -178,6 +246,18 @@ mod tests {
     }
 
     #[test]
+    fn test_json_contract_flags() {
+        let compact = Cli::try_parse_from(["rust-doctor", "--json-compact"]).unwrap();
+        assert!(compact.wants_json());
+
+        let file = Cli::try_parse_from(["rust-doctor", "--json-out", "report.json"]).unwrap();
+        assert_eq!(file.json_out, Some(PathBuf::from("report.json")));
+        assert!(file.wants_json());
+
+        assert!(Cli::try_parse_from(["rust-doctor", "--json", "--json-compact"]).is_err());
+    }
+
+    #[test]
     fn test_score_and_json_conflict() {
         let result = Cli::try_parse_from(["rust-doctor", "--score", "--json"]);
         assert!(result.is_err());
@@ -241,6 +321,42 @@ mod tests {
     fn test_diff_absent() {
         let cli = Cli::try_parse_from(["rust-doctor"]).unwrap();
         assert_eq!(cli.diff, Option::None);
+    }
+
+    #[test]
+    fn test_typed_scope_flags() {
+        let changed = Cli::try_parse_from([
+            "rust-doctor",
+            "--scope",
+            "changed",
+            "--base",
+            "main",
+            "--include-untracked",
+        ])
+        .unwrap();
+        assert_eq!(changed.scope, Scope::Changed);
+        assert_eq!(changed.base.as_deref(), Some("main"));
+        assert!(changed.include_untracked);
+
+        let files = Cli::try_parse_from([
+            "rust-doctor",
+            "--scope",
+            "files",
+            "--files",
+            "src/lib.rs,src/main.rs",
+        ])
+        .unwrap();
+        assert_eq!(files.scope, Scope::Files);
+        assert_eq!(files.files.len(), 2);
+
+        assert!(Cli::try_parse_from(["rust-doctor", "--staged", "--baseline"]).is_err());
+    }
+
+    #[test]
+    fn test_max_duration_must_be_positive() {
+        assert!(Cli::try_parse_from(["rust-doctor", "--max-duration", "0"]).is_err());
+        let cli = Cli::try_parse_from(["rust-doctor", "--max-duration", "30"]).unwrap();
+        assert_eq!(cli.max_duration, Some(30));
     }
 
     #[test]
@@ -317,6 +433,7 @@ mod tests {
         assert!(cli.score);
         assert!(!cli.json);
         assert_eq!(cli.diff, Some("develop".to_string()));
+        assert_eq!(cli.scope, Scope::Full);
         assert_eq!(cli.fail_on, Some(FailOn::Warning));
         assert!(cli.offline);
         assert_eq!(cli.project, vec!["core", "api"]);

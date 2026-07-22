@@ -6,12 +6,13 @@ pub mod performance;
 pub mod security;
 
 use crate::cache::{self, ScanCache};
+use crate::catalog::{Confidence, NumericRange};
 use crate::diagnostics::{Category, Diagnostic, Severity};
 use crate::scanner::{self, AnalysisPass};
 use globset::GlobSet;
 use rayon::prelude::*;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ─── Shared helpers for test-code detection ─────────────────────────────────
 
@@ -73,6 +74,24 @@ pub trait CustomRule: Send + Sync {
         true
     }
 
+    /// Confidence of this rule's analyzer evidence.
+    fn confidence(&self) -> Confidence {
+        Confidence::Medium
+    }
+
+    /// Framework capabilities required before the rule is applicable.
+    fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Accepted inclusive range for a configurable numeric threshold.
+    fn supported_threshold(&self) -> Option<NumericRange> {
+        None
+    }
+
+    /// Apply a validated threshold before analysis starts.
+    fn set_threshold(&mut self, _threshold: u32) {}
+
     /// Check a parsed Rust file and return diagnostics.
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic>;
 
@@ -114,9 +133,30 @@ impl RuleEngine {
     ///
     /// This is the main implementation; [`scan`](Self::scan) delegates here
     /// with empty config slices for backward compatibility.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "kept as the full-scan compatibility entry point")
+    )]
     pub fn scan_with_config(
         &self,
         project_root: &Path,
+        ignore_files: &[String],
+        ignore_rules: &[String],
+        enable_rules: &[String],
+    ) -> Vec<Diagnostic> {
+        self.scan_selected_with_config(project_root, None, ignore_files, ignore_rules, enable_rules)
+    }
+
+    /// Scan only the supplied files when scope resolution narrowed local AST
+    /// work. Compiler-aware passes are narrowed independently at package level.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "file selection, cache partitioning, panic isolation, and parallel rule execution form one rule-engine transaction"
+    )]
+    pub fn scan_selected_with_config(
+        &self,
+        project_root: &Path,
+        selected_files: Option<&[PathBuf]>,
         ignore_files: &[String],
         ignore_rules: &[String],
         enable_rules: &[String],
@@ -125,13 +165,31 @@ impl RuleEngine {
             return vec![];
         }
 
-        // Collect .rs files
-        let src_dir = project_root.join("src");
-        if !src_dir.is_dir() {
-            return vec![];
-        }
-
-        let files = scanner::collect_rs_files(&src_dir);
+        let mut files = selected_files.map_or_else(
+            || {
+                let src_dir = project_root.join("src");
+                if src_dir.is_dir() {
+                    scanner::collect_rs_files(&src_dir)
+                } else {
+                    Vec::new()
+                }
+            },
+            |selected| {
+                selected
+                    .iter()
+                    .map(|path| {
+                        if path.is_absolute() {
+                            path.clone()
+                        } else {
+                            project_root.join(path)
+                        }
+                    })
+                    .filter(|path| path.starts_with(project_root) && path.is_file())
+                    .collect()
+            },
+        );
+        files.sort();
+        files.dedup();
         if files.is_empty() {
             return vec![];
         }
@@ -141,20 +199,39 @@ impl RuleEngine {
 
         // Compute config hash including active rule names so cache
         // invalidates when rules are added or removed.
-        let active_rule_names: Vec<&str> = self.rules.iter().map(|r| r.name()).collect();
+        let active_rule_fingerprints: Vec<String> = self
+            .rules
+            .iter()
+            .map(|rule| {
+                format!(
+                    "{}:{:?}:{:?}:{:?}:{:?}:{:?}",
+                    rule.name(),
+                    rule.category(),
+                    rule.severity(),
+                    rule.default_enabled(),
+                    rule.confidence(),
+                    rule.supported_threshold()
+                )
+            })
+            .collect();
         let config_hash = cache::compute_config_hash(
+            project_root,
             ignore_rules,
             ignore_files,
             enable_rules,
-            &active_rule_names,
+            &active_rule_fingerprints,
         );
         let mut scan_cache = ScanCache::load(project_root, &config_hash)
             .unwrap_or_else(|| ScanCache::new(config_hash.clone()));
 
         // Read all files into memory, filtering ignored paths
+        let control = crate::process::current_scan_control();
         let file_contents: Vec<(std::path::PathBuf, String)> = files
             .into_iter()
             .filter_map(|file_path| {
+                if control.is_stopped() {
+                    return None;
+                }
                 let rel_path = file_path.strip_prefix(project_root).unwrap_or(&file_path);
                 if let Ok(ref set) = ignore_set
                     && set.is_match(rel_path)
@@ -200,7 +277,10 @@ impl RuleEngine {
         // Process stale files in parallel with rayon
         let stale_results: Vec<(std::path::PathBuf, String, Vec<Diagnostic>)> = stale_files
             .par_iter()
-            .map(|&(file_path, content, ref hash)| {
+            .filter_map(|&(file_path, content, ref hash)| {
+                if control.is_stopped() {
+                    return None;
+                }
                 let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
 
                 let diagnostics = match syn::parse_file(content) {
@@ -215,7 +295,7 @@ impl RuleEngine {
                     }
                 };
 
-                (rel_path.to_path_buf(), hash.clone(), diagnostics)
+                Some((rel_path.to_path_buf(), hash.clone(), diagnostics))
             })
             .collect();
 
@@ -303,6 +383,7 @@ pub struct RuleEnginePass {
     ignore_files: Vec<String>,
     ignore_rules: Vec<String>,
     enable_rules: Vec<String>,
+    selected_files: Option<Vec<PathBuf>>,
 }
 
 impl RuleEnginePass {
@@ -318,7 +399,13 @@ impl RuleEnginePass {
             ignore_files,
             ignore_rules,
             enable_rules,
+            selected_files: None,
         }
+    }
+
+    pub fn with_selected_files(mut self, selected_files: Vec<PathBuf>) -> Self {
+        self.selected_files = Some(selected_files);
+        self
     }
 }
 
@@ -328,8 +415,9 @@ impl AnalysisPass for RuleEnginePass {
     }
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
-        Ok(self.engine.scan_with_config(
+        Ok(self.engine.scan_selected_with_config(
             project_root,
+            self.selected_files.as_deref(),
             &self.ignore_files,
             &self.ignore_rules,
             &self.enable_rules,
@@ -340,7 +428,9 @@ impl AnalysisPass for RuleEnginePass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashMap, HashSet};
     use std::io::Write;
+    use std::time::{Duration, Instant};
 
     // --- Test rule implementations ---
 
@@ -457,6 +547,319 @@ mod tests {
             write!(f, "{content}").unwrap();
         }
         dir
+    }
+
+    #[derive(Debug)]
+    struct ConformanceCase {
+        kind: String,
+        path: PathBuf,
+        source: String,
+    }
+
+    #[derive(Debug)]
+    struct ConformanceRule {
+        id: String,
+        cases: Vec<ConformanceCase>,
+    }
+
+    fn conformance_manifest() -> Vec<ConformanceRule> {
+        let input = include_str!("../../../../tests/fixtures/rules/conformance.txt");
+        let mut rules = Vec::new();
+        let mut current_rule: Option<ConformanceRule> = None;
+        let mut current_case: Option<ConformanceCase> = None;
+
+        let finish_case = |rule: &mut Option<ConformanceRule>,
+                           case: &mut Option<ConformanceCase>| {
+            if let Some(case) = case.take() {
+                rule.as_mut()
+                    .expect("a case must follow a rule header")
+                    .cases
+                    .push(case);
+            }
+        };
+
+        for line in input.lines() {
+            if let Some(id) = line.strip_prefix("=== ") {
+                finish_case(&mut current_rule, &mut current_case);
+                if let Some(rule) = current_rule.take() {
+                    rules.push(rule);
+                }
+                current_rule = Some(ConformanceRule {
+                    id: id.trim().to_string(),
+                    cases: Vec::new(),
+                });
+                continue;
+            }
+            if let Some(header) = line.strip_prefix("--- ") {
+                finish_case(&mut current_rule, &mut current_case);
+                let (kind, path) = header
+                    .split_once(' ')
+                    .expect("fixture header must contain a kind and path");
+                current_case = Some(ConformanceCase {
+                    kind: kind.to_string(),
+                    path: PathBuf::from(path),
+                    source: String::new(),
+                });
+                continue;
+            }
+            if let Some(case) = current_case.as_mut() {
+                case.source.push_str(line);
+                case.source.push('\n');
+            }
+        }
+        finish_case(&mut current_rule, &mut current_case);
+        if let Some(rule) = current_rule {
+            rules.push(rule);
+        }
+        rules
+    }
+
+    fn rule_panics(rule: &dyn CustomRule, input: &[u8]) -> bool {
+        panic::catch_unwind(AssertUnwindSafe(|| {
+            let Ok(source) = std::str::from_utf8(input) else {
+                return;
+            };
+            let Ok(syntax) = syn::parse_file(source) else {
+                return;
+            };
+            let _ = rule.check_file(&syntax, Path::new("mutation.rs"));
+        }))
+        .is_err()
+    }
+
+    fn minimize_panicking_input(rule: &dyn CustomRule, mut input: Vec<u8>) -> Vec<u8> {
+        let mut chunk = input.len().div_ceil(2);
+        while chunk > 0 {
+            let mut removed = false;
+            let mut start = 0;
+            while start < input.len() {
+                let end = (start + chunk).min(input.len());
+                let mut candidate = input.clone();
+                candidate.drain(start..end);
+                if rule_panics(rule, &candidate) {
+                    input = candidate;
+                    removed = true;
+                    break;
+                }
+                start += chunk;
+            }
+            if !removed {
+                chunk /= 2;
+            }
+        }
+        input
+    }
+
+    fn xorshift(mut value: u64) -> u64 {
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^ (value << 17)
+    }
+
+    fn mutate_source(seed: u64, source: &str) -> Vec<u8> {
+        let mut bytes = source.as_bytes().to_vec();
+        if bytes.is_empty() {
+            bytes.extend_from_slice(b"fn empty() {}\n");
+        }
+        let random = xorshift(seed);
+        let index = (random as usize) % bytes.len();
+        match random % 7 {
+            0 => bytes.insert(index, b' '),
+            1 => {
+                bytes.remove(index);
+            }
+            2 => bytes.truncate(index),
+            3 => {
+                let end = (index + 8).min(bytes.len());
+                let duplicate = bytes[index..end].to_vec();
+                bytes.splice(index..index, duplicate);
+            }
+            4 => {
+                bytes.splice(0..0, b"#[unknown_tool::attribute]\n".iter().copied());
+            }
+            5 => bytes[index] ^= 0x80,
+            _ => bytes.extend_from_slice(b"\nconst _: () = ();\n"),
+        }
+        bytes
+    }
+
+    fn stable_seed(rule: &str, iteration: u64) -> u64 {
+        rule.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x1000_0000_01b3)
+        }) ^ iteration.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+    }
+
+    fn adversarial_input(iteration: usize, source: &str, seed: u64) -> Vec<u8> {
+        match iteration {
+            0 => b"fn truncated( {".to_vec(),
+            1 => vec![b'f', b'n', b' ', 0xf0, 0x9f, 0x92],
+            2 => {
+                let mut deep = String::from("fn deep() {");
+                deep.push_str(&"{".repeat(64));
+                deep.push_str("let _value = 1;");
+                deep.push_str(&"}".repeat(64));
+                deep.push('}');
+                deep.into_bytes()
+            }
+            3 => b"#[unknown(attribute)] fn attributed() {}".to_vec(),
+            _ => mutate_source(seed, source),
+        }
+    }
+
+    #[test]
+    fn conformance_manifest_covers_every_custom_rule() {
+        let manifest = conformance_manifest();
+        let mut ids = HashSet::new();
+        for fixture in &manifest {
+            assert!(ids.insert(fixture.id.as_str()), "duplicate {}", fixture.id);
+            let positive = fixture
+                .cases
+                .iter()
+                .filter(|case| case.kind == "positive")
+                .count();
+            let negative = fixture
+                .cases
+                .iter()
+                .filter(|case| case.kind == "negative")
+                .count();
+            assert!(
+                positive >= 2,
+                "{} has {positive} positive fixtures",
+                fixture.id
+            );
+            assert!(
+                negative >= 4,
+                "{} has {negative} negative fixtures",
+                fixture.id
+            );
+        }
+
+        let manifest_by_id: HashMap<_, _> = manifest
+            .iter()
+            .map(|fixture| (fixture.id.as_str(), fixture))
+            .collect();
+        let custom_rules = all_custom_rules();
+        assert_eq!(manifest_by_id.len(), custom_rules.len());
+        for rule in custom_rules {
+            let fixture = manifest_by_id
+                .get(rule.name())
+                .unwrap_or_else(|| panic!("missing conformance manifest for {}", rule.name()));
+            if rule.default_enabled() {
+                assert!(
+                    fixture.cases.iter().any(|case| case.kind == "positive")
+                        && fixture.cases.iter().any(|case| case.kind == "negative"),
+                    "default-enabled rule {} has incomplete conformance",
+                    rule.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn conformance_fixtures_match_rule_behavior() {
+        let rules: HashMap<_, _> = all_custom_rules()
+            .into_iter()
+            .map(|rule| (rule.name(), rule))
+            .collect();
+        for fixture in conformance_manifest() {
+            let rule = rules.get(fixture.id.as_str()).unwrap();
+            for case in fixture.cases {
+                let syntax = syn::parse_file(&case.source).unwrap_or_else(|error| {
+                    panic!(
+                        "invalid fixture {} {}: {error}\n{}",
+                        fixture.id, case.kind, case.source
+                    )
+                });
+                let result =
+                    panic::catch_unwind(AssertUnwindSafe(|| rule.check_file(&syntax, &case.path)));
+                let diagnostics = result.unwrap_or_else(|_| {
+                    panic!(
+                        "rule {} panicked for {} fixture at {}",
+                        fixture.id,
+                        case.kind,
+                        case.path.display()
+                    )
+                });
+                if case.kind == "positive" {
+                    assert!(
+                        diagnostics.iter().any(|value| value.rule == fixture.id),
+                        "{} did not fire for {}\n{}",
+                        fixture.id,
+                        case.path.display(),
+                        case.source
+                    );
+                } else {
+                    assert!(
+                        diagnostics.iter().all(|value| value.rule != fixture.id),
+                        "{} fired for {} fixture {}\n{}",
+                        fixture.id,
+                        case.kind,
+                        case.path.display(),
+                        case.source
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_clippy_mapping_matches_its_catalog_descriptor() {
+        let catalog = crate::catalog::built_in_catalog().unwrap();
+        let mut seen = HashSet::new();
+        for lint in crate::clippy::LINT_REGISTRY {
+            assert!(
+                seen.insert(lint.name),
+                "duplicate Clippy mapping {}",
+                lint.name
+            );
+            let canonical = format!("clippy::{}", lint.name);
+            let descriptor = catalog.exact(&canonical).unwrap();
+            assert_eq!(descriptor.category, lint.category, "{canonical}");
+            assert_eq!(descriptor.default_severity, lint.severity, "{canonical}");
+            assert_eq!(
+                catalog.exact(lint.name).unwrap().canonical_id,
+                canonical,
+                "alias {}",
+                lint.name
+            );
+        }
+        assert_eq!(seen.len(), crate::clippy::LINT_REGISTRY.len());
+    }
+
+    #[test]
+    fn seeded_mutations_never_escape_rule_panic_isolation() {
+        const MUTATIONS_PER_RULE: usize = 1_000;
+        let started = Instant::now();
+        let budget = std::env::var("RUST_DOCTOR_MUTATION_BUDGET_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map_or(Duration::from_secs(30), Duration::from_secs);
+        let fixtures: HashMap<_, _> = conformance_manifest()
+            .into_iter()
+            .map(|fixture| (fixture.id.clone(), fixture))
+            .collect();
+
+        for rule in all_custom_rules() {
+            let fixture = fixtures.get(rule.name()).unwrap();
+            for iteration in 0..MUTATIONS_PER_RULE {
+                let source = &fixture.cases[iteration % fixture.cases.len()].source;
+                let seed = stable_seed(rule.name(), iteration as u64);
+                let input = adversarial_input(iteration, source, seed);
+                if rule_panics(rule.as_ref(), &input) {
+                    let minimized = minimize_panicking_input(rule.as_ref(), input);
+                    panic!(
+                        "mutation panic: rule={} seed={seed:#018x} minimized_input={:?}",
+                        rule.name(),
+                        String::from_utf8_lossy(&minimized)
+                    );
+                }
+            }
+        }
+        assert!(
+            started.elapsed() <= budget,
+            "mutation harness exceeded budget of {} seconds",
+            budget.as_secs()
+        );
     }
 
     #[test]

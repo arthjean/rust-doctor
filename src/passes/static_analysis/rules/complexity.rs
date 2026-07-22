@@ -1,3 +1,4 @@
+use crate::catalog::NumericRange;
 use crate::diagnostics::{Category, Diagnostic, Severity};
 use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
 use std::path::Path;
@@ -8,10 +9,20 @@ use syn::visit::Visit;
 /// Flags functions with high cyclomatic complexity (> threshold).
 /// Cyclomatic complexity measures the number of independent paths through a function.
 /// High complexity makes code harder to test, understand, and maintain.
-pub struct HighCyclomaticComplexity;
+pub struct HighCyclomaticComplexity {
+    threshold: u32,
+}
 
 /// Default complexity threshold above which a function is flagged.
 const COMPLEXITY_THRESHOLD: u32 = 15;
+
+impl Default for HighCyclomaticComplexity {
+    fn default() -> Self {
+        Self {
+            threshold: COMPLEXITY_THRESHOLD,
+        }
+    }
+}
 
 impl CustomRule for HighCyclomaticComplexity {
     fn name(&self) -> &'static str {
@@ -29,11 +40,22 @@ impl CustomRule for HighCyclomaticComplexity {
     fn fix_hint(&self) -> &'static str {
         "Extract complex branches into helper functions, use early returns, simplify match arms"
     }
+    fn supported_threshold(&self) -> Option<NumericRange> {
+        Some(NumericRange {
+            min: 5,
+            max: 100,
+            default: COMPLEXITY_THRESHOLD,
+        })
+    }
+    fn set_threshold(&mut self, threshold: u32) {
+        self.threshold = threshold;
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = ComplexityVisitor {
             path,
             diagnostics: Vec::new(),
             in_test: false,
+            threshold: self.threshold,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -44,6 +66,7 @@ struct ComplexityVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
     in_test: bool,
+    threshold: u32,
 }
 
 impl ComplexityVisitor<'_> {
@@ -58,7 +81,7 @@ impl ComplexityVisitor<'_> {
         }
         let mut counter = ComplexityCounter { complexity: 1 };
         counter.visit_block(block);
-        if counter.complexity > COMPLEXITY_THRESHOLD {
+        if counter.complexity > self.threshold {
             self.diagnostics.push(Diagnostic {
                 file_path: self.path.to_path_buf(),
                 rule: "high-cyclomatic-complexity".to_string(),
@@ -66,7 +89,7 @@ impl ComplexityVisitor<'_> {
                 severity: Severity::Warning,
                 message: format!(
                     "Function `{}` has cyclomatic complexity of {} (threshold: {})",
-                    fn_name, counter.complexity, COMPLEXITY_THRESHOLD
+                    fn_name, counter.complexity, self.threshold
                 ),
                 help: Some(
                     "Extract complex branches into helper functions, use early returns, simplify match arms"
@@ -183,7 +206,7 @@ impl<'ast> Visit<'ast> for ComplexityCounter {
 
 /// Returns the complexity rule.
 pub fn all_rules() -> Vec<Box<dyn CustomRule>> {
-    vec![Box::new(HighCyclomaticComplexity)]
+    vec![Box::new(HighCyclomaticComplexity::default())]
 }
 
 #[cfg(test)]
@@ -198,7 +221,7 @@ mod tests {
     #[test]
     fn test_simple_function_no_complexity_diagnostic() {
         let diags = check(
-            &HighCyclomaticComplexity,
+            &HighCyclomaticComplexity::default(),
             r"
             fn simple() -> i32 {
                 let x = 1 + 2;
@@ -214,7 +237,7 @@ mod tests {
         // Build a function with complexity > 15:
         // base=1, 10 ifs=+10, 1 while=+1, 1 for=+1, 1 loop=+1, 2 &&=+2 = 16
         let diags = check(
-            &HighCyclomaticComplexity,
+            &HighCyclomaticComplexity::default(),
             r"
             fn very_complex(x: i32, y: bool, z: bool) {
                 if x > 0 { }
@@ -243,7 +266,7 @@ mod tests {
     #[test]
     fn test_complex_test_function_skipped() {
         let diags = check(
-            &HighCyclomaticComplexity,
+            &HighCyclomaticComplexity::default(),
             r"
             #[test]
             fn test_complex(x: i32, y: bool, z: bool) {
@@ -271,7 +294,7 @@ mod tests {
     fn test_complexity_with_match_and_try() {
         // base=1, 8 ifs=+8, match with 5 arms=+4, 3 ?=+3 = 16
         let diags = check(
-            &HighCyclomaticComplexity,
+            &HighCyclomaticComplexity::default(),
             r#"
             fn complex_match(x: i32) -> Result<(), Box<dyn std::error::Error>> {
                 if x > 0 { }
@@ -303,5 +326,25 @@ mod tests {
     #[test]
     fn test_all_rules_returns_1() {
         assert_eq!(all_rules().len(), 1);
+    }
+
+    #[test]
+    fn configured_threshold_changes_detection() {
+        let mut rule = HighCyclomaticComplexity::default();
+        rule.set_threshold(5);
+        let diagnostics = check(
+            &rule,
+            r"
+            fn calibrated(x: i32) {
+                if x > 0 {}
+                if x > 1 {}
+                if x > 2 {}
+                if x > 3 {}
+                if x > 4 {}
+            }
+            ",
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("threshold: 5"));
     }
 }

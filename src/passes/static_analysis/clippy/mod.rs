@@ -1,19 +1,26 @@
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "the private lint registry is re-exported to the sibling catalog module"
+)]
+
 mod lint_registry;
 
+#[cfg(test)]
 pub use lint_registry::known_lint_names;
+pub(crate) use lint_registry::{LINT_REGISTRY, LintEntry};
 use lint_registry::{is_restriction_lint, map_lint_category, resolve_severity};
 
-use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::diagnostics::{
+    Category, CompilerDiagnosticEvidence, CompilerFixEvidence, CompilerMacroEvidence,
+    CompilerSpanEvidence, Diagnostic, FixApplicability, Severity, SourcePosition, SourceRange,
+};
 use crate::scanner::AnalysisPass;
 use cargo_metadata::Message;
-use cargo_metadata::diagnostic::DiagnosticLevel;
-use std::io::BufReader;
+use cargo_metadata::diagnostic::{Applicability, DiagnosticLevel, DiagnosticSpan};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 // Note: clippy uses a streaming parser (Message::parse_stream) so it cannot use
@@ -71,7 +78,10 @@ fn is_line_in_test_module(content: &str, line: u32) -> bool {
 
 /// Clippy analysis pass — runs `cargo clippy --message-format=json` and
 /// converts the output to rust-doctor diagnostics.
-pub struct ClippyPass;
+#[derive(Default)]
+pub struct ClippyPass {
+    compiler_evidence: Mutex<Vec<CompilerDiagnosticEvidence>>,
+}
 
 impl AnalysisPass for ClippyPass {
     fn name(&self) -> &'static str {
@@ -87,10 +97,22 @@ impl AnalysisPass for ClippyPass {
                     .to_string(),
             });
         }
-        run_clippy(project_root).map_err(|message| crate::error::PassError::Failed {
-            pass: "clippy".to_string(),
-            message,
-        })
+        let (diagnostics, evidence) =
+            run_clippy(project_root).map_err(|message| crate::error::PassError::Failed {
+                pass: "clippy".to_string(),
+                message,
+            })?;
+        if let Ok(mut stored) = self.compiler_evidence.lock() {
+            *stored = evidence;
+        }
+        Ok(diagnostics)
+    }
+
+    fn take_compiler_evidence(&self) -> Vec<CompilerDiagnosticEvidence> {
+        self.compiler_evidence.lock().map_or_else(
+            |_| Vec::new(),
+            |mut evidence| std::mem::take(&mut *evidence),
+        )
     }
 }
 
@@ -167,7 +189,7 @@ impl Drop for ClippyConfigGuard {
 /// Process a single clippy compiler message into a `Diagnostic`, if applicable.
 fn process_compiler_message(
     diag: &mut cargo_metadata::diagnostic::Diagnostic,
-) -> Option<Diagnostic> {
+) -> Option<(Diagnostic, CompilerDiagnosticEvidence)> {
     // Filter: only process error and warning level messages
     let clippy_severity = match &diag.level {
         DiagnosticLevel::Error | DiagnosticLevel::Ice => Severity::Error,
@@ -204,6 +226,7 @@ fn process_compiler_message(
     // Apply registry: category and severity override
     let category = map_lint_category(&rule);
     let severity = resolve_severity(&rule, clippy_severity);
+    let evidence = compiler_evidence(diag, &rule, &file_path, line, column);
 
     // Extract help: prefer children help message, fall back to rendered
     // Move fields via std::mem::take to avoid cloning
@@ -214,7 +237,7 @@ fn process_compiler_message(
         .map(|c| c.message)
         .or(rendered);
 
-    Some(Diagnostic {
+    let diagnostic = Diagnostic {
         file_path,
         rule,
         category,
@@ -224,7 +247,218 @@ fn process_compiler_message(
         line,
         column,
         fix: None,
-    })
+    };
+    Some((diagnostic, evidence))
+}
+
+fn compiler_evidence(
+    diagnostic: &cargo_metadata::diagnostic::Diagnostic,
+    rule: &str,
+    file_path: &Path,
+    line: Option<u32>,
+    column: Option<u32>,
+) -> CompilerDiagnosticEvidence {
+    let primary_span = diagnostic
+        .spans
+        .iter()
+        .find(|span| span.is_primary)
+        .map(span_evidence);
+    let mut related_locations: Vec<_> = diagnostic
+        .spans
+        .iter()
+        .filter(|span| !span.is_primary)
+        .map(|span| {
+            (
+                span.label
+                    .clone()
+                    .unwrap_or_else(|| "related compiler span".to_string()),
+                span_evidence(span),
+            )
+        })
+        .collect();
+    for child in &diagnostic.children {
+        related_locations.extend(child.spans.iter().map(|span| {
+            (
+                span.label.clone().unwrap_or_else(|| child.message.clone()),
+                span_evidence(span),
+            )
+        }));
+    }
+
+    let macro_expansion = diagnostic
+        .spans
+        .iter()
+        .find(|span| span.is_primary)
+        .and_then(|span| span.expansion.as_ref())
+        .map(|expansion| CompilerMacroEvidence {
+            macro_name: expansion.macro_decl_name.clone(),
+            call_site: span_evidence(&expansion.span),
+        });
+    let mut suggestion_spans: Vec<&DiagnosticSpan> = diagnostic
+        .spans
+        .iter()
+        .chain(
+            diagnostic
+                .children
+                .iter()
+                .flat_map(|child| child.spans.iter()),
+        )
+        .filter(|span| span.suggested_replacement.is_some())
+        .collect();
+    suggestion_spans.sort_by(|left, right| {
+        left.file_name
+            .cmp(&right.file_name)
+            .then(left.byte_start.cmp(&right.byte_start))
+    });
+    let group_id = (suggestion_spans.len() > 1).then(|| {
+        let normalized_path = file_path.to_string_lossy().replace('\\', "/");
+        format!(
+            "rustc:{rule}:{}:{}:{}",
+            normalized_path,
+            line.unwrap_or(0),
+            column.unwrap_or(0)
+        )
+    });
+    let fixes = suggestion_spans
+        .into_iter()
+        .filter_map(|span| {
+            Some(CompilerFixEvidence {
+                group_id: group_id.clone(),
+                applicability: map_applicability(span.suggestion_applicability.as_ref()),
+                replacement: span.suggested_replacement.clone()?,
+                span: span_evidence(span),
+            })
+        })
+        .collect();
+
+    CompilerDiagnosticEvidence {
+        rule: rule.to_string(),
+        message: diagnostic.message.clone(),
+        file_path: file_path.to_path_buf(),
+        line,
+        column,
+        original_level: diagnostic_level_name(diagnostic.level).to_string(),
+        primary_span,
+        related_locations,
+        macro_expansion,
+        fixes,
+    }
+}
+
+fn span_evidence(span: &DiagnosticSpan) -> CompilerSpanEvidence {
+    CompilerSpanEvidence {
+        file_path: PathBuf::from(&span.file_name),
+        range: SourceRange {
+            start: SourcePosition {
+                line: u32::try_from(span.line_start).unwrap_or(u32::MAX),
+                column: u32::try_from(span.column_start).unwrap_or(u32::MAX),
+                byte_offset: Some(span.byte_start),
+            },
+            end: SourcePosition {
+                line: u32::try_from(span.line_end).unwrap_or(u32::MAX),
+                column: u32::try_from(span.column_end).unwrap_or(u32::MAX),
+                byte_offset: Some(span.byte_end),
+            },
+        },
+    }
+}
+
+const fn map_applicability(applicability: Option<&Applicability>) -> FixApplicability {
+    match applicability {
+        Some(Applicability::MachineApplicable) => FixApplicability::MachineApplicable,
+        Some(Applicability::HasPlaceholders) => FixApplicability::HasPlaceholders,
+        Some(Applicability::MaybeIncorrect) => FixApplicability::MaybeIncorrect,
+        Some(_) | None => FixApplicability::Unspecified,
+    }
+}
+
+const fn diagnostic_level_name(level: DiagnosticLevel) -> &'static str {
+    match level {
+        DiagnosticLevel::Ice => "error: internal compiler error",
+        DiagnosticLevel::Error => "error",
+        DiagnosticLevel::Warning => "warning",
+        DiagnosticLevel::FailureNote => "failure-note",
+        DiagnosticLevel::Note => "note",
+        DiagnosticLevel::Help => "help",
+        _ => "unknown",
+    }
+}
+
+fn unknown_level_diagnostic(
+    value: &serde_json::Value,
+) -> Option<(Diagnostic, CompilerDiagnosticEvidence)> {
+    if value.get("reason")?.as_str()? != "compiler-message" {
+        return None;
+    }
+    let message = value.get("message")?;
+    let level = message.get("level")?.as_str()?;
+    if matches!(
+        level,
+        "error: internal compiler error" | "error" | "warning" | "failure-note" | "note" | "help"
+    ) {
+        return None;
+    }
+    let text = message.get("message")?.as_str()?.to_string();
+    let spans: Vec<DiagnosticSpan> = serde_json::from_value(message.get("spans")?.clone()).ok()?;
+    let primary = spans.iter().find(|span| span.is_primary);
+    let file_path = primary.map_or_else(
+        || PathBuf::from("<unknown>"),
+        |span| PathBuf::from(&span.file_name),
+    );
+    let line = primary.and_then(|span| u32::try_from(span.line_start).ok());
+    let column = primary.and_then(|span| u32::try_from(span.column_start).ok());
+    let diagnostic = Diagnostic {
+        file_path: file_path.clone(),
+        rule: "unknown-rustc-level".to_string(),
+        category: Category::Correctness,
+        severity: Severity::Info,
+        message: text.clone(),
+        help: Some(format!(
+            "rustc emitted the unknown diagnostic level `{level}`"
+        )),
+        line,
+        column,
+        fix: None,
+    };
+    let evidence = CompilerDiagnosticEvidence {
+        rule: diagnostic.rule.clone(),
+        message: text,
+        file_path,
+        line,
+        column,
+        original_level: format!("unknown:{level}"),
+        primary_span: primary.map(span_evidence),
+        related_locations: spans
+            .iter()
+            .filter(|span| !span.is_primary)
+            .map(|span| {
+                (
+                    span.label
+                        .clone()
+                        .unwrap_or_else(|| "related compiler span".to_string()),
+                    span_evidence(span),
+                )
+            })
+            .collect(),
+        macro_expansion: primary
+            .and_then(|span| span.expansion.as_ref())
+            .map(|expansion| CompilerMacroEvidence {
+                macro_name: expansion.macro_decl_name.clone(),
+                call_site: span_evidence(&expansion.span),
+            }),
+        fixes: spans
+            .iter()
+            .filter_map(|span| {
+                Some(CompilerFixEvidence {
+                    group_id: None,
+                    applicability: map_applicability(span.suggestion_applicability.as_ref()),
+                    replacement: span.suggested_replacement.clone()?,
+                    span: span_evidence(span),
+                })
+            })
+            .collect(),
+    };
+    Some((diagnostic, evidence))
 }
 
 /// Build a fallback compiler-error diagnostic from stderr when the build
@@ -313,7 +547,9 @@ fn filter_test_and_binary_lints(diagnostics: &mut Vec<Diagnostic>, project_root:
 }
 
 /// Run cargo clippy and parse JSON output into diagnostics.
-fn run_clippy(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
+fn run_clippy(
+    project_root: &Path,
+) -> Result<(Vec<Diagnostic>, Vec<CompilerDiagnosticEvidence>), String> {
     let manifest_path = project_root.join("Cargo.toml");
 
     let warn_flags = build_clippy_warn_flags();
@@ -352,40 +588,39 @@ fn run_clippy(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
         .ok_or("failed to capture clippy stdout")?;
     let stderr = child.stderr.take();
 
-    // Cancellable timeout watchdog
-    let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
     let child = Arc::new(Mutex::new(child));
-    let child_watcher = Arc::clone(&child);
-    let timed_out = Arc::new(AtomicBool::new(false));
-    let timed_out_watcher = Arc::clone(&timed_out);
-
-    let watcher = thread::spawn(move || {
-        if cancel_rx
-            .recv_timeout(Duration::from_secs(CLIPPY_TIMEOUT_SECS))
-            .is_err()
-            && let Ok(mut c) = child_watcher.lock()
-            && matches!(c.try_wait(), Ok(None))
-        {
-            crate::process::kill_process_tree(&mut c); // SIGKILL the whole group
-            let _ = c.wait(); // Reap the direct child to avoid a zombie process
-            timed_out_watcher.store(true, Ordering::Relaxed);
-        }
-    });
+    let watchdog = crate::process::ProcessWatchdog::start(
+        Arc::clone(&child),
+        Duration::from_secs(CLIPPY_TIMEOUT_SECS),
+        crate::process::current_scan_control(),
+    );
 
     // Parse JSON messages from clippy stdout
     let reader = BufReader::new(stdout);
     let mut diagnostics = Vec::new();
+    let mut compiler_evidence = Vec::new();
     let mut build_succeeded = true;
 
-    for message in Message::parse_stream(reader) {
-        let Ok(message) = message else {
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        let Ok(message) = serde_json::from_value::<Message>(value.clone()) else {
+            if let Some((diagnostic, evidence)) = unknown_level_diagnostic(&value) {
+                diagnostics.push(diagnostic);
+                compiler_evidence.push(evidence);
+            }
             continue;
         };
         match message {
             Message::CompilerMessage(compiler_msg) => {
                 let mut diag = compiler_msg.message;
-                if let Some(diagnostic) = process_compiler_message(&mut diag) {
+                if let Some((diagnostic, evidence)) = process_compiler_message(&mut diag) {
                     diagnostics.push(diagnostic);
+                    compiler_evidence.push(evidence);
                 }
             }
             Message::BuildFinished(finished) => {
@@ -395,9 +630,8 @@ fn run_clippy(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
         }
     }
 
-    // Cancel the watchdog thread
-    let _ = cancel_tx.send(());
-    let _ = watcher.join();
+    let stop = watchdog.finish();
+    crate::process::record_process_stop(stop);
 
     // Reap the child process
     if let Ok(mut c) = child.lock() {
@@ -405,10 +639,16 @@ fn run_clippy(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
     }
 
     // Check if we timed out
-    if timed_out.load(Ordering::Relaxed) {
-        eprintln!(
-            "Warning: clippy timed out after {CLIPPY_TIMEOUT_SECS}s — reporting partial results"
-        );
+    match stop {
+        Some(crate::process::ProcessStop::TimedOut) => {
+            eprintln!(
+                "Warning: clippy timed out after {CLIPPY_TIMEOUT_SECS}s; reporting partial results"
+            );
+        }
+        Some(crate::process::ProcessStop::Cancelled) => {
+            eprintln!("Warning: clippy was cancelled; reporting partial results");
+        }
+        None => {}
     }
 
     // If the build failed and we got no error diagnostics from JSON,
@@ -423,7 +663,7 @@ fn run_clippy(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
 
     filter_test_and_binary_lints(&mut diagnostics, project_root);
 
-    Ok(diagnostics)
+    Ok((diagnostics, compiler_evidence))
 }
 
 #[cfg(test)]
@@ -674,7 +914,7 @@ mod tests {
         let result = run_clippy(manifest_dir);
         assert!(result.is_ok(), "clippy failed: {:?}", result.err());
         // Verify that diagnostics from registered lints get severity overrides
-        let diags = result.unwrap();
+        let (diags, _) = result.unwrap();
         for d in &diags {
             if let Some((_, expected_sev, _)) = lookup_lint(&d.rule) {
                 assert_eq!(
@@ -695,5 +935,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn unknown_rustc_level_is_retained_explicitly() {
+        let value = serde_json::json!({
+            "reason": "compiler-message",
+            "message": {
+                "message": "future compiler signal",
+                "code": null,
+                "level": "future-level",
+                "spans": [],
+                "children": [],
+                "rendered": null,
+                "future_additive_field": true
+            }
+        });
+        let (diagnostic, evidence) = unknown_level_diagnostic(&value).unwrap();
+        assert_eq!(diagnostic.rule, "unknown-rustc-level");
+        assert_eq!(diagnostic.severity, Severity::Info);
+        assert_eq!(evidence.original_level, "unknown:future-level");
     }
 }

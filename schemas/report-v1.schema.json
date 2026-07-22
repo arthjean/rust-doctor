@@ -1,0 +1,316 @@
+{
+  "$defs": {
+    "AuditMetadata": {
+      "description": "Verbose policy audit data that never re-enables suppressed findings.",
+      "properties": {
+        "suppressed_security": {
+          "items": { "$ref": "#/$defs/CanonicalDiagnostic" },
+          "type": "array"
+        }
+      },
+      "required": ["suppressed_security"],
+      "type": "object"
+    },
+    "BaselineReport": {
+      "description": "Head/base comparison metadata for baseline mode.",
+      "properties": {
+        "base_commit": { "type": "string" },
+        "base_total": { "format": "uint", "minimum": 0, "type": "integer" },
+        "baseline_degraded": { "type": "boolean" },
+        "cross_file_match_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "degraded_reason": { "type": ["string", "null"] },
+        "fixed_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "new_count": { "format": "uint", "minimum": 0, "type": "integer" }
+      },
+      "required": [
+        "base_commit", "new_count", "fixed_count", "base_total",
+        "cross_file_match_count", "baseline_degraded"
+      ],
+      "type": "object"
+    },
+    "CanonicalDiagnostic": {
+      "description": "Canonical diagnostic consumed by JSON, SARIF, MCP, CI, and editors.",
+      "properties": {
+        "analysis_kind": { "type": "string" },
+        "baseline_key": { "type": "string" },
+        "category": { "$ref": "#/$defs/Category" },
+        "confidence": { "type": "string" },
+        "fixes": {
+          "items": { "$ref": "#/$defs/CanonicalFix" },
+          "type": "array"
+        },
+        "help": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
+        "macro_expansion": {
+          "anyOf": [
+            { "$ref": "#/$defs/MacroExpansion" },
+            { "type": "null" }
+          ]
+        },
+        "message": { "type": "string" },
+        "namespace_fallback": { "type": "boolean" },
+        "original_level": { "type": "string" },
+        "provider": { "type": "string" },
+        "related_locations": {
+          "items": { "$ref": "#/$defs/RelatedLocation" },
+          "type": "array"
+        },
+        "rule": { "type": "string" },
+        "severity": { "$ref": "#/$defs/Severity" },
+        "site_id": { "type": "string" },
+        "tags": { "items": { "type": "string" }, "type": "array" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "visible_on": { "items": { "type": "string" }, "type": "array" }
+      },
+      "required": [
+        "provider", "rule", "title", "category", "severity", "message",
+        "url", "tags", "analysis_kind", "confidence", "original_level",
+        "location", "related_locations", "fixes", "visible_on", "site_id",
+        "baseline_key", "namespace_fallback"
+      ],
+      "type": "object"
+    },
+    "CanonicalFix": {
+      "description": "One stable edit group. A group may resolve multiple findings.",
+      "properties": {
+        "applicability": { "$ref": "#/$defs/FixApplicability" },
+        "group_id": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
+        "replacement": { "type": "string" }
+      },
+      "required": ["applicability", "replacement", "location"],
+      "type": "object"
+    },
+    "Category": {
+      "description": "Category of a diagnostic rule.",
+      "enum": [
+        "error-handling", "performance", "security", "correctness",
+        "architecture", "dependencies", "async", "framework", "cargo", "style"
+      ],
+      "type": "string"
+    },
+    "CheckState": {
+      "description": "One planned analysis check and its final state.",
+      "properties": {
+        "name": { "type": "string" },
+        "reason": { "type": ["string", "null"] },
+        "required": { "default": false, "type": "boolean" },
+        "status": { "$ref": "#/$defs/CheckStatus" }
+      },
+      "required": ["name", "status"],
+      "type": "object"
+    },
+    "CheckStatus": {
+      "description": "Check execution state retained in machine output.",
+      "enum": [
+        "planned", "running", "completed", "skipped", "failed",
+        "timed_out", "cancelled"
+      ],
+      "type": "string"
+    },
+    "CompletenessState": {
+      "description": "Completeness of planned analysis work.",
+      "enum": ["complete", "partial", "incomplete"],
+      "type": "string"
+    },
+    "DiagnosticLocation": {
+      "description": "Explicit source or project-level location.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "source", "type": "string" },
+            "path": { "type": "string" },
+            "range": { "$ref": "#/$defs/SourceRange" }
+          },
+          "required": ["kind", "path", "range"],
+          "type": "object"
+        },
+        {
+          "properties": { "kind": { "const": "project", "type": "string" } },
+          "required": ["kind"],
+          "type": "object"
+        }
+      ]
+    },
+    "DimensionScores": {
+      "description": "Per-dimension health scores.",
+      "properties": {
+        "dependencies": { "description": "Dependencies dimension score (0–100). Covers Cargo and Dependencies categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "maintainability": { "description": "Maintainability dimension score (0–100). Covers Architecture and Style categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "performance": { "description": "Performance dimension score (0–100). Covers Performance category.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "reliability": { "description": "Reliability dimension score (0–100). Covers Correctness and ErrorHandling categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "security": { "description": "Security dimension score (0–100). Covers Security and Dependencies (advisory) categories.", "format": "uint32", "minimum": 0, "type": "integer" }
+      },
+      "required": ["security", "reliability", "maintainability", "performance", "dependencies"],
+      "type": "object"
+    },
+    "FixApplicability": {
+      "description": "rustc-compatible applicability vocabulary.",
+      "enum": ["machine_applicable", "maybe_incorrect", "has_placeholders", "unspecified"],
+      "type": "string"
+    },
+    "MacroExpansion": {
+      "description": "Macro expansion call-site context, when supplied by rustc.",
+      "properties": {
+        "call_site": { "$ref": "#/$defs/DiagnosticLocation" },
+        "macro_name": { "type": "string" }
+      },
+      "required": ["macro_name", "call_site"],
+      "type": "object"
+    },
+    "ProjectReport": {
+      "description": "Per-package Report V1 payload.",
+      "properties": {
+        "analyzed_files": { "items": { "type": "string" }, "type": "array" },
+        "cargo_package_id": { "type": "string" },
+        "checks": { "items": { "$ref": "#/$defs/CheckState" }, "type": "array" },
+        "completeness": { "$ref": "#/$defs/ReportCompleteness" },
+        "framework_capabilities": { "items": { "type": "string" }, "type": "array" },
+        "diagnostics": { "default": [], "items": { "$ref": "#/$defs/CanonicalDiagnostic" }, "type": "array" },
+        "elapsed_ms": { "default": 0, "format": "uint64", "minimum": 0, "type": "integer" },
+        "package_root": { "type": "string" },
+        "planned_files": { "items": { "type": "string" }, "type": "array" },
+        "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "skipped_reasons": { "items": { "type": "string" }, "type": "array" },
+        "targets": { "items": { "type": "string" }, "type": "array" }
+      },
+      "required": [
+        "cargo_package_id", "package_root", "targets", "framework_capabilities",
+        "planned_files", "analyzed_files", "checks", "skipped_reasons", "completeness"
+      ],
+      "type": "object"
+    },
+    "RelatedLocation": {
+      "description": "Related source evidence retained by adapters that expose it.",
+      "properties": {
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
+        "message": { "type": "string" }
+      },
+      "required": ["message", "location"],
+      "type": "object"
+    },
+    "ReportCompleteness": {
+      "description": "Aggregate execution-accounting contract.",
+      "properties": {
+        "analyzed_files": { "format": "uint", "minimum": 0, "type": "integer" },
+        "cancelled_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "completed_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "failed_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "planned_files": { "format": "uint", "minimum": 0, "type": "integer" },
+        "required_checks": { "default": 0, "format": "uint", "minimum": 0, "type": "integer" },
+        "required_completed_checks": { "default": 0, "format": "uint", "minimum": 0, "type": "integer" },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "skipped_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "state": { "$ref": "#/$defs/CompletenessState" },
+        "timed_out_checks": { "format": "uint", "minimum": 0, "type": "integer" }
+      },
+      "required": [
+        "state", "planned_files", "analyzed_files", "completed_checks",
+        "skipped_checks", "failed_checks", "timed_out_checks", "cancelled_checks"
+      ],
+      "type": "object"
+    },
+    "ReportError": {
+      "description": "Structured failure retained even when discovery or scanning fails.",
+      "properties": { "kind": { "type": "string" }, "message": { "type": "string" } },
+      "required": ["kind", "message"],
+      "type": "object"
+    },
+    "ReportOutcome": {
+      "description": "High-level outcome. `Partial` and `Failed` never mean clean.",
+      "enum": ["clean", "findings", "partial", "failed", "nothing_to_scan"],
+      "type": "string"
+    },
+    "ReportSummary": {
+      "description": "Machine-readable summary independent of terminal presentation.",
+      "properties": {
+        "diagnostic_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "error_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "info_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "score_label": { "anyOf": [{ "$ref": "#/$defs/ScoreLabel" }, { "type": "null" }] },
+        "warning_count": { "format": "uint", "minimum": 0, "type": "integer" }
+      },
+      "required": ["error_count", "warning_count", "info_count", "diagnostic_count"],
+      "type": "object"
+    },
+    "ScanMode": {
+      "description": "Stable machine-output mode vocabulary for Report V1.",
+      "enum": ["full", "files", "lines", "staged", "baseline"],
+      "type": "string"
+    },
+    "ScoreLabel": {
+      "description": "Human-readable health assessment label.",
+      "enum": ["Great", "Needs work", "Critical"],
+      "type": "string"
+    },
+    "Severity": {
+      "description": "Severity of a diagnostic finding.",
+      "enum": ["error", "warning", "info"],
+      "type": "string"
+    },
+    "SourcePosition": {
+      "description": "Source position with optional byte offset when the adapter provides it.",
+      "properties": {
+        "byte_offset": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "column": { "format": "uint32", "minimum": 0, "type": "integer" },
+        "line": { "format": "uint32", "minimum": 0, "type": "integer" }
+      },
+      "required": ["line", "column"],
+      "type": "object"
+    },
+    "SourceRange": {
+      "description": "Inclusive diagnostic range in a normalized project-relative file.",
+      "properties": {
+        "end": { "$ref": "#/$defs/SourcePosition" },
+        "start": { "$ref": "#/$defs/SourcePosition" }
+      },
+      "required": ["start", "end"],
+      "type": "object"
+    }
+  },
+  "$id": "https://rust-doctor.vercel.app/schemas/report-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Versioned Report V1. Legacy top-level score/count fields remain during the\nv0.2 migration release, while `summary` is the canonical replacement.",
+  "properties": {
+    "audit": { "$ref": "#/$defs/AuditMetadata" },
+    "baseline": { "anyOf": [{ "$ref": "#/$defs/BaselineReport" }, { "type": "null" }] },
+    "completeness": { "$ref": "#/$defs/ReportCompleteness" },
+    "diagnostics": { "items": { "$ref": "#/$defs/CanonicalDiagnostic" }, "type": "array" },
+    "dimension_scores": { "anyOf": [{ "$ref": "#/$defs/DimensionScores" }, { "type": "null" }] },
+    "elapsed": { "format": "double", "type": "number" },
+    "elapsed_ms": { "format": "uint64", "minimum": 0, "type": "integer" },
+    "error": { "anyOf": [{ "$ref": "#/$defs/ReportError" }, { "type": "null" }] },
+    "error_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "execution_scope": { "default": "", "type": "string" },
+    "info_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "mode": { "$ref": "#/$defs/ScanMode" },
+    "outcome": { "$ref": "#/$defs/ReportOutcome" },
+    "pass_timings_ms": {
+      "additionalProperties": { "format": "uint64", "minimum": 0, "type": "integer" },
+      "default": {},
+      "type": "object"
+    },
+    "projects": { "items": { "$ref": "#/$defs/ProjectReport" }, "type": "array" },
+    "requested_root": { "type": "string" },
+    "reporting_scope": { "default": "", "type": "string" },
+    "schema_version": { "type": "string" },
+    "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+    "score_label": { "anyOf": [{ "$ref": "#/$defs/ScoreLabel" }, { "type": "null" }] },
+    "skipped_passes": { "items": { "type": "string" }, "type": "array" },
+    "source_file_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "summary": { "$ref": "#/$defs/ReportSummary" },
+    "tool_version": { "type": "string" },
+    "warning_count": { "format": "uint", "minimum": 0, "type": "integer" }
+  },
+  "required": [
+    "schema_version", "tool_version", "outcome", "requested_root", "mode",
+    "completeness", "projects", "diagnostics", "summary", "elapsed_ms", "audit",
+    "source_file_count", "elapsed", "skipped_passes", "error_count", "warning_count", "info_count"
+  ],
+  "title": "ReportV1",
+  "type": "object"
+}

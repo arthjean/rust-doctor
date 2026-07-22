@@ -15,7 +15,7 @@ use crate::rules::CustomRule;
 /// Returns all performance rules.
 pub fn all_rules() -> Vec<Box<dyn CustomRule>> {
     vec![
-        Box::new(ExcessiveClone),
+        Box::new(ExcessiveClone::default()),
         Box::new(StringFromLiteral),
         Box::new(CollectThenIterate),
         Box::new(LargeEnumVariant),

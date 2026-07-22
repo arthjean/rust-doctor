@@ -35,6 +35,9 @@ fn fast_config() -> ResolvedConfig {
         lint: true,
         dependencies: false,
         rules_config: std::collections::HashMap::new(),
+        category_config: std::collections::HashMap::new(),
+        tag_config: std::collections::HashMap::new(),
+        path_overrides: vec![],
         enable_rules: vec![],
         score_fail_below: None,
     }

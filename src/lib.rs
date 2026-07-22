@@ -106,6 +106,7 @@ pub mod run;
 
 // Internal implementation modules
 pub(crate) mod cache;
+pub(crate) mod catalog;
 pub(crate) mod diff;
 pub(crate) mod passes;
 pub(crate) mod process;
@@ -123,3 +124,6 @@ pub(crate) use passes::security::deny;
 pub(crate) use passes::security::geiger;
 pub(crate) use passes::static_analysis::clippy;
 pub(crate) use passes::static_analysis::rules;
+
+#[cfg(test)]
+mod report_contract_tests;

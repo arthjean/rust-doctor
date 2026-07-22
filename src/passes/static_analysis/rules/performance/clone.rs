@@ -1,3 +1,4 @@
+use crate::catalog::NumericRange;
 use crate::diagnostics::{Category, Diagnostic, Severity};
 use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
 use std::path::Path;
@@ -12,10 +13,20 @@ use syn::visit::Visit;
 /// - Uses `clippy::clone_on_copy` (in the clippy pass) for precise Copy-type detection
 ///
 /// Suppress with `// rust-doctor-disable-next-line excessive-clone` for reviewed clones.
-pub struct ExcessiveClone;
+pub struct ExcessiveClone {
+    threshold: usize,
+}
 
 /// Minimum number of clone calls in a file before reporting.
 const CLONE_THRESHOLD: usize = 3;
+
+impl Default for ExcessiveClone {
+    fn default() -> Self {
+        Self {
+            threshold: CLONE_THRESHOLD,
+        }
+    }
+}
 
 impl CustomRule for ExcessiveClone {
     fn name(&self) -> &'static str {
@@ -33,6 +44,16 @@ impl CustomRule for ExcessiveClone {
     fn fix_hint(&self) -> &'static str {
         "Use references (`&T`) or `Cow<T>` instead of cloning. Consider restructuring ownership to avoid the clone."
     }
+    fn supported_threshold(&self) -> Option<NumericRange> {
+        Some(NumericRange {
+            min: 1,
+            max: 100,
+            default: CLONE_THRESHOLD as u32,
+        })
+    }
+    fn set_threshold(&mut self, threshold: u32) {
+        self.threshold = threshold as usize;
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = CloneVisitor {
             path,
@@ -42,7 +63,7 @@ impl CustomRule for ExcessiveClone {
         };
         visitor.visit_file(syntax);
         // Only report if the file has enough clones to suggest a pattern issue
-        if visitor.diagnostics.len() >= CLONE_THRESHOLD {
+        if visitor.diagnostics.len() >= self.threshold {
             visitor.diagnostics
         } else {
             Vec::new()
@@ -139,7 +160,7 @@ mod tests {
     fn test_clone_detected_above_threshold() {
         // 3+ clones in production code should trigger the rule
         let diags = check(
-            &ExcessiveClone,
+            &ExcessiveClone::default(),
             r"
             fn main() {
                 let x = vec![1, 2, 3];
@@ -157,7 +178,7 @@ mod tests {
     fn test_clone_below_threshold_not_reported() {
         // 1-2 clones are considered intentional and not reported
         let diags = check(
-            &ExcessiveClone,
+            &ExcessiveClone::default(),
             r"
             fn main() {
                 let x = vec![1, 2, 3];
@@ -171,7 +192,7 @@ mod tests {
     #[test]
     fn test_clone_in_test_code_ignored() {
         let diags = check(
-            &ExcessiveClone,
+            &ExcessiveClone::default(),
             r"
             #[test]
             fn test_something() {
@@ -189,7 +210,7 @@ mod tests {
     #[test]
     fn test_clone_in_cfg_test_module_ignored() {
         let diags = check(
-            &ExcessiveClone,
+            &ExcessiveClone::default(),
             r"
             #[cfg(test)]
             mod tests {
@@ -208,7 +229,7 @@ mod tests {
     #[test]
     fn test_clone_no_false_positive_on_other_methods() {
         let diags = check(
-            &ExcessiveClone,
+            &ExcessiveClone::default(),
             r"
             fn main() {
                 let x = vec![1, 2, 3];

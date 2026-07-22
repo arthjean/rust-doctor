@@ -74,6 +74,10 @@ pub struct ProjectInfo {
     pub name: String,
     /// Primary package version.
     pub version: String,
+    /// Cargo's stable package identity string.
+    pub package_id: String,
+    /// Primary Cargo targets with their target kinds.
+    pub targets: Vec<String>,
     /// Rust edition of the primary package.
     pub edition: String,
     /// Detected frameworks/runtimes from dependencies.
@@ -92,6 +96,8 @@ pub struct ProjectInfo {
     pub package_metadata: serde_json::Value,
     /// Workspace member names and their root directories.
     pub workspace_members: Vec<WorkspaceMember>,
+    /// Cargo package IDs selected by workspace `default-members` semantics.
+    pub default_member_ids: Vec<String>,
 }
 
 /// A workspace member package.
@@ -101,6 +107,14 @@ pub struct WorkspaceMember {
     pub name: String,
     /// Absolute path to the member's root directory (parent of Cargo.toml).
     pub root_dir: PathBuf,
+    /// Cargo's package identity string.
+    pub package_id: String,
+    /// Cargo target names and kinds.
+    pub targets: Vec<String>,
+    /// Framework capabilities detected for this member.
+    pub frameworks: Vec<Framework>,
+    /// The member's declared minimum supported Rust version.
+    pub rust_version: Option<String>,
 }
 
 /// Run cargo metadata and discover project characteristics.
@@ -126,13 +140,20 @@ pub fn discover_project(
     let workspace_root = PathBuf::from(metadata.workspace_root.as_std_path());
     let members = metadata.workspace_packages();
     let member_count = members.len();
-    let is_workspace = member_count > 1;
+    let is_workspace = metadata.root_package().is_none() || member_count > 1;
+    let default_member_ids: Vec<String> = metadata
+        .workspace_default_members
+        .iter()
+        .map(|package_id| package_id.repr.clone())
+        .collect();
 
     // Use first workspace member as "primary" package
     let primary = members.first().ok_or(DiscoveryError::NoPackages)?;
 
     let name = primary.name.clone();
     let version = primary.version.to_string();
+    let package_id = primary.id.repr.clone();
+    let targets = package_targets(primary);
     let edition = primary.edition.as_str().to_string();
     let rust_version = primary
         .rust_version
@@ -172,6 +193,19 @@ pub fn discover_project(
                 workspace_root.as_path(),
                 cargo_metadata::camino::Utf8Path::as_std_path,
             )),
+            package_id: pkg.id.repr.clone(),
+            targets: package_targets(pkg),
+            frameworks: detect_frameworks(
+                &pkg.dependencies
+                    .iter()
+                    .filter(|dependency| dependency.kind == DependencyKind::Normal)
+                    .map(|dependency| dependency.name.as_str())
+                    .collect(),
+            ),
+            rust_version: pkg
+                .rust_version
+                .as_ref()
+                .map(std::string::ToString::to_string),
         })
         .collect();
 
@@ -179,6 +213,8 @@ pub fn discover_project(
         root_dir: workspace_root,
         name,
         version,
+        package_id,
+        targets,
         edition,
         frameworks,
         is_workspace,
@@ -188,7 +224,18 @@ pub fn discover_project(
         is_no_std,
         package_metadata,
         workspace_members: workspace_members_info,
+        default_member_ids,
     })
+}
+
+fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
+    let mut targets: Vec<String> = package
+        .targets
+        .iter()
+        .map(|target| format!("{}:{:?}", target.name, target.kind))
+        .collect();
+    targets.sort();
+    targets
 }
 
 /// Detect frameworks from dependency names.
@@ -272,16 +319,10 @@ pub fn bootstrap_project(
 
     let project_info = discover_project(&cargo_toml, offline)?;
 
-    let file_config = match crate::config::load_file_config(
+    let file_config = crate::config::load_file_config(
         &project_info.root_dir,
         Some(&project_info.package_metadata),
-    ) {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!("Warning: {e}\nUsing default configuration.");
-            None
-        }
-    };
+    )?;
 
     Ok((target_dir, project_info, file_config))
 }
@@ -424,6 +465,7 @@ mod tests {
         assert_eq!(info.edition, "2024");
         assert!(!info.is_workspace);
         assert_eq!(info.member_count, 1);
+        assert_eq!(info.default_member_ids, vec![info.package_id.clone()]);
         assert!(!info.has_build_script);
         assert!(!info.is_no_std);
         // rust-doctor depends on tokio (for MCP server)

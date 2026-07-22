@@ -1,0 +1,322 @@
+# Format: `=== rule-id`, then `--- kind relative/path.rs` and Rust source.
+# Kinds are positive, negative, or limitation:<documented-name>.
+
+=== unwrap-in-production
+--- positive src/lib.rs
+fn value(input: Option<u8>) -> u8 { input.unwrap() }
+--- positive src/lib.rs
+fn value(input: Result<u8, ()>) -> u8 { input.expect("value") }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> u8 { input.unwrap_or_default() }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> Option<u8> { input.map(|v| v + 1) }
+--- negative src/lib.rs
+fn value(input: Result<u8, ()>) -> u8 { match input { Ok(v) => v, Err(()) => 0 } }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> u8 { if let Some(v) = input { v } else { 0 } }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn accepts_unwrap() { Some(1).unwrap(); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn helper() { Some(1).unwrap(); } }
+
+=== panic-in-library
+--- positive src/lib.rs
+pub fn value() -> u8 { panic!("missing") }
+--- positive src/module.rs
+pub fn value() -> u8 { unimplemented!() }
+--- negative src/main.rs
+fn main() { panic!("binary boundary") }
+--- negative src/bin/tool.rs
+fn run() { todo!() }
+--- negative src/lib.rs
+pub fn value() -> Option<u8> { None }
+--- negative src/lib.rs
+pub fn value(ok: bool) -> u8 { assert!(ok); 1 }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn accepts_panic() { panic!("expected") }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn helper() { todo!() } }
+
+=== box-dyn-error-in-public-api
+--- positive src/lib.rs
+pub fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+--- positive src/lib.rs
+struct Api; impl Api { pub fn error(&self) -> Box<dyn Error> { loop {} } }
+--- negative src/lib.rs
+fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+--- negative src/lib.rs
+pub fn load() -> Result<(), LoadError> { loop {} }
+--- negative src/lib.rs
+pub fn load() {}
+--- negative src/lib.rs
+pub fn load() -> Box<String> { Box::new(String::new()) }
+--- limitation:test-function-exception src/lib.rs
+#[test] pub fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+
+=== result-unit-error
+--- positive src/lib.rs
+pub fn parse() -> Result<u8, ()> { Err(()) }
+--- positive src/lib.rs
+struct Api; impl Api { pub fn save(&self) -> Result<(), ()> { Ok(()) } }
+--- negative src/lib.rs
+fn parse() -> Result<u8, ()> { Err(()) }
+--- negative src/lib.rs
+pub fn parse() -> Result<u8, ParseError> { loop {} }
+--- negative src/lib.rs
+pub fn parse() -> Option<u8> { None }
+--- negative src/lib.rs
+pub fn parse() {}
+--- limitation:test-function-exception src/lib.rs
+#[test] pub fn parse() -> Result<u8, ()> { Err(()) }
+
+=== high-cyclomatic-complexity
+--- positive src/lib.rs
+fn complex(v: u8) -> u8 {
+    if v > 0 {} if v > 1 {} if v > 2 {} if v > 3 {}
+    if v > 4 {} if v > 5 {} if v > 6 {} if v > 7 {}
+    if v > 8 {} if v > 9 {} if v > 10 {} if v > 11 {}
+    if v > 12 {} if v > 13 {} if v > 14 {} if v > 15 {}
+    v
+}
+--- positive src/lib.rs
+fn complex(v: u8) -> u8 {
+    match v { 0 => 0, 1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 => 5, 6 => 6,
+        7 => 7, 8 => 8, 9 => 9, 10 => 10, 11 => 11, 12 => 12, 13 => 13,
+        14 => 14, 15 => 15, _ => 16 }
+}
+--- negative src/lib.rs
+fn simple(v: bool) -> u8 { if v { 1 } else { 0 } }
+--- negative src/lib.rs
+fn linear() -> u8 { let value = 1; value + 1 }
+--- negative src/lib.rs
+fn closure() { let _nested = || { if true {} if true {} if true {} }; }
+--- negative src/lib.rs
+fn moderate(a: bool, b: bool) { if a && b {} }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn complex() { if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn complex() { if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} } }
+
+=== unnecessary-allocation
+--- positive src/lib.rs
+fn values() { for _ in 0..2 { let _value: Vec<u8> = Vec::new(); } }
+--- positive src/lib.rs
+fn values() { while ready() { let _value = String::new(); } }
+--- negative src/lib.rs
+fn values() { let _value: Vec<u8> = Vec::new(); }
+--- negative src/lib.rs
+fn values() { for _ in 0..2 { let _value: Vec<u8> = Vec::with_capacity(4); } }
+--- negative src/lib.rs
+fn values() { for _ in 0..2 { let _value = vec![1, 2]; } }
+--- negative src/lib.rs
+fn values() { loop { let _value = String::default(); break; } }
+
+=== excessive-clone
+--- positive src/lib.rs
+fn copy(a: String, b: String, c: String) { let _ = a.clone(); let _ = b.clone(); let _ = c.clone(); }
+--- positive src/lib.rs
+fn copy(values: Vec<String>) { for value in values { let _ = value.clone(); let _ = value.clone(); let _ = value.clone(); } }
+--- negative src/lib.rs
+fn copy(a: String, b: String) { let _ = a.clone(); let _ = b.clone(); }
+--- negative src/lib.rs
+fn copy(a: String) { let _ = a.to_owned(); let _ = a.to_string(); }
+--- negative src/lib.rs
+fn copy() {}
+--- negative src/lib.rs
+fn copy(a: &str) { let _ = a.len(); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn copy() { let a = String::new(); let _ = a.clone(); let _ = a.clone(); let _ = a.clone(); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn copy() { let a = String::new(); let _ = a.clone(); let _ = a.clone(); let _ = a.clone(); } }
+
+=== collect-then-iterate
+--- positive src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().iter().count(); }
+--- positive src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().into_iter().count(); }
+--- negative src/lib.rs
+fn values() { let _values: Vec<_> = (0..4).collect(); }
+--- negative src/lib.rs
+fn values() { let values: Vec<_> = (0..4).collect(); let _ = values.iter().count(); }
+--- negative src/lib.rs
+fn values() { let _ = (0..4).map(|v| v + 1).count(); }
+--- negative src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().len(); }
+
+=== large-enum-variant
+--- positive src/lib.rs
+enum Message { Empty, Data(u8, u8, u8, u8, u8, u8) }
+--- positive src/lib.rs
+enum Message { Small(u8), Data(u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Color { Red(u8), Green(u8), Blue(u8) }
+--- negative src/lib.rs
+enum Single { Data(u8, u8, u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Boundary { Empty, Data(u8, u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Boundary { Small(u8, u8), Data(u8, u8, u8, u8, u8, u8) }
+
+=== string-from-literal
+--- positive src/lib.rs
+fn value() { let _ = String::from("literal"); }
+--- positive src/lib.rs
+fn value() { let _ = "literal".to_string(); }
+--- negative src/lib.rs
+fn value(input: &str) { let _ = String::from(input); }
+--- negative src/lib.rs
+fn value(input: &str) { let _ = input.to_string(); }
+--- negative src/lib.rs
+fn value() { let _ = String::new(); }
+--- negative src/lib.rs
+fn value() { let _ = format!("literal"); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn value() { let _ = String::from("literal"); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn value() { let _ = "literal".to_string(); } }
+
+=== hardcoded-secrets
+--- positive src/lib.rs
+fn auth() { let api_key = "AKIA1234567890ABCDEF"; use_value(api_key); }
+--- positive src/lib.rs
+const PASSWORD: &str = "mK9!zQ2@vL7#pR4x";
+--- negative src/lib.rs
+fn auth() { let api_key = "short"; use_value(api_key); }
+--- negative src/lib.rs
+fn auth() { let api_key = "replace-with-your-key"; use_value(api_key); }
+--- negative src/lib.rs
+fn auth() { let endpoint = "mK9!zQ2@vL7#pR4x"; use_value(endpoint); }
+--- negative src/lib.rs
+fn auth() { let token_url = "mK9!zQ2@vL7#pR4x"; use_value(token_url); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn auth() { let password = "mK9!zQ2@vL7#pR4x"; use_value(password); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { const PASSWORD: &str = "mK9!zQ2@vL7#pR4x"; }
+
+=== unsafe-block-audit
+--- positive src/lib.rs
+fn read(pointer: *const u8) -> u8 { unsafe { *pointer } }
+--- positive src/lib.rs
+unsafe fn read(pointer: *const u8) -> u8 { *pointer }
+--- negative src/lib.rs
+fn read(value: &u8) -> u8 { *value }
+--- negative src/lib.rs
+fn label() -> &'static str { "unsafe" }
+--- negative src/lib.rs
+#![allow(unsafe_code)]
+fn read(value: &u8) -> u8 { *value }
+--- negative src/lib.rs
+fn read() -> Option<u8> { None }
+--- limitation:forbid-unsafe-code-short-circuit src/lib.rs
+#![forbid(unsafe_code)]
+unsafe fn read(pointer: *const u8) -> u8 { *pointer }
+
+=== sql-injection-risk
+--- positive src/lib.rs
+fn query(db: &Db, name: &str) { db.query(format!("SELECT {name}")); }
+--- positive src/lib.rs
+fn query(db: &Db, name: &str) { db.execute(&format!("DELETE {name}")); }
+--- negative src/lib.rs
+fn query(db: &Db) { db.query("SELECT * FROM users"); }
+--- negative src/lib.rs
+fn query(name: &str) { let _sql = format!("SELECT {name}"); }
+--- negative src/lib.rs
+fn query(db: &Db, name: &str) { db.log(format!("SELECT {name}")); }
+--- negative src/lib.rs
+fn query(db: &Db, sql: String) { db.query(sql); }
+--- limitation:immediate-format-only src/lib.rs
+fn query(db: &Db, name: &str) { let sql = format!("SELECT {name}"); db.query(sql); }
+
+=== blocking-in-async
+--- positive src/lib.rs
+async fn work() { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- positive src/lib.rs
+async fn work() { let _ = std::fs::read("input"); }
+--- negative src/lib.rs
+fn work() { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn work() { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
+--- negative src/lib.rs
+async fn work() { tokio::task::spawn_blocking(|| std::fs::read("input")); }
+--- negative src/lib.rs
+async fn work(reader: &mut Reader) { let _ = reader.read_to_string(); }
+--- limitation:method-call-types-unknown src/lib.rs
+async fn work(reader: &mut std::fs::File) { let _ = reader.read_to_string(); }
+
+=== block-on-in-async
+--- positive src/lib.rs
+async fn work(runtime: &Runtime) { runtime.block_on(job()); }
+--- positive src/lib.rs
+async fn work() { futures::executor::block_on(job()); }
+--- negative src/lib.rs
+fn work(runtime: &Runtime) { runtime.block_on(job()); }
+--- negative src/lib.rs
+async fn work() { job().await; }
+--- negative src/lib.rs
+async fn work(runtime: &Runtime) { runtime.enter(); }
+--- negative src/lib.rs
+async fn work() { block_onto(job()); }
+
+=== tokio-main-missing
+--- positive src/main.rs
+async fn main() {}
+--- positive src/main.rs
+#[allow(dead_code)] async fn main() {}
+--- negative src/main.rs
+#[tokio::main] async fn main() {}
+--- negative src/main.rs
+fn main() {}
+--- negative src/lib.rs
+async fn main() {}
+--- negative src/main.rs
+async fn run() {}
+--- limitation:main-file-only src/lib.rs
+async fn main() {}
+
+=== tokio-spawn-without-move
+--- positive src/lib.rs
+fn work() { tokio::spawn(async { job().await }); }
+--- positive src/lib.rs
+fn work() { spawn(async { job().await }); }
+--- negative src/lib.rs
+fn work() { tokio::spawn(async move { job().await }); }
+--- negative src/lib.rs
+fn work() { other::spawn(async { job().await }); }
+--- negative src/lib.rs
+fn work() { tokio::spawn(job()); }
+--- negative src/lib.rs
+fn work() { let _task = async { job().await }; }
+--- limitation:async-block-syntax-only src/lib.rs
+fn work() { tokio::spawn(job()); }
+
+=== axum-handler-not-async
+--- positive src/lib.rs
+fn create(Json(payload): Json<Payload>) {}
+--- positive src/lib.rs
+fn show(Path(id): axum::extract::Path<u64>) {}
+--- negative src/lib.rs
+async fn create(Json(payload): Json<Payload>) {}
+--- negative src/lib.rs
+fn create(payload: Payload) {}
+--- negative src/lib.rs
+fn create(payload: MyJson<Payload>) {}
+--- negative src/lib.rs
+fn create() {}
+--- limitation:top-level-functions-only src/lib.rs
+struct Api; impl Api { fn create(&self, Json(payload): Json<Payload>) {} }
+
+=== actix-blocking-handler
+--- positive src/lib.rs
+async fn handler(_: web::Json<Payload>) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- positive src/lib.rs
+async fn handler(_: web::Path<u64>) { let _ = std::fs::read("input"); }
+--- negative src/lib.rs
+fn handler(_: web::Json<Payload>) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn handler(_: Payload) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn handler(_: web::Json<Payload>) { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
+--- negative src/lib.rs
+fn helper() { let _ = std::fs::read("input"); }
+--- limitation:web-prefix-only src/lib.rs
+async fn handler(_: actix_web::web::Json<Payload>) { let _ = std::fs::read("input"); }

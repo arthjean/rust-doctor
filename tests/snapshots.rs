@@ -2,7 +2,9 @@
 // (clippy #13981); unwrap/expect are fine in test assertions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use rust_doctor::diagnostics::{Category, Diagnostic, ScanResult, ScoreLabel, Severity};
+use rust_doctor::diagnostics::{
+    Category, Diagnostic, ScanExecution, ScanResult, ScoreLabel, Severity,
+};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -58,6 +60,11 @@ fn test_scan_result_empty_snapshot() {
         warning_count: 0,
         info_count: 0,
         pass_timings: vec![],
+        suppressed_security: vec![],
+        planned_files: vec![],
+        analyzed_files: vec![],
+        compiler_evidence: vec![],
+        execution: ScanExecution::default(),
     };
     insta::assert_json_snapshot!("scan_result_empty", result);
 }
@@ -105,6 +112,11 @@ fn test_scan_result_with_findings_snapshot() {
         warning_count: 1,
         info_count: 0,
         pass_timings: vec![],
+        suppressed_security: vec![],
+        planned_files: vec![],
+        analyzed_files: vec![],
+        compiler_evidence: vec![],
+        execution: ScanExecution::default(),
     };
     insta::assert_json_snapshot!("scan_result_with_findings", result);
 }

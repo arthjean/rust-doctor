@@ -4,8 +4,10 @@ mod terminal;
 pub use score::calculate_score;
 pub use terminal::render_terminal;
 
-use crate::diagnostics::ScanResult;
+use crate::diagnostics::{ReportV1, ScanResult};
 use owo_colors::{OwoColorize, Stream};
+use std::io::Write;
+use std::path::Path;
 
 /// Render `--score` mode: bare integer to stdout.
 pub fn render_score(result: &ScanResult) {
@@ -25,40 +27,59 @@ pub fn render_score(result: &ScanResult) {
     println!("{}", result.score);
 }
 
-/// Render `--json` mode: full ScanResult as JSON to stdout.
-///
-/// Each diagnostic from a syn-only custom rule is tagged with `"heuristic": true`
-/// (US-013) so consumers can calibrate confidence vs type-aware clippy lints.
-/// The flag is omitted for non-heuristic findings, keeping the output
-/// backward-compatible (existing consumers ignore the optional field).
+/// Render the immutable Report V1 value to stdout or atomically to a file.
 ///
 /// # Errors
 ///
-/// Returns an error if serialization fails.
-pub fn render_json(result: &ScanResult) -> Result<(), serde_json::Error> {
-    let mut value = serde_json::to_value(result)?;
-    annotate_heuristic_diagnostics(&mut value);
-    println!("{}", serde_json::to_string_pretty(&value)?);
-    Ok(())
-}
-
-/// Add `"heuristic": true` to each diagnostic produced by a syn-only rule.
-fn annotate_heuristic_diagnostics(value: &mut serde_json::Value) {
-    let Some(diagnostics) = value
-        .get_mut("diagnostics")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return;
-    };
-    for diag in diagnostics {
-        let is_heuristic = diag
-            .get("rule")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(crate::rules::is_heuristic_rule);
-        if is_heuristic && let Some(obj) = diag.as_object_mut() {
-            obj.insert("heuristic".to_string(), serde_json::Value::Bool(true));
-        }
+/// Returns an error if serialization or the atomic destination write fails.
+pub fn render_json(
+    report: &ReportV1,
+    compact: bool,
+    destination: Option<&Path>,
+) -> Result<(), crate::error::OutputError> {
+    let mut bytes = if compact {
+        serde_json::to_vec(report)
+    } else {
+        serde_json::to_vec_pretty(report)
     }
+    .map_err(crate::error::OutputError::Serialize)?;
+    bytes.push(b'\n');
+
+    if let Some(path) = destination {
+        let parent = path
+            .parent()
+            .filter(|value| !value.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|source| {
+            crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+        temporary
+            .write_all(&bytes)
+            .map_err(|source| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        temporary
+            .flush()
+            .map_err(|source| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        temporary
+            .persist(path)
+            .map_err(|error| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source: error.error,
+            })?;
+    } else {
+        std::io::stdout()
+            .write_all(&bytes)
+            .map_err(crate::error::OutputError::Stdout)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -83,75 +104,6 @@ mod tests {
             column: None,
             fix: None,
         }
-    }
-
-    // --- heuristic JSON annotation (US-013) ---
-
-    #[test]
-    fn test_annotate_heuristic_diagnostics() {
-        let mut value = serde_json::json!({
-            "diagnostics": [
-                { "rule": "unwrap-in-production" },
-                { "rule": "clippy::unwrap_used" },
-            ]
-        });
-        annotate_heuristic_diagnostics(&mut value);
-        let diags = value["diagnostics"].as_array().unwrap();
-        assert_eq!(diags[0]["heuristic"], serde_json::Value::Bool(true));
-        assert!(
-            diags[1].get("heuristic").is_none(),
-            "clippy lints must not be tagged heuristic"
-        );
-    }
-
-    #[test]
-    fn test_render_json_round_trip_tags_heuristic() {
-        // Serialize a REAL ScanResult (not a hand-rolled json! literal): if the
-        // `diagnostics` field is ever renamed, `annotate_heuristic_diagnostics`
-        // would silently no-op and drop the flag — this test fails instead,
-        // guarding the JSON backward-compat contract (US-013).
-        use crate::diagnostics::DimensionScores;
-        let result = ScanResult {
-            diagnostics: vec![
-                make_diag("unwrap-in-production", Severity::Warning),
-                make_diag("clippy::unwrap_used", Severity::Warning),
-            ],
-            score: 90,
-            score_label: ScoreLabel::Great,
-            dimension_scores: DimensionScores {
-                security: 100,
-                reliability: 90,
-                maintainability: 100,
-                performance: 100,
-                dependencies: 100,
-            },
-            source_file_count: 1,
-            elapsed: std::time::Duration::from_millis(1),
-            skipped_passes: vec![],
-            error_count: 0,
-            warning_count: 2,
-            info_count: 0,
-            pass_timings: vec![],
-        };
-
-        let mut value = serde_json::to_value(&result).unwrap();
-        annotate_heuristic_diagnostics(&mut value);
-        let diags = value["diagnostics"].as_array().unwrap();
-
-        let heuristic = diags
-            .iter()
-            .find(|d| d["rule"] == "unwrap-in-production")
-            .expect("heuristic diagnostic present");
-        assert_eq!(heuristic["heuristic"], serde_json::Value::Bool(true));
-
-        let clippy = diags
-            .iter()
-            .find(|d| d["rule"] == "clippy::unwrap_used")
-            .expect("clippy diagnostic present");
-        assert!(
-            clippy.get("heuristic").is_none(),
-            "clippy lints must not be tagged heuristic"
-        );
     }
 
     // --- Score calculation tests ---
@@ -347,5 +299,27 @@ mod tests {
         let (_, _, dims) = calculate_score(&diags);
         assert_eq!(dims.dependencies, 99);
         assert_eq!(dims.security, 100);
+    }
+
+    #[test]
+    fn json_destination_is_atomic_and_data_matches_compact_form() {
+        let report = crate::diagnostics::ReportV1::failure(
+            std::path::Path::new("/repo"),
+            crate::diagnostics::ScanMode::Full,
+            "scan",
+            "failed".to_string(),
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("report.json");
+        render_json(&report, false, Some(&destination)).unwrap();
+        let pretty: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&destination).unwrap()).unwrap();
+        let compact: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(pretty, compact);
+
+        let unwritable = directory.path().join("missing/report.json");
+        assert!(render_json(&report, false, Some(&unwritable)).is_err());
+        assert!(!unwritable.exists());
     }
 }

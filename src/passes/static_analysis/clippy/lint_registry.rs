@@ -1,3 +1,8 @@
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "registry metadata is intentionally visible to the sibling catalog module"
+)]
+
 use crate::diagnostics::{Category, Severity};
 
 // ---------------------------------------------------------------------------
@@ -5,21 +10,21 @@ use crate::diagnostics::{Category, Severity};
 // ---------------------------------------------------------------------------
 
 /// A single entry in the lint-to-category mapping table.
-pub(super) struct LintEntry {
+pub(crate) struct LintEntry {
     /// Lint name without the `clippy::` prefix.
-    pub(super) name: &'static str,
-    pub(super) category: Category,
+    pub(crate) name: &'static str,
+    pub(crate) category: Category,
     /// Severity override — takes precedence over clippy's default.
-    pub(super) severity: Severity,
+    pub(crate) severity: Severity,
     /// Whether this lint belongs to clippy's `restriction` group (allow-by-default).
     /// Restriction lints are downgraded to Info in test code because they are opt-in
     /// style checks, not correctness issues.
-    pub(super) is_restriction: bool,
+    pub(crate) is_restriction: bool,
 }
 
 /// Registry of 75+ impactful clippy lints with explicit category and severity.
 /// Lints NOT in this table inherit clippy's default severity and map to `Style`.
-pub(super) static LINT_REGISTRY: &[LintEntry] = &[
+pub(crate) static LINT_REGISTRY: &[LintEntry] = &[
     // ── Error Handling (restriction group — allow-by-default in clippy) ─
     LintEntry {
         name: "unwrap_used",
@@ -507,6 +512,7 @@ pub(super) fn is_restriction_lint(lint: &str) -> bool {
 }
 
 /// Return the list of all known lint names (for config validation).
+#[cfg(test)]
 pub fn known_lint_names() -> Vec<&'static str> {
     LINT_REGISTRY.iter().map(|e| e.name).collect()
 }

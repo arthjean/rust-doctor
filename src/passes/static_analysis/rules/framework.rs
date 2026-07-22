@@ -27,6 +27,9 @@ impl CustomRule for TokioMainMissing {
     fn fix_hint(&self) -> &'static str {
         "Add `#[tokio::main]` above `async fn main()`."
     }
+    fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &["tokio", "async-std", "smol"]
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         if filename != "main.rs" {
@@ -99,6 +102,9 @@ impl CustomRule for TokioSpawnWithoutMove {
     }
     fn fix_hint(&self) -> &'static str {
         "Use `tokio::spawn(async move { ... })`."
+    }
+    fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &["tokio"]
     }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = SpawnVisitor {
@@ -190,6 +196,9 @@ impl CustomRule for AxumHandlerNotAsync {
     fn fix_hint(&self) -> &'static str {
         "Make the handler `async fn` and use async I/O operations."
     }
+    fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &["axum"]
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         for item in &syntax.items {
@@ -263,6 +272,9 @@ impl CustomRule for ActixBlockingHandler {
     }
     fn fix_hint(&self) -> &'static str {
         "Use async equivalents (`tokio::time::sleep`, `tokio::fs::*`, `tokio::net::*`) or wrap blocking code in `actix_web::web::block()`."
+    }
+    fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &["actix-web"]
     }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = ActixVisitor {

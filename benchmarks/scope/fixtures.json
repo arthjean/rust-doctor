@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "generator_revision": "scope-fixtures-v1",
+  "fixtures": [
+    {
+      "id": "single-crate",
+      "topology": "single",
+      "members": 1
+    },
+    {
+      "id": "virtual-workspace",
+      "topology": "virtual_workspace",
+      "members": 2
+    },
+    {
+      "id": "proc-macro",
+      "topology": "proc_macro",
+      "members": 1
+    },
+    {
+      "id": "build-script",
+      "topology": "build_script",
+      "members": 1
+    },
+    {
+      "id": "workspace-20",
+      "topology": "workspace",
+      "members": 20
+    }
+  ]
+}
