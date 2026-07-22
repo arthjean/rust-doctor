@@ -47,3 +47,32 @@ jobs:
 
       - name: Publish dry-run
         run: cargo publish --dry-run
+
+  artifact-smoke:
+    name: Built artifact smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release surfaces
+        run: |
+          cargo build --release --bin rust-doctor --bin rust-doctor-eval
+          cargo build --release --no-default-features --bin rust-doctor --target-dir target/no-default
+
+      - name: Exercise CLI, MCP, and packed npm surfaces
+        run: >-
+          target/release/rust-doctor-eval smoke
+          --binary target/release/rust-doctor
+          --no-default-binary target/no-default/release/rust-doctor
+          --schema schemas/report-v1.schema.json
+          --npm-root npm
