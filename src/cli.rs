@@ -20,6 +20,7 @@ Output contract:
   --json-out writes JSON atomically to PATH instead of stdout.
   --score, --sarif, --json, and --json-compact are mutually exclusive.
   --json-out may pair with --json or --json-compact, but not --score or --sarif.
+  --share prints one stateless public URL after the terminal report.
   --color and --no-color affect terminal output only and conflict when explicit.
 
 Exit codes:
@@ -85,6 +86,10 @@ pub struct Cli {
     /// Output results in SARIF 2.1.0 format (for GitHub Code Scanning, GitLab SAST)
     #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out"])]
     pub sarif: bool,
+
+    /// Print a stateless public summary URL without uploading report data
+    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif"])]
+    pub share: bool,
 
     /// Scan only changed files vs a base branch
     #[arg(long, num_args = 0..=1, default_missing_value = "auto", value_name = "BASE")]
@@ -1028,10 +1033,19 @@ mod tests {
     fn test_output_modes_have_stable_conflicts() {
         assert!(Cli::try_parse_from(["rust-doctor", "--sarif", "--json-out", "x"]).is_err());
         assert!(Cli::try_parse_from(["rust-doctor", "--score", "--json-compact"]).is_err());
+        assert!(Cli::try_parse_from(["rust-doctor", "--share", "--json"]).is_err());
         assert!(
             Cli::try_parse_from(["rust-doctor", "--blocking", "error", "--fail-on", "warning"])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_share_is_explicit_and_local() {
+        assert!(!Cli::try_parse_from(["rust-doctor"]).unwrap().share);
+        let cli = Cli::try_parse_from(["rust-doctor", "--share", "--offline"]).unwrap();
+        assert!(cli.share);
+        assert!(cli.offline);
     }
 
     #[test]

@@ -85,8 +85,12 @@ fn main() -> ExitCode {
         eprintln!("Error: {e}");
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
-
     run::emit_scan_telemetry(&cli, &scan_result);
+    if let Err(error) = run::emit_share_if_requested(&cli, &scan_result) {
+        eprintln!("Error: share URL was not created: {error}");
+        return ExitCode::from(run::EXIT_SCAN_ERROR);
+    }
+
     run::emit_plan_if_requested(&cli, &scan_result);
 
     // Quality gates

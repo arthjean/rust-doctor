@@ -60,6 +60,16 @@ pub fn emit_scan_telemetry(cli: &Cli, result: &ScanResult) {
     crate::telemetry::record_scan(cli.no_telemetry, cli.offline, result);
 }
 
+/// Print the explicit stateless share URL after normal terminal output.
+pub fn emit_share_if_requested(cli: &Cli, result: &ScanResult) -> Result<(), String> {
+    if !cli.share {
+        return Ok(());
+    }
+    let url = crate::share::build_url(result).map_err(|error| error.to_string())?;
+    println!("\nShare: {url}");
+    Ok(())
+}
+
 /// Dispatch a typed subcommand before project bootstrap and scan subprocesses.
 pub fn handle_command(cli: &Cli) -> Option<ExitCode> {
     cli.command.as_ref().map(crate::workflows::dispatch::handle)

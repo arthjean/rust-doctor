@@ -115,6 +115,7 @@ pub(crate) mod diff;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
+pub(crate) mod share;
 pub(crate) mod suppression;
 pub(crate) mod telemetry;
 pub(crate) mod workflows;
