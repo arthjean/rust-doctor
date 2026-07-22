@@ -11,7 +11,7 @@ documentation = "https://docs.rs/rust-doctor"
 readme = "README.md"
 keywords = ["lint", "clippy", "code-quality", "health", "diagnostics"]
 categories = ["development-tools", "command-line-utilities"]
-exclude = ["npm/", ".claude-plugin/", ".claude/", ".meta/", "tasks/", "ULTRON/", "server.json", "rust-doctor-video/", "assets/"]
+exclude = ["npm/", ".claude-plugin/", ".claude/", ".meta/", "tasks/", "server.json", "rust-doctor-video/", "assets/"]
 
 [dependencies]
 cargo_metadata = "0.19"

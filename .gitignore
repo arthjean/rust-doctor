@@ -32,13 +32,9 @@ secrets.*
 
 # Local AI agent / tooling state (not for the public repo)
 /.meta/
-/ULTRON/
 /tasks/
 .codex
 **/.claude/
-
-# Local planning & marketing (not for the public repo)
-/LAUNCH-PLAN.md
 
 # Security scan outputs (run locally, never committed)
 /VULN-FINDINGS.*
