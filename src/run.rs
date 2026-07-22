@@ -33,6 +33,33 @@ pub fn configure_color(cli: &Cli) {
     }
 }
 
+/// Install an opt-in, privacy-scrubbed crash hook for the selected surface.
+pub fn configure_telemetry(cli: &Cli) {
+    let surface = if cli.mcp {
+        crate::telemetry::mcp_surface()
+    } else if cli.lsp {
+        crate::telemetry::lsp_surface()
+    } else {
+        crate::telemetry::cli_surface()
+    };
+    crate::telemetry::install_panic_hook(cli.no_telemetry, cli.offline, surface, &cli.directory);
+}
+
+/// Record one aggregate server session when explicit consent is active.
+pub fn emit_server_telemetry(cli: &Cli) {
+    let surface = if cli.mcp {
+        crate::telemetry::mcp_surface()
+    } else {
+        crate::telemetry::lsp_surface()
+    };
+    crate::telemetry::record_session(cli.no_telemetry, cli.offline, surface);
+}
+
+/// Record aggregate scan metadata without affecting output or exit status.
+pub fn emit_scan_telemetry(cli: &Cli, result: &ScanResult) {
+    crate::telemetry::record_scan(cli.no_telemetry, cli.offline, result);
+}
+
 /// Dispatch a typed subcommand before project bootstrap and scan subprocesses.
 pub fn handle_command(cli: &Cli) -> Option<ExitCode> {
     cli.command.as_ref().map(crate::workflows::dispatch::handle)

@@ -150,6 +150,10 @@ pub struct Cli {
     #[arg(long)]
     pub offline: bool,
 
+    /// Disable opt-in observability even when local consent is stored
+    #[arg(long)]
+    pub no_telemetry: bool,
+
     /// Run as an MCP (Model Context Protocol) stdio server for AI tool integration
     #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif", "lsp"])]
     pub mcp: bool,
@@ -357,8 +361,36 @@ pub enum Command {
     Why(WhyArgs),
     /// Install, configure, or upgrade managed CI scaffolding
     Ci(CiArgs),
+    /// Manage privacy-safe observability consent
+    Telemetry(TelemetryArgs),
     /// Show Rust Doctor and local Rust toolchain information
     Version,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryArgs {
+    #[command(subcommand)]
+    pub command: TelemetryCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TelemetryCommand {
+    /// Store explicit consent for one HTTPS endpoint
+    Enable(TelemetryEnableArgs),
+    /// Revoke consent and remove the local endpoint
+    Disable,
+    /// Show effective consent and override state
+    Status,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryEnableArgs {
+    /// HTTPS collector endpoint; loopback HTTP is accepted for local development
+    #[arg(long)]
+    pub endpoint: String,
+    /// Accept the displayed aggregate event contract without prompting
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Debug)]

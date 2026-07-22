@@ -110,11 +110,13 @@ pub mod run;
 // Internal implementation modules
 pub(crate) mod cache;
 pub(crate) mod catalog;
+pub(crate) mod completeness;
 pub(crate) mod diff;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
 pub(crate) mod suppression;
+pub(crate) mod telemetry;
 pub(crate) mod workflows;
 pub(crate) mod workspace;
 

@@ -1,13 +1,13 @@
 use crate::cli::{
     AgentId as CliAgentId, AnalyzerFilter, CategoryMutationArgs, CiCommand, Command, HookBlocking,
     InstallArgs, RuleLevelArg, RuleListArgs, RulesCommand, ScanCategory, TagMutationArgs,
-    UninstallArgs, WhyArgs,
+    TelemetryArgs, UninstallArgs, WhyArgs,
 };
 use crate::config;
 use crate::setup::{
     AgentId, BlockingLevel, SetupRequest, StagedHook, execute as execute_setup, render_report,
 };
-use crate::workflows::{ci, rules, why};
+use crate::workflows::{ci, rules, telemetry, why};
 use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
 use std::path::{Path, PathBuf};
@@ -21,9 +21,23 @@ pub fn handle(command: &Command) -> ExitCode {
         Command::Rules(arguments) => handle_rules(&arguments.command),
         Command::Why(arguments) => handle_why(arguments),
         Command::Ci(arguments) => handle_ci(&arguments.command),
+        Command::Telemetry(arguments) => handle_telemetry(arguments),
         Command::Version => {
             print_version_report();
             ExitCode::SUCCESS
+        }
+    }
+}
+
+fn handle_telemetry(arguments: &TelemetryArgs) -> ExitCode {
+    match telemetry::handle(&arguments.command) {
+        Ok(output) => {
+            println!("{output}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::from(crate::run::EXIT_SCAN_ERROR)
         }
     }
 }

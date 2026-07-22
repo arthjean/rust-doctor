@@ -19,6 +19,7 @@ fn main() -> ExitCode {
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
     run::configure_color(&cli);
+    run::configure_telemetry(&cli);
     if let Some(code) = run::handle_command(&cli) {
         return code;
     }
@@ -27,6 +28,9 @@ fn main() -> ExitCode {
     }
 
     // Stdio server modes
+    if cli.lsp || cli.mcp {
+        run::emit_server_telemetry(&cli);
+    }
     if let Some(code) = run::handle_lsp_flag(&cli) {
         return code;
     }
@@ -82,6 +86,7 @@ fn main() -> ExitCode {
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
 
+    run::emit_scan_telemetry(&cli, &scan_result);
     run::emit_plan_if_requested(&cli, &scan_result);
 
     // Quality gates
