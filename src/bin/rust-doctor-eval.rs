@@ -17,6 +17,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Validate and rank the evidence-backed rule candidate backlog.
+    Backlog(BacklogArgs),
     /// Prepare pinned repositories while network access is allowed.
     Prepare(PrepareArgs),
     /// Scan a prepared corpus in credential-free network sandboxes.
@@ -27,6 +29,14 @@ enum Command {
     Benchmark(BenchmarkArgs),
     /// Exercise built CLI, MCP, and npm package surfaces.
     Smoke(SmokeArgs),
+}
+
+#[derive(Debug, Args)]
+struct BacklogArgs {
+    #[arg(long, default_value = "evaluation/rule-backlog-v1.json")]
+    manifest: PathBuf,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -119,6 +129,7 @@ struct SmokeArgs {
 
 fn run(cli: Cli) -> Result<(), EvalError> {
     match cli.command {
+        Command::Backlog(args) => evaluation::backlog::run(&args.manifest, args.json),
         Command::Prepare(args) => evaluation::corpus::prepare(args),
         Command::Corpus(args) => evaluation::corpus::run(args),
         Command::Delta(args) => evaluation::delta::run(args),

@@ -3,6 +3,7 @@
     reason = "pub(crate) documents the contracts shared by sibling modules in this private binary subtree"
 )]
 
+pub(crate) mod backlog;
 pub(crate) mod benchmark;
 pub(crate) mod corpus;
 pub(crate) mod delta;
