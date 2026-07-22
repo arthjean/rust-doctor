@@ -72,7 +72,7 @@ runs:
         INPUT_DIFF: ${{ inputs.diff }}
         EVENT_NAME: ${{ github.event_name }}
       run: |
-        ARGS=("${INPUT_DIRECTORY}" "--json" "--fail-on" "${INPUT_FAIL_ON}")
+        ARGS=("${INPUT_DIRECTORY}" "--json" "--require-complete" "--fail-on" "${INPUT_FAIL_ON}")
 
         # Resolve diff mode: 'auto' enables on PRs only, 'true'/'false' are explicit
         USE_DIFF="false"
