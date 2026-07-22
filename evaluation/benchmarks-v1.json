@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "fixtures": [
+    {
+      "name": "small",
+      "source_files": 4,
+      "lines_per_file": 100,
+      "workspace_members": 1,
+      "modes": ["full", "files", "lines", "baseline"]
+    },
+    {
+      "name": "medium",
+      "source_files": 20,
+      "lines_per_file": 500,
+      "workspace_members": 1,
+      "modes": ["full", "files", "lines", "baseline"]
+    },
+    {
+      "name": "large",
+      "source_files": 100,
+      "lines_per_file": 1000,
+      "workspace_members": 1,
+      "modes": ["full", "files", "lines", "baseline"]
+    },
+    {
+      "name": "workspace-20",
+      "source_files": 40,
+      "lines_per_file": 250,
+      "workspace_members": 20,
+      "modes": ["full", "files", "lines", "baseline"]
+    },
+    {
+      "name": "hundred-k-lines",
+      "source_files": 100,
+      "lines_per_file": 1000,
+      "workspace_members": 1,
+      "modes": ["full"]
+    }
+  ]
+}

@@ -1,0 +1,323 @@
+use super::{EvalError, Result};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const EVALUATION_CARGO_HOME: &str = ".rust-doctor-cargo-home";
+const EVALUATION_CARGO_MARKER: &str = ".rust-doctor-evaluation-cache";
+const TMP_BYTES: usize = 128 * 1024 * 1024;
+const AUXILIARY_TMPFS_BYTES: usize = 64 * 1024 * 1024;
+
+pub(crate) fn validate_checkout_tree(root: &Path) -> Result<()> {
+    validate_tree(root, true).map(|_| ())
+}
+
+pub(crate) fn initialize_evaluation_cargo_home(checkout_root: &Path) -> Result<PathBuf> {
+    let checkout_root = checkout_root.canonicalize().map_err(|error| {
+        EvalError::io(
+            "cannot canonicalize corpus checkout root",
+            checkout_root,
+            error,
+        )
+    })?;
+    let cargo_home = checkout_root.join(EVALUATION_CARGO_HOME);
+    std::fs::create_dir_all(&cargo_home).map_err(|error| {
+        EvalError::io("cannot create evaluation Cargo home", &cargo_home, error)
+    })?;
+    let marker = cargo_home.join(EVALUATION_CARGO_MARKER);
+    if !marker.exists() {
+        let has_content = std::fs::read_dir(&cargo_home)
+            .map_err(|error| {
+                EvalError::io("cannot inspect evaluation Cargo home", &cargo_home, error)
+            })?
+            .next()
+            .is_some();
+        if has_content {
+            return Err(EvalError::Unsupported(format!(
+                "evaluation Cargo home '{}' is not empty and has no ownership marker",
+                cargo_home.display()
+            )));
+        }
+        std::fs::write(&marker, b"rust-doctor evaluation cache v1\n")
+            .map_err(|error| EvalError::io("cannot mark evaluation Cargo home", &marker, error))?;
+    }
+    validate_evaluation_cargo_home(&checkout_root)
+}
+
+pub(crate) fn validate_evaluation_cargo_home(checkout_root: &Path) -> Result<PathBuf> {
+    let checkout_root = checkout_root.canonicalize().map_err(|error| {
+        EvalError::io(
+            "cannot canonicalize corpus checkout root",
+            checkout_root,
+            error,
+        )
+    })?;
+    let expected = checkout_root.join(EVALUATION_CARGO_HOME);
+    let cargo_home = validate_tree(&expected, false)?;
+    if !cargo_home.starts_with(&checkout_root) {
+        return Err(EvalError::Unsupported(
+            "evaluation Cargo home escapes the corpus checkout root".to_string(),
+        ));
+    }
+    let marker = cargo_home.join(EVALUATION_CARGO_MARKER);
+    let marker_metadata = std::fs::symlink_metadata(&marker)
+        .map_err(|error| EvalError::io("cannot inspect evaluation cache marker", &marker, error))?;
+    if !marker_metadata.is_file() || marker_metadata.file_type().is_symlink() {
+        return Err(EvalError::Unsupported(
+            "evaluation Cargo home has no regular ownership marker".to_string(),
+        ));
+    }
+    for credential_file in ["credentials", "credentials.toml"] {
+        if cargo_home.join(credential_file).exists() {
+            return Err(EvalError::Unsupported(format!(
+                "evaluation Cargo home contains forbidden {credential_file}"
+            )));
+        }
+    }
+    if inherited_cargo_home().is_some_and(|host| host == cargo_home) {
+        return Err(EvalError::Unsupported(
+            "evaluation refuses to mount the inherited host Cargo home".to_string(),
+        ));
+    }
+    Ok(cargo_home)
+}
+
+fn validate_tree(root: &Path, skip_git: bool) -> Result<PathBuf> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| EvalError::io("cannot canonicalize read-only tree", root, error))?;
+    let mut pending = vec![root.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory)
+            .map_err(|error| EvalError::io("cannot inspect checkout", &directory, error))?
+        {
+            let entry = entry.map_err(|error| {
+                EvalError::io("cannot inspect checkout entry", &directory, error)
+            })?;
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| EvalError::io("cannot inspect checkout path", &path, error))?;
+            if metadata.file_type().is_symlink() {
+                let target = path.canonicalize().map_err(|error| {
+                    EvalError::io("cannot resolve checkout symlink", &path, error)
+                })?;
+                if !target.starts_with(&root) {
+                    return Err(EvalError::Command(format!(
+                        "sandbox rejected symlink escape '{}'",
+                        relative_display(&root, &path)
+                    )));
+                }
+            } else if metadata.is_dir() && (!skip_git || entry.file_name() != ".git") {
+                pending.push(path);
+            }
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "mount ordering is a security invariant kept visible in one command constructor"
+)]
+pub(crate) fn command(
+    checkout: &Path,
+    binary: &Path,
+    cargo_home: &Path,
+    scratch_bytes: usize,
+    scan_args: &[String],
+) -> Result<Command> {
+    let checkout = canonical(checkout, "checkout")?;
+    let binary = canonical(binary, "rust-doctor binary")?;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| EvalError::Unsupported("HOME is unavailable".to_string()))?;
+    let rustup_home =
+        std::env::var_os("RUSTUP_HOME").map_or_else(|| home.join(".rustup"), PathBuf::from);
+    let bwrap = find_executable("bwrap")?;
+    let scratch_bytes = scratch_bytes.to_string();
+    let tmp_bytes = TMP_BYTES.to_string();
+    let auxiliary_bytes = AUXILIARY_TMPFS_BYTES.to_string();
+
+    let mut command = Command::new(bwrap);
+    command.args([
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-all",
+        "--disable-userns",
+        "--clearenv",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--size",
+    ]);
+    command
+        .arg(tmp_bytes)
+        .args(["--tmpfs", "/tmp", "--dir", "/workspace", "--size"]);
+    command.arg(scratch_bytes).args([
+        "--tmpfs",
+        "/scratch",
+        "--dir",
+        "/tool",
+        "--dir",
+        "/toolchain",
+        "--dir",
+        "/toolchain/bin",
+        "--dir",
+        "/home",
+        "--size",
+    ]);
+    command
+        .arg(&auxiliary_bytes)
+        .args(["--tmpfs", "/home/evaluator", "--size"]);
+    command.arg(auxiliary_bytes).args([
+        "--tmpfs",
+        "/cargo",
+        "--dir",
+        "/rustup",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind-try",
+        "/bin",
+        "/bin",
+        "--ro-bind-try",
+        "/lib",
+        "/lib",
+        "--ro-bind-try",
+        "/lib64",
+        "/lib64",
+    ]);
+    bind_if_present(
+        &mut command,
+        &cargo_home.join("registry"),
+        "/cargo/registry",
+    );
+    bind_if_present(&mut command, &cargo_home.join("git"), "/cargo/git");
+    bind_if_present(&mut command, &rustup_home, "/rustup");
+    for tool in ["cargo", "rustc", "rustdoc", "cargo-clippy", "clippy-driver"] {
+        bind_tool(&mut command, tool)?;
+    }
+    command
+        .arg("--ro-bind")
+        .arg(checkout)
+        .arg("/workspace")
+        .arg("--ro-bind")
+        .arg(binary)
+        .arg("/tool/rust-doctor")
+        .args(["--remount-ro", "/"])
+        .args([
+            "--setenv",
+            "HOME",
+            "/home/evaluator",
+            "--setenv",
+            "CARGO_HOME",
+            "/cargo",
+            "--setenv",
+            "RUSTUP_HOME",
+            "/rustup",
+            "--setenv",
+            "CARGO_TARGET_DIR",
+            "/scratch/target",
+            "--setenv",
+            "CARGO_NET_OFFLINE",
+            "true",
+            "--setenv",
+            "CARGO_BUILD_JOBS",
+            "2",
+            "--setenv",
+            "GIT_CONFIG_NOSYSTEM",
+            "1",
+            "--setenv",
+            "GIT_CONFIG_GLOBAL",
+            "/dev/null",
+            "--setenv",
+            "GIT_TERMINAL_PROMPT",
+            "0",
+            "--setenv",
+            "PATH",
+            "/toolchain/bin:/usr/bin:/bin",
+            "--chdir",
+            "/workspace",
+            "--",
+            "/tool/rust-doctor",
+        ])
+        .args(scan_args);
+    Ok(command)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn command(
+    _checkout: &Path,
+    _binary: &Path,
+    _cargo_home: &Path,
+    _scratch_bytes: usize,
+    _scan_args: &[String],
+) -> Result<Command> {
+    Err(EvalError::Unsupported(
+        "corpus execution requires Linux bubblewrap; preparation and artifact smoke remain cross-platform"
+            .to_string(),
+    ))
+}
+
+fn canonical(path: &Path, label: &str) -> Result<PathBuf> {
+    path.canonicalize()
+        .map_err(|error| EvalError::io("cannot canonicalize sandbox input", path, error))
+        .and_then(|canonical| {
+            if canonical.exists() {
+                Ok(canonical)
+            } else {
+                Err(EvalError::Command(format!(
+                    "{label} '{}' does not exist",
+                    path.display()
+                )))
+            }
+        })
+}
+
+fn inherited_cargo_home() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let cargo_home =
+        std::env::var_os("CARGO_HOME").map_or_else(|| home.join(".cargo"), PathBuf::from);
+    cargo_home.canonicalize().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn bind_if_present(command: &mut Command, source: &Path, destination: &str) {
+    if source.exists() {
+        command.arg("--ro-bind").arg(source).arg(destination);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn bind_tool(command: &mut Command, name: &str) -> Result<()> {
+    let executable = find_executable(name)?
+        .canonicalize()
+        .map_err(|error| EvalError::io("cannot canonicalize toolchain executable", name, error))?;
+    command
+        .arg("--ro-bind")
+        .arg(executable)
+        .arg(format!("/toolchain/bin/{name}"));
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn find_executable(name: &str) -> Result<PathBuf> {
+    let path = std::env::var_os("PATH")
+        .ok_or_else(|| EvalError::Unsupported("PATH is unavailable".to_string()))?;
+    std::env::split_paths(&path)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            EvalError::Unsupported(format!(
+                "{name} is required; corpus scans fail closed without a network sandbox"
+            ))
+        })
+}
+
+fn relative_display(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}

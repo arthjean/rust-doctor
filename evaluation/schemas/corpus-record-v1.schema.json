@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rust-doctor.vercel.app/schemas/corpus-record-v1.schema.json",
+  "title": "Rust Doctor Corpus Record V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "commit",
+    "package_roots",
+    "tool_revision",
+    "complete",
+    "completeness",
+    "diagnostic_counts",
+    "per_rule_counts",
+    "duration_ms",
+    "attempts",
+    "diagnostics",
+    "failure_chain"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "repository": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "package_roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "tool_revision": { "type": "string", "minLength": 1 },
+    "complete": { "type": "boolean" },
+    "completeness": {
+      "type": "string",
+      "enum": ["complete", "partial", "incomplete"]
+    },
+    "diagnostic_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "warning", "info"],
+      "properties": {
+        "error": { "type": "integer", "minimum": 0 },
+        "warning": { "type": "integer", "minimum": 0 },
+        "info": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "per_rule_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["package_root", "rule", "site_id", "baseline_key", "fingerprint"],
+        "properties": {
+          "package_root": { "type": "string" },
+          "rule": { "type": "string", "minLength": 1 },
+          "site_id": { "type": "string", "minLength": 1 },
+          "baseline_key": { "type": "string", "minLength": 1 },
+          "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "failure_chain": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "kind", "message"],
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 3 },
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}
