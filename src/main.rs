@@ -2,7 +2,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use clap::Parser;
-use rust_doctor::cli::{Cli, Command};
+use rust_doctor::cli::Cli;
 use rust_doctor::{config, run};
 use std::process::ExitCode;
 
@@ -14,14 +14,22 @@ fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
-    if matches!(cli.command, Some(Command::Setup)) {
-        return run::handle_setup();
+    if let Err(error) = cli.validate_contract() {
+        let _ = error.print();
+        return ExitCode::from(run::EXIT_SCAN_ERROR);
+    }
+    run::configure_color(&cli);
+    if let Some(code) = run::handle_command(&cli) {
+        return code;
     }
     if cli.install_deps {
         return run::handle_install_deps();
     }
 
-    // MCP mode
+    // Stdio server modes
+    if let Some(code) = run::handle_lsp_flag(&cli) {
+        return code;
+    }
     if let Some(code) = run::handle_mcp_flag(&cli) {
         return code;
     }
@@ -77,10 +85,10 @@ fn main() -> ExitCode {
     run::emit_plan_if_requested(&cli, &scan_result);
 
     // Quality gates
-    if let Some(code) = run::check_score_gate(&scan_result, resolved.score_fail_below) {
+    if let Some(code) = run::check_completeness_gate(&scan_result, cli.require_complete) {
         return code;
     }
-    if let Some(code) = run::check_completeness_gate(&scan_result, cli.require_complete) {
+    if let Some(code) = run::check_score_gate(&scan_result, resolved.score_fail_below) {
         return code;
     }
     if let Some(code) =

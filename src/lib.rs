@@ -83,6 +83,9 @@ pub mod discovery;
 pub mod error;
 /// Auto-fix application for machine-applicable diagnostic fixes.
 pub mod fixer;
+/// Feature-gated language server implementation used by the CLI stdio mode.
+#[cfg(feature = "lsp")]
+pub(crate) mod lsp;
 /// MCP (Model Context Protocol) server for AI tool integration.
 #[cfg(feature = "mcp")]
 pub mod mcp;
@@ -112,6 +115,7 @@ pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
 pub(crate) mod suppression;
+pub(crate) mod workflows;
 pub(crate) mod workspace;
 
 // Re-export pass modules at crate root so existing `use crate::audit` etc. still work.

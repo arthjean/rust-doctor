@@ -297,7 +297,7 @@ fn baseline_renames_are_isolated_and_shallow_history_fails_complete_gate() {
             "--require-complete",
         ],
     );
-    assert_eq!(degraded.status.code(), Some(3));
+    assert_eq!(degraded.status.code(), Some(4));
     let degraded = parse_report(&degraded);
     assert_eq!(degraded["baseline"]["baseline_degraded"], true);
     assert_eq!(degraded["summary"]["score_authoritative"], false);

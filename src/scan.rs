@@ -451,7 +451,11 @@ fn run_passes(
     // multi-member workspace) but bounded, so a huge workspace cannot spawn
     // unbounded threads or `cargo` subprocesses.
     // DO NOT reintroduce rayon above a `thread::scope` that itself contains rayon.
-    let max_parallel = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let available = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let max_parallel = resolved
+        .max_parallelism
+        .unwrap_or(available)
+        .min(scan_work.len().max(1));
     for batch in scan_work.chunks(max_parallel) {
         if control.is_stopped() {
             break;
@@ -784,6 +788,12 @@ fn apply_suppressions(
     project_info: &ProjectInfo,
     resolved: &ResolvedConfig,
 ) -> Vec<Diagnostic> {
+    if !resolved.respect_inline_disables {
+        if resolved.verbose {
+            eprintln!("Inline rust-doctor suppression directives are ignored for this scan");
+        }
+        return diagnostics;
+    }
     let (diagnostics, suppressed_count) =
         suppression::apply_inline_suppressions(diagnostics, &project_info.root_dir);
     if resolved.verbose && suppressed_count > 0 {

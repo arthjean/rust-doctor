@@ -9,14 +9,34 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use crate::cli::{Cli, FailOn, Scope};
+use crate::cli::{Cli, ColorMode, FailOn, ScanCategory, Scope, WarningVisibility};
 
 /// Exit code for scan errors (project doesn't compile, discovery fails).
 pub const EXIT_SCAN_ERROR: u8 = 2;
 /// Exit code for quality gate failures (score below threshold, --fail-on).
 pub const EXIT_GATE_FAILURE: u8 = 3;
+/// Exit code for incomplete required analysis.
+pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 4;
 use crate::diagnostics::{BaselineReport, CheckState, CheckStatus, ReportV1, ScanMode, ScanResult};
 use crate::{config, deps, diff, discovery, fixer, output, plan, sarif, scan};
+
+/// Apply the root color policy before any command emits output.
+pub fn configure_color(cli: &Cli) {
+    match if cli.no_color {
+        ColorMode::Never
+    } else {
+        cli.color
+    } {
+        ColorMode::Auto => owo_colors::unset_override(),
+        ColorMode::Always => owo_colors::set_override(true),
+        ColorMode::Never => owo_colors::set_override(false),
+    }
+}
+
+/// Dispatch a typed subcommand before project bootstrap and scan subprocesses.
+pub fn handle_command(cli: &Cli) -> Option<ExitCode> {
+    cli.command.as_ref().map(crate::workflows::dispatch::handle)
+}
 
 /// Run the interactive setup wizard. Returns exit code.
 pub fn handle_setup() -> ExitCode {
@@ -52,6 +72,29 @@ pub fn handle_mcp_flag(cli: &Cli) -> Option<ExitCode> {
     None
 }
 
+/// Dispatch `--lsp`: start the language server or report that the feature was
+/// omitted from this binary. Returns `None` for normal scan execution.
+pub fn handle_lsp_flag(cli: &Cli) -> Option<ExitCode> {
+    #[cfg(feature = "lsp")]
+    if cli.lsp {
+        return Some(match crate::lsp::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Error: language server failed: {error}");
+                ExitCode::FAILURE
+            }
+        });
+    }
+
+    #[cfg(not(feature = "lsp"))]
+    if cli.lsp {
+        eprintln!("Error: LSP support not compiled in. Rebuild with `--features lsp`.");
+        return Some(ExitCode::FAILURE);
+    }
+
+    None
+}
+
 /// Resolve directory, discover the project, and load file-based configuration.
 pub fn bootstrap_project(
     cli: &Cli,
@@ -73,54 +116,99 @@ pub fn run_scan(
     resolved: &config::ResolvedConfig,
 ) -> Result<ScanResult, crate::error::ScanError> {
     let suppress_spinner = cli.score || cli.wants_json() || cli.sarif;
+    if cli.fail_on.is_some() {
+        eprintln!("Warning: --fail-on is deprecated; use --blocking");
+    }
     let request = scope_request(cli, resolved)?;
     let control = crate::process::ScanControl::new(
         Arc::new(AtomicBool::new(false)),
         cli.max_duration.map(Duration::from_secs),
     );
-    let scope = match diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files)
-    {
-        Ok(scope) => scope,
-        Err(error) if request.reporting_scope == diff::ReportingScope::Baseline => {
-            return degraded_baseline_without_base(
-                cli,
-                project_info,
-                resolved,
-                suppress_spinner,
-                &control,
-                error.to_string(),
-            );
-        }
-        Err(error) => return Err(error.into()),
-    };
-
-    match scope.reporting_scope {
-        diff::ReportingScope::Staged => run_staged(
-            cli,
-            project_info,
-            resolved,
-            suppress_spinner,
-            &scope,
-            &control,
-        ),
-        diff::ReportingScope::Baseline => run_baseline(
-            cli,
-            project_info,
-            resolved,
-            suppress_spinner,
-            &scope,
-            &control,
-        ),
-        _ => scan::scan_project_scoped(
-            project_info,
-            resolved,
-            cli.offline,
-            &cli.project,
-            suppress_spinner,
-            &scope,
-            &control,
-        ),
+    let mut result =
+        match diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files) {
+            Ok(scope) => match scope.reporting_scope {
+                diff::ReportingScope::Staged => run_staged(
+                    cli,
+                    project_info,
+                    resolved,
+                    suppress_spinner,
+                    &scope,
+                    &control,
+                )?,
+                diff::ReportingScope::Baseline => run_baseline(
+                    cli,
+                    project_info,
+                    resolved,
+                    suppress_spinner,
+                    &scope,
+                    &control,
+                )?,
+                _ => scan::scan_project_scoped(
+                    project_info,
+                    resolved,
+                    cli.offline,
+                    &cli.project,
+                    suppress_spinner,
+                    &scope,
+                    &control,
+                )?,
+            },
+            Err(error) if request.reporting_scope == diff::ReportingScope::Baseline => {
+                degraded_baseline_without_base(
+                    cli,
+                    project_info,
+                    resolved,
+                    suppress_spinner,
+                    &control,
+                    error.to_string(),
+                )?
+            }
+            Err(error) => return Err(error.into()),
+        };
+    if !cli.category.is_empty() {
+        filter_categories(&mut result, &cli.category, resolved, &project_info.root_dir);
     }
+    Ok(result)
+}
+
+fn filter_categories(
+    result: &mut ScanResult,
+    categories: &[ScanCategory],
+    resolved: &config::ResolvedConfig,
+    workspace_root: &Path,
+) {
+    result
+        .diagnostics
+        .retain(|diagnostic| category_selected(&diagnostic.category, categories));
+    result
+        .suppressed_security
+        .retain(|diagnostic| category_selected(&diagnostic.category, categories));
+    let retained = result.diagnostics.clone();
+    result.compiler_evidence.retain(|evidence| {
+        retained
+            .iter()
+            .any(|diagnostic| evidence.matches(diagnostic))
+    });
+    if let Some(baseline) = &mut result.execution.baseline {
+        baseline.new_count = result.diagnostics.len();
+    }
+    recalculate_result(result, resolved, workspace_root);
+}
+
+fn category_selected(category: &crate::diagnostics::Category, selected: &[ScanCategory]) -> bool {
+    let value = match category {
+        crate::diagnostics::Category::ErrorHandling => ScanCategory::ErrorHandling,
+        crate::diagnostics::Category::Performance => ScanCategory::Performance,
+        crate::diagnostics::Category::Security => ScanCategory::Security,
+        crate::diagnostics::Category::Correctness => ScanCategory::Correctness,
+        crate::diagnostics::Category::Architecture => ScanCategory::Architecture,
+        crate::diagnostics::Category::Dependencies => ScanCategory::Dependencies,
+        crate::diagnostics::Category::Async => ScanCategory::Async,
+        crate::diagnostics::Category::Framework => ScanCategory::Framework,
+        crate::diagnostics::Category::Cargo => ScanCategory::Cargo,
+        crate::diagnostics::Category::Style => ScanCategory::Style,
+    };
+    selected.contains(&value)
 }
 
 fn scope_request(
@@ -651,7 +739,7 @@ pub fn emit_output(
     project_info: &discovery::ProjectInfo,
 ) -> Result<(), crate::error::OutputError> {
     let mode = mode_from_reporting_scope(&scan_result.execution.reporting_scope);
-    let report = ReportV1::from_scan(scan_result, project_info, resolved, mode);
+    let mut report = ReportV1::from_scan(scan_result, project_info, resolved, mode);
     if cli.score {
         output::render_score(scan_result);
     } else if cli.wants_json() {
@@ -661,6 +749,15 @@ pub fn emit_output(
             sarif::render_report_sarif(&report).map_err(crate::error::OutputError::Serialize)?;
         println!("{sarif_json}");
     } else {
+        if cli.warnings == WarningVisibility::Hide {
+            for diagnostic in &mut report.diagnostics {
+                if diagnostic.severity == crate::diagnostics::Severity::Warning {
+                    diagnostic
+                        .visible_on
+                        .retain(|surface| surface != "terminal");
+                }
+            }
+        }
         output::render_terminal(&report, &scan_result.pass_timings, resolved.verbose);
     }
     Ok(())
@@ -725,7 +822,7 @@ pub fn check_completeness_gate(
             incomplete.join(", ")
         }
     );
-    Some(ExitCode::from(EXIT_GATE_FAILURE))
+    Some(ExitCode::from(EXIT_INCOMPLETE_ANALYSIS))
 }
 
 /// Returns `Some(ExitCode)` with `EXIT_GATE_FAILURE` if the score is below the configured threshold.

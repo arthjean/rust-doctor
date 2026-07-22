@@ -88,6 +88,39 @@ pub fn apply_inline_suppressions(
     (filtered, suppressed_count)
 }
 
+/// Return a human-readable reason when an inline directive suppresses one finding.
+///
+/// The source read uses the same canonical in-root guard as normal suppression
+/// application. Unresolved paths, symlink escapes, and unreadable sources yield
+/// no evidence instead of allowing an out-of-project read.
+pub fn inline_suppression_reason(diagnostic: &Diagnostic, project_root: &Path) -> Option<String> {
+    let line = diagnostic.line?;
+    let joined = if diagnostic.file_path.is_absolute() {
+        diagnostic.file_path.clone()
+    } else {
+        project_root.join(&diagnostic.file_path)
+    };
+    let canonical = joined.canonicalize().ok()?;
+    let root = project_root.canonicalize().ok()?;
+    if !canonical.starts_with(&root) {
+        return None;
+    }
+    let content = fs::read_to_string(canonical).ok()?;
+    parse_suppressions(&content)
+        .into_iter()
+        .find(|candidate| {
+            candidate.target_line == line
+                && (candidate.rule.is_none()
+                    || candidate.rule.as_deref() == Some(diagnostic.rule.as_str()))
+        })
+        .map(|candidate| {
+            candidate.rule.map_or_else(
+                || format!("inline suppression targets every rule on line {line}"),
+                |rule| format!("inline suppression targets rule {rule} on line {line}"),
+            )
+        })
+}
+
 /// Parse suppression comments from file content.
 fn parse_suppressions(content: &str) -> Vec<Suppression> {
     let mut suppressions = Vec::new();
@@ -480,6 +513,21 @@ mod tests {
         assert_eq!(suppressed, 1);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].rule, "other-rule");
+    }
+
+    #[test]
+    fn inline_reason_retains_the_matching_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.rs");
+        std::fs::write(
+            &path,
+            "// rust-doctor-disable-next-line test-rule\nlet value = 1;\n",
+        )
+        .unwrap();
+        let diagnostic = make_diag(path.to_str().unwrap(), "test-rule", 2);
+        let reason = inline_suppression_reason(&diagnostic, dir.path()).unwrap();
+        assert!(reason.contains("test-rule"));
+        assert!(reason.contains("line 2"));
     }
 
     #[test]

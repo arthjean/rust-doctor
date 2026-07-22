@@ -71,6 +71,8 @@ fn fast_config() -> ResolvedConfig {
         path_overrides: vec![],
         enable_rules: vec![],
         score_fail_below: None,
+        respect_inline_disables: true,
+        max_parallelism: None,
     }
 }
 

@@ -26,6 +26,18 @@ impl RuleLevel {
     }
 }
 
+impl std::fmt::Display for RuleLevel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Self::Off => "off",
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        };
+        formatter.write_str(value)
+    }
+}
+
 impl From<Severity> for RuleLevel {
     fn from(value: Severity) -> Self {
         match value {
@@ -147,7 +159,7 @@ pub struct IgnoreConfig {
 
 /// Fully resolved configuration with concrete defaults.
 /// Produced by merging CLI flags over file config over defaults.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResolvedConfig {
     pub ignore_rules: Vec<String>,
     pub ignore_files: Vec<String>,
@@ -162,6 +174,10 @@ pub struct ResolvedConfig {
     pub path_overrides: Vec<PathOverride>,
     pub enable_rules: Vec<String>,
     pub score_fail_below: Option<u32>,
+    /// Whether source-level rust-doctor disable directives remove findings.
+    pub respect_inline_disables: bool,
+    /// Optional bound for concurrently scanned workspace packages.
+    pub max_parallelism: Option<usize>,
 }
 
 /// Fully resolved policy for one rule at one optional source path.
@@ -259,7 +275,8 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
 
     // For fail_on: CLI Some wins; if CLI None, parse config value
     let fail_on = cli
-        .fail_on
+        .blocking
+        .or(cli.fail_on)
         .or_else(|| fc.fail_on.as_deref().and_then(parse_fail_on))
         .unwrap_or(FailOn::None);
 
@@ -277,6 +294,8 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
         path_overrides: fc.path_overrides,
         enable_rules: fc.ignore.enable,
         score_fail_below: fc.score.fail_below,
+        respect_inline_disables: !cli.no_respect_inline_disables,
+        max_parallelism: cli.jobs,
     }
 }
 
@@ -303,6 +322,8 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
         path_overrides: fc.path_overrides,
         enable_rules: fc.ignore.enable,
         score_fail_below: fc.score.fail_below,
+        respect_inline_disables: true,
+        max_parallelism: None,
     }
 }
 
@@ -366,6 +387,93 @@ impl ResolvedConfig {
             threshold,
             surfaces,
         }
+    }
+
+    /// Explain the ordered selectors that contribute to one effective policy.
+    pub(crate) fn rule_policy_trace(
+        &self,
+        descriptor: &RuleDescriptor,
+        path: Option<&Path>,
+    ) -> Vec<String> {
+        let default_level = RuleLevel::from(descriptor.default_severity);
+        let mut level = if descriptor.default_enabled {
+            default_level
+        } else {
+            RuleLevel::Off
+        };
+        let mut trace = vec![format!("catalog default: {level}")];
+        for tag in &descriptor.tags {
+            if let Some(policy) = self.tag_config.get(tag) {
+                if let Some(policy_level) = policy.severity {
+                    level = policy_level;
+                    trace.push(format!("tag {tag}: {level}"));
+                }
+            }
+        }
+        let category = category_key(&descriptor.category);
+        if let Some(policy) = self.category_config.get(category) {
+            if let Some(policy_level) = policy.severity {
+                level = policy_level;
+                trace.push(format!("category {category}: {level}"));
+            }
+        }
+        if let Some(policy) = self.rules_config.get(&descriptor.canonical_id) {
+            trace_rule_selector(
+                &mut trace,
+                &format!("rule {}", descriptor.canonical_id),
+                policy,
+                default_level,
+                &mut level,
+            );
+        }
+        for alias in &descriptor.aliases {
+            if let Some(policy) = self.rules_config.get(alias) {
+                trace_rule_selector(
+                    &mut trace,
+                    &format!("rule alias {alias}"),
+                    policy,
+                    default_level,
+                    &mut level,
+                );
+            }
+        }
+        if let Some(path) = path {
+            let normalized = normalize_config_path(path);
+            for path_override in &self.path_overrides {
+                if globset::Glob::new(&path_override.pattern)
+                    .is_ok_and(|glob| glob.compile_matcher().is_match(&normalized))
+                {
+                    if let Some(policy_level) = path_override.severity {
+                        level = policy_level;
+                        trace.push(format!("path {}: {level}", path_override.pattern));
+                    }
+                }
+            }
+        }
+        trace
+    }
+}
+
+fn trace_rule_selector(
+    trace: &mut Vec<String>,
+    source: &str,
+    policy: &RuleConfig,
+    default_level: RuleLevel,
+    level: &mut RuleLevel,
+) {
+    if let Some(policy_level) = policy.severity {
+        *level = policy_level;
+        trace.push(format!("{source}: {level}"));
+    } else if let Some(enabled) = policy.enabled {
+        if enabled && *level == RuleLevel::Off {
+            *level = default_level;
+        } else if !enabled {
+            *level = RuleLevel::Off;
+        }
+        trace.push(format!("{source}: {level}"));
+    }
+    if let Some(threshold) = policy.threshold {
+        trace.push(format!("{source} threshold: {threshold}"));
     }
 }
 
@@ -435,7 +543,10 @@ fn apply_path_policy(
     }
 }
 
-fn validate_file_config(config: &FileConfig, path: &Path) -> Result<(), crate::error::ConfigError> {
+pub(crate) fn validate_file_config(
+    config: &FileConfig,
+    path: &Path,
+) -> Result<(), crate::error::ConfigError> {
     use crate::error::ConfigError;
 
     let catalog = built_in_catalog().map_err(|source| ConfigError::Catalog {
@@ -529,7 +640,7 @@ fn emit_legacy_deprecations(config: &FileConfig) {
     }
 }
 
-const fn category_key(category: &Category) -> &'static str {
+pub(crate) const fn category_key(category: &Category) -> &'static str {
     match category {
         Category::ErrorHandling => "error-handling",
         Category::Performance => "performance",
