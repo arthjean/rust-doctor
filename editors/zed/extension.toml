@@ -1,0 +1,11 @@
+id = "rust-doctor"
+name = "Rust Doctor"
+version = "0.2.0"
+schema_version = 1
+authors = ["Arthur Jean"]
+description = "Rust Doctor diagnostics, rule links, and safe suppressions for Rust buffers."
+repository = "https://github.com/arthjean/rust-doctor"
+
+[language_servers.rust-doctor]
+name = "Rust Doctor"
+languages = ["Rust"]

@@ -1,0 +1,98 @@
+{
+  "name": "rust-doctor",
+  "displayName": "Rust Doctor",
+  "description": "Low-latency Rust Doctor diagnostics, explanations, and safe suppressions.",
+  "version": "0.2.0",
+  "publisher": "arthurdev44",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arthjean/rust-doctor"
+  },
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Linters", "Programming Languages"],
+  "keywords": ["rust", "diagnostics", "lint", "cursor"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onLanguage:rust"],
+  "extensionKind": ["workspace"],
+  "files": ["dist/", "package.json", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "bun build src/extension.ts --target=node --format=cjs --external=vscode --outdir=dist",
+    "typecheck": "tsc --noEmit",
+    "smoke": "bun test tests",
+    "package": "bun run build && bun run typecheck && bun run smoke && bunx vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^24.0.0",
+    "@types/vscode": "1.96.0",
+    "@vscode/vsce": "3.9.2",
+    "typescript": "7.0.2"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "rustDoctor.scanWorkspace",
+        "title": "Rust Doctor: Scan Workspace"
+      },
+      {
+        "command": "rustDoctor.explainDiagnostic",
+        "title": "Rust Doctor: Explain Diagnostic"
+      },
+      {
+        "command": "rustDoctor.openRuleDocumentation",
+        "title": "Rust Doctor: Open Rule Documentation"
+      }
+    ],
+    "configuration": {
+      "title": "Rust Doctor",
+      "properties": {
+        "rustDoctor.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable file-local Rust Doctor diagnostics."
+        },
+        "rustDoctor.binaryPath": {
+          "type": "string",
+          "default": "rust-doctor",
+          "description": "Rust Doctor binary path. The binary must include the lsp feature."
+        },
+        "rustDoctor.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Delay before analyzing a changed Rust document."
+        },
+        "rustDoctor.onSaveProjectChecks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run offline project-level checks after save."
+        },
+        "rustDoctor.projectBudgetMs": {
+          "type": "number",
+          "default": 1e4,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Hard budget for optional on-save project checks."
+        },
+        "rustDoctor.configurationPath": {
+          "type": "string",
+          "default": "rust-doctor.toml",
+          "description": "Project-relative Rust Doctor configuration path."
+        },
+        "rustDoctor.trace": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Language-server trace level."
+        }
+      }
+    }
+  }
+}
