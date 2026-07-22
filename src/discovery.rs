@@ -1,4 +1,6 @@
 use cargo_metadata::{DependencyKind, MetadataCommand, TargetKind};
+use std::collections::BTreeSet;
+#[cfg(test)]
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -22,6 +24,17 @@ pub enum Framework {
     WebSys,
     Embassy,
     CortexM,
+}
+
+/// Package-specific dependency evidence used to gate framework rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FrameworkCapability {
+    pub(crate) framework: Framework,
+    pub(crate) version: Option<String>,
+    pub(crate) enabled_features: Vec<String>,
+    pub(crate) target_contexts: Vec<String>,
+    pub(crate) active: bool,
+    pub(crate) gate_reason: Option<String>,
 }
 
 impl std::fmt::Display for Framework {
@@ -82,6 +95,8 @@ pub struct ProjectInfo {
     pub edition: String,
     /// Detected frameworks/runtimes from dependencies.
     pub frameworks: Vec<Framework>,
+    /// Versioned framework evidence across the selected package graph.
+    pub(crate) framework_capabilities: Vec<FrameworkCapability>,
     /// Whether this is a Cargo workspace (>1 member).
     pub is_workspace: bool,
     /// Number of workspace members.
@@ -113,6 +128,8 @@ pub struct WorkspaceMember {
     pub targets: Vec<String>,
     /// Framework capabilities detected for this member.
     pub frameworks: Vec<Framework>,
+    /// Versioned framework evidence isolated to this package.
+    pub(crate) framework_capabilities: Vec<FrameworkCapability>,
     /// The member's declared minimum supported Rust version.
     pub rust_version: Option<String>,
 }
@@ -129,7 +146,7 @@ pub fn discover_project(
     use crate::error::DiscoveryError;
 
     let mut cmd = MetadataCommand::new();
-    cmd.manifest_path(manifest_path).no_deps();
+    cmd.manifest_path(manifest_path);
     if offline {
         cmd.other_options(["--offline".to_string()]);
     }
@@ -166,19 +183,6 @@ pub fn discover_project(
         .iter()
         .any(|t| t.kind.contains(&TargetKind::CustomBuild));
 
-    // Collect all dependency names across all workspace members
-    let all_dep_names: HashSet<&str> = members
-        .iter()
-        .flat_map(|pkg| {
-            pkg.dependencies
-                .iter()
-                .filter(|d| d.kind == DependencyKind::Normal)
-                .map(|d| d.name.as_str())
-        })
-        .collect();
-
-    let frameworks = detect_frameworks(&all_dep_names);
-
     // Detect #![no_std] from primary package's lib.rs or main.rs
     let is_no_std = detect_no_std(primary);
 
@@ -187,27 +191,38 @@ pub fn discover_project(
     // Collect workspace member info
     let workspace_members_info: Vec<WorkspaceMember> = members
         .iter()
-        .map(|pkg| WorkspaceMember {
-            name: pkg.name.clone(),
-            root_dir: PathBuf::from(pkg.manifest_path.parent().map_or(
-                workspace_root.as_path(),
-                cargo_metadata::camino::Utf8Path::as_std_path,
-            )),
-            package_id: pkg.id.repr.clone(),
-            targets: package_targets(pkg),
-            frameworks: detect_frameworks(
-                &pkg.dependencies
-                    .iter()
-                    .filter(|dependency| dependency.kind == DependencyKind::Normal)
-                    .map(|dependency| dependency.name.as_str())
-                    .collect(),
-            ),
-            rust_version: pkg
-                .rust_version
-                .as_ref()
-                .map(std::string::ToString::to_string),
+        .map(|pkg| {
+            let framework_capabilities = framework_capabilities(pkg, &metadata);
+            WorkspaceMember {
+                name: pkg.name.clone(),
+                root_dir: PathBuf::from(pkg.manifest_path.parent().map_or(
+                    workspace_root.as_path(),
+                    cargo_metadata::camino::Utf8Path::as_std_path,
+                )),
+                package_id: pkg.id.repr.clone(),
+                targets: package_targets(pkg),
+                frameworks: active_frameworks(&framework_capabilities),
+                framework_capabilities,
+                rust_version: pkg
+                    .rust_version
+                    .as_ref()
+                    .map(std::string::ToString::to_string),
+            }
         })
         .collect();
+    let mut framework_capabilities: Vec<_> = workspace_members_info
+        .iter()
+        .flat_map(|member| member.framework_capabilities.iter().cloned())
+        .collect();
+    framework_capabilities.sort_by(|left, right| {
+        left.framework
+            .to_string()
+            .cmp(&right.framework.to_string())
+            .then(left.version.cmp(&right.version))
+            .then(left.enabled_features.cmp(&right.enabled_features))
+    });
+    framework_capabilities.dedup();
+    let frameworks = active_frameworks(&framework_capabilities);
 
     Ok(ProjectInfo {
         root_dir: workspace_root,
@@ -217,6 +232,7 @@ pub fn discover_project(
         targets,
         edition,
         frameworks,
+        framework_capabilities,
         is_workspace,
         member_count,
         has_build_script,
@@ -226,6 +242,113 @@ pub fn discover_project(
         workspace_members: workspace_members_info,
         default_member_ids,
     })
+}
+
+fn framework_capabilities(
+    package: &cargo_metadata::Package,
+    metadata: &cargo_metadata::Metadata,
+) -> Vec<FrameworkCapability> {
+    let package_node = metadata
+        .resolve
+        .as_ref()
+        .and_then(|resolve| resolve.nodes.iter().find(|node| node.id == package.id));
+    let mut capabilities = Vec::new();
+
+    for dependency in package
+        .dependencies
+        .iter()
+        .filter(|dependency| dependency.kind == DependencyKind::Normal)
+    {
+        let Some(framework) = framework_for_dependency(&dependency.name) else {
+            continue;
+        };
+        let resolved_dependency = package_node.and_then(|node| {
+            node.deps.iter().find(|candidate| {
+                metadata
+                    .packages
+                    .iter()
+                    .find(|resolved| resolved.id == candidate.pkg)
+                    .is_some_and(|resolved| resolved.name == dependency.name)
+            })
+        });
+        let resolved_package = resolved_dependency.and_then(|node| {
+            metadata
+                .packages
+                .iter()
+                .find(|resolved| resolved.id == node.pkg)
+        });
+        let enabled_features = resolved_dependency
+            .and_then(|node| {
+                metadata.resolve.as_ref().and_then(|resolve| {
+                    resolve
+                        .nodes
+                        .iter()
+                        .find(|resolved| resolved.id == node.pkg)
+                })
+            })
+            .map_or_else(Vec::new, |node| {
+                let mut features = node.features.clone();
+                features.sort();
+                features.dedup();
+                features
+            });
+        let target_contexts = resolved_dependency.map_or_else(Vec::new, |node| {
+            let mut targets: Vec<_> = node
+                .dep_kinds
+                .iter()
+                .filter(|kind| kind.kind == DependencyKind::Normal)
+                .map(|kind| {
+                    kind.target.as_ref().map_or_else(
+                        || "all-targets".to_string(),
+                        std::string::ToString::to_string,
+                    )
+                })
+                .collect();
+            targets.sort();
+            targets.dedup();
+            targets
+        });
+        let gate_reason = if dependency.rename.is_some() {
+            Some("renamed dependency requires an explicit capability mapping".to_string())
+        } else if resolved_dependency.is_none() && dependency.optional {
+            Some("optional dependency feature is disabled".to_string())
+        } else if resolved_package.is_none() {
+            Some("resolved dependency version is unavailable".to_string())
+        } else if target_contexts.is_empty() {
+            Some("dependency has no active normal target context".to_string())
+        } else {
+            None
+        };
+        capabilities.push(FrameworkCapability {
+            framework,
+            version: resolved_package.map(|resolved| resolved.version.to_string()),
+            enabled_features,
+            target_contexts,
+            active: gate_reason.is_none(),
+            gate_reason,
+        });
+    }
+    capabilities.sort_by_key(|capability| capability.framework.to_string());
+    capabilities
+}
+
+fn active_frameworks(capabilities: &[FrameworkCapability]) -> Vec<Framework> {
+    let mut seen = BTreeSet::new();
+    capabilities
+        .iter()
+        .filter(|capability| capability.active)
+        .filter_map(|capability| {
+            seen.insert(capability.framework.to_string())
+                .then_some(capability.framework)
+        })
+        .collect()
+}
+
+fn framework_for_dependency(name: &str) -> Option<Framework> {
+    FRAMEWORK_MAP
+        .iter()
+        .find_map(|(crate_name, framework)| (*crate_name == name).then_some(*framework))
+        .or_else(|| name.starts_with("embassy-").then_some(Framework::Embassy))
 }
 
 fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
@@ -239,6 +362,7 @@ fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
 }
 
 /// Detect frameworks from dependency names.
+#[cfg(test)]
 fn detect_frameworks(dep_names: &HashSet<&str>) -> Vec<Framework> {
     let mut frameworks: Vec<Framework> = FRAMEWORK_MAP
         .iter()

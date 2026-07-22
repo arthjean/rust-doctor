@@ -50,6 +50,14 @@ pub(crate) struct NumericRange {
     pub(crate) default: u32,
 }
 
+/// Version and feature evidence required before a framework rule can run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct FrameworkRequirement {
+    pub(crate) framework: String,
+    pub(crate) version: String,
+    pub(crate) required_features: Vec<String>,
+}
+
 /// Complete metadata for one canonical rule identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct RuleDescriptor {
@@ -63,6 +71,7 @@ pub(crate) struct RuleDescriptor {
     pub(crate) confidence: Confidence,
     pub(crate) default_enabled: bool,
     pub(crate) applicable_frameworks: Vec<String>,
+    pub(crate) framework_requirements: Vec<FrameworkRequirement>,
     pub(crate) documentation_url: String,
     pub(crate) supported_threshold: Option<NumericRange>,
     pub(crate) fix_capability: FixCapability,
@@ -78,6 +87,31 @@ impl RuleDescriptor {
         ];
         tags.sort();
         tags.dedup();
+        let applicable_frameworks: Vec<String> = rule
+            .applicable_frameworks()
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect();
+        let framework_requirements = applicable_frameworks
+            .iter()
+            .map(|framework| FrameworkRequirement {
+                framework: framework.clone(),
+                version: rule
+                    .framework_version_requirements()
+                    .iter()
+                    .find_map(|(name, version)| (*name == framework).then_some(*version))
+                    .unwrap_or("*")
+                    .to_string(),
+                required_features: rule
+                    .required_framework_features()
+                    .iter()
+                    .find_map(|(name, features)| (*name == framework).then_some(*features))
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|feature| (*feature).to_string())
+                    .collect(),
+            })
+            .collect();
         Self {
             canonical_id: rule.name().to_string(),
             aliases: Vec::new(),
@@ -88,11 +122,8 @@ impl RuleDescriptor {
             analyzer_kind: AnalyzerKind::SynAst,
             confidence: rule.confidence(),
             default_enabled: rule.default_enabled(),
-            applicable_frameworks: rule
-                .applicable_frameworks()
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
+            applicable_frameworks,
+            framework_requirements,
             documentation_url: format!("https://rust-doctor.vercel.app/rules/{}", rule.name()),
             supported_threshold: rule.supported_threshold(),
             fix_capability: FixCapability::Guidance,
@@ -117,6 +148,7 @@ impl RuleDescriptor {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: format!(
                 "https://rust-lang.github.io/rust-clippy/master/index.html#{}",
                 entry.name
@@ -147,6 +179,7 @@ impl RuleDescriptor {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: "https://rust-doctor.vercel.app/rules/external".to_string(),
             supported_threshold: None,
             fix_capability: FixCapability::Guidance,
@@ -421,6 +454,7 @@ mod tests {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: String::new(),
             supported_threshold: None,
             fix_capability: FixCapability::None,
@@ -432,7 +466,7 @@ mod tests {
     #[test]
     fn built_in_catalog_covers_every_explicit_rule() {
         let catalog = built_in_catalog().unwrap();
-        assert_eq!(catalog.custom_count(), 19);
+        assert_eq!(catalog.custom_count(), 34);
         assert_eq!(catalog.clippy_count(), 74);
         for rule in rules::all_custom_rules() {
             assert!(catalog.exact(rule.name()).is_some(), "{}", rule.name());

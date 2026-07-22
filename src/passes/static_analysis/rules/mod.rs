@@ -2,8 +2,11 @@ pub mod async_rules;
 pub mod complexity;
 pub mod error_handling;
 pub mod framework;
+pub mod framework_packs;
 pub mod performance;
+pub mod reliability;
 pub mod security;
+pub mod tranche;
 
 use crate::cache::{self, ScanCache};
 use crate::catalog::{Confidence, NumericRange};
@@ -47,10 +50,6 @@ pub fn is_test_context(attrs: &[syn::Attribute]) -> bool {
 /// Metadata methods (`description`, `fix_hint`) co-locate documentation
 /// with the implementation, so adding a new rule only requires changes
 /// in one place.
-#[expect(
-    dead_code,
-    reason = "helper methods used by implementors in sub-modules"
-)]
 pub trait CustomRule: Send + Sync {
     /// Unique rule identifier (e.g. "unwrap-in-production").
     fn name(&self) -> &'static str;
@@ -81,6 +80,16 @@ pub trait CustomRule: Send + Sync {
 
     /// Framework capabilities required before the rule is applicable.
     fn applicable_frameworks(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Supported dependency versions for each applicable framework.
+    fn framework_version_requirements(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
+    /// Cargo features required for framework-specific evidence.
+    fn required_framework_features(&self) -> &'static [(&'static str, &'static [&'static str])] {
         &[]
     }
 
@@ -343,10 +352,13 @@ pub fn all_custom_rules() -> Vec<Box<dyn CustomRule>> {
     error_handling::all_rules()
         .into_iter()
         .chain(performance::all_rules())
+        .chain(reliability::all_rules())
         .chain(complexity::all_rules())
         .chain(security::all_rules())
+        .chain(tranche::all_rules())
         .chain(async_rules::all_rules())
         .chain(framework::all_rules())
+        .chain(framework_packs::all_rules())
         .collect()
 }
 

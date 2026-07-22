@@ -30,6 +30,16 @@ impl CustomRule for TokioMainMissing {
     fn applicable_frameworks(&self) -> &'static [&'static str] {
         &["tokio", "async-std", "smol"]
     }
+    fn framework_version_requirements(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("tokio", ">=1,<2"),
+            ("async-std", ">=1,<2"),
+            ("smol", ">=1,<3"),
+        ]
+    }
+    fn required_framework_features(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        &[("tokio", &["macros", "rt"]), ("async-std", &["attributes"])]
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         if filename != "main.rs" {
@@ -105,6 +115,12 @@ impl CustomRule for TokioSpawnWithoutMove {
     }
     fn applicable_frameworks(&self) -> &'static [&'static str] {
         &["tokio"]
+    }
+    fn framework_version_requirements(&self) -> &'static [(&'static str, &'static str)] {
+        &[("tokio", ">=1,<2")]
+    }
+    fn required_framework_features(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        &[("tokio", &["rt"])]
     }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = SpawnVisitor {
@@ -199,6 +215,9 @@ impl CustomRule for AxumHandlerNotAsync {
     fn applicable_frameworks(&self) -> &'static [&'static str] {
         &["axum"]
     }
+    fn framework_version_requirements(&self) -> &'static [(&'static str, &'static str)] {
+        &[("axum", ">=0.7,<0.9")]
+    }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         for item in &syntax.items {
@@ -275,6 +294,9 @@ impl CustomRule for ActixBlockingHandler {
     }
     fn applicable_frameworks(&self) -> &'static [&'static str] {
         &["actix-web"]
+    }
+    fn framework_version_requirements(&self) -> &'static [(&'static str, &'static str)] {
+        &[("actix-web", ">=4,<5")]
     }
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
         let mut visitor = ActixVisitor {

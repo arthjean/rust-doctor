@@ -208,6 +208,7 @@ mod tests {
             package_id: package_id.to_string(),
             targets: vec![format!("{name}:[Lib]")],
             frameworks: vec![],
+            framework_capabilities: vec![],
             rust_version: Some("1.85".to_string()),
         }
     }

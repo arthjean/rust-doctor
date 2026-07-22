@@ -5,8 +5,8 @@
 //! and an optional configuration file.
 
 use crate::catalog::{
-    AnalyzerKind, Confidence, FixCapability, NumericRange, RuleCatalog, RuleDescriptor,
-    built_in_catalog,
+    AnalyzerKind, Confidence, FixCapability, FrameworkRequirement, NumericRange, RuleCatalog,
+    RuleDescriptor, built_in_catalog,
 };
 use crate::config::{FileConfig, PolicyConfig, ResolvedConfig, RuleConfig, VisibilitySurface};
 use crate::diagnostics::{Category, Severity};
@@ -69,12 +69,20 @@ struct EffectiveRulePolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct RuleListEntry {
     canonical_id: String,
+    provider: String,
     category: String,
+    default_severity: Severity,
     tags: Vec<String>,
     analyzer: String,
     confidence: String,
     default_enabled: bool,
     applicable_frameworks: Vec<String>,
+    framework_requirements: Vec<FrameworkRequirement>,
+    description: String,
+    limitations: Vec<String>,
+    fix_capability: String,
+    fix_guidance: String,
+    documentation_url: String,
     effective_policy: EffectiveRulePolicy,
 }
 
@@ -109,6 +117,7 @@ pub(super) struct RuleExplanation {
     confidence: String,
     default_enabled: bool,
     applicable_frameworks: Vec<String>,
+    framework_requirements: Vec<FrameworkRequirement>,
     supported_threshold: Option<ThresholdRange>,
     fix_capability: String,
     rationale: String,
@@ -285,12 +294,20 @@ pub(super) fn list_rules(
         .filter(|descriptor| matches_filter(descriptor, resolved, filter))
         .map(|descriptor| RuleListEntry {
             canonical_id: descriptor.canonical_id.clone(),
+            provider: descriptor.provider.clone(),
             category: category_key(&descriptor.category).to_string(),
+            default_severity: descriptor.default_severity,
             tags: descriptor.tags.clone(),
             analyzer: analyzer_key(descriptor.analyzer_kind).to_string(),
             confidence: confidence_key(descriptor.confidence).to_string(),
             default_enabled: descriptor.default_enabled,
             applicable_frameworks: descriptor.applicable_frameworks.clone(),
+            framework_requirements: descriptor.framework_requirements.clone(),
+            description: descriptor.description.clone(),
+            limitations: limitations(descriptor, false),
+            fix_capability: fix_capability_key(descriptor.fix_capability).to_string(),
+            fix_guidance: descriptor.fix_guidance.clone(),
+            documentation_url: descriptor.documentation_url.clone(),
             effective_policy: effective_policy(resolved, descriptor),
         })
         .collect())
@@ -444,6 +461,7 @@ fn explanation_for(
         confidence: confidence_key(descriptor.confidence).to_string(),
         default_enabled: descriptor.default_enabled,
         applicable_frameworks: descriptor.applicable_frameworks.clone(),
+        framework_requirements: descriptor.framework_requirements.clone(),
         supported_threshold: descriptor.supported_threshold.map(ThresholdRange::from),
         fix_capability: fix_capability_key(descriptor.fix_capability).to_string(),
         rationale: descriptor.description.clone(),
@@ -723,6 +741,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: format!(
                 "https://rust-lang.github.io/rust-clippy/master/index.html#{lint}"
             ),
@@ -745,6 +764,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: format!("https://rustsec.org/advisories/{rule}.html"),
             supported_threshold: None,
             fix_capability: FixCapability::Guidance,
@@ -771,6 +791,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             confidence: Confidence::High,
             default_enabled: true,
             applicable_frameworks: Vec::new(),
+            framework_requirements: Vec::new(),
             documentation_url: "https://embarkstudios.github.io/cargo-deny/checks/index.html"
                 .to_string(),
             supported_threshold: None,
@@ -819,6 +840,21 @@ fn limitations(descriptor: &RuleDescriptor, namespace_fallback: bool) -> Vec<Str
             "Syntactic analysis does not have rustc name resolution or inferred type information."
                 .to_string(),
         );
+    }
+    if values.is_empty() {
+        values.push(match descriptor.analyzer_kind {
+            AnalyzerKind::Clippy => {
+                "Compiler-aware evidence is unavailable when the package cannot complete Clippy analysis."
+            }
+            AnalyzerKind::Dependency | AnalyzerKind::External => {
+                "Evidence depends on the originating external analyzer and its local data being available."
+            }
+            AnalyzerKind::Project => {
+                "Project-level evidence does not identify a precise source span."
+            }
+            AnalyzerKind::SynAst => unreachable!("syn rules receive the generic syntax limitation"),
+        }
+        .to_string());
     }
     if namespace_fallback {
         values.push(

@@ -12,7 +12,7 @@
 
 **The one-command health check for your Rust project.** rust-doctor scans for security, performance, correctness, architecture, and dependency issues, then folds everything into a single 0–100 score with diagnostics you can act on.
 
-It runs `cargo clippy`, `cargo-audit`, `cargo-deny`, `cargo-geiger`, and 19 custom AST rules in one pass, and ships as a CLI, a library crate, an [MCP](https://modelcontextprotocol.io/) server, an npm package, and a GitHub Action — so it works in your terminal, your CI, and inside Claude Code, Cursor, or any MCP agent.
+It runs `cargo clippy`, `cargo-audit`, `cargo-deny`, `cargo-geiger`, and 34 custom AST rules in one pass, and ships as a CLI, a library crate, an [MCP](https://modelcontextprotocol.io/) server, an npm package, and a GitHub Action, so it works in your terminal, your CI, and inside Claude Code, Cursor, or any MCP agent.
 
 ```console
 $ rust-doctor                          # rust-doctor scanning its own codebase
@@ -47,7 +47,7 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 
 | You're using | It gives you | rust-doctor adds |
 |---|---|---|
-| `cargo clippy` | 700+ built-in lints | Category + severity mapping, 19 custom AST rules (security, async, framework, architecture), and a single 0–100 score |
+| `cargo clippy` | 700+ built-in lints | Category + severity mapping, 34 custom AST rules (security, async, framework, architecture), and a single 0–100 score |
 | `cargo audit` / `cargo deny` | CVE and supply-chain checks | One pass that also runs clippy, geiger, and machete — skipping gracefully when a tool isn't installed |
 | Separate CI steps | Each tool's own output | One command with `--json`, `--sarif`, `--diff`, `--score`, and PR comments |
 | Claude Code / Cursor | Code generation | An MCP server and a slash-command skill, so the agent scans, scores, and fixes as it writes |
@@ -55,7 +55,7 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 ## Features
 
 - **700+ clippy lints** with explicit severity overrides and category mapping
-- **19 custom AST rules** via [syn](https://crates.io/crates/syn): error handling, performance, security, async, architecture, and framework anti-patterns
+- **34 custom AST rules** via [syn](https://crates.io/crates/syn): error handling, performance, security, async, architecture, and framework anti-patterns
 - **Async anti-pattern detection**: blocking calls and `block_on` inside an async context
 - **Framework-aware rules**: tokio, axum, actix-web — only run when the dependency is present
 - **Supply-chain auditing**: CVEs via `cargo-audit`, bans/licenses via `cargo-deny`, unsafe via `cargo-geiger`, unused deps via `cargo-machete`
@@ -457,11 +457,11 @@ let x = risky_call(); // rust-doctor-disable-line
 
 ## Rules
 
-### Custom AST Rules (19 rules) - heuristic
+### Custom AST Rules (34 rules) - heuristic
 
 These rules analyze the syntax tree only (via `syn`): no type resolution, no
 macro expansion. They run fast and offline, but emit a **heuristic** signal, not
-a type-checked verdict. The canonical catalog is built directly from the 19 rule
+a type-checked verdict. The canonical catalog is built directly from the 34 rule
 implementations and the Clippy registry. MCP `list_rules` and `explain_rule`
 render that catalog, and tests assert these counts, so adding a rule does not
 require maintaining a second documentation table.
