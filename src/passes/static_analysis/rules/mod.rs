@@ -350,6 +350,53 @@ pub fn all_custom_rules() -> Vec<Box<dyn CustomRule>> {
         .collect()
 }
 
+/// Analyze one in-memory editor document without touching the project cache or
+/// launching package-global adapters. Policy and framework gates are resolved
+/// before each custom rule executes.
+#[cfg(feature = "lsp")]
+pub fn analyze_editor_source(
+    source: &str,
+    path: &Path,
+    config: &crate::config::ResolvedConfig,
+    frameworks: &[String],
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<Vec<Diagnostic>, syn::Error> {
+    use std::sync::atomic::Ordering;
+
+    let syntax = syn::parse_file(source)?;
+    let catalog = crate::catalog::built_in_catalog().ok();
+    let mut diagnostics = Vec::new();
+    for mut rule in all_custom_rules() {
+        if cancelled.load(Ordering::Acquire) {
+            break;
+        }
+        let Some(descriptor) = catalog.and_then(|catalog| catalog.exact(rule.name())) else {
+            continue;
+        };
+        if !descriptor.applicable_frameworks.is_empty()
+            && !descriptor
+                .applicable_frameworks
+                .iter()
+                .any(|required| frameworks.iter().any(|active| active == required))
+        {
+            continue;
+        }
+        let policy = config.rule_policy(descriptor, Some(path));
+        let Some(severity) = policy.severity else {
+            continue;
+        };
+        if let Some(threshold) = policy.threshold {
+            rule.set_threshold(threshold);
+        }
+        let mut findings = run_rule_safely(rule.as_ref(), &syntax, path);
+        for finding in &mut findings {
+            finding.severity = severity;
+        }
+        diagnostics.extend(findings);
+    }
+    Ok(diagnostics)
+}
+
 /// Names of every syn-based custom rule — the "heuristic" set, computed once.
 static HEURISTIC_RULE_NAMES: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
     std::sync::LazyLock::new(|| all_custom_rules().iter().map(|r| r.name()).collect());
