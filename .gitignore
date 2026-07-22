@@ -6,10 +6,6 @@
 # rust-doctor incremental cache
 .rust-doctor-cache.json
 
-# Demo video tooling (Remotion) — keep source, ignore deps/output
-rust-doctor-video/node_modules/
-rust-doctor-video/out/
-
 # IDE / editor
 .idea/
 .vscode/
