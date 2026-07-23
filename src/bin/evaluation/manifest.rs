@@ -1,4 +1,6 @@
-use super::model::{CORPUS_SCHEMA_VERSION, CorpusManifest, PreparedCorpus, RepositorySpec};
+use super::model::{
+    CORPUS_SCHEMA_VERSION, CorpusManifest, EvaluationProfile, PreparedCorpus, RepositorySpec,
+};
 use super::{EvalError, Result};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -47,6 +49,13 @@ pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+pub(crate) fn evaluation_profile_sha256(profile: &EvaluationProfile) -> Result<String> {
+    let bytes = serde_json::to_vec(profile).map_err(|error| {
+        EvalError::InvalidManifest(format!("evaluation profile cannot be serialized: {error}"))
+    })?;
+    Ok(hex_digest(&bytes))
+}
+
 pub(crate) fn validate_corpus_manifest(manifest: &CorpusManifest) -> Result<()> {
     if manifest.schema_version != CORPUS_SCHEMA_VERSION {
         return Err(EvalError::InvalidManifest(format!(
@@ -60,6 +69,7 @@ pub(crate) fn validate_corpus_manifest(manifest: &CorpusManifest) -> Result<()> 
             manifest.repositories.len()
         )));
     }
+    validate_evaluation_profile(&manifest.evaluation_profile)?;
     let mut names = HashSet::new();
     let mut urls = HashSet::new();
     let mut total_roots = 0usize;
@@ -83,6 +93,35 @@ pub(crate) fn validate_corpus_manifest(manifest: &CorpusManifest) -> Result<()> 
         return Err(EvalError::InvalidManifest(format!(
             "corpus must declare at least 250 Cargo project roots, got {total_roots}"
         )));
+    }
+    Ok(())
+}
+
+fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
+    let required_adapters = ["clippy", "custom-rules", "dependencies"];
+    if profile.version != "1.0"
+        || profile.normalized_severity != "warning"
+        || !profile.force_candidate_rules
+        || profile.respect_inline_suppressions
+        || profile.respect_project_config
+        || !profile.offline
+        || required_adapters
+            .iter()
+            .any(|adapter| !profile.adapter_policy.contains_key(*adapter))
+    {
+        return Err(EvalError::InvalidManifest(
+            "evaluation profile must force all candidate rules at warning severity, disable project and inline suppression policy, run offline, and pin every adapter policy"
+                .to_string(),
+        ));
+    }
+    if profile
+        .adapter_policy
+        .values()
+        .any(|policy| policy.trim().is_empty())
+    {
+        return Err(EvalError::InvalidManifest(
+            "evaluation adapter policies cannot be empty".to_string(),
+        ));
     }
     Ok(())
 }
@@ -195,6 +234,17 @@ pub(crate) fn validate_prepared(
                 repository.name,
                 repository.project_roots.len(),
                 spec.minimum_project_roots
+            )));
+        }
+        if repository.tree_digest.is_empty()
+            || repository
+                .submodule_status
+                .iter()
+                .any(|status| status.trim().is_empty())
+        {
+            return Err(EvalError::InvalidManifest(format!(
+                "prepared repository {} is missing tree or submodule provenance",
+                repository.name
             )));
         }
     }

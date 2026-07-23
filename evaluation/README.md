@@ -5,6 +5,11 @@ corpus manifest contains 100 GitHub repositories pinned to full commits and
 declares a conservative minimum of 260 Cargo roots. Preparation verifies the
 actual roots before it writes its own manifest.
 
+The manifest also pins evaluation profile `1.0`: every candidate rule is
+forced on at warning severity, repository config and inline suppressions are
+ignored, adapters are fixed, and execution is offline. Every record carries the
+profile and catalog SHA-256 plus exact expected, attempted, and reported roots.
+
 ```bash
 cargo run --bin rust-doctor-eval -- prepare \
   --manifest evaluation/corpus-v1.json \
@@ -41,7 +46,9 @@ Corpus lines conform to
 [`schemas/corpus-record-v1.schema.json`](schemas/corpus-record-v1.schema.json).
 They contain commit and package roots, tool revision, completeness, diagnostic
 and per-rule counts, duration, stable evidence, attempts, and the full failure
-chain. Host paths are removed from failures.
+chain. Before every scan, the runner rechecks the clean index and worktree,
+submodule state, and Git tree digest recorded during preparation. Host paths are
+removed from failures.
 
 ## Diagnostic gate
 
@@ -50,7 +57,6 @@ cargo run --bin rust-doctor-eval -- delta \
   --baseline evaluation-results/approved.ndjson \
   --candidate /var/tmp/candidate.ndjson \
   --labels evaluation-results/labels.json \
-  --promoted-rule hardcoded-secrets \
   --output /var/tmp/delta.json
 ```
 
@@ -59,6 +65,8 @@ diagnostic increases above 0.5% of complete roots and incomplete-root increases
 above 0.2 percentage points. A promotion sample contains every introduced
 finding up to 100 deterministic findings per rule. More than 2% confirmed false
 positives, missing labels, or uncertain labels blocks default activation.
+Promotions are derived from the two catalogs, so callers cannot omit a promoted
+rule. Labels bind repository, Cargo root, rule, site, and evidence fingerprint.
 
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
 threshold. The approval JSON must contain schema version `1.0`, the exact
@@ -78,7 +86,11 @@ The fixed matrix covers cold and warm full, files, lines, and baseline scans on
 small, medium, large, and 20-member workspace fixtures. Records include wall
 and CPU time, peak RSS, files per second, cache hit rate, and per-pass time.
 Median or P95 wall-time growth above 10% blocks. The 100,000-line fixture also
-blocks above 512 MiB peak RSS.
+blocks above 512 MiB peak RSS. Percentage regressions below an absolute 50 ms
+increase are ignored. Gate mode requires at least three repetitions, an
+approved baseline, and matching fixture, diagnostic, host-class, and toolchain
+fingerprints. Set `RUST_DOCTOR_BENCHMARK_HOST_CLASS` to the protected runner
+class. Use `--record` only to generate an unapproved review candidate.
 
 ## Built artifacts
 
@@ -87,10 +99,13 @@ target/release/rust-doctor-eval smoke \
   --binary target/release/rust-doctor \
   --no-default-binary target/no-default/release/rust-doctor \
   --schema schemas/report-v1.schema.json \
-  --npm-root npm
+  --npm-root npm \
+  --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
+  --crate-package target/package/rust-doctor-0.2.0.crate
 ```
 
 The smoke suite invokes terminal, score, JSON, SARIF, baseline, malformed and
 failure paths from built binaries. It checks MCP initialize, tool discovery,
-scan and cancellation, then packs and installs the current platform npm wrapper
-with Bun and verifies that it launches the byte-identical embedded binary.
+full and baseline scans, and deadline-observed cancellation. It packs and
+installs the current platform npm wrapper, executes each extracted native
+archive, and builds the exact verified `.crate` contents offline.

@@ -1,8 +1,8 @@
-use super::manifest::{read_json, sha256_file, write_json_atomic};
+use super::manifest::{hex_digest, read_json, sha256_file, write_json_atomic};
 use super::model::{
     BaselineApproval, CORPUS_SCHEMA_VERSION, CorpusRecord, DELTA_SCHEMA_VERSION, DeltaReport,
-    DiagnosticLabel, EvaluationDiagnostic, LabelFile, PromotionReview, ReviewLabel, RuleDelta,
-    RuntimeDelta,
+    DiagnosticLabel, EvaluationDiagnostic, EvaluationRule, LabelFile, PromotionReview, ReviewLabel,
+    RuleDelta, RuntimeDelta,
 };
 use super::{EvalError, Result};
 use crate::DeltaArgs;
@@ -22,6 +22,9 @@ struct MutableRuleDelta {
     introduced: usize,
     removed: usize,
     changed: usize,
+    baseline_count: usize,
+    candidate_count: usize,
+    affected_roots: HashSet<(String, String)>,
     affected_repositories: BTreeMap<String, usize>,
 }
 
@@ -53,6 +56,9 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
         .labels
         .as_deref()
         .map_or_else(|| Ok(Vec::new()), read_labels)?;
+    let baseline_catalog = corpus_catalog(&baseline)?;
+    let candidate_catalog = corpus_catalog(&candidate)?;
+    let promoted_rules = derive_promoted_rules(baseline_catalog, candidate_catalog);
 
     let baseline_by_repository = by_repository(&baseline);
     let candidate_by_repository = by_repository(&candidate);
@@ -114,8 +120,14 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
     });
     runtime_deltas.truncate(10);
 
-    let promotion_reviews =
-        promotion_reviews(&comparison.introduced, &args.promoted_rules, &labels);
+    // The evaluation profile forces candidate rules on in both runs. A rule can
+    // therefore become default-enabled without producing an "introduced"
+    // delta, so promotion review samples the candidate population itself.
+    let promotion_population: Vec<_> = complete_pairs
+        .iter()
+        .flat_map(|(_, candidate)| candidate.diagnostics.iter().cloned())
+        .collect();
+    let promotion_reviews = promotion_reviews(&promotion_population, &promoted_rules, &labels);
     let mut reasons = Vec::new();
     if affected_root_percent > 0.5 && !approved {
         reasons.push(format!(
@@ -138,10 +150,19 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
             ));
         }
     }
-    let rule_deltas = comparison
+    let rule_deltas: Vec<_> = comparison
         .per_rule
         .into_iter()
         .map(|(rule, delta)| RuleDelta {
+            catalog_changed: catalog_rule_changed(
+                baseline_catalog.get(&rule),
+                candidate_catalog.get(&rule),
+            ),
+            count_growth: delta.candidate_count.saturating_sub(delta.baseline_count),
+            affected_root_percent: percent(
+                delta.affected_roots.len(),
+                complete_baseline_roots.max(1),
+            ),
             rule,
             introduced: delta.introduced,
             removed: delta.removed,
@@ -149,6 +170,17 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
             affected_repositories: top_affected_repositories(delta.affected_repositories),
         })
         .collect();
+    for delta in &rule_deltas {
+        if (delta.introduced > 0 || delta.count_growth > 0 || delta.catalog_changed)
+            && delta.affected_root_percent > 0.5
+            && !approved
+        {
+            reasons.push(format!(
+                "rule {} changed across {:.3}% of complete roots, above 0.5%",
+                delta.rule, delta.affected_root_percent
+            ));
+        }
+    }
     let report = DeltaReport {
         schema_version: DELTA_SCHEMA_VERSION.to_string(),
         baseline_sha256,
@@ -223,6 +255,13 @@ fn validate_pair(baseline: &[CorpusRecord], candidate: &[CorpusRecord]) -> Resul
         )));
     }
     let candidate_by_repository = by_repository(candidate);
+    let baseline_profile = corpus_profile(baseline)?;
+    let candidate_profile = corpus_profile(candidate)?;
+    if baseline_profile != candidate_profile {
+        return Err(EvalError::InvalidManifest(
+            "candidate and baseline use different evaluation-profile fingerprints".to_string(),
+        ));
+    }
     for baseline_record in baseline {
         let candidate_record = candidate_by_repository
             .get(baseline_record.repository.as_str())
@@ -232,13 +271,15 @@ fn validate_pair(baseline: &[CorpusRecord], candidate: &[CorpusRecord]) -> Resul
                     baseline_record.repository
                 ))
             })?;
-        let mut baseline_roots = baseline_record.package_roots.clone();
-        let mut candidate_roots = candidate_record.package_roots.clone();
-        baseline_roots.sort();
-        candidate_roots.sort();
-        if baseline_roots != candidate_roots {
+        if baseline_record.expected_roots != candidate_record.expected_roots {
             return Err(EvalError::InvalidManifest(format!(
-                "candidate package roots differ for {}",
+                "candidate canonical roots differ for {}",
+                baseline_record.repository
+            )));
+        }
+        if baseline_record.complete && !candidate_record.complete {
+            return Err(EvalError::GateFailed(format!(
+                "candidate completeness degraded for {}",
                 baseline_record.repository
             )));
         }
@@ -256,6 +297,11 @@ fn validate_record(record: &CorpusRecord, path: &Path, line: usize) -> Result<()
     if record.repository.is_empty()
         || record.tool_revision.is_empty()
         || record.package_roots.is_empty()
+        || record.expected_roots.is_empty()
+        || record.evaluation_profile_sha256.len() != 64
+        || record.catalog_sha256.len() != 64
+        || record.catalog.is_empty()
+        || record.tree_digest.is_empty()
         || !(1..=3).contains(&record.attempts)
     {
         return Err(invalid("required identity or attempt fields are invalid"));
@@ -273,8 +319,24 @@ fn validate_record(record: &CorpusRecord, path: &Path, line: usize) -> Result<()
             return Err(invalid("package roots must be unique relative paths"));
         }
     }
+    if record.complete
+        && (record.expected_roots != record.attempted_roots
+            || record.attempted_roots != record.reported_roots)
+    {
+        return Err(invalid(
+            "complete records require exact expected, attempted, and reported root equality",
+        ));
+    }
+    let catalog_bytes = serde_json::to_vec(&record.catalog)
+        .map_err(|_| invalid("catalog cannot be fingerprinted"))?;
+    if hex_digest(&catalog_bytes) != record.catalog_sha256 {
+        return Err(invalid(
+            "catalog fingerprint does not match catalog contents",
+        ));
+    }
     for diagnostic in &record.diagnostics {
-        if !roots.contains(diagnostic.package_root.as_str())
+        if diagnostic.repository != record.repository
+            || !roots.contains(diagnostic.package_root.as_str())
             || diagnostic.rule.is_empty()
             || diagnostic.site_id.is_empty()
             || diagnostic.baseline_key.is_empty()
@@ -334,6 +396,60 @@ fn by_repository(records: &[CorpusRecord]) -> HashMap<&str, &CorpusRecord> {
         .collect()
 }
 
+fn corpus_profile(records: &[CorpusRecord]) -> Result<&str> {
+    let first = records
+        .first()
+        .ok_or_else(|| EvalError::InvalidManifest("corpus is empty".to_string()))?
+        .evaluation_profile_sha256
+        .as_str();
+    if records
+        .iter()
+        .any(|record| record.evaluation_profile_sha256 != first)
+    {
+        return Err(EvalError::InvalidManifest(
+            "corpus records disagree on the evaluation-profile fingerprint".to_string(),
+        ));
+    }
+    Ok(first)
+}
+
+fn corpus_catalog(records: &[CorpusRecord]) -> Result<&BTreeMap<String, EvaluationRule>> {
+    let first = records
+        .first()
+        .ok_or_else(|| EvalError::InvalidManifest("corpus is empty".to_string()))?;
+    if records.iter().any(|record| {
+        record.catalog_sha256 != first.catalog_sha256 || record.catalog != first.catalog
+    }) {
+        return Err(EvalError::InvalidManifest(
+            "corpus records disagree on the evaluated rule catalog".to_string(),
+        ));
+    }
+    Ok(&first.catalog)
+}
+
+fn derive_promoted_rules(
+    baseline: &BTreeMap<String, EvaluationRule>,
+    candidate: &BTreeMap<String, EvaluationRule>,
+) -> Vec<String> {
+    candidate
+        .iter()
+        .filter(|(rule, state)| {
+            state.default_enabled
+                && baseline
+                    .get(*rule)
+                    .is_none_or(|previous| !previous.default_enabled)
+        })
+        .map(|(rule, _)| rule.clone())
+        .collect()
+}
+
+fn catalog_rule_changed(
+    baseline: Option<&EvaluationRule>,
+    candidate: Option<&EvaluationRule>,
+) -> bool {
+    baseline != candidate
+}
+
 fn compare_diagnostics(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Comparison {
     let mut baseline = BTreeMap::new();
     let mut candidate = BTreeMap::new();
@@ -353,6 +469,8 @@ fn compare_diagnostics(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Comparison {
     for key in keys {
         let mut old = baseline.remove(&key).unwrap_or_default();
         let mut new = candidate.remove(&key).unwrap_or_default();
+        let baseline_count = old.len();
+        let candidate_count = new.len();
         old.sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
         new.sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
         let mut old_remaining = Vec::new();
@@ -382,10 +500,15 @@ fn compare_diagnostics(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Comparison {
                 .insert((key.repository.clone(), key.package_root.clone()));
         }
         let delta = comparison.per_rule.entry(key.rule).or_default();
+        delta.baseline_count += baseline_count;
+        delta.candidate_count += candidate_count;
         delta.changed += changed;
         delta.removed += removed;
         delta.introduced += introduced;
         if changed + removed + introduced > 0 {
+            delta
+                .affected_roots
+                .insert((key.repository.clone(), key.package_root.clone()));
             *delta
                 .affected_repositories
                 .entry(key.repository)
@@ -435,10 +558,22 @@ fn read_labels(path: &Path) -> Result<Vec<DiagnosticLabel>> {
     }
     let mut seen = HashSet::new();
     for label in &labels.labels {
-        if !seen.insert((label.rule.as_str(), label.baseline_key.as_str())) {
+        if label.repository.is_empty()
+            || label.package_root.is_empty()
+            || label.rule.is_empty()
+            || label.site_id.is_empty()
+            || label.evidence_fingerprint.is_empty()
+            || !seen.insert((
+                label.repository.as_str(),
+                label.package_root.as_str(),
+                label.rule.as_str(),
+                label.site_id.as_str(),
+                label.evidence_fingerprint.as_str(),
+            ))
+        {
             return Err(EvalError::InvalidManifest(format!(
-                "duplicate label for {} {}",
-                label.rule, label.baseline_key
+                "invalid or duplicate label for {} {}",
+                label.rule, label.site_id
             )));
         }
     }
@@ -451,9 +586,14 @@ fn validate_approval(path: &Path, candidate_sha256: &str) -> Result<bool> {
         || approval.candidate_sha256 != candidate_sha256
         || approval.reviewed_by.trim().is_empty()
         || approval.reviewed_at.trim().is_empty()
+        || !matches!(
+            approval.review_source.as_str(),
+            "protected-ci" | "codeowners"
+        )
+        || approval.artifact_uri.trim().is_empty()
     {
         return Err(EvalError::InvalidManifest(
-            "baseline approval is missing review identity, timestamp, or exact candidate SHA-256"
+            "baseline approval must bind the exact candidate SHA-256 to a protected CI artifact or CODEOWNERS review"
                 .to_string(),
         ));
     }
@@ -461,7 +601,7 @@ fn validate_approval(path: &Path, candidate_sha256: &str) -> Result<bool> {
 }
 
 fn promotion_reviews(
-    introduced: &[EvaluationDiagnostic],
+    candidate_diagnostics: &[EvaluationDiagnostic],
     promoted_rules: &[String],
     labels: &[DiagnosticLabel],
 ) -> Vec<PromotionReview> {
@@ -469,21 +609,35 @@ fn promotion_reviews(
         .iter()
         .map(|label| {
             (
-                (label.rule.as_str(), label.baseline_key.as_str()),
+                (
+                    label.repository.as_str(),
+                    label.package_root.as_str(),
+                    label.rule.as_str(),
+                    label.site_id.as_str(),
+                    label.evidence_fingerprint.as_str(),
+                ),
                 &label.label,
             )
         })
         .collect();
     let mut reviews = Vec::new();
     for rule in promoted_rules {
-        let mut sample: Vec<_> = introduced
+        let mut sample: Vec<_> = candidate_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.rule == *rule)
             .collect();
-        sample.sort_by(|left, right| {
-            left.baseline_key
-                .cmp(&right.baseline_key)
-                .then_with(|| left.package_root.cmp(&right.package_root))
+        sample.sort_by_key(|diagnostic| {
+            hex_digest(
+                format!(
+                    "{}\0{}\0{}\0{}\0{}",
+                    diagnostic.repository,
+                    diagnostic.package_root,
+                    diagnostic.rule,
+                    diagnostic.site_id,
+                    diagnostic.fingerprint
+                )
+                .as_bytes(),
+            )
         });
         sample.truncate(100);
         let mut labeled = 0usize;
@@ -491,7 +645,13 @@ fn promotion_reviews(
         let mut false_positives = 0usize;
         let mut uncertain = 0usize;
         for diagnostic in &sample {
-            if let Some(label) = label_map.get(&(rule.as_str(), diagnostic.baseline_key.as_str())) {
+            if let Some(label) = label_map.get(&(
+                diagnostic.repository.as_str(),
+                diagnostic.package_root.as_str(),
+                rule.as_str(),
+                diagnostic.site_id.as_str(),
+                diagnostic.fingerprint.as_str(),
+            )) {
                 labeled += 1;
                 match label {
                     ReviewLabel::TruePositive => confirmed += 1,
@@ -509,7 +669,8 @@ fn promotion_reviews(
             sample_size: sample.len(),
             labeled,
             false_positive_percent,
-            eligible_for_default: labeled == sample.len()
+            eligible_for_default: !sample.is_empty()
+                && labeled == sample.len()
                 && uncertain == 0
                 && false_positive_percent <= 2.0,
         });
@@ -564,12 +725,28 @@ mod tests {
     use super::*;
 
     fn record(repository: &str, diagnostics: Vec<EvaluationDiagnostic>) -> CorpusRecord {
+        let catalog = BTreeMap::from([(
+            "rule".to_string(),
+            EvaluationRule {
+                category: "correctness".to_string(),
+                default_severity: "warning".to_string(),
+                default_enabled: true,
+            },
+        )]);
+        let catalog_sha256 = hex_digest(&serde_json::to_vec(&catalog).unwrap());
         CorpusRecord {
             schema_version: CORPUS_SCHEMA_VERSION.to_string(),
             repository: repository.to_string(),
             commit: "a".repeat(40),
             package_roots: vec![".".to_string()],
+            expected_roots: vec![".".to_string()],
+            attempted_roots: vec![".".to_string()],
+            reported_roots: vec![".".to_string()],
             tool_revision: "test".to_string(),
+            evaluation_profile_sha256: "b".repeat(64),
+            catalog_sha256,
+            catalog,
+            tree_digest: "tree".to_string(),
             complete: true,
             completeness: "complete".to_string(),
             diagnostic_counts: SeverityCounts::default(),
@@ -583,6 +760,7 @@ mod tests {
 
     fn diagnostic(rule: &str, key: &str, fingerprint: &str) -> EvaluationDiagnostic {
         EvaluationDiagnostic {
+            repository: "repo".to_string(),
             package_root: ".".to_string(),
             rule: rule.to_string(),
             site_id: key.to_string(),
@@ -621,8 +799,11 @@ mod tests {
         let labels: Vec<_> = introduced
             .iter()
             .map(|diagnostic| DiagnosticLabel {
+                repository: diagnostic.repository.clone(),
+                package_root: diagnostic.package_root.clone(),
                 rule: "rule".to_string(),
-                baseline_key: diagnostic.baseline_key.clone(),
+                site_id: diagnostic.site_id.clone(),
+                evidence_fingerprint: diagnostic.fingerprint.clone(),
                 label: if diagnostic.baseline_key == "key-0" {
                     ReviewLabel::FalsePositive
                 } else {

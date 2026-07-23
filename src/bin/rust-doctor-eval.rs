@@ -93,8 +93,6 @@ struct DeltaArgs {
     labels: Option<PathBuf>,
     #[arg(long)]
     approval: Option<PathBuf>,
-    #[arg(long = "promoted-rule")]
-    promoted_rules: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -109,6 +107,9 @@ struct BenchmarkArgs {
     baseline: Option<PathBuf>,
     #[arg(long, default_value_t = 3)]
     repetitions: usize,
+    /// Measure and emit an unapproved baseline candidate instead of gating.
+    #[arg(long, conflicts_with = "baseline")]
+    record: bool,
 }
 
 #[derive(Debug, Args)]
@@ -123,6 +124,12 @@ struct SmokeArgs {
     npm_root: PathBuf,
     #[arg(long, default_value = "bun")]
     bun: PathBuf,
+    /// Final native archive to extract and execute (repeat per artifact).
+    #[arg(long = "archive", required = true)]
+    archives: Vec<PathBuf>,
+    /// Verified Cargo package produced by `cargo package --locked`.
+    #[arg(long = "crate-package")]
+    crate_package: PathBuf,
     #[arg(long, default_value_t = 120)]
     timeout_secs: u64,
 }

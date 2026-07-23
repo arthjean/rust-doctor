@@ -1,5 +1,18 @@
 {
   "schema_version": "1.0",
+  "evaluation_profile": {
+    "version": "1.0",
+    "normalized_severity": "warning",
+    "force_candidate_rules": true,
+    "respect_inline_suppressions": false,
+    "respect_project_config": false,
+    "offline": true,
+    "adapter_policy": {
+      "clippy": "required-offline",
+      "custom-rules": "required-all-candidates",
+      "dependencies": "optional-offline"
+    }
+  },
   "repositories": [
     {
       "name": "serde-rs_serde",

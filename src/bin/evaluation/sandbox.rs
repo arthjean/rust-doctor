@@ -128,12 +128,8 @@ pub(crate) fn command(
 ) -> Result<Command> {
     let checkout = canonical(checkout, "checkout")?;
     let binary = canonical(binary, "rust-doctor binary")?;
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| EvalError::Unsupported("HOME is unavailable".to_string()))?;
-    let rustup_home =
-        std::env::var_os("RUSTUP_HOME").map_or_else(|| home.join(".rustup"), PathBuf::from);
     let bwrap = find_executable("bwrap")?;
+    let sysroot = active_sysroot()?;
     let scratch_bytes = scratch_bytes.to_string();
     let tmp_bytes = TMP_BYTES.to_string();
     let auxiliary_bytes = AUXILIARY_TMPFS_BYTES.to_string();
@@ -194,11 +190,10 @@ pub(crate) fn command(
         "/cargo/registry",
     );
     bind_if_present(&mut command, &cargo_home.join("git"), "/cargo/git");
-    bind_if_present(&mut command, &rustup_home, "/rustup");
-    for tool in ["cargo", "rustc", "rustdoc", "cargo-clippy", "clippy-driver"] {
-        bind_tool(&mut command, tool)?;
-    }
     command
+        .arg("--ro-bind")
+        .arg(&sysroot)
+        .arg("/toolchain")
         .arg("--ro-bind")
         .arg(checkout)
         .arg("/workspace")
@@ -213,9 +208,6 @@ pub(crate) fn command(
             "--setenv",
             "CARGO_HOME",
             "/cargo",
-            "--setenv",
-            "RUSTUP_HOME",
-            "/rustup",
             "--setenv",
             "CARGO_TARGET_DIR",
             "/scratch/target",
@@ -290,15 +282,38 @@ fn bind_if_present(command: &mut Command, source: &Path, destination: &str) {
 }
 
 #[cfg(target_os = "linux")]
-fn bind_tool(command: &mut Command, name: &str) -> Result<()> {
-    let executable = find_executable(name)?
-        .canonicalize()
-        .map_err(|error| EvalError::io("cannot canonicalize toolchain executable", name, error))?;
-    command
-        .arg("--ro-bind")
-        .arg(executable)
-        .arg(format!("/toolchain/bin/{name}"));
-    Ok(())
+fn active_sysroot() -> Result<PathBuf> {
+    let rustc = find_executable("rustc")?;
+    let output = Command::new(rustc)
+        .args(["--print", "sysroot"])
+        .output()
+        .map_err(|error| EvalError::Command(format!("cannot identify active sysroot: {error}")))?;
+    if !output.status.success() {
+        return Err(EvalError::Unsupported(
+            "rustc could not identify the active toolchain sysroot".to_string(),
+        ));
+    }
+    let sysroot = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    let sysroot = canonical(&sysroot, "active toolchain sysroot")?;
+    for tool in ["cargo", "rustc", "rustdoc", "cargo-clippy", "clippy-driver"] {
+        let executable = sysroot
+            .join("bin")
+            .join(tool)
+            .canonicalize()
+            .map_err(|error| {
+                EvalError::io(
+                    "cannot canonicalize active toolchain executable",
+                    sysroot.join("bin").join(tool),
+                    error,
+                )
+            })?;
+        if !executable.starts_with(&sysroot) || !executable.is_file() {
+            return Err(EvalError::Unsupported(format!(
+                "active toolchain executable {tool} escapes its sysroot"
+            )));
+        }
+    }
+    Ok(sysroot)
 }
 
 #[cfg(target_os = "linux")]

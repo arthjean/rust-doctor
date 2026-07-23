@@ -1,7 +1,10 @@
 use super::{EvalError, Result};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -39,18 +42,31 @@ pub(crate) fn run_capped_with_limits(
     run_capped_inner(command, timeout, output_cap, Some(limits))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "process supervision keeps timeout, resource, output and cleanup invariants together"
+)]
 fn run_capped_inner(
     mut command: Command,
     timeout: Duration,
     output_cap: usize,
     resource_limits: Option<ResourceLimits>,
 ) -> Result<ProcessOutput> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let program = Path::new(command.get_program())
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("child process")
         .to_string();
+    let cgroup = resource_limits.map(CgroupGuard::create).transpose()?;
+    if let Some(cgroup) = &cgroup {
+        command = cgroup.wrap(&command);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| EvalError::Command(format!("cannot spawn {program}: {error}")))?;
@@ -62,8 +78,17 @@ fn run_capped_inner(
         .stderr
         .take()
         .ok_or_else(|| EvalError::Command(format!("cannot capture stderr for {program}")))?;
-    let stdout_reader = thread::spawn(move || read_capped(stdout, output_cap));
-    let stderr_reader = thread::spawn(move || read_capped(stderr, output_cap));
+    let output_overflow = Arc::new(AtomicBool::new(false));
+    let stdout_overflow = Arc::clone(&output_overflow);
+    let stderr_overflow = Arc::clone(&output_overflow);
+    let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
+    let (stderr_sender, stderr_receiver) = mpsc::sync_channel(1);
+    let stdout_reader = thread::spawn(move || {
+        let _ = stdout_sender.send(read_capped(stdout, output_cap, &stdout_overflow));
+    });
+    let stderr_reader = thread::spawn(move || {
+        let _ = stderr_sender.send(read_capped(stderr, output_cap, &stderr_overflow));
+    });
     let started = Instant::now();
     let mut last_resource_check = started
         .checked_sub(Duration::from_secs(1))
@@ -79,6 +104,9 @@ fn run_capped_inner(
         }
         if started.elapsed() >= timeout {
             timed_out = true;
+            break terminate(&mut child, &program)?;
+        }
+        if output_overflow.load(Ordering::Relaxed) {
             break terminate(&mut child, &program)?;
         }
         if let Some(limits) = resource_limits
@@ -109,12 +137,38 @@ fn run_capped_inner(
         }
         thread::sleep(Duration::from_millis(20));
     };
-    let (stdout, stdout_overflow) = stdout_reader
+    if let Some(cgroup) = &cgroup
+        && let Some(reason) = cgroup.exhaustion_reason()
+    {
+        resource_exhausted = Some(reason);
+    }
+    if let Some(cgroup) = &cgroup {
+        cgroup.kill_all();
+    }
+    terminate_process_group(child.id());
+    let reader_timeout = Duration::from_secs(2);
+    let (stdout, stdout_overflow) =
+        stdout_receiver
+            .recv_timeout(reader_timeout)
+            .map_err(|error| {
+                EvalError::Command(format!(
+                    "stdout reader did not close after terminating {program}: {error}"
+                ))
+            })??;
+    let (stderr, stderr_overflow) =
+        stderr_receiver
+            .recv_timeout(reader_timeout)
+            .map_err(|error| {
+                EvalError::Command(format!(
+                    "stderr reader did not close after terminating {program}: {error}"
+                ))
+            })??;
+    stdout_reader
         .join()
-        .map_err(|_| EvalError::Command(format!("stdout reader panicked for {program}")))??;
-    let (stderr, stderr_overflow) = stderr_reader
+        .map_err(|_| EvalError::Command(format!("stdout reader panicked for {program}")))?;
+    stderr_reader
         .join()
-        .map_err(|_| EvalError::Command(format!("stderr reader panicked for {program}")))??;
+        .map_err(|_| EvalError::Command(format!("stderr reader panicked for {program}")))?;
     Ok(ProcessOutput {
         status,
         stdout,
@@ -126,7 +180,177 @@ fn run_capped_inner(
     })
 }
 
+#[cfg(target_os = "linux")]
+struct CgroupGuard {
+    path: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl CgroupGuard {
+    fn create(limits: ResourceLimits) -> Result<Self> {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let membership = std::fs::read_to_string("/proc/self/cgroup").map_err(|error| {
+            EvalError::io("cannot read cgroup membership", "/proc/self/cgroup", error)
+        })?;
+        let relative = membership
+            .lines()
+            .find_map(|line| line.strip_prefix("0::"))
+            .ok_or_else(|| {
+                EvalError::Unsupported(
+                    "corpus sandbox requires a unified cgroup v2 hierarchy".to_string(),
+                )
+            })?;
+        let root = Path::new("/sys/fs/cgroup")
+            .canonicalize()
+            .map_err(|error| {
+                EvalError::io(
+                    "cannot canonicalize cgroup v2 root",
+                    "/sys/fs/cgroup",
+                    error,
+                )
+            })?;
+        let parent = root.join(relative.trim_start_matches('/'));
+        let parent = parent.canonicalize().map_err(|error| {
+            EvalError::io("cannot canonicalize delegated cgroup", &parent, error)
+        })?;
+        if !parent.starts_with(&root) {
+            return Err(EvalError::Unsupported(
+                "current cgroup escapes the unified hierarchy".to_string(),
+            ));
+        }
+        let controllers =
+            std::fs::read_to_string(parent.join("cgroup.controllers")).map_err(|error| {
+                EvalError::io("cannot read delegated cgroup controllers", &parent, error)
+            })?;
+        if !["memory", "pids"].iter().all(|controller| {
+            controllers
+                .split_whitespace()
+                .any(|value| value == *controller)
+        }) {
+            return Err(EvalError::Unsupported(
+                "corpus sandbox requires delegated memory and pids cgroup controllers".to_string(),
+            ));
+        }
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!("rust-doctor-{}-{id}", std::process::id()));
+        std::fs::create_dir(&path)
+            .map_err(|error| EvalError::io("cannot create sandbox cgroup", &path, error))?;
+        let guard = Self { path };
+        guard.write("memory.max", &limits.max_resident_bytes.to_string())?;
+        guard.write("memory.swap.max", "0")?;
+        guard.write("memory.oom.group", "1")?;
+        guard.write("pids.max", &limits.max_processes.to_string())?;
+        Ok(guard)
+    }
+
+    fn write(&self, file: &str, value: &str) -> Result<()> {
+        let path = self.path.join(file);
+        std::fs::write(&path, value)
+            .map_err(|error| EvalError::io("cannot configure sandbox cgroup", path, error))
+    }
+
+    fn wrap(&self, command: &Command) -> Command {
+        let program = command.get_program().to_os_string();
+        let arguments: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
+        let directory = command.get_current_dir().map(Path::to_path_buf);
+        let environment: Vec<_> = command
+            .get_envs()
+            .map(|(key, value)| (key.to_os_string(), value.map(ToOwned::to_owned)))
+            .collect();
+        let mut wrapped = Command::new("/bin/sh");
+        wrapped
+            .args([
+                "-c",
+                "printf '%s\n' \"$$\" > \"$RUST_DOCTOR_CGROUP_PROCS\" || exit 125; exec \"$@\"",
+                "rust-doctor-cgroup",
+            ])
+            .arg(program)
+            .args(arguments)
+            .env("RUST_DOCTOR_CGROUP_PROCS", self.path.join("cgroup.procs"));
+        if let Some(directory) = directory {
+            wrapped.current_dir(directory);
+        }
+        for (key, value) in environment {
+            if let Some(value) = value {
+                wrapped.env(key, value);
+            } else {
+                wrapped.env_remove(key);
+            }
+        }
+        wrapped
+    }
+
+    fn exhaustion_reason(&self) -> Option<String> {
+        let memory = event_count(&self.path.join("memory.events"), "oom_kill");
+        let pids = event_count(&self.path.join("pids.events"), "max");
+        if memory > 0 {
+            Some("sandbox exceeded its cgroup memory limit".to_string())
+        } else if pids > 0 {
+            Some("sandbox exceeded its cgroup process limit".to_string())
+        } else {
+            None
+        }
+    }
+
+    fn kill_all(&self) {
+        let _ = std::fs::write(self.path.join("cgroup.kill"), "1");
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for CgroupGuard {
+    fn drop(&mut self) {
+        self.kill_all();
+        for _ in 0..10 {
+            if std::fs::remove_dir(&self.path).is_ok() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        tracing::warn!(path = %self.path.display(), "sandbox cgroup cleanup failed");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn event_count(path: &Path, key: &str) -> u64 {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|events| {
+            events.lines().find_map(|line| {
+                let (name, value) = line.split_once(' ')?;
+                (name == key).then(|| value.parse::<u64>().ok()).flatten()
+            })
+        })
+        .unwrap_or(0)
+}
+
+#[cfg(not(target_os = "linux"))]
+struct CgroupGuard;
+
+#[cfg(not(target_os = "linux"))]
+impl CgroupGuard {
+    fn create(_limits: ResourceLimits) -> Result<Self> {
+        Err(EvalError::Unsupported(
+            "corpus resource enforcement requires Linux cgroup v2".to_string(),
+        ))
+    }
+
+    fn wrap(&self, command: &Command) -> Command {
+        let program = command.get_program();
+        let mut wrapped = Command::new(program);
+        wrapped.args(command.get_args());
+        wrapped
+    }
+
+    fn exhaustion_reason(&self) -> Option<String> {
+        None
+    }
+
+    fn kill_all(&self) {}
+}
+
 fn terminate(child: &mut Child, program: &str) -> Result<ExitStatus> {
+    terminate_process_group(child.id());
     if let Err(error) = child.kill()
         && error.kind() != std::io::ErrorKind::InvalidInput
     {
@@ -138,6 +362,19 @@ fn terminate(child: &mut Child, program: &str) -> Result<ExitStatus> {
         .wait()
         .map_err(|error| EvalError::Command(format!("cannot reap {program}: {error}")))
 }
+
+#[cfg(unix)]
+fn terminate_process_group(process_group: u32) {
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", "--"])
+        .arg(format!("-{process_group}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(unix))]
+const fn terminate_process_group(_process_group: u32) {}
 
 #[cfg(target_os = "linux")]
 fn process_tree_usage(root: u32) -> Result<(usize, u64)> {
@@ -205,7 +442,11 @@ fn process_tree_usage(_root: u32) -> Result<(usize, u64)> {
     ))
 }
 
-fn read_capped(mut reader: impl Read, cap: usize) -> Result<(Vec<u8>, bool)> {
+fn read_capped(
+    mut reader: impl Read,
+    cap: usize,
+    overflow_signal: &AtomicBool,
+) -> Result<(Vec<u8>, bool)> {
     let mut kept = Vec::with_capacity(cap.min(64 * 1024));
     let mut buffer = [0u8; 8192];
     let mut overflow = false;
@@ -220,6 +461,9 @@ fn read_capped(mut reader: impl Read, cap: usize) -> Result<(Vec<u8>, bool)> {
         let copy = remaining.min(read);
         kept.extend_from_slice(&buffer[..copy]);
         overflow |= copy < read;
+        if overflow {
+            overflow_signal.store(true, Ordering::Relaxed);
+        }
     }
     Ok((kept, overflow))
 }

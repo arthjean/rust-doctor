@@ -15,7 +15,24 @@ const CACHE_VERSION: u32 = 2;
 const REPORT_SCHEMA_VERSION: &str = "1.0";
 const CACHE_FILENAME: &str = ".rust-doctor-cache.json";
 const DEFAULT_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
-const MAX_TRANSIENT_CACHE_BYTES: u64 = 563 * 1024 * 1024;
+const MAX_TRANSIENT_CACHE_BYTES: u64 = DEFAULT_CACHE_MAX_BYTES as u64;
+const RULE_IMPLEMENTATION_SOURCES: &[&str] = &[
+    include_str!("passes/static_analysis/rules/mod.rs"),
+    include_str!("passes/static_analysis/rules/async_rules.rs"),
+    include_str!("passes/static_analysis/rules/complexity.rs"),
+    include_str!("passes/static_analysis/rules/error_handling.rs"),
+    include_str!("passes/static_analysis/rules/framework.rs"),
+    include_str!("passes/static_analysis/rules/framework_packs.rs"),
+    include_str!("passes/static_analysis/rules/performance/mod.rs"),
+    include_str!("passes/static_analysis/rules/performance/allocation.rs"),
+    include_str!("passes/static_analysis/rules/performance/clone.rs"),
+    include_str!("passes/static_analysis/rules/performance/collect_iterate.rs"),
+    include_str!("passes/static_analysis/rules/performance/large_enum.rs"),
+    include_str!("passes/static_analysis/rules/performance/string_literal.rs"),
+    include_str!("passes/static_analysis/rules/reliability.rs"),
+    include_str!("passes/static_analysis/rules/security.rs"),
+    include_str!("passes/static_analysis/rules/tranche.rs"),
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FileEntry {
@@ -125,14 +142,16 @@ impl ScanCache {
 
     pub fn update_with_hash(&mut self, path: &Path, hash: String, diagnostics: Vec<Diagnostic>) {
         let last_accessed = self.next_access();
-        self.files.insert(
-            path.to_path_buf(),
-            FileEntry {
-                hash,
-                diagnostics,
-                last_accessed,
-            },
-        );
+        let entry = FileEntry {
+            hash,
+            diagnostics,
+            last_accessed,
+        };
+        if !self.reserve_entry(path, &entry) {
+            self.files.remove(path);
+            return;
+        }
+        self.files.insert(path.to_path_buf(), entry);
     }
 
     const fn next_access(&mut self) -> u64 {
@@ -181,11 +200,75 @@ impl ScanCache {
         }
     }
 
+    fn reserve_entry(&mut self, path: &Path, entry: &FileEntry) -> bool {
+        let Ok(entry_bytes) = serialized_entry_component_bytes(path, entry) else {
+            return false;
+        };
+        let Ok(current_bytes) = serde_json::to_vec(self).map(|value| value.len()) else {
+            return false;
+        };
+        let mut projected = if let Some(existing) = self.files.get(path) {
+            let Ok(replaced_bytes) = serialized_entry_component_bytes(path, existing) else {
+                return false;
+            };
+            current_bytes
+                .saturating_sub(replaced_bytes)
+                .saturating_add(entry_bytes)
+        } else {
+            current_bytes
+                .saturating_add(entry_bytes)
+                .saturating_add(usize::from(!self.files.is_empty()))
+        };
+        if projected <= self.max_bytes {
+            return true;
+        }
+        let mut candidates: Vec<_> = self
+            .files
+            .iter()
+            .filter(|(candidate, _)| candidate.as_path() != path)
+            .filter_map(|(candidate, existing)| {
+                Some((
+                    candidate.clone(),
+                    existing.last_accessed,
+                    serialized_entry_component_bytes(candidate, existing).ok()?,
+                ))
+            })
+            .collect();
+        candidates.sort_by(
+            |(left_path, left_access, _), (right_path, right_access, _)| {
+                left_access
+                    .cmp(right_access)
+                    .then_with(|| left_path.cmp(right_path))
+            },
+        );
+        for (candidate, _, bytes) in candidates {
+            if projected <= self.max_bytes {
+                break;
+            }
+            if self.files.remove(&candidate).is_some() {
+                // The pending entry remains, so each eviction also removes one
+                // comma from the serialized map.
+                projected = projected.saturating_sub(bytes.saturating_add(1));
+            }
+        }
+        projected <= self.max_bytes
+    }
+
     #[cfg(test)]
     const fn with_max_bytes(mut self, max_bytes: usize) -> Self {
         self.max_bytes = max_bytes;
         self
     }
+}
+
+fn serialized_entry_component_bytes(
+    path: &Path,
+    entry: &FileEntry,
+) -> Result<usize, serde_json::Error> {
+    Ok(serde_json::to_vec(path)?
+        .len()
+        .saturating_add(serde_json::to_vec(entry)?.len())
+        .saturating_add(1))
 }
 
 const fn default_cache_max_bytes() -> usize {
@@ -208,6 +291,9 @@ pub fn compute_config_hash(
     update_digest(&mut digest, &CACHE_VERSION.to_le_bytes());
     update_digest(&mut digest, REPORT_SCHEMA_VERSION.as_bytes());
     update_digest(&mut digest, env!("CARGO_PKG_VERSION").as_bytes());
+    for source in RULE_IMPLEMENTATION_SOURCES {
+        update_digest(&mut digest, source.as_bytes());
+    }
     update_digest(&mut digest, rustc_identity().as_bytes());
     update_digest(&mut digest, target_identity(project_root).as_bytes());
     update_list(&mut digest, ignore_rules);
@@ -418,6 +504,7 @@ mod tests {
             hash_content("recent"),
             vec![sample_diagnostic("recent.rs", "recent", 500)],
         );
+        assert!(serde_json::to_vec(&cache).unwrap().len() <= 1_200);
         assert!(cache.is_fresh_with_hash(Path::new("recent.rs"), "recent").0);
         cache.save(directory.path());
         let bytes = std::fs::read(directory.path().join(CACHE_FILENAME)).unwrap();
@@ -425,6 +512,26 @@ mod tests {
         let persisted: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(persisted["files"].get("recent.rs").is_some());
         assert!(persisted["files"].get("old.rs").is_none());
+
+        let mut cycling = ScanCache::new(fingerprint()).with_max_bytes(1_200);
+        for index in 0..20 {
+            let path = PathBuf::from(format!("replacement-{index}.rs"));
+            cycling.update_with_hash(
+                &path,
+                hash_content("replacement"),
+                vec![sample_diagnostic(
+                    path.to_str().unwrap(),
+                    "replacement",
+                    300,
+                )],
+            );
+            assert!(serde_json::to_vec(&cycling).unwrap().len() <= 1_200);
+        }
+        assert!(
+            cycling
+                .is_fresh_with_hash(Path::new("replacement-19.rs"), "replacement")
+                .0
+        );
     }
 
     #[test]

@@ -9,7 +9,14 @@
     "repository",
     "commit",
     "package_roots",
+    "expected_roots",
+    "attempted_roots",
+    "reported_roots",
     "tool_revision",
+    "evaluation_profile_sha256",
+    "catalog_sha256",
+    "catalog",
+    "tree_digest",
     "complete",
     "completeness",
     "diagnostic_counts",
@@ -29,7 +36,43 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "expected_roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "attempted_roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "reported_roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
     "tool_revision": { "type": "string", "minLength": 1 },
+    "evaluation_profile_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "catalog_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "catalog": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "default_severity", "default_enabled"],
+        "properties": {
+          "category": { "type": "string", "minLength": 1 },
+          "default_severity": {
+            "type": "string",
+            "enum": ["error", "warning", "info"]
+          },
+          "default_enabled": { "type": "boolean" }
+        }
+      }
+    },
+    "tree_digest": { "type": "string", "minLength": 1 },
     "complete": { "type": "boolean" },
     "completeness": {
       "type": "string",
@@ -56,8 +99,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["package_root", "rule", "site_id", "baseline_key", "fingerprint"],
+        "required": ["repository", "package_root", "rule", "site_id", "baseline_key", "fingerprint"],
         "properties": {
+          "repository": { "type": "string", "minLength": 1 },
           "package_root": { "type": "string" },
           "rule": { "type": "string", "minLength": 1 },
           "site_id": { "type": "string", "minLength": 1 },

@@ -12,6 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 const OUTPUT_CAP: usize = 32 * 1024 * 1024;
+const ARCHIVE_ENTRY_LIMIT: usize = 4_096;
+const ARCHIVE_EXPANDED_CAP: usize = 256 * 1024 * 1024;
 
 #[expect(
     clippy::needless_pass_by_value,
@@ -33,6 +35,8 @@ pub(crate) fn run(args: SmokeArgs) -> Result<()> {
     smoke_no_default(&binary, &no_default, fixture.path(), &schema, timeout)?;
     smoke_mcp(&binary, fixture.path(), timeout)?;
     smoke_npm(&binary, &args.npm_root, &args.bun, timeout)?;
+    smoke_archives(&binary, &args.archives, timeout)?;
+    smoke_crate(&args.crate_package, timeout)?;
     Ok(())
 }
 
@@ -65,7 +69,12 @@ fn smoke_score(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     Ok(())
 }
 
-fn smoke_json(binary: &Path, fixture: &Path, schema: &Value, timeout: Duration) -> Result<()> {
+fn smoke_json(
+    binary: &Path,
+    fixture: &Path,
+    schema: &jsonschema::Validator,
+    timeout: Duration,
+) -> Result<()> {
     let output = invoke(binary, fixture, &["--json-compact", "--offline"], timeout)?;
     require_success("JSON", &output)?;
     let report = parse_report("JSON", &output.stdout, schema)?;
@@ -106,7 +115,12 @@ fn smoke_sarif(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     Ok(())
 }
 
-fn smoke_baseline(binary: &Path, fixture: &Path, schema: &Value, timeout: Duration) -> Result<()> {
+fn smoke_baseline(
+    binary: &Path,
+    fixture: &Path,
+    schema: &jsonschema::Validator,
+    timeout: Duration,
+) -> Result<()> {
     let output = invoke(
         binary,
         fixture,
@@ -129,7 +143,12 @@ fn smoke_baseline(binary: &Path, fixture: &Path, schema: &Value, timeout: Durati
     Ok(())
 }
 
-fn smoke_failures(binary: &Path, fixture: &Path, schema: &Value, timeout: Duration) -> Result<()> {
+fn smoke_failures(
+    binary: &Path,
+    fixture: &Path,
+    schema: &jsonschema::Validator,
+    timeout: Duration,
+) -> Result<()> {
     let malformed = tempfile::tempdir()
         .map_err(|error| EvalError::io("cannot create malformed fixture", ".", error))?;
     std::fs::write(malformed.path().join("Cargo.toml"), "not valid TOML = [").map_err(|error| {
@@ -181,17 +200,22 @@ fn smoke_failures(binary: &Path, fixture: &Path, schema: &Value, timeout: Durati
     std::fs::write(&invalid_config, "lint = true\ndependencies = false\n")
         .map_err(|error| EvalError::io("cannot restore smoke config", &invalid_config, error))?;
 
-    let destination = fixture.join("json-output-directory");
+    let destination = fixture.join("unwritable-json-output");
     std::fs::create_dir_all(&destination).map_err(|error| {
         EvalError::io("cannot create output failure fixture", &destination, error)
     })?;
+    make_directory_unwritable(&destination)?;
+    let report_path = destination.join("report.json");
     let output = invoke_with_path(
         binary,
         fixture,
         &["--json-out"],
-        Some(&destination),
+        Some(&report_path),
         timeout,
-    )?;
+    );
+    let restored = make_directory_writable(&destination);
+    let output = output?;
+    restored?;
     if output.status.success() || !output.stdout.is_empty() {
         return Err(EvalError::Command(
             "unwritable JSON output smoke must fail with empty stdout".to_string(),
@@ -209,7 +233,7 @@ fn smoke_no_default(
     default_binary: &Path,
     no_default_binary: &Path,
     fixture: &Path,
-    schema: &Value,
+    schema: &jsonschema::Validator,
     timeout: Duration,
 ) -> Result<()> {
     let default_version = version(default_binary, timeout)?;
@@ -325,12 +349,35 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     if scan.get("result").is_none() {
         return Err(EvalError::Command(format!("MCP scan failed: {scan}")));
     }
-
     send_mcp(
         &mut stdin,
         &json!({
             "jsonrpc": "2.0",
             "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "scan",
+                "arguments": {
+                    "directory": fixture.to_string_lossy(),
+                    "diff": "HEAD",
+                    "offline": true,
+                    "ignore_project_config": true
+                }
+            }
+        }),
+    )?;
+    let baseline = receive_mcp(&receiver, 4, timeout)?;
+    if baseline.get("result").is_none() {
+        return Err(EvalError::Command(format!(
+            "MCP baseline scope failed: {baseline}"
+        )));
+    }
+
+    send_mcp(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 5,
             "method": "tools/call",
             "params": {
                 "name": "scan",
@@ -347,22 +394,21 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
         &json!({
             "jsonrpc": "2.0",
             "method": "notifications/cancelled",
-            "params": {"requestId": 4, "reason": "artifact smoke cancellation"}
+            "params": {"requestId": 5, "reason": "artifact smoke cancellation"}
         }),
     )?;
-    let cancelled = receive_mcp(&receiver, 4, timeout)?;
-    if cancelled.get("error").is_none() && cancelled.get("result").is_none() {
+    let cancellation_deadline = timeout.min(Duration::from_secs(2));
+    let cancelled = receive_mcp(&receiver, 5, cancellation_deadline)?;
+    if cancelled.get("error").is_none() || cancelled.get("result").is_some() {
         return Err(EvalError::Command(format!(
-            "MCP cancellation path returned an invalid response: {cancelled}"
+            "MCP cancellation was not observed before a normal response: {cancelled}"
         )));
     }
-    // A fast request may complete before the cancellation is observed. The
-    // protocol smoke therefore also proves that the server remains usable.
     send_mcp(
         &mut stdin,
-        &json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}}),
+        &json!({"jsonrpc": "2.0", "id": 6, "method": "tools/list", "params": {}}),
     )?;
-    let after_cancellation = receive_mcp(&receiver, 5, timeout)?;
+    let after_cancellation = receive_mcp(&receiver, 6, timeout)?;
     if after_cancellation.get("result").is_none() {
         return Err(EvalError::Command(format!(
             "MCP server was unusable after cancellation: {after_cancellation}"
@@ -460,6 +506,276 @@ fn smoke_npm(binary: &Path, npm_root: &Path, bun: &Path, timeout: Duration) -> R
     Ok(())
 }
 
+fn smoke_archives(binary: &Path, archives: &[PathBuf], timeout: Duration) -> Result<()> {
+    let expected = version(binary, timeout)?;
+    let expected_bytes = std::fs::read(binary)
+        .map_err(|error| EvalError::io("cannot read smoke binary", binary, error))?;
+    let expected_hash = hex_digest(&expected_bytes);
+    let binary_name = if cfg!(windows) {
+        "rust-doctor.exe"
+    } else {
+        "rust-doctor"
+    };
+    for archive in archives {
+        let archive = archive
+            .canonicalize()
+            .map_err(|error| EvalError::io("cannot canonicalize native archive", archive, error))?;
+        let private_archive = private_archive_copy(&archive)?;
+        let entries = validate_archive(private_archive.path(), timeout)?;
+        if entries != [binary_name] {
+            return Err(EvalError::Command(format!(
+                "native archive '{}' must contain only root-level {binary_name}",
+                archive.display()
+            )));
+        }
+        let extraction = tempfile::Builder::new()
+            .prefix("rust-doctor-archive-smoke-")
+            .tempdir()
+            .map_err(|error| EvalError::io("cannot create archive extraction", ".", error))?;
+        let extracted = extraction.path().join(binary_name);
+        let mut extract = Command::new("tar");
+        extract
+            .args(["-xOf"])
+            .arg(private_archive.path())
+            .arg(binary_name);
+        let output = run_capped(extract, timeout, expected_bytes.len().saturating_add(1))?;
+        require_success("native archive extraction", &output)?;
+        if output.stdout != expected_bytes || hex_digest(&output.stdout) != expected_hash {
+            return Err(EvalError::Command(format!(
+                "native archive '{}' does not contain the exact built binary",
+                archive.display()
+            )));
+        }
+        std::fs::write(&extracted, &output.stdout).map_err(|error| {
+            EvalError::io("cannot materialize archived binary", &extracted, error)
+        })?;
+        set_executable(&extracted)?;
+        let actual = version(&extracted, timeout)?;
+        if actual != expected {
+            return Err(EvalError::Command(format!(
+                "extracted archive '{}' reports {actual:?}, expected {expected:?}",
+                archive.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn smoke_crate(crate_package: &Path, timeout: Duration) -> Result<()> {
+    let crate_package = crate_package.canonicalize().map_err(|error| {
+        EvalError::io("cannot canonicalize Cargo package", crate_package, error)
+    })?;
+    let private_package = private_archive_copy(&crate_package)?;
+    let extraction = tempfile::Builder::new()
+        .prefix("rust-doctor-crate-smoke-")
+        .tempdir()
+        .map_err(|error| EvalError::io("cannot create crate extraction", ".", error))?;
+    validate_archive(private_package.path(), timeout)?;
+    let mut extract = Command::new("tar");
+    extract
+        .args(["-xf"])
+        .arg(private_package.path())
+        .args(["-C"])
+        .arg(extraction.path());
+    require_success(
+        "Cargo package extraction",
+        &run_capped(extract, timeout, OUTPUT_CAP)?,
+    )?;
+    let package_root = std::fs::read_dir(extraction.path())
+        .map_err(|error| EvalError::io("cannot inspect Cargo package", extraction.path(), error))?
+        .filter_map(std::result::Result::ok)
+        .find(|entry| entry.path().join("Cargo.toml").is_file())
+        .map(|entry| entry.path())
+        .ok_or_else(|| {
+            EvalError::Command("verified .crate contains no package Cargo.toml".to_string())
+        })?;
+    let manifest_path = package_root.join("Cargo.toml");
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(&manifest_path).map_err(|error| {
+            EvalError::io("cannot read packaged manifest", &manifest_path, error)
+        })?)
+        .map_err(|error| {
+            EvalError::Command(format!(
+                "verified .crate contains an invalid Cargo.toml: {error}"
+            ))
+        })?;
+    let package = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| {
+            EvalError::Command("verified .crate manifest has no package table".to_string())
+        })?;
+    let packaged_name = package
+        .get("name")
+        .and_then(toml::Value::as_str)
+        .unwrap_or_default();
+    let packaged_version = package
+        .get("version")
+        .and_then(toml::Value::as_str)
+        .unwrap_or_default();
+    if packaged_name != env!("CARGO_PKG_NAME") || packaged_version != env!("CARGO_PKG_VERSION") {
+        return Err(EvalError::Command(format!(
+            "verified .crate reports {packaged_name}@{packaged_version}, expected {}@{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        )));
+    }
+    let target = extraction.path().join("target");
+    let mut check = Command::new("cargo");
+    check
+        .current_dir(&package_root)
+        .args(["check", "--locked", "--offline", "--no-default-features"])
+        .env("CARGO_TARGET_DIR", target);
+    require_success(
+        "verified Cargo package build",
+        &run_capped(check, timeout, OUTPUT_CAP)?,
+    )
+}
+
+fn private_archive_copy(archive: &Path) -> Result<tempfile::NamedTempFile> {
+    let mut source = std::fs::File::open(archive).map_err(|error| {
+        EvalError::io("cannot open archive for private validation", archive, error)
+    })?;
+    let mut private = tempfile::NamedTempFile::new()
+        .map_err(|error| EvalError::io("cannot create private archive copy", ".", error))?;
+    std::io::copy(&mut source, &mut private).map_err(|error| {
+        EvalError::io("cannot copy archive for private validation", archive, error)
+    })?;
+    private.as_file_mut().sync_all().map_err(|error| {
+        EvalError::io("cannot sync private archive copy", private.path(), error)
+    })?;
+    Ok(private)
+}
+
+fn validate_archive(archive: &Path, timeout: Duration) -> Result<Vec<String>> {
+    let mut list = Command::new("tar");
+    list.args(["-tf"]).arg(archive);
+    let listing = run_capped(list, timeout, 1024 * 1024)?;
+    require_success("archive listing", &listing)?;
+    let entries: Vec<_> = String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .map(str::trim_end)
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect();
+    if entries.is_empty() || entries.len() > ARCHIVE_ENTRY_LIMIT {
+        return Err(EvalError::Command(format!(
+            "archive '{}' has an invalid entry count",
+            archive.display()
+        )));
+    }
+    for entry in &entries {
+        let normalized = entry.trim_end_matches('/');
+        if normalized.is_empty()
+            || entry.contains('\\')
+            || !Path::new(normalized)
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(EvalError::Command(format!(
+                "archive '{}' contains an unsafe path",
+                archive.display()
+            )));
+        }
+    }
+    let mut verbose = Command::new("tar");
+    verbose.args(["-tvf"]).arg(archive);
+    let types = run_capped(verbose, timeout, 4 * 1024 * 1024)?;
+    require_success("archive type listing", &types)?;
+    let entry_types: Vec<_> = String::from_utf8_lossy(&types.stdout)
+        .lines()
+        .filter_map(|line| line.chars().find(|character| !character.is_whitespace()))
+        .collect();
+    if entry_types.len() != entries.len()
+        || entry_types
+            .iter()
+            .any(|entry_type| !matches!(entry_type, '-' | 'd'))
+    {
+        return Err(EvalError::Command(format!(
+            "archive '{}' contains links or special files",
+            archive.display()
+        )));
+    }
+    let mut expanded = Command::new("tar");
+    expanded.args(["-xOf"]).arg(archive);
+    require_success(
+        "archive expanded-size validation",
+        &run_capped(expanded, timeout, ARCHIVE_EXPANDED_CAP)?,
+    )?;
+    Ok(entries)
+}
+
+#[cfg(unix)]
+fn make_directory_unwritable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)
+        .map_err(|error| EvalError::io("cannot inspect output fixture", path, error))?
+        .permissions();
+    permissions.set_mode(0o555);
+    std::fs::set_permissions(path, permissions)
+        .map_err(|error| EvalError::io("cannot protect output fixture", path, error))?;
+    if std::fs::write(path.join("permission-probe"), b"probe").is_ok() {
+        make_directory_writable(path)?;
+        return Err(EvalError::Unsupported(
+            "artifact smoke must run without root write bypass to prove unwritable output handling"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn make_directory_writable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)
+        .map_err(|error| EvalError::io("cannot inspect output fixture", path, error))?
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions)
+        .map_err(|error| EvalError::io("cannot restore output fixture", path, error))
+}
+
+#[cfg(windows)]
+fn make_directory_unwritable(path: &Path) -> Result<()> {
+    let mut command = Command::new("icacls");
+    command
+        .arg(path)
+        .args(["/inheritance:r", "/deny", "*S-1-1-0:(OI)(CI)(W)"]);
+    require_success(
+        "protect Windows output fixture",
+        &run_capped(command, Duration::from_secs(15), 1024 * 1024)?,
+    )?;
+    if std::fs::write(path.join("permission-probe"), b"probe").is_ok() {
+        make_directory_writable(path)?;
+        return Err(EvalError::Unsupported(
+            "Windows ACL did not make the output fixture unwritable".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn make_directory_writable(path: &Path) -> Result<()> {
+    let mut command = Command::new("icacls");
+    command.arg(path).arg("/reset").arg("/T").arg("/C");
+    require_success(
+        "restore Windows output fixture",
+        &run_capped(command, Duration::from_secs(15), 1024 * 1024)?,
+    )
+}
+
+#[cfg(not(any(unix, windows)))]
+fn make_directory_unwritable(_path: &Path) -> Result<()> {
+    Err(EvalError::Unsupported(
+        "genuinely unwritable output smoke requires Unix modes or Windows ACLs".to_string(),
+    ))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn make_directory_writable(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
 fn invoke(
     binary: &Path,
     fixture: &Path,
@@ -502,42 +818,38 @@ fn require_success(surface: &str, output: &ProcessOutput) -> Result<()> {
     Ok(())
 }
 
-fn parse_report(surface: &str, bytes: &[u8], schema: &Value) -> Result<ReportV1> {
+fn parse_report(surface: &str, bytes: &[u8], schema: &jsonschema::Validator) -> Result<ReportV1> {
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| EvalError::Command(format!("{surface} emitted invalid JSON: {error}")))?;
-    validate_schema_required(surface, &value, schema)?;
+    validate_schema(surface, &value, schema)?;
     serde_json::from_value(value).map_err(|error| {
         EvalError::Command(format!("{surface} is not Report V1 compatible: {error}"))
     })
 }
 
-fn load_schema(path: &Path) -> Result<Value> {
+fn load_schema(path: &Path) -> Result<jsonschema::Validator> {
     let bytes = std::fs::read(path)
         .map_err(|error| EvalError::io("cannot read Report V1 schema", path, error))?;
-    serde_json::from_slice(&bytes).map_err(|source| EvalError::Json {
+    let schema: Value = serde_json::from_slice(&bytes).map_err(|source| EvalError::Json {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    jsonschema::validator_for(&schema)
+        .map_err(|error| EvalError::Command(format!("Report V1 schema is invalid: {error}")))
 }
 
-fn validate_schema_required(surface: &str, value: &Value, schema: &Value) -> Result<()> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| EvalError::Command(format!("{surface} Report V1 must be a JSON object")))?;
-    let required = schema["required"].as_array().ok_or_else(|| {
-        EvalError::Command("Report V1 schema omits its required fields".to_string())
-    })?;
-    let missing: Vec<_> = required
-        .iter()
-        .filter_map(Value::as_str)
-        .filter(|key| !object.contains_key(*key))
+fn validate_schema(surface: &str, value: &Value, schema: &jsonschema::Validator) -> Result<()> {
+    let errors: Vec<_> = schema
+        .iter_errors(value)
+        .take(8)
+        .map(|error| error.to_string())
         .collect();
-    if missing.is_empty() {
+    if errors.is_empty() {
         Ok(())
     } else {
         Err(EvalError::Command(format!(
-            "{surface} Report V1 misses schema fields: {}",
-            missing.join(", ")
+            "{surface} does not validate as Report V1: {}",
+            errors.join("; ")
         )))
     }
 }
@@ -751,12 +1063,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn schema_required_validation_rejects_missing_fields() {
-        let schema = json!({"required": ["schema_version", "outcome"]});
-        assert!(
-            validate_schema_required("fixture", &json!({"schema_version": "1.0"}), &schema)
-                .is_err()
-        );
+    fn draft_2020_12_validation_rejects_nested_type_errors() {
+        let schema = jsonschema::validator_for(&json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"summary": {"type": "object", "required": ["score"]}},
+            "required": ["summary"]
+        }))
+        .unwrap();
+        assert!(validate_schema("fixture", &json!({"summary": []}), &schema).is_err());
     }
 
     #[test]

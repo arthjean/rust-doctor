@@ -4,10 +4,27 @@ use std::collections::BTreeMap;
 pub(crate) const CORPUS_SCHEMA_VERSION: &str = "1.0";
 pub(crate) const DELTA_SCHEMA_VERSION: &str = "1.0";
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the versioned evaluation policy serializes explicit independent switches"
+)]
+pub(crate) struct EvaluationProfile {
+    pub(crate) version: String,
+    pub(crate) normalized_severity: String,
+    pub(crate) force_candidate_rules: bool,
+    pub(crate) respect_inline_suppressions: bool,
+    pub(crate) respect_project_config: bool,
+    pub(crate) offline: bool,
+    pub(crate) adapter_policy: BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CorpusManifest {
     pub(crate) schema_version: String,
+    pub(crate) evaluation_profile: EvaluationProfile,
     pub(crate) repositories: Vec<RepositorySpec>,
 }
 
@@ -35,6 +52,8 @@ pub(crate) struct PreparedRepository {
     pub(crate) commit: String,
     pub(crate) checkout_dir: String,
     pub(crate) project_roots: Vec<String>,
+    pub(crate) tree_digest: String,
+    pub(crate) submodule_status: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -48,11 +67,20 @@ pub(crate) struct SeverityCounts {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EvaluationDiagnostic {
+    pub(crate) repository: String,
     pub(crate) package_root: String,
     pub(crate) rule: String,
     pub(crate) site_id: String,
     pub(crate) baseline_key: String,
     pub(crate) fingerprint: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EvaluationRule {
+    pub(crate) category: String,
+    pub(crate) default_severity: String,
+    pub(crate) default_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -70,7 +98,14 @@ pub(crate) struct CorpusRecord {
     pub(crate) repository: String,
     pub(crate) commit: String,
     pub(crate) package_roots: Vec<String>,
+    pub(crate) expected_roots: Vec<String>,
+    pub(crate) attempted_roots: Vec<String>,
+    pub(crate) reported_roots: Vec<String>,
     pub(crate) tool_revision: String,
+    pub(crate) evaluation_profile_sha256: String,
+    pub(crate) catalog_sha256: String,
+    pub(crate) catalog: BTreeMap<String, EvaluationRule>,
+    pub(crate) tree_digest: String,
     pub(crate) complete: bool,
     pub(crate) completeness: String,
     pub(crate) diagnostic_counts: SeverityCounts,
@@ -99,8 +134,11 @@ pub(crate) struct LabelFile {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DiagnosticLabel {
+    pub(crate) repository: String,
+    pub(crate) package_root: String,
     pub(crate) rule: String,
-    pub(crate) baseline_key: String,
+    pub(crate) site_id: String,
+    pub(crate) evidence_fingerprint: String,
     pub(crate) label: ReviewLabel,
 }
 
@@ -111,6 +149,8 @@ pub(crate) struct BaselineApproval {
     pub(crate) candidate_sha256: String,
     pub(crate) reviewed_by: String,
     pub(crate) reviewed_at: String,
+    pub(crate) review_source: String,
+    pub(crate) artifact_uri: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +159,9 @@ pub(crate) struct RuleDelta {
     pub(crate) introduced: usize,
     pub(crate) removed: usize,
     pub(crate) changed: usize,
+    pub(crate) count_growth: usize,
+    pub(crate) affected_root_percent: f64,
+    pub(crate) catalog_changed: bool,
     pub(crate) affected_repositories: Vec<String>,
 }
 

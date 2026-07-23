@@ -13,6 +13,8 @@ use std::time::Duration;
 
 const BENCHMARK_SCHEMA_VERSION: &str = "1.0";
 const COMMAND_OUTPUT_CAP: usize = 32 * 1024 * 1024;
+const MIN_REPETITIONS: usize = 3;
+const MIN_ABSOLUTE_REGRESSION_MS: u64 = 50;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -45,6 +47,7 @@ struct BenchmarkRecord {
     files_per_second: f64,
     cache_hit_rate: f64,
     pass_timings_ms: BTreeMap<String, u64>,
+    diagnostic_sha256: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -60,18 +63,39 @@ struct BenchmarkReport {
     schema_version: String,
     manifest_sha256: String,
     tool_revision: String,
+    binary_sha256: String,
+    host_class: String,
+    toolchain: String,
+    repetitions: usize,
+    diagnostic_sha256: String,
+    approval: Option<BenchmarkApproval>,
     records: Vec<BenchmarkRecord>,
     gate: BenchmarkGate,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BenchmarkApproval {
+    reviewed_by: String,
+    reviewed_at: String,
+    review_source: String,
+}
+
 #[expect(
     clippy::needless_pass_by_value,
+    clippy::too_many_lines,
     reason = "the command handler owns its parsed Clap subcommand"
 )]
 pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
-    if args.repetitions == 0 {
+    if args.repetitions < MIN_REPETITIONS {
+        return Err(EvalError::InvalidManifest(format!(
+            "benchmark gates require at least {MIN_REPETITIONS} repetitions"
+        )));
+    }
+    if args.baseline.is_none() && !args.record {
         return Err(EvalError::InvalidManifest(
-            "benchmark repetitions must be greater than zero".to_string(),
+            "benchmark gate requires --baseline; use --record only to generate a review candidate"
+                .to_string(),
         ));
     }
     let manifest: BenchmarkManifest = read_json(&args.manifest)?;
@@ -82,6 +106,16 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
     })?;
     ensure_gnu_time()?;
     let tool_revision = binary_revision(&binary)?;
+    let binary_sha256 = sha256_file(&binary)?;
+    let host_class = std::env::var("RUST_DOCTOR_BENCHMARK_HOST_CLASS")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            EvalError::InvalidManifest(
+                "RUST_DOCTOR_BENCHMARK_HOST_CLASS must identify the benchmark runner".to_string(),
+            )
+        })?;
+    let toolchain = rustc_identity()?;
     let mut records = Vec::new();
 
     for fixture in &manifest.fixtures {
@@ -120,15 +154,23 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
             ));
         }
     }
+    let diagnostic_sha256 = diagnostic_matrix_sha256(&records)?;
     if let Some(baseline_path) = &args.baseline {
         let baseline: BenchmarkReport = read_json(baseline_path)?;
         if baseline.schema_version != BENCHMARK_SCHEMA_VERSION
             || baseline.manifest_sha256 != manifest_sha256
+            || baseline.host_class != host_class
+            || baseline.toolchain != toolchain
+            || baseline.repetitions != args.repetitions
+            || baseline.diagnostic_sha256 != diagnostic_sha256
+            || baseline.binary_sha256.len() != 64
         {
             return Err(EvalError::InvalidManifest(
-                "benchmark baseline schema or fixture manifest hash is incompatible".to_string(),
+                "benchmark baseline schema, fixtures, diagnostics, host, toolchain, repetitions, or binary identity is incompatible"
+                    .to_string(),
             ));
         }
+        validate_approval(baseline.approval.as_ref())?;
         gate.reasons
             .extend(compare_runtime(&baseline.records, &records));
     }
@@ -137,6 +179,12 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
         schema_version: BENCHMARK_SCHEMA_VERSION.to_string(),
         manifest_sha256,
         tool_revision,
+        binary_sha256,
+        host_class,
+        toolchain,
+        repetitions: args.repetitions,
+        diagnostic_sha256,
+        approval: None,
         records,
         gate,
     };
@@ -375,7 +423,7 @@ fn run_once(
         .arg(materialized.root.path())
         .args(["--json-compact", "--offline"])
         .args(mode_arguments(materialized, mode)?);
-    let output = run_capped(command, Duration::from_secs(1_800), COMMAND_OUTPUT_CAP)?;
+    let output = run_capped(command, Duration::from_mins(30), COMMAND_OUTPUT_CAP)?;
     if output.timed_out || !output.status.success() {
         return Err(EvalError::Command(format!(
             "benchmark {} {mode} {temperature} failed: {}",
@@ -400,6 +448,7 @@ fn run_once(
     let analyzed = u32::try_from(report.completeness.analyzed_files)
         .map_err(|_| EvalError::Command("benchmark analyzed-file count exceeds u32".to_string()))?;
     let elapsed_seconds = output.elapsed.as_secs_f64().max(0.001);
+    let diagnostic_sha256 = report_diagnostic_sha256(&report)?;
     Ok(BenchmarkRecord {
         fixture: spec.name.clone(),
         fixture_fingerprint: fixture_fingerprint(spec),
@@ -412,6 +461,7 @@ fn run_once(
         files_per_second: f64::from(analyzed) / elapsed_seconds,
         cache_hit_rate: hit_rate,
         pass_timings_ms: report.pass_timings_ms,
+        diagnostic_sha256,
     })
 }
 
@@ -557,17 +607,27 @@ fn parse_time_metrics(metrics: &str) -> Result<(u64, u64)> {
 
 fn fixture_fingerprint(spec: &FixtureSpec) -> String {
     let serialized = serde_json::to_vec(spec).unwrap_or_else(|_| spec.name.as_bytes().to_vec());
-    hex_digest(&serialized)
+    let mut identity = Vec::with_capacity(
+        serialized
+            .len()
+            .saturating_add(include_str!("benchmark.rs").len()),
+    );
+    identity.extend_from_slice(b"rust-doctor-benchmark-generator-v1\0");
+    identity.extend_from_slice(&serialized);
+    identity.push(0);
+    identity.extend_from_slice(include_bytes!("benchmark.rs"));
+    hex_digest(&identity)
 }
 
 fn compare_runtime(baseline: &[BenchmarkRecord], candidate: &[BenchmarkRecord]) -> Vec<String> {
-    type Key = (String, String, String);
+    type Key = (String, String, String, String);
     let groups = |records: &[BenchmarkRecord]| -> HashMap<Key, Vec<u64>> {
         let mut grouped: HashMap<Key, Vec<u64>> = HashMap::new();
         for record in records {
             grouped
                 .entry((
                     record.fixture.clone(),
+                    record.fixture_fingerprint.clone(),
                     record.mode.clone(),
                     record.temperature.clone(),
                 ))
@@ -579,24 +639,102 @@ fn compare_runtime(baseline: &[BenchmarkRecord], candidate: &[BenchmarkRecord]) 
     let baseline = groups(baseline);
     let candidate = groups(candidate);
     let mut reasons = Vec::new();
+    if baseline.keys().collect::<BTreeSet<_>>() != candidate.keys().collect::<BTreeSet<_>>() {
+        reasons.push("candidate benchmark matrix differs from the approved baseline".to_string());
+        return reasons;
+    }
     for (key, baseline_values) in baseline {
         let Some(candidate_values) = candidate.get(&key) else {
             reasons.push(format!("candidate is missing benchmark {key:?}"));
             continue;
         };
+        if baseline_values.len() != candidate_values.len()
+            || baseline_values.len() < MIN_REPETITIONS
+        {
+            reasons.push(format!(
+                "benchmark {key:?} does not preserve the approved repetition matrix"
+            ));
+            continue;
+        }
         for (label, quantile) in [("median", 50), ("p95", 95)] {
             let base = percentile(&baseline_values, quantile);
             let current = percentile(candidate_values, quantile);
             let regression = percent_change(base, current);
-            if regression > 10.0 {
+            if regression > 10.0 && current.saturating_sub(base) >= MIN_ABSOLUTE_REGRESSION_MS {
                 reasons.push(format!(
                     "{} {} {} {label} regressed {regression:.3}%",
-                    key.0, key.1, key.2
+                    key.0, key.2, key.3
                 ));
             }
         }
     }
     reasons
+}
+
+fn report_diagnostic_sha256(report: &ReportV1) -> Result<String> {
+    let mut diagnostics = report.diagnostics.clone();
+    diagnostics.sort_by(|left, right| {
+        left.rule
+            .cmp(&right.rule)
+            .then(left.site_id.cmp(&right.site_id))
+            .then(left.baseline_key.cmp(&right.baseline_key))
+    });
+    let bytes = serde_json::to_vec(&diagnostics).map_err(|error| {
+        EvalError::Command(format!("cannot fingerprint benchmark diagnostics: {error}"))
+    })?;
+    Ok(hex_digest(&bytes))
+}
+
+fn diagnostic_matrix_sha256(records: &[BenchmarkRecord]) -> Result<String> {
+    let matrix: Vec<_> = records
+        .iter()
+        .map(|record| {
+            (
+                &record.fixture,
+                &record.fixture_fingerprint,
+                &record.mode,
+                &record.temperature,
+                record.repetition,
+                &record.diagnostic_sha256,
+            )
+        })
+        .collect();
+    let bytes = serde_json::to_vec(&matrix).map_err(|error| {
+        EvalError::Command(format!("cannot fingerprint benchmark matrix: {error}"))
+    })?;
+    Ok(hex_digest(&bytes))
+}
+
+fn validate_approval(approval: Option<&BenchmarkApproval>) -> Result<()> {
+    let approval = approval.ok_or_else(|| {
+        EvalError::InvalidManifest(
+            "benchmark baseline has no protected approval metadata".to_string(),
+        )
+    })?;
+    if approval.reviewed_by.trim().is_empty()
+        || approval.reviewed_at.trim().is_empty()
+        || !matches!(
+            approval.review_source.as_str(),
+            "protected-ci" | "codeowners"
+        )
+    {
+        return Err(EvalError::InvalidManifest(
+            "benchmark approval must identify a protected CI or CODEOWNERS review".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn rustc_identity() -> Result<String> {
+    let mut command = Command::new("rustc");
+    command.arg("-Vv");
+    let output = run_capped(command, Duration::from_secs(10), 64 * 1024)?;
+    if output.timed_out || !output.status.success() {
+        return Err(EvalError::Command(
+            "cannot identify benchmark rustc toolchain".to_string(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn percentile(values: &[u64], percentile: usize) -> u64 {
@@ -674,9 +812,10 @@ mod tests {
             files_per_second: 1.0,
             cache_hit_rate: 0.0,
             pass_timings_ms: BTreeMap::new(),
+            diagnostic_sha256: "d".repeat(64),
         };
         let baseline = vec![make(100), make(100), make(100)];
-        let candidate = vec![make(100), make(111), make(120)];
+        let candidate = vec![make(100), make(160), make(170)];
         assert!(!compare_runtime(&baseline, &candidate).is_empty());
     }
 
