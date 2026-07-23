@@ -33,10 +33,15 @@ while true; do
   parent=${parent%/*}
 done
 delegated="$parent/rust-doctor-delegated-$$"
+runner="$delegated/runner"
 delegated_created=false
+runner_created=false
 
 cleanup() {
   local cleanup_status=0
+  if [[ "$runner_created" == true ]]; then
+    sudo rmdir -- "$runner" || cleanup_status=$?
+  fi
   if [[ "$delegated_created" == true ]]; then
     sudo rmdir -- "$delegated" || cleanup_status=$?
   fi
@@ -58,9 +63,23 @@ sudo chown "$(id -u):$(id -g)" \
   "$delegated/cgroup.procs" \
   "$delegated/cgroup.threads" \
   "$delegated/cgroup.subtree_control"
+sudo mkdir -- "$runner"
+runner_created=true
+sudo chown "$(id -u):$(id -g)" \
+  "$runner" \
+  "$runner/cgroup.procs" \
+  "$runner/cgroup.threads"
 
 set +e
-RUST_DOCTOR_CGROUP_ROOT="$delegated" "$@"
+sudo sh -c '
+  runner=$1
+  delegated=$2
+  uid=$3
+  shift 3
+  printf "%s\n" "$$" > "$runner/cgroup.procs"
+  exec sudo --non-interactive --user="#$uid" -- \
+    env RUST_DOCTOR_CGROUP_ROOT="$delegated" "$@"
+' sh "$runner" "$delegated" "$(id -u)" "$@"
 command_status=$?
 cleanup_status=0
 cleanup || cleanup_status=$?
