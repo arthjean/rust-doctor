@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
-  "subject_sha256": "bce3992d34b03bf803ac0531ffee1bdc7fec18487c3b80e10c8049d642a2d0b3",
+  "subject_sha256": "ad978f7570822e824501ce4b472a10bf5b48c8894bc3b138303f66ed82ece7f1",
   "repository": "arthjean/rust-doctor",
-  "head_sha": "bf3d275ad605003975f1ad55d8c7aaab71357ccb",
-  "run_id": 30015936173,
-  "artifact_id": 8567752198,
+  "head_sha": "f4611ff39ca6cb174a885a51cd50522b806c4bde",
+  "run_id": 30020487733,
+  "artifact_id": 8569707558,
   "artifact_name": "ep003-corpus-baseline",
-  "artifact_digest": "sha256:4c88548c0a14d3e61c8225433e14a47698256b1dee67f6dad59bee458710267e",
-  "artifact_url": "https://github.com/arthjean/rust-doctor/actions/runs/30015936173/artifacts/8567752198",
+  "artifact_digest": "sha256:2d5b4c5267f0336d6fe7a94cb9dc065dacb7374d631fe575685053f9b317aa3d",
+  "artifact_url": "https://github.com/arthjean/rust-doctor/actions/runs/30020487733/artifacts/8569707558",
   "reviewed_by": "arthjean",
-  "reviewed_at": "2026-07-23T14:49:27Z",
+  "reviewed_at": "2026-07-23T15:49:31Z",
   "review_source": "protected-ci"
 }

@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
-  "subject_sha256": "764716e5c8d54089dbc41cdb3e907b9b8a610a1ed42c612a2ea20aa94653bb4c",
+  "subject_sha256": "0b98967fee98bd87f90b88d59b20219034e0b646e3bf2aab226a5fc913d4c87d",
   "repository": "arthjean/rust-doctor",
-  "head_sha": "bf3d275ad605003975f1ad55d8c7aaab71357ccb",
-  "run_id": 30015936173,
-  "artifact_id": 8567230417,
+  "head_sha": "f4611ff39ca6cb174a885a51cd50522b806c4bde",
+  "run_id": 30020487733,
+  "artifact_id": 8569137613,
   "artifact_name": "ep003-performance-baseline",
-  "artifact_digest": "sha256:75bb4d5e96296cd580dda7977420aa6e2680b664f386be854ba151813c7dd62b",
-  "artifact_url": "https://github.com/arthjean/rust-doctor/actions/runs/30015936173/artifacts/8567230417",
+  "artifact_digest": "sha256:6f16aef1ccfe4588cce661827c4bdaf224ca3325b5b2ee066e98053adffcc8cd",
+  "artifact_url": "https://github.com/arthjean/rust-doctor/actions/runs/30020487733/artifacts/8569137613",
   "reviewed_by": "arthjean",
-  "reviewed_at": "2026-07-23T14:49:27Z",
+  "reviewed_at": "2026-07-23T15:49:31Z",
   "review_source": "protected-ci"
 }
