@@ -130,6 +130,8 @@ pub(crate) fn command(
     let binary = canonical(binary, "rust-doctor binary")?;
     let bwrap = find_executable("bwrap")?;
     let sysroot = active_sysroot()?;
+    let cc = canonical(&find_executable("cc")?, "C linker")?;
+    let cxx = canonical(&find_executable("c++")?, "C++ linker")?;
     let scratch_bytes = scratch_bytes.to_string();
     let tmp_bytes = TMP_BYTES.to_string();
     let auxiliary_bytes = AUXILIARY_TMPFS_BYTES.to_string();
@@ -201,6 +203,12 @@ pub(crate) fn command(
         .arg("--ro-bind")
         .arg(binary)
         .arg("/tool/rust-doctor")
+        .arg("--ro-bind")
+        .arg(cc)
+        .arg("/tool/cc")
+        .arg("--ro-bind")
+        .arg(cxx)
+        .arg("/tool/c++")
         .args(["--remount-ro", "/"])
         .args([
             "--setenv",
