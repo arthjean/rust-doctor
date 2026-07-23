@@ -11,17 +11,10 @@
 //! ```rust,no_run
 //! use std::path::Path;
 //!
-//! // Discover the project
-//! let (dir, info, config) = rust_doctor::discovery::bootstrap_project(
-//!     Path::new("."), false,
+//! let report = rust_doctor::api::scan(
+//!     rust_doctor::api::ScanRequest::new(Path::new(".")),
 //! ).unwrap();
-//!
-//! // Resolve config with defaults
-//! let resolved = rust_doctor::config::resolve_config_defaults(config.as_ref());
-//!
-//! // Run the scan
-//! let result = rust_doctor::scan::scan_project(&info, &resolved, false, &[], true).unwrap();
-//! println!("Score: {}/100 ({})", result.score, result.score_label);
+//! println!("Diagnostics: {}", report.summary.diagnostic_count);
 //! ```
 
 #![forbid(unsafe_code)]
@@ -69,6 +62,8 @@
     reason = "underscore prefixes used in destructuring"
 )]
 
+/// Versioned, non-rendering single-project and bounded batch scan API.
+pub mod api;
 /// Command-line argument parsing and flag definitions.
 pub mod cli;
 /// Configuration loading, merging, and validation.
@@ -112,6 +107,7 @@ pub(crate) mod cache;
 pub(crate) mod catalog;
 pub(crate) mod completeness;
 pub(crate) mod diff;
+pub(crate) mod handoff;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;

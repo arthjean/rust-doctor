@@ -4,9 +4,24 @@
 use clap::Parser;
 use rust_doctor::cli::Cli;
 use rust_doctor::{config, run};
+use std::any::Any;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |information| {
+        if !is_closed_pipe_panic(information.payload()) {
+            previous_hook(information);
+        }
+    }));
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(code) => code,
+        Err(payload) if is_closed_pipe_panic(payload.as_ref()) => ExitCode::SUCCESS,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn run() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
@@ -83,6 +98,9 @@ fn main() -> ExitCode {
         eprintln!("Error: {e}");
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
+    if let Err(error) = run::emit_handoff(&cli, &scan_result, &resolved, &project_info) {
+        eprintln!("Warning: diagnostic handoff failed: {error}");
+    }
     run::emit_scan_telemetry(&cli, &scan_result);
     if let Err(error) = run::emit_share_if_requested(&cli, &scan_result) {
         eprintln!("Error: share URL was not created: {error}");
@@ -105,4 +123,14 @@ fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+fn is_closed_pipe_panic(payload: &(dyn Any + Send)) -> bool {
+    let message = payload.downcast_ref::<&str>().map_or_else(
+        || payload.downcast_ref::<String>().map_or("", String::as_str),
+        |message| *message,
+    );
+    message.contains("failed printing to stdout")
+        || message.contains("failed printing to stderr")
+        || message.contains("Broken pipe")
 }

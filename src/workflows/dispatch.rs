@@ -3,11 +3,11 @@ use crate::cli::{
     InstallArgs, RuleLevelArg, RuleListArgs, RulesCommand, ScanCategory, TagMutationArgs,
     TelemetryArgs, UninstallArgs, WhyArgs,
 };
-use crate::config;
 use crate::setup::{
     AgentId, BlockingLevel, SetupRequest, StagedHook, execute as execute_setup, render_report,
 };
 use crate::workflows::{ci, rules, telemetry, why};
+use crate::{config, discovery};
 use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
 use std::path::{Path, PathBuf};
@@ -152,12 +152,19 @@ fn setup_roots(directory: &Path) -> Result<(PathBuf, PathBuf), crate::error::Set
             path: None,
             message: "neither HOME nor USERPROFILE is set".to_string(),
         })?;
-    let project = directory
-        .canonicalize()
-        .map_err(|error| crate::error::SetupError::Install {
-            path: Some(directory.to_path_buf()),
-            message: format!("failed to resolve project root: {error}"),
-        })?;
+    let requested =
+        directory
+            .canonicalize()
+            .map_err(|error| crate::error::SetupError::Install {
+                path: Some(directory.to_path_buf()),
+                message: format!("failed to resolve project root: {error}"),
+            })?;
+    let project = discovery::find_manifest_root(&requested).ok_or_else(|| {
+        crate::error::SetupError::Install {
+            path: Some(requested),
+            message: "no Cargo.toml found at or above the requested directory".to_string(),
+        }
+    })?;
     Ok((home, project))
 }
 
@@ -255,18 +262,20 @@ fn list_rules(arguments: &RuleListArgs) -> Result<String, String> {
 }
 
 fn load_rule_config(directory: &Path) -> Result<(PathBuf, config::ResolvedConfig), String> {
-    let root = directory.canonicalize().map_err(|error| {
+    let requested = directory.canonicalize().map_err(|error| {
         format!(
             "invalid project directory '{}': {error}",
             directory.display()
         )
     })?;
-    if !root.is_dir() {
+    if !requested.is_dir() {
         return Err(format!(
             "project path '{}' is not a directory",
-            root.display()
+            requested.display()
         ));
     }
+    let root = discovery::find_manifest_root(&requested)
+        .ok_or_else(|| format!("no Cargo.toml found at or above '{}'", requested.display()))?;
     let metadata = if root.join("rust-doctor.toml").is_file() {
         None
     } else {
@@ -323,12 +332,14 @@ fn mutate_rule(
     mutation: rules::RuleMutation,
     dry_run: bool,
 ) -> Result<String, String> {
-    let root = directory.canonicalize().map_err(|error| {
+    let requested = directory.canonicalize().map_err(|error| {
         format!(
             "invalid project directory '{}': {error}",
             directory.display()
         )
     })?;
+    let root = discovery::find_manifest_root(&requested)
+        .ok_or_else(|| format!("no Cargo.toml found at or above '{}'", requested.display()))?;
     let result = rules::execute_rule_mutation(&root, mutation, dry_run)
         .map_err(|error| error.to_string())?;
     if dry_run {

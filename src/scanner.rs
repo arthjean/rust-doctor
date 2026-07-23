@@ -394,9 +394,6 @@ pub fn filter_diagnostics(
 
     // Build ignore file glob set
     let ignore_files_set = build_glob_set(&config.ignore_files);
-    if let Err(ref e) = ignore_files_set {
-        eprintln!("Warning: could not build file ignore set: {e}");
-    }
 
     diagnostics
         .into_iter()
@@ -418,42 +415,15 @@ pub fn filter_diagnostics(
         .collect()
 }
 
-/// Maximum number of glob patterns allowed in config.
-const MAX_GLOB_PATTERNS: usize = 100;
-/// Maximum length of a single glob pattern.
-const MAX_GLOB_PATTERN_LEN: usize = 256;
-
 /// Build a GlobSet from a list of pattern strings.
-/// Caps patterns at 100 and individual pattern length at 256 chars.
-/// Returns an error if any pattern is invalid.
+///
+/// Limits are validated once at the configuration boundary. This builder must
+/// never truncate or skip a pattern because doing so would silently widen the
+/// scan after configuration was accepted.
 pub fn build_glob_set(patterns: &[String]) -> Result<GlobSet, globset::Error> {
     let mut builder = GlobSetBuilder::new();
-
-    if patterns.len() > MAX_GLOB_PATTERNS {
-        eprintln!(
-            "Warning: too many glob patterns ({}, max {}); truncating",
-            patterns.len(),
-            MAX_GLOB_PATTERNS
-        );
-    }
-
-    for pattern in patterns.iter().take(MAX_GLOB_PATTERNS) {
-        if pattern.len() > MAX_GLOB_PATTERN_LEN {
-            eprintln!(
-                "Warning: glob pattern too long ({} chars, max {}); skipping",
-                pattern.len(),
-                MAX_GLOB_PATTERN_LEN
-            );
-            continue;
-        }
-        match Glob::new(pattern) {
-            Ok(glob) => {
-                builder.add(glob);
-            }
-            Err(e) => {
-                eprintln!("Warning: invalid glob pattern '{pattern}': {e}");
-            }
-        }
+    for pattern in patterns {
+        builder.add(Glob::new(pattern)?);
     }
     builder.build()
 }
@@ -542,6 +512,7 @@ mod tests {
             score_fail_below: None,
             respect_inline_disables: true,
             max_parallelism: None,
+            adapter_policy: crate::config::AdapterPolicy::default(),
             evaluation_profile: false,
         }
     }
@@ -616,13 +587,11 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_invalid_glob_continues() {
-        let diags = vec![make_diagnostic("rule1", "src/main.rs", Severity::Error)];
-        let mut config = make_config();
-        config.ignore_files = vec!["[invalid".to_string()];
-        // Should not panic — invalid globs are warned and skipped
-        let filtered = filter_diagnostics(diags, &config);
-        assert_eq!(filtered.len(), 1);
+    fn test_invalid_glob_is_rejected_without_truncation() {
+        assert!(build_glob_set(&["[invalid".to_string()]).is_err());
+        let patterns: Vec<_> = (0..101).map(|index| format!("path-{index}/**")).collect();
+        let set = build_glob_set(&patterns).unwrap();
+        assert!(set.is_match("path-100/file.rs"));
     }
 
     // --- Orchestrator tests ---

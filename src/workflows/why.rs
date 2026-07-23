@@ -53,6 +53,8 @@ pub enum WhyError {
     InvalidPath { path: PathBuf, reason: String },
     #[error("source path '{}' is outside project root '{}'", path.display(), root.display())]
     OutsideRoot { path: PathBuf, root: PathBuf },
+    #[error("project bootstrap failed: {0}")]
+    Bootstrap(#[from] crate::error::BootstrapError),
     #[error("project discovery failed: {0}")]
     Discovery(#[from] crate::error::DiscoveryError),
     #[error("configuration failed: {0}")]
@@ -97,14 +99,8 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
         });
     }
 
-    let cargo_toml = requested_root.join("Cargo.toml");
-    if !cargo_toml.is_file() {
-        return Err(WhyError::InvalidPath {
-            path: cargo_toml,
-            reason: "no Cargo.toml found".to_string(),
-        });
-    }
-    let project = discovery::discover_project(&cargo_toml, request.offline)?;
+    let (_, project, discovered_file_config) =
+        discovery::bootstrap_project(&requested_root, request.offline)?;
     let project_root = project
         .root_dir
         .canonicalize()
@@ -129,7 +125,7 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
     let file_config = if request.no_project_config {
         None
     } else {
-        config::load_file_config(&project.root_dir, Some(&project.package_metadata))?
+        discovered_file_config
     };
     let resolved = config::resolve_config_defaults(file_config.as_ref());
     let catalog = built_in_catalog().map_err(|error| WhyError::Catalog(error.to_string()))?;
@@ -153,7 +149,7 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
     if let Some(scope_decision) = scope_exclusion_decision(&scope, &relative) {
         let mut decisions = policy_decisions(
             catalog.descriptors(),
-            selected_descriptor,
+            selected_descriptor.as_ref(),
             &resolved,
             &relative,
             &project,
@@ -238,7 +234,7 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
 
     let mut decisions = policy_decisions(
         catalog.descriptors(),
-        selected_descriptor,
+        selected_descriptor.as_ref(),
         &resolved,
         &relative,
         &project,
@@ -252,20 +248,7 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
     add_test_context_decisions(&mut decisions, &relative);
     normalize_decisions(&mut decisions);
 
-    let mut unavailable_evidence: Vec<_> = result
-        .execution
-        .checks
-        .iter()
-        .filter(|check| check.status != CheckStatus::Completed)
-        .map(|check| {
-            check.reason.as_ref().map_or_else(
-                || format!("{}: {:?}", check.name, check.status),
-                |reason| format!("{}: {:?} ({reason})", check.name, check.status),
-            )
-        })
-        .collect();
-    unavailable_evidence.sort();
-    unavailable_evidence.dedup();
+    let unavailable_evidence = unavailable_required_evidence(&result.execution.checks);
 
     Ok(WhyReport {
         location: format_location(&normalized_relative, parsed.line, parsed.column),
@@ -278,6 +261,8 @@ pub fn execute(request: &WhyRequest) -> Result<WhyReport, WhyError> {
 fn explanation_config(resolved: &ResolvedConfig, catalog: &RuleCatalog) -> ResolvedConfig {
     let mut analysis = resolved.clone();
     analysis.lint = true;
+    analysis.adapter_policy.compiler_lint = true;
+    analysis.adapter_policy.custom_ast = true;
     analysis.respect_inline_disables = false;
     analysis.ignore_rules.clear();
     analysis.enable_rules.clear();
@@ -465,14 +450,65 @@ fn validate_source_position(path: &Path, location: &ParsedLocation) -> Result<()
     Ok(())
 }
 
-fn resolve_requested_rule<'a>(
-    catalog: &'a RuleCatalog,
-    rule: &str,
-) -> Result<&'a RuleDescriptor, WhyError> {
-    catalog.exact(rule).ok_or_else(|| WhyError::UnknownRule {
+fn resolve_requested_rule(catalog: &RuleCatalog, rule: &str) -> Result<RuleDescriptor, WhyError> {
+    if let Some(descriptor) = catalog.exact(rule) {
+        return Ok(descriptor.clone());
+    }
+    if let Some((category, severity)) = dynamic_rule_defaults(rule) {
+        return Ok(catalog
+            .resolve(rule, &category, severity)
+            .as_descriptor()
+            .clone());
+    }
+    Err(WhyError::UnknownRule {
         rule: rule.to_string(),
         suggestions: nearest_rules(catalog.descriptors(), rule).join(", "),
     })
+}
+
+fn dynamic_rule_defaults(
+    rule: &str,
+) -> Option<(crate::diagnostics::Category, crate::diagnostics::Severity)> {
+    use crate::diagnostics::{Category, Severity};
+    if rule
+        .strip_prefix("clippy::")
+        .is_some_and(valid_dynamic_code)
+    {
+        Some((Category::Style, Severity::Warning))
+    } else if valid_rustsec_id(rule) {
+        Some((Category::Security, Severity::Error))
+    } else if rule.strip_prefix("deny::").is_some_and(valid_dynamic_code) {
+        Some((Category::Dependencies, Severity::Warning))
+    } else if rule
+        .strip_prefix('E')
+        .is_some_and(|code| code.len() == 4 && code.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        Some((Category::Correctness, Severity::Error))
+    } else {
+        None
+    }
+}
+
+fn valid_dynamic_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
+}
+
+fn valid_rustsec_id(rule: &str) -> bool {
+    let Some(value) = rule.strip_prefix("RUSTSEC-") else {
+        return false;
+    };
+    let mut parts = value.split('-');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(year), Some(sequence), None)
+            if year.len() == 4
+                && sequence.len() == 4
+                && year.bytes().all(|byte| byte.is_ascii_digit())
+                && sequence.bytes().all(|byte| byte.is_ascii_digit())
+    )
 }
 
 fn nearest_rules(descriptors: &[RuleDescriptor], needle: &str) -> Vec<String> {
@@ -551,8 +587,63 @@ fn policy_decisions(
                 ),
             });
         }
+        if selected.is_some() {
+            decisions.extend(framework_context_decisions(descriptor, project));
+        }
     }
     decisions
+}
+
+fn framework_context_decisions(
+    descriptor: &RuleDescriptor,
+    project: &discovery::ProjectInfo,
+) -> Vec<WhyDecision> {
+    let mut decisions = Vec::new();
+    for requirement in &descriptor.framework_requirements {
+        for capability in project
+            .framework_capabilities
+            .iter()
+            .filter(|capability| capability.framework.to_string() == requirement.framework)
+        {
+            decisions.push(WhyDecision {
+                kind: if capability.active {
+                    "framework_context"
+                } else {
+                    "framework_gate"
+                }
+                .to_string(),
+                rule: Some(descriptor.canonical_id.clone()),
+                explanation: format!(
+                    "{} version={} features=[{}] targets=[{}]{}",
+                    requirement.framework,
+                    capability.version.as_deref().unwrap_or("unresolved"),
+                    capability.enabled_features.join(", "),
+                    capability.target_contexts.join(", "),
+                    capability
+                        .gate_reason
+                        .as_ref()
+                        .map_or_else(String::new, |reason| format!(" gate={reason}"))
+                ),
+            });
+        }
+    }
+    decisions
+}
+
+fn unavailable_required_evidence(checks: &[crate::diagnostics::CheckState]) -> Vec<String> {
+    let mut unavailable: Vec<_> = checks
+        .iter()
+        .filter(|check| check.required && check.status != CheckStatus::Completed)
+        .map(|check| {
+            check.reason.as_ref().map_or_else(
+                || format!("{}: {:?}", check.name, check.status),
+                |reason| format!("{}: {:?} ({reason})", check.name, check.status),
+            )
+        })
+        .collect();
+    unavailable.sort();
+    unavailable.dedup();
+    unavailable
 }
 
 fn add_test_context_decisions(decisions: &mut Vec<WhyDecision>, path: &Path) {
@@ -655,5 +746,36 @@ mod tests {
     #[test]
     fn edit_distance_drives_deterministic_suggestions() {
         assert_eq!(edit_distance("unwrap", "unwarp"), 2);
+    }
+
+    #[test]
+    fn dynamic_namespaces_are_accepted_but_arbitrary_unknown_rules_are_not() {
+        let catalog = built_in_catalog().unwrap();
+        assert_eq!(
+            resolve_requested_rule(catalog, "clippy::future_lint")
+                .unwrap()
+                .canonical_id,
+            "clippy::future_lint"
+        );
+        assert!(resolve_requested_rule(catalog, "not-a-real-rule").is_err());
+    }
+
+    #[test]
+    fn optional_unavailable_checks_do_not_make_why_inconclusive() {
+        let checks = vec![
+            crate::diagnostics::CheckState {
+                name: "custom rules".to_string(),
+                required: true,
+                status: CheckStatus::Completed,
+                reason: None,
+            },
+            crate::diagnostics::CheckState {
+                name: "cargo audit".to_string(),
+                required: false,
+                status: CheckStatus::Skipped,
+                reason: Some("not installed".to_string()),
+            },
+        ];
+        assert!(unavailable_required_evidence(&checks).is_empty());
     }
 }

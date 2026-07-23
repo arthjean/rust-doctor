@@ -3,6 +3,7 @@
 //! These functions handle MCP dispatch, project bootstrapping, scanning,
 //! output rendering, and quality gate checks.
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -45,7 +46,12 @@ pub fn configure_telemetry(cli: &Cli) {
     } else {
         crate::telemetry::cli_surface()
     };
-    crate::telemetry::install_panic_hook(cli.no_telemetry, cli.offline, surface, &cli.directory);
+    crate::telemetry::install_panic_hook(
+        cli.no_telemetry,
+        cli_network_disabled(cli),
+        surface,
+        &cli.directory,
+    );
 }
 
 /// Record one aggregate server session when explicit consent is active.
@@ -55,12 +61,12 @@ pub fn emit_server_telemetry(cli: &Cli) {
     } else {
         crate::telemetry::lsp_surface()
     };
-    crate::telemetry::record_session(cli.no_telemetry, cli.offline, surface);
+    crate::telemetry::record_session(cli.no_telemetry, cli_network_disabled(cli), surface);
 }
 
 /// Record aggregate scan metadata without affecting output or exit status.
 pub fn emit_scan_telemetry(cli: &Cli, result: &ScanResult) {
-    crate::telemetry::record_scan(cli.no_telemetry, cli.offline, result);
+    crate::telemetry::record_scan(cli.no_telemetry, cli_network_disabled(cli), result);
 }
 
 /// Print the explicit stateless share URL after normal terminal output.
@@ -146,7 +152,11 @@ pub fn bootstrap_project(
     ),
     crate::error::BootstrapError,
 > {
-    discovery::bootstrap_project_for_scan(&cli.directory, cli.offline, cli.evaluation_profile)
+    discovery::bootstrap_project_for_scan(
+        &cli.directory,
+        cli_network_disabled(cli),
+        cli.evaluation_profile,
+    )
 }
 
 /// Run the scan passes and return the result.
@@ -252,7 +262,7 @@ pub(crate) fn run_scan_cancellable(
             _ => scan::scan_project_scoped_for_categories(
                 project_info,
                 resolved,
-                cli.offline,
+                effective_offline(cli, resolved),
                 &cli.project,
                 suppress_spinner,
                 &scope,
@@ -416,7 +426,7 @@ fn run_staged(
         return scan::scan_project_scoped_for_categories(
             original_project,
             resolved,
-            cli.offline,
+            effective_offline(cli, resolved),
             &cli.project,
             suppress_spinner,
             scope,
@@ -433,7 +443,7 @@ fn run_staged(
     })?;
     let snapshot_project = discovery::discover_project_for_scan(
         &snapshot.root().join("Cargo.toml"),
-        cli.offline,
+        effective_offline(cli, resolved),
         cli.evaluation_profile,
     )
     .map_err(|error| {
@@ -444,7 +454,7 @@ fn run_staged(
     let mut result = scan::scan_project_scoped_for_categories(
         &snapshot_project,
         resolved,
-        cli.offline,
+        effective_offline(cli, resolved),
         &cli.project,
         suppress_spinner,
         scope,
@@ -511,7 +521,7 @@ fn run_baseline(
     };
     let base_project = match discovery::discover_project_for_scan(
         &snapshot.root().join("Cargo.toml"),
-        cli.offline,
+        effective_offline(cli, resolved),
         cli.evaluation_profile,
     ) {
         Ok(project) => project,
@@ -572,7 +582,7 @@ fn run_baseline(
     let mut head = scan::scan_project_scoped_for_categories(
         project,
         resolved,
-        cli.offline,
+        effective_offline(cli, resolved),
         &cli.project,
         suppress_spinner,
         &full_scope,
@@ -593,7 +603,7 @@ fn run_baseline(
     let base = scan::scan_project_scoped_for_categories(
         &base_project,
         &base_resolved,
-        cli.offline,
+        effective_offline(cli, &base_resolved),
         &cli.project,
         true,
         &full_scope,
@@ -825,7 +835,7 @@ fn degraded_baseline(
     let mut result = scan::scan_project_scoped_for_categories(
         project,
         resolved,
-        cli.offline,
+        effective_offline(cli, resolved),
         &cli.project,
         suppress_spinner,
         &files_scope,
@@ -868,6 +878,17 @@ fn degraded_baseline(
 
 fn required_analysis_complete(result: &ScanResult) -> bool {
     crate::completeness::score_is_authoritative(result)
+}
+
+fn cli_network_disabled(cli: &Cli) -> bool {
+    cli.offline
+        || cli
+            .disable_adapter
+            .contains(&crate::cli::AdapterGroup::NetworkDependent)
+}
+
+fn effective_offline(cli: &Cli, resolved: &config::ResolvedConfig) -> bool {
+    cli_network_disabled(cli) || !resolved.adapter_policy.network
 }
 
 fn rebase_result_paths(result: &mut ScanResult, from: &Path, to: &Path) {
@@ -990,6 +1011,48 @@ pub fn emit_output(
             cli.warnings != WarningVisibility::Hide,
             &cli.category,
         );
+    }
+    Ok(())
+}
+
+/// Write the bounded diagnostic dump and optional agent handoff.
+///
+/// Failure is returned as a secondary warning so callers can preserve the
+/// already-computed report and quality-gate result.
+pub fn emit_handoff(
+    cli: &Cli,
+    scan_result: &ScanResult,
+    resolved: &config::ResolvedConfig,
+    project_info: &discovery::ProjectInfo,
+) -> Result<(), String> {
+    let report = ReportV1::from_scan_with_context(
+        scan_result,
+        project_info,
+        resolved,
+        mode_from_reporting_scope(&scan_result.execution.reporting_scope),
+        &cli.directory,
+        evaluate_gate_result(cli, scan_result, resolved),
+    );
+    let outcome = crate::handoff::execute(
+        &report,
+        &crate::handoff::HandoffRequest {
+            output_dir: cli.output_dir.clone(),
+            target: cli.handoff,
+            remember_target: cli.remember_handoff_target,
+            reset_target: cli.reset_handoff_target,
+            interactive: std::io::stdin().is_terminal()
+                && std::io::stderr().is_terminal()
+                && !cli.score
+                && !cli.wants_json()
+                && !cli.sarif,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(outcome) = outcome {
+        eprintln!("Diagnostic dump: {}", outcome.directory.display());
+        if let Some(target) = outcome.target {
+            eprintln!("Handoff target: {target}");
+        }
     }
     Ok(())
 }
