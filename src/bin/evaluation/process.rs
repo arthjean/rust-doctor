@@ -8,6 +8,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
+const DELEGATED_CGROUP_ROOT: &str = "RUST_DOCTOR_CGROUP_ROOT";
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ResourceLimits {
     pub(crate) max_resident_bytes: u64,
@@ -190,17 +193,6 @@ struct CgroupGuard {
 impl CgroupGuard {
     fn create(limits: ResourceLimits) -> Result<Self> {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        let membership = std::fs::read_to_string("/proc/self/cgroup").map_err(|error| {
-            EvalError::io("cannot read cgroup membership", "/proc/self/cgroup", error)
-        })?;
-        let relative = membership
-            .lines()
-            .find_map(|line| line.strip_prefix("0::"))
-            .ok_or_else(|| {
-                EvalError::Unsupported(
-                    "corpus sandbox requires a unified cgroup v2 hierarchy".to_string(),
-                )
-            })?;
         let root = Path::new("/sys/fs/cgroup")
             .canonicalize()
             .map_err(|error| {
@@ -210,15 +202,7 @@ impl CgroupGuard {
                     error,
                 )
             })?;
-        let parent = root.join(relative.trim_start_matches('/'));
-        let parent = parent.canonicalize().map_err(|error| {
-            EvalError::io("cannot canonicalize delegated cgroup", &parent, error)
-        })?;
-        if !parent.starts_with(&root) {
-            return Err(EvalError::Unsupported(
-                "current cgroup escapes the unified hierarchy".to_string(),
-            ));
-        }
+        let parent = cgroup_parent(&root)?;
         let controllers =
             std::fs::read_to_string(parent.join("cgroup.controllers")).map_err(|error| {
                 EvalError::io("cannot read delegated cgroup controllers", &parent, error)
@@ -300,6 +284,49 @@ impl CgroupGuard {
     fn kill_all(&self) {
         let _ = std::fs::write(self.path.join("cgroup.kill"), "1");
     }
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_parent(root: &Path) -> Result<PathBuf> {
+    if let Some(delegated) = std::env::var_os(DELEGATED_CGROUP_ROOT) {
+        let requested = PathBuf::from(delegated);
+        let delegated = requested.canonicalize().map_err(|error| {
+            EvalError::io(
+                "cannot canonicalize delegated cgroup root",
+                requested,
+                error,
+            )
+        })?;
+        if delegated == root || !delegated.starts_with(root) {
+            return Err(EvalError::Unsupported(
+                "delegated cgroup root must be a strict descendant of the cgroup v2 hierarchy"
+                    .to_string(),
+            ));
+        }
+        return Ok(delegated);
+    }
+
+    let membership = std::fs::read_to_string("/proc/self/cgroup").map_err(|error| {
+        EvalError::io("cannot read cgroup membership", "/proc/self/cgroup", error)
+    })?;
+    let relative = membership
+        .lines()
+        .find_map(|line| line.strip_prefix("0::"))
+        .ok_or_else(|| {
+            EvalError::Unsupported(
+                "corpus sandbox requires a unified cgroup v2 hierarchy".to_string(),
+            )
+        })?;
+    let parent = root.join(relative.trim_start_matches('/'));
+    let parent = parent
+        .canonicalize()
+        .map_err(|error| EvalError::io("cannot canonicalize delegated cgroup", &parent, error))?;
+    if !parent.starts_with(root) {
+        return Err(EvalError::Unsupported(
+            "current cgroup escapes the unified hierarchy".to_string(),
+        ));
+    }
+    Ok(parent)
 }
 
 #[cfg(target_os = "linux")]

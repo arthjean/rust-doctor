@@ -42,12 +42,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
             "$TEST_BINARY" --exact \
             evaluation::sandbox::tests::malicious_build_script_cannot_write_outside_sandbox \
             --nocapture
-          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
             "$TEST_BINARY" --exact \
             evaluation::process::tests::cleanup_monitor_removes_cgroup_after_abrupt_parent_exit \
@@ -63,7 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
@@ -72,7 +75,6 @@ jobs:
             --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
             --tool-revision "$GITHUB_SHA" \
             --output "$GITHUB_WORKSPACE/evidence/corpus-baseline.ndjson"
-          sudo chown "$USER":"$(id -gn)" evidence/corpus-baseline.ndjson
           cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
           test "$(wc -l < evidence/corpus-baseline.ndjson)" -eq 100
           test "$(jq -s 'map(.expected_roots | length) | add' evidence/corpus-baseline.ndjson)" -ge 250
@@ -92,7 +94,8 @@ jobs:
           }
           trap cleanup EXIT
           set +e
-          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
@@ -104,12 +107,12 @@ jobs:
           retry_status=$?
           set -e
           test "$retry_status" -ne 0
-          sudo chown "$USER":"$(id -gn)" evidence/retry-failure.ndjson
           test "$(jq -s 'all(.[]; (.complete | not) and .attempts == 3 and ([.failure_chain[].attempt] | unique) == [1,2,3])' evidence/retry-failure.ndjson)" = true
           cleanup
           trap - EXIT
           set +e
-          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
@@ -122,7 +125,6 @@ jobs:
           budget_status=$?
           set -e
           test "$budget_status" -ne 0
-          sudo chown "$USER":"$(id -gn)" evidence/budget-failure.ndjson
           test "$(jq -s 'any(.[]; any(.failure_chain[]; .kind == "global_budget" or .kind == "repository_budget"))' evidence/budget-failure.ndjson)" = true
           test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
       - name: Upload immutable corpus baseline
