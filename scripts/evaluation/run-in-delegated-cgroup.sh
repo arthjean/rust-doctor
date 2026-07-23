@@ -16,10 +16,22 @@ if [[ -z "$relative_cgroup" ]]; then
 fi
 
 if [[ "$relative_cgroup" == "/" ]]; then
-  parent=/sys/fs/cgroup
+  current=/sys/fs/cgroup
 else
-  parent="/sys/fs/cgroup$relative_cgroup"
+  current="/sys/fs/cgroup$relative_cgroup"
 fi
+parent="$current"
+while true; do
+  enabled=$(<"$parent/cgroup.subtree_control")
+  if grep -qw memory <<<"$enabled" && grep -qw pids <<<"$enabled"; then
+    break
+  fi
+  if [[ "$parent" == /sys/fs/cgroup ]]; then
+    echo "memory and pids controllers are not delegated by the cgroup v2 root" >&2
+    exit 1
+  fi
+  parent=${parent%/*}
+done
 delegated="$parent/rust-doctor-delegated-$$"
 delegated_created=false
 
@@ -32,15 +44,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+sudo mkdir -- "$delegated"
+delegated_created=true
 for controller in memory pids; do
-  if ! grep -qw "$controller" "$parent/cgroup.controllers"; then
-    echo "required cgroup controller is unavailable: $controller" >&2
+  if ! grep -qw "$controller" "$delegated/cgroup.controllers"; then
+    echo "required cgroup controller was not delegated: $controller" >&2
     exit 1
   fi
 done
-
-sudo mkdir -- "$delegated"
-delegated_created=true
 sudo sh -c 'printf "%s\n" "+memory +pids" > "$1/cgroup.subtree_control"' sh "$delegated"
 sudo chown "$(id -u):$(id -g)" \
   "$delegated" \
