@@ -67,28 +67,33 @@ jobs:
         run: |
           cargo build --release --features lsp --target "${{ matrix.target }}" --bin rust-doctor --bin rust-doctor-eval
           cargo build --release --no-default-features --target "${{ matrix.target }}" --target-dir target/no-default --bin rust-doctor
+          cargo package --locked
+          mkdir -p artifacts
+          bash scripts/release/package-native.sh \
+            "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            "${{ matrix.target }}" \
+            "${{ matrix.archive }}" \
+            artifacts
 
-      - name: Exercise built CLI, MCP, schema, SARIF, baseline, and packed npm surfaces
+      - name: Exercise built and final packaged surfaces
         shell: bash
         run: |
+          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
+          test -n "$crate_package"
           target/${{ matrix.target }}/release/rust-doctor-eval smoke \
             --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
             --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
             --schema schemas/report-v1.schema.json \
             --npm-root npm \
-            --bun "$(command -v bun)"
+            --bun "$(command -v bun)" \
+            --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
+            --crate-package "$crate_package"
 
-      - name: Package native archive and npm tarballs
+      - name: Package npm tarballs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts
           binary="target/${{ matrix.target }}/release/${{ matrix.binary }}"
-          bash scripts/release/package-native.sh \
-            "$binary" \
-            "${{ matrix.target }}" \
-            "${{ matrix.archive }}" \
-            artifacts
           bun scripts/release/packages.ts pack "${{ matrix.platform }}" "$binary" artifacts
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -159,14 +164,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: stable
-      - name: Verify or publish immutable crate
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Verify package and registry state without credentials
+        id: crate-state
         shell: bash
         run: |
           set -euo pipefail
           version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
-          cargo package --locked --no-verify
+          cargo package --locked
           package="target/package/rust-doctor-${version}.crate"
           local_checksum=$(sha256sum "$package" | cut -d' ' -f1)
           metadata=$(mktemp)
@@ -180,10 +184,16 @@ jobs:
                 exit 1
               fi
               echo "Verified existing rust-doctor $version on crates.io"
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
               ;;
-            404) cargo publish --locked ;;
+            404) echo 'publish=true' >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::crates.io returned HTTP $status"; exit 1 ;;
           esac
+      - name: Publish the already verified immutable crate
+        if: steps.crate-state.outputs.publish == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked --no-verify
 
   publish-npm:
     name: Verify or publish npm packages
