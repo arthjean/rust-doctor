@@ -108,7 +108,7 @@ if [[ "$REVIEW_COMMENTS_ENABLED" == true && "$EVENT_NAME" == pull_request && -s 
         break
       fi
     done < <(
-      jq -r '.diagnostics[] | select(.location.kind == "source") | [.site_id, .rule, .message, .location.path, .location.range.start.line] | @tsv' "$REPORT_FILE"
+      jq -r '.diagnostics[] | select(.visible_on | index("pr-comment")) | select(.location.kind == "source") | [.site_id, .rule, .message, .location.path, .location.range.start.line] | @tsv' "$REPORT_FILE"
     )
     rm -f "$CHANGED_LINES" "$EXISTING"
   fi
@@ -135,9 +135,10 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
         | gsub(">"; "&gt;");
       def score: if .summary.score == null then "unavailable" else (.summary.score | tostring) + "/100" end;
       def baseline: .baseline // {new_count: .summary.diagnostic_count, fixed_count: 0};
+      def pr_diagnostics: [.diagnostics[] | select(.visible_on | index("pr-comment"))];
       def packages: ([.projects[].cargo_package_id] | unique | map(safe) | join(", "));
       def top_rules:
-        [.diagnostics | group_by(.rule)[] | {rule: .[0].rule, count: length}]
+        [pr_diagnostics | group_by(.rule)[] | {rule: .[0].rule, count: length}]
         | sort_by(-.count, .rule)
         | .[:5]
         | if length == 0 then "None" else map((.rule | safe) + " (" + (.count | tostring) + ")") | join(", ") end;
@@ -146,10 +147,10 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
       "| Metric | Result |\n|---|---:|\n" +
       "| Completeness | " + (.completeness.state | safe) + " |\n" +
       "| Score | " + score + " |\n" +
-      "| Introduced | " + (baseline.new_count | tostring) + " |\n" +
+      "| Introduced | " + (pr_diagnostics | length | tostring) + " |\n" +
       "| Fixed | " + (baseline.fixed_count | tostring) + " |\n" +
-      "| Errors | " + (.summary.error_count | tostring) + " |\n" +
-      "| Warnings | " + (.summary.warning_count | tostring) + " |\n\n" +
+      "| Errors | " + (pr_diagnostics | map(select(.severity == "error")) | length | tostring) + " |\n" +
+      "| Warnings | " + (pr_diagnostics | map(select(.severity == "warning")) | length | tostring) + " |\n\n" +
       "Affected packages: " + packages + "\n\n" +
       "Top rule groups: " + top_rules + "\n\n" +
       (if $inline_posted + $inline_omitted > 0 then
