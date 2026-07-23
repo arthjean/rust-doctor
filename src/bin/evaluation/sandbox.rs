@@ -97,21 +97,103 @@ fn validate_tree(root: &Path, skip_git: bool) -> Result<PathBuf> {
             let metadata = std::fs::symlink_metadata(&path)
                 .map_err(|error| EvalError::io("cannot inspect checkout path", &path, error))?;
             if metadata.file_type().is_symlink() {
-                let target = path.canonicalize().map_err(|error| {
-                    EvalError::io("cannot resolve checkout symlink", &path, error)
-                })?;
-                if !target.starts_with(&root) {
-                    return Err(EvalError::Command(format!(
-                        "sandbox rejected symlink escape '{}'",
-                        relative_display(&root, &path)
-                    )));
-                }
+                validate_symlink_target(&root, &path, 0)?;
             } else if metadata.is_dir() && (!skip_git || entry.file_name() != ".git") {
                 pending.push(path);
             }
         }
     }
     Ok(root)
+}
+
+fn validate_symlink_target(root: &Path, link: &Path, depth: usize) -> Result<()> {
+    let target = std::fs::read_link(link)
+        .map_err(|error| EvalError::io("cannot inspect checkout symlink", link, error))?;
+    validate_symlink_target_path(root, link, &target, depth)
+}
+
+fn validate_symlink_target_path(
+    root: &Path,
+    link: &Path,
+    target: &Path,
+    depth: usize,
+) -> Result<()> {
+    const MAX_SYMLINK_DEPTH: usize = 40;
+    if depth >= MAX_SYMLINK_DEPTH {
+        return Err(EvalError::Command(format!(
+            "sandbox rejected symlink chain deeper than {MAX_SYMLINK_DEPTH} at '{}'",
+            relative_display(root, link)
+        )));
+    }
+    let resolved =
+        lexical_join_under(root, link.parent().unwrap_or(root), target).ok_or_else(|| {
+            EvalError::Command(format!(
+                "sandbox rejected symlink escape '{}'",
+                relative_display(root, link)
+            ))
+        })?;
+    let relative = resolved.strip_prefix(root).map_err(|_| {
+        EvalError::Command(format!(
+            "sandbox rejected symlink escape '{}'",
+            relative_display(root, link)
+        ))
+    })?;
+    let mut current = root.to_path_buf();
+    let components: Vec<_> = relative.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let mut chained_target = std::fs::read_link(&current).map_err(|error| {
+                    EvalError::io("cannot inspect checkout symlink", &current, error)
+                })?;
+                for remaining in &components[index + 1..] {
+                    chained_target.push(remaining.as_os_str());
+                }
+                return validate_symlink_target_path(root, &current, &chained_target, depth + 1);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(EvalError::io(
+                    "cannot inspect checkout symlink target",
+                    &current,
+                    error,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn lexical_join_under(root: &Path, base: &Path, target: &Path) -> Option<PathBuf> {
+    if target.is_absolute() {
+        return None;
+    }
+    let mut components: Vec<_> = base
+        .strip_prefix(root)
+        .ok()?
+        .components()
+        .map(|component| component.as_os_str().to_os_string())
+        .collect();
+    for component in target.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(value) => components.push(value.to_os_string()),
+            std::path::Component::ParentDir => {
+                components.pop()?;
+            }
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => return None,
+        }
+    }
+    Some(
+        components
+            .into_iter()
+            .fold(root.to_path_buf(), |mut path, part| {
+                path.push(part);
+                path
+            }),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -359,6 +441,41 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         symlink("/tmp", root.path().join("escape")).unwrap();
+        let error = validate_checkout_tree(root.path()).unwrap_err();
+        assert!(error.to_string().contains("symlink escape"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_validation_accepts_internal_dangling_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("fixtures")).unwrap();
+        symlink("missing.rs", root.path().join("fixtures/input.rs")).unwrap();
+        validate_checkout_tree(root.path()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_validation_rejects_dangling_relative_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        symlink("../missing.rs", root.path().join("escape")).unwrap();
+        let error = validate_checkout_tree(root.path()).unwrap_err();
+        assert!(error.to_string().contains("symlink escape"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_validation_rejects_dangling_chained_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("links")).unwrap();
+        symlink("/outside/missing", root.path().join("links/second")).unwrap();
+        symlink("links/second/child", root.path().join("first")).unwrap();
         let error = validate_checkout_tree(root.path()).unwrap_err();
         assert!(error.to_string().contains("symlink escape"));
     }
