@@ -23,12 +23,16 @@ const platformPackages = [
 ] as const;
 type PlatformPackage = (typeof platformPackages)[number];
 
-function cargoVersion(): string {
-  const manifest = readFileSync(join(repositoryRoot, "Cargo.toml"), "utf8");
-  const packageSection = manifest.match(/^\[package\]\n([\s\S]*?)(?=^\[)/m)?.[1];
+export function cargoVersionFromManifest(manifest: string): string {
+  const normalizedManifest = manifest.replace(/\r\n?/g, "\n");
+  const packageSection = normalizedManifest.match(/^\[package\]\n([\s\S]*?)(?=^\[)/m)?.[1];
   const version = packageSection?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   if (!version) throw new Error("Cargo package version is missing");
   return version;
+}
+
+function cargoVersion(): string {
+  return cargoVersionFromManifest(readFileSync(join(repositoryRoot, "Cargo.toml"), "utf8"));
 }
 
 function packageJson(directory: string): Record<string, unknown> {
@@ -191,23 +195,29 @@ function updateAction(version: string): void {
   writeFileSync(path, updated);
 }
 
-const [command, ...arguments_] = process.argv.slice(2);
-switch (command) {
-  case "validate":
-    console.log(validate(arguments_[0]));
-    break;
-  case "pack":
-    pack(arguments_[0] as PlatformPackage, arguments_[1] ?? "", arguments_[2] ?? "");
-    break;
-  case "publish":
-    await publish(arguments_[0] ?? "");
-    break;
-  case "checksums":
-    await checksums(arguments_[0] ?? "");
-    break;
-  case "update-action":
-    updateAction(arguments_[0] ?? "");
-    break;
-  default:
-    throw new Error(`unknown command ${JSON.stringify(command)}`);
+async function main(): Promise<void> {
+  const [command, ...arguments_] = process.argv.slice(2);
+  switch (command) {
+    case "validate":
+      console.log(validate(arguments_[0]));
+      break;
+    case "pack":
+      pack(arguments_[0] as PlatformPackage, arguments_[1] ?? "", arguments_[2] ?? "");
+      break;
+    case "publish":
+      await publish(arguments_[0] ?? "");
+      break;
+    case "checksums":
+      await checksums(arguments_[0] ?? "");
+      break;
+    case "update-action":
+      updateAction(arguments_[0] ?? "");
+      break;
+    default:
+      throw new Error(`unknown command ${JSON.stringify(command)}`);
+  }
+}
+
+if (import.meta.main) {
+  await main();
 }
