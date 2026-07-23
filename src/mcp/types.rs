@@ -13,10 +13,28 @@ pub struct ScanInput {
         description = "Absolute path to the Rust project directory to analyze. Must contain a Cargo.toml file."
     )]
     pub directory: String,
-    /// Only scan files changed vs this base branch (e.g. "main"). Omit to scan all files.
+    /// Canonical reporting scope. Defaults to full.
+    #[serde(default)]
+    #[schemars(
+        description = "Reporting scope: full, files, changed, lines, staged, or baseline. Defaults to full."
+    )]
+    pub scope: McpScanScope,
+    /// Explicit files for the files scope.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(description = "Project-relative paths required by the files scope.")]
+    pub files: Vec<String>,
+    /// Git base ref for changed, lines, or baseline scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Git base ref for changed, lines, or baseline scope.")]
+    pub base: Option<String>,
+    /// Include untracked files in changed or lines scope.
+    #[serde(default)]
+    #[schemars(description = "Include Git-untracked files in changed or lines scope.")]
+    pub include_untracked: bool,
+    /// Deprecated changed-scope base retained for MCP client compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Git branch name to diff against (e.g. 'main', 'develop'). When set, only files changed vs this branch are scanned. Omit to scan all files."
+        description = "Deprecated alias for scope=changed plus base. Cannot be combined with scope, files, base, or include_untracked."
     )]
     pub diff: Option<String>,
     /// Run in offline mode (no network fetches). Defaults to true in MCP mode for security.
@@ -31,6 +49,18 @@ pub struct ScanInput {
         description = "When true, ignores the project's rust-doctor.toml config file. Useful for untrusted projects."
     )]
     pub ignore_project_config: bool,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpScanScope {
+    #[default]
+    Full,
+    Files,
+    Changed,
+    Lines,
+    Staged,
+    Baseline,
 }
 
 pub(super) const fn default_mcp_offline() -> bool {

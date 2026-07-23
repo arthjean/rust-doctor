@@ -362,6 +362,7 @@ pub(super) fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) 
         report.info_count,
         groups.len()
     );
+    let _ = writeln!(output, "Scope: {}\n", report.reporting_scope);
     for group in groups {
         let _ = writeln!(
             output,

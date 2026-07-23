@@ -150,14 +150,29 @@ pub fn bootstrap_project(
 }
 
 /// Run the scan passes and return the result.
-#[expect(
-    clippy::too_many_lines,
-    reason = "CLI scope dispatch keeps category selection aligned across full, changed, staged, and baseline scans"
-)]
 pub fn run_scan(
     cli: &Cli,
     project_info: &discovery::ProjectInfo,
     resolved: &config::ResolvedConfig,
+) -> Result<ScanResult, crate::error::ScanError> {
+    run_scan_cancellable(
+        cli,
+        project_info,
+        resolved,
+        &Arc::new(AtomicBool::new(false)),
+    )
+}
+
+/// Run the canonical scoped scan with a caller-owned cancellation flag.
+#[expect(
+    clippy::too_many_lines,
+    reason = "CLI scope dispatch keeps category selection aligned across full, changed, staged, and baseline scans"
+)]
+pub(crate) fn run_scan_cancellable(
+    cli: &Cli,
+    project_info: &discovery::ProjectInfo,
+    resolved: &config::ResolvedConfig,
+    cancel: &Arc<AtomicBool>,
 ) -> Result<ScanResult, crate::error::ScanError> {
     let suppress_spinner = cli.score || cli.wants_json() || cli.sarif;
     if cli.fail_on.is_some() {
@@ -165,7 +180,7 @@ pub fn run_scan(
     }
     let request = scope_request(cli, resolved)?;
     let control = crate::process::ScanControl::new(
-        Arc::new(AtomicBool::new(false)),
+        Arc::clone(cancel),
         cli.max_duration.map(Duration::from_secs),
     );
     let selected_categories = diagnostic_categories(&cli.category);
