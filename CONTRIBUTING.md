@@ -4,7 +4,7 @@ Thank you for your interest in contributing to rust-doctor!
 
 ## Prerequisites
 
-- Rust toolchain (MSRV: 1.85, edition 2024)
+- Rust toolchain (MSRV: 1.97, edition 2024)
 - `rustup component add clippy rustfmt`
 - Optional: `cargo install cargo-audit cargo-deny` for supply-chain checks
 

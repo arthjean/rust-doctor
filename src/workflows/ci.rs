@@ -304,7 +304,7 @@ fn render_gitlab(settings: &CiSettings) -> String {
         CiScope::Staged => "--staged".to_string(),
     };
     format!(
-        "rust-doctor:\n  image: rust:1.85\n  stage: test\n  variables:\n    CARGO_HOME: \"$CI_PROJECT_DIR/.cargo\"\n  cache:\n    key: \"rust-doctor-{action_major}\"\n    paths: [.cargo/bin, .rust-doctor-cache.json]\n  before_script:\n    - cargo install rust-doctor --locked\n  script:\n    - rust-doctor . {scope_arguments} --blocking {blocking} --require-complete\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'\n",
+        "rust-doctor:\n  image: rust:1.97\n  stage: test\n  variables:\n    CARGO_HOME: \"$CI_PROJECT_DIR/.cargo\"\n  cache:\n    key: \"rust-doctor-{action_major}\"\n    paths: [.cargo/bin, .rust-doctor-cache.json]\n  before_script:\n    - cargo install rust-doctor --locked\n  script:\n    - rust-doctor . {scope_arguments} --blocking {blocking} --require-complete\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'\n",
         action_major = settings.action_major,
         blocking = settings.blocking,
     )

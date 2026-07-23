@@ -7,7 +7,7 @@
   <a href="https://github.com/arthjean/rust-doctor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/arthjean/rust-doctor/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://crates.io/crates/rust-doctor"><img alt="Downloads" src="https://img.shields.io/crates/d/rust-doctor?label=downloads"></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/crates/l/rust-doctor"></a>
-  <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.85-blue?logo=rust">
+  <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.97-blue?logo=rust">
 </p>
 
 **The one-command health check for your Rust project.** rust-doctor scans for security, performance, correctness, architecture, and dependency issues, then folds everything into a single 0–100 score with diagnostics you can act on.

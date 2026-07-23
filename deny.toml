@@ -21,6 +21,11 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
 ]
+exceptions = [
+    { allow = ["MIT-0"], crate = "borrow-or-share" },
+    { allow = ["Zlib"], crate = "foldhash@0.2" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+]
 
 [bans]
 multiple-versions = "warn"

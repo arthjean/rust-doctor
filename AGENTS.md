@@ -6,7 +6,7 @@
 rust-doctor — Rust code health scanner. CLI binary, library crate, MCP server, npm package, GitHub Action.
 Il scanne un projet pour les problèmes de sécurité, performance, correctness, architecture et dépendances, et produit un score de santé 0–100 avec des diagnostics actionnables.
 
-**Edition:** Rust 2024, MSRV 1.85, single crate (not a workspace).
+**Edition:** Rust 2024, MSRV 1.97, single crate (not a workspace).
 
 ## Commands
 
@@ -54,7 +54,7 @@ src/
 │   ├── mod.rs         # render_score(), render_json(), re-exports, tests
 │   ├── score.rs       # calculate_score(), dimension weights, score_label()
 │   └── terminal.rs    # render_terminal(), print_score_box(), print_diagnostics()
-├── mcp/               # MCP server (rmcp v1.2.0, stdio, feature-gated)
+├── mcp/               # MCP server (rmcp v1.4.0, stdio, feature-gated)
 │   ├── mod.rs         # Server struct, entry point, ServerHandler impl
 │   ├── types.rs       # Input/output schemas (ScanInput, ScoreInput, etc.)
 │   ├── tools.rs       # Tool + prompt handler implementations
@@ -120,7 +120,7 @@ Note: `lib.rs` re-exports pass modules at the crate root (`pub(crate) use passes
 
 **Clippy** (`passes/static_analysis/clippy/`) — spawn `cargo clippy --message-format=json`, timeout 120s. 55+ lints dans le `LINT_REGISTRY` statique avec overrides de catégorie/sévérité. Les lints non listés héritent des défauts clippy et mappent sur `Category::Style`.
 
-**MCP server** (`src/mcp/`, feature-gated) — 4 tools (scan, score, explain_rule, list_rules), tous read-only. Hardening : répertoire obligatoirement sous `$HOME`, timeout 5 minutes, mode offline par défaut, sanitisation des chemins dans les erreurs. rmcp v1.2.0 sur transport stdio.
+**MCP server** (`src/mcp/`, feature-gated) — 4 tools (scan, score, explain_rule, list_rules), tous read-only. Hardening : répertoire obligatoirement sous `$HOME`, timeout 5 minutes, mode offline par défaut, sanitisation des chemins dans les erreurs. rmcp v1.4.0 sur transport stdio.
 
 **Configuration priority** — CLI flags > `rust-doctor.toml` > `[package.metadata.rust-doctor]` dans Cargo.toml > défauts. `--no-project-config` court-circuite la config fichier (utilisé par MCP sur projets non fiables).
 
