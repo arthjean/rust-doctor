@@ -456,10 +456,11 @@ pub(crate) fn bootstrap_project_for_scan(
         }
     })?;
 
-    let cargo_toml = target_dir.join("Cargo.toml");
-    if !cargo_toml.try_exists().unwrap_or(false) {
-        return Err(crate::error::BootstrapError::NoCargo { path: target_dir });
-    }
+    let manifest_root =
+        find_manifest_root(&target_dir).ok_or_else(|| crate::error::BootstrapError::NoCargo {
+            path: target_dir.clone(),
+        })?;
+    let cargo_toml = manifest_root.join("Cargo.toml");
 
     let project_info = discover_project_for_scan(&cargo_toml, offline, evaluation_profile)?;
 
@@ -469,6 +470,14 @@ pub(crate) fn bootstrap_project_for_scan(
     )?;
 
     Ok((target_dir, project_info, file_config))
+}
+
+/// Find the nearest Cargo project boundary without running Cargo or touching the network.
+pub(crate) fn find_manifest_root(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|ancestor| ancestor.join("Cargo.toml").is_file())
+        .map(Path::to_path_buf)
 }
 
 #[cfg(test)]
@@ -645,5 +654,22 @@ mod tests {
             discover_project_for_scan(&directory.path().join("Cargo.toml"), true, true).unwrap();
         assert_eq!(project.name, "offline-evaluation");
         assert_eq!(project.workspace_members.len(), 1);
+    }
+
+    #[test]
+    fn bootstrap_discovers_the_nearest_parent_project() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("src/nested")).unwrap();
+        std::fs::write(
+            directory.path().join("Cargo.toml"),
+            "[package]\nname='nested-bootstrap'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("src/lib.rs"), "pub fn value() {}\n").unwrap();
+
+        let (requested, project, _) =
+            bootstrap_project(&directory.path().join("src/nested"), true).unwrap();
+        assert!(requested.ends_with("src/nested"));
+        assert_eq!(project.root_dir, directory.path());
     }
 }

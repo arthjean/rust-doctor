@@ -1,5 +1,5 @@
 use crate::catalog::{RuleDescriptor, built_in_catalog};
-use crate::cli::{Cli, FailOn};
+use crate::cli::{AdapterGroup, Cli, FailOn};
 use crate::diagnostics::{Category, Severity, SourceSurface};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -183,6 +183,56 @@ pub struct IgnoreConfig {
     pub enable: Vec<String>,
 }
 
+/// Independently controllable analyzer families.
+///
+/// `network` controls whether network-capable adapters may perform online work.
+/// Disabling it does not hide those adapters: they still run in offline mode and
+/// report unavailable evidence through normal check states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdapterPolicy {
+    pub compiler_lint: bool,
+    pub custom_ast: bool,
+    pub supply_chain: bool,
+    pub quality: bool,
+    pub network: bool,
+}
+
+impl AdapterPolicy {
+    /// Disable every adapter family. Useful for discovery-only API calls.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            compiler_lint: false,
+            custom_ast: false,
+            supply_chain: false,
+            quality: false,
+            network: false,
+        }
+    }
+
+    const fn set(&mut self, group: AdapterGroup, enabled: bool) {
+        match group {
+            AdapterGroup::CompilerLint => self.compiler_lint = enabled,
+            AdapterGroup::CustomAst => self.custom_ast = enabled,
+            AdapterGroup::SupplyChain => self.supply_chain = enabled,
+            AdapterGroup::Quality => self.quality = enabled,
+            AdapterGroup::NetworkDependent => self.network = enabled,
+        }
+    }
+}
+
+impl Default for AdapterPolicy {
+    fn default() -> Self {
+        Self {
+            compiler_lint: true,
+            custom_ast: true,
+            supply_chain: true,
+            quality: true,
+            network: true,
+        }
+    }
+}
+
 /// Fully resolved configuration with concrete defaults.
 /// Produced by merging CLI flags over file config over defaults.
 #[derive(Debug, Clone)]
@@ -204,6 +254,8 @@ pub struct ResolvedConfig {
     pub respect_inline_disables: bool,
     /// Optional bound for concurrently scanned workspace packages.
     pub max_parallelism: Option<usize>,
+    /// Explicit scheduling policy for independent adapter families.
+    pub adapter_policy: AdapterPolicy,
     /// Internal corpus mode: every candidate rule runs at normalized warning severity.
     pub evaluation_profile: bool,
 }
@@ -283,6 +335,26 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
     let lint = cli.evaluation_profile || fc.lint.unwrap_or(true);
     let dependencies = !cli.evaluation_profile && fc.dependencies.unwrap_or(true);
     let rules_config = merge_rule_config(&fc);
+    let mut adapter_policy = if cli.evaluation_profile {
+        AdapterPolicy {
+            custom_ast: true,
+            ..AdapterPolicy::none()
+        }
+    } else {
+        AdapterPolicy {
+            compiler_lint: lint,
+            custom_ast: lint,
+            supply_chain: dependencies,
+            quality: dependencies,
+            network: !cli.offline,
+        }
+    };
+    for group in &cli.enable_adapter {
+        adapter_policy.set(*group, true);
+    }
+    for group in &cli.disable_adapter {
+        adapter_policy.set(*group, false);
+    }
 
     // For Option fields: CLI Some wins; if CLI None, use config
     let diff = cli.diff.clone().or(fc.diff);
@@ -310,6 +382,7 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
         score_fail_below: fc.score.fail_below,
         respect_inline_disables: !cli.no_respect_inline_disables && !cli.evaluation_profile,
         max_parallelism: cli.jobs,
+        adapter_policy,
         evaluation_profile: cli.evaluation_profile,
     }
 }
@@ -335,6 +408,13 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
         score_fail_below: fc.score.fail_below,
         respect_inline_disables: true,
         max_parallelism: None,
+        adapter_policy: AdapterPolicy {
+            compiler_lint: fc.lint.unwrap_or(true),
+            custom_ast: fc.lint.unwrap_or(true),
+            supply_chain: fc.dependencies.unwrap_or(true),
+            quality: fc.dependencies.unwrap_or(true),
+            network: true,
+        },
         evaluation_profile: false,
     }
 }
@@ -751,6 +831,97 @@ pub(crate) fn validate_file_config(
     Ok(())
 }
 
+/// Validate a resolved configuration supplied without a file-loading boundary.
+///
+/// This keeps programmatic callers and legacy constructors fail-closed on the
+/// same catalog, threshold, policy-count, and glob invariants as TOML loading.
+pub(crate) fn validate_resolved_config(config: &ResolvedConfig) -> Result<(), String> {
+    let catalog = built_in_catalog().map_err(|error| error.to_string())?;
+    let policy_entries = config.rules_config.len()
+        + config.category_config.len()
+        + config.tag_config.len()
+        + config.path_overrides.len()
+        + config.ignore_rules.len()
+        + config.enable_rules.len();
+    if policy_entries > MAX_POLICY_ENTRIES {
+        return Err(format!(
+            "configuration declares {policy_entries} policy entries; the maximum is {MAX_POLICY_ENTRIES}"
+        ));
+    }
+    let glob_count = config.path_overrides.len() + config.ignore_files.len();
+    if glob_count > MAX_GLOB_PATTERNS {
+        return Err(format!(
+            "configuration declares {glob_count} glob patterns; the maximum is {MAX_GLOB_PATTERNS}"
+        ));
+    }
+
+    for rule in config
+        .rules_config
+        .keys()
+        .chain(config.ignore_rules.iter())
+        .chain(config.enable_rules.iter())
+    {
+        let descriptor = catalog
+            .exact(rule)
+            .ok_or_else(|| format!("unknown rule '{rule}'"))?;
+        if let Some(threshold) = config
+            .rules_config
+            .get(rule)
+            .and_then(|value| value.threshold)
+        {
+            let range = descriptor
+                .supported_threshold
+                .ok_or_else(|| format!("rule '{rule}' does not support a threshold"))?;
+            if !(range.min..=range.max).contains(&threshold) {
+                return Err(format!(
+                    "threshold {threshold} for rule '{rule}' is outside {}..={}",
+                    range.min, range.max
+                ));
+            }
+        }
+    }
+
+    let categories: HashSet<_> = catalog
+        .descriptors()
+        .iter()
+        .map(|descriptor| category_key(&descriptor.category))
+        .collect();
+    if let Some(category) = config
+        .category_config
+        .keys()
+        .find(|category| !categories.contains(category.as_str()))
+    {
+        return Err(format!("unknown category '{category}'"));
+    }
+    let tags: HashSet<_> = catalog
+        .descriptors()
+        .iter()
+        .flat_map(|descriptor| descriptor.tags.iter().map(String::as_str))
+        .collect();
+    if let Some(tag) = config
+        .tag_config
+        .keys()
+        .find(|tag| !tags.contains(tag.as_str()))
+    {
+        return Err(format!("unknown tag '{tag}'"));
+    }
+
+    for pattern in config
+        .path_overrides
+        .iter()
+        .map(|override_| override_.pattern.as_str())
+        .chain(config.ignore_files.iter().map(String::as_str))
+    {
+        if pattern.is_empty()
+            || pattern.len() > MAX_GLOB_PATTERN_BYTES
+            || globset::Glob::new(pattern).is_err()
+        {
+            return Err(format!("invalid path glob '{pattern}'"));
+        }
+    }
+    Ok(())
+}
+
 fn emit_legacy_deprecations(config: &FileConfig) {
     if !config.rules_config.is_empty() {
         eprintln!("Warning: `rules_config` is deprecated; use `[rules.<id>]` before v0.3");
@@ -924,6 +1095,7 @@ mod tests {
         assert_eq!(resolved.fail_on, FailOn::None);
         assert!(resolved.ignore_rules.is_empty());
         assert!(resolved.ignore_files.is_empty());
+        assert_eq!(resolved.adapter_policy, AdapterPolicy::default());
     }
 
     #[test]
@@ -944,6 +1116,28 @@ mod tests {
         assert!(resolved.lint);
         assert!(!resolved.dependencies);
         assert!(!resolved.respect_inline_disables);
+        assert_eq!(
+            resolved.adapter_policy,
+            AdapterPolicy {
+                custom_ast: true,
+                ..AdapterPolicy::none()
+            }
+        );
+    }
+
+    #[test]
+    fn adapter_cli_overrides_are_independent() {
+        let cli = cli_from(&[
+            "rust-doctor",
+            "--disable-adapter",
+            "compiler-lint,supply-chain,network-dependent",
+        ]);
+        let resolved = resolve_config(&cli, None);
+        assert!(!resolved.adapter_policy.compiler_lint);
+        assert!(resolved.adapter_policy.custom_ast);
+        assert!(!resolved.adapter_policy.supply_chain);
+        assert!(resolved.adapter_policy.quality);
+        assert!(!resolved.adapter_policy.network);
     }
 
     #[test]
@@ -1416,5 +1610,9 @@ mod tests {
             validate_file_config(&over_limit, Path::new("config.toml")),
             Err(crate::error::ConfigError::PolicyLimitExceeded { .. })
         ));
+
+        let mut invalid_resolved = resolve_config_defaults(None);
+        invalid_resolved.ignore_files = vec!["[".to_string()];
+        assert!(validate_resolved_config(&invalid_resolved).is_err());
     }
 }

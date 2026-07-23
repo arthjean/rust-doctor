@@ -1,0 +1,745 @@
+{
+  "prd": {
+    "file": "tasks/prd-react-doctor-parity.md",
+    "title": "React Doctor Product Parity for Rust Doctor",
+    "created_at": "2026-07-22",
+    "updated_at": "2026-07-23",
+    "status": "IN_PROGRESS",
+    "reopened_reason": "Adversarial parity audit found unproven and contradicted acceptance criteria; prior completion timestamps are retained as implementation history, not current certification.",
+    "react_reference_sha": "3d7ea66c3f45fa55828559fce5cc38e879b9907a",
+    "rust_audit_sha": "dc82dade892b7dbe94a9c076052b167c03b81275",
+    "certification_policy": "A story is DONE only when every current acceptance criterion cites executable evidence or an immutable artifact."
+  },
+  "epics": [
+    {
+      "id": "EP-001",
+      "title": "Canonical Rule and Diagnostic Contract",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 5,
+      "stories_done": 5,
+      "blocked_by": [],
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "cargo fmt --check",
+        "cargo test --all-features"
+      ]
+    },
+    {
+      "id": "EP-002",
+      "title": "Scope, Baseline and Workspace Semantics",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 6,
+      "stories_done": 6,
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "cargo +1.97 check --all-targets",
+        "cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings",
+        "cargo test --all-features",
+        "cargo audit",
+        "cargo deny check"
+      ]
+    },
+    {
+      "id": "EP-003",
+      "title": "Evaluation and Regression Infrastructure",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 5,
+      "stories_done": 5,
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T19:41:02Z",
+      "evidence": [
+        "cargo fmt --check",
+        "cargo +1.97 check --all-targets",
+        "cargo check --all-targets --all-features",
+        "cargo build",
+        "cargo build --no-default-features",
+        "cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings",
+        "cargo test --all-features",
+        "cargo audit",
+        "cargo deny check",
+        "US-012 certified by executable conformance and mutation tests",
+        "CI success: https://github.com/arthjean/rust-doctor/actions/runs/30035949006 at f8f6d5dece55b67d19cd5635e72c237ebb164001",
+        "EP-003 certification success: https://github.com/arthjean/rust-doctor/actions/runs/30035949001 at f8f6d5dece55b67d19cd5635e72c237ebb164001",
+        "master protection requires strict Check & Test, Built artifact smoke, corpus, delta and performance checks with admins enforced and force-push/deletion disabled"
+      ]
+    },
+    {
+      "id": "EP-004",
+      "title": "CLI, Configuration and Agent Workflows",
+      "status": "DONE",
+      "priority": "P1",
+      "stories_total": 7,
+      "stories_done": 7,
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "cargo fmt --check",
+        "cargo +1.97 check --all-targets",
+        "cargo check --all-targets --all-features",
+        "cargo build",
+        "cargo build --no-default-features",
+        "cargo clippy --all-targets -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings",
+        "cargo test --all-features",
+        "cargo audit",
+        "cargo deny check",
+        "independent DEEP review completed and all mandatory findings remediated"
+      ]
+    },
+    {
+      "id": "EP-005",
+      "title": "CI, Distribution and Editor Surfaces",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "stories_total": 7,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-006",
+      "title": "Rust-Native Rule Moat and Public Product Loop",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "stories_total": 8,
+      "stories_done": 0
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Define the canonical rule catalog",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": "2026-07-22T08:25:23Z",
+      "completed_at": "2026-07-22T09:20:49Z",
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "cargo test --all-features report_contract_tests",
+        "catalog::tests::built_in_catalog_covers_every_explicit_rule",
+        "catalog::tests::duplicate_ids_and_aliases_fail_deterministically",
+        "catalog::tests::cargo_deny_codes_preserve_adapter_namespace"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Execute typed rule configuration",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-001"],
+      "started_at": "2026-07-22T08:25:23Z",
+      "completed_at": "2026-07-22T09:20:49Z",
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "config::tests::typed_policy_precedence_and_surfaces_are_deterministic",
+        "config::tests::invalid_rule_threshold_and_path_return_typed_errors",
+        "config::tests::source_surface_defaults_exclude_non_production_gate_and_allow_explicit_include",
+        "scan::tests::typed_policy_changes_severity_and_audits_security_suppression"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Introduce canonical diagnostics and stable identities",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-001"],
+      "started_at": "2026-07-22T08:25:23Z",
+      "completed_at": "2026-07-22T09:20:49Z",
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "report_contract_tests::canonical_identities_are_sorted_and_path_separator_stable",
+        "report_contract_tests::compiler_without_span_and_unknown_codes_are_explicit",
+        "report_contract_tests::ownership_and_source_surface_do_not_leak_across_roots",
+        "diff::tests::line_filter_uses_the_full_compiler_span"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Emit versioned Report V1",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-003"],
+      "started_at": "2026-07-22T08:25:23Z",
+      "completed_at": "2026-07-22T09:20:49Z",
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "report_contract_tests::empty_and_partial_scans_never_serialize_as_clean",
+        "report_contract_tests::report_root_is_not_fabricated",
+        "run::tests::test_require_complete_fails_for_a_timed_out_required_check",
+        "share::tests::missing_required_checks_or_file_coverage_is_non_authoritative"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Publish schema, compatibility and renderer contracts",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": ["US-004"],
+      "started_at": "2026-07-22T08:25:23Z",
+      "completed_at": "2026-07-22T09:20:49Z",
+      "reviewed_at": "2026-07-23T06:46:46Z",
+      "certified_at": "2026-07-23T06:46:46Z",
+      "evidence": [
+        "report_contract_tests::checked_schema_tracks_generated_wire_properties",
+        "report_contract_tests::checked_schema_and_compatibility_fixtures_cover_report_shape",
+        "output::tests::json_destination_is_atomic_and_data_matches_compact_form",
+        "output::tests::renderer_failure_produces_a_parseable_failure_report"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Validate the Rust scan-scope execution plan",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "docs/adr/0001-scan-scope-execution.md",
+        "examples/benchmark_scan_scope.rs",
+        "benchmarks/scope/fixtures.json",
+        "scope_semantics::full_scope_is_a_semantic_superset_of_every_rust_source_surface"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Implement a unified Git scope engine",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-006"],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "scope_semantics::full_files_lines_and_untracked_scopes_report_exact_coverage",
+        "scope_semantics::invalid_baseline_ref_fails_closed_without_degradation",
+        "scope_semantics::inter_package_rename_schedules_both_old_and_new_owners"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Scan line ranges and the exact staged snapshot",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-007"],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "scope_semantics::staged_scope_scans_index_content_instead_of_the_worktree",
+        "scope_semantics::staged_manifest_work_runs_package_checks_instead_of_returning_nothing",
+        "scope_semantics::staged_scope_refuses_worktree_policy_drift",
+        "scope_semantics::staged_scope_rejects_an_unresolved_index"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Report introduced and fixed diagnostics against a baseline",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-003", "US-007"],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "scope_semantics::baseline_renames_are_isolated_and_shallow_history_fails_complete_gate",
+        "changed_committed::committed_changed_scope_is_introduced_only_but_dirty_scope_is_file_complete",
+        "report_contract_tests::checked_schema_tracks_generated_wire_properties"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Track completeness, budgets and cancellation",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-004", "US-007"],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "scope_semantics::parse_failure_is_failed_required_work_and_never_authoritative",
+        "process::tests::test_watchdog_honors_the_global_deadline",
+        "process::tests::test_watchdog_honors_cancellation_within_two_seconds",
+        "run::tests::test_require_complete_fails_for_a_timed_out_required_check"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Produce per-package and aggregate workspace reports",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-004", "US-007", "US-010"],
+      "started_at": "2026-07-22T09:28:22Z",
+      "completed_at": "2026-07-22T10:31:05Z",
+      "reviewed_at": "2026-07-23T07:19:03Z",
+      "certified_at": "2026-07-23T07:19:03Z",
+      "evidence": [
+        "scope_semantics::workspace_defaults_star_and_changed_ownership_follow_cargo_metadata",
+        "scope_semantics::root_packages_exclusions_and_nested_path_members_follow_cargo_metadata",
+        "workspace::tests::maps_changes_to_the_longest_owning_root",
+        "workspace::tests::root_manifest_affects_every_selected_member"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Add rule conformance fixtures and adversarial mutation tests",
+      "epic": "EP-003",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-001", "US-002"],
+      "started_at": "2026-07-22T10:41:23Z",
+      "completed_at": "2026-07-22T11:49:37Z",
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T08:57:29Z",
+      "evidence": [
+        "rules::tests::conformance_manifest_covers_every_custom_rule",
+        "rules::tests::conformance_fixtures_match_rule_behavior",
+        "rules::tests::every_clippy_mapping_matches_its_catalog_descriptor",
+        "rules::tests::seeded_mutations_are_subprocess_isolated_and_semantically_bounded",
+        "rules::tests::mutation_worker_distinguishes_panic_abort_and_timeout",
+        "cargo test --all-features"
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "Run a pinned OSS repository corpus in sandboxes",
+      "epic": "EP-003",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-004", "US-010", "US-011"],
+      "started_at": "2026-07-22T10:41:23Z",
+      "completed_at": "2026-07-22T11:49:37Z",
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T19:41:02Z",
+      "evidence": [
+        "manifest::tests::checked_corpus_has_verified_pin_and_root_cardinality",
+        "artifact 8575824702 sha256:7b0517874bcd6e0eb2029b7801d6d1bf8df5a144e6277badb397c6bdc2adb0b0: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575824702",
+        "100 pinned repositories, 2709 Cargo roots, full commit pins and tree digests, with expected_roots == attempted_roots == reported_roots",
+        "single evaluation profile f467f2639b93a7f84e020d5384e36ff074a5f032d90a3f7c08feca4ce545b917 and schema-valid atomic NDJSON",
+        "85 complete records and 15 structured incomplete records after attempts 1,2,3; retry and global-budget failure artifacts fail closed",
+        "corpus job proves offline read-only credential-free sandboxing, malicious-build containment, oversized-output termination and interruption cleanup"
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "Gate diagnostic deltas and false-positive regressions",
+      "epic": "EP-003",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-009", "US-013"],
+      "started_at": "2026-07-22T10:41:23Z",
+      "completed_at": "2026-07-22T11:49:37Z",
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T19:41:02Z",
+      "evidence": [
+        "catalog-derived promotions sampled from the complete candidate population",
+        "fingerprinted diagnostic labels and allowlisted approval source metadata",
+        "delta::tests::diagnostic_multisets_distinguish_introduced_removed_and_changed",
+        "artifact 8575904074 sha256:f07865ba267845466bce093cd00744c8b6a07d7e173bad61e1ccc566bc477f53: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575904074",
+        "delta baseline ad978f7570822e824501ce4b472a10bf5b48c8894bc3b138303f66ed82ece7f1 vs candidate 3479422c71d8ed5f25c93f2c8409d7cfca78b53be9fd36cb4f4d8b96d6d41108: 2522 equal complete roots, zero diagnostic changes, blocked=false",
+        "no catalog changes and therefore no omitted promotions; promotion_reviews is empty by construction",
+        "protected corpus baseline artifact 8569707558 sha256:2d5b4c5267f0336d6fe7a94cb9dc065dacb7374d631fe575685053f9b317aa3d verified from https://github.com/arthjean/rust-doctor/actions/runs/30020487733",
+        "master branch protection requires strict corpus, delta and performance checks"
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "Establish performance benchmarks and bounded caches",
+      "epic": "EP-003",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-007", "US-010", "US-013"],
+      "started_at": "2026-07-22T10:41:23Z",
+      "completed_at": "2026-07-22T11:49:37Z",
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T19:41:02Z",
+      "evidence": [
+        "fixture dimensions plus generator source fingerprint and exact repetition matrix",
+        "documented median and P95 regression gate with 50 ms absolute floor",
+        "cache::tests::lru_eviction_keeps_recent_entries_under_the_cap",
+        "artifact 8576132262 sha256:389e7037630da05ce2a3e81f4fdafbae26487956ac846abda4b11c3c15a74ddb: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8576132262",
+        "102 measurements cover five fixtures, four modes, cold/warm and three repetitions; gate blocked=false",
+        "candidate binary 38a88d7eeb823010d8c69e89815fab81082d1417a01a089ff2e621eecc427c93 and baseline binary a57d430fc02d47fb264a8e6782da2dc801e665b47d6215b68a34991f2772fc04 are distinct and artifact-bound",
+        "diagnostic hash 0a094cb6bfef571ecaa0c6027f52d69df155d642432d9e21cc471e05e6f6046c is stable; maximum RSS 217333760 bytes and 100000-line RSS 214671360 bytes are below 512 MiB",
+        "protected performance baseline artifact 8569137613 sha256:6f16aef1ccfe4588cce661827c4bdaf224ca3325b5b2ee066e98053adffcc8cd verified from https://github.com/arthjean/rust-doctor/actions/runs/30020487733"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "Add built-artifact end-to-end smoke tests",
+      "epic": "EP-003",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-005", "US-009", "US-011"],
+      "started_at": "2026-07-22T10:41:23Z",
+      "completed_at": "2026-07-22T11:49:37Z",
+      "reviewed_at": "2026-07-23T19:41:02Z",
+      "certified_at": "2026-07-23T19:41:02Z",
+      "evidence": [
+        "artifact harness validates terminal, score, Report V1 Draft 2020-12, SARIF, baseline, failures and no-default CLI",
+        "MCP built-binary smoke validates initialize, list-tools, full/files/changed/lines/staged/baseline scopes, cancellation deadline and post-cancellation liveness",
+        "Linux arm64 artifact 8575422768 sha256:710936435077d9fc1707b8d357d3ee97e3015f8540832334c9d06b53d34a7681: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575422768",
+        "Linux x64 artifact 8575433310 sha256:4426bc51ea2a921e5948f3405083481f7bf80c6f77f437520a198ed519609848: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575433310",
+        "macOS arm64 artifact 8575458990 sha256:d381f1e022f4ee8cd06abd04075f0ce4b7351a25573b56d0bdd4ce33c1efd242: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575458990",
+        "macOS x64 artifact 8575598954 sha256:0a4e5e9ce3c397132d1b1776086b2a82fe4fe60e2d614ddc5a704e9098f44908: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575598954",
+        "Windows x64 artifact 8575672014 sha256:b1d6464f88a4536ccb58896b5e9163ddec97a9225954ba246bbe3af40769f282: https://github.com/arthjean/rust-doctor/actions/runs/30035949001/artifacts/8575672014",
+        "all five package jobs launch exact native archives, local npm tarballs and verified .crate contents at version 0.2.0"
+      ]
+    },
+    {
+      "id": "US-017",
+      "title": "Complete the scan CLI contract",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-005", "US-007", "US-010", "US-011"],
+      "started_at": "2026-07-22T12:06:43Z",
+      "completed_at": "2026-07-22T13:12:47Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "cli::tests::test_adapter_groups_are_explicit_and_conflict_fail_closed",
+        "cli::tests::test_scan_contract_rejects_value_dependent_conflicts",
+        "cli::tests::test_help_documents_exit_codes",
+        "scope_semantics::full_files_lines_and_untracked_scopes_report_exact_coverage",
+        "ep004_cli::closed_stdout_pipe_terminates_without_a_crash_exit"
+      ]
+    },
+    {
+      "id": "US-018",
+      "title": "Add rule list and explanation commands",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": ["US-001", "US-002"],
+      "started_at": "2026-07-22T12:06:43Z",
+      "completed_at": "2026-07-22T13:12:47Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "workflows::rules::tests::list_filters_and_reports_policy_provenance",
+        "workflows::rules::tests::explain_supports_dynamic_namespaces_without_catalog_insertion",
+        "workflows::rules::tests::unknown_filter_returns_five_or_fewer_nearest_values",
+        "ep004_cli::nested_rule_and_why_workflows_share_project_discovery"
+      ]
+    },
+    {
+      "id": "US-019",
+      "title": "Add atomic rule configuration mutation commands",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-002", "US-018"],
+      "started_at": "2026-07-22T12:20:29Z",
+      "completed_at": "2026-07-22T13:12:47Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "workflows::rules::tests::dry_run_migrates_legacy_rules_and_preserves_comments_without_writing",
+        "workflows::rules::tests::commit_preserves_unknown_sections_and_writes_canonical_policy",
+        "workflows::rules::tests::commit_refuses_a_concurrent_change",
+        "workflows::rules::tests::invalid_threshold_leaves_the_file_untouched"
+      ]
+    },
+    {
+      "id": "US-020",
+      "title": "Explain findings and suppressions with why",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": ["US-003", "US-007", "US-018"],
+      "started_at": "2026-07-22T12:20:29Z",
+      "completed_at": "2026-07-22T13:12:47Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "ep004_cli::nested_rule_and_why_workflows_share_project_discovery",
+        "workflows::why::tests::dynamic_namespaces_are_accepted_but_arbitrary_unknown_rules_are_not",
+        "workflows::why::tests::optional_unavailable_checks_do_not_make_why_inconclusive",
+        "workflows::why::tests::parses_paths_with_colons_from_the_right"
+      ]
+    },
+    {
+      "id": "US-021",
+      "title": "Install and remove agent skills and hooks",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-008", "US-017", "US-020"],
+      "started_at": "2026-07-22T12:27:43Z",
+      "completed_at": "2026-07-22T13:12:47Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "setup::tests::dry_run_reports_exact_targets_without_writing",
+        "setup::tests::install_is_idempotent_and_uninstall_removes_only_managed_surfaces",
+        "setup::tests::malformed_later_config_prevents_all_planned_writes",
+        "setup::tests::symlinked_agent_destination_is_refused"
+      ]
+    },
+    {
+      "id": "US-037",
+      "title": "Expose a versioned programmatic scan API",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": ["US-004", "US-007", "US-010", "US-011"],
+      "started_at": "2026-07-23T00:00:00Z",
+      "completed_at": "2026-07-23T21:10:36Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "ep004_api::public_api_returns_report_v1_with_typed_overrides_and_no_network",
+        "ep004_api::batch_preserves_order_and_success_when_one_project_fails",
+        "ep004_api::invalid_policy_is_typed_and_cache_invalidation_is_scoped",
+        "ep004_api::cancelled_batch_does_not_schedule_projects"
+      ]
+    },
+    {
+      "id": "US-038",
+      "title": "Produce diagnostic dumps and agent handoffs",
+      "epic": "EP-004",
+      "status": "DONE",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": ["US-005", "US-017", "US-021"],
+      "started_at": "2026-07-23T00:00:00Z",
+      "completed_at": "2026-07-23T21:10:36Z",
+      "reviewed_at": "2026-07-23T21:10:36Z",
+      "certified_at": "2026-07-23T21:10:36Z",
+      "evidence": [
+        "ep004_cli::explicit_output_directory_writes_bounded_handoff_without_prompting",
+        "handoff::tests::explicit_output_writes_an_empty_schema_valid_dump",
+        "handoff::tests::handoff_text_redacts_secrets_and_is_bounded",
+        "handoff::tests::group_names_are_deterministic_and_path_safe",
+        "handoff::tests::symlinked_rules_directory_is_rejected"
+      ]
+    },
+    {
+      "id": "US-022",
+      "title": "Manage CI installation, configuration and upgrades",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-017", "US-021"],
+      "started_at": "2026-07-22T13:17:49Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-023",
+      "title": "Upgrade the GitHub Action scan and cache contract",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-009", "US-011", "US-016", "US-017"],
+      "started_at": "2026-07-22T13:22:27Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-024",
+      "title": "Publish sticky PR summaries, inline findings and stable SARIF",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-003", "US-005", "US-023"],
+      "started_at": "2026-07-22T13:28:02Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-025",
+      "title": "Make release and package publication reproducible",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-016", "US-023", "US-024"],
+      "started_at": "2026-07-22T13:29:52Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-026",
+      "title": "Implement a feature-gated Rust Doctor language server",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": ["US-001", "US-003", "US-010", "US-012"],
+      "started_at": "2026-07-22T13:34:31Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-027",
+      "title": "Ship a VS Code-compatible editor adapter",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": ["US-026"],
+      "started_at": "2026-07-22T13:42:39Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-028",
+      "title": "Ship a Zed editor adapter",
+      "epic": "EP-005",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": ["US-026"],
+      "started_at": "2026-07-22T13:42:39Z",
+      "completed_at": "2026-07-22T14:05:54Z",
+      "reviewed_at": "2026-07-22T14:05:54Z"
+    },
+    {
+      "id": "US-029",
+      "title": "Build an evidence-ranked Rust rule mining backlog",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-012", "US-013", "US-014"],
+      "started_at": "2026-07-22T14:24:18Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-030",
+      "title": "Validate the compiler-aware extension strategy",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-029"],
+      "started_at": "2026-07-22T14:31:16Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-031",
+      "title": "Ship the first reliability and concurrency rule tranche",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
+      "started_at": "2026-07-22T14:32:20Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-032",
+      "title": "Ship the first API, performance and security rule tranche",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
+      "started_at": "2026-07-22T14:32:20Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-033",
+      "title": "Add version-aware framework capability packs",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-001", "US-002", "US-011", "US-012", "US-013", "US-029"],
+      "started_at": "2026-07-22T14:40:32Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-034",
+      "title": "Generate the public documentation and rule catalog",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-001", "US-005", "US-018", "US-025"],
+      "started_at": "2026-07-22T14:45:57Z",
+      "completed_at": "2026-07-22T15:19:27Z",
+      "reviewed_at": "2026-07-22T15:19:27Z"
+    },
+    {
+      "id": "US-035",
+      "title": "Add privacy-safe opt-in observability",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-004", "US-010", "US-017", "US-023", "US-026"],
+      "started_at": "2026-07-22T14:52:11Z",
+      "completed_at": "2026-07-22T16:09:18Z",
+      "reviewed_at": "2026-07-22T16:09:18Z"
+    },
+    {
+      "id": "US-036",
+      "title": "Publish explicitly shared health reports",
+      "epic": "EP-006",
+      "status": "IN_PROGRESS",
+      "priority": "P2",
+      "size": "L",
+      "blocked_by": ["US-004", "US-005", "US-025", "US-034", "US-035"],
+      "started_at": "2026-07-22T14:55:41Z",
+      "completed_at": "2026-07-22T16:09:18Z",
+      "reviewed_at": "2026-07-22T16:09:18Z"
+    }
+  ]
+}

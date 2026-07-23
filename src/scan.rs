@@ -246,25 +246,7 @@ pub(crate) fn scan_project_scoped_for_categories(
 // ---------------------------------------------------------------------------
 
 fn validate_config(resolved: &ResolvedConfig) -> Result<(), crate::error::ScanError> {
-    let catalog =
-        built_in_catalog().map_err(|error| crate::error::ScanError::Catalog(error.to_string()))?;
-    let known_rules: Vec<&str> = catalog
-        .descriptors()
-        .iter()
-        .flat_map(|descriptor| {
-            std::iter::once(descriptor.canonical_id.as_str())
-                .chain(descriptor.aliases.iter().map(String::as_str))
-        })
-        .collect();
-    let unknown = config::validate_ignored_rules(&resolved.ignore_rules, &known_rules);
-    if unknown.is_empty() {
-        Ok(())
-    } else {
-        Err(crate::error::ScanError::InvalidPolicy(format!(
-            "unknown rule(s): {}",
-            unknown.join(", ")
-        )))
-    }
+    config::validate_resolved_config(resolved).map_err(crate::error::ScanError::InvalidPolicy)
 }
 
 fn resolve_scan_roots(
@@ -375,10 +357,10 @@ fn build_passes(
 
     let mut passes: Vec<Box<dyn scanner::AnalysisPass>> = Vec::new();
 
-    if resolved.lint {
-        if !resolved.evaluation_profile {
-            passes.push(Box::new(clippy::ClippyPass::default()));
-        }
+    if resolved.adapter_policy.compiler_lint && !resolved.evaluation_profile {
+        passes.push(Box::new(clippy::ClippyPass::default()));
+    }
+    if resolved.adapter_policy.custom_ast {
         let mut custom_rules: Vec<Box<dyn rules::CustomRule>> = if resolved.evaluation_profile {
             rules::all_custom_rules()
         } else {
@@ -446,13 +428,15 @@ fn build_passes(
         }
     }
 
-    if resolved.dependencies {
+    if resolved.adapter_policy.supply_chain {
         if !project_info.is_workspace {
             passes.extend(build_workspace_global_passes(offline, selected_categories));
         }
         if category_requested(selected_categories, &Category::Security) {
             passes.push(optional_pass(geiger::GeigerPass));
         }
+    }
+    if resolved.adapter_policy.quality {
         if category_requested(selected_categories, &Category::Cargo) {
             passes.push(optional_pass(semver_checks::SemVerPass));
         }
@@ -764,7 +748,7 @@ fn run_passes(
     }
 
     if project_info.is_workspace
-        && resolved.dependencies
+        && resolved.adapter_policy.supply_chain
         && !scan_roots.is_empty()
         && (category_requested(selected_categories, &Category::Dependencies)
             || category_requested(selected_categories, &Category::Cargo))
@@ -1479,6 +1463,10 @@ mod tests {
         let mut resolved = config::resolve_config_defaults(None);
         resolved.evaluation_profile = true;
         resolved.dependencies = false;
+        resolved.adapter_policy = config::AdapterPolicy {
+            custom_ast: true,
+            ..config::AdapterPolicy::none()
+        };
         let (_, project, _) = crate::discovery::bootstrap_project(Path::new("."), true).unwrap();
         let passes = build_passes(&project, Path::new("."), &resolved, true, None, &[]);
         assert!(passes.iter().any(|pass| pass.name() == "custom rules"));

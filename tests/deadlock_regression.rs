@@ -42,6 +42,7 @@ fn fast_config() -> ResolvedConfig {
         score_fail_below: None,
         respect_inline_disables: true,
         max_parallelism: None,
+        adapter_policy: rust_doctor::config::AdapterPolicy::default(),
         evaluation_profile: false,
     }
 }

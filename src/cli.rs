@@ -18,6 +18,7 @@ Output contract:
   --score writes one integer to stdout.
   --json, --json-compact, and --sarif write machine output to stdout.
   --json-out writes JSON atomically to PATH instead of stdout.
+  --output-dir writes bounded diagnostic handoff files without changing stdout.
   --score, --sarif, --json, and --json-compact are mutually exclusive.
   --json-out may pair with --json or --json-compact, but not --score or --sarif.
   --share prints one stateless public URL after the terminal report.
@@ -28,7 +29,14 @@ Exit codes:
   1  Setup error: installer, MCP server, or --install-deps failed
   2  Scan error: project discovery, analysis, or output failed
   3  Quality gate failed: score or --blocking threshold reached
-  4  Required analysis incomplete when --require-complete is active";
+  4  Required analysis incomplete when --require-complete is active
+
+Normative exit truth table (all output modes):
+  Report unavailable or invalid arguments                         2
+  Report incomplete and --require-complete                        4
+  Report complete, or incompleteness allowed, but gate blocks     3
+  Report complete, or incompleteness allowed, and gate passes     0
+  Installer, MCP startup, or dependency-installation failure      1";
 
 /// Diagnose your Rust project's health with a single command.
 ///
@@ -67,6 +75,14 @@ pub struct Cli {
     #[arg(long, short = 'j', value_name = "COUNT", value_parser = parse_positive_usize)]
     pub jobs: Option<usize>,
 
+    /// Explicitly enable an adapter group (repeat or comma-separate)
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "GROUP")]
+    pub enable_adapter: Vec<AdapterGroup>,
+
+    /// Explicitly disable an adapter group (repeat or comma-separate)
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "GROUP")]
+    pub disable_adapter: Vec<AdapterGroup>,
+
     /// Print only the bare integer score (for CI piping)
     #[arg(long, conflicts_with_all = ["json", "json_compact", "json_out", "sarif"])]
     pub score: bool,
@@ -90,6 +106,22 @@ pub struct Cli {
     /// Print a stateless public summary URL without uploading report data
     #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif"])]
     pub share: bool,
+
+    /// Write diagnostics.json, per-rule groups, and an agent handoff to DIR
+    #[arg(long, value_name = "DIR")]
+    pub output_dir: Option<PathBuf>,
+
+    /// Deliver the bounded handoff to a target, or select `none`
+    #[arg(long, value_enum, value_name = "TARGET")]
+    pub handoff: Option<HandoffTarget>,
+
+    /// Remember the explicitly selected handoff target without project identity
+    #[arg(long, requires = "handoff")]
+    pub remember_handoff_target: bool,
+
+    /// Remove the remembered handoff target before scanning
+    #[arg(long)]
+    pub reset_handoff_target: bool,
 
     /// Scan only changed files vs a base branch
     #[arg(long, num_args = 0..=1, default_missing_value = "auto", value_name = "BASE")]
@@ -237,6 +269,24 @@ impl Cli {
                 "--scope files requires at least one --files path",
             ));
         }
+        if let Some(group) = self
+            .enable_adapter
+            .iter()
+            .find(|group| self.disable_adapter.contains(group))
+        {
+            return Err(usage_error(&format!(
+                "adapter group '{group}' cannot be both enabled and disabled"
+            )));
+        }
+        if self.offline
+            && self
+                .enable_adapter
+                .contains(&AdapterGroup::NetworkDependent)
+        {
+            return Err(usage_error(
+                "--offline cannot be combined with --enable-adapter network-dependent",
+            ));
+        }
         Ok(())
     }
 }
@@ -301,6 +351,56 @@ pub enum ScanCategory {
     Framework,
     Cargo,
     Style,
+}
+
+/// Independently schedulable analysis adapter families.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+#[value(rename_all = "kebab-case")]
+pub enum AdapterGroup {
+    CompilerLint,
+    CustomAst,
+    SupplyChain,
+    Quality,
+    NetworkDependent,
+}
+
+impl std::fmt::Display for AdapterGroup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::CompilerLint => "compiler-lint",
+            Self::CustomAst => "custom-ast",
+            Self::SupplyChain => "supply-chain",
+            Self::Quality => "quality",
+            Self::NetworkDependent => "network-dependent",
+        })
+    }
+}
+
+/// Optional post-scan handoff destination.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+#[value(rename_all = "kebab-case")]
+pub enum HandoffTarget {
+    ClaudeCode,
+    Cursor,
+    Codex,
+    OpenCode,
+    Windsurf,
+    Clipboard,
+    None,
+}
+
+impl std::fmt::Display for HandoffTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Cursor => "cursor",
+            Self::Codex => "codex",
+            Self::OpenCode => "open-code",
+            Self::Windsurf => "windsurf",
+            Self::Clipboard => "clipboard",
+            Self::None => "none",
+        })
+    }
 }
 
 /// Terminal warning rendering policy.
@@ -896,6 +996,42 @@ mod tests {
     }
 
     #[test]
+    fn test_adapter_groups_are_explicit_and_conflict_fail_closed() {
+        let cli = Cli::try_parse_from([
+            "rust-doctor",
+            "--enable-adapter",
+            "custom-ast,quality",
+            "--disable-adapter",
+            "compiler-lint,supply-chain,network-dependent",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.enable_adapter,
+            vec![AdapterGroup::CustomAst, AdapterGroup::Quality]
+        );
+        assert!(cli.validate_contract().is_ok());
+
+        let conflicting = Cli::try_parse_from([
+            "rust-doctor",
+            "--enable-adapter",
+            "quality",
+            "--disable-adapter",
+            "quality",
+        ])
+        .unwrap();
+        assert!(conflicting.validate_contract().is_err());
+
+        let network = Cli::try_parse_from([
+            "rust-doctor",
+            "--offline",
+            "--enable-adapter",
+            "network-dependent",
+        ])
+        .unwrap();
+        assert!(network.validate_contract().is_err());
+    }
+
+    #[test]
     fn test_max_duration_must_be_positive() {
         assert!(Cli::try_parse_from(["rust-doctor", "--max-duration", "0"]).is_err());
         let cli = Cli::try_parse_from(["rust-doctor", "--max-duration", "30"]).unwrap();
@@ -1050,6 +1186,23 @@ mod tests {
         let cli = Cli::try_parse_from(["rust-doctor", "--share", "--offline"]).unwrap();
         assert!(cli.share);
         assert!(cli.offline);
+    }
+
+    #[test]
+    fn test_diagnostic_dump_and_handoff_flags_do_not_select_machine_output() {
+        let cli = Cli::try_parse_from([
+            "rust-doctor",
+            "--output-dir",
+            "doctor-output",
+            "--handoff",
+            "codex",
+            "--remember-handoff-target",
+        ])
+        .unwrap();
+        assert_eq!(cli.output_dir, Some(PathBuf::from("doctor-output")));
+        assert_eq!(cli.handoff, Some(HandoffTarget::Codex));
+        assert!(cli.remember_handoff_target);
+        assert!(!cli.wants_json());
     }
 
     #[test]
