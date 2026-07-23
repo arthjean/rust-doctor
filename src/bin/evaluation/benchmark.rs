@@ -5,6 +5,7 @@ use super::{EvalError, Result};
 use crate::BenchmarkArgs;
 use rust_doctor::diagnostics::ReportV1;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -677,17 +678,51 @@ fn compare_runtime(baseline: &[BenchmarkRecord], candidate: &[BenchmarkRecord]) 
 }
 
 fn report_diagnostic_sha256(report: &ReportV1) -> Result<String> {
-    let mut diagnostics = report.diagnostics.clone();
-    diagnostics.sort_by(|left, right| {
-        left.rule
-            .cmp(&right.rule)
-            .then(left.site_id.cmp(&right.site_id))
-            .then(left.baseline_key.cmp(&right.baseline_key))
-    });
+    let mut diagnostics = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let mut value = serde_json::to_value(diagnostic).map_err(|error| {
+                EvalError::Command(format!("cannot normalize benchmark diagnostic: {error}"))
+            })?;
+            normalize_diagnostic_value(&mut value, report.resolved_root.as_deref());
+            serde_json::to_vec(&value).map_err(|error| {
+                EvalError::Command(format!(
+                    "cannot serialize normalized benchmark diagnostic: {error}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    diagnostics.sort();
     let bytes = serde_json::to_vec(&diagnostics).map_err(|error| {
         EvalError::Command(format!("cannot fingerprint benchmark diagnostics: {error}"))
     })?;
     Ok(hex_digest(&bytes))
+}
+
+fn normalize_diagnostic_value(value: &mut Value, resolved_root: Option<&str>) {
+    match value {
+        Value::Object(fields) => {
+            // These identities intentionally include the absolute scan root. Benchmark
+            // fixtures use a fresh TempDir, so they cannot represent semantic drift.
+            fields.remove("site_id");
+            fields.remove("baseline_key");
+            for nested in fields.values_mut() {
+                normalize_diagnostic_value(nested, resolved_root);
+            }
+        }
+        Value::Array(values) => {
+            for nested in values {
+                normalize_diagnostic_value(nested, resolved_root);
+            }
+        }
+        Value::String(text) => {
+            if let Some(root) = resolved_root.filter(|root| !root.is_empty()) {
+                *text = text.replace(root, "<fixture-root>");
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
 }
 
 fn diagnostic_matrix_sha256(records: &[BenchmarkRecord]) -> Result<String> {
@@ -856,5 +891,36 @@ mod tests {
         let before = fixture_fingerprint(&fixture);
         fixture.lines_per_file = 11;
         assert_ne!(before, fixture_fingerprint(&fixture));
+    }
+
+    #[test]
+    fn diagnostic_normalization_ignores_fixture_allocation_identity() {
+        let mut first = serde_json::json!({
+            "rule": "panic",
+            "message": "panic in /tmp/fixture-a/src/lib.rs",
+            "ownership": {
+                "kind": "package",
+                "package_id": "path+file:///tmp/fixture-a#fixture@0.1.0"
+            },
+            "site_id": "first-site",
+            "baseline_key": "first-baseline"
+        });
+        let mut second = serde_json::json!({
+            "rule": "panic",
+            "message": "panic in /tmp/fixture-b/src/lib.rs",
+            "ownership": {
+                "kind": "package",
+                "package_id": "path+file:///tmp/fixture-b#fixture@0.1.0"
+            },
+            "site_id": "second-site",
+            "baseline_key": "second-baseline"
+        });
+
+        normalize_diagnostic_value(&mut first, Some("/tmp/fixture-a"));
+        normalize_diagnostic_value(&mut second, Some("/tmp/fixture-b"));
+
+        assert_eq!(first, second);
+        assert!(first.get("site_id").is_none());
+        assert!(first.get("baseline_key").is_none());
     }
 }
