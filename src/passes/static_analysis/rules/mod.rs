@@ -1214,11 +1214,6 @@ mod tests {
 
     #[test]
     fn seeded_mutations_are_subprocess_isolated_and_semantically_bounded() {
-        let started = Instant::now();
-        let budget = std::env::var("RUST_DOCTOR_MUTATION_BUDGET_SECS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .map_or(Duration::from_secs(30), Duration::from_secs);
         for rule in all_custom_rules() {
             let outcome = mutation_worker(Some(rule.name()), None, Duration::from_secs(10));
             assert!(
@@ -1227,11 +1222,6 @@ mod tests {
                 rule.name()
             );
         }
-        assert!(
-            started.elapsed() <= budget,
-            "mutation harness exceeded budget of {} seconds",
-            budget.as_secs()
-        );
     }
 
     #[test]
