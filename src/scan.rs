@@ -41,13 +41,14 @@ pub fn scan_project(
 ) -> Result<ScanResult, crate::error::ScanError> {
     let cancel = Arc::new(AtomicBool::new(false));
     let control = ScanControl::new(cancel, None);
+    let scope = scope_from_resolved_config(project_info, resolved)?;
     scan_project_scoped(
         project_info,
         resolved,
         offline,
         project_filter,
         suppress_spinner,
-        &diff::ScopePlan::full(),
+        &scope,
         &control,
     )
 }
@@ -67,15 +68,33 @@ pub fn scan_project_cancellable(
     cancel: &Arc<AtomicBool>,
 ) -> Result<ScanResult, crate::error::ScanError> {
     let control = ScanControl::new(Arc::clone(cancel), None);
+    let scope = scope_from_resolved_config(project_info, resolved)?;
     scan_project_scoped(
         project_info,
         resolved,
         offline,
         project_filter,
         suppress_spinner,
-        &diff::ScopePlan::full(),
+        &scope,
         &control,
     )
+}
+
+fn scope_from_resolved_config(
+    project_info: &ProjectInfo,
+    resolved: &ResolvedConfig,
+) -> Result<diff::ScopePlan, crate::error::ScanError> {
+    let Some(base) = resolved.diff.as_ref() else {
+        return Ok(diff::ScopePlan::full());
+    };
+    let request = diff::ScopeRequest {
+        reporting_scope: diff::ReportingScope::Changed,
+        base: (base != "auto").then(|| base.clone()),
+        files: Vec::new(),
+        include_untracked: false,
+    };
+    diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files)
+        .map_err(Into::into)
 }
 
 pub(crate) fn scan_project_scoped(
@@ -89,15 +108,15 @@ pub(crate) fn scan_project_scoped(
 ) -> Result<ScanResult, crate::error::ScanError> {
     tracing::info!(project = %project_info.name, "starting scan");
 
-    // Step 1: Verify ignored rules are known — warns on typos in config
-    validate_config(resolved);
+    // Step 1: verify the canonical catalog and reject unresolved policy typos.
+    validate_config(resolved)?;
 
     // Step 2: Resolve workspace members or single project root
     let scan_roots = resolve_scan_roots(project_info, resolved, project_filter, scope)?;
     log_project_info(project_info, resolved);
 
-    if scope.has_selected_files() && (scope.paths.is_empty() || scope.is_empty_staged()) {
-        return Ok(empty_scoped_result(project_info, scope));
+    if scope.has_selected_files() && !scope.has_applicable_work() {
+        return Ok(empty_scoped_result(project_info, scope, resolved));
     }
 
     // Step 4: Run all analysis passes
@@ -117,6 +136,8 @@ pub(crate) fn scan_project_scoped(
 
     // Step 5: Deduplicate — same rule+file+line from overlapping workspace scans = one diagnostic
     dedup_diagnostics(&mut passes_output.diagnostics);
+    let line_score_candidates = (scope.reporting_scope == diff::ReportingScope::Lines)
+        .then(|| passes_output.diagnostics.clone());
 
     passes_output.diagnostics = diff::filter_diagnostics(
         passes_output.diagnostics,
@@ -132,7 +153,7 @@ pub(crate) fn scan_project_scoped(
     let all_diagnostics = apply_suppressions(configured_diagnostics, project_info, resolved);
 
     // Step 8: Calculate score and build the final result
-    let result = build_result(
+    let mut result = build_result(
         all_diagnostics,
         passes_output.source_file_count,
         passes_output.skipped_passes,
@@ -148,6 +169,25 @@ pub(crate) fn scan_project_scoped(
         scope,
         resolved,
     );
+    if let Some(candidates) = line_score_candidates {
+        let (mut configured, _) = apply_rule_configuration(candidates, resolved);
+        dedup_diagnostics(&mut configured);
+        let configured = if resolved.respect_inline_disables {
+            suppression::apply_inline_suppressions(configured, &project_info.root_dir).0
+        } else {
+            configured
+        };
+        let score_diagnostics = score_visible_diagnostics(&configured, resolved);
+        let (health_score, label, dimensions) = output::calculate_score(&score_diagnostics);
+        result.score = health_score;
+        result.score_label = label;
+        result.dimension_scores = dimensions;
+        assign_package_scores(
+            &mut result.execution.packages,
+            &score_diagnostics,
+            &project_info.root_dir,
+        );
+    }
 
     tracing::info!(
         score = result.score,
@@ -162,11 +202,9 @@ pub(crate) fn scan_project_scoped(
 // Pipeline stages
 // ---------------------------------------------------------------------------
 
-fn validate_config(resolved: &ResolvedConfig) {
-    let Ok(catalog) = built_in_catalog() else {
-        eprintln!("Warning: canonical rule catalog is invalid; typed rule policy is unavailable");
-        return;
-    };
+fn validate_config(resolved: &ResolvedConfig) -> Result<(), crate::error::ScanError> {
+    let catalog =
+        built_in_catalog().map_err(|error| crate::error::ScanError::Catalog(error.to_string()))?;
     let known_rules: Vec<&str> = catalog
         .descriptors()
         .iter()
@@ -175,7 +213,15 @@ fn validate_config(resolved: &ResolvedConfig) {
                 .chain(descriptor.aliases.iter().map(String::as_str))
         })
         .collect();
-    config::validate_ignored_rules(&resolved.ignore_rules, &known_rules);
+    let unknown = config::validate_ignored_rules(&resolved.ignore_rules, &known_rules);
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(crate::error::ScanError::InvalidPolicy(format!(
+            "unknown rule(s): {}",
+            unknown.join(", ")
+        )))
+    }
 }
 
 fn resolve_scan_roots(
@@ -192,7 +238,7 @@ fn resolve_scan_roots(
             project_filter,
         )?;
         let members = if scope.has_selected_files() {
-            workspace::affected_members(members, &project_info.root_dir, &scope.paths)
+            workspace::affected_members(members, &project_info.root_dir, &scope.execution_paths())
         } else {
             members
         };
@@ -428,6 +474,7 @@ fn run_passes(
     let mut all_compiler_evidence = Vec::new();
     let mut all_checks = Vec::new();
     let mut package_executions = Vec::new();
+    let ignore_set = scanner::build_glob_set(&resolved.ignore_files).ok();
     let scan_work: Vec<(PathBuf, Vec<PathBuf>)> = scan_roots
         .iter()
         .map(|root| {
@@ -442,6 +489,12 @@ fn run_passes(
                 scanner::collect_rs_files(root)
             };
             files.retain(|path| belongs_to_package(path, root));
+            if let Some(ignore_set) = &ignore_set {
+                files.retain(|path| {
+                    let relative = path.strip_prefix(root).unwrap_or(path);
+                    !ignore_set.is_match(relative)
+                });
+            }
             (root.clone(), files)
         })
         .collect();
@@ -490,7 +543,7 @@ fn run_passes(
             let handles: Vec<_> = batch
                 .iter()
                 .map(|(scan_root, root_files)| {
-                    let selected_files = scope.has_selected_files().then(|| root_files.clone());
+                    let selected_files = Some(root_files.clone());
                     s.spawn(move || {
                         if control.is_stopped() {
                             return (false, scanner::ScanPassResult::default());
@@ -888,6 +941,31 @@ fn rule_cache_keys(resolved: &ResolvedConfig) -> Vec<String> {
     keys
 }
 
+fn score_visible_diagnostics(
+    diagnostics: &[Diagnostic],
+    resolved: &ResolvedConfig,
+) -> Vec<Diagnostic> {
+    built_in_catalog().map_or_else(
+        |_| diagnostics.to_vec(),
+        |catalog| {
+            diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    let descriptor = catalog.resolve(
+                        &diagnostic.rule,
+                        &diagnostic.category,
+                        diagnostic.severity,
+                    );
+                    resolved
+                        .rule_policy(descriptor.as_descriptor(), Some(&diagnostic.file_path))
+                        .visible_on(VisibilitySurface::Score)
+                })
+                .cloned()
+                .collect()
+        },
+    )
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the scan accumulator is unpacked once at the internal ScanResult construction boundary"
@@ -920,28 +998,26 @@ fn build_result(
         .iter()
         .filter(|d| d.severity == Severity::Info)
         .count();
-    let score_diagnostics: Vec<Diagnostic> = built_in_catalog().map_or_else(
-        |_| diagnostics.clone(),
-        |catalog| {
-            diagnostics
-                .iter()
-                .filter(|diagnostic| {
-                    let descriptor = catalog.resolve(
-                        &diagnostic.rule,
-                        &diagnostic.category,
-                        diagnostic.severity,
-                    );
-                    resolved
-                        .rule_policy(descriptor.as_descriptor(), Some(&diagnostic.file_path))
-                        .visible_on(VisibilitySurface::Score)
-                })
-                .cloned()
-                .collect()
-        },
-    );
+    let score_diagnostics = score_visible_diagnostics(&diagnostics, resolved);
     let (health_score, score_label, dimension_scores) = output::calculate_score(&score_diagnostics);
     assign_package_scores(&mut package_executions, &score_diagnostics, workspace_root);
 
+    if let Some(reason) = &scope.degradation_reason {
+        let check = CheckState {
+            name: "scope:lines".to_string(),
+            required: false,
+            status: CheckStatus::Skipped,
+            reason: Some(reason.clone()),
+        };
+        checks.push(check.clone());
+        for package in &mut package_executions {
+            package.checks.push(check.clone());
+            package
+                .checks
+                .sort_by(|left, right| left.name.cmp(&right.name));
+        }
+        skipped_passes.push(reason.clone());
+    }
     skipped_passes.sort();
     skipped_passes.dedup();
     checks.sort_by(|left, right| left.name.cmp(&right.name));
@@ -982,7 +1058,7 @@ pub(crate) fn assign_package_scores(
         .map(|diagnostic| diagnostic_package_owner(diagnostic, packages, workspace_root))
         .collect();
     for (package_index, package) in packages.iter_mut().enumerate() {
-        if package.planned_files.is_empty() {
+        if package.planned_files.is_empty() && package.checks.is_empty() {
             package.score = None;
             continue;
         }
@@ -990,9 +1066,7 @@ pub(crate) fn assign_package_scores(
             .iter()
             .zip(&owners)
             .filter(|(diagnostic, owner)| {
-                is_workspace_global_diagnostic(diagnostic)
-                    || owner.is_none()
-                    || **owner == Some(package_index)
+                is_workspace_global_diagnostic(diagnostic) || **owner == Some(package_index)
             })
             .map(|(diagnostic, _)| diagnostic.clone())
             .collect();
@@ -1039,8 +1113,11 @@ const fn execution_scope_name(scope: &diff::ScopePlan) -> &'static str {
     }
 }
 
-fn empty_scoped_result(project_info: &ProjectInfo, scope: &diff::ScopePlan) -> ScanResult {
-    let resolved = config::resolve_config_defaults(None);
+fn empty_scoped_result(
+    project_info: &ProjectInfo,
+    scope: &diff::ScopePlan,
+    resolved: &ResolvedConfig,
+) -> ScanResult {
     tracing::info!(project = %project_info.name, "scope contains no eligible Rust files");
     build_result(
         Vec::new(),
@@ -1056,7 +1133,7 @@ fn empty_scoped_result(project_info: &ProjectInfo, scope: &diff::ScopePlan) -> S
         Vec::new(),
         &project_info.root_dir,
         scope,
-        &resolved,
+        resolved,
     )
 }
 

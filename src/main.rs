@@ -43,9 +43,7 @@ fn main() -> ExitCode {
         Ok(result) => result,
         Err(e) => {
             if cli.wants_json() {
-                if let Err(output_error) =
-                    run::emit_failure_report(&cli, "bootstrap", e.to_string())
-                {
+                if let Err(output_error) = run::emit_failure_report(&cli, "bootstrap", &e) {
                     eprintln!("Error: {output_error}");
                 }
             } else {
@@ -68,7 +66,7 @@ fn main() -> ExitCode {
         Ok(result) => result,
         Err(e) => {
             if cli.wants_json() {
-                if let Err(output_error) = run::emit_failure_report(&cli, "scan", e.to_string()) {
+                if let Err(output_error) = run::emit_failure_report(&cli, "scan", &e) {
                     eprintln!("Error: {output_error}");
                 }
             } else {

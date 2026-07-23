@@ -6,6 +6,7 @@ use rmcp::model::{
     CallToolResult, Content, GetPromptResult, LoggingLevel, LoggingMessageNotificationParam,
     PromptMessage, PromptMessageRole,
 };
+use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, prompt, prompt_router, tool, tool_router};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,10 +34,11 @@ async fn run_scan_with_timeout(
     resolved: config::ResolvedConfig,
     offline: bool,
     tool: &str,
+    request_context: &RequestContext<RoleServer>,
 ) -> Result<(ScanResult, ProjectInfo, config::ResolvedConfig), McpError> {
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_task = Arc::clone(&cancel);
-    let scan_future = tokio::task::spawn_blocking(move || {
+    let mut scan_future = tokio::task::spawn_blocking(move || {
         let result = scan::scan_project_cancellable(
             &project_info,
             &resolved,
@@ -47,9 +49,10 @@ async fn run_scan_with_timeout(
         )?;
         Ok::<_, crate::error::ScanError>((result, project_info, resolved))
     });
-
-    match tokio::time::timeout(Duration::from_secs(MCP_SCAN_TIMEOUT_SECS), scan_future).await {
-        Ok(join_result) => join_result
+    let timeout = tokio::time::sleep(Duration::from_secs(MCP_SCAN_TIMEOUT_SECS));
+    tokio::pin!(timeout);
+    tokio::select! {
+        join_result = &mut scan_future => join_result
             .map_err(|e| McpError::internal_error(format!("scan task failed: {e}"), None))?
             .map_err(|e| {
                 eprintln!("MCP {tool} error: {e}");
@@ -58,8 +61,14 @@ async fn run_scan_with_timeout(
                     None,
                 )
             }),
-        Err(_elapsed) => {
-            // Signal the detached blocking task to stop; do not leave it running.
+        () = request_context.ct.cancelled() => {
+            cancel.store(true, Ordering::Relaxed);
+            Err(McpError::internal_error(
+                "scan cancelled by client",
+                None,
+            ))
+        }
+        () = &mut timeout => {
             cancel.store(true, Ordering::Relaxed);
             Err(McpError::internal_error(
                 "scan timed out after 5 minutes — project may be too large or a subprocess is hanging",
@@ -106,8 +115,10 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         meta: rmcp::model::Meta,
         client: rmcp::Peer<RoleServer>,
         params: Parameters<ScanInput>,
+        request_context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
+        let requested_root = std::path::PathBuf::from(&input.directory);
         let progress_token = meta.get_progress_token();
 
         // Send start progress if client supports it
@@ -162,7 +173,8 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
         let (result, project_info, resolved) =
-            run_scan_with_timeout(project_info, resolved, offline, "scan").await?;
+            run_scan_with_timeout(project_info, resolved, offline, "scan", &request_context)
+                .await?;
 
         // Send completion progress
         if let Some(ref token) = progress_token {
@@ -200,7 +212,14 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         } else {
             ScanMode::Full
         };
-        let report = ReportV1::from_scan(&result, &project_info, &resolved, mode);
+        let report = ReportV1::from_scan_with_context(
+            &result,
+            &project_info,
+            &resolved,
+            mode,
+            &requested_root,
+            crate::diagnostics::GateResult::NotEvaluated,
+        );
         let grouped = group_report_diagnostics(&report.diagnostics);
         let report = format_report_scan(&report, &grouped);
 
@@ -228,6 +247,7 @@ If you also need the diagnostics, use scan instead — it includes the score too
         meta: rmcp::model::Meta,
         client: rmcp::Peer<RoleServer>,
         params: Parameters<ScoreInput>,
+        request_context: RequestContext<RoleServer>,
     ) -> Result<Json<ScoreOutput>, McpError> {
         let input = params.0;
         let progress_token = meta.get_progress_token();
@@ -256,7 +276,8 @@ If you also need the diagnostics, use scan instead — it includes the score too
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
         let (result, _project_info, _resolved) =
-            run_scan_with_timeout(project_info, resolved, offline, "score").await?;
+            run_scan_with_timeout(project_info, resolved, offline, "score", &request_context)
+                .await?;
 
         if let Some(ref token) = progress_token {
             let _ = client

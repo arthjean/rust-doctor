@@ -59,6 +59,38 @@ mod tests {
     use crate::scan;
     use rmcp::handler::server::wrapper::Parameters;
 
+    fn isolated_scan_fixture() -> (
+        tempfile::TempDir,
+        crate::discovery::ProjectInfo,
+        crate::config::ResolvedConfig,
+    ) {
+        let fixture = tempfile::Builder::new()
+            .prefix("rust-doctor-mcp-test-")
+            .tempdir_in(env!("CARGO_MANIFEST_DIR"))
+            .unwrap();
+        std::fs::create_dir(fixture.path().join("src")).unwrap();
+        std::fs::write(
+            fixture.path().join("Cargo.toml"),
+            "[package]\nname = \"mcp-test\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.path().join("rust-doctor.toml"),
+            "lint = true\ndependencies = false\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.path().join("src/lib.rs"),
+            "pub fn first(value: Option<u8>) -> u8 { value.unwrap() }\n\
+             pub fn second(value: Result<u8, ()>) -> u8 { value.unwrap() }\n",
+        )
+        .unwrap();
+        let directory = fixture.path().to_string_lossy();
+        let (_root, project_info, resolved) =
+            discover_and_resolve(directory.as_ref(), false).unwrap();
+        (fixture, project_info, resolved)
+    }
+
     // --- RULE_DOCS completeness ---
 
     #[test]
@@ -453,14 +485,11 @@ mod tests {
         }
     }
 
-    // --- MCP e2e: scan + score on a real project ---
+    // --- MCP e2e: scan + score on a bounded project ---
 
     #[test]
-    fn test_scan_tool_on_self() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let result = discover_and_resolve(manifest_dir, false);
-        assert!(result.is_ok(), "discover_and_resolve failed: {result:?}");
-        let (_dir, project_info, resolved) = result.unwrap();
+    fn test_scan_tool_on_fixture() {
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
         let scan_result = scan::scan_project(&project_info, &resolved, true, &[], true);
         assert!(scan_result.is_ok(), "scan_project failed: {scan_result:?}");
         let result = scan_result.unwrap();
@@ -547,8 +576,7 @@ mod tests {
 
     #[test]
     fn test_scan_output_grouping() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let (_dir, project_info, resolved) = discover_and_resolve(manifest_dir, false).unwrap();
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
         let result = scan::scan_project(&project_info, &resolved, true, &[], true).unwrap();
 
         let total = result.diagnostics.len();
@@ -595,8 +623,7 @@ mod tests {
 
     #[test]
     fn test_score_output_structure() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let (_dir, project_info, resolved) = discover_and_resolve(manifest_dir, false).unwrap();
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
         let result = scan::scan_project(&project_info, &resolved, true, &[], true).unwrap();
         let output = ScoreOutput {
             score: result.score,
@@ -613,8 +640,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scan_via_spawn_blocking_completes() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let (_dir, project_info, resolved) = discover_and_resolve(manifest_dir, false).unwrap();
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
 
         let result = tokio::task::spawn_blocking(move || {
             scan::scan_project(&project_info, &resolved, true, &[], true)
@@ -658,12 +684,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_scan_pipeline_produces_valid_result() {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let (_dir, project_info, resolved) = discover_and_resolve(manifest_dir, false).unwrap();
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
 
         let offline = true;
         let result = tokio::time::timeout(
-            std::time::Duration::from_secs(300),
+            std::time::Duration::from_mins(5),
             tokio::task::spawn_blocking(move || {
                 scan::scan_project(&project_info, &resolved, offline, &[], true)
             }),
@@ -695,8 +720,7 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::AtomicBool;
 
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let (_dir, project_info, resolved) = discover_and_resolve(manifest_dir, false).unwrap();
+        let (_fixture, project_info, resolved) = isolated_scan_fixture();
 
         // Pre-cancelled: run_passes must break before launching any pass, so no
         // diagnostics and no files are scanned — proves the WORK stops, not just

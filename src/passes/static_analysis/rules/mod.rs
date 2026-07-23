@@ -17,6 +17,8 @@ use rayon::prelude::*;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
+const MAX_RS_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
 // ─── Shared helpers for test-code detection ─────────────────────────────────
 
 /// Check if an attribute list contains `#[test]`.
@@ -175,14 +177,7 @@ impl RuleEngine {
         }
 
         let mut files = selected_files.map_or_else(
-            || {
-                let src_dir = project_root.join("src");
-                if src_dir.is_dir() {
-                    scanner::collect_rs_files(&src_dir)
-                } else {
-                    Vec::new()
-                }
-            },
+            || scanner::collect_rs_files(project_root),
             |selected| {
                 selected
                     .iter()
@@ -233,8 +228,10 @@ impl RuleEngine {
         let mut scan_cache = ScanCache::load(project_root, &config_hash)
             .unwrap_or_else(|| ScanCache::new(config_hash.clone()));
 
-        // Read all files into memory, filtering ignored paths
+        // Read all files into memory, retaining explicit failure receipts for
+        // every selected file that cannot be analyzed safely.
         let control = crate::process::current_scan_control();
+        let mut all_diagnostics = Vec::new();
         let file_contents: Vec<(std::path::PathBuf, String)> = files
             .into_iter()
             .filter_map(|file_path| {
@@ -247,10 +244,31 @@ impl RuleEngine {
                 {
                     return None;
                 }
+                match std::fs::metadata(&file_path) {
+                    Ok(metadata) if metadata.len() > MAX_RS_FILE_SIZE => {
+                        all_diagnostics.push(analysis_failure(
+                            rel_path,
+                            format!("oversized_file:{}:{}", rel_path.display(), metadata.len()),
+                        ));
+                        return None;
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        all_diagnostics.push(analysis_failure(
+                            rel_path,
+                            format!("metadata_failed:{}:{error}", rel_path.display()),
+                        ));
+                        return None;
+                    }
+                }
                 match std::fs::read_to_string(&file_path) {
                     Ok(content) => Some((file_path, content)),
-                    Err(e) => {
-                        eprintln!("Warning: could not read '{}': {e}", file_path.display());
+                    Err(error) => {
+                        eprintln!("Warning: could not read '{}': {error}", file_path.display());
+                        all_diagnostics.push(analysis_failure(
+                            rel_path,
+                            format!("read_failed:{}:{error}", rel_path.display()),
+                        ));
                         None
                     }
                 }
@@ -272,19 +290,16 @@ impl RuleEngine {
         }
 
         // Collect cached diagnostics for fresh files
-        let mut all_diagnostics: Vec<Diagnostic> = fresh_files
-            .iter()
-            .flat_map(|(file_path, _content)| {
-                let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
-                scan_cache
-                    .get_cached_diagnostics(rel_path)
-                    .unwrap_or(&[])
-                    .to_vec()
-            })
-            .collect();
+        all_diagnostics.extend(fresh_files.iter().flat_map(|(file_path, _content)| {
+            let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
+            scan_cache
+                .get_cached_diagnostics(rel_path)
+                .unwrap_or(&[])
+                .to_vec()
+        }));
 
         // Process stale files in parallel with rayon
-        let stale_results: Vec<(std::path::PathBuf, String, Vec<Diagnostic>)> = stale_files
+        let stale_results: Vec<(std::path::PathBuf, String, Vec<Diagnostic>, bool)> = stale_files
             .par_iter()
             .filter_map(|&(file_path, content, ref hash)| {
                 if control.is_stopped() {
@@ -292,26 +307,50 @@ impl RuleEngine {
                 }
                 let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
 
-                let diagnostics = match syn::parse_file(content) {
-                    Ok(syntax) => self
-                        .rules
-                        .iter()
-                        .flat_map(|rule| run_rule_safely(rule.as_ref(), &syntax, rel_path))
-                        .collect::<Vec<_>>(),
-                    Err(e) => {
-                        eprintln!("Warning: parse error in '{}': {e}", rel_path.display());
-                        vec![]
+                let (diagnostics, cacheable) = match syn::parse_file(content) {
+                    Ok(syntax) => {
+                        let mut diagnostics = Vec::new();
+                        let mut cacheable = true;
+                        for rule in &self.rules {
+                            let (mut findings, failure) =
+                                run_rule_safely_with_status(rule.as_ref(), &syntax, rel_path);
+                            diagnostics.append(&mut findings);
+                            if let Some(failure) = failure {
+                                diagnostics.push(analysis_failure(
+                                    rel_path,
+                                    format!(
+                                        "rule_panicked:{}:{}:{failure}",
+                                        rel_path.display(),
+                                        rule.name()
+                                    ),
+                                ));
+                                cacheable = false;
+                            }
+                        }
+                        (diagnostics, cacheable)
+                    }
+                    Err(error) => {
+                        eprintln!("Warning: parse error in '{}': {error}", rel_path.display());
+                        (
+                            vec![analysis_failure(
+                                rel_path,
+                                format!("parse_failed:{}:{error}", rel_path.display()),
+                            )],
+                            false,
+                        )
                     }
                 };
 
-                Some((rel_path.to_path_buf(), hash.clone(), diagnostics))
+                Some((rel_path.to_path_buf(), hash.clone(), diagnostics, cacheable))
             })
             .collect();
 
         // Update the cache with newly scanned results using pre-computed hashes
-        for (rel_path, hash, diagnostics) in stale_results {
+        for (rel_path, hash, diagnostics, cacheable) in stale_results {
             all_diagnostics.extend_from_slice(&diagnostics);
-            scan_cache.update_with_hash(&rel_path, hash, diagnostics);
+            if cacheable {
+                scan_cache.update_with_hash(&rel_path, hash, diagnostics);
+            }
         }
 
         // Persist the updated cache (best-effort)
@@ -322,11 +361,20 @@ impl RuleEngine {
 }
 
 /// Run a single rule with panic isolation.
+#[cfg(feature = "lsp")]
 fn run_rule_safely(rule: &dyn CustomRule, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
+    run_rule_safely_with_status(rule, syntax, path).0
+}
+
+fn run_rule_safely_with_status(
+    rule: &dyn CustomRule,
+    syntax: &syn::File,
+    path: &Path,
+) -> (Vec<Diagnostic>, Option<String>) {
     let result = panic::catch_unwind(AssertUnwindSafe(|| rule.check_file(syntax, path)));
 
     match result {
-        Ok(diagnostics) => diagnostics,
+        Ok(diagnostics) => (diagnostics, None),
         Err(payload) => {
             let msg = payload.downcast_ref::<&'static str>().map_or_else(
                 || {
@@ -341,8 +389,22 @@ fn run_rule_safely(rule: &dyn CustomRule, syntax: &syn::File, path: &Path) -> Ve
                 rule.name(),
                 path.display()
             );
-            vec![]
+            (vec![], Some(msg))
         }
+    }
+}
+
+fn analysis_failure(path: &Path, message: String) -> Diagnostic {
+    Diagnostic {
+        file_path: path.to_path_buf(),
+        rule: scanner::ANALYSIS_FAILURE_RULE.to_string(),
+        category: Category::Correctness,
+        severity: Severity::Info,
+        message,
+        help: None,
+        line: None,
+        column: None,
+        fix: None,
     }
 }
 
@@ -360,6 +422,28 @@ pub fn all_custom_rules() -> Vec<Box<dyn CustomRule>> {
         .chain(framework::all_rules())
         .chain(framework_packs::all_rules())
         .collect()
+}
+
+/// Stable limitation IDs declared by the custom-rule catalog and mirrored by
+/// conformance fixtures.
+pub fn documented_limitations(rule: &str) -> &'static [&'static str] {
+    match rule {
+        "unwrap-in-production"
+        | "panic-in-library"
+        | "high-cyclomatic-complexity"
+        | "excessive-clone"
+        | "string-from-literal"
+        | "hardcoded-secrets" => &["test-function-exception", "cfg-test-exception"],
+        "box-dyn-error-in-public-api" | "result-unit-error" => &["test-function-exception"],
+        "unsafe-block-audit" => &["forbid-unsafe-code-short-circuit"],
+        "sql-injection-risk" => &["immediate-format-only"],
+        "blocking-in-async" => &["method-call-types-unknown"],
+        "tokio-main-missing" => &["main-file-only"],
+        "tokio-spawn-without-move" => &["async-block-syntax-only"],
+        "axum-handler-not-async" => &["top-level-functions-only"],
+        "actix-blocking-handler" => &["web-prefix-only"],
+        _ => &[],
+    }
 }
 
 /// Analyze one in-memory editor document without touching the project cache or
@@ -489,6 +573,8 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
     use std::io::Write;
+    use std::process::{Command, Stdio};
+    use std::thread;
     use std::time::{Duration, Instant};
 
     // --- Test rule implementations ---
@@ -765,6 +851,227 @@ mod tests {
         }
     }
 
+    fn fires(rule: &dyn CustomRule, source: &str, path: &Path) -> bool {
+        let syntax = syn::parse_file(source).expect("metamorphic input must remain parseable");
+        rule.check_file(&syntax, path)
+            .iter()
+            .any(|diagnostic| diagnostic.rule == rule.name())
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the mutation oracle keeps each reproducibility boundary in execution order"
+    )]
+    fn run_mutations_for_rule(rule: &dyn CustomRule, fixture: &ConformanceRule) {
+        const MUTATIONS_PER_RULE: usize = 1_000;
+        const MIN_DISTINCT_PARSEABLE: usize = 100;
+        let positive = fixture
+            .cases
+            .iter()
+            .find(|case| case.kind == "positive")
+            .expect("conformance requires a positive liveness fixture");
+        let negative = fixture
+            .cases
+            .iter()
+            .find(|case| case.kind == "negative")
+            .expect("conformance requires a negative liveness fixture");
+        write_mutation_reproduction(
+            stable_seed(rule.name(), u64::MAX),
+            positive.source.as_bytes(),
+        );
+        assert!(
+            fires(rule, &positive.source, &positive.path),
+            "{} failed its positive liveness oracle",
+            rule.name()
+        );
+        write_mutation_reproduction(
+            stable_seed(rule.name(), u64::MAX - 1),
+            negative.source.as_bytes(),
+        );
+        assert!(
+            !fires(rule, &negative.source, &negative.path),
+            "{} failed its negative liveness oracle",
+            rule.name()
+        );
+        for (iteration, case) in fixture
+            .cases
+            .iter()
+            .filter(|case| matches!(case.kind.as_str(), "positive" | "negative"))
+            .enumerate()
+        {
+            let seed = stable_seed(rule.name(), iteration as u64);
+            let source = format!(
+                "// rust-doctor-metamorphic-seed:{seed:016x}\n{}",
+                case.source
+            );
+            let expected = case.kind == "positive";
+            write_mutation_reproduction(seed, source.as_bytes());
+            assert_eq!(
+                fires(rule, &source, &case.path),
+                expected,
+                "metamorphic oracle failed: rule={} seed={seed:#018x} minimized_input={source:?}",
+                rule.name()
+            );
+        }
+
+        let mut parseable = HashSet::new();
+        let mut fired = 0usize;
+        let mut did_not_fire = 0usize;
+        let mut parse_skips = 0usize;
+        for iteration in 0..MUTATIONS_PER_RULE {
+            let case = &fixture.cases[iteration % fixture.cases.len()];
+            let seed = stable_seed(rule.name(), iteration as u64);
+            let input = adversarial_input(iteration, &case.source, seed);
+            write_mutation_reproduction(seed, &input);
+            if rule_panics(rule, &input) {
+                let minimized = minimize_panicking_input(rule, input);
+                panic!(
+                    "mutation panic: rule={} seed={seed:#018x} minimized_input={:?}",
+                    rule.name(),
+                    String::from_utf8_lossy(&minimized)
+                );
+            }
+            let Ok(source) = std::str::from_utf8(&input) else {
+                parse_skips += 1;
+                continue;
+            };
+            let Ok(syntax) = syn::parse_file(source) else {
+                parse_skips += 1;
+                continue;
+            };
+            parseable.insert(hex_input(source));
+            if rule
+                .check_file(&syntax, &case.path)
+                .iter()
+                .any(|diagnostic| diagnostic.rule == rule.name())
+            {
+                fired += 1;
+            } else {
+                did_not_fire += 1;
+            }
+        }
+        assert!(
+            parseable.len() >= MIN_DISTINCT_PARSEABLE,
+            "{} produced only {} distinct parseable mutations (parse_skips={parse_skips})",
+            rule.name(),
+            parseable.len()
+        );
+        assert!(
+            parse_skips > 0,
+            "{} did not exercise the parse-skip boundary",
+            rule.name()
+        );
+        assert!(
+            fired > 0 && did_not_fire > 0,
+            "{} mutation oracle was non-live or fired universally: fired={fired}, quiet={did_not_fire}",
+            rule.name()
+        );
+    }
+
+    fn hex_input(source: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        digest.update(source.as_bytes());
+        format!("{:x}", digest.finalize())
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum WorkerOutcome {
+        Success,
+        CaughtPanic(String),
+        Abort(String),
+        Timeout(String),
+    }
+
+    fn mutation_worker(rule: Option<&str>, mode: Option<&str>, timeout: Duration) -> WorkerOutcome {
+        let reproduction_dir = tempfile::tempdir().expect("create mutation reproduction directory");
+        let reproduction_path = reproduction_dir.path().join("active-mutation.txt");
+        std::fs::write(
+            &reproduction_path,
+            "seed=0x0000000000000000\ninput=\"synthetic worker boundary\"\n",
+        )
+        .expect("initialize mutation reproduction");
+        let mut command = Command::new(std::env::current_exe().expect("current test executable"));
+        command
+            .arg("mutation_worker_child")
+            .args(["--ignored", "--nocapture"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("RUST_DOCTOR_MUTATION_REPRO", &reproduction_path);
+        if let Some(rule) = rule {
+            command.env("RUST_DOCTOR_MUTATION_RULE", rule);
+        }
+        if let Some(mode) = mode {
+            command.env("RUST_DOCTOR_MUTATION_MODE", mode);
+        }
+        let mut child = command.spawn().expect("spawn mutation worker");
+        let started = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().expect("poll mutation worker") {
+                let output = child.wait_with_output().expect("collect mutation worker");
+                if status.success() {
+                    return WorkerOutcome::Success;
+                }
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return if stderr.contains("mutation panic:") {
+                    WorkerOutcome::CaughtPanic(format!(
+                        "{stderr}\n{}",
+                        read_mutation_reproduction(&reproduction_path)
+                    ))
+                } else {
+                    WorkerOutcome::Abort(read_mutation_reproduction(&reproduction_path))
+                };
+            }
+            if started.elapsed() >= timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                return WorkerOutcome::Timeout(read_mutation_reproduction(&reproduction_path));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn write_mutation_reproduction(seed: u64, input: &[u8]) {
+        let Ok(path) = std::env::var("RUST_DOCTOR_MUTATION_REPRO") else {
+            return;
+        };
+        std::fs::write(
+            path,
+            format!(
+                "seed={seed:#018x}\ninput={:?}\n",
+                String::from_utf8_lossy(input)
+            ),
+        )
+        .expect("persist active mutation reproduction");
+    }
+
+    fn read_mutation_reproduction(path: &Path) -> String {
+        std::fs::read_to_string(path)
+            .unwrap_or_else(|error| format!("reproduction unavailable: {error}"))
+    }
+
+    #[test]
+    #[ignore = "subprocess entry point for the parent mutation harness"]
+    fn mutation_worker_child() {
+        match std::env::var("RUST_DOCTOR_MUTATION_MODE").as_deref() {
+            Ok("abort") => std::process::abort(),
+            Ok("panic") => panic!("mutation panic: synthetic worker boundary"),
+            Ok("timeout") => thread::sleep(Duration::from_mins(1)),
+            _ => {}
+        }
+        let selected =
+            std::env::var("RUST_DOCTOR_MUTATION_RULE").expect("mutation worker requires a rule ID");
+        let fixtures: HashMap<_, _> = conformance_manifest()
+            .into_iter()
+            .map(|fixture| (fixture.id.clone(), fixture))
+            .collect();
+        let rule = all_custom_rules()
+            .into_iter()
+            .find(|rule| rule.name() == selected)
+            .expect("selected mutation rule must exist");
+        run_mutations_for_rule(rule.as_ref(), &fixtures[&selected]);
+    }
+
     #[test]
     fn conformance_manifest_covers_every_custom_rule() {
         let manifest = conformance_manifest();
@@ -811,6 +1118,26 @@ mod tests {
                     rule.name()
                 );
             }
+            let fixture_limitations: HashSet<_> = fixture
+                .cases
+                .iter()
+                .filter_map(|case| case.kind.strip_prefix("limitation:"))
+                .map(|limitation| format!("{}:{limitation}", rule.name()))
+                .collect();
+            let descriptor_limitations: HashSet<_> = crate::catalog::built_in_catalog()
+                .unwrap()
+                .exact(rule.name())
+                .unwrap()
+                .limitation_ids
+                .iter()
+                .cloned()
+                .collect();
+            assert_eq!(
+                fixture_limitations,
+                descriptor_limitations,
+                "{} limitation fixtures and catalog IDs differ",
+                rule.name()
+            );
         }
     }
 
@@ -886,38 +1213,41 @@ mod tests {
     }
 
     #[test]
-    fn seeded_mutations_never_escape_rule_panic_isolation() {
-        const MUTATIONS_PER_RULE: usize = 1_000;
+    fn seeded_mutations_are_subprocess_isolated_and_semantically_bounded() {
         let started = Instant::now();
         let budget = std::env::var("RUST_DOCTOR_MUTATION_BUDGET_SECS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .map_or(Duration::from_secs(30), Duration::from_secs);
-        let fixtures: HashMap<_, _> = conformance_manifest()
-            .into_iter()
-            .map(|fixture| (fixture.id.clone(), fixture))
-            .collect();
-
         for rule in all_custom_rules() {
-            let fixture = fixtures.get(rule.name()).unwrap();
-            for iteration in 0..MUTATIONS_PER_RULE {
-                let source = &fixture.cases[iteration % fixture.cases.len()].source;
-                let seed = stable_seed(rule.name(), iteration as u64);
-                let input = adversarial_input(iteration, source, seed);
-                if rule_panics(rule.as_ref(), &input) {
-                    let minimized = minimize_panicking_input(rule.as_ref(), input);
-                    panic!(
-                        "mutation panic: rule={} seed={seed:#018x} minimized_input={:?}",
-                        rule.name(),
-                        String::from_utf8_lossy(&minimized)
-                    );
-                }
-            }
+            let outcome = mutation_worker(Some(rule.name()), None, Duration::from_secs(10));
+            assert!(
+                matches!(outcome, WorkerOutcome::Success),
+                "mutation worker failed for {}: {outcome:?}",
+                rule.name()
+            );
         }
         assert!(
             started.elapsed() <= budget,
             "mutation harness exceeded budget of {} seconds",
             budget.as_secs()
+        );
+    }
+
+    #[test]
+    fn mutation_worker_distinguishes_panic_abort_and_timeout() {
+        let panic = mutation_worker(None, Some("panic"), Duration::from_secs(2));
+        assert!(
+            matches!(panic, WorkerOutcome::CaughtPanic(message) if message.contains("mutation panic:")
+                && message.contains("seed=") && message.contains("input="))
+        );
+        let abort = mutation_worker(None, Some("abort"), Duration::from_secs(2));
+        assert!(
+            matches!(abort, WorkerOutcome::Abort(reproduction) if reproduction.contains("seed=") && reproduction.contains("input="))
+        );
+        let timeout = mutation_worker(None, Some("timeout"), Duration::from_millis(100));
+        assert!(
+            matches!(timeout, WorkerOutcome::Timeout(reproduction) if reproduction.contains("seed=") && reproduction.contains("input="))
         );
     }
 
@@ -976,13 +1306,49 @@ mod tests {
     }
 
     #[test]
+    fn full_rule_engine_scans_every_rust_source_surface() {
+        let dir = tempfile::tempdir().unwrap();
+        for path in [
+            "src/lib.rs",
+            "tests/integration.rs",
+            "benches/health.rs",
+            "examples/demo.rs",
+            "build.rs",
+            "custom/entry.rs",
+            "generated/output.rs",
+        ] {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "fn surface() {}\n").unwrap();
+        }
+        let engine = RuleEngine::new(vec![Box::new(AlwaysWarnsRule)]);
+        let diagnostics = engine.scan_with_config(dir.path(), &[], &[], &[]);
+        let paths: HashSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.file_path.as_path())
+            .collect();
+        assert_eq!(paths.len(), 7);
+        assert!(paths.contains(Path::new("generated/output.rs")));
+        assert!(paths.contains(Path::new("tests/integration.rs")));
+        assert!(paths.contains(Path::new("build.rs")));
+    }
+
+    #[test]
     fn test_rule_engine_catches_panics() {
         let dir = make_temp_project(&[("main.rs", "fn main() {}")]);
         let engine = RuleEngine::new(vec![Box::new(PanickingRule), Box::new(AlwaysWarnsRule)]);
         let diags = engine.scan_with_config(dir.path(), &[], &[], &[]);
-        // PanickingRule panicked and was caught; AlwaysWarnsRule still ran
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].rule, "always-warns");
+        assert_eq!(diags.len(), 2);
+        assert!(
+            diags
+                .iter()
+                .any(|diagnostic| diagnostic.rule == "always-warns")
+        );
+        assert!(
+            diags
+                .iter()
+                .any(|diagnostic| diagnostic.rule == scanner::ANALYSIS_FAILURE_RULE)
+        );
     }
 
     #[test]
@@ -990,8 +1356,9 @@ mod tests {
         let dir = make_temp_project(&[("main.rs", "this is not valid rust {{{{")]);
         let engine = RuleEngine::new(vec![Box::new(AlwaysWarnsRule)]);
         let diags = engine.scan_with_config(dir.path(), &[], &[], &[]);
-        // File couldn't be parsed, so no diagnostics
-        assert!(diags.is_empty());
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].rule, scanner::ANALYSIS_FAILURE_RULE);
+        assert!(diags[0].message.starts_with("parse_failed:"));
     }
 
     #[test]

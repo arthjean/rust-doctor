@@ -17,7 +17,10 @@ pub const EXIT_SCAN_ERROR: u8 = 2;
 pub const EXIT_GATE_FAILURE: u8 = 3;
 /// Exit code for incomplete required analysis.
 pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 4;
-use crate::diagnostics::{BaselineReport, CheckState, CheckStatus, ReportV1, ScanMode, ScanResult};
+use crate::diagnostics::{
+    BaselineReport, CheckState, CheckStatus, CompletenessState, GateResult, ReportV1, ScanMode,
+    ScanResult,
+};
 use crate::{config, deps, diff, discovery, fixer, output, plan, sarif, scan};
 
 /// Apply the root color policy before any command emits output.
@@ -163,6 +166,44 @@ pub fn run_scan(
     );
     let mut result =
         match diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files) {
+            Ok(scope)
+                if scope.reporting_scope == diff::ReportingScope::Changed
+                    && scope.has_applicable_work()
+                    && !has_uncommitted_scope_work(
+                        project_info,
+                        resolved,
+                        request.include_untracked,
+                    )? =>
+            {
+                let mut baseline_scope = scope.clone();
+                baseline_scope.reporting_scope = diff::ReportingScope::Baseline;
+                let mut result = run_baseline(
+                    cli,
+                    project_info,
+                    resolved,
+                    suppress_spinner,
+                    &baseline_scope,
+                    &control,
+                )?;
+                result.diagnostics = diff::filter_diagnostics(
+                    std::mem::take(&mut result.diagnostics),
+                    &result.compiler_evidence,
+                    &project_info.root_dir,
+                    &scope,
+                );
+                let retained = result.diagnostics.clone();
+                result.compiler_evidence.retain(|evidence| {
+                    retained
+                        .iter()
+                        .any(|diagnostic| evidence.matches(diagnostic))
+                });
+                result.execution.reporting_scope = "changed".to_string();
+                if let Some(baseline) = &mut result.execution.baseline {
+                    baseline.new_count = result.diagnostics.len();
+                }
+                recalculate_result(&mut result, resolved, &project_info.root_dir);
+                result
+            }
             Ok(scope) => match scope.reporting_scope {
                 diff::ReportingScope::Staged => run_staged(
                     cli,
@@ -190,13 +231,17 @@ pub fn run_scan(
                     &control,
                 )?,
             },
-            Err(error) if request.reporting_scope == diff::ReportingScope::Baseline => {
+            Err(error)
+                if request.reporting_scope == diff::ReportingScope::Baseline
+                    && baseline_error_may_degrade(&error) =>
+            {
                 degraded_baseline_without_base(
                     cli,
                     project_info,
                     resolved,
                     suppress_spinner,
                     &control,
+                    request.base.clone(),
                     error.to_string(),
                 )?
             }
@@ -206,6 +251,32 @@ pub fn run_scan(
         filter_categories(&mut result, &cli.category, resolved, &project_info.root_dir);
     }
     Ok(result)
+}
+
+const fn baseline_error_may_degrade(error: &crate::error::DiffError) -> bool {
+    matches!(
+        error,
+        crate::error::DiffError::MergeBaseFailed(_)
+            | crate::error::DiffError::IndexConflict(_)
+            | crate::error::DiffError::BaselineUnavailable(_)
+    )
+}
+
+fn has_uncommitted_scope_work(
+    project_info: &discovery::ProjectInfo,
+    resolved: &config::ResolvedConfig,
+    include_untracked: bool,
+) -> Result<bool, crate::error::ScanError> {
+    let request = diff::ScopeRequest {
+        reporting_scope: diff::ReportingScope::Changed,
+        base: Some("HEAD".to_string()),
+        files: Vec::new(),
+        include_untracked,
+    };
+    Ok(
+        diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files)?
+            .has_applicable_work(),
+    )
 }
 
 fn filter_categories(
@@ -335,7 +406,7 @@ fn run_staged(
     scope: &diff::ScopePlan,
     control: &crate::process::ScanControl,
 ) -> Result<ScanResult, crate::error::ScanError> {
-    if scope.is_empty_staged() {
+    if !scope.has_applicable_work() {
         return scan::scan_project_scoped(
             original_project,
             resolved,
@@ -347,6 +418,12 @@ fn run_staged(
         );
     }
     let snapshot = diff::materialize_staged(&original_project.root_dir)?;
+    diff::validate_staged_policy_snapshot(&original_project.root_dir, snapshot.root())?;
+    let policy_fingerprint = diff::policy_fingerprint(snapshot.root()).map_err(|error| {
+        crate::error::DiffError::StagedSnapshot(format!(
+            "failed to fingerprint staged configuration: {error}"
+        ))
+    })?;
     let snapshot_project =
         discovery::discover_project(&snapshot.root().join("Cargo.toml"), cli.offline).map_err(
             |error| {
@@ -371,6 +448,23 @@ fn run_staged(
     );
     result.execution.execution_scope = "isolated_snapshot".to_string();
     result.execution.reporting_scope = "staged".to_string();
+    let provenance_check = CheckState {
+        name: "staged snapshot".to_string(),
+        required: true,
+        status: CheckStatus::Completed,
+        reason: Some(format!("policy_fingerprint={policy_fingerprint}")),
+    };
+    result.execution.checks.push(provenance_check.clone());
+    result
+        .execution
+        .checks
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    for package in &mut result.execution.packages {
+        package.checks.push(provenance_check.clone());
+        package
+            .checks
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
     Ok(result)
 }
 
@@ -418,6 +512,43 @@ fn run_baseline(
                 );
             }
         };
+    let base_file_config = if cli.no_project_config {
+        None
+    } else {
+        match config::load_file_config(&base_project.root_dir, Some(&base_project.package_metadata))
+        {
+            Ok(file_config) => file_config,
+            Err(error) => {
+                return degraded_baseline(
+                    cli,
+                    project,
+                    resolved,
+                    suppress_spinner,
+                    control,
+                    scope,
+                    format!("base configuration failed: {error}"),
+                );
+            }
+        }
+    };
+    let base_resolved = config::resolve_config(cli, base_file_config.as_ref());
+    let head_config_fingerprint = diff::policy_fingerprint(&project.root_dir).map_err(|error| {
+        crate::error::DiffError::Other(format!("failed to fingerprint head configuration: {error}"))
+    })?;
+    let base_config_fingerprint = match diff::policy_fingerprint(&base_project.root_dir) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            return degraded_baseline(
+                cli,
+                project,
+                resolved,
+                suppress_spinner,
+                control,
+                scope,
+                format!("base configuration fingerprint failed: {error}"),
+            );
+        }
+    };
 
     let full_scope = diff::ScopePlan::full();
     let mut head = scan::scan_project_scoped(
@@ -441,7 +572,7 @@ fn run_baseline(
     }
     let base = scan::scan_project_scoped(
         &base_project,
-        resolved,
+        &base_resolved,
         cli.offline,
         &cli.project,
         true,
@@ -481,7 +612,14 @@ fn run_baseline(
     head.execution.reporting_scope = "baseline".to_string();
     head.execution.execution_scope = "full_packages+isolated_snapshot".to_string();
     head.execution.baseline = Some(BaselineReport {
+        requested_base: scope
+            .requested_base
+            .clone()
+            .unwrap_or_else(|| "auto".to_string()),
+        resolved_base: Some(base_commit.to_string()),
         base_commit: base_commit.to_string(),
+        head_config_fingerprint,
+        base_config_fingerprint: Some(base_config_fingerprint),
         new_count: head.diagnostics.len(),
         fixed_count: comparison.fixed_count,
         base_total: comparison.base_total,
@@ -586,10 +724,18 @@ fn degrade_scanned_baseline(
     }
     result.execution.checks.push(baseline_check);
     result.execution.baseline = Some(BaselineReport {
+        requested_base: scope
+            .requested_base
+            .clone()
+            .unwrap_or_else(|| "auto".to_string()),
+        resolved_base: scope.base_commit.clone(),
         base_commit: scope
             .base_commit
             .clone()
             .unwrap_or_else(|| "unresolved".to_string()),
+        head_config_fingerprint: diff::policy_fingerprint(workspace_root)
+            .unwrap_or_else(|_| "unavailable".to_string()),
+        base_config_fingerprint: None,
         new_count: result.diagnostics.len(),
         fixed_count: 0,
         base_total: 0,
@@ -607,6 +753,7 @@ fn degraded_baseline_without_base(
     resolved: &config::ResolvedConfig,
     suppress_spinner: bool,
     control: &crate::process::ScanControl,
+    requested_base: Option<String>,
     reason: String,
 ) -> Result<ScanResult, crate::error::ScanError> {
     let fallback_request = diff::ScopeRequest {
@@ -615,8 +762,10 @@ fn degraded_baseline_without_base(
         files: Vec::new(),
         include_untracked: cli.include_untracked,
     };
-    let fallback =
+    let mut fallback =
         diff::resolve_scope(&project.root_dir, &fallback_request, &resolved.ignore_files)?;
+    fallback.requested_base = Some(requested_base.unwrap_or_else(|| "auto".to_string()));
+    fallback.base_commit = None;
     degraded_baseline(
         cli,
         project,
@@ -660,10 +809,18 @@ fn degraded_baseline(
     }
     result.execution.checks.push(baseline_check);
     result.execution.baseline = Some(BaselineReport {
+        requested_base: scope
+            .requested_base
+            .clone()
+            .unwrap_or_else(|| "auto".to_string()),
+        resolved_base: scope.base_commit.clone(),
         base_commit: scope
             .base_commit
             .clone()
             .unwrap_or_else(|| "unresolved".to_string()),
+        head_config_fingerprint: diff::policy_fingerprint(&project.root_dir)
+            .unwrap_or_else(|_| "unavailable".to_string()),
+        base_config_fingerprint: None,
         new_count: result.diagnostics.len(),
         fixed_count: 0,
         base_total: 0,
@@ -675,12 +832,7 @@ fn degraded_baseline(
 }
 
 fn required_analysis_complete(result: &ScanResult) -> bool {
-    result
-        .execution
-        .checks
-        .iter()
-        .filter(|check| check.required)
-        .all(|check| check.status == CheckStatus::Completed)
+    crate::completeness::score_is_authoritative(result)
 }
 
 fn rebase_result_paths(result: &mut ScanResult, from: &Path, to: &Path) {
@@ -776,7 +928,14 @@ pub fn emit_output(
     project_info: &discovery::ProjectInfo,
 ) -> Result<(), crate::error::OutputError> {
     let mode = mode_from_reporting_scope(&scan_result.execution.reporting_scope);
-    let mut report = ReportV1::from_scan(scan_result, project_info, resolved, mode);
+    let report = ReportV1::from_scan_with_context(
+        scan_result,
+        project_info,
+        resolved,
+        mode,
+        &cli.directory,
+        evaluate_gate_result(cli, scan_result, resolved),
+    );
     if cli.score {
         output::render_score(scan_result);
     } else if cli.wants_json() {
@@ -786,16 +945,12 @@ pub fn emit_output(
             sarif::render_report_sarif(&report).map_err(crate::error::OutputError::Serialize)?;
         println!("{sarif_json}");
     } else {
-        if cli.warnings == WarningVisibility::Hide {
-            for diagnostic in &mut report.diagnostics {
-                if diagnostic.severity == crate::diagnostics::Severity::Warning {
-                    diagnostic
-                        .visible_on
-                        .retain(|surface| surface != "terminal");
-                }
-            }
-        }
-        output::render_terminal(&report, &scan_result.pass_timings, resolved.verbose);
+        output::render_terminal(
+            &report,
+            &scan_result.pass_timings,
+            resolved.verbose,
+            cli.warnings != WarningVisibility::Hide,
+        );
     }
     Ok(())
 }
@@ -804,7 +959,7 @@ pub fn emit_output(
 pub fn emit_failure_report(
     cli: &Cli,
     kind: &str,
-    message: String,
+    error: &(dyn std::error::Error + 'static),
 ) -> Result<(), crate::error::OutputError> {
     if !cli.wants_json() {
         return Ok(());
@@ -822,7 +977,14 @@ pub fn emit_failure_report(
     } else {
         ScanMode::Full
     };
-    let report = ReportV1::failure(&cli.directory, mode, kind, message);
+    let mut causes = Vec::new();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        causes.push(cause.to_string());
+        source = cause.source();
+    }
+    let message = error.to_string();
+    let report = ReportV1::failure_with_causes(&cli.directory, mode, kind, &message, &causes);
     output::render_json(&report, cli.json_compact, cli.json_out.as_deref())
 }
 
@@ -841,7 +1003,9 @@ pub fn check_completeness_gate(
     scan_result: &ScanResult,
     require_complete: bool,
 ) -> Option<ExitCode> {
-    if !require_complete || required_analysis_complete(scan_result) {
+    if !require_complete
+        || crate::completeness::compute(scan_result).state == CompletenessState::Complete
+    {
         return None;
     }
     let incomplete: Vec<_> = scan_result
@@ -862,16 +1026,41 @@ pub fn check_completeness_gate(
     Some(ExitCode::from(EXIT_INCOMPLETE_ANALYSIS))
 }
 
+fn evaluate_gate_result(
+    cli: &Cli,
+    scan_result: &ScanResult,
+    resolved: &config::ResolvedConfig,
+) -> GateResult {
+    let configured = cli.require_complete
+        || resolved.score_fail_below.is_some()
+        || resolved.fail_on != FailOn::None;
+    if !configured {
+        return GateResult::NotEvaluated;
+    }
+    let incomplete = cli.require_complete
+        && crate::completeness::compute(scan_result).state != CompletenessState::Complete;
+    let score_failed = resolved
+        .score_fail_below
+        .is_some_and(|threshold| scan_result.score < threshold);
+    let findings_failed =
+        check_fail_on_gate_for_config(scan_result, resolved, resolved.fail_on).is_some();
+    if incomplete || score_failed || findings_failed {
+        GateResult::Failed
+    } else {
+        GateResult::Passed
+    }
+}
+
 /// Returns `Some(ExitCode)` with `EXIT_GATE_FAILURE` if the score is below the configured threshold.
 pub fn check_score_gate(scan_result: &ScanResult, threshold: Option<u32>) -> Option<ExitCode> {
-    if let Some(threshold) = threshold {
-        if scan_result.score < threshold {
-            eprintln!(
-                "Score {} is below the configured threshold of {}",
-                scan_result.score, threshold
-            );
-            return Some(ExitCode::from(EXIT_GATE_FAILURE));
-        }
+    if let Some(threshold) = threshold
+        && scan_result.score < threshold
+    {
+        eprintln!(
+            "Score {} is below the configured threshold of {}",
+            scan_result.score, threshold
+        );
+        return Some(ExitCode::from(EXIT_GATE_FAILURE));
     }
     None
 }

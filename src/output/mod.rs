@@ -37,12 +37,16 @@ pub fn render_json(
     compact: bool,
     destination: Option<&Path>,
 ) -> Result<(), crate::error::OutputError> {
-    let mut bytes = if compact {
+    let serialized = if compact {
         serde_json::to_vec(report)
     } else {
         serde_json::to_vec_pretty(report)
-    }
-    .map_err(crate::error::OutputError::Serialize)?;
+    };
+    let mut bytes = match serialized {
+        Ok(bytes) => bytes,
+        Err(source) if destination.is_none() => renderer_failure_bytes(report, compact, &source)?,
+        Err(source) => return Err(crate::error::OutputError::Serialize(source)),
+    };
     bytes.push(b'\n');
 
     if let Some(path) = destination {
@@ -80,6 +84,25 @@ pub fn render_json(
             .map_err(crate::error::OutputError::Stdout)?;
     }
     Ok(())
+}
+
+fn renderer_failure_bytes(
+    report: &ReportV1,
+    compact: bool,
+    source: &serde_json::Error,
+) -> Result<Vec<u8>, crate::error::OutputError> {
+    let fallback = ReportV1::failure(
+        Path::new(&report.requested_root),
+        report.mode,
+        "renderer",
+        &format!("failed to serialize Report V1: {source}"),
+    );
+    if compact {
+        serde_json::to_vec(&fallback)
+    } else {
+        serde_json::to_vec_pretty(&fallback)
+    }
+    .map_err(crate::error::OutputError::Serialize)
 }
 
 #[cfg(test)]
@@ -307,7 +330,7 @@ mod tests {
             std::path::Path::new("/repo"),
             crate::diagnostics::ScanMode::Full,
             "scan",
-            "failed".to_string(),
+            "failed",
         );
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("report.json");
@@ -321,5 +344,20 @@ mod tests {
         let unwritable = directory.path().join("missing/report.json");
         assert!(render_json(&report, false, Some(&unwritable)).is_err());
         assert!(!unwritable.exists());
+    }
+
+    #[test]
+    fn renderer_failure_produces_a_parseable_failure_report() {
+        let report = crate::diagnostics::ReportV1::failure(
+            std::path::Path::new("/repo"),
+            crate::diagnostics::ScanMode::Full,
+            "scan",
+            "failed",
+        );
+        let error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let bytes = renderer_failure_bytes(&report, true, &error).unwrap();
+        let fallback: crate::diagnostics::ReportV1 = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(fallback.outcome, crate::diagnostics::ReportOutcome::Failed);
+        assert_eq!(fallback.error.unwrap().kind, "renderer");
     }
 }

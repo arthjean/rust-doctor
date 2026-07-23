@@ -1,9 +1,12 @@
 {
   "schema_version": "1.0",
   "tool_version": "0.2.0",
+  "report_constructed": true,
   "outcome": "nothing_to_scan",
   "requested_root": "/repo",
+  "resolved_root": "/repo",
   "mode": "files",
+  "gate_result": "not_evaluated",
   "execution_scope": "affected_packages",
   "reporting_scope": "files",
   "completeness": {

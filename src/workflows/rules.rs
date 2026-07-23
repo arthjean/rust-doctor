@@ -79,6 +79,7 @@ pub(super) struct RuleListEntry {
     applicable_frameworks: Vec<String>,
     framework_requirements: Vec<FrameworkRequirement>,
     description: String,
+    limitation_ids: Vec<String>,
     limitations: Vec<String>,
     fix_capability: String,
     fix_guidance: String,
@@ -122,6 +123,7 @@ pub(super) struct RuleExplanation {
     fix_capability: String,
     rationale: String,
     evidence_model: String,
+    limitation_ids: Vec<String>,
     limitations: Vec<String>,
     fix_guidance: String,
     official_documentation: Vec<String>,
@@ -304,6 +306,7 @@ pub(super) fn list_rules(
             applicable_frameworks: descriptor.applicable_frameworks.clone(),
             framework_requirements: descriptor.framework_requirements.clone(),
             description: descriptor.description.clone(),
+            limitation_ids: descriptor.limitation_ids.clone(),
             limitations: limitations(descriptor, false),
             fix_capability: fix_capability_key(descriptor.fix_capability).to_string(),
             fix_guidance: descriptor.fix_guidance.clone(),
@@ -466,6 +469,7 @@ fn explanation_for(
         fix_capability: fix_capability_key(descriptor.fix_capability).to_string(),
         rationale: descriptor.description.clone(),
         evidence_model: evidence_model(descriptor.analyzer_kind).to_string(),
+        limitation_ids: descriptor.limitation_ids.clone(),
         limitations: limitations(descriptor, namespace_fallback),
         fix_guidance: descriptor.fix_guidance.clone(),
         official_documentation: vec![descriptor.documentation_url.clone()],
@@ -750,6 +754,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             description: format!("Clippy `{lint}` diagnostic"),
             fix_guidance: "Apply the rustc suggestion when its applicability permits it."
                 .to_string(),
+            limitation_ids: Vec::new(),
         });
     }
     if is_rustsec_id(rule) {
@@ -772,6 +777,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             fix_guidance:
                 "Review the advisory and upgrade, replace, or isolate the affected dependency."
                     .to_string(),
+            limitation_ids: Vec::new(),
         });
     }
     if rule.strip_prefix("deny::").is_some_and(|code| {
@@ -799,6 +805,7 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             description: "Dependency policy finding reported by cargo-deny".to_string(),
             fix_guidance: "Follow the cargo-deny check guidance and update the dependency policy."
                 .to_string(),
+            limitation_ids: Vec::new(),
         });
     }
     None
@@ -835,6 +842,12 @@ fn limitations(descriptor: &RuleDescriptor, namespace_fallback: bool) -> Vec<Str
         _ => None,
     };
     let mut values = specific.into_iter().map(str::to_string).collect::<Vec<_>>();
+    values.extend(
+        descriptor
+            .limitation_ids
+            .iter()
+            .map(|id| format!("Conformance limitation: {id}")),
+    );
     if specific.is_none() && descriptor.analyzer_kind == AnalyzerKind::SynAst {
         values.push(
             "Syntactic analysis does not have rustc name resolution or inferred type information."
@@ -1457,16 +1470,16 @@ fn replace_enabled_with_severity(policy: &mut dyn TableLike, level: &str) {
         .map(|enabled| enabled.decor().clone());
 
     if policy.contains_key("severity") {
-        if let Some((leaf, dotted)) = key_decor {
-            if let Some(mut severity_key) = policy.key_mut("severity") {
-                merge_decor(severity_key.leaf_decor_mut(), &leaf);
-                merge_decor(severity_key.dotted_decor_mut(), &dotted);
-            }
+        if let Some((leaf, dotted)) = key_decor
+            && let Some(mut severity_key) = policy.key_mut("severity")
+        {
+            merge_decor(severity_key.leaf_decor_mut(), &leaf);
+            merge_decor(severity_key.dotted_decor_mut(), &dotted);
         }
-        if let Some(enabled_decor) = value_decor {
-            if let Some(severity) = policy.get_mut("severity").and_then(Item::as_value_mut) {
-                merge_decor(severity.decor_mut(), &enabled_decor);
-            }
+        if let Some(enabled_decor) = value_decor
+            && let Some(severity) = policy.get_mut("severity").and_then(Item::as_value_mut)
+        {
+            merge_decor(severity.decor_mut(), &enabled_decor);
         }
         return;
     }
@@ -1476,11 +1489,11 @@ fn replace_enabled_with_severity(policy: &mut dyn TableLike, level: &str) {
         *severity_value.decor_mut() = enabled_decor;
     }
     policy.insert("severity", severity);
-    if let Some((leaf, dotted)) = key_decor {
-        if let Some(mut severity_key) = policy.key_mut("severity") {
-            *severity_key.leaf_decor_mut() = leaf;
-            *severity_key.dotted_decor_mut() = dotted;
-        }
+    if let Some((leaf, dotted)) = key_decor
+        && let Some(mut severity_key) = policy.key_mut("severity")
+    {
+        *severity_key.leaf_decor_mut() = leaf;
+        *severity_key.dotted_decor_mut() = dotted;
     }
 }
 

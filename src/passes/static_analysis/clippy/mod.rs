@@ -10,6 +10,7 @@ pub use lint_registry::known_lint_names;
 pub(crate) use lint_registry::{LINT_REGISTRY, LintEntry};
 use lint_registry::{is_restriction_lint, map_lint_category, resolve_severity};
 
+use crate::catalog::AdapterProvenance;
 use crate::diagnostics::{
     Category, CompilerDiagnosticEvidence, CompilerFixEvidence, CompilerMacroEvidence,
     CompilerSpanEvidence, Diagnostic, FixApplicability, Severity, SourcePosition, SourceRange,
@@ -332,6 +333,11 @@ fn compiler_evidence(
         .collect();
 
     CompilerDiagnosticEvidence {
+        provenance: if rule.starts_with("clippy::") {
+            AdapterProvenance::Clippy
+        } else {
+            AdapterProvenance::Rustc
+        },
         rule: rule.to_string(),
         message: diagnostic.message.clone(),
         file_path: file_path.to_path_buf(),
@@ -421,6 +427,7 @@ fn unknown_level_diagnostic(
         fix: None,
     };
     let evidence = CompilerDiagnosticEvidence {
+        provenance: AdapterProvenance::Rustc,
         rule: diagnostic.rule.clone(),
         message: text,
         file_path,
@@ -653,12 +660,12 @@ fn run_clippy(
 
     // If the build failed and we got no error diagnostics from JSON,
     // capture stderr as a compiler-error diagnostic
-    if !build_succeeded && !diagnostics.iter().any(|d| d.severity == Severity::Error) {
-        if let Some(stderr) = stderr {
-            if let Some(fallback) = build_stderr_fallback(stderr) {
-                diagnostics.push(fallback);
-            }
-        }
+    if !build_succeeded
+        && !diagnostics.iter().any(|d| d.severity == Severity::Error)
+        && let Some(stderr) = stderr
+        && let Some(fallback) = build_stderr_fallback(stderr)
+    {
+        diagnostics.push(fallback);
     }
 
     filter_test_and_binary_lints(&mut diagnostics, project_root);

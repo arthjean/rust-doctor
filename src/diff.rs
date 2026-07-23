@@ -1,5 +1,6 @@
 use crate::diagnostics::{CompilerDiagnosticEvidence, Diagnostic};
 use crate::error::DiffError;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
@@ -7,6 +8,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 const MAX_GIT_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_POLICY_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_POLICY_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 const GIT_LFS_POINTER_HEADER: &[u8] = b"version https://git-lfs.github.com/spec/v1";
 
 /// User-visible reporting scope. Execution scope is tracked separately because
@@ -85,14 +88,12 @@ impl LineRange {
 #[derive(Debug, Clone)]
 pub struct ScopePlan {
     pub reporting_scope: ReportingScope,
+    pub requested_base: Option<String>,
     pub base_commit: Option<String>,
     pub paths: BTreeSet<PathBuf>,
     pub rust_files: BTreeSet<PathBuf>,
     pub line_ranges: BTreeMap<PathBuf, Vec<LineRange>>,
-    #[expect(
-        dead_code,
-        reason = "change kinds and both rename paths are retained for workspace and future report consumers"
-    )]
+    pub degradation_reason: Option<String>,
     pub changes: Vec<ChangedPath>,
 }
 
@@ -100,10 +101,12 @@ impl ScopePlan {
     pub const fn full() -> Self {
         Self {
             reporting_scope: ReportingScope::Full,
+            requested_base: None,
             base_commit: None,
             paths: BTreeSet::new(),
             rust_files: BTreeSet::new(),
             line_ranges: BTreeMap::new(),
+            degradation_reason: None,
             changes: Vec::new(),
         }
     }
@@ -112,8 +115,19 @@ impl ScopePlan {
         self.reporting_scope != ReportingScope::Full
     }
 
-    pub fn is_empty_staged(&self) -> bool {
-        self.reporting_scope == ReportingScope::Staged && self.rust_files.is_empty()
+    pub fn has_applicable_work(&self) -> bool {
+        self.reporting_scope == ReportingScope::Full
+            || !self.rust_files.is_empty()
+            || self.paths.iter().any(|path| is_project_work_path(path))
+    }
+
+    pub fn execution_paths(&self) -> BTreeSet<PathBuf> {
+        let mut paths = self.paths.clone();
+        for change in &self.changes {
+            paths.extend(change.old_path.iter().cloned());
+            paths.extend(change.new_path.iter().cloned());
+        }
+        paths
     }
 }
 
@@ -166,10 +180,12 @@ fn resolve_explicit_files(
         .collect();
     Ok(ScopePlan {
         reporting_scope: ReportingScope::Files,
+        requested_base: None,
         base_commit: None,
         paths,
         rust_files,
         line_ranges: BTreeMap::new(),
+        degradation_reason: None,
         changes: Vec::new(),
     })
 }
@@ -180,7 +196,8 @@ fn resolve_changed_scope(
     ignore_files: &[String],
 ) -> Result<ScopePlan, DiffError> {
     ensure_git_repository(project_root)?;
-    let base_commit = resolve_merge_base(project_root, request.base.as_deref().unwrap_or("auto"))?;
+    let requested_base = request.base.as_deref().unwrap_or("auto");
+    let base_commit = resolve_merge_base(project_root, requested_base)?;
     let mut changes = changed_paths(project_root, &base_commit, false)?;
     if request.include_untracked {
         changes.extend(untracked_paths(project_root)?);
@@ -192,19 +209,50 @@ fn resolve_changed_scope(
         .filter(|path| paths.contains(*path) && is_rust_file(path))
         .cloned()
         .collect();
-    let line_ranges = if request.reporting_scope == ReportingScope::Lines {
-        resolve_line_ranges(project_root, &base_commit, &rust_files, &changes, false)?
-    } else {
-        BTreeMap::new()
-    };
+    let (reporting_scope, line_ranges, degradation_reason) =
+        if request.reporting_scope == ReportingScope::Lines {
+            match resolve_line_ranges(project_root, &base_commit, &rust_files, &changes, false) {
+                Ok(ranges) => (ReportingScope::Lines, ranges, None),
+                Err(error) => (
+                    ReportingScope::Files,
+                    BTreeMap::new(),
+                    Some(format!(
+                        "line ranges were unavailable; degraded to files scope: {error}"
+                    )),
+                ),
+            }
+        } else {
+            (request.reporting_scope, BTreeMap::new(), None)
+        };
     Ok(ScopePlan {
-        reporting_scope: request.reporting_scope,
+        reporting_scope,
+        requested_base: Some(requested_base.to_string()),
         base_commit: Some(base_commit),
         paths,
         rust_files,
         line_ranges,
+        degradation_reason,
         changes,
     })
+}
+
+fn is_project_work_path(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(OsStr::to_str),
+        Some(
+            "Cargo.toml"
+                | "Cargo.lock"
+                | "rust-doctor.toml"
+                | "rust-toolchain"
+                | "rust-toolchain.toml"
+        )
+    ) || path
+        .components()
+        .any(|component| component.as_os_str() == ".cargo")
+}
+
+fn has_project_work(paths: &BTreeSet<PathBuf>) -> bool {
+    paths.iter().any(|path| is_project_work_path(path))
 }
 
 fn resolve_staged_scope(
@@ -223,10 +271,12 @@ fn resolve_staged_scope(
         .collect();
     Ok(ScopePlan {
         reporting_scope: ReportingScope::Staged,
+        requested_base: None,
         base_commit: Some("HEAD".to_string()),
         paths,
         rust_files,
         line_ranges: BTreeMap::new(),
+        degradation_reason: None,
         changes,
     })
 }
@@ -247,10 +297,17 @@ fn resolve_merge_base(project_root: &Path, base_hint: &str) -> Result<String, Di
             name: base_hint.to_string(),
             reason,
         })?;
-        verify_ref_exists(project_root, base_hint).map_err(|reason| DiffError::InvalidRef {
-            name: base_hint.to_string(),
-            reason,
-        })?;
+        if let Err(reason) = verify_ref_exists(project_root, base_hint) {
+            if is_proven_shallow_history_ref(project_root, base_hint) {
+                return Err(DiffError::MergeBaseFailed(format!(
+                    "base ref '{base_hint}' is unavailable in shallow history"
+                )));
+            }
+            return Err(DiffError::InvalidRef {
+                name: base_hint.to_string(),
+                reason,
+            });
+        }
         return merge_base(project_root, base_hint).map_err(DiffError::MergeBaseFailed);
     }
 
@@ -264,6 +321,17 @@ fn resolve_merge_base(project_root: &Path, base_hint: &str) -> Result<String, Di
     Err(DiffError::MergeBaseFailed(
         "could not auto-detect a base; pass --base <ref>".to_string(),
     ))
+}
+
+fn is_proven_shallow_history_ref(project_root: &Path, name: &str) -> bool {
+    let relative_history = name.starts_with("HEAD~") || name.starts_with("HEAD^");
+    let immutable_commit =
+        (7..=64).contains(&name.len()) && name.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if !relative_history && !immutable_commit {
+        return false;
+    }
+    run_git(project_root, ["rev-parse", "--is-shallow-repository"], None)
+        .is_ok_and(|output| matches!(output.as_slice(), b"true\n" | b"true\r\n"))
 }
 
 fn merge_base(project_root: &Path, base: &str) -> Result<String, String> {
@@ -603,7 +671,7 @@ pub fn filter_diagnostics(
                 return ranges.iter().any(|range| range.intersects(start, end));
             }
             if diagnostic.line.is_none() {
-                return !plan.rust_files.is_empty();
+                return !plan.rust_files.is_empty() || has_project_work(&plan.paths);
             }
             plan.rust_files.contains(&path)
         })
@@ -708,6 +776,132 @@ pub fn materialize_commit(
     })?;
     verify_ref_exists(project_root, commit).map_err(DiffError::BaselineUnavailable)?;
     materialize(project_root, Some(commit), SnapshotKind::Baseline)
+}
+
+/// Refuse a staged scan when policy-bearing worktree files differ from the
+/// exact index snapshot that will be compiled.
+pub fn validate_staged_policy_snapshot(
+    worktree_root: &Path,
+    snapshot_root: &Path,
+) -> Result<(), DiffError> {
+    let worktree = collect_policy_files(worktree_root).map_err(DiffError::StagedSnapshot)?;
+    let snapshot = collect_policy_files(snapshot_root).map_err(DiffError::StagedSnapshot)?;
+    let mut drift = BTreeSet::new();
+    for path in worktree.keys().chain(snapshot.keys()) {
+        if path.file_name() == Some(OsStr::new("Cargo.lock")) {
+            continue;
+        }
+        if worktree.get(path) != snapshot.get(path) {
+            drift.insert(path.clone());
+        }
+    }
+    if drift.is_empty() {
+        return Ok(());
+    }
+    let paths = drift
+        .iter()
+        .take(8)
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(DiffError::StagedSnapshot(format!(
+        "configuration or ignore policy differs between the index and worktree: {paths}"
+    )))
+}
+
+/// Stable fingerprint for the policy and Cargo inputs used by one snapshot.
+pub fn policy_fingerprint(root: &Path) -> Result<String, String> {
+    let files = collect_policy_files(root)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"rust-doctor-policy-v1\0");
+    for (path, content) in files {
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let path_len = u64::try_from(normalized.len())
+            .map_err(|_| "policy path length exceeded u64".to_string())?;
+        let content_len = u64::try_from(content.len())
+            .map_err(|_| "policy input length exceeded u64".to_string())?;
+        hasher.update(path_len.to_le_bytes());
+        hasher.update(normalized.as_bytes());
+        hasher.update(content_len.to_le_bytes());
+        hasher.update(content);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn collect_policy_files(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        files: &mut BTreeMap<PathBuf, Vec<u8>>,
+        total_bytes: &mut u64,
+    ) -> Result<(), String> {
+        let entries = std::fs::read_dir(directory)
+            .map_err(|error| format!("failed to read policy directory: {error}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("failed to read policy entry: {error}"))?;
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("failed to inspect policy path: {error}"))?;
+            if metadata.is_dir() {
+                if matches!(
+                    path.file_name().and_then(OsStr::to_str),
+                    Some(".git" | "target" | "vendor" | "node_modules")
+                ) {
+                    continue;
+                }
+                visit(root, &path, files, total_bytes)?;
+            } else if metadata.is_file() {
+                let relative = path
+                    .strip_prefix(root)
+                    .map_err(|_| "policy path escaped its scan root".to_string())?;
+                if is_policy_input(relative) {
+                    if metadata.len() > MAX_POLICY_FILE_BYTES {
+                        return Err(format!(
+                            "policy input '{}' exceeds the 16 MiB safety limit",
+                            relative.display()
+                        ));
+                    }
+                    *total_bytes = total_bytes
+                        .checked_add(metadata.len())
+                        .ok_or_else(|| "policy input size overflowed".to_string())?;
+                    if *total_bytes > MAX_POLICY_TOTAL_BYTES {
+                        return Err(
+                            "policy inputs exceeded the 64 MiB aggregate safety limit".to_string()
+                        );
+                    }
+                    let content = std::fs::read(&path)
+                        .map_err(|error| format!("failed to read policy input: {error}"))?;
+                    files.insert(normalize_relative_path(relative), content);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = BTreeMap::new();
+    let mut total_bytes = 0;
+    visit(root, root, &mut files, &mut total_bytes)?;
+    Ok(files)
+}
+
+fn is_policy_input(path: &Path) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    matches!(
+        path.file_name().and_then(OsStr::to_str),
+        Some(
+            "Cargo.toml"
+                | "Cargo.lock"
+                | "rust-doctor.toml"
+                | "rust-toolchain"
+                | "rust-toolchain.toml"
+                | ".gitignore"
+                | ".gitmodules"
+                | "deny.toml"
+        )
+    ) || matches!(
+        normalized.as_str(),
+        ".cargo/config" | ".cargo/config.toml" | ".cargo/audit.toml"
+    )
 }
 
 fn materialize(
@@ -1090,10 +1284,12 @@ mod tests {
     fn exact_filter_does_not_match_a_suffix_collision() {
         let plan = ScopePlan {
             reporting_scope: ReportingScope::Changed,
+            requested_base: None,
             base_commit: None,
             paths: BTreeSet::from([PathBuf::from("crate-a/src/lib.rs")]),
             rust_files: BTreeSet::from([PathBuf::from("crate-a/src/lib.rs")]),
             line_ranges: BTreeMap::new(),
+            degradation_reason: None,
             changes: Vec::new(),
         };
         let filtered = filter_diagnostics(
@@ -1113,6 +1309,7 @@ mod tests {
     fn line_filter_uses_the_full_compiler_span() {
         let diagnostic = diagnostic("src/lib.rs", Some(8), "span");
         let evidence = CompilerDiagnosticEvidence {
+            provenance: crate::catalog::AdapterProvenance::Rustc,
             rule: diagnostic.rule.clone(),
             message: diagnostic.message.clone(),
             file_path: diagnostic.file_path.clone(),
@@ -1140,6 +1337,7 @@ mod tests {
         };
         let plan = ScopePlan {
             reporting_scope: ReportingScope::Lines,
+            requested_base: None,
             base_commit: None,
             paths: BTreeSet::from([PathBuf::from("src/lib.rs")]),
             rust_files: BTreeSet::from([PathBuf::from("src/lib.rs")]),
@@ -1147,6 +1345,7 @@ mod tests {
                 PathBuf::from("src/lib.rs"),
                 vec![LineRange { start: 11, end: 11 }],
             )]),
+            degradation_reason: None,
             changes: Vec::new(),
         };
         assert_eq!(

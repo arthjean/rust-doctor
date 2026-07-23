@@ -126,6 +126,7 @@ pub struct CompilerFixEvidence {
 /// Compiler-only evidence that the legacy `Diagnostic` model cannot represent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerDiagnosticEvidence {
+    pub(crate) provenance: crate::catalog::AdapterProvenance,
     pub rule: String,
     pub message: String,
     pub file_path: PathBuf,
@@ -288,6 +289,16 @@ pub enum ReportOutcome {
     NothingToScan,
 }
 
+/// Quality-gate decision carried independently from scan outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GateResult {
+    Passed,
+    Failed,
+    NotEvaluated,
+}
+
 /// Completeness of planned analysis work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
@@ -371,6 +382,32 @@ pub enum DiagnosticLocation {
     Project,
 }
 
+/// Cargo ownership is explicit even when a finding has no source span.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DiagnosticOwnership {
+    Package { package_id: String },
+    Workspace,
+    Unowned,
+}
+
+/// Rust-native source context shared by policy and machine consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SourceSurface {
+    Library,
+    Binary,
+    Test,
+    Bench,
+    Example,
+    BuildScript,
+    Generated,
+    MacroExpansion,
+    Unknown,
+}
+
 /// Related source evidence retained by adapters that expose it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
@@ -426,6 +463,8 @@ pub struct CanonicalDiagnostic {
     pub analysis_kind: String,
     pub confidence: String,
     pub original_level: String,
+    pub ownership: DiagnosticOwnership,
+    pub source_surface: SourceSurface,
     pub location: DiagnosticLocation,
     pub related_locations: Vec<RelatedLocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -477,7 +516,13 @@ pub struct ReportSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
 pub struct BaselineReport {
+    pub requested_base: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_base: Option<String>,
     pub base_commit: String,
+    pub head_config_fingerprint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_config_fingerprint: Option<String>,
     pub new_count: usize,
     pub fixed_count: usize,
     pub base_total: usize,
@@ -493,6 +538,8 @@ pub struct BaselineReport {
 pub struct ReportError {
     pub kind: String,
     pub message: String,
+    pub causes: Vec<String>,
+    pub exit_classification: String,
 }
 
 /// Verbose policy audit data that never re-enables suppressed findings.
@@ -509,9 +556,12 @@ pub struct AuditMetadata {
 pub struct ReportV1 {
     pub schema_version: String,
     pub tool_version: String,
+    pub report_constructed: bool,
     pub outcome: ReportOutcome,
     pub requested_root: String,
+    pub resolved_root: Option<String>,
     pub mode: ScanMode,
+    pub gate_result: GateResult,
     #[serde(default)]
     pub execution_scope: String,
     #[serde(default)]
@@ -542,15 +592,33 @@ pub struct ReportV1 {
 }
 
 impl ReportV1 {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "report assembly keeps compatibility aliases and canonical V1 fields at one serialization boundary"
-    )]
     pub(crate) fn from_scan(
         result: &ScanResult,
         project: &crate::discovery::ProjectInfo,
         config: &crate::config::ResolvedConfig,
         mode: ScanMode,
+    ) -> Self {
+        Self::from_scan_with_context(
+            result,
+            project,
+            config,
+            mode,
+            &project.root_dir,
+            GateResult::NotEvaluated,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "report assembly keeps compatibility aliases and canonical V1 fields at one serialization boundary"
+    )]
+    pub(crate) fn from_scan_with_context(
+        result: &ScanResult,
+        project: &crate::discovery::ProjectInfo,
+        config: &crate::config::ResolvedConfig,
+        mode: ScanMode,
+        requested_root: &std::path::Path,
+        gate_result: GateResult,
     ) -> Self {
         let root = &project.root_dir;
         let mut diagnostics: Vec<_> = result
@@ -561,7 +629,7 @@ impl ReportV1 {
                     .compiler_evidence
                     .iter()
                     .find(|evidence| evidence.matches(diagnostic));
-                canonicalize(diagnostic, evidence, root, config)
+                canonicalize(diagnostic, evidence, project, config)
             })
             .collect();
         diagnostics.sort_by(|left, right| {
@@ -573,29 +641,15 @@ impl ReportV1 {
         let mut suppressed_security: Vec<_> = result
             .suppressed_security
             .iter()
-            .map(|diagnostic| canonicalize(diagnostic, None, root, config))
+            .map(|diagnostic| canonicalize(diagnostic, None, project, config))
             .collect();
         suppressed_security.sort_by(|left, right| left.site_id.cmp(&right.site_id));
 
-        let checks = if result.execution.checks.is_empty() {
-            report_checks(result)
-        } else {
-            result.execution.checks.clone()
-        };
+        let checks = crate::completeness::effective_checks(result);
         let planned_files = normalize_report_files(root, &result.planned_files);
         let analyzed_files = normalize_report_files(root, &result.analyzed_files);
-        let mut completeness =
-            report_completeness(planned_files.len(), analyzed_files.len(), &checks);
-        if result
-            .execution
-            .baseline
-            .as_ref()
-            .is_some_and(|baseline| baseline.baseline_degraded)
-        {
-            completeness.state = CompletenessState::Incomplete;
-            completeness.score_authoritative = false;
-        }
-        let nothing_to_scan = planned_files.is_empty();
+        let completeness = crate::completeness::compute(result);
+        let nothing_to_scan = !crate::completeness::has_applicable_work(result);
         let score = (!nothing_to_scan).then_some(result.score);
         let score_label = (!nothing_to_scan).then_some(result.score_label);
         let outcome = if nothing_to_scan {
@@ -644,9 +698,12 @@ impl ReportV1 {
         Self {
             schema_version: "1.0".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            report_constructed: true,
             outcome,
-            requested_root: display_path(root),
+            requested_root: display_path(requested_root),
+            resolved_root: Some(display_path(root)),
             mode,
+            gate_result,
             execution_scope: result.execution.execution_scope.clone(),
             reporting_scope,
             completeness,
@@ -676,7 +733,17 @@ impl ReportV1 {
         requested_root: &std::path::Path,
         mode: ScanMode,
         kind: &str,
-        message: String,
+        message: &str,
+    ) -> Self {
+        Self::failure_with_causes(requested_root, mode, kind, message, &[])
+    }
+
+    pub(crate) fn failure_with_causes(
+        requested_root: &std::path::Path,
+        mode: ScanMode,
+        kind: &str,
+        message: &str,
+        causes: &[String],
     ) -> Self {
         let completeness = ReportCompleteness {
             state: CompletenessState::Incomplete,
@@ -694,9 +761,12 @@ impl ReportV1 {
         Self {
             schema_version: "1.0".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            report_constructed: true,
             outcome: ReportOutcome::Failed,
             requested_root: display_path(requested_root),
+            resolved_root: None,
             mode,
+            gate_result: GateResult::NotEvaluated,
             execution_scope: "none".to_string(),
             reporting_scope: scan_mode_name(mode).to_string(),
             completeness,
@@ -715,7 +785,12 @@ impl ReportV1 {
             pass_timings_ms: BTreeMap::new(),
             error: Some(ReportError {
                 kind: kind.to_string(),
-                message,
+                message: redact_error_message(requested_root, message),
+                causes: causes
+                    .iter()
+                    .map(|cause| redact_error_message(requested_root, cause))
+                    .collect(),
+                exit_classification: exit_classification(kind).to_string(),
             }),
             audit: AuditMetadata::default(),
             baseline: None,
@@ -739,11 +814,17 @@ impl ReportV1 {
 fn canonicalize(
     diagnostic: &Diagnostic,
     compiler_evidence: Option<&CompilerDiagnosticEvidence>,
-    root: &std::path::Path,
+    project: &crate::discovery::ProjectInfo,
     config: &crate::config::ResolvedConfig,
 ) -> CanonicalDiagnostic {
+    let root = &project.root_dir;
     let resolved = crate::catalog::built_in_catalog().ok().map(|catalog| {
-        catalog.resolve(&diagnostic.rule, &diagnostic.category, diagnostic.severity)
+        catalog.resolve_with_provenance(
+            &diagnostic.rule,
+            &diagnostic.category,
+            diagnostic.severity,
+            compiler_evidence.map(|evidence| evidence.provenance),
+        )
     });
     let descriptor = resolved
         .as_ref()
@@ -857,6 +938,9 @@ fn canonicalize(
                 range: expansion.call_site.range.clone(),
             },
         });
+    let ownership = diagnostic_ownership(diagnostic, project);
+    let source_surface =
+        crate::config::classify_source_surface(&normalized_path, macro_expansion.is_some());
     let policy = descriptor.map(|value| config.rule_policy(value, Some(&diagnostic.file_path)));
     let visible_on = policy.map_or_else(all_surface_names, |value| {
         surface_names(|surface| value.visible_on(surface))
@@ -903,6 +987,8 @@ fn canonicalize(
             || diagnostic.severity.to_string(),
             |evidence| evidence.original_level.clone(),
         ),
+        ownership,
+        source_surface,
         location,
         related_locations,
         macro_expansion,
@@ -966,17 +1052,21 @@ fn project_reports(
                     normalize_report_files(&project.root_dir, &execution.planned_files);
                 let analyzed_files =
                     normalize_report_files(&project.root_dir, &execution.analyzed_files);
-                let completeness = report_completeness(
+                let completeness = crate::completeness::compute_from_parts(
                     planned_files.len(),
                     analyzed_files.len(),
                     &execution.checks,
+                    !planned_files.is_empty() || !execution.checks.is_empty(),
+                    false,
                 );
                 let package_diagnostics: Vec<_> = diagnostics
                     .iter()
-                    .filter(|diagnostic| {
-                        diagnostic_is_workspace_global(diagnostic)
-                            || diagnostic_owner(diagnostic, &package_roots)
-                                .is_none_or(|owner| owner == package_index)
+                    .filter(|diagnostic| match &diagnostic.ownership {
+                        DiagnosticOwnership::Package { package_id } => {
+                            package_id == &execution.cargo_package_id
+                        }
+                        DiagnosticOwnership::Workspace => true,
+                        DiagnosticOwnership::Unowned => false,
                     })
                     .cloned()
                     .collect();
@@ -1007,6 +1097,7 @@ fn project_reports(
                     skipped_reasons: execution
                         .checks
                         .iter()
+                        .filter(|check| check.status != CheckStatus::Completed)
                         .filter_map(|check| check.reason.clone())
                         .collect(),
                     score: execution.score,
@@ -1071,7 +1162,7 @@ fn project_reports(
                 .cloned()
                 .collect();
             ProjectReport {
-                cargo_package_id: package_id,
+                cargo_package_id: package_id.clone(),
                 package_root: normalized_root,
                 targets,
                 framework_capabilities,
@@ -1080,135 +1171,103 @@ fn project_reports(
                 checks: checks.to_vec(),
                 skipped_reasons: checks
                     .iter()
+                    .filter(|check| check.status != CheckStatus::Completed)
                     .filter_map(|check| check.reason.clone())
                     .collect(),
                 completeness: completeness.clone(),
                 score,
                 score_authoritative: completeness.score_authoritative,
                 elapsed_ms: duration_millis(result.elapsed),
-                diagnostics: diagnostics.to_vec(),
+                diagnostics: diagnostics
+                    .iter()
+                    .filter(|diagnostic| match &diagnostic.ownership {
+                        DiagnosticOwnership::Package { package_id: owner } => owner == &package_id,
+                        DiagnosticOwnership::Workspace => true,
+                        DiagnosticOwnership::Unowned => false,
+                    })
+                    .cloned()
+                    .collect(),
             }
         })
         .collect()
 }
 
-fn report_checks(result: &ScanResult) -> Vec<CheckState> {
-    let mut checks = std::collections::BTreeMap::new();
-    for (name, _) in &result.pass_timings {
-        checks.entry(name.clone()).or_insert_with(|| CheckState {
-            name: name.clone(),
-            required: is_required_check(name),
-            status: CheckStatus::Completed,
-            reason: None,
-        });
+fn diagnostic_ownership(
+    diagnostic: &Diagnostic,
+    project: &crate::discovery::ProjectInfo,
+) -> DiagnosticOwnership {
+    if diagnostic
+        .file_path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+        || (diagnostic.file_path.is_absolute()
+            && !diagnostic.file_path.starts_with(&project.root_dir))
+    {
+        return DiagnosticOwnership::Unowned;
     }
-    for reason in &result.skipped_passes {
-        let name = reason
-            .split(':')
-            .next()
-            .unwrap_or(reason)
-            .trim()
-            .to_string();
-        checks.insert(
-            name.clone(),
-            CheckState {
-                name,
-                required: is_required_check(reason),
-                status: classify_check_status(reason),
-                reason: Some(reason.clone()),
-            },
-        );
+    let normalized = normalize_path(&project.root_dir, &diagnostic.file_path);
+    if normalized == "<unknown>" {
+        return DiagnosticOwnership::Unowned;
     }
-    checks.into_values().collect()
-}
-
-fn classify_check_status(reason: &str) -> CheckStatus {
-    let lower = reason.to_ascii_lowercase();
-    if lower.contains("timed out") || lower.contains("timeout") {
-        CheckStatus::TimedOut
-    } else if lower.contains("cancel") {
-        CheckStatus::Cancelled
-    } else if lower.contains("failed") || lower.contains("panicked") {
-        CheckStatus::Failed
-    } else {
-        CheckStatus::Skipped
+    let virtual_workspace_manifest = normalized == "Cargo.toml"
+        && project.is_workspace
+        && !project
+            .workspace_members
+            .iter()
+            .any(|member| member.root_dir == project.root_dir);
+    if matches!(
+        normalized.as_str(),
+        "Cargo.lock" | "rust-doctor.toml" | "rust-toolchain" | "rust-toolchain.toml"
+    ) || virtual_workspace_manifest
+    {
+        return DiagnosticOwnership::Workspace;
     }
-}
-
-fn report_completeness(
-    planned_files: usize,
-    analyzed_files: usize,
-    checks: &[CheckState],
-) -> ReportCompleteness {
-    let count = |status| checks.iter().filter(|check| check.status == status).count();
-    let skipped = count(CheckStatus::Skipped);
-    let failed = count(CheckStatus::Failed);
-    let timed_out = count(CheckStatus::TimedOut);
-    let cancelled = count(CheckStatus::Cancelled);
-    let required_checks = checks.iter().filter(|check| check.required).count();
-    let required_completed_checks = checks
+    project
+        .workspace_members
         .iter()
-        .filter(|check| check.required && check.status == CheckStatus::Completed)
-        .count();
-    let required_incomplete = required_checks != required_completed_checks;
-    let pending = count(CheckStatus::Planned) + count(CheckStatus::Running);
-    let files_incomplete = analyzed_files < planned_files;
-    let state = if required_incomplete || files_incomplete {
-        CompletenessState::Incomplete
-    } else if skipped + failed + timed_out + cancelled + pending > 0 {
-        CompletenessState::Partial
-    } else {
-        CompletenessState::Complete
-    };
-    ReportCompleteness {
-        state,
-        planned_files,
-        analyzed_files: analyzed_files.min(planned_files),
-        completed_checks: count(CheckStatus::Completed),
-        skipped_checks: skipped,
-        failed_checks: failed,
-        timed_out_checks: timed_out,
-        cancelled_checks: cancelled,
-        required_checks,
-        required_completed_checks,
-        score_authoritative: planned_files > 0 && !required_incomplete && !files_incomplete,
-    }
+        .filter_map(|member| {
+            let member_root = normalize_path(&project.root_dir, &member.root_dir);
+            let matches = member_root == "."
+                || normalized == member_root
+                || normalized.starts_with(&format!("{member_root}/"));
+            matches.then_some((member_root.matches('/').count(), member))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map_or_else(
+            || {
+                if project.workspace_members.is_empty() {
+                    DiagnosticOwnership::Package {
+                        package_id: project.package_id.clone(),
+                    }
+                } else {
+                    DiagnosticOwnership::Unowned
+                }
+            },
+            |(_, member)| DiagnosticOwnership::Package {
+                package_id: member.package_id.clone(),
+            },
+        )
 }
 
-fn is_required_check(name: &str) -> bool {
-    matches!(
-        name.split(':').next().unwrap_or(name).trim(),
-        "clippy" | "custom rules" | "msrv"
+fn redact_error_message(requested_root: &std::path::Path, message: &str) -> String {
+    let root = display_path(requested_root);
+    let redacted = if root.is_empty() {
+        message.to_string()
+    } else {
+        message.replace(&root, "<requested-root>")
+    };
+    std::env::var("HOME").map_or_else(
+        |_| redacted.clone(),
+        |home| redacted.replace(&home.replace('\\', "/"), "$HOME"),
     )
 }
 
-fn diagnostic_owner(diagnostic: &CanonicalDiagnostic, package_roots: &[String]) -> Option<usize> {
-    let DiagnosticLocation::Source { path, .. } = &diagnostic.location else {
-        return (!package_roots.is_empty()).then_some(0);
-    };
-    package_roots
-        .iter()
-        .enumerate()
-        .filter(|(_, root)| {
-            root.as_str() == "."
-                || path.as_str() == root.as_str()
-                || path.starts_with(&format!("{root}/"))
-        })
-        .max_by_key(|(_, root)| root.matches('/').count() + usize::from(root.as_str() != "."))
-        .map(|(index, _)| index)
-}
-
-fn diagnostic_is_workspace_global(diagnostic: &CanonicalDiagnostic) -> bool {
-    match &diagnostic.location {
-        DiagnosticLocation::Project => true,
-        DiagnosticLocation::Source { path, .. } => matches!(
-            path.as_str(),
-            "Cargo.toml"
-                | "Cargo.lock"
-                | "rust-doctor.toml"
-                | "rust-toolchain"
-                | "rust-toolchain.toml"
-        ),
+fn exit_classification(kind: &str) -> &'static str {
+    match kind {
+        "config" | "bootstrap" | "discovery" | "scan" => "scan_error",
+        "gate" => "quality_gate",
+        "incomplete" => "incomplete_analysis",
+        _ => "internal_error",
     }
 }
 

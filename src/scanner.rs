@@ -7,6 +7,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub const ANALYSIS_FAILURE_RULE: &str = "rust-doctor::analysis-work-unit-failed";
+
 /// Trait for pluggable analysis passes.
 ///
 /// Each pass is run in parallel and returns a list of diagnostics.
@@ -129,20 +131,31 @@ impl ScanOrchestrator {
                 ProcessStop::Cancelled => CheckStatus::Cancelled,
             });
             match result.result {
-                Ok(diagnostics) => {
+                Ok(mut diagnostics) => {
+                    let work_failures: Vec<_> = diagnostics
+                        .iter()
+                        .filter(|diagnostic| diagnostic.rule == ANALYSIS_FAILURE_RULE)
+                        .map(|diagnostic| diagnostic.message.clone())
+                        .collect();
+                    diagnostics.retain(|diagnostic| diagnostic.rule != ANALYSIS_FAILURE_RULE);
                     let compiler_failed =
                         result.name == "clippy" && diagnostics.iter().any(is_compiler_failure);
                     all_diagnostics.extend(diagnostics);
-                    let status = stopped_status.unwrap_or(if compiler_failed {
-                        CheckStatus::Failed
-                    } else {
-                        CheckStatus::Completed
-                    });
+                    let work_units_failed = !work_failures.is_empty();
+                    let status =
+                        stopped_status.unwrap_or(if compiler_failed || work_units_failed {
+                            CheckStatus::Failed
+                        } else {
+                            CheckStatus::Completed
+                        });
                     let reason = match status {
                         CheckStatus::TimedOut => Some("scan deadline reached".to_string()),
                         CheckStatus::Cancelled => Some("scan cancellation requested".to_string()),
                         CheckStatus::Failed if compiler_failed => {
                             Some("project compilation failed".to_string())
+                        }
+                        CheckStatus::Failed if work_units_failed => {
+                            Some(summarize_work_failures(&work_failures))
                         }
                         _ => None,
                     };
@@ -337,6 +350,24 @@ fn is_compiler_failure(diagnostic: &Diagnostic) -> bool {
             }))
 }
 
+fn summarize_work_failures(failures: &[String]) -> String {
+    let mut reason = failures
+        .iter()
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("; ");
+    if failures.len() > 8 {
+        use std::fmt::Write;
+        let _ = write!(
+            reason,
+            "; and {} more failed work units",
+            failures.len() - 8
+        );
+    }
+    reason
+}
+
 const fn check_status_name(status: CheckStatus) -> &'static str {
     match status {
         CheckStatus::Planned => "planned",
@@ -443,11 +474,7 @@ pub fn count_source_files(root: &Path) -> usize {
             };
             if meta.is_dir() {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if !name.starts_with('.')
-                    && name != "target"
-                    && name != "vendor"
-                    && name != "generated"
-                {
+                if !name.starts_with('.') && name != "target" && name != "vendor" {
                     count += count_recursive(&path);
                 }
             } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
@@ -468,10 +495,6 @@ pub fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Maximum file size to parse (10 MB). Files larger than this are skipped
-/// to prevent out-of-memory crashes from pathologically large `.rs` files.
-const MAX_RS_FILE_SIZE: u64 = 10 * 1024 * 1024;
-
 fn collect_rs_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -484,21 +507,13 @@ fn collect_rs_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
         };
         if meta.is_dir() {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            // Skip hidden dirs, target, vendor, generated, and common non-source dirs
-            if !name.starts_with('.') && name != "target" && name != "vendor" && name != "generated"
-            {
+            // Generated Rust remains planned work. Policy controls its consumer
+            // surfaces, but collection cannot silently erase a valid Cargo target.
+            if !name.starts_with('.') && name != "target" && name != "vendor" {
                 collect_rs_files_recursive(&path, files);
             }
         } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
-            if meta.len() > MAX_RS_FILE_SIZE {
-                eprintln!(
-                    "Warning: skipping oversized file {} ({} bytes)",
-                    path.display(),
-                    meta.len()
-                );
-            } else {
-                files.push(path);
-            }
+            files.push(path);
         }
     }
 }
@@ -527,6 +542,7 @@ mod tests {
             score_fail_below: None,
             respect_inline_disables: true,
             max_parallelism: None,
+            evaluation_profile: false,
         }
     }
 

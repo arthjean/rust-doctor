@@ -11,6 +11,12 @@ pub enum ScanError {
 
     #[error("diff resolution failed: {0}")]
     Diff(#[from] DiffError),
+
+    #[error("canonical rule catalog is invalid: {0}")]
+    Catalog(String),
+
+    #[error("invalid resolved rule policy: {0}")]
+    InvalidPolicy(String),
 }
 
 /// Errors from workspace member resolution.
@@ -168,6 +174,23 @@ pub enum ConfigError {
 
     #[error("invalid path override pattern '{pattern}' in '{}'; configuration was not applied", path.display())]
     InvalidPathOverride { path: PathBuf, pattern: String },
+
+    #[error("configuration in '{}' declares {actual} policy entries; the maximum is {limit}", path.display())]
+    PolicyLimitExceeded {
+        path: PathBuf,
+        limit: usize,
+        actual: usize,
+    },
+
+    #[error("configuration in '{}' declares {actual} glob patterns; the maximum is {limit}", path.display())]
+    GlobLimitExceeded {
+        path: PathBuf,
+        limit: usize,
+        actual: usize,
+    },
+
+    #[error("rule '{rule}' has conflicting canonical and legacy policy in '{}'; configuration was not applied", path.display())]
+    ConflictingRulePolicy { path: PathBuf, rule: String },
 }
 
 /// Errors while serializing or routing machine output.

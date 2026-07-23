@@ -73,6 +73,7 @@ fn fast_config() -> ResolvedConfig {
         score_fail_below: None,
         respect_inline_disables: true,
         max_parallelism: None,
+        evaluation_profile: false,
     }
 }
 

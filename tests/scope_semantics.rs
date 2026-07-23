@@ -78,6 +78,70 @@ fn full_files_lines_and_untracked_scopes_report_exact_coverage() {
 }
 
 #[test]
+fn full_scope_is_a_semantic_superset_of_every_rust_source_surface() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "dependencies = false\n",
+    );
+    write(
+        &repository.path().join("Cargo.toml"),
+        &format!(
+            "{MANIFEST}build = \"build.rs\"\n\n[[bin]]\nname = \"custom\"\npath = \"custom/entry.rs\"\n"
+        ),
+    );
+    for (path, source) in [
+        ("build.rs", "fn main() { let _ = Some(1_u8).unwrap(); }\n"),
+        (
+            "tests/integration.rs",
+            "#[test] fn integration() { let _ = Some(1_u8).unwrap(); }\n",
+        ),
+        (
+            "benches/health.rs",
+            "fn main() { let _ = Some(1_u8).unwrap(); }\n",
+        ),
+        (
+            "examples/demo.rs",
+            "fn main() { let _ = Some(1_u8).unwrap(); }\n",
+        ),
+        (
+            "custom/entry.rs",
+            "fn main() { let _ = Some(1_u8).unwrap(); }\n",
+        ),
+        (
+            "generated/output.rs",
+            "pub fn generated() { let _ = Some(1_u8).unwrap(); }\n",
+        ),
+    ] {
+        write(&repository.path().join(path), source);
+    }
+
+    let output = scan(repository.path(), &["--json", "--offline"]);
+    assert_success(&output);
+    let report = parse_report(&output);
+    let planned: Vec<_> = report["projects"][0]["planned_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|path| path.as_str().unwrap())
+        .collect();
+    for expected in [
+        "build.rs",
+        "tests/integration.rs",
+        "benches/health.rs",
+        "examples/demo.rs",
+        "custom/entry.rs",
+        "generated/output.rs",
+    ] {
+        assert!(
+            planned.contains(&expected),
+            "missing planned file {expected}"
+        );
+    }
+}
+
+#[test]
 fn staged_scope_scans_index_content_instead_of_the_worktree() {
     let repository = tempfile::tempdir().unwrap();
     write_package(repository.path(), "fixture");
@@ -113,6 +177,59 @@ fn staged_scope_scans_index_content_instead_of_the_worktree() {
     assert_eq!(
         fs::read_to_string(repository.path().join("src/lib.rs")).unwrap(),
         worktree
+    );
+}
+
+#[test]
+fn staged_manifest_work_runs_package_checks_instead_of_returning_nothing() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    init_repository(repository.path());
+    let manifest = fs::read_to_string(repository.path().join("Cargo.toml")).unwrap();
+    write(
+        &repository.path().join("Cargo.toml"),
+        &format!("{manifest}\n# staged manifest work\n"),
+    );
+    git(repository.path(), &["add", "Cargo.toml"]);
+
+    let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
+    assert_success(&output);
+    let report = parse_report(&output);
+    assert_ne!(report["outcome"], "nothing_to_scan");
+    assert_eq!(report["mode"], "staged");
+    assert!(
+        report["projects"][0]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| check["name"] == "msrv" && check["status"] == "completed")
+    );
+}
+
+#[test]
+fn staged_scope_refuses_worktree_policy_drift() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    init_repository(repository.path());
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "lint = true\ndependencies = false\n",
+    );
+    git(repository.path(), &["add", "rust-doctor.toml"]);
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "lint = false\ndependencies = false\nverbose = true\n",
+    );
+
+    let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
+    assert_eq!(output.status.code(), Some(2));
+    let report = parse_report(&output);
+    assert_eq!(report["outcome"], "failed");
+    assert!(
+        report["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("differs between the index and worktree")
     );
 }
 
@@ -176,6 +293,50 @@ fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
             .unwrap()
             .contains("crates/a")
     );
+}
+
+#[test]
+fn inter_package_rename_schedules_both_old_and_new_owners() {
+    let repository = tempfile::tempdir().unwrap();
+    write(
+        &repository.path().join("Cargo.toml"),
+        "[workspace]\nresolver = \"3\"\nmembers = [\"crates/a\", \"crates/b\"]\n",
+    );
+    write(&repository.path().join("rust-doctor.toml"), FAST_CONFIG);
+    write_package(&repository.path().join("crates/a"), "a");
+    write_package(&repository.path().join("crates/b"), "b");
+    init_repository(repository.path());
+
+    git(
+        repository.path(),
+        &["mv", "crates/a/src/lib.rs", "crates/b/src/from_a.rs"],
+    );
+    write(
+        &repository.path().join("crates/a/src/lib.rs"),
+        "pub fn a_replacement() -> u8 { 2 }\n",
+    );
+    let output = scan(
+        repository.path(),
+        &[
+            "--json",
+            "--offline",
+            "--project",
+            "*",
+            "--scope",
+            "changed",
+            "--base",
+            "HEAD",
+        ],
+    );
+    assert_success(&output);
+    let report = parse_report(&output);
+    let roots: Vec<_> = report["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|project| project["package_root"].as_str().unwrap())
+        .collect();
+    assert_eq!(roots, ["crates/a", "crates/b"]);
 }
 
 #[test]
@@ -266,6 +427,18 @@ fn baseline_renames_are_isolated_and_shallow_history_fails_complete_gate() {
     let renamed = parse_report(&renamed);
     assert_eq!(renamed["mode"], "baseline");
     assert_eq!(renamed["baseline"]["baseline_degraded"], false);
+    assert_eq!(renamed["baseline"]["requested_base"], "HEAD");
+    assert_eq!(
+        renamed["baseline"]["resolved_base"],
+        renamed["baseline"]["base_commit"]
+    );
+    assert_eq!(
+        renamed["baseline"]["head_config_fingerprint"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
 
     git(repository.path(), &["add", "."]);
     git(repository.path(), &["commit", "--quiet", "-m", "rename"]);
@@ -301,6 +474,64 @@ fn baseline_renames_are_isolated_and_shallow_history_fails_complete_gate() {
     let degraded = parse_report(&degraded);
     assert_eq!(degraded["baseline"]["baseline_degraded"], true);
     assert_eq!(degraded["summary"]["score_authoritative"], false);
+}
+
+#[test]
+fn invalid_baseline_ref_fails_closed_without_degradation() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    init_repository(repository.path());
+
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--baseline", "--base", "HEAD..main"],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let report = parse_report(&output);
+    assert_eq!(report["outcome"], "failed");
+    assert!(report["baseline"].is_null());
+    assert!(
+        report["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("invalid ref")
+    );
+}
+
+#[test]
+fn parse_failure_is_failed_required_work_and_never_authoritative() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "dependencies = false\n",
+    );
+    write(
+        &repository.path().join("tests/broken.rs"),
+        "this is not valid Rust {{{\n",
+    );
+
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--require-complete"],
+    );
+    assert_eq!(output.status.code(), Some(4));
+    let report = parse_report(&output);
+    assert_eq!(report["completeness"]["state"], "incomplete");
+    assert_eq!(report["summary"]["score_authoritative"], false);
+    assert!(
+        report["projects"][0]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| {
+                check["name"] == "custom rules"
+                    && check["status"] == "failed"
+                    && check["reason"]
+                        .as_str()
+                        .is_some_and(|reason| reason.contains("parse_failed:tests/broken.rs"))
+            })
+    );
 }
 
 #[test]

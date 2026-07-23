@@ -18,6 +18,7 @@ pub fn render_terminal(
     result: &ReportV1,
     pass_timings: &[(String, std::time::Duration)],
     verbose: bool,
+    show_warnings: bool,
 ) {
     if let Some(baseline) = &result.baseline {
         if baseline.baseline_degraded {
@@ -56,10 +57,11 @@ pub fn render_terminal(
         .diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic
-                .visible_on
-                .iter()
-                .any(|value| value == "terminal")
+            (show_warnings || diagnostic.severity != Severity::Warning)
+                && diagnostic
+                    .visible_on
+                    .iter()
+                    .any(|value| value == "terminal")
         })
         .collect();
     if !diagnostics.is_empty() {
@@ -484,7 +486,7 @@ mod tests {
         warnings: usize,
         infos: usize,
     ) -> ReportV1 {
-        let mut report = ReportV1::failure(Path::new("."), ScanMode::Full, "test", String::new());
+        let mut report = ReportV1::failure(Path::new("."), ScanMode::Full, "test", "");
         report.outcome = ReportOutcome::Findings;
         report.completeness = ReportCompleteness {
             state: CompletenessState::Complete,
@@ -542,6 +544,10 @@ mod tests {
             analysis_kind: "synast".to_string(),
             confidence: "medium".to_string(),
             original_level: severity.to_string(),
+            ownership: crate::diagnostics::DiagnosticOwnership::Package {
+                package_id: "fixture".to_string(),
+            },
+            source_surface: crate::diagnostics::SourceSurface::Library,
             location: DiagnosticLocation::Source {
                 path: "src/lib.rs".to_string(),
                 range: SourceRange {
@@ -617,27 +623,27 @@ mod tests {
         ];
         let result = make_result(70, diags, 1, 1, 0);
         // Should not panic — output goes to stdout/stderr
-        render_terminal(&result, &[], false);
+        render_terminal(&result, &[], false, true);
     }
 
     #[test]
     fn test_render_terminal_zero_diagnostics() {
         let result = make_result(100, vec![], 0, 0, 0);
-        render_terminal(&result, &[], false);
+        render_terminal(&result, &[], false, true);
     }
 
     #[test]
     fn test_render_terminal_verbose() {
         let diags = vec![make_diagnostic("rule-a", Severity::Warning)];
         let result = make_result(80, diags, 0, 1, 0);
-        render_terminal(&result, &[], true);
+        render_terminal(&result, &[], true, true);
     }
 
     #[test]
     fn test_render_terminal_with_skipped_passes() {
         let mut result = make_result(90, vec![], 0, 0, 0);
         result.skipped_passes = vec!["cargo-audit".to_string(), "cargo-deny".to_string()];
-        render_terminal(&result, &[], false);
+        render_terminal(&result, &[], false, true);
     }
 
     #[test]
@@ -645,7 +651,7 @@ mod tests {
         let mut result = make_result(100, vec![], 0, 0, 0);
         result.source_file_count = 0;
         // Should print "No Rust source files found" and return early
-        render_terminal(&result, &[], false);
+        render_terminal(&result, &[], false, true);
     }
 
     // --- print_diagnostics grouping ---

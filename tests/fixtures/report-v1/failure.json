@@ -1,9 +1,12 @@
 {
   "schema_version": "1.0",
   "tool_version": "0.2.0",
+  "report_constructed": true,
   "outcome": "failed",
   "requested_root": "/repo",
+  "resolved_root": null,
   "mode": "full",
+  "gate_result": "not_evaluated",
   "execution_scope": "none",
   "reporting_scope": "full",
   "completeness": {
@@ -31,7 +34,12 @@
     "score_authoritative": false
   },
   "elapsed_ms": 0,
-  "error": { "kind": "discovery", "message": "no Cargo.toml" },
+  "error": {
+    "kind": "discovery",
+    "message": "no Cargo.toml",
+    "causes": [],
+    "exit_classification": "scan_error"
+  },
   "audit": { "suppressed_security": [] },
   "score": null,
   "score_label": null,

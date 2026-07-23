@@ -23,6 +23,15 @@ pub(crate) enum AnalyzerKind {
     External,
 }
 
+/// Adapter provenance used when a dynamic diagnostic has no exact descriptor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AdapterProvenance {
+    Rustc,
+    Clippy,
+    RustSec,
+    CargoDeny,
+}
+
 /// Confidence consumers should assign to a rule without type information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -77,6 +86,7 @@ pub(crate) struct RuleDescriptor {
     pub(crate) fix_capability: FixCapability,
     pub(crate) description: String,
     pub(crate) fix_guidance: String,
+    pub(crate) limitation_ids: Vec<String>,
 }
 
 impl RuleDescriptor {
@@ -129,6 +139,10 @@ impl RuleDescriptor {
             fix_capability: FixCapability::Guidance,
             description: rule.description().to_string(),
             fix_guidance: rule.fix_hint().to_string(),
+            limitation_ids: rules::documented_limitations(rule.name())
+                .iter()
+                .map(|limitation| format!("{}:{limitation}", rule.name()))
+                .collect(),
         }
     }
 
@@ -158,6 +172,7 @@ impl RuleDescriptor {
             description: format!("Clippy `{}` diagnostic", entry.name),
             fix_guidance: "Apply the rustc suggestion when its applicability permits it."
                 .to_string(),
+            limitation_ids: Vec::new(),
         }
     }
 
@@ -185,6 +200,7 @@ impl RuleDescriptor {
             fix_capability: FixCapability::Guidance,
             description: format!("Finding reported by {provider}"),
             fix_guidance: "Follow the originating analyzer guidance.".to_string(),
+            limitation_ids: Vec::new(),
         }
     }
 }
@@ -230,11 +246,21 @@ impl RuleCatalog {
         category: &Category,
         severity: Severity,
     ) -> ResolvedDescriptor<'_> {
+        self.resolve_with_provenance(raw_rule, category, severity, None)
+    }
+
+    pub(crate) fn resolve_with_provenance(
+        &self,
+        raw_rule: &str,
+        category: &Category,
+        severity: Severity,
+        provenance: Option<AdapterProvenance>,
+    ) -> ResolvedDescriptor<'_> {
         if let Some(descriptor) = self.exact(raw_rule) {
             return ResolvedDescriptor::Exact(descriptor);
         }
 
-        let (provider, analyzer, url) = external_namespace(raw_rule);
+        let (provider, analyzer, url) = external_namespace(raw_rule, provenance);
         let mut descriptor =
             RuleDescriptor::external(raw_rule, provider, category, severity, analyzer);
         descriptor.documentation_url = url;
@@ -322,19 +348,37 @@ const fn category_tag(category: &Category) -> &'static str {
     }
 }
 
-fn external_namespace(rule: &str) -> (&'static str, AnalyzerKind, String) {
-    if rule.starts_with("RUSTSEC-") {
+fn external_namespace(
+    rule: &str,
+    provenance: Option<AdapterProvenance>,
+) -> (&'static str, AnalyzerKind, String) {
+    if provenance == Some(AdapterProvenance::RustSec) || rule.starts_with("RUSTSEC-") {
         return (
             "rustsec",
             AnalyzerKind::Dependency,
             format!("https://rustsec.org/advisories/{rule}.html"),
         );
     }
-    if rule.starts_with("deny::") {
+    if provenance == Some(AdapterProvenance::CargoDeny) || rule.starts_with("deny::") {
         return (
             "cargo-deny",
             AnalyzerKind::Dependency,
             "https://embarkstudios.github.io/cargo-deny/checks/index.html".to_string(),
+        );
+    }
+    if provenance == Some(AdapterProvenance::Clippy) || rule.starts_with("clippy::") {
+        let lint = rule.strip_prefix("clippy::").unwrap_or(rule);
+        return (
+            "clippy",
+            AnalyzerKind::Clippy,
+            format!("https://rust-lang.github.io/rust-clippy/master/index.html#{lint}"),
+        );
+    }
+    if provenance == Some(AdapterProvenance::Rustc) {
+        return (
+            "rustc",
+            AnalyzerKind::External,
+            "https://doc.rust-lang.org/error_codes/error-index.html".to_string(),
         );
     }
     (
@@ -344,8 +388,47 @@ fn external_namespace(rule: &str) -> (&'static str, AnalyzerKind, String) {
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the external descriptor table is declarative catalog data"
+)]
 fn external_descriptors() -> Vec<RuleDescriptor> {
     [
+        (
+            "deny-advisory",
+            "cargo-deny",
+            Category::Dependencies,
+            Severity::Error,
+            AnalyzerKind::Dependency,
+        ),
+        (
+            "deny-license",
+            "cargo-deny",
+            Category::Cargo,
+            Severity::Warning,
+            AnalyzerKind::Dependency,
+        ),
+        (
+            "deny-ban",
+            "cargo-deny",
+            Category::Cargo,
+            Severity::Error,
+            AnalyzerKind::Dependency,
+        ),
+        (
+            "deny-source",
+            "cargo-deny",
+            Category::Cargo,
+            Severity::Warning,
+            AnalyzerKind::Dependency,
+        ),
+        (
+            "deny-unknown",
+            "cargo-deny",
+            Category::Dependencies,
+            Severity::Warning,
+            AnalyzerKind::Dependency,
+        ),
         (
             "unused-dependency",
             "cargo-machete",
@@ -460,14 +543,15 @@ mod tests {
             fix_capability: FixCapability::None,
             description: String::new(),
             fix_guidance: String::new(),
+            limitation_ids: Vec::new(),
         }
     }
 
     #[test]
     fn built_in_catalog_covers_every_explicit_rule() {
         let catalog = built_in_catalog().unwrap();
-        assert_eq!(catalog.custom_count(), 34);
-        assert_eq!(catalog.clippy_count(), 74);
+        assert_eq!(catalog.custom_count(), rules::all_custom_rules().len());
+        assert_eq!(catalog.clippy_count(), clippy::LINT_REGISTRY.len());
         for rule in rules::all_custom_rules() {
             assert!(catalog.exact(rule.name()).is_some(), "{}", rule.name());
         }
@@ -492,11 +576,53 @@ mod tests {
     #[test]
     fn dynamic_rustsec_codes_use_documented_namespace_fallback() {
         let catalog = built_in_catalog().unwrap();
-        let resolved = catalog.resolve("RUSTSEC-2099-9999", &Category::Security, Severity::Error);
+        let resolved = catalog.resolve_with_provenance(
+            "RUSTSEC-2099-9999",
+            &Category::Security,
+            Severity::Error,
+            Some(AdapterProvenance::RustSec),
+        );
         let descriptor = resolved.as_descriptor();
         assert!(resolved.is_fallback());
         assert_eq!(descriptor.provider, "rustsec");
         assert!(descriptor.documentation_url.contains("RUSTSEC-2099-9999"));
+    }
+
+    #[test]
+    fn cargo_deny_codes_preserve_adapter_namespace() {
+        let catalog = built_in_catalog().unwrap();
+        let resolved = catalog.resolve_with_provenance(
+            "future-deny-code",
+            &Category::Dependencies,
+            Severity::Warning,
+            Some(AdapterProvenance::CargoDeny),
+        );
+        let descriptor = resolved.as_descriptor();
+        assert!(resolved.is_fallback());
+        assert_eq!(descriptor.provider, "cargo-deny");
+        assert_eq!(descriptor.analyzer_kind, AnalyzerKind::Dependency);
+    }
+
+    #[test]
+    fn unknown_compiler_diagnostics_preserve_adapter_namespace() {
+        let catalog = built_in_catalog().unwrap();
+        let clippy = catalog.resolve_with_provenance(
+            "clippy::future_lint",
+            &Category::Style,
+            Severity::Warning,
+            Some(AdapterProvenance::Clippy),
+        );
+        assert_eq!(clippy.as_descriptor().provider, "clippy");
+        assert_eq!(clippy.as_descriptor().analyzer_kind, AnalyzerKind::Clippy);
+
+        let rustc = catalog.resolve_with_provenance(
+            "future_rustc_lint",
+            &Category::Correctness,
+            Severity::Warning,
+            Some(AdapterProvenance::Rustc),
+        );
+        assert_eq!(rustc.as_descriptor().provider, "rustc");
+        assert_eq!(rustc.as_descriptor().analyzer_kind, AnalyzerKind::External);
     }
 
     #[test]

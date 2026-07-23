@@ -42,6 +42,7 @@ fn fast_config() -> ResolvedConfig {
         score_fail_below: None,
         respect_inline_disables: true,
         max_parallelism: None,
+        evaluation_profile: false,
     }
 }
 
@@ -124,7 +125,7 @@ fn test_workspace_scan_no_deadlock_members_exceed_cores() {
     });
 
     let scan = rx
-        .recv_timeout(Duration::from_secs(60))
+        .recv_timeout(Duration::from_mins(1))
         .expect("workspace scan did not terminate within 60s — rayon deadlock regression (EP-001)")
         .expect("workspace scan should succeed");
 

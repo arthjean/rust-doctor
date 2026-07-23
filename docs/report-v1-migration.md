@@ -2,6 +2,8 @@
 
 Report V1 is the only structured machine-output contract from rust-doctor 0.2 onward. `--json`, `--json-compact`, `--json-out`, SARIF, and MCP projections are built from the same immutable report value.
 
+`report_constructed`, `outcome`, `completeness`, `summary.score_authoritative`, and `gate_result` are independent. A schema-valid failure report has `report_constructed = true` even when scanning failed. `requested_root` preserves user input while `resolved_root` identifies the discovered Cargo root.
+
 ## Compatibility
 
 V1 may add optional fields and enum variants. Consumers must ignore unknown fields and handle unknown enum values conservatively. Removing a field, changing a field's meaning, narrowing an accepted value, or changing identity inputs requires a new `schema_version`.
@@ -14,7 +16,9 @@ The legacy top-level `score`, `score_label`, `dimension_scores`, `source_file_co
 
 Every check carries `required`, `status`, and an optional reason. `completeness.score_authoritative` and `summary.score_authoritative` are false when required work, planned files, or a baseline comparison is incomplete. Optional unavailable adapters can make a report partial without invalidating a score that still covers every required check.
 
-Baseline reports expose the resolved commit, introduced and fixed counts, base total, conservative cross-file matches, and degradation state. Consumers must treat `baseline_degraded = true` as a files-scope fallback, never as a successful introduced-only comparison.
+Diagnostics declare `ownership` as a Cargo package ID, `workspace`, or `unowned`, independently from source location. They also expose `source_surface`. Test, bench, example, and generated findings remain visible on terminal, SARIF, MCP, and PR surfaces by default but do not affect score or CI failure unless an explicit rule, category, tag, or path policy includes those surfaces.
+
+Baseline reports preserve `requested_base` separately from `resolved_base` and the legacy `base_commit`, expose head and base policy fingerprints, introduced and fixed counts, base total, conservative cross-file matches, and degradation state. Consumers must treat `baseline_degraded = true` as a files-scope fallback, never as a successful introduced-only comparison.
 
 ## Stable identities
 

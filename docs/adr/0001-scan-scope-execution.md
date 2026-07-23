@@ -32,6 +32,8 @@ The report contract names both scopes. Aggregate `execution_scope` values are `f
 
 File-local rules receive the selected file set before any file read or parse. Clippy and other package-global adapters run for the owning package. Workspace-global checks run once for every affected workspace or emit an explicit skip. Root `Cargo.toml`, `Cargo.lock`, and workspace policy changes affect every selected member.
 
+Full scope is a semantic superset across `src`, tests, benches, examples, build scripts, custom Cargo targets, generated Rust, and macro call sites. Consumer-surface policy may exclude non-production contexts from score or CI failure, but discovery cannot erase them. Read failures, parse failures, oversized files, and caught rule panics fail the required file-local check while preserving findings already proven by other work units.
+
 ### Staged compiler scans
 
 Staged scans materialize the Git index into a `tempfile::TempDir` after these checks:
@@ -41,9 +43,11 @@ Staged scans materialize the Git index into a `tempfile::TempDir` after these ch
 3. Reject staged symlinks because Cargo could follow a link outside the isolated snapshot.
 4. Run `git checkout-index --all --prefix=<temp>/snapshot/` without consulting working-tree contents.
 
+Before execution, Cargo manifests, lockfiles, Rust Doctor policy, Cargo configuration, toolchain files, and ignore inputs are compared between the index snapshot and worktree. Any drift returns a typed staged-snapshot error instead of combining indexed source with worktree policy.
+
 Cargo runs from the snapshot with `CARGO_TARGET_DIR` under the same temporary directory. The temp directory owns sources, temporary index data, and build output, so RAII removes all materialization on success, error, timeout, or cancellation. Subprocesses run in a dedicated process group and are terminated before the guard drops.
 
-Baseline scans use the same strategy with a private `GIT_INDEX_FILE`: `git read-tree <merge-base>` populates the temporary index, then `checkout-index` materializes the base without checking out or modifying the user's worktree.
+Baseline scans use the same strategy with a private `GIT_INDEX_FILE`: `git read-tree <merge-base>` populates the temporary index, then `checkout-index` materializes the base without checking out or modifying the user's worktree. Base policy is loaded from that snapshot and fingerprinted separately from head policy. Reports retain both the requested ref and resolved commit. Invalid or unsafe refs fail closed; only shallow merge-base failure, index conflict, unavailable LFS content, materialization failure, or base build failure may degrade to files scope.
 
 ## Benchmark evidence
 

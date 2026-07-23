@@ -171,6 +171,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_project_config: bool,
 
+    /// Force the versioned offline corpus-evaluation policy.
+    #[arg(long, hide = true, requires = "no_project_config")]
+    pub evaluation_profile: bool,
+
     /// Color policy for terminal output
     #[arg(long, value_enum, default_value_t = ColorMode::Auto, conflicts_with = "no_color")]
     pub color: ColorMode,

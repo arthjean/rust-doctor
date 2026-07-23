@@ -15,15 +15,20 @@
       "description": "Head/base comparison metadata for baseline mode.",
       "properties": {
         "base_commit": { "type": "string" },
+        "base_config_fingerprint": { "type": ["string", "null"] },
         "base_total": { "format": "uint", "minimum": 0, "type": "integer" },
         "baseline_degraded": { "type": "boolean" },
         "cross_file_match_count": { "format": "uint", "minimum": 0, "type": "integer" },
         "degraded_reason": { "type": ["string", "null"] },
         "fixed_count": { "format": "uint", "minimum": 0, "type": "integer" },
-        "new_count": { "format": "uint", "minimum": 0, "type": "integer" }
+        "head_config_fingerprint": { "type": "string" },
+        "new_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "requested_base": { "type": "string" },
+        "resolved_base": { "type": ["string", "null"] }
       },
       "required": [
-        "base_commit", "new_count", "fixed_count", "base_total",
+        "requested_base", "base_commit", "head_config_fingerprint",
+        "new_count", "fixed_count", "base_total",
         "cross_file_match_count", "baseline_degraded"
       ],
       "type": "object"
@@ -50,6 +55,7 @@
         "message": { "type": "string" },
         "namespace_fallback": { "type": "boolean" },
         "original_level": { "type": "string" },
+        "ownership": { "$ref": "#/$defs/DiagnosticOwnership" },
         "provider": { "type": "string" },
         "related_locations": {
           "items": { "$ref": "#/$defs/RelatedLocation" },
@@ -58,6 +64,7 @@
         "rule": { "type": "string" },
         "severity": { "$ref": "#/$defs/Severity" },
         "site_id": { "type": "string" },
+        "source_surface": { "$ref": "#/$defs/SourceSurface" },
         "tags": { "items": { "type": "string" }, "type": "array" },
         "title": { "type": "string" },
         "url": { "type": "string" },
@@ -66,7 +73,7 @@
       "required": [
         "provider", "rule", "title", "category", "severity", "message",
         "url", "tags", "analysis_kind", "confidence", "original_level",
-        "location", "related_locations", "fixes", "visible_on", "site_id",
+        "ownership", "source_surface", "location", "related_locations", "fixes", "visible_on", "site_id",
         "baseline_key", "namespace_fallback"
       ],
       "type": "object"
@@ -133,6 +140,29 @@
         }
       ]
     },
+    "DiagnosticOwnership": {
+      "description": "Cargo ownership is explicit even when a finding has no source span.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "package", "type": "string" },
+            "package_id": { "type": "string" }
+          },
+          "required": ["kind", "package_id"],
+          "type": "object"
+        },
+        {
+          "properties": { "kind": { "const": "workspace", "type": "string" } },
+          "required": ["kind"],
+          "type": "object"
+        },
+        {
+          "properties": { "kind": { "const": "unowned", "type": "string" } },
+          "required": ["kind"],
+          "type": "object"
+        }
+      ]
+    },
     "DimensionScores": {
       "description": "Per-dimension health scores.",
       "properties": {
@@ -148,6 +178,11 @@
     "FixApplicability": {
       "description": "rustc-compatible applicability vocabulary.",
       "enum": ["machine_applicable", "maybe_incorrect", "has_placeholders", "unspecified"],
+      "type": "string"
+    },
+    "GateResult": {
+      "description": "Quality-gate decision carried independently from scan outcome.",
+      "enum": ["passed", "failed", "not_evaluated"],
       "type": "string"
     },
     "MacroExpansion": {
@@ -214,8 +249,13 @@
     },
     "ReportError": {
       "description": "Structured failure retained even when discovery or scanning fails.",
-      "properties": { "kind": { "type": "string" }, "message": { "type": "string" } },
-      "required": ["kind", "message"],
+      "properties": {
+        "causes": { "items": { "type": "string" }, "type": "array" },
+        "exit_classification": { "type": "string" },
+        "kind": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["kind", "message", "causes", "exit_classification"],
       "type": "object"
     },
     "ReportOutcome": {
@@ -270,6 +310,14 @@
       },
       "required": ["start", "end"],
       "type": "object"
+    },
+    "SourceSurface": {
+      "description": "Rust-native source context shared by policy and machine consumers.",
+      "enum": [
+        "library", "binary", "test", "bench", "example", "build_script",
+        "generated", "macro_expansion", "unknown"
+      ],
+      "type": "string"
     }
   },
   "$id": "https://rust-doctor.vercel.app/schemas/report-v1.schema.json",
@@ -286,6 +334,7 @@
     "error": { "anyOf": [{ "$ref": "#/$defs/ReportError" }, { "type": "null" }] },
     "error_count": { "format": "uint", "minimum": 0, "type": "integer" },
     "execution_scope": { "default": "", "type": "string" },
+    "gate_result": { "$ref": "#/$defs/GateResult" },
     "info_count": { "format": "uint", "minimum": 0, "type": "integer" },
     "mode": { "$ref": "#/$defs/ScanMode" },
     "outcome": { "$ref": "#/$defs/ReportOutcome" },
@@ -295,7 +344,9 @@
       "type": "object"
     },
     "projects": { "items": { "$ref": "#/$defs/ProjectReport" }, "type": "array" },
+    "report_constructed": { "type": "boolean" },
     "requested_root": { "type": "string" },
+    "resolved_root": { "type": ["string", "null"] },
     "reporting_scope": { "default": "", "type": "string" },
     "schema_version": { "type": "string" },
     "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
@@ -307,7 +358,7 @@
     "warning_count": { "format": "uint", "minimum": 0, "type": "integer" }
   },
   "required": [
-    "schema_version", "tool_version", "outcome", "requested_root", "mode",
+    "schema_version", "tool_version", "report_constructed", "outcome", "requested_root", "mode", "gate_result",
     "completeness", "projects", "diagnostics", "summary", "elapsed_ms", "audit",
     "source_file_count", "elapsed", "skipped_passes", "error_count", "warning_count", "info_count"
   ],

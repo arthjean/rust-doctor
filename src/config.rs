@@ -1,9 +1,13 @@
 use crate::catalog::{RuleDescriptor, built_in_catalog};
 use crate::cli::{Cli, FailOn};
-use crate::diagnostics::{Category, Severity};
+use crate::diagnostics::{Category, Severity, SourceSurface};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
+
+const MAX_POLICY_ENTRIES: usize = 2_048;
+const MAX_GLOB_PATTERNS: usize = 512;
+const MAX_GLOB_PATTERN_BYTES: usize = 4_096;
 
 /// Typed severity and activation value used by every policy selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -48,6 +52,27 @@ impl From<Severity> for RuleLevel {
     }
 }
 
+/// Typed quality-gate level accepted from project configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockingLevel {
+    Error,
+    Warning,
+    Info,
+    None,
+}
+
+impl From<BlockingLevel> for FailOn {
+    fn from(value: BlockingLevel) -> Self {
+        match value {
+            BlockingLevel::Error => Self::Error,
+            BlockingLevel::Warning => Self::Warning,
+            BlockingLevel::Info => Self::Info,
+            BlockingLevel::None => Self::None,
+        }
+    }
+}
+
 /// Rendering and policy surfaces. Surface selection never activates a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -86,7 +111,7 @@ pub struct FileConfig {
     /// Diff mode base branch.
     pub diff: Option<String>,
     /// Fail-on level ("error", "warning", "none").
-    pub fail_on: Option<String>,
+    pub fail_on: Option<BlockingLevel>,
     /// Typed exact-rule overrides.
     #[serde(default)]
     pub rules: HashMap<String, RuleConfig>,
@@ -108,7 +133,7 @@ pub struct FileConfig {
 }
 
 /// Per-rule configuration overrides.
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct RuleConfig {
     /// Override severity for this rule.
@@ -122,7 +147,7 @@ pub struct RuleConfig {
 }
 
 /// Category, tag, or path policy value.
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct PolicyConfig {
     pub severity: Option<RuleLevel>,
@@ -130,7 +155,7 @@ pub struct PolicyConfig {
 }
 
 /// Policy applied to every diagnostic whose normalized relative path matches.
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct PathOverride {
     pub pattern: String,
@@ -140,6 +165,7 @@ pub struct PathOverride {
 
 /// Score configuration.
 #[derive(Debug, Deserialize, Default, Clone)]
+#[serde(default, deny_unknown_fields)]
 pub struct ScoreConfig {
     /// Fail the scan if the score falls below this threshold.
     pub fail_below: Option<u32>,
@@ -147,7 +173,7 @@ pub struct ScoreConfig {
 
 /// Ignore configuration for rules and file patterns.
 #[derive(Debug, Deserialize, Default, Clone)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct IgnoreConfig {
     /// Rule names to ignore globally.
     pub rules: Vec<String>,
@@ -178,6 +204,8 @@ pub struct ResolvedConfig {
     pub respect_inline_disables: bool,
     /// Optional bound for concurrently scanned workspace packages.
     pub max_parallelism: Option<usize>,
+    /// Internal corpus mode: every candidate rule runs at normalized warning severity.
+    pub evaluation_profile: bool,
 }
 
 /// Fully resolved policy for one rule at one optional source path.
@@ -229,33 +257,16 @@ pub fn load_file_config(
     }
 
     // Priority 2: [package.metadata.rust-doctor] in Cargo.toml
-    if let Some(metadata) = cargo_metadata {
-        if let Some(section) = metadata.get("rust-doctor") {
-            let config = serde_json::from_value::<FileConfig>(section.clone())?;
-            validate_file_config(&config, &project_root.join("Cargo.toml"))?;
-            emit_legacy_deprecations(&config);
-            return Ok(Some(config));
-        }
+    if let Some(metadata) = cargo_metadata
+        && let Some(section) = metadata.get("rust-doctor")
+    {
+        let config = serde_json::from_value::<FileConfig>(section.clone())?;
+        validate_file_config(&config, &project_root.join("Cargo.toml"))?;
+        emit_legacy_deprecations(&config);
+        return Ok(Some(config));
     }
 
     Ok(None)
-}
-
-/// Parse a `fail_on` string from config into a `FailOn` enum.
-/// Returns `None` and prints a warning if the value is invalid.
-fn parse_fail_on(value: &str) -> Option<FailOn> {
-    match value {
-        "error" => Some(FailOn::Error),
-        "warning" => Some(FailOn::Warning),
-        "info" => Some(FailOn::Info),
-        "none" => Some(FailOn::None),
-        _ => {
-            eprintln!(
-                "Warning: invalid fail_on value '{value}' in config. Valid values: error, warning, info, none"
-            );
-            None
-        }
-    }
 }
 
 /// Merge CLI flags with file config to produce a fully resolved configuration.
@@ -277,7 +288,7 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
     let fail_on = cli
         .blocking
         .or(cli.fail_on)
-        .or_else(|| fc.fail_on.as_deref().and_then(parse_fail_on))
+        .or_else(|| fc.fail_on.map(FailOn::from))
         .unwrap_or(FailOn::None);
 
     ResolvedConfig {
@@ -294,8 +305,9 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
         path_overrides: fc.path_overrides,
         enable_rules: fc.ignore.enable,
         score_fail_below: fc.score.fail_below,
-        respect_inline_disables: !cli.no_respect_inline_disables,
+        respect_inline_disables: !cli.no_respect_inline_disables && !cli.evaluation_profile,
         max_parallelism: cli.jobs,
+        evaluation_profile: cli.evaluation_profile,
     }
 }
 
@@ -309,11 +321,7 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
         lint: fc.lint.unwrap_or(true),
         dependencies: fc.dependencies.unwrap_or(true),
         diff: fc.diff,
-        fail_on: fc
-            .fail_on
-            .as_deref()
-            .and_then(parse_fail_on)
-            .unwrap_or(FailOn::None),
+        fail_on: fc.fail_on.map_or(FailOn::None, FailOn::from),
         ignore_rules: fc.ignore.rules,
         ignore_files: fc.ignore.files,
         rules_config,
@@ -324,6 +332,7 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
         score_fail_below: fc.score.fail_below,
         respect_inline_disables: true,
         max_parallelism: None,
+        evaluation_profile: false,
     }
 }
 
@@ -335,6 +344,13 @@ impl ResolvedConfig {
         descriptor: &RuleDescriptor,
         path: Option<&Path>,
     ) -> ResolvedRulePolicy {
+        if self.evaluation_profile {
+            return ResolvedRulePolicy {
+                severity: Some(Severity::Warning),
+                threshold: descriptor.supported_threshold.map(|range| range.default),
+                surfaces: VisibilitySurface::ALL.into_iter().collect(),
+            };
+        }
         let mut level = if descriptor.default_enabled {
             RuleLevel::from(descriptor.default_severity)
         } else {
@@ -342,6 +358,13 @@ impl ResolvedConfig {
         };
         let mut threshold = descriptor.supported_threshold.map(|range| range.default);
         let mut surfaces: BTreeSet<_> = VisibilitySurface::ALL.into_iter().collect();
+
+        if let Some(path) = path {
+            apply_source_surface_defaults(
+                classify_source_surface(&normalize_config_path(path), false),
+                &mut surfaces,
+            );
+        }
 
         for tag in &descriptor.tags {
             if let Some(policy) = self.tag_config.get(tag) {
@@ -403,19 +426,19 @@ impl ResolvedConfig {
         };
         let mut trace = vec![format!("catalog default: {level}")];
         for tag in &descriptor.tags {
-            if let Some(policy) = self.tag_config.get(tag) {
-                if let Some(policy_level) = policy.severity {
-                    level = policy_level;
-                    trace.push(format!("tag {tag}: {level}"));
-                }
+            if let Some(policy) = self.tag_config.get(tag)
+                && let Some(policy_level) = policy.severity
+            {
+                level = policy_level;
+                trace.push(format!("tag {tag}: {level}"));
             }
         }
         let category = category_key(&descriptor.category);
-        if let Some(policy) = self.category_config.get(category) {
-            if let Some(policy_level) = policy.severity {
-                level = policy_level;
-                trace.push(format!("category {category}: {level}"));
-            }
+        if let Some(policy) = self.category_config.get(category)
+            && let Some(policy_level) = policy.severity
+        {
+            level = policy_level;
+            trace.push(format!("category {category}: {level}"));
         }
         if let Some(policy) = self.rules_config.get(&descriptor.canonical_id) {
             trace_rule_selector(
@@ -442,11 +465,10 @@ impl ResolvedConfig {
             for path_override in &self.path_overrides {
                 if globset::Glob::new(&path_override.pattern)
                     .is_ok_and(|glob| glob.compile_matcher().is_match(&normalized))
+                    && let Some(policy_level) = path_override.severity
                 {
-                    if let Some(policy_level) = path_override.severity {
-                        level = policy_level;
-                        trace.push(format!("path {}: {level}", path_override.pattern));
-                    }
+                    level = policy_level;
+                    trace.push(format!("path {}: {level}", path_override.pattern));
                 }
             }
         }
@@ -543,6 +565,61 @@ fn apply_path_policy(
     }
 }
 
+fn apply_source_surface_defaults(
+    source_surface: SourceSurface,
+    surfaces: &mut BTreeSet<VisibilitySurface>,
+) {
+    if matches!(
+        source_surface,
+        SourceSurface::Test
+            | SourceSurface::Bench
+            | SourceSurface::Example
+            | SourceSurface::Generated
+    ) {
+        surfaces.remove(&VisibilitySurface::Score);
+        surfaces.remove(&VisibilitySurface::CiFailure);
+    }
+}
+
+pub(crate) fn classify_source_surface(path: &str, macro_expansion: bool) -> SourceSurface {
+    if macro_expansion {
+        return SourceSurface::MacroExpansion;
+    }
+    let normalized = path.trim_start_matches("./");
+    if normalized == "build.rs" || normalized.ends_with("/build.rs") {
+        SourceSurface::BuildScript
+    } else if normalized.starts_with("tests/") || normalized.contains("/tests/") {
+        SourceSurface::Test
+    } else if normalized.starts_with("benches/") || normalized.contains("/benches/") {
+        SourceSurface::Bench
+    } else if normalized.starts_with("examples/") || normalized.contains("/examples/") {
+        SourceSurface::Example
+    } else if normalized.starts_with("target/")
+        || normalized.contains("/target/")
+        || normalized.contains("/generated/")
+    {
+        SourceSurface::Generated
+    } else if normalized == "src/main.rs"
+        || normalized.ends_with("/src/main.rs")
+        || normalized.starts_with("src/bin/")
+        || normalized.contains("/src/bin/")
+    {
+        SourceSurface::Binary
+    } else if normalized == "src/lib.rs"
+        || normalized.ends_with("/src/lib.rs")
+        || normalized.starts_with("src/")
+        || normalized.contains("/src/")
+    {
+        SourceSurface::Library
+    } else {
+        SourceSurface::Unknown
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "configuration validation keeps all fail-closed policy checks at one boundary"
+)]
 pub(crate) fn validate_file_config(
     config: &FileConfig,
     path: &Path,
@@ -553,6 +630,40 @@ pub(crate) fn validate_file_config(
         path: path.to_path_buf(),
         message: source.to_string(),
     })?;
+    let policy_entries = config.rules.len()
+        + config.rules_config.len()
+        + config.categories.len()
+        + config.tags.len()
+        + config.path_overrides.len()
+        + config.ignore.rules.len()
+        + config.ignore.enable.len();
+    if policy_entries > MAX_POLICY_ENTRIES {
+        return Err(ConfigError::PolicyLimitExceeded {
+            path: path.to_path_buf(),
+            limit: MAX_POLICY_ENTRIES,
+            actual: policy_entries,
+        });
+    }
+    let glob_count = config.path_overrides.len() + config.ignore.files.len();
+    if glob_count > MAX_GLOB_PATTERNS {
+        return Err(ConfigError::GlobLimitExceeded {
+            path: path.to_path_buf(),
+            limit: MAX_GLOB_PATTERNS,
+            actual: glob_count,
+        });
+    }
+    for (rule, canonical) in &config.rules {
+        if config
+            .rules_config
+            .get(rule)
+            .is_some_and(|legacy| legacy != canonical)
+        {
+            return Err(ConfigError::ConflictingRulePolicy {
+                path: path.to_path_buf(),
+                rule: rule.clone(),
+            });
+        }
+    }
     let all_rule_ids = config
         .rules
         .keys()
@@ -618,11 +729,19 @@ pub(crate) fn validate_file_config(
         }
     }
 
-    for path_override in &config.path_overrides {
-        if path_override.pattern.is_empty() || globset::Glob::new(&path_override.pattern).is_err() {
+    for pattern in config
+        .path_overrides
+        .iter()
+        .map(|override_| override_.pattern.as_str())
+        .chain(config.ignore.files.iter().map(String::as_str))
+    {
+        if pattern.is_empty()
+            || pattern.len() > MAX_GLOB_PATTERN_BYTES
+            || globset::Glob::new(pattern).is_err()
+        {
             return Err(ConfigError::InvalidPathOverride {
                 path: path.to_path_buf(),
-                pattern: path_override.pattern.clone(),
+                pattern: pattern.to_string(),
             });
         }
     }
@@ -715,7 +834,7 @@ mod tests {
         assert_eq!(config.dependencies, Some(true));
         assert_eq!(config.verbose, Some(true));
         assert_eq!(config.diff, Some("main".to_string()));
-        assert_eq!(config.fail_on, Some("error".to_string()));
+        assert_eq!(config.fail_on, Some(BlockingLevel::Error));
         assert_eq!(
             config.ignore.rules,
             vec!["unwrap-in-production", "excessive-clone"]
@@ -760,7 +879,7 @@ mod tests {
         let section = &json["rust-doctor"];
         let config: FileConfig = serde_json::from_value(section.clone()).unwrap();
         assert_eq!(config.verbose, Some(true));
-        assert_eq!(config.fail_on, Some("warning".to_string()));
+        assert_eq!(config.fail_on, Some(BlockingLevel::Warning));
         assert_eq!(config.ignore.rules, vec!["panic-in-library"]);
     }
 
@@ -805,6 +924,24 @@ mod tests {
     }
 
     #[test]
+    fn evaluation_profile_forces_candidate_policy_and_ignores_inline_suppressions() {
+        let cli = cli_from(&["rust-doctor", "--no-project-config", "--evaluation-profile"]);
+        let resolved = resolve_config(&cli, None);
+        let descriptor = built_in_catalog()
+            .unwrap()
+            .exact("string-from-literal")
+            .unwrap();
+        let policy = resolved.rule_policy(descriptor, Some(Path::new("tests/fixture.rs")));
+        assert_eq!(policy.severity, Some(Severity::Warning));
+        assert!(
+            VisibilitySurface::ALL
+                .into_iter()
+                .all(|surface| policy.visible_on(surface))
+        );
+        assert!(!resolved.respect_inline_disables);
+    }
+
+    #[test]
     fn test_resolve_config_values_used() {
         let cli = cli_from(&["rust-doctor"]);
         let fc = FileConfig {
@@ -812,7 +949,7 @@ mod tests {
             lint: Some(false),
             dependencies: Some(false),
             diff: Some("develop".to_string()),
-            fail_on: Some("error".to_string()),
+            fail_on: Some(BlockingLevel::Error),
             ignore: IgnoreConfig {
                 rules: vec!["rule1".to_string()],
                 files: vec!["test/**".to_string()],
@@ -845,7 +982,7 @@ mod tests {
     fn test_cli_overrides_config_fail_on() {
         let cli = cli_from(&["rust-doctor", "--fail-on", "warning"]);
         let fc = FileConfig {
-            fail_on: Some("error".to_string()),
+            fail_on: Some(BlockingLevel::Error),
             ..Default::default()
         };
         let resolved = resolve_config(&cli, Some(&fc));
@@ -875,14 +1012,8 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_fail_on_in_config_falls_to_default() {
-        let cli = cli_from(&["rust-doctor"]);
-        let fc = FileConfig {
-            fail_on: Some("critical".to_string()),
-            ..Default::default()
-        };
-        let resolved = resolve_config(&cli, Some(&fc));
-        assert_eq!(resolved.fail_on, FailOn::None);
+    fn test_invalid_fail_on_in_config_is_rejected() {
+        assert!(toml::from_str::<FileConfig>("fail_on = \"critical\"").is_err());
     }
 
     // --- Rule validation ---
@@ -933,7 +1064,7 @@ mod tests {
         assert!(config.is_some());
         let fc = config.unwrap();
         assert_eq!(fc.verbose, Some(true));
-        assert_eq!(fc.fail_on, Some("warning".to_string()));
+        assert_eq!(fc.fail_on, Some(BlockingLevel::Warning));
         assert_eq!(fc.ignore.rules, vec!["unwrap-in-production"]);
     }
 
@@ -1200,6 +1331,30 @@ mod tests {
     }
 
     #[test]
+    fn source_surface_defaults_exclude_non_production_gate_and_allow_explicit_include() {
+        let catalog = built_in_catalog().unwrap();
+        let descriptor = catalog.exact("unwrap-in-production").unwrap();
+        let defaults = resolve_config_defaults(None);
+        let test = defaults.rule_policy(descriptor, Some(Path::new("tests/integration.rs")));
+        assert!(test.visible_on(VisibilitySurface::Terminal));
+        assert!(!test.visible_on(VisibilitySurface::Score));
+        assert!(!test.visible_on(VisibilitySurface::CiFailure));
+
+        let explicit: FileConfig = toml::from_str(
+            r#"
+            [[path_overrides]]
+            pattern = "tests/**"
+            surfaces = ["terminal", "score", "ci-failure"]
+            "#,
+        )
+        .unwrap();
+        let resolved = resolve_config_defaults(Some(&explicit));
+        let included = resolved.rule_policy(descriptor, Some(Path::new("tests/integration.rs")));
+        assert!(included.visible_on(VisibilitySurface::Score));
+        assert!(included.visible_on(VisibilitySurface::CiFailure));
+    }
+
+    #[test]
     fn invalid_rule_threshold_and_path_return_typed_errors() {
         let unknown: FileConfig =
             toml::from_str("[rules.not-a-rule]\nseverity = \"warning\"\n").unwrap();
@@ -1220,6 +1375,41 @@ mod tests {
         assert!(matches!(
             validate_file_config(&malformed, Path::new("config.toml")),
             Err(crate::error::ConfigError::InvalidPathOverride { .. })
+        ));
+
+        let malformed_ignore: FileConfig = toml::from_str("[ignore]\nfiles = [\"[\"]\n").unwrap();
+        assert!(matches!(
+            validate_file_config(&malformed_ignore, Path::new("config.toml")),
+            Err(crate::error::ConfigError::InvalidPathOverride { .. })
+        ));
+
+        let conflicting: FileConfig = toml::from_str(
+            r#"
+            [rules.unwrap-in-production]
+            severity = "error"
+
+            [rules_config.unwrap-in-production]
+            severity = "off"
+            "#,
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_file_config(&conflicting, Path::new("config.toml")),
+            Err(crate::error::ConfigError::ConflictingRulePolicy { .. })
+        ));
+
+        let over_limit = FileConfig {
+            ignore: IgnoreConfig {
+                enable: (0..=MAX_POLICY_ENTRIES)
+                    .map(|index| format!("rule-{index}"))
+                    .collect(),
+                ..IgnoreConfig::default()
+            },
+            ..FileConfig::default()
+        };
+        assert!(matches!(
+            validate_file_config(&over_limit, Path::new("config.toml")),
+            Err(crate::error::ConfigError::PolicyLimitExceeded { .. })
         ));
     }
 }
