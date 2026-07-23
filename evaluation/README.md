@@ -5,10 +5,12 @@ corpus manifest contains 100 GitHub repositories pinned to full commits and
 declares a conservative minimum of 260 Cargo roots. Preparation verifies the
 actual roots before it writes its own manifest.
 
-The manifest also pins evaluation profile `1.0`: every candidate rule is
+The manifest pins evaluation profile `1.1`: every Rust Doctor custom rule is
 forced on at warning severity, repository config and inline suppressions are
-ignored, adapters are fixed, and execution is offline. Every record carries the
-profile and catalog SHA-256 plus exact expected, attempted, and reported roots.
+ignored, and execution is offline. Compiler and dependency adapters are
+excluded because their output depends on each repository's build environment;
+their conformance is gated separately. Every record carries the profile and
+catalog SHA-256 plus exact expected, attempted, and reported roots.
 
 ```bash
 cargo run --bin rust-doctor-eval -- prepare \
@@ -54,7 +56,8 @@ removed from failures.
 
 ```bash
 cargo run --bin rust-doctor-eval -- delta \
-  --baseline evaluation-results/approved.ndjson \
+  --baseline /var/tmp/approved/corpus-baseline.ndjson \
+  --baseline-approval evaluation/approvals/corpus-baseline.json \
   --candidate /var/tmp/candidate.ndjson \
   --labels evaluation-results/labels.json \
   --output /var/tmp/delta.json
@@ -69,8 +72,10 @@ Promotions are derived from the two catalogs, so callers cannot omit a promoted
 rule. Labels bind repository, Cargo root, rule, site, and evidence fingerprint.
 
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
-threshold. The approval JSON must contain schema version `1.0`, the exact
-candidate file SHA-256, a non-empty reviewer, and a review timestamp.
+threshold. Approval JSON binds the exact subject SHA-256, repository commit,
+successful protected workflow run, artifact ID, artifact digest, reviewer and
+review timestamp. The gate verifies that immutable artifact through the GitHub
+API before comparing it.
 
 ## Performance gate
 
@@ -78,7 +83,8 @@ candidate file SHA-256, a non-empty reviewer, and a review timestamp.
 cargo run --bin rust-doctor-eval -- benchmark \
   --manifest evaluation/benchmarks-v1.json \
   --binary target/release/rust-doctor \
-  --baseline evaluation-results/benchmark-approved.json \
+  --baseline /var/tmp/approved/benchmark-baseline.json \
+  --baseline-approval evaluation/approvals/performance-baseline.json \
   --output /var/tmp/benchmark.json
 ```
 
@@ -88,8 +94,11 @@ and CPU time, peak RSS, files per second, cache hit rate, and per-pass time.
 Median or P95 wall-time growth above 10% blocks. The 100,000-line fixture also
 blocks above 512 MiB peak RSS. Percentage regressions below an absolute 50 ms
 increase are ignored. Gate mode requires at least three repetitions, an
-approved baseline, and matching fixture, diagnostic, host-class, and toolchain
-fingerprints. Set `RUST_DOCTOR_BENCHMARK_HOST_CLASS` to the protected runner
+approved baseline, and matching fixture, diagnostic, host-class, toolchain and
+repetition fingerprints. Baseline and candidate binary SHA-256 values are
+recorded separately and each is bound to its artifact; requiring those two
+different builds to have the same hash would make a regression comparison
+impossible. Set `RUST_DOCTOR_BENCHMARK_HOST_CLASS` to the protected runner
 class. Use `--record` only to generate an unapproved review candidate.
 
 ## Built artifacts
@@ -99,13 +108,15 @@ target/release/rust-doctor-eval smoke \
   --binary target/release/rust-doctor \
   --no-default-binary target/no-default/release/rust-doctor \
   --schema schemas/report-v1.schema.json \
-  --npm-root npm \
+  --npm-platform-package artifacts/rust-doctor-npm-linux-x64-0.2.0.tgz \
+  --npm-wrapper-package artifacts/rust-doctor-npm-0.2.0.tgz \
+  --bun "$(command -v bun)" \
   --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
   --crate-package target/package/rust-doctor-0.2.0.crate
 ```
 
 The smoke suite invokes terminal, score, JSON, SARIF, baseline, malformed and
 failure paths from built binaries. It checks MCP initialize, tool discovery,
-full and baseline scans, and deadline-observed cancellation. It packs and
-installs the current platform npm wrapper, executes each extracted native
-archive, and builds the exact verified `.crate` contents offline.
+every reporting scope, and deadline-observed cancellation. It installs the
+final npm tarballs, executes each extracted native archive, and builds the
+exact verified `.crate` contents offline.

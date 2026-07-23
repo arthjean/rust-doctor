@@ -139,6 +139,7 @@ pub(crate) fn command(
         "--die-with-parent",
         "--new-session",
         "--unshare-all",
+        "--unshare-user",
         "--disable-userns",
         "--clearenv",
         "--proc",
@@ -335,4 +336,87 @@ fn relative_display(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::evaluation::process::run_capped;
+    use std::time::Duration;
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_validation_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        symlink("/tmp", root.path().join("escape")).unwrap();
+        let error = validate_checkout_tree(root.path()).unwrap_err();
+        assert!(error.to_string().contains("symlink escape"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn malicious_build_script_cannot_write_outside_sandbox() {
+        use std::os::unix::fs::PermissionsExt;
+
+        if find_executable("bwrap").is_err() {
+            assert!(
+                std::env::var_os("RUST_DOCTOR_REQUIRE_SANDBOX_TESTS").is_none(),
+                "bubblewrap is mandatory for protected corpus fixture tests"
+            );
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let checkout = root.path().join("checkout");
+        let cargo_home = root.path().join("cargo");
+        std::fs::create_dir_all(checkout.join("src")).unwrap();
+        std::fs::create_dir_all(&cargo_home).unwrap();
+        let marker = PathBuf::from(format!(
+            "/tmp/rust-doctor-sandbox-escape-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&marker);
+        std::fs::write(
+            checkout.join("Cargo.toml"),
+            "[package]\nname=\"malicious\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(checkout.join("src/lib.rs"), "pub fn value() {}\n").unwrap();
+        std::fs::write(
+            checkout.join("build.rs"),
+            format!(
+                "fn main() {{ let _ = std::fs::write({marker:?}, b\"escape\"); let _ = std::fs::write(\"/workspace/escape\", b\"escape\"); }}"
+            ),
+        )
+        .unwrap();
+        let mut lock = Command::new("cargo");
+        lock.args(["generate-lockfile", "--offline", "--manifest-path"])
+            .arg(checkout.join("Cargo.toml"));
+        let lock_output = run_capped(lock, Duration::from_secs(20), 1024 * 1024).unwrap();
+        assert!(
+            lock_output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&lock_output.stderr)
+        );
+        let launcher = root.path().join("candidate");
+        std::fs::write(
+            &launcher,
+            "#!/bin/sh\nexec cargo check --locked --offline --manifest-path /workspace/Cargo.toml\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&launcher).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&launcher, permissions).unwrap();
+
+        let command = command(&checkout, &launcher, &cargo_home, 128 * 1024 * 1024, &[]).unwrap();
+        let output = run_capped(command, Duration::from_mins(1), 1024 * 1024).unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!marker.exists());
+        assert!(!checkout.join("escape").exists());
+    }
 }

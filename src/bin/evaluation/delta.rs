@@ -1,8 +1,8 @@
 use super::manifest::{hex_digest, read_json, sha256_file, write_json_atomic};
 use super::model::{
-    BaselineApproval, CORPUS_SCHEMA_VERSION, CorpusRecord, DELTA_SCHEMA_VERSION, DeltaReport,
-    DiagnosticLabel, EvaluationDiagnostic, EvaluationRule, LabelFile, PromotionReview, ReviewLabel,
-    RuleDelta, RuntimeDelta,
+    CORPUS_SCHEMA_VERSION, CorpusRecord, DELTA_SCHEMA_VERSION, DeltaReport, DiagnosticLabel,
+    EvaluationDiagnostic, EvaluationRule, EvidenceApproval, LabelFile, PromotionReview,
+    ReviewLabel, RootState, RuleDelta, RuntimeDelta,
 };
 use super::{EvalError, Result};
 use crate::DeltaArgs;
@@ -14,6 +14,7 @@ struct DiagnosticKey {
     repository: String,
     package_root: String,
     rule: String,
+    site_id: String,
     baseline_key: String,
 }
 
@@ -48,46 +49,40 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
     validate_pair(&baseline, &candidate)?;
     let baseline_sha256 = sha256_file(&args.baseline)?;
     let candidate_sha256 = sha256_file(&args.candidate)?;
-    let approved = args
-        .approval
+    validate_approval(&args.baseline_approval, &baseline_sha256, "baseline")?;
+    let approved_replacement = args
+        .candidate_approval
         .as_deref()
-        .map_or(Ok(false), |path| validate_approval(path, &candidate_sha256))?;
-    let labels = args
-        .labels
-        .as_deref()
-        .map_or_else(|| Ok(Vec::new()), read_labels)?;
+        .map_or(Ok(false), |path| {
+            validate_approval(path, &candidate_sha256, "candidate").map(|()| true)
+        })?;
+    let labels = args.labels.as_deref().map_or_else(
+        || Ok(Vec::new()),
+        |path| read_labels(path, &candidate_sha256),
+    )?;
     let baseline_catalog = corpus_catalog(&baseline)?;
     let candidate_catalog = corpus_catalog(&candidate)?;
     let promoted_rules = derive_promoted_rules(baseline_catalog, candidate_catalog);
 
     let baseline_by_repository = by_repository(&baseline);
     let candidate_by_repository = by_repository(&candidate);
-    let complete_pairs: Vec<_> = baseline_by_repository
+    let repository_pairs: Vec<_> = baseline_by_repository
         .iter()
         .filter_map(|(repository, baseline)| {
             let candidate = candidate_by_repository.get(repository)?;
-            (baseline.complete && candidate.complete).then_some((*baseline, *candidate))
+            Some((*baseline, *candidate))
         })
         .collect();
-    let comparison = compare_diagnostics(&complete_pairs);
-    let complete_baseline_roots: usize = baseline
+    let complete_pairs: Vec<_> = repository_pairs
         .iter()
-        .filter(|record| record.complete)
-        .map(|record| record.package_roots.len())
-        .sum();
-    let complete_candidate_roots: usize = candidate
-        .iter()
-        .filter(|record| record.complete)
-        .map(|record| record.package_roots.len())
-        .sum();
-    let total_baseline_roots: usize = baseline
-        .iter()
-        .map(|record| record.package_roots.len())
-        .sum();
-    let total_candidate_roots: usize = candidate
-        .iter()
-        .map(|record| record.package_roots.len())
-        .sum();
+        .copied()
+        .filter(|(baseline, candidate)| baseline.complete && candidate.complete)
+        .collect();
+    let comparison = compare_diagnostics(&repository_pairs);
+    let complete_baseline_roots = complete_root_count(&baseline);
+    let complete_candidate_roots = complete_root_count(&candidate);
+    let total_baseline_roots = total_root_count(&baseline);
+    let total_candidate_roots = total_root_count(&candidate);
     let affected_root_percent = percent(
         comparison.affected_roots.len(),
         complete_baseline_roots.max(1),
@@ -123,13 +118,20 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
     // The evaluation profile forces candidate rules on in both runs. A rule can
     // therefore become default-enabled without producing an "introduced"
     // delta, so promotion review samples the candidate population itself.
-    let promotion_population: Vec<_> = complete_pairs
+    let promotion_population: Vec<_> = repository_pairs
         .iter()
-        .flat_map(|(_, candidate)| candidate.diagnostics.iter().cloned())
+        .flat_map(|(baseline, candidate)| {
+            candidate.diagnostics.iter().filter(|diagnostic| {
+                baseline.root_states.get(&diagnostic.package_root) == Some(&RootState::Complete)
+                    && candidate.root_states.get(&diagnostic.package_root)
+                        == Some(&RootState::Complete)
+            })
+        })
+        .cloned()
         .collect();
     let promotion_reviews = promotion_reviews(&promotion_population, &promoted_rules, &labels);
     let mut reasons = Vec::new();
-    if affected_root_percent > 0.5 && !approved {
+    if affected_root_percent > 0.5 && !approved_replacement {
         reasons.push(format!(
             "diagnostic increases affect {affected_root_percent:.3}% of complete roots, above 0.5%"
         ));
@@ -173,7 +175,7 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
     for delta in &rule_deltas {
         if (delta.introduced > 0 || delta.count_growth > 0 || delta.catalog_changed)
             && delta.affected_root_percent > 0.5
-            && !approved
+            && !approved_replacement
         {
             reasons.push(format!(
                 "rule {} changed across {:.3}% of complete roots, above 0.5%",
@@ -277,11 +279,25 @@ fn validate_pair(baseline: &[CorpusRecord], candidate: &[CorpusRecord]) -> Resul
                 baseline_record.repository
             )));
         }
-        if baseline_record.complete && !candidate_record.complete {
-            return Err(EvalError::GateFailed(format!(
-                "candidate completeness degraded for {}",
-                baseline_record.repository
-            )));
+        for root in &baseline_record.expected_roots {
+            let baseline_state = baseline_record.root_states.get(root).ok_or_else(|| {
+                EvalError::InvalidManifest(format!(
+                    "baseline omits root state for {}:{root}",
+                    baseline_record.repository
+                ))
+            })?;
+            let candidate_state = candidate_record.root_states.get(root).ok_or_else(|| {
+                EvalError::InvalidManifest(format!(
+                    "candidate omits root state for {}:{root}",
+                    candidate_record.repository
+                ))
+            })?;
+            if root_state_rank(*candidate_state) < root_state_rank(*baseline_state) {
+                return Err(EvalError::GateFailed(format!(
+                    "candidate completeness degraded for {}:{root} from {baseline_state:?} to {candidate_state:?}",
+                    baseline_record.repository
+                )));
+            }
         }
     }
     Ok(())
@@ -326,6 +342,21 @@ fn validate_record(record: &CorpusRecord, path: &Path, line: usize) -> Result<()
         return Err(invalid(
             "complete records require exact expected, attempted, and reported root equality",
         ));
+    }
+    let expected: BTreeSet<_> = record.expected_roots.iter().cloned().collect();
+    if record.root_states.keys().cloned().collect::<BTreeSet<_>>() != expected {
+        return Err(invalid(
+            "root states must cover exactly the canonical expected roots",
+        ));
+    }
+    for (root, state) in &record.root_states {
+        if *state == RootState::Complete
+            && (!record.attempted_roots.contains(root) || !record.reported_roots.contains(root))
+        {
+            return Err(invalid(
+                "complete root states must be both attempted and reported",
+            ));
+        }
     }
     let catalog_bytes = serde_json::to_vec(&record.catalog)
         .map_err(|_| invalid("catalog cannot be fingerprinted"))?;
@@ -454,8 +485,17 @@ fn compare_diagnostics(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Comparison {
     let mut baseline = BTreeMap::new();
     let mut candidate = BTreeMap::new();
     for (baseline_record, candidate_record) in pairs {
-        index_diagnostics(baseline_record, &mut baseline);
-        index_diagnostics(candidate_record, &mut candidate);
+        let eligible_roots: BTreeSet<_> = baseline_record
+            .root_states
+            .iter()
+            .filter_map(|(root, state)| {
+                (*state == RootState::Complete
+                    && candidate_record.root_states.get(root) == Some(&RootState::Complete))
+                .then_some(root.as_str())
+            })
+            .collect();
+        index_diagnostics(baseline_record, &eligible_roots, &mut baseline);
+        index_diagnostics(candidate_record, &eligible_roots, &mut candidate);
     }
     let keys: BTreeSet<_> = baseline.keys().chain(candidate.keys()).cloned().collect();
     let mut comparison = Comparison {
@@ -534,14 +574,20 @@ fn top_affected_repositories(counts: BTreeMap<String, usize>) -> Vec<String> {
 
 fn index_diagnostics(
     record: &CorpusRecord,
+    eligible_roots: &BTreeSet<&str>,
     index: &mut BTreeMap<DiagnosticKey, Vec<EvaluationDiagnostic>>,
 ) {
-    for diagnostic in &record.diagnostics {
+    for diagnostic in record
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| eligible_roots.contains(diagnostic.package_root.as_str()))
+    {
         index
             .entry(DiagnosticKey {
                 repository: record.repository.clone(),
                 package_root: diagnostic.package_root.clone(),
                 rule: diagnostic.rule.clone(),
+                site_id: diagnostic.site_id.clone(),
                 baseline_key: diagnostic.baseline_key.clone(),
             })
             .or_default()
@@ -549,13 +595,15 @@ fn index_diagnostics(
     }
 }
 
-fn read_labels(path: &Path) -> Result<Vec<DiagnosticLabel>> {
+fn read_labels(path: &Path, candidate_sha256: &str) -> Result<Vec<DiagnosticLabel>> {
     let labels: LabelFile = read_json(path)?;
-    if labels.schema_version != DELTA_SCHEMA_VERSION {
+    if labels.schema_version != DELTA_SCHEMA_VERSION || labels.candidate_sha256 != candidate_sha256
+    {
         return Err(EvalError::InvalidManifest(format!(
-            "label schema must be {DELTA_SCHEMA_VERSION}"
+            "labels must use schema {DELTA_SCHEMA_VERSION} and bind the exact candidate SHA-256"
         )));
     }
+    validate_approval_value(&labels.approval, candidate_sha256, "label candidate")?;
     let mut seen = HashSet::new();
     for label in &labels.labels {
         if label.repository.is_empty()
@@ -580,24 +628,51 @@ fn read_labels(path: &Path) -> Result<Vec<DiagnosticLabel>> {
     Ok(labels.labels)
 }
 
-fn validate_approval(path: &Path, candidate_sha256: &str) -> Result<bool> {
-    let approval: BaselineApproval = read_json(path)?;
+fn validate_approval(path: &Path, subject_sha256: &str, subject: &str) -> Result<()> {
+    let approval: EvidenceApproval = read_json(path)?;
+    validate_approval_value(&approval, subject_sha256, subject)
+}
+
+fn validate_approval_value(
+    approval: &EvidenceApproval,
+    subject_sha256: &str,
+    subject: &str,
+) -> Result<()> {
+    let expected_url = format!(
+        "https://github.com/{}/actions/runs/{}/artifacts/{}",
+        approval.repository, approval.run_id, approval.artifact_id
+    );
     if approval.schema_version != DELTA_SCHEMA_VERSION
-        || approval.candidate_sha256 != candidate_sha256
+        || approval.subject_sha256 != subject_sha256
+        || approval.repository.trim().is_empty()
+        || !lower_hex(&approval.head_sha, 40)
+        || approval.run_id == 0
+        || approval.artifact_id == 0
+        || approval.artifact_name.trim().is_empty()
+        || approval
+            .artifact_digest
+            .strip_prefix("sha256:")
+            .is_none_or(|digest| !lower_hex(digest, 64))
+        || approval.artifact_url != expected_url
         || approval.reviewed_by.trim().is_empty()
         || approval.reviewed_at.trim().is_empty()
         || !matches!(
             approval.review_source.as_str(),
             "protected-ci" | "codeowners"
         )
-        || approval.artifact_uri.trim().is_empty()
     {
-        return Err(EvalError::InvalidManifest(
-            "baseline approval must bind the exact candidate SHA-256 to a protected CI artifact or CODEOWNERS review"
-                .to_string(),
-        ));
+        return Err(EvalError::InvalidManifest(format!(
+            "{subject} approval must bind the exact SHA-256 and GitHub identity of a protected immutable artifact"
+        )));
     }
-    Ok(true)
+    Ok(())
+}
+
+fn lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 fn promotion_reviews(
@@ -690,6 +765,27 @@ fn runtime_deltas(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Vec<RuntimeDelta>
         .collect()
 }
 
+fn complete_root_count(records: &[CorpusRecord]) -> usize {
+    records
+        .iter()
+        .flat_map(|record| record.root_states.values())
+        .filter(|state| **state == RootState::Complete)
+        .count()
+}
+
+fn total_root_count(records: &[CorpusRecord]) -> usize {
+    records.iter().map(|record| record.root_states.len()).sum()
+}
+
+const fn root_state_rank(state: RootState) -> u8 {
+    match state {
+        RootState::NotAttempted => 0,
+        RootState::Failed => 1,
+        RootState::Incomplete => 2,
+        RootState::Complete => 3,
+    }
+}
+
 fn percentile(values: &mut [f64], percentile: usize) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -721,7 +817,7 @@ fn percent(numerator: usize, denominator: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::{FailureEvent, SeverityCounts};
+    use super::super::model::{FailureEvent, RootState, SeverityCounts};
     use super::*;
 
     fn record(repository: &str, diagnostics: Vec<EvaluationDiagnostic>) -> CorpusRecord {
@@ -742,6 +838,7 @@ mod tests {
             expected_roots: vec![".".to_string()],
             attempted_roots: vec![".".to_string()],
             reported_roots: vec![".".to_string()],
+            root_states: BTreeMap::from([(".".to_string(), RootState::Complete)]),
             tool_revision: "test".to_string(),
             evaluation_profile_sha256: "b".repeat(64),
             catalog_sha256,

@@ -277,8 +277,11 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
 
     // For bool flags: CLI true always wins; if CLI false (not passed), use config
     let verbose = cli.verbose || fc.verbose.unwrap_or(false);
-    let lint = fc.lint.unwrap_or(true);
-    let dependencies = fc.dependencies.unwrap_or(true);
+    // The corpus profile measures Rust Doctor's own AST rules. Compiler and
+    // dependency adapters have independent conformance suites and would make
+    // an offline public corpus depend on every repository's build environment.
+    let lint = cli.evaluation_profile || fc.lint.unwrap_or(true);
+    let dependencies = !cli.evaluation_profile && fc.dependencies.unwrap_or(true);
     let rules_config = merge_rule_config(&fc);
 
     // For Option fields: CLI Some wins; if CLI None, use config
@@ -938,6 +941,8 @@ mod tests {
                 .into_iter()
                 .all(|surface| policy.visible_on(surface))
         );
+        assert!(resolved.lint);
+        assert!(!resolved.dependencies);
         assert!(!resolved.respect_inline_disables);
     }
 

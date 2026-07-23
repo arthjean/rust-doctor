@@ -101,6 +101,7 @@ pub(crate) struct CorpusRecord {
     pub(crate) expected_roots: Vec<String>,
     pub(crate) attempted_roots: Vec<String>,
     pub(crate) reported_roots: Vec<String>,
+    pub(crate) root_states: BTreeMap<String, RootState>,
     pub(crate) tool_revision: String,
     pub(crate) evaluation_profile_sha256: String,
     pub(crate) catalog_sha256: String,
@@ -116,6 +117,15 @@ pub(crate) struct CorpusRecord {
     pub(crate) failure_chain: Vec<FailureEvent>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RootState {
+    NotAttempted,
+    Failed,
+    Incomplete,
+    Complete,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ReviewLabel {
@@ -128,6 +138,8 @@ pub(crate) enum ReviewLabel {
 #[serde(deny_unknown_fields)]
 pub(crate) struct LabelFile {
     pub(crate) schema_version: String,
+    pub(crate) candidate_sha256: String,
+    pub(crate) approval: EvidenceApproval,
     pub(crate) labels: Vec<DiagnosticLabel>,
 }
 
@@ -144,13 +156,19 @@ pub(crate) struct DiagnosticLabel {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct BaselineApproval {
+pub(crate) struct EvidenceApproval {
     pub(crate) schema_version: String,
-    pub(crate) candidate_sha256: String,
+    pub(crate) subject_sha256: String,
+    pub(crate) repository: String,
+    pub(crate) head_sha: String,
+    pub(crate) run_id: u64,
+    pub(crate) artifact_id: u64,
+    pub(crate) artifact_name: String,
+    pub(crate) artifact_digest: String,
+    pub(crate) artifact_url: String,
     pub(crate) reviewed_by: String,
     pub(crate) reviewed_at: String,
     pub(crate) review_source: String,
-    pub(crate) artifact_uri: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

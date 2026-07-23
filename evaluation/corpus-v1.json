@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
   "evaluation_profile": {
-    "version": "1.0",
+    "version": "1.1",
     "normalized_severity": "warning",
     "force_candidate_rules": true,
     "respect_inline_suppressions": false,
     "respect_project_config": false,
     "offline": true,
     "adapter_policy": {
-      "clippy": "required-offline",
+      "clippy": "excluded-environment-dependent",
       "custom-rules": "required-all-candidates",
-      "dependencies": "optional-offline"
+      "dependencies": "excluded-environment-dependent"
     }
   },
   "repositories": [
@@ -159,9 +159,9 @@
       "minimum_project_roots": 1
     },
     {
-      "name": "wezterm_wezterm",
-      "url": "https://github.com/wezterm/wezterm.git",
-      "commit": "76b606ec597a3c0263fa60321548637451c0a547",
+      "name": "rust-lang_libc",
+      "url": "https://github.com/rust-lang/libc.git",
+      "commit": "5db5914d7ecf8d3fe32394d315f29012039630ca",
       "minimum_project_roots": 1
     },
     {
@@ -285,9 +285,9 @@
       "minimum_project_roots": 1
     },
     {
-      "name": "bincode-org_bincode",
-      "url": "https://github.com/bincode-org/bincode.git",
-      "commit": "5565ee164515ccc5161b66c7f573b905336ba1ef",
+      "name": "BurntSushi_byteorder",
+      "url": "https://github.com/BurntSushi/byteorder.git",
+      "commit": "5a82625fae462e8ba64cec8146b24a372b4d75c6",
       "minimum_project_roots": 1
     },
     {

@@ -183,6 +183,7 @@ fn run_capped_inner(
 #[cfg(target_os = "linux")]
 struct CgroupGuard {
     path: PathBuf,
+    cleanup_monitor: Option<Child>,
 }
 
 #[cfg(target_os = "linux")]
@@ -235,11 +236,15 @@ impl CgroupGuard {
         let path = parent.join(format!("rust-doctor-{}-{id}", std::process::id()));
         std::fs::create_dir(&path)
             .map_err(|error| EvalError::io("cannot create sandbox cgroup", &path, error))?;
-        let guard = Self { path };
+        let mut guard = Self {
+            path,
+            cleanup_monitor: None,
+        };
         guard.write("memory.max", &limits.max_resident_bytes.to_string())?;
         guard.write("memory.swap.max", "0")?;
         guard.write("memory.oom.group", "1")?;
         guard.write("pids.max", &limits.max_processes.to_string())?;
+        guard.cleanup_monitor = Some(spawn_cgroup_cleanup_monitor(&guard.path)?);
         Ok(guard)
     }
 
@@ -301,6 +306,10 @@ impl CgroupGuard {
 impl Drop for CgroupGuard {
     fn drop(&mut self) {
         self.kill_all();
+        if let Some(monitor) = &mut self.cleanup_monitor {
+            drop(monitor.stdin.take());
+            let _ = monitor.wait();
+        }
         for _ in 0..10 {
             if std::fs::remove_dir(&self.path).is_ok() {
                 return;
@@ -309,6 +318,37 @@ impl Drop for CgroupGuard {
         }
         tracing::warn!(path = %self.path.display(), "sandbox cgroup cleanup failed");
     }
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_cgroup_cleanup_monitor(path: &Path) -> Result<Child> {
+    use std::os::unix::process::CommandExt;
+
+    // The monitor owns a pipe from this process. Normal Drop and abrupt
+    // SIGINT/SIGTERM/SIGKILL all close it; the monitor is in a separate process
+    // group, so it can kill and remove the delegated cgroup after its parent dies.
+    let script = r#"
+        cat >/dev/null
+        printf '1\n' > "$1/cgroup.kill" 2>/dev/null || true
+        index=0
+        while [ "$index" -lt 100 ]; do
+            rmdir "$1" 2>/dev/null && exit 0
+            index=$((index + 1))
+            sleep 0.02
+        done
+        exit 1
+    "#;
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", script, "rust-doctor-cgroup-cleanup"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    command.spawn().map_err(|error| {
+        EvalError::Command(format!("cannot spawn cgroup cleanup monitor: {error}"))
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -466,4 +506,74 @@ fn read_capped(
         }
     }
     Ok((kept, overflow))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_output_is_terminated_and_reported() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "while :; do printf 'oversized-output\\n'; done"]);
+        let output = run_capped(command, Duration::from_secs(10), 1024).unwrap();
+        assert!(output.output_overflow);
+        assert!(!output.timed_out);
+        assert!(output.stdout.len() <= 1024);
+        assert!(output.stderr.len() <= 1024);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cleanup_monitor_removes_cgroup_after_abrupt_parent_exit() {
+        const ROLE: &str = "RUST_DOCTOR_CGROUP_CLEANUP_ROLE";
+        const PATH_FILE: &str = "RUST_DOCTOR_CGROUP_PATH_FILE";
+        if std::env::var_os("RUST_DOCTOR_REQUIRE_SANDBOX_TESTS").is_none() {
+            return;
+        }
+        if std::env::var_os(ROLE).is_some() {
+            let guard = CgroupGuard::create(ResourceLimits {
+                max_resident_bytes: 64 * 1024 * 1024,
+                max_processes: 8,
+            })
+            .unwrap();
+            std::fs::write(
+                std::env::var_os(PATH_FILE).unwrap(),
+                guard.path.to_string_lossy().as_bytes(),
+            )
+            .unwrap();
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", &std::process::id().to_string()])
+                .status();
+            unreachable!("SIGKILL must terminate the cleanup fixture");
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let path_file = root.path().join("cgroup-path");
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "evaluation::process::tests::cleanup_monitor_removes_cgroup_after_abrupt_parent_exit",
+                "--nocapture",
+            ])
+            .env("RUST_DOCTOR_REQUIRE_SANDBOX_TESTS", "1")
+            .env(ROLE, "child")
+            .env(PATH_FILE, &path_file)
+            .status()
+            .unwrap();
+        assert!(!status.success());
+        let cgroup = std::fs::read_to_string(&path_file).unwrap();
+        let cgroup = Path::new(cgroup.trim());
+        for _ in 0..100 {
+            if !cgroup.exists() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            !cgroup.exists(),
+            "cleanup monitor left cgroup {}",
+            cgroup.display()
+        );
+    }
 }

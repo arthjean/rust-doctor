@@ -86,13 +86,15 @@ struct DeltaArgs {
     #[arg(long)]
     baseline: PathBuf,
     #[arg(long)]
+    baseline_approval: PathBuf,
+    #[arg(long)]
     candidate: PathBuf,
     #[arg(long)]
     output: PathBuf,
     #[arg(long)]
     labels: Option<PathBuf>,
     #[arg(long)]
-    approval: Option<PathBuf>,
+    candidate_approval: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -105,6 +107,8 @@ struct BenchmarkArgs {
     output: PathBuf,
     #[arg(long)]
     baseline: Option<PathBuf>,
+    #[arg(long, requires = "baseline")]
+    baseline_approval: Option<PathBuf>,
     #[arg(long, default_value_t = 3)]
     repetitions: usize,
     /// Measure and emit an unapproved baseline candidate instead of gating.

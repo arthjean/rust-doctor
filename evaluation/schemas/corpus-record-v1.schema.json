@@ -12,6 +12,7 @@
     "expected_roots",
     "attempted_roots",
     "reported_roots",
+    "root_states",
     "tool_revision",
     "evaluation_profile_sha256",
     "catalog_sha256",
@@ -51,6 +52,14 @@
       "type": "array",
       "items": { "type": "string" },
       "uniqueItems": true
+    },
+    "root_states": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["not_attempted", "failed", "incomplete", "complete"]
+      }
     },
     "tool_revision": { "type": "string", "minLength": 1 },
     "evaluation_profile_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

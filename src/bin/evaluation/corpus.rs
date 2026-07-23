@@ -4,7 +4,7 @@ use super::manifest::{
 };
 use super::model::{
     CORPUS_SCHEMA_VERSION, CorpusManifest, CorpusRecord, EvaluationDiagnostic, EvaluationRule,
-    FailureEvent, PreparedCorpus, PreparedRepository, RepositorySpec, SeverityCounts,
+    FailureEvent, PreparedCorpus, PreparedRepository, RepositorySpec, RootState, SeverityCounts,
 };
 use super::process::{ResourceLimits, run_capped, run_capped_with_limits};
 use super::{EvalError, Result, sandbox};
@@ -45,6 +45,7 @@ struct RootScan {
     selected_root: String,
     report: ReportV1,
     project_roots: Vec<String>,
+    project_states: Vec<RootState>,
     elapsed_ms: u64,
 }
 
@@ -134,20 +135,6 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
         )
     })?;
     let cargo_home = sandbox::validate_evaluation_cargo_home(&checkout_root)?;
-    let tool_revision = args
-        .tool_revision
-        .map_or_else(|| binary_revision(&binary), Ok)?;
-    if tool_revision.trim().is_empty() {
-        return Err(EvalError::InvalidManifest(
-            "tool revision cannot be empty".to_string(),
-        ));
-    }
-    let evaluation_profile_sha256 = evaluation_profile_sha256(&manifest.evaluation_profile)?;
-    let catalog = read_evaluation_catalog(&binary, &checkout_root)?;
-    let catalog_bytes = serde_json::to_vec(&catalog).map_err(|error| {
-        EvalError::Command(format!("cannot fingerprint evaluation catalog: {error}"))
-    })?;
-    let catalog_sha256 = hex_digest(&catalog_bytes);
     let available = thread::available_parallelism().map_or(1, usize::from);
     let concurrency = args.concurrency.unwrap_or_else(|| available.min(8));
     if concurrency == 0 {
@@ -171,6 +158,10 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
             "sandbox process limit must be greater than zero".to_string(),
         ));
     }
+    let resource_limits = ResourceLimits {
+        max_resident_bytes: u64::try_from(memory_bytes).unwrap_or(u64::MAX),
+        max_processes: args.sandbox_process_limit,
+    };
     let prepared_by_name: HashMap<_, _> = prepared
         .repositories
         .into_iter()
@@ -186,6 +177,39 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
             Ok(RepositoryJob { spec, prepared })
         })
         .collect::<Result<_>>()?;
+    let probe_checkout = jobs
+        .first()
+        .map(|job| checkout_root.join(&job.prepared.checkout_dir))
+        .ok_or_else(|| EvalError::InvalidManifest("corpus has no repository jobs".to_string()))?;
+    let tool_revision = args.tool_revision.map_or_else(
+        || {
+            binary_revision(
+                &binary,
+                &probe_checkout,
+                &cargo_home,
+                scratch_bytes,
+                resource_limits,
+            )
+        },
+        Ok,
+    )?;
+    if tool_revision.trim().is_empty() {
+        return Err(EvalError::InvalidManifest(
+            "tool revision cannot be empty".to_string(),
+        ));
+    }
+    let evaluation_profile_sha256 = evaluation_profile_sha256(&manifest.evaluation_profile)?;
+    let catalog = read_evaluation_catalog(
+        &binary,
+        &probe_checkout,
+        &cargo_home,
+        scratch_bytes,
+        resource_limits,
+    )?;
+    let catalog_bytes = serde_json::to_vec(&catalog).map_err(|error| {
+        EvalError::Command(format!("cannot fingerprint evaluation catalog: {error}"))
+    })?;
+    let catalog_sha256 = hex_digest(&catalog_bytes);
     let context = RunContext {
         checkout_root: &checkout_root,
         binary: &binary,
@@ -199,10 +223,7 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
             .checked_add(Duration::from_secs(args.global_timeout_secs.max(1)))
             .ok_or_else(|| EvalError::InvalidManifest("global timeout is too large".to_string()))?,
         output_cap,
-        resource_limits: ResourceLimits {
-            max_resident_bytes: u64::try_from(memory_bytes).unwrap_or(u64::MAX),
-            max_processes: args.sandbox_process_limit,
-        },
+        resource_limits,
         scratch_bytes,
     };
 
@@ -316,16 +337,36 @@ fn prepare_repository(spec: &RepositorySpec, checkout: &Path, timeout: Duration)
 }
 
 fn verify_clean_checkout(checkout: &Path, timeout: Duration) -> Result<()> {
-    let status = git_output(
-        checkout,
-        &["status", "--porcelain=v1", "--untracked-files=all"],
-        timeout,
-    )?;
-    if !status.trim().is_empty() {
+    verify_clean_tree(checkout, timeout)?;
+    let mut command = Command::new("git");
+    command
+        .current_dir(checkout)
+        .args(["submodule", "foreach", "--recursive", "--quiet"])
+        .arg("printf '%s\\0' \"$sm_path\"");
+    harden_git_environment(&mut command);
+    let output = run_capped(command, timeout, COMMAND_OUTPUT_CAP)?;
+    if output.timed_out || output.output_overflow || !output.status.success() {
         return Err(EvalError::Command(format!(
-            "prepared checkout '{}' has a dirty index or worktree",
+            "cannot enumerate prepared submodules in '{}'",
             checkout.display()
         )));
+    }
+    for relative in output.stdout.split(|byte| *byte == 0) {
+        if relative.is_empty() {
+            continue;
+        }
+        let relative = std::str::from_utf8(relative).map_err(|error| {
+            EvalError::Command(format!("prepared submodule path is not UTF-8: {error}"))
+        })?;
+        let submodule = checkout.join(relative).canonicalize().map_err(|error| {
+            EvalError::io("cannot canonicalize prepared submodule", checkout, error)
+        })?;
+        if !submodule.starts_with(checkout) {
+            return Err(EvalError::Command(
+                "prepared submodule path escapes its checkout".to_string(),
+            ));
+        }
+        verify_clean_tree(&submodule, timeout)?;
     }
     let submodules = submodule_status(checkout, timeout)?;
     if submodules
@@ -338,6 +379,28 @@ fn verify_clean_checkout(checkout: &Path, timeout: Duration) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+fn verify_clean_tree(checkout: &Path, timeout: Duration) -> Result<()> {
+    let status = git_output(
+        checkout,
+        &[
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignored=matching",
+            "--ignore-submodules=none",
+        ],
+        timeout,
+    )?;
+    if status.trim().is_empty() {
+        Ok(())
+    } else {
+        Err(EvalError::Command(format!(
+            "prepared checkout '{}' has tracked, untracked, ignored, or submodule changes",
+            checkout.display()
+        )))
+    }
 }
 
 fn submodule_status(checkout: &Path, timeout: Duration) -> Result<Vec<String>> {
@@ -366,35 +429,43 @@ fn validate_local_git_config(checkout: &Path, timeout: Duration) -> Result<()> {
             checkout.display()
         )));
     }
-    let submodule_urls = git_config_output(
+    let submodule_url_keys = git_config_output(
         checkout,
         None,
-        &["--get-regexp", "^submodule\\..*\\.url$"],
+        &["--name-only", "--get-regexp", "^submodule\\..*\\.url$"],
         timeout,
     )?;
-    if submodule_urls.lines().any(|line| {
-        line.split_once(char::is_whitespace)
-            .is_none_or(|(_, url)| !canonical_github_url(url.trim()))
-    }) {
-        return Err(EvalError::Command(format!(
-            "prepared checkout '{}' has a non-canonical local submodule URL",
-            checkout.display()
-        )));
+    for key in submodule_url_keys
+        .lines()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+    {
+        let url = git_config_output(checkout, None, &["--get", key], timeout)?;
+        if !public_repository_url(url.trim()) {
+            return Err(EvalError::Command(format!(
+                "prepared checkout '{}' has a non-canonical local submodule URL",
+                checkout.display()
+            )));
+        }
     }
-    let submodule_updates = git_config_output(
+    let submodule_update_keys = git_config_output(
         checkout,
         None,
-        &["--get-regexp", "^submodule\\..*\\.update$"],
+        &["--name-only", "--get-regexp", "^submodule\\..*\\.update$"],
         timeout,
     )?;
-    if submodule_updates.lines().any(|line| {
-        line.split_once(char::is_whitespace)
-            .is_some_and(|(_, update)| update.trim().starts_with('!'))
-    }) {
-        return Err(EvalError::Command(format!(
-            "prepared checkout '{}' has an executable local submodule update",
-            checkout.display()
-        )));
+    for key in submodule_update_keys
+        .lines()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+    {
+        let update = git_config_output(checkout, None, &["--get", key], timeout)?;
+        if update.trim().starts_with('!') {
+            return Err(EvalError::Command(format!(
+                "prepared checkout '{}' has an executable local submodule update",
+                checkout.display()
+            )));
+        }
     }
     Ok(())
 }
@@ -444,7 +515,7 @@ fn update_submodules_securely(
     let mut paths = Vec::with_capacity(url_keys.len());
     for url_key in url_keys {
         let url = git_config_value(repository, &modules, &url_key, timeout)?;
-        if !canonical_github_url(&url) {
+        if !public_repository_url(&url) {
             return Err(EvalError::Command(format!(
                 "repository '{}' declares a non-canonical submodule URL",
                 repository.display()
@@ -501,20 +572,20 @@ fn update_submodules_securely(
     Ok(())
 }
 
-#[expect(
-    clippy::case_sensitive_file_extension_comparisons,
-    reason = "canonical GitHub repository URLs deliberately require the lowercase .git suffix"
-)]
-fn canonical_github_url(url: &str) -> bool {
-    let Some(path) = url.strip_prefix("https://github.com/") else {
+fn public_repository_url(url: &str) -> bool {
+    let url = url.trim_end_matches('/');
+    let Some(path) = ["https://github.com/", "https://codeberg.org/"]
+        .iter()
+        .find_map(|prefix| url.strip_prefix(prefix))
+    else {
         return false;
     };
     let mut segments = path.split('/');
     let owner = segments.next().unwrap_or_default();
     let repository = segments.next().unwrap_or_default();
+    let repository = repository.strip_suffix(".git").unwrap_or(repository);
     !owner.is_empty()
-        && repository.ends_with(".git")
-        && repository.len() > ".git".len()
+        && !repository.is_empty()
         && segments.next().is_none()
         && !url.contains(['@', '?', '#', '\\'])
 }
@@ -694,10 +765,23 @@ fn discover_project_roots(checkout: &Path) -> Result<Vec<String>> {
     Ok(roots)
 }
 
-fn binary_revision(binary: &Path) -> Result<String> {
-    let mut command = Command::new(binary);
-    command.arg("--version");
-    let output = run_capped(command, Duration::from_secs(10), 64 * 1024)?;
+fn binary_revision(
+    binary: &Path,
+    checkout: &Path,
+    cargo_home: &Path,
+    scratch_bytes: usize,
+    resource_limits: ResourceLimits,
+) -> Result<String> {
+    let output = run_candidate_command(
+        checkout,
+        binary,
+        cargo_home,
+        scratch_bytes,
+        &["--version".to_string()],
+        Duration::from_secs(10),
+        64 * 1024,
+        resource_limits,
+    )?;
     if !output.status.success() || output.timed_out {
         return Err(EvalError::Command(format!(
             "cannot read version from '{}': {}",
@@ -710,14 +794,26 @@ fn binary_revision(binary: &Path) -> Result<String> {
 
 fn read_evaluation_catalog(
     binary: &Path,
-    working_directory: &Path,
+    checkout: &Path,
+    cargo_home: &Path,
+    scratch_bytes: usize,
+    resource_limits: ResourceLimits,
 ) -> Result<BTreeMap<String, EvaluationRule>> {
-    let mut command = Command::new(binary);
-    command
-        .args(["rules", "list"])
-        .arg(working_directory)
-        .arg("--json");
-    let output = run_capped(command, Duration::from_secs(30), COMMAND_OUTPUT_CAP)?;
+    let output = run_candidate_command(
+        checkout,
+        binary,
+        cargo_home,
+        scratch_bytes,
+        &[
+            "rules".to_string(),
+            "list".to_string(),
+            "/workspace".to_string(),
+            "--json".to_string(),
+        ],
+        Duration::from_secs(30),
+        COMMAND_OUTPUT_CAP,
+        resource_limits,
+    )?;
     if output.timed_out || output.output_overflow || !output.status.success() {
         return Err(EvalError::Command(format!(
             "cannot read candidate rule catalog: {}",
@@ -763,6 +859,24 @@ fn read_evaluation_catalog(
         ));
     }
     Ok(catalog)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "candidate probes share the exact sandbox, budget, output and resource policy used by corpus roots"
+)]
+fn run_candidate_command(
+    checkout: &Path,
+    binary: &Path,
+    cargo_home: &Path,
+    scratch_bytes: usize,
+    arguments: &[String],
+    timeout: Duration,
+    output_cap: usize,
+    resource_limits: ResourceLimits,
+) -> Result<super::process::ProcessOutput> {
+    let command = sandbox::command(checkout, binary, cargo_home, scratch_bytes, arguments)?;
+    run_capped_with_limits(command, timeout, output_cap, resource_limits)
 }
 
 fn run_wave(
@@ -963,6 +1077,24 @@ fn scan_root(
             ),
         });
     }
+    if !output.status.success() {
+        return Err(FailureEvent {
+            attempt,
+            kind: "scan_failed".to_string(),
+            message: format!(
+                "Cargo root {root} exited with {}: {}",
+                output
+                    .status
+                    .code()
+                    .map_or_else(|| "a signal".to_string(), |code| format!("code {code}")),
+                sanitize_message(
+                    String::from_utf8_lossy(&output.stderr).trim(),
+                    checkout,
+                    None,
+                )
+            ),
+        });
+    }
     let report: ReportV1 = match serde_json::from_slice(&output.stdout) {
         Ok(report) => report,
         Err(error) => {
@@ -990,10 +1122,24 @@ fn scan_root(
             kind: "invalid_report_root".to_string(),
             message: format!("Cargo root {root}: {error}"),
         })?;
+    let project_states = report
+        .projects
+        .iter()
+        .map(|project| {
+            if report.completeness.state == CompletenessState::Complete
+                && project.completeness.state == CompletenessState::Complete
+            {
+                RootState::Complete
+            } else {
+                RootState::Incomplete
+            }
+        })
+        .collect();
     Ok(RootScan {
         selected_root: root.to_string(),
         report,
         project_roots,
+        project_states,
         elapsed_ms,
     })
 }
@@ -1098,6 +1244,16 @@ fn record_from_scans(
     let mut diagnostics = Vec::new();
     let mut diagnostic_counts = SeverityCounts::default();
     let mut duration_ms = 0u64;
+    let mut root_states: BTreeMap<_, _> = expected_roots
+        .iter()
+        .cloned()
+        .map(|root| (root, RootState::NotAttempted))
+        .collect();
+    for attempted in &attempted_roots {
+        if let Some(state) = root_states.get_mut(attempted) {
+            *state = RootState::Failed;
+        }
+    }
     for scan in scans {
         duration_ms = duration_ms.saturating_add(scan.elapsed_ms);
         diagnostic_counts.error = diagnostic_counts
@@ -1123,6 +1279,9 @@ fn record_from_scans(
                     fingerprint: hex_digest(&fingerprint_bytes),
                 });
             }
+        }
+        for (package_root, state) in scan.project_roots.iter().zip(&scan.project_states) {
+            root_states.insert(package_root.clone(), *state);
         }
         if scan.report.completeness.state != CompletenessState::Complete
             || scan
@@ -1164,6 +1323,7 @@ fn record_from_scans(
         expected_roots,
         attempted_roots,
         reported_roots,
+        root_states,
         tool_revision: context.tool_revision.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
@@ -1188,6 +1348,13 @@ fn failed_record(
     message: String,
     duration_ms: u64,
 ) -> CorpusRecord {
+    let root_states = job
+        .prepared
+        .project_roots
+        .iter()
+        .cloned()
+        .map(|root| (root, RootState::NotAttempted))
+        .collect();
     CorpusRecord {
         schema_version: CORPUS_SCHEMA_VERSION.to_string(),
         repository: job.spec.name.clone(),
@@ -1196,6 +1363,7 @@ fn failed_record(
         expected_roots: job.prepared.project_roots.clone(),
         attempted_roots: Vec::new(),
         reported_roots: Vec::new(),
+        root_states,
         tool_revision: context.tool_revision.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
@@ -1318,5 +1486,19 @@ mod tests {
             Some(scratch),
         );
         assert_eq!(sanitized, "<repository> failed in <sandbox>");
+    }
+
+    #[test]
+    fn public_submodule_urls_are_allowlisted_without_credentials() {
+        assert!(public_repository_url(
+            "https://github.com/sublimehq/Packages/"
+        ));
+        assert!(public_repository_url(
+            "https://codeberg.org/ziglang/sublime-zig-language.git"
+        ));
+        assert!(!public_repository_url("ssh://git@github.com/owner/repo"));
+        assert!(!public_repository_url(
+            "https://github.com/owner/repo.git?token=secret"
+        ));
     }
 }

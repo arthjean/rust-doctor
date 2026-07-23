@@ -1,4 +1,5 @@
 use super::manifest::{hex_digest, read_json, sha256_file, write_json_atomic};
+use super::model::EvidenceApproval;
 use super::process::run_capped;
 use super::{EvalError, Result};
 use crate::BenchmarkArgs;
@@ -64,21 +65,14 @@ struct BenchmarkReport {
     manifest_sha256: String,
     tool_revision: String,
     binary_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    baseline_binary_sha256: Option<String>,
     host_class: String,
     toolchain: String,
     repetitions: usize,
     diagnostic_sha256: String,
-    approval: Option<BenchmarkApproval>,
     records: Vec<BenchmarkRecord>,
     gate: BenchmarkGate,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct BenchmarkApproval {
-    reviewed_by: String,
-    reviewed_at: String,
-    review_source: String,
 }
 
 #[expect(
@@ -96,6 +90,11 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
         return Err(EvalError::InvalidManifest(
             "benchmark gate requires --baseline; use --record only to generate a review candidate"
                 .to_string(),
+        ));
+    }
+    if args.baseline.is_some() != args.baseline_approval.is_some() {
+        return Err(EvalError::InvalidManifest(
+            "benchmark gate requires --baseline and --baseline-approval together".to_string(),
         ));
     }
     let manifest: BenchmarkManifest = read_json(&args.manifest)?;
@@ -144,9 +143,9 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
     }
     let mut gate = BenchmarkGate::default();
     for record in &records {
-        if record.fixture == "hundred-k-lines" && record.peak_rss_bytes > 512 * 1024 * 1024 {
+        if record.fixture == "hundred-k-lines" && record.peak_rss_bytes >= 512 * 1024 * 1024 {
             gate.reasons.push(format!(
-                "{} {} {} used {} MiB, above 512 MiB",
+                "{} {} {} used {} MiB, at or above the strict 512 MiB limit",
                 record.fixture,
                 record.mode,
                 record.temperature,
@@ -155,7 +154,13 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
         }
     }
     let diagnostic_sha256 = diagnostic_matrix_sha256(&records)?;
+    let mut baseline_binary_sha256 = None;
     if let Some(baseline_path) = &args.baseline {
+        let baseline_sha256 = sha256_file(baseline_path)?;
+        let approval_path = args.baseline_approval.as_deref().ok_or_else(|| {
+            EvalError::InvalidManifest("benchmark baseline approval is missing".to_string())
+        })?;
+        validate_approval(approval_path, &baseline_sha256)?;
         let baseline: BenchmarkReport = read_json(baseline_path)?;
         if baseline.schema_version != BENCHMARK_SCHEMA_VERSION
             || baseline.manifest_sha256 != manifest_sha256
@@ -163,14 +168,14 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
             || baseline.toolchain != toolchain
             || baseline.repetitions != args.repetitions
             || baseline.diagnostic_sha256 != diagnostic_sha256
-            || baseline.binary_sha256.len() != 64
+            || !lower_hex(&baseline.binary_sha256, 64)
         {
             return Err(EvalError::InvalidManifest(
                 "benchmark baseline schema, fixtures, diagnostics, host, toolchain, repetitions, or binary identity is incompatible"
                     .to_string(),
             ));
         }
-        validate_approval(baseline.approval.as_ref())?;
+        baseline_binary_sha256 = Some(baseline.binary_sha256.clone());
         gate.reasons
             .extend(compare_runtime(&baseline.records, &records));
     }
@@ -180,11 +185,11 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
         manifest_sha256,
         tool_revision,
         binary_sha256,
+        baseline_binary_sha256,
         host_class,
         toolchain,
         repetitions: args.repetitions,
         diagnostic_sha256,
-        approval: None,
         records,
         gate,
     };
@@ -705,13 +710,25 @@ fn diagnostic_matrix_sha256(records: &[BenchmarkRecord]) -> Result<String> {
     Ok(hex_digest(&bytes))
 }
 
-fn validate_approval(approval: Option<&BenchmarkApproval>) -> Result<()> {
-    let approval = approval.ok_or_else(|| {
-        EvalError::InvalidManifest(
-            "benchmark baseline has no protected approval metadata".to_string(),
-        )
-    })?;
-    if approval.reviewed_by.trim().is_empty()
+fn validate_approval(path: &Path, subject_sha256: &str) -> Result<()> {
+    let approval: EvidenceApproval = read_json(path)?;
+    let expected_url = format!(
+        "https://github.com/{}/actions/runs/{}/artifacts/{}",
+        approval.repository, approval.run_id, approval.artifact_id
+    );
+    if approval.schema_version != BENCHMARK_SCHEMA_VERSION
+        || approval.subject_sha256 != subject_sha256
+        || approval.repository.trim().is_empty()
+        || !lower_hex(&approval.head_sha, 40)
+        || approval.run_id == 0
+        || approval.artifact_id == 0
+        || approval.artifact_name.trim().is_empty()
+        || approval
+            .artifact_digest
+            .strip_prefix("sha256:")
+            .is_none_or(|digest| !lower_hex(digest, 64))
+        || approval.artifact_url != expected_url
+        || approval.reviewed_by.trim().is_empty()
         || approval.reviewed_at.trim().is_empty()
         || !matches!(
             approval.review_source.as_str(),
@@ -719,10 +736,18 @@ fn validate_approval(approval: Option<&BenchmarkApproval>) -> Result<()> {
         )
     {
         return Err(EvalError::InvalidManifest(
-            "benchmark approval must identify a protected CI or CODEOWNERS review".to_string(),
+            "benchmark approval must bind the baseline file and protected immutable GitHub artifact"
+                .to_string(),
         ));
     }
     Ok(())
+}
+
+fn lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 fn rustc_identity() -> Result<String> {

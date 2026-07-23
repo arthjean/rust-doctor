@@ -336,7 +336,8 @@ fn log_project_info(project_info: &ProjectInfo, resolved: &ResolvedConfig) {
 }
 
 /// Construct the set of analysis passes based on project info and config.
-/// Lint passes (clippy + custom rules) are always included when lint=true.
+/// Lint passes (clippy + custom rules) are included when lint=true. The
+/// deterministic corpus profile runs only Rust Doctor's custom rules.
 /// Package dependency passes run per affected member. Workspace-global passes
 /// run once after required package analysis.
 #[expect(
@@ -375,7 +376,9 @@ fn build_passes(
     let mut passes: Vec<Box<dyn scanner::AnalysisPass>> = Vec::new();
 
     if resolved.lint {
-        passes.push(Box::new(clippy::ClippyPass::default()));
+        if !resolved.evaluation_profile {
+            passes.push(Box::new(clippy::ClippyPass::default()));
+        }
         let mut custom_rules: Vec<Box<dyn rules::CustomRule>> = rules::error_handling::all_rules()
             .into_iter()
             .chain(rules::performance::all_rules())
@@ -1463,6 +1466,22 @@ mod tests {
             dependency_passes
                 .iter()
                 .any(|pass| pass.name() == "dependencies (cargo-machete)")
+        );
+    }
+
+    #[test]
+    fn evaluation_profile_excludes_environment_dependent_adapters() {
+        let mut resolved = config::resolve_config_defaults(None);
+        resolved.evaluation_profile = true;
+        resolved.dependencies = false;
+        let (_, project, _) = crate::discovery::bootstrap_project(Path::new("."), true).unwrap();
+        let passes = build_passes(&project, Path::new("."), &resolved, true, None, &[]);
+        assert!(passes.iter().any(|pass| pass.name() == "custom rules"));
+        assert!(!passes.iter().any(|pass| pass.name() == "clippy"));
+        assert!(
+            passes
+                .iter()
+                .all(|pass| !pass.name().starts_with("dependencies"))
         );
     }
 }

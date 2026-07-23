@@ -99,7 +99,7 @@ pub(crate) fn validate_corpus_manifest(manifest: &CorpusManifest) -> Result<()> 
 
 fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
     let required_adapters = ["clippy", "custom-rules", "dependencies"];
-    if profile.version != "1.0"
+    if profile.version != "1.1"
         || profile.normalized_severity != "warning"
         || !profile.force_candidate_rules
         || profile.respect_inline_suppressions
@@ -111,6 +111,21 @@ fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
     {
         return Err(EvalError::InvalidManifest(
             "evaluation profile must force all candidate rules at warning severity, disable project and inline suppression policy, run offline, and pin every adapter policy"
+                .to_string(),
+        ));
+    }
+    let expected = [
+        ("clippy", "excluded-environment-dependent"),
+        ("custom-rules", "required-all-candidates"),
+        ("dependencies", "excluded-environment-dependent"),
+    ];
+    if profile.adapter_policy.len() != expected.len()
+        || expected.iter().any(|(adapter, policy)| {
+            profile.adapter_policy.get(*adapter).map(String::as_str) != Some(*policy)
+        })
+    {
+        return Err(EvalError::InvalidManifest(
+            "evaluation adapter policy must require all custom rules and exclude environment-dependent adapters"
                 .to_string(),
         ));
     }
