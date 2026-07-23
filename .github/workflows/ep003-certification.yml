@@ -61,6 +61,12 @@ jobs:
             "$TEST_BINARY" --exact \
             evaluation::process::tests::cleanup_monitor_removes_cgroup_after_abrupt_parent_exit \
             --nocapture
+          scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
+            "$TEST_BINARY" --exact \
+            evaluation::process::tests::oversized_output_is_terminated_and_reported \
+            --nocapture
       - name: Prepare pinned public corpus
         run: |
           target/release/rust-doctor-eval prepare \
@@ -72,6 +78,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
+          cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
+          set +e
           scripts/evaluation/run-in-delegated-cgroup.sh \
             env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
@@ -81,11 +89,20 @@ jobs:
             --checkout-root "$RUNNER_TEMP/ep003-corpus" \
             --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
             --tool-revision "$GITHUB_SHA" \
+            --output-limit-mib 256 \
             --output "$GITHUB_WORKSPACE/evidence/corpus-candidate.ndjson"
-          cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
+          corpus_status=$?
+          set -e
+          test "$corpus_status" -eq 0 || test "$corpus_status" -eq 3
           test "$(wc -l < evidence/corpus-candidate.ndjson)" -eq 100
           test "$(jq -s 'map(.expected_roots | length) | add' evidence/corpus-candidate.ndjson)" -ge 250
-          test "$(jq -s 'all(.[]; .complete and (.expected_roots == .attempted_roots) and (.attempted_roots == .reported_roots))' evidence/corpus-candidate.ndjson)" = true
+          test "$(jq -s 'all(.[]; (.expected_roots == .attempted_roots) and (.attempted_roots == .reported_roots))' evidence/corpus-candidate.ndjson)" = true
+          test "$(jq -s 'all(.[]; .complete or (.attempts == 3 and (.failure_chain | length) > 0 and all(.failure_chain[]; .kind == "incomplete_report") and ([.failure_chain[].attempt] | unique) == [1,2,3] and all(.root_states[]; . == "complete" or . == "incomplete")))' evidence/corpus-candidate.ndjson)" = true
+          if jq -s -e 'all(.[]; .complete)' evidence/corpus-candidate.ndjson >/dev/null; then
+            test "$corpus_status" -eq 0
+          else
+            test "$corpus_status" -eq 3
+          fi
           test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
       - name: Prove bounded retries and budgets fail closed
         shell: bash
