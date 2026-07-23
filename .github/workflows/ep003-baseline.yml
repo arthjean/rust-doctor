@@ -71,6 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
+          cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
           scripts/evaluation/run-in-delegated-cgroup.sh \
             env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
             RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
@@ -81,11 +82,20 @@ jobs:
             --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
             --tool-revision "$GITHUB_SHA" \
             --output "$GITHUB_WORKSPACE/evidence/corpus-baseline.ndjson"
-          cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
           test "$(wc -l < evidence/corpus-baseline.ndjson)" -eq 100
           test "$(jq -s 'map(.expected_roots | length) | add' evidence/corpus-baseline.ndjson)" -ge 250
           test "$(jq -s 'all(.[]; .complete and (.expected_roots == .attempted_roots) and (.attempted_roots == .reported_roots))' evidence/corpus-baseline.ndjson)" = true
           test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
+      - name: Upload failed corpus diagnostic
+        if: ${{ failure() && hashFiles('evidence/corpus-baseline.ndjson') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep003-corpus-diagnostic-${{ github.run_id }}
+          path: |
+            evidence/corpus-baseline.ndjson
+            evidence/prepared.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Prove bounded retries and budgets fail closed
         shell: bash
         run: |
