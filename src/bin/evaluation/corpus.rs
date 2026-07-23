@@ -64,14 +64,14 @@ pub(crate) fn prepare(args: PrepareArgs) -> Result<()> {
             error,
         )
     })?;
-    sandbox::initialize_evaluation_cargo_home(&args.checkout_root)?;
+    let cargo_home = sandbox::initialize_evaluation_cargo_home(&args.checkout_root)?;
     let timeout = Duration::from_secs(args.repository_timeout_secs.max(1));
     let mut repositories = Vec::with_capacity(manifest.repositories.len());
 
     for repository in &manifest.repositories {
         let checkout = args.checkout_root.join(&repository.name);
         prepare_repository(repository, &checkout, timeout)?;
-        let project_roots = discover_project_roots(&checkout)?;
+        let project_roots = discover_project_roots(&checkout, &cargo_home, timeout)?;
         if project_roots.len() < repository.minimum_project_roots {
             return Err(EvalError::InvalidManifest(format!(
                 "{} exposes {} Cargo roots at {}, expected at least {}",
@@ -710,8 +710,34 @@ fn harden_git_environment(command: &mut Command) {
         .env_remove("no_proxy");
 }
 
-fn discover_project_roots(checkout: &Path) -> Result<Vec<String>> {
-    let mut roots = Vec::new();
+fn discover_project_roots(
+    checkout: &Path,
+    cargo_home: &Path,
+    timeout: Duration,
+) -> Result<Vec<String>> {
+    let candidates = discover_manifest_candidates(checkout)?;
+    let mut pending: BTreeSet<_> = candidates.keys().cloned().collect();
+    let mut roots = BTreeSet::new();
+    while let Some(root) = pending.pop_first() {
+        let manifest = candidates
+            .get(&root)
+            .ok_or_else(|| EvalError::Command(format!("missing manifest candidate for {root}")))?;
+        let Some(workspace_roots) = cargo_workspace_roots(checkout, manifest, cargo_home, timeout)?
+        else {
+            continue;
+        };
+        for workspace_root in workspace_roots {
+            if candidates.contains_key(&workspace_root) {
+                pending.remove(&workspace_root);
+                roots.insert(workspace_root);
+            }
+        }
+    }
+    Ok(roots.into_iter().collect())
+}
+
+fn discover_manifest_candidates(checkout: &Path) -> Result<BTreeMap<String, PathBuf>> {
+    let mut roots = BTreeMap::new();
     let mut pending = vec![checkout.to_path_buf()];
     while let Some(directory) = pending.pop() {
         for entry in std::fs::read_dir(&directory)
@@ -757,12 +783,102 @@ fn discover_project_roots(checkout: &Path) -> Result<Vec<String>> {
             } else {
                 relative.to_string_lossy().replace('\\', "/")
             };
-            roots.push(normalized);
+            roots.insert(normalized, path);
         }
+    }
+    Ok(roots)
+}
+
+fn cargo_workspace_roots(
+    checkout: &Path,
+    manifest: &Path,
+    cargo_home: &Path,
+    timeout: Duration,
+) -> Result<Option<Vec<String>>> {
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(checkout)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+            "--manifest-path",
+        ])
+        .arg(manifest)
+        .env("CARGO_HOME", cargo_home)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CARGO_TERM_COLOR", "never")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env_remove("CARGO_REGISTRY_TOKEN")
+        .env_remove("CARGO_REGISTRIES_CRATES_IO_TOKEN")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER");
+    let output = run_capped(command, timeout, COMMAND_OUTPUT_CAP)?;
+    if output.timed_out {
+        return Err(EvalError::Command(format!(
+            "Cargo root discovery timed out for '{}'",
+            manifest.display()
+        )));
+    }
+    if output.output_overflow {
+        return Err(EvalError::Command(format!(
+            "Cargo root discovery exceeded the output cap for '{}'",
+            manifest.display()
+        )));
+    }
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        EvalError::Command(format!(
+            "Cargo root discovery returned invalid metadata for '{}': {error}",
+            manifest.display()
+        ))
+    })?;
+    let members = metadata["workspace_members"]
+        .as_array()
+        .ok_or_else(|| EvalError::Command("Cargo metadata has no workspace_members".to_string()))?
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<BTreeSet<_>>();
+    let packages = metadata["packages"]
+        .as_array()
+        .ok_or_else(|| EvalError::Command("Cargo metadata has no packages".to_string()))?;
+    let mut roots = Vec::with_capacity(members.len());
+    for package in packages {
+        let Some(id) = package["id"].as_str() else {
+            return Err(EvalError::Command(
+                "Cargo metadata package has no ID".to_string(),
+            ));
+        };
+        if !members.contains(id) {
+            continue;
+        }
+        let manifest_path = package["manifest_path"].as_str().ok_or_else(|| {
+            EvalError::Command(format!("Cargo metadata package {id} has no manifest path"))
+        })?;
+        let package_root = Path::new(manifest_path)
+            .parent()
+            .ok_or_else(|| EvalError::Command(format!("package {id} has no root")))?;
+        let relative = package_root.strip_prefix(checkout).map_err(|_| {
+            EvalError::Command(format!(
+                "Cargo workspace member '{}' escapes its prepared checkout",
+                package_root.display()
+            ))
+        })?;
+        roots.push(if relative.as_os_str().is_empty() {
+            ".".to_string()
+        } else {
+            relative.to_string_lossy().replace('\\', "/")
+        });
     }
     roots.sort();
     roots.dedup();
-    Ok(roots)
+    Ok(Some(roots))
 }
 
 fn binary_revision(
@@ -1456,9 +1572,10 @@ mod tests {
     #[test]
     fn project_root_discovery_ignores_vendor_and_invalid_manifests() {
         let directory = tempfile::tempdir().unwrap();
+        let cargo_home = tempfile::tempdir().unwrap();
         std::fs::write(
             directory.path().join("Cargo.toml"),
-            "[workspace]\nmembers = []\n",
+            "[workspace]\nmembers = [\"crate\"]\n",
         )
         .unwrap();
         std::fs::create_dir_all(directory.path().join("crate")).unwrap();
@@ -1467,13 +1584,50 @@ mod tests {
             "[package]\nname = \"crate\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
+        std::fs::create_dir_all(directory.path().join("crate/src")).unwrap();
+        std::fs::write(directory.path().join("crate/src/lib.rs"), "").unwrap();
         std::fs::create_dir_all(directory.path().join("vendor/ignored")).unwrap();
         std::fs::write(
             directory.path().join("vendor/ignored/Cargo.toml"),
             "[package]\nname = \"ignored\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        assert_eq!(discover_project_roots(directory.path()).unwrap(), ["crate"]);
+        assert_eq!(
+            discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
+                .unwrap(),
+            ["crate"]
+        );
+    }
+
+    #[test]
+    fn project_root_discovery_excludes_non_member_packages() {
+        let directory = tempfile::tempdir().unwrap();
+        let cargo_home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"member\"]\n",
+        )
+        .unwrap();
+        for root in ["member", "excluded", "standalone"] {
+            std::fs::create_dir_all(directory.path().join(root).join("src")).unwrap();
+            std::fs::write(
+                directory.path().join(root).join("Cargo.toml"),
+                format!("[package]\nname=\"{root}\"\nversion=\"0.1.0\"\n"),
+            )
+            .unwrap();
+            std::fs::write(directory.path().join(root).join("src/lib.rs"), "").unwrap();
+        }
+        std::fs::write(
+            directory.path().join("standalone/Cargo.toml"),
+            "[package]\nname=\"standalone\"\nversion=\"0.1.0\"\n[workspace]\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
+                .unwrap(),
+            ["member", "standalone"]
+        );
     }
 
     #[test]
