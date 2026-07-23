@@ -73,15 +73,22 @@ jobs:
             x86_64-unknown-linux-gnu \
             tar.gz \
             artifacts
+          bun scripts/release/packages.ts pack \
+            linux-x64 \
+            target/release/rust-doctor \
+            artifacts
 
       - name: Exercise built and final packaged surfaces
         run: |
+          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
           crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
           test -n "$crate_package"
           target/release/rust-doctor-eval smoke \
             --binary target/release/rust-doctor \
             --no-default-binary target/no-default/release/rust-doctor \
             --schema schemas/report-v1.schema.json \
-            --npm-root npm \
+            --npm-platform-package "artifacts/rust-doctor-npm-linux-x64-${version}.tgz" \
+            --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
+            --bun "$(command -v bun)" \
             --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
             --crate-package "$crate_package"

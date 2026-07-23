@@ -124,8 +124,12 @@ struct SmokeArgs {
     no_default_binary: PathBuf,
     #[arg(long, default_value = "schemas/report-v1.schema.json")]
     schema: PathBuf,
-    #[arg(long, default_value = "npm")]
-    npm_root: PathBuf,
+    /// Final platform-specific npm tarball produced by the release packer.
+    #[arg(long)]
+    npm_platform_package: PathBuf,
+    /// Final npm wrapper tarball produced by the release packer.
+    #[arg(long)]
+    npm_wrapper_package: PathBuf,
     #[arg(long, default_value = "bun")]
     bun: PathBuf,
     /// Final native archive to extract and execute (repeat per artifact).

@@ -34,7 +34,13 @@ pub(crate) fn run(args: SmokeArgs) -> Result<()> {
     smoke_failures(&binary, fixture.path(), &schema, timeout)?;
     smoke_no_default(&binary, &no_default, fixture.path(), &schema, timeout)?;
     smoke_mcp(&binary, fixture.path(), timeout)?;
-    smoke_npm(&binary, &args.npm_root, &args.bun, timeout)?;
+    smoke_npm(
+        &binary,
+        &args.npm_platform_package,
+        &args.npm_wrapper_package,
+        &args.bun,
+        timeout,
+    )?;
     smoke_archives(&binary, &args.archives, timeout)?;
     smoke_crate(&args.crate_package, timeout)?;
     Ok(())
@@ -329,62 +335,53 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
             )));
         }
     }
-    send_mcp(
-        &mut stdin,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "scan",
-                "arguments": {
-                    "directory": fixture.to_string_lossy(),
-                    "offline": true,
-                    "ignore_project_config": true
-                }
-            }
-        }),
-    )?;
-    let scan = receive_mcp(&receiver, 3, timeout)?;
-    if scan.get("result").is_none() {
-        return Err(EvalError::Command(format!("MCP scan failed: {scan}")));
-    }
-    send_mcp(
-        &mut stdin,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {
-                "name": "scan",
-                "arguments": {
-                    "directory": fixture.to_string_lossy(),
-                    "diff": "HEAD",
-                    "offline": true,
-                    "ignore_project_config": true
-                }
-            }
-        }),
-    )?;
-    let baseline = receive_mcp(&receiver, 4, timeout)?;
-    if baseline.get("result").is_none() {
-        return Err(EvalError::Command(format!(
-            "MCP baseline scope failed: {baseline}"
-        )));
+    let scope_cases = [
+        ("full", json!({"scope": "full"})),
+        ("files", json!({"scope": "files", "files": ["src/lib.rs"]})),
+        ("changed", json!({"scope": "changed", "base": "HEAD"})),
+        ("lines", json!({"scope": "lines", "base": "HEAD"})),
+        ("staged", json!({"scope": "staged"})),
+        ("baseline", json!({"scope": "baseline", "base": "HEAD"})),
+    ];
+    for (offset, (expected_scope, scope_arguments)) in scope_cases.into_iter().enumerate() {
+        let id = u64::try_from(offset).unwrap_or(0) + 3;
+        let mut arguments = scope_arguments
+            .as_object()
+            .cloned()
+            .ok_or_else(|| EvalError::Command("invalid MCP scope fixture".to_string()))?;
+        arguments.insert(
+            "directory".to_string(),
+            Value::String(fixture.to_string_lossy().into_owned()),
+        );
+        arguments.insert("offline".to_string(), Value::Bool(true));
+        arguments.insert("ignore_project_config".to_string(), Value::Bool(false));
+        send_mcp(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": {"name": "scan", "arguments": arguments}
+            }),
+        )?;
+        let response = receive_mcp(&receiver, id, timeout)?;
+        require_mcp_scope(&response, expected_scope)?;
     }
 
+    let cancellation_fixture = materialize_cancellation_fixture(fixture)?;
+    let cancellation_id = 9;
     send_mcp(
         &mut stdin,
         &json!({
             "jsonrpc": "2.0",
-            "id": 5,
+            "id": cancellation_id,
             "method": "tools/call",
             "params": {
                 "name": "scan",
                 "arguments": {
-                    "directory": fixture.to_string_lossy(),
+                    "directory": cancellation_fixture.to_string_lossy(),
                     "offline": true,
-                    "ignore_project_config": true
+                    "ignore_project_config": false
                 }
             }
         }),
@@ -394,21 +391,27 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
         &json!({
             "jsonrpc": "2.0",
             "method": "notifications/cancelled",
-            "params": {"requestId": 5, "reason": "artifact smoke cancellation"}
+            "params": {
+                "requestId": cancellation_id,
+                "reason": "artifact smoke cancellation"
+            }
         }),
     )?;
     let cancellation_deadline = timeout.min(Duration::from_secs(2));
-    let cancelled = receive_mcp(&receiver, 5, cancellation_deadline)?;
-    if cancelled.get("error").is_none() || cancelled.get("result").is_some() {
+    let cancelled = receive_mcp(&receiver, cancellation_id, cancellation_deadline)?;
+    if cancelled["error"]["code"].as_i64() != Some(-32603)
+        || cancelled["error"]["message"] != "scan cancelled by client"
+        || cancelled.get("result").is_some()
+    {
         return Err(EvalError::Command(format!(
-            "MCP cancellation was not observed before a normal response: {cancelled}"
+            "MCP cancellation did not return the stable error contract: {cancelled}"
         )));
     }
     send_mcp(
         &mut stdin,
-        &json!({"jsonrpc": "2.0", "id": 6, "method": "tools/list", "params": {}}),
+        &json!({"jsonrpc": "2.0", "id": 10, "method": "tools/list", "params": {}}),
     )?;
-    let after_cancellation = receive_mcp(&receiver, 6, timeout)?;
+    let after_cancellation = receive_mcp(&receiver, 10, timeout)?;
     if after_cancellation.get("result").is_none() {
         return Err(EvalError::Command(format!(
             "MCP server was unusable after cancellation: {after_cancellation}"
@@ -420,57 +423,46 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     Ok(())
 }
 
-fn smoke_npm(binary: &Path, npm_root: &Path, bun: &Path, timeout: Duration) -> Result<()> {
-    let platform = platform_package()?;
-    let wrapper_source = npm_root.join("rust-doctor");
-    let platform_source = npm_root.join(platform);
-    if !wrapper_source.is_dir() || !platform_source.is_dir() {
+fn require_mcp_scope(response: &Value, expected_scope: &str) -> Result<()> {
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .ok_or_else(|| {
+            EvalError::Command(format!("MCP {expected_scope} scope failed: {response}"))
+        })?;
+    if !text.contains(&format!("Scope: {expected_scope}")) {
         return Err(EvalError::Command(format!(
-            "npm smoke is missing {} or {}",
-            wrapper_source.display(),
-            platform_source.display()
+            "MCP {expected_scope} scope returned the wrong report scope"
         )));
     }
+    Ok(())
+}
+
+fn smoke_npm(
+    binary: &Path,
+    platform_archive: &Path,
+    wrapper_package: &Path,
+    bun: &Path,
+    timeout: Duration,
+) -> Result<()> {
+    let platform = platform_package()?;
+    let platform_package = platform_archive.canonicalize().map_err(|error| {
+        EvalError::io(
+            "cannot canonicalize npm platform package",
+            platform_archive,
+            error,
+        )
+    })?;
+    let wrapper_package = wrapper_package.canonicalize().map_err(|error| {
+        EvalError::io(
+            "cannot canonicalize npm wrapper package",
+            wrapper_package,
+            error,
+        )
+    })?;
     let root = tempfile::Builder::new()
         .prefix("rust-doctor-npm-smoke-")
         .tempdir()
         .map_err(|error| EvalError::io("cannot create npm smoke directory", ".", error))?;
-    let wrapper = root.path().join("wrapper");
-    let platform_dir = root.path().join("platform");
-    copy_tree(&wrapper_source, &wrapper)?;
-    copy_tree(&platform_source, &platform_dir)?;
-    let binary_name = if cfg!(windows) {
-        "rust-doctor.exe"
-    } else {
-        "rust-doctor"
-    };
-    let embedded = platform_dir.join("bin").join(binary_name);
-    if let Some(parent) = embedded.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| EvalError::io("cannot create npm binary directory", parent, error))?;
-    }
-    std::fs::copy(binary, &embedded)
-        .map_err(|error| EvalError::io("cannot embed npm smoke binary", &embedded, error))?;
-    set_executable(&embedded)?;
-    let source_hash = hex_digest(
-        &std::fs::read(binary)
-            .map_err(|error| EvalError::io("cannot hash source binary", binary, error))?,
-    );
-    let embedded_hash = hex_digest(
-        &std::fs::read(&embedded)
-            .map_err(|error| EvalError::io("cannot hash embedded binary", &embedded, error))?,
-    );
-    if source_hash != embedded_hash {
-        return Err(EvalError::Command(
-            "npm platform package did not embed the exact built binary".to_string(),
-        ));
-    }
-    validate_package_versions(&wrapper, &platform_dir)?;
-    let packs = root.path().join("packs");
-    std::fs::create_dir_all(&packs)
-        .map_err(|error| EvalError::io("cannot create npm pack directory", &packs, error))?;
-    pack(bun, &platform_dir, &packs, "platform.tgz", timeout)?;
-    pack(bun, &wrapper, &packs, "wrapper.tgz", timeout)?;
     let install = root.path().join("install");
     std::fs::create_dir_all(&install)
         .map_err(|error| EvalError::io("cannot create npm install directory", &install, error))?;
@@ -482,12 +474,34 @@ fn smoke_npm(binary: &Path, npm_root: &Path, bun: &Path, timeout: Duration) -> R
     let mut add = Command::new(bun);
     add.current_dir(&install)
         .args(["add", "--no-save"])
-        .arg(packs.join("platform.tgz"))
-        .arg(packs.join("wrapper.tgz"));
+        .arg(&platform_package)
+        .arg(&wrapper_package);
     require_success(
-        "packed npm installation",
+        "final npm installation",
         &run_capped(add, timeout, OUTPUT_CAP)?,
     )?;
+    let platform_dir = install.join("node_modules/@rust-doctor").join(platform);
+    let wrapper = install.join("node_modules/rust-doctor");
+    validate_package_versions(&wrapper, &platform_dir)?;
+    let binary_name = if cfg!(windows) {
+        "rust-doctor.exe"
+    } else {
+        "rust-doctor"
+    };
+    let embedded = platform_dir.join("bin").join(binary_name);
+    let source_hash = hex_digest(
+        &std::fs::read(binary)
+            .map_err(|error| EvalError::io("cannot hash source binary", binary, error))?,
+    );
+    let embedded_hash =
+        hex_digest(&std::fs::read(&embedded).map_err(|error| {
+            EvalError::io("cannot hash installed npm binary", &embedded, error)
+        })?);
+    if source_hash != embedded_hash {
+        return Err(EvalError::Command(
+            "final npm platform package does not contain the exact built binary".to_string(),
+        ));
+    }
     let wrapper_bin = install.join("node_modules/rust-doctor/bin/rust-doctor.js");
     let mut launch = Command::new(bun);
     launch
@@ -495,12 +509,12 @@ fn smoke_npm(binary: &Path, npm_root: &Path, bun: &Path, timeout: Duration) -> R
         .arg(&wrapper_bin)
         .arg("--version");
     let output = run_capped(launch, timeout, OUTPUT_CAP)?;
-    require_success("packed npm wrapper", &output)?;
+    require_success("final npm wrapper", &output)?;
     let expected = version(binary, timeout)?;
     let actual = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if actual != expected {
         return Err(EvalError::Command(format!(
-            "packed npm wrapper reports {actual:?}, expected {expected:?}"
+            "final npm wrapper reports {actual:?}, expected {expected:?}"
         )));
     }
     Ok(())
@@ -886,6 +900,31 @@ fn materialize_fixture() -> Result<tempfile::TempDir> {
         "pub fn value(input: Option<u8>) -> u8 { input.unwrap() }\n",
     )
     .map_err(|error| EvalError::io("cannot mutate artifact source", fixture.path(), error))?;
+    git(fixture.path(), &["add", "src/lib.rs"])?;
+    Ok(fixture)
+}
+
+fn materialize_cancellation_fixture(root: &Path) -> Result<PathBuf> {
+    let fixture = root.join("cancellation-fixture");
+    std::fs::create_dir_all(fixture.join("src"))
+        .map_err(|error| EvalError::io("cannot create cancellation fixture", &fixture, error))?;
+    std::fs::write(
+        fixture.join("Cargo.toml"),
+        "[package]\nname = \"cancellation-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\nbuild = \"build.rs\"\n",
+    )
+    .map_err(|error| EvalError::io("cannot write cancellation manifest", &fixture, error))?;
+    std::fs::write(
+        fixture.join("rust-doctor.toml"),
+        "lint = true\ndependencies = false\n",
+    )
+    .map_err(|error| EvalError::io("cannot write cancellation config", &fixture, error))?;
+    std::fs::write(fixture.join("src/lib.rs"), "pub fn value() -> u8 { 1 }\n")
+        .map_err(|error| EvalError::io("cannot write cancellation source", &fixture, error))?;
+    std::fs::write(
+        fixture.join("build.rs"),
+        "fn main() { std::thread::sleep(std::time::Duration::from_secs(30)); }\n",
+    )
+    .map_err(|error| EvalError::io("cannot write cancellation build script", &fixture, error))?;
     Ok(fixture)
 }
 
@@ -966,34 +1005,6 @@ fn platform_package() -> Result<&'static str> {
     }
 }
 
-fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
-    std::fs::create_dir_all(destination)
-        .map_err(|error| EvalError::io("cannot create npm package copy", destination, error))?;
-    for entry in std::fs::read_dir(source)
-        .map_err(|error| EvalError::io("cannot read npm package", source, error))?
-    {
-        let entry =
-            entry.map_err(|error| EvalError::io("cannot read npm package entry", source, error))?;
-        let path = entry.path();
-        let target = destination.join(entry.file_name());
-        let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|error| EvalError::io("cannot inspect npm package", &path, error))?;
-        if metadata.file_type().is_symlink() {
-            return Err(EvalError::Command(format!(
-                "npm smoke refuses package symlink '{}'",
-                path.display()
-            )));
-        }
-        if metadata.is_dir() {
-            copy_tree(&path, &target)?;
-        } else {
-            std::fs::copy(&path, &target)
-                .map_err(|error| EvalError::io("cannot copy npm package file", &path, error))?;
-        }
-    }
-    Ok(())
-}
-
 fn validate_package_versions(wrapper: &Path, platform: &Path) -> Result<()> {
     let wrapper_json = package_json(&wrapper.join("package.json"))?;
     let platform_json = package_json(&platform.join("package.json"))?;
@@ -1021,25 +1032,6 @@ fn package_json(path: &Path) -> Result<Value> {
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn pack(
-    bun: &Path,
-    package: &Path,
-    destination: &Path,
-    filename: &str,
-    timeout: Duration,
-) -> Result<()> {
-    let mut command = Command::new(bun);
-    command
-        .current_dir(package)
-        .args(["pm", "pack", "--ignore-scripts", "--filename", filename]);
-    require_success("npm pack", &run_capped(command, timeout, OUTPUT_CAP)?)?;
-
-    let archive = package.join(filename);
-    let target = destination.join(filename);
-    std::fs::rename(&archive, &target)
-        .map_err(|error| EvalError::io("cannot move npm package archive", &target, error))
 }
 
 #[cfg(unix)]

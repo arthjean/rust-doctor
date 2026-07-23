@@ -75,26 +75,31 @@ jobs:
             "${{ matrix.archive }}" \
             artifacts
 
-      - name: Exercise built and final packaged surfaces
-        shell: bash
-        run: |
-          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
-          test -n "$crate_package"
-          target/${{ matrix.target }}/release/rust-doctor-eval smoke \
-            --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
-            --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
-            --schema schemas/report-v1.schema.json \
-            --npm-root npm \
-            --bun "$(command -v bun)" \
-            --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
-            --crate-package "$crate_package"
-
       - name: Package npm tarballs
         shell: bash
         run: |
           set -euo pipefail
           binary="target/${{ matrix.target }}/release/${{ matrix.binary }}"
           bun scripts/release/packages.ts pack "${{ matrix.platform }}" "$binary" artifacts
+
+      - name: Exercise built and final packaged surfaces
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
+          test -n "$crate_package"
+          target/${{ matrix.target }}/release/rust-doctor-eval smoke \
+            --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --schema schemas/report-v1.schema.json \
+            --npm-platform-package "artifacts/rust-doctor-npm-${{ matrix.platform }}-${version}.tgz" \
+            --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
+            --bun "$(command -v bun)" \
+            --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
+            --crate-package "$crate_package"
+          if [[ "${{ matrix.platform }}" != "linux-x64" ]]; then
+            rm "artifacts/rust-doctor-npm-${version}.tgz"
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

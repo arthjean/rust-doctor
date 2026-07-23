@@ -118,7 +118,7 @@ function pack(platform: PlatformPackage, binaryInput: string, outputInput: strin
     }
 
     cpSync(platformArchive, join(output, platformArchiveName));
-    if (platform === "linux-x64") cpSync(wrapperArchive, join(output, wrapperArchiveName));
+    cpSync(wrapperArchive, join(output, wrapperArchiveName));
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
