@@ -72,26 +72,26 @@ fn parse_semver_output(output: &str) -> Vec<Diagnostic> {
         let trimmed = line.trim();
 
         // Match violation lines: "--- failure[name]: description"
-        if let Some(rest) = trimmed.strip_prefix("--- failure[") {
-            if let Some(bracket_end) = rest.find("]:") {
-                let violation_name = &rest[..bracket_end];
-                let description = rest[bracket_end + 2..].trim();
+        if let Some(rest) = trimmed.strip_prefix("--- failure[")
+            && let Some(bracket_end) = rest.find("]:")
+        {
+            let violation_name = &rest[..bracket_end];
+            let description = rest[bracket_end + 2..].trim();
 
-                diagnostics.push(Diagnostic {
-                    file_path: PathBuf::from("Cargo.toml"),
-                    rule: "semver-violation".to_string(),
-                    category: Category::Cargo,
-                    severity: Severity::Warning,
-                    message: format!("{violation_name}: {description}"),
-                    help: Some(format!(
-                        "This is a semver-incompatible change ({violation_name}). \
+            diagnostics.push(Diagnostic {
+                file_path: PathBuf::from("Cargo.toml"),
+                rule: "semver-violation".to_string(),
+                category: Category::Cargo,
+                severity: Severity::Warning,
+                message: format!("{violation_name}: {description}"),
+                help: Some(format!(
+                    "This is a semver-incompatible change ({violation_name}). \
                          Bump the major version or revert the breaking change."
-                    )),
-                    line: None,
-                    column: None,
-                    fix: None,
-                });
-            }
+                )),
+                line: None,
+                column: None,
+                fix: None,
+            });
         }
     }
 

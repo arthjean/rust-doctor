@@ -27,14 +27,14 @@ pub fn apply_fixes(diagnostics: &[Diagnostic], project_root: &Path) -> usize {
 
     for (file_path, fixes) in &fixes_by_file {
         // Security: ensure the fix target stays under the project root
-        if let Ok(canonical) = file_path.canonicalize() {
-            if !canonical.starts_with(&project_root_canonical) {
-                eprintln!(
-                    "Warning: fix path escapes project root, skipping: {}",
-                    file_path.display()
-                );
-                continue;
-            }
+        if let Ok(canonical) = file_path.canonicalize()
+            && !canonical.starts_with(&project_root_canonical)
+        {
+            eprintln!(
+                "Warning: fix path escapes project root, skipping: {}",
+                file_path.display()
+            );
+            continue;
         }
 
         let content = match std::fs::read_to_string(file_path) {
@@ -58,12 +58,12 @@ pub fn apply_fixes(diagnostics: &[Diagnostic], project_root: &Path) -> usize {
 
         for fix in sorted_fixes {
             let line_idx = (fix.line as usize).saturating_sub(1);
-            if let Some(line) = new_lines.get_mut(line_idx) {
-                if line.contains(&fix.old_text) {
-                    let replaced = line.replacen(&fix.old_text, &fix.new_text, 1);
-                    *line = replaced;
-                    applied_in_file += 1;
-                }
+            if let Some(line) = new_lines.get_mut(line_idx)
+                && line.contains(&fix.old_text)
+            {
+                let replaced = line.replacen(&fix.old_text, &fix.new_text, 1);
+                *line = replaced;
+                applied_in_file += 1;
             }
         }
 

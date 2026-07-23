@@ -454,13 +454,13 @@ fn validate_source_position(path: &Path, location: &ParsedLocation) -> Result<()
             input: format_location(&normalize_path(path), location.line, location.column),
             reason: "line is outside the file".to_string(),
         })?;
-    if let Some(column) = location.column {
-        if column as usize > line.chars().count().saturating_add(1) {
-            return Err(WhyError::InvalidLocation {
-                input: format_location(&normalize_path(path), location.line, location.column),
-                reason: "column is outside the line".to_string(),
-            });
-        }
+    if let Some(column) = location.column
+        && column as usize > line.chars().count().saturating_add(1)
+    {
+        return Err(WhyError::InvalidLocation {
+            input: format_location(&normalize_path(path), location.line, location.column),
+            reason: "column is outside the line".to_string(),
+        });
     }
     Ok(())
 }

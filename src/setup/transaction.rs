@@ -297,26 +297,25 @@ fn rollback_failure(
         }
     }
     for directory in created_directories.iter().rev() {
-        if let Err(error) = fs::remove_dir(directory) {
-            if error.kind() != io::ErrorKind::NotFound
-                && error.kind() != io::ErrorKind::DirectoryNotEmpty
-            {
-                rollback_errors.push(format!(
-                    "failed to remove directory `{}` during rollback: {error}",
-                    directory.display()
-                ));
-            }
+        if let Err(error) = fs::remove_dir(directory)
+            && error.kind() != io::ErrorKind::NotFound
+            && error.kind() != io::ErrorKind::DirectoryNotEmpty
+        {
+            rollback_errors.push(format!(
+                "failed to remove directory `{}` during rollback: {error}",
+                directory.display()
+            ));
         }
     }
     if rollback_errors.is_empty() {
         for backup in backups {
-            if let Err(error) = fs::remove_file(backup) {
-                if error.kind() != io::ErrorKind::NotFound {
-                    rollback_errors.push(format!(
-                        "failed to remove backup `{}` after rollback: {error}",
-                        backup.display()
-                    ));
-                }
+            if let Err(error) = fs::remove_file(backup)
+                && error.kind() != io::ErrorKind::NotFound
+            {
+                rollback_errors.push(format!(
+                    "failed to remove backup `{}` after rollback: {error}",
+                    backup.display()
+                ));
             }
         }
     } else if !backups.is_empty() {
@@ -423,10 +422,10 @@ fn write_temporary(
 fn remove_backups(backups: &[PathBuf]) -> Vec<String> {
     let mut errors = Vec::new();
     for backup in backups {
-        if let Err(error) = fs::remove_file(backup) {
-            if error.kind() != io::ErrorKind::NotFound {
-                errors.push(format!("{}: {error}", backup.display()));
-            }
+        if let Err(error) = fs::remove_file(backup)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            errors.push(format!("{}: {error}", backup.display()));
         }
     }
     errors

@@ -414,26 +414,24 @@ impl<'ast> Visit<'ast> for ActixVisitor<'_> {
             }
 
             // Check short patterns (last 2 segments) if no full match
-            if !matched {
-                if let [.., second_last, last] = segments.as_slice() {
-                    for (a, b, help) in ACTIX_BLOCKING_SHORT {
-                        if second_last == *a && last == *b {
-                            let span = func_path.path.span();
-                            self.diagnostics.push(Diagnostic {
-                                file_path: self.path.to_path_buf(),
-                                rule: "actix-blocking-handler".to_string(),
-                                category: Category::Framework,
-                                severity: Severity::Warning,
-                                message: format!(
-                                    "Blocking call `{}` in actix-web handler",
-                                    segments.join("::")
-                                ),
-                                help: Some(help.to_string()),
-                                line: Some(span.start().line as u32),
-                                column: Some(span.start().column as u32 + 1),
-                                fix: None,
-                            });
-                        }
+            if !matched && let [.., second_last, last] = segments.as_slice() {
+                for (a, b, help) in ACTIX_BLOCKING_SHORT {
+                    if second_last == *a && last == *b {
+                        let span = func_path.path.span();
+                        self.diagnostics.push(Diagnostic {
+                            file_path: self.path.to_path_buf(),
+                            rule: "actix-blocking-handler".to_string(),
+                            category: Category::Framework,
+                            severity: Severity::Warning,
+                            message: format!(
+                                "Blocking call `{}` in actix-web handler",
+                                segments.join("::")
+                            ),
+                            help: Some(help.to_string()),
+                            line: Some(span.start().line as u32),
+                            column: Some(span.start().column as u32 + 1),
+                            fix: None,
+                        });
                     }
                 }
             }

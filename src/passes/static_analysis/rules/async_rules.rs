@@ -193,26 +193,24 @@ impl<'ast> Visit<'ast> for BlockingVisitor<'_> {
             }
 
             // Check short patterns only if full pattern didn't match
-            if !matched {
-                if let [.., second_last, last] = segments.as_slice() {
-                    for (a, b, help) in BLOCKING_SHORT {
-                        if second_last == *a && last == *b {
-                            let span = func_path.path.span();
-                            self.diagnostics.push(Diagnostic {
-                                file_path: self.path.to_path_buf(),
-                                rule: "blocking-in-async".to_string(),
-                                category: Category::Async,
-                                severity: Severity::Error,
-                                message: format!(
-                                    "Blocking call `{}` inside async context",
-                                    segments.join("::")
-                                ),
-                                help: Some(help.to_string()),
-                                line: Some(span.start().line as u32),
-                                column: Some(span.start().column as u32 + 1),
-                                fix: None,
-                            });
-                        }
+            if !matched && let [.., second_last, last] = segments.as_slice() {
+                for (a, b, help) in BLOCKING_SHORT {
+                    if second_last == *a && last == *b {
+                        let span = func_path.path.span();
+                        self.diagnostics.push(Diagnostic {
+                            file_path: self.path.to_path_buf(),
+                            rule: "blocking-in-async".to_string(),
+                            category: Category::Async,
+                            severity: Severity::Error,
+                            message: format!(
+                                "Blocking call `{}` inside async context",
+                                segments.join("::")
+                            ),
+                            help: Some(help.to_string()),
+                            line: Some(span.start().line as u32),
+                            column: Some(span.start().column as u32 + 1),
+                            fix: None,
+                        });
                     }
                 }
             }
