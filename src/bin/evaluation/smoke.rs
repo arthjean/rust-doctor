@@ -466,6 +466,8 @@ fn smoke_npm(
     let install = root.path().join("install");
     std::fs::create_dir_all(&install)
         .map_err(|error| EvalError::io("cannot create npm install directory", &install, error))?;
+    let platform_spec = stage_npm_package(&platform_package, &install, "rust-doctor-platform.tgz")?;
+    let wrapper_spec = stage_npm_package(&wrapper_package, &install, "rust-doctor-wrapper.tgz")?;
     std::fs::write(
         install.join("package.json"),
         "{\"name\":\"rust-doctor-smoke\",\"private\":true}",
@@ -474,8 +476,8 @@ fn smoke_npm(
     let mut add = Command::new(bun);
     add.current_dir(&install)
         .args(["add", "--no-save"])
-        .arg(&platform_package)
-        .arg(&wrapper_package);
+        .arg(&platform_spec)
+        .arg(&wrapper_spec);
     require_success(
         "final npm installation",
         &run_capped(add, timeout, OUTPUT_CAP)?,
@@ -518,6 +520,13 @@ fn smoke_npm(
         )));
     }
     Ok(())
+}
+
+fn stage_npm_package(package: &Path, install: &Path, filename: &str) -> Result<String> {
+    let destination = install.join(filename);
+    std::fs::copy(package, &destination)
+        .map_err(|error| EvalError::io("cannot stage npm package", &destination, error))?;
+    Ok(format!("./{filename}"))
 }
 
 fn smoke_archives(binary: &Path, archives: &[PathBuf], timeout: Duration) -> Result<()> {
@@ -1069,5 +1078,22 @@ mod tests {
     #[test]
     fn platform_package_matches_supported_release_targets() {
         assert!(platform_package().is_ok());
+    }
+
+    #[test]
+    fn npm_package_specs_are_relative_and_stage_exact_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let package = root.path().join("source.tgz");
+        let install = root.path().join("install");
+        std::fs::write(&package, b"exact package bytes").unwrap();
+        std::fs::create_dir(&install).unwrap();
+
+        let spec = stage_npm_package(&package, &install, "platform.tgz").unwrap();
+
+        assert_eq!(spec, "./platform.tgz");
+        assert_eq!(
+            std::fs::read(install.join(&spec)).unwrap(),
+            b"exact package bytes"
+        );
     }
 }
