@@ -93,12 +93,20 @@ fn validate_tree(root: &Path, skip_git: bool) -> Result<PathBuf> {
             let entry = entry.map_err(|error| {
                 EvalError::io("cannot inspect checkout entry", &directory, error)
             })?;
+            if skip_git
+                && matches!(
+                    entry.file_name().to_str(),
+                    Some(".git" | "target" | "vendor" | "node_modules")
+                )
+            {
+                continue;
+            }
             let path = entry.path();
             let metadata = std::fs::symlink_metadata(&path)
                 .map_err(|error| EvalError::io("cannot inspect checkout path", &path, error))?;
             if metadata.file_type().is_symlink() {
                 validate_symlink_target(&root, &path, 0)?;
-            } else if metadata.is_dir() && (!skip_git || entry.file_name() != ".git") {
+            } else if metadata.is_dir() {
                 pending.push(path);
             }
         }
@@ -478,6 +486,21 @@ mod tests {
         symlink("links/second/child", root.path().join("first")).unwrap();
         let error = validate_checkout_tree(root.path()).unwrap_err();
         assert!(error.to_string().contains("symlink escape"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_validation_skips_generated_dependency_trees() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("node_modules")).unwrap();
+        symlink(
+            "/outside/generated-dependency",
+            root.path().join("node_modules/dependency"),
+        )
+        .unwrap();
+        validate_checkout_tree(root.path()).unwrap();
     }
 
     #[cfg(target_os = "linux")]
