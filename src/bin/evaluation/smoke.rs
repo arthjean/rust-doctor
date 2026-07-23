@@ -271,7 +271,7 @@ fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
         .env("RUST_DOCTOR_MCP_ROOT", fixture)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::inherit());
     let mut child =
         KillOnDrop(command.spawn().map_err(|error| {
             EvalError::Command(format!("cannot launch MCP smoke server: {error}"))
