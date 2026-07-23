@@ -18,8 +18,8 @@ pub const EXIT_GATE_FAILURE: u8 = 3;
 /// Exit code for incomplete required analysis.
 pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 4;
 use crate::diagnostics::{
-    BaselineReport, CheckState, CheckStatus, CompletenessState, GateResult, ReportV1, ScanMode,
-    ScanResult,
+    BaselineReport, Category, CheckState, CheckStatus, CompletenessState, GateResult, ReportV1,
+    ScanMode, ScanResult,
 };
 use crate::{config, deps, diff, discovery, fixer, output, plan, sarif, scan};
 
@@ -150,6 +150,10 @@ pub fn bootstrap_project(
 }
 
 /// Run the scan passes and return the result.
+#[expect(
+    clippy::too_many_lines,
+    reason = "CLI scope dispatch keeps category selection aligned across full, changed, staged, and baseline scans"
+)]
 pub fn run_scan(
     cli: &Cli,
     project_info: &discovery::ProjectInfo,
@@ -164,92 +168,100 @@ pub fn run_scan(
         Arc::new(AtomicBool::new(false)),
         cli.max_duration.map(Duration::from_secs),
     );
-    let mut result =
-        match diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files) {
-            Ok(scope)
-                if scope.reporting_scope == diff::ReportingScope::Changed
-                    && scope.has_applicable_work()
-                    && !has_uncommitted_scope_work(
-                        project_info,
-                        resolved,
-                        request.include_untracked,
-                    )? =>
-            {
-                let mut baseline_scope = scope.clone();
-                baseline_scope.reporting_scope = diff::ReportingScope::Baseline;
-                let mut result = run_baseline(
-                    cli,
+    let selected_categories = diagnostic_categories(&cli.category);
+    let result = match diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files)
+    {
+        Ok(scope)
+            if scope.reporting_scope == diff::ReportingScope::Changed
+                && scope.has_applicable_work()
+                && !has_uncommitted_scope_work(
                     project_info,
                     resolved,
-                    suppress_spinner,
-                    &baseline_scope,
-                    &control,
-                )?;
-                result.diagnostics = diff::filter_diagnostics(
-                    std::mem::take(&mut result.diagnostics),
-                    &result.compiler_evidence,
-                    &project_info.root_dir,
-                    &scope,
-                );
-                let retained = result.diagnostics.clone();
-                result.compiler_evidence.retain(|evidence| {
-                    retained
-                        .iter()
-                        .any(|diagnostic| evidence.matches(diagnostic))
-                });
-                result.execution.reporting_scope = "changed".to_string();
-                if let Some(baseline) = &mut result.execution.baseline {
-                    baseline.new_count = result.diagnostics.len();
-                }
-                recalculate_result(&mut result, resolved, &project_info.root_dir);
-                result
+                    request.include_untracked,
+                )? =>
+        {
+            let mut baseline_scope = scope.clone();
+            baseline_scope.reporting_scope = diff::ReportingScope::Baseline;
+            let mut result = run_baseline(
+                cli,
+                project_info,
+                resolved,
+                suppress_spinner,
+                &baseline_scope,
+                &control,
+                &selected_categories,
+            )?;
+            result.diagnostics = diff::filter_diagnostics(
+                std::mem::take(&mut result.diagnostics),
+                &result.compiler_evidence,
+                &project_info.root_dir,
+                &scope,
+            );
+            let retained = result.diagnostics.clone();
+            result.compiler_evidence.retain(|evidence| {
+                retained
+                    .iter()
+                    .any(|diagnostic| evidence.matches(diagnostic))
+            });
+            result.execution.reporting_scope = "changed".to_string();
+            if let Some(baseline) = &mut result.execution.baseline {
+                baseline.new_count = result.diagnostics.len();
             }
-            Ok(scope) => match scope.reporting_scope {
-                diff::ReportingScope::Staged => run_staged(
-                    cli,
-                    project_info,
-                    resolved,
-                    suppress_spinner,
-                    &scope,
-                    &control,
-                )?,
-                diff::ReportingScope::Baseline => run_baseline(
-                    cli,
-                    project_info,
-                    resolved,
-                    suppress_spinner,
-                    &scope,
-                    &control,
-                )?,
-                _ => scan::scan_project_scoped(
-                    project_info,
-                    resolved,
-                    cli.offline,
-                    &cli.project,
-                    suppress_spinner,
-                    &scope,
-                    &control,
-                )?,
-            },
-            Err(error)
-                if request.reporting_scope == diff::ReportingScope::Baseline
-                    && baseline_error_may_degrade(&error) =>
-            {
-                degraded_baseline_without_base(
-                    cli,
-                    project_info,
-                    resolved,
-                    suppress_spinner,
-                    &control,
-                    request.base.clone(),
-                    error.to_string(),
-                )?
-            }
-            Err(error) => return Err(error.into()),
-        };
-    if !cli.category.is_empty() {
-        filter_categories(&mut result, &cli.category, resolved, &project_info.root_dir);
-    }
+            recalculate_result(
+                &mut result,
+                resolved,
+                &project_info.root_dir,
+                &selected_categories,
+            );
+            result
+        }
+        Ok(scope) => match scope.reporting_scope {
+            diff::ReportingScope::Staged => run_staged(
+                cli,
+                project_info,
+                resolved,
+                suppress_spinner,
+                &scope,
+                &control,
+                &selected_categories,
+            )?,
+            diff::ReportingScope::Baseline => run_baseline(
+                cli,
+                project_info,
+                resolved,
+                suppress_spinner,
+                &scope,
+                &control,
+                &selected_categories,
+            )?,
+            _ => scan::scan_project_scoped_for_categories(
+                project_info,
+                resolved,
+                cli.offline,
+                &cli.project,
+                suppress_spinner,
+                &scope,
+                &control,
+                &selected_categories,
+            )?,
+        },
+        Err(error)
+            if request.reporting_scope == diff::ReportingScope::Baseline
+                && baseline_error_may_degrade(&error) =>
+        {
+            degraded_baseline_without_base(
+                cli,
+                project_info,
+                resolved,
+                suppress_spinner,
+                &control,
+                request.base.clone(),
+                error.to_string(),
+                &selected_categories,
+            )?
+        }
+        Err(error) => return Err(error.into()),
+    };
     Ok(result)
 }
 
@@ -279,44 +291,22 @@ fn has_uncommitted_scope_work(
     )
 }
 
-fn filter_categories(
-    result: &mut ScanResult,
-    categories: &[ScanCategory],
-    resolved: &config::ResolvedConfig,
-    workspace_root: &Path,
-) {
-    result
-        .diagnostics
-        .retain(|diagnostic| category_selected(&diagnostic.category, categories));
-    result
-        .suppressed_security
-        .retain(|diagnostic| category_selected(&diagnostic.category, categories));
-    let retained = result.diagnostics.clone();
-    result.compiler_evidence.retain(|evidence| {
-        retained
-            .iter()
-            .any(|diagnostic| evidence.matches(diagnostic))
-    });
-    if let Some(baseline) = &mut result.execution.baseline {
-        baseline.new_count = result.diagnostics.len();
-    }
-    recalculate_result(result, resolved, workspace_root);
-}
-
-fn category_selected(category: &crate::diagnostics::Category, selected: &[ScanCategory]) -> bool {
-    let value = match category {
-        crate::diagnostics::Category::ErrorHandling => ScanCategory::ErrorHandling,
-        crate::diagnostics::Category::Performance => ScanCategory::Performance,
-        crate::diagnostics::Category::Security => ScanCategory::Security,
-        crate::diagnostics::Category::Correctness => ScanCategory::Correctness,
-        crate::diagnostics::Category::Architecture => ScanCategory::Architecture,
-        crate::diagnostics::Category::Dependencies => ScanCategory::Dependencies,
-        crate::diagnostics::Category::Async => ScanCategory::Async,
-        crate::diagnostics::Category::Framework => ScanCategory::Framework,
-        crate::diagnostics::Category::Cargo => ScanCategory::Cargo,
-        crate::diagnostics::Category::Style => ScanCategory::Style,
-    };
-    selected.contains(&value)
+fn diagnostic_categories(selected: &[ScanCategory]) -> Vec<Category> {
+    selected
+        .iter()
+        .map(|category| match category {
+            ScanCategory::ErrorHandling => Category::ErrorHandling,
+            ScanCategory::Performance => Category::Performance,
+            ScanCategory::Security => Category::Security,
+            ScanCategory::Correctness => Category::Correctness,
+            ScanCategory::Architecture => Category::Architecture,
+            ScanCategory::Dependencies => Category::Dependencies,
+            ScanCategory::Async => Category::Async,
+            ScanCategory::Framework => Category::Framework,
+            ScanCategory::Cargo => Category::Cargo,
+            ScanCategory::Style => Category::Style,
+        })
+        .collect()
 }
 
 fn scope_request(
@@ -405,9 +395,10 @@ fn run_staged(
     suppress_spinner: bool,
     scope: &diff::ScopePlan,
     control: &crate::process::ScanControl,
+    selected_categories: &[Category],
 ) -> Result<ScanResult, crate::error::ScanError> {
     if !scope.has_applicable_work() {
-        return scan::scan_project_scoped(
+        return scan::scan_project_scoped_for_categories(
             original_project,
             resolved,
             cli.offline,
@@ -415,6 +406,7 @@ fn run_staged(
             suppress_spinner,
             scope,
             control,
+            selected_categories,
         );
     }
     let snapshot = diff::materialize_staged(&original_project.root_dir)?;
@@ -432,7 +424,7 @@ fn run_staged(
                 ))
             },
         )?;
-    let mut result = scan::scan_project_scoped(
+    let mut result = scan::scan_project_scoped_for_categories(
         &snapshot_project,
         resolved,
         cli.offline,
@@ -440,6 +432,7 @@ fn run_staged(
         suppress_spinner,
         scope,
         control,
+        selected_categories,
     )?;
     rebase_result_paths(
         &mut result,
@@ -479,6 +472,7 @@ fn run_baseline(
     suppress_spinner: bool,
     scope: &diff::ScopePlan,
     control: &crate::process::ScanControl,
+    selected_categories: &[Category],
 ) -> Result<ScanResult, crate::error::ScanError> {
     let base_commit = scope.base_commit.as_deref().ok_or_else(|| {
         crate::error::DiffError::BaselineUnavailable("merge-base was not resolved".to_string())
@@ -494,6 +488,7 @@ fn run_baseline(
                 control,
                 scope,
                 error.to_string(),
+                selected_categories,
             );
         }
     };
@@ -509,6 +504,7 @@ fn run_baseline(
                     control,
                     scope,
                     format!("base Cargo metadata failed: {error}"),
+                    selected_categories,
                 );
             }
         };
@@ -527,6 +523,7 @@ fn run_baseline(
                     control,
                     scope,
                     format!("base configuration failed: {error}"),
+                    selected_categories,
                 );
             }
         }
@@ -546,12 +543,13 @@ fn run_baseline(
                 control,
                 scope,
                 format!("base configuration fingerprint failed: {error}"),
+                selected_categories,
             );
         }
     };
 
     let full_scope = diff::ScopePlan::full();
-    let mut head = scan::scan_project_scoped(
+    let mut head = scan::scan_project_scoped_for_categories(
         project,
         resolved,
         cli.offline,
@@ -559,6 +557,7 @@ fn run_baseline(
         suppress_spinner,
         &full_scope,
         control,
+        selected_categories,
     )?;
     if !required_analysis_complete(&head) {
         return Ok(degrade_scanned_baseline(
@@ -568,9 +567,10 @@ fn run_baseline(
             &project.root_dir,
             false,
             "head scan did not complete successfully".to_string(),
+            selected_categories,
         ));
     }
-    let base = scan::scan_project_scoped(
+    let base = scan::scan_project_scoped_for_categories(
         &base_project,
         &base_resolved,
         cli.offline,
@@ -578,6 +578,7 @@ fn run_baseline(
         true,
         &full_scope,
         control,
+        selected_categories,
     )?;
     merge_base_accounting(&mut head, &base, &project.root_dir, &base_project.root_dir);
     if !required_analysis_complete(&base)
@@ -593,6 +594,7 @@ fn run_baseline(
             &project.root_dir,
             true,
             "base scan did not complete successfully".to_string(),
+            selected_categories,
         ));
     }
 
@@ -637,7 +639,7 @@ fn run_baseline(
         package.checks.push(baseline_check.clone());
     }
     head.execution.checks.push(baseline_check);
-    recalculate_result(&mut head, resolved, &project.root_dir);
+    recalculate_result(&mut head, resolved, &project.root_dir, selected_categories);
     Ok(head)
 }
 
@@ -694,6 +696,7 @@ fn degrade_scanned_baseline(
     workspace_root: &Path,
     base_attempted: bool,
     reason: String,
+    selected_categories: &[Category],
 ) -> ScanResult {
     let mut files_scope = scope.clone();
     files_scope.reporting_scope = diff::ReportingScope::Changed;
@@ -743,10 +746,14 @@ fn degrade_scanned_baseline(
         baseline_degraded: true,
         degraded_reason: Some(reason),
     });
-    recalculate_result(&mut result, resolved, workspace_root);
+    recalculate_result(&mut result, resolved, workspace_root, selected_categories);
     result
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baseline degradation preserves the complete scan and category context at the fallback boundary"
+)]
 fn degraded_baseline_without_base(
     cli: &Cli,
     project: &discovery::ProjectInfo,
@@ -755,6 +762,7 @@ fn degraded_baseline_without_base(
     control: &crate::process::ScanControl,
     requested_base: Option<String>,
     reason: String,
+    selected_categories: &[Category],
 ) -> Result<ScanResult, crate::error::ScanError> {
     let fallback_request = diff::ScopeRequest {
         reporting_scope: diff::ReportingScope::Changed,
@@ -774,9 +782,14 @@ fn degraded_baseline_without_base(
         control,
         &fallback,
         reason,
+        selected_categories,
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baseline degradation preserves the complete scan and category context at the fallback boundary"
+)]
 fn degraded_baseline(
     cli: &Cli,
     project: &discovery::ProjectInfo,
@@ -785,10 +798,11 @@ fn degraded_baseline(
     control: &crate::process::ScanControl,
     scope: &diff::ScopePlan,
     reason: String,
+    selected_categories: &[Category],
 ) -> Result<ScanResult, crate::error::ScanError> {
     let mut files_scope = scope.clone();
     files_scope.reporting_scope = diff::ReportingScope::Changed;
-    let mut result = scan::scan_project_scoped(
+    let mut result = scan::scan_project_scoped_for_categories(
         project,
         resolved,
         cli.offline,
@@ -796,6 +810,7 @@ fn degraded_baseline(
         suppress_spinner,
         &files_scope,
         control,
+        selected_categories,
     )?;
     result.execution.reporting_scope = "baseline".to_string();
     let baseline_check = CheckState {
@@ -862,6 +877,7 @@ fn recalculate_result(
     result: &mut ScanResult,
     resolved: &config::ResolvedConfig,
     workspace_root: &Path,
+    selected_categories: &[Category],
 ) {
     result.skipped_passes.sort();
     result.skipped_passes.dedup();
@@ -909,7 +925,8 @@ fn recalculate_result(
                 .collect()
         },
     );
-    let (score, label, dimensions) = output::calculate_score(&score_diagnostics);
+    let (score, label, dimensions) =
+        output::calculate_score_for_categories(&score_diagnostics, selected_categories);
     result.score = score;
     result.score_label = label;
     result.dimension_scores = dimensions;
@@ -917,6 +934,7 @@ fn recalculate_result(
         &mut result.execution.packages,
         &score_diagnostics,
         workspace_root,
+        selected_categories,
     );
 }
 
@@ -945,11 +963,12 @@ pub fn emit_output(
             sarif::render_report_sarif(&report).map_err(crate::error::OutputError::Serialize)?;
         println!("{sarif_json}");
     } else {
-        output::render_terminal(
+        output::render_terminal_for_categories(
             &report,
             &scan_result.pass_timings,
             resolved.verbose,
             cli.warnings != WarningVisibility::Hide,
+            &cli.category,
         );
     }
     Ok(())

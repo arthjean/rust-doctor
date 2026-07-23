@@ -2,7 +2,9 @@ mod score;
 mod terminal;
 
 pub use score::calculate_score;
+pub(crate) use score::calculate_score_for_categories;
 pub use terminal::render_terminal;
+pub(crate) use terminal::render_terminal_for_categories;
 
 use crate::diagnostics::{ReportV1, ScanResult};
 use owo_colors::{OwoColorize, Stream};
@@ -322,6 +324,40 @@ mod tests {
         let (_, _, dims) = calculate_score(&diags);
         assert_eq!(dims.dependencies, 99);
         assert_eq!(dims.security, 100);
+    }
+
+    #[test]
+    fn category_score_is_not_diluted_by_unselected_dimensions() {
+        let diags = vec![
+            make_diag_with_category("sec1", Severity::Error, Category::Security),
+            make_diag_with_category("sec2", Severity::Error, Category::Security),
+        ];
+        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::Security]);
+        assert_eq!(score, 97);
+        assert_eq!(dims.security, 97);
+    }
+
+    #[test]
+    fn category_score_ignores_unselected_categories_in_the_same_dimension() {
+        let diags = vec![
+            make_diag_with_category("errors", Severity::Error, Category::ErrorHandling),
+            make_diag_with_category("correctness", Severity::Error, Category::Correctness),
+        ];
+        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::ErrorHandling]);
+        assert_eq!(score, 99);
+        assert_eq!(dims.reliability, 99);
+    }
+
+    #[test]
+    fn category_score_preserves_weights_across_selected_dimensions() {
+        let diags = vec![
+            make_diag_with_category("sec1", Severity::Error, Category::Security),
+            make_diag_with_category("sec2", Severity::Error, Category::Security),
+            make_diag_with_category("perf1", Severity::Error, Category::Performance),
+        ];
+        let (score, _, _) =
+            calculate_score_for_categories(&diags, &[Category::Security, Category::Performance]);
+        assert_eq!(score, 98);
     }
 
     #[test]

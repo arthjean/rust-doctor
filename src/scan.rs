@@ -106,6 +106,32 @@ pub(crate) fn scan_project_scoped(
     scope: &diff::ScopePlan,
     control: &ScanControl,
 ) -> Result<ScanResult, crate::error::ScanError> {
+    scan_project_scoped_for_categories(
+        project_info,
+        resolved,
+        offline,
+        project_filter,
+        suppress_spinner,
+        scope,
+        control,
+        &[],
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "category scope extends the existing internal scan boundary without changing the public scan API"
+)]
+pub(crate) fn scan_project_scoped_for_categories(
+    project_info: &ProjectInfo,
+    resolved: &ResolvedConfig,
+    offline: bool,
+    project_filter: &[String],
+    suppress_spinner: bool,
+    scope: &diff::ScopePlan,
+    control: &ScanControl,
+    selected_categories: &[Category],
+) -> Result<ScanResult, crate::error::ScanError> {
     tracing::info!(project = %project_info.name, "starting scan");
 
     // Step 1: verify the canonical catalog and reject unresolved policy typos.
@@ -116,7 +142,12 @@ pub(crate) fn scan_project_scoped(
     log_project_info(project_info, resolved);
 
     if scope.has_selected_files() && !scope.has_applicable_work() {
-        return Ok(empty_scoped_result(project_info, scope, resolved));
+        return Ok(empty_scoped_result(
+            project_info,
+            scope,
+            resolved,
+            selected_categories,
+        ));
     }
 
     // Step 4: Run all analysis passes
@@ -132,6 +163,7 @@ pub(crate) fn scan_project_scoped(
         offline,
         suppress_spinner,
         control,
+        selected_categories,
     );
 
     // Step 5: Deduplicate — same rule+file+line from overlapping workspace scans = one diagnostic
@@ -147,10 +179,17 @@ pub(crate) fn scan_project_scoped(
     );
 
     // Step 7: Apply project policy, then inline suppressions.
-    let (mut configured_diagnostics, suppressed_security) =
+    let (mut configured_diagnostics, mut suppressed_security) =
         apply_rule_configuration(passes_output.diagnostics, resolved);
     dedup_diagnostics(&mut configured_diagnostics);
-    let all_diagnostics = apply_suppressions(configured_diagnostics, project_info, resolved);
+    let mut all_diagnostics = apply_suppressions(configured_diagnostics, project_info, resolved);
+    retain_selected_categories(&mut all_diagnostics, selected_categories);
+    retain_selected_categories(&mut suppressed_security, selected_categories);
+    passes_output.compiler_evidence.retain(|evidence| {
+        all_diagnostics
+            .iter()
+            .any(|diagnostic| evidence.matches(diagnostic))
+    });
 
     // Step 8: Calculate score and build the final result
     let mut result = build_result(
@@ -168,17 +207,20 @@ pub(crate) fn scan_project_scoped(
         &project_info.root_dir,
         scope,
         resolved,
+        selected_categories,
     );
     if let Some(candidates) = line_score_candidates {
         let (mut configured, _) = apply_rule_configuration(candidates, resolved);
         dedup_diagnostics(&mut configured);
-        let configured = if resolved.respect_inline_disables {
+        let mut configured = if resolved.respect_inline_disables {
             suppression::apply_inline_suppressions(configured, &project_info.root_dir).0
         } else {
             configured
         };
+        retain_selected_categories(&mut configured, selected_categories);
         let score_diagnostics = score_visible_diagnostics(&configured, resolved);
-        let (health_score, label, dimensions) = output::calculate_score(&score_diagnostics);
+        let (health_score, label, dimensions) =
+            output::calculate_score_for_categories(&score_diagnostics, selected_categories);
         result.score = health_score;
         result.score_label = label;
         result.dimension_scores = dimensions;
@@ -186,6 +228,7 @@ pub(crate) fn scan_project_scoped(
             &mut result.execution.packages,
             &score_diagnostics,
             &project_info.root_dir,
+            selected_categories,
         );
     }
 
@@ -296,12 +339,17 @@ fn log_project_info(project_info: &ProjectInfo, resolved: &ResolvedConfig) {
 /// Lint passes (clippy + custom rules) are always included when lint=true.
 /// Package dependency passes run per affected member. Workspace-global passes
 /// run once after required package analysis.
+#[expect(
+    clippy::too_many_lines,
+    reason = "pass construction keeps category, framework, policy, and tool applicability decisions at one planning boundary"
+)]
 fn build_passes(
     project_info: &ProjectInfo,
     scan_root: &Path,
     resolved: &ResolvedConfig,
     offline: bool,
     selected_files: Option<Vec<PathBuf>>,
+    selected_categories: &[Category],
 ) -> Vec<Box<dyn scanner::AnalysisPass>> {
     let member = workspace::member_for_root(&project_info.workspace_members, scan_root);
     let frameworks = member.map_or(project_info.frameworks.as_slice(), |member| {
@@ -373,35 +421,46 @@ fn build_passes(
                     || path_can_enable
             });
         }
+        custom_rules.retain(|rule| category_requested(selected_categories, &rule.category()));
         let mut cache_policy = resolved.enable_rules.clone();
         cache_policy.extend(rule_cache_keys(resolved));
-        let mut rule_pass = rules::RuleEnginePass::with_config(
-            custom_rules,
-            resolved.ignore_files.clone(),
-            resolved.ignore_rules.clone(),
-            cache_policy,
-        );
-        if let Some(files) = selected_files {
-            rule_pass = rule_pass.with_selected_files(files);
+        if selected_categories.is_empty() || !custom_rules.is_empty() {
+            let mut rule_pass = rules::RuleEnginePass::with_config(
+                custom_rules,
+                resolved.ignore_files.clone(),
+                resolved.ignore_rules.clone(),
+                cache_policy,
+            );
+            if let Some(files) = selected_files {
+                rule_pass = rule_pass.with_selected_files(files);
+            }
+            passes.push(Box::new(rule_pass));
         }
-        passes.push(Box::new(rule_pass));
     }
 
     if resolved.dependencies {
         if !project_info.is_workspace {
-            passes.extend(build_workspace_global_passes(offline));
+            passes.extend(build_workspace_global_passes(offline, selected_categories));
         }
-        passes.push(optional_pass(geiger::GeigerPass));
-        passes.push(optional_pass(semver_checks::SemVerPass));
-        passes.push(optional_pass(coverage::CoveragePass));
+        if category_requested(selected_categories, &Category::Security) {
+            passes.push(optional_pass(geiger::GeigerPass));
+        }
+        if category_requested(selected_categories, &Category::Cargo) {
+            passes.push(optional_pass(semver_checks::SemVerPass));
+        }
+        if category_requested(selected_categories, &Category::Correctness) {
+            passes.push(optional_pass(coverage::CoveragePass));
+        }
     }
 
-    // MSRV validation always runs (not gated by config flags).
-    passes.push(Box::new(msrv::MsrvPass {
-        rust_version: member
-            .and_then(|member| member.rust_version.clone())
-            .or_else(|| project_info.rust_version.clone()),
-    }));
+    // MSRV validation runs for full scans and Cargo category scans.
+    if category_requested(selected_categories, &Category::Cargo) {
+        passes.push(Box::new(msrv::MsrvPass {
+            rust_version: member
+                .and_then(|member| member.rust_version.clone())
+                .or_else(|| project_info.rust_version.clone()),
+        }));
+    }
 
     passes
 }
@@ -430,13 +489,21 @@ fn optional_pass<T: scanner::AnalysisPass + 'static>(pass: T) -> Box<dyn scanner
     Box::new(OptionalPass(pass))
 }
 
-fn build_workspace_global_passes(offline: bool) -> Vec<Box<dyn scanner::AnalysisPass>> {
+fn build_workspace_global_passes(
+    offline: bool,
+    selected_categories: &[Category],
+) -> Vec<Box<dyn scanner::AnalysisPass>> {
     let mut passes: Vec<Box<dyn scanner::AnalysisPass>> = Vec::new();
-    passes.push(optional_pass(deny::DenyPass { offline }));
-    if !deny::is_cargo_deny_available() {
-        passes.push(optional_pass(audit::AuditPass { offline }));
+    let dependencies_requested = category_requested(selected_categories, &Category::Dependencies);
+    if dependencies_requested || category_requested(selected_categories, &Category::Cargo) {
+        passes.push(optional_pass(deny::DenyPass { offline }));
     }
-    passes.push(optional_pass(machete::MachetePass));
+    if dependencies_requested {
+        if !deny::is_cargo_deny_available() {
+            passes.push(optional_pass(audit::AuditPass { offline }));
+        }
+        passes.push(optional_pass(machete::MachetePass));
+    }
     passes
 }
 
@@ -458,6 +525,10 @@ struct PassesOutput {
     clippy::too_many_lines,
     reason = "package batching, workspace checks, and completeness accounting share one orchestration boundary"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pass execution receives the resolved category scope alongside the existing orchestration context"
+)]
 fn run_passes(
     project_info: &ProjectInfo,
     resolved: &ResolvedConfig,
@@ -466,6 +537,7 @@ fn run_passes(
     offline: bool,
     suppress_spinner: bool,
     control: &ScanControl,
+    selected_categories: &[Category],
 ) -> PassesOutput {
     let mut all_diagnostics = Vec::new();
     let mut all_skipped_passes = Vec::new();
@@ -554,6 +626,7 @@ fn run_passes(
                             resolved,
                             offline,
                             selected_files,
+                            selected_categories,
                         );
                         let orchestrator = scanner::ScanOrchestrator::new(passes);
                         let pass_result = orchestrator.run_controlled(
@@ -682,8 +755,13 @@ fn run_passes(
         }
     }
 
-    if project_info.is_workspace && resolved.dependencies && !scan_roots.is_empty() {
-        let passes = build_workspace_global_passes(offline);
+    if project_info.is_workspace
+        && resolved.dependencies
+        && !scan_roots.is_empty()
+        && (category_requested(selected_categories, &Category::Dependencies)
+            || category_requested(selected_categories, &Category::Cargo))
+    {
+        let passes = build_workspace_global_passes(offline, selected_categories);
         let workspace_result = if let Some(stop) = control.stop_reason() {
             let status = match stop {
                 ProcessStop::TimedOut => CheckStatus::TimedOut,
@@ -911,6 +989,16 @@ fn apply_rule_configuration(
     (included, suppressed_security)
 }
 
+fn category_requested(selected_categories: &[Category], category: &Category) -> bool {
+    selected_categories.is_empty() || selected_categories.contains(category)
+}
+
+fn retain_selected_categories(diagnostics: &mut Vec<Diagnostic>, selected_categories: &[Category]) {
+    if !selected_categories.is_empty() {
+        diagnostics.retain(|diagnostic| selected_categories.contains(&diagnostic.category));
+    }
+}
+
 fn rule_cache_keys(resolved: &ResolvedConfig) -> Vec<String> {
     let mut keys = Vec::new();
     for (rule, policy) in &resolved.rules_config {
@@ -985,6 +1073,7 @@ fn build_result(
     workspace_root: &Path,
     scope: &diff::ScopePlan,
     resolved: &ResolvedConfig,
+    selected_categories: &[Category],
 ) -> ScanResult {
     let error_count = diagnostics
         .iter()
@@ -999,8 +1088,14 @@ fn build_result(
         .filter(|d| d.severity == Severity::Info)
         .count();
     let score_diagnostics = score_visible_diagnostics(&diagnostics, resolved);
-    let (health_score, score_label, dimension_scores) = output::calculate_score(&score_diagnostics);
-    assign_package_scores(&mut package_executions, &score_diagnostics, workspace_root);
+    let (health_score, score_label, dimension_scores) =
+        output::calculate_score_for_categories(&score_diagnostics, selected_categories);
+    assign_package_scores(
+        &mut package_executions,
+        &score_diagnostics,
+        workspace_root,
+        selected_categories,
+    );
 
     if let Some(reason) = &scope.degradation_reason {
         let check = CheckState {
@@ -1052,6 +1147,7 @@ pub(crate) fn assign_package_scores(
     packages: &mut [PackageExecution],
     diagnostics: &[Diagnostic],
     workspace_root: &Path,
+    selected_categories: &[Category],
 ) {
     let owners: Vec<_> = diagnostics
         .iter()
@@ -1070,7 +1166,9 @@ pub(crate) fn assign_package_scores(
             })
             .map(|(diagnostic, _)| diagnostic.clone())
             .collect();
-        package.score = Some(output::calculate_score(&package_diagnostics).0);
+        package.score = Some(
+            output::calculate_score_for_categories(&package_diagnostics, selected_categories).0,
+        );
     }
 }
 
@@ -1117,6 +1215,7 @@ fn empty_scoped_result(
     project_info: &ProjectInfo,
     scope: &diff::ScopePlan,
     resolved: &ResolvedConfig,
+    selected_categories: &[Category],
 ) -> ScanResult {
     tracing::info!(project = %project_info.name, "scope contains no eligible Rust files");
     build_result(
@@ -1134,6 +1233,7 @@ fn empty_scoped_result(
         &project_info.root_dir,
         scope,
         resolved,
+        selected_categories,
     )
 }
 
@@ -1227,6 +1327,7 @@ mod tests {
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
+            &[],
         );
         assert_eq!(result.error_count, 2);
         assert_eq!(result.warning_count, 1);
@@ -1257,6 +1358,7 @@ mod tests {
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
+            &[],
         );
         assert_eq!(result.skipped_passes.len(), 2);
         assert_eq!(result.skipped_passes[0], "cargo-audit"); // sorted
@@ -1281,6 +1383,7 @@ mod tests {
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
+            &[],
         );
         assert_eq!(result.score, 100);
         assert_eq!(result.error_count, 0);
@@ -1334,5 +1437,32 @@ mod tests {
         diagnostic.file_path = PathBuf::from("tests/integration.rs");
         let (included, _) = apply_rule_configuration(vec![diagnostic], &resolved);
         assert!(included.is_empty());
+    }
+
+    #[test]
+    fn category_selection_is_exact_and_defaults_to_all() {
+        assert!(category_requested(&[], &Category::Security));
+        assert!(category_requested(
+            &[Category::Security, Category::Performance],
+            &Category::Security
+        ));
+        assert!(!category_requested(
+            &[Category::Performance],
+            &Category::Security
+        ));
+    }
+
+    #[test]
+    fn workspace_passes_follow_selected_categories() {
+        assert!(build_workspace_global_passes(false, &[Category::Performance]).is_empty());
+        let cargo_passes = build_workspace_global_passes(false, &[Category::Cargo]);
+        assert_eq!(cargo_passes.len(), 1);
+        assert_eq!(cargo_passes[0].name(), "dependencies (cargo-deny)");
+        let dependency_passes = build_workspace_global_passes(false, &[Category::Dependencies]);
+        assert!(
+            dependency_passes
+                .iter()
+                .any(|pass| pass.name() == "dependencies (cargo-machete)")
+        );
     }
 }

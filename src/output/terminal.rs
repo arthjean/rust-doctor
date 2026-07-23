@@ -1,3 +1,4 @@
+use crate::cli::ScanCategory;
 use crate::diagnostics::{
     CanonicalDiagnostic, DiagnosticLocation, DimensionScores, ReportV1, Severity,
 };
@@ -19,6 +20,17 @@ pub fn render_terminal(
     pass_timings: &[(String, std::time::Duration)],
     verbose: bool,
     show_warnings: bool,
+) {
+    render_terminal_for_categories(result, pass_timings, verbose, show_warnings, &[]);
+}
+
+/// Render full scan results with a category-scoped score card.
+pub fn render_terminal_for_categories(
+    result: &ReportV1,
+    pass_timings: &[(String, std::time::Duration)],
+    verbose: bool,
+    show_warnings: bool,
+    selected_categories: &[ScanCategory],
 ) {
     if let Some(baseline) = &result.baseline {
         if baseline.baseline_degraded {
@@ -80,7 +92,7 @@ pub fn render_terminal(
     }
 
     // Print score box
-    print_score_box(result);
+    print_score_box(result, selected_categories);
 
     // Print pass timings in verbose mode
     if verbose && !pass_timings.is_empty() {
@@ -112,7 +124,7 @@ fn empty_line(inner_width: usize) -> String {
 // ── Score box section renderers ──────────────────────────────────────────
 
 /// Render the doctor face and brand header.
-fn render_header(inner_width: usize, score: u32) {
+fn render_header(inner_width: usize, score: u32, category_text: Option<&str>) {
     let (eyes, mouth) = if score >= SCORE_GOOD_THRESHOLD {
         ("◠ ◠", " ▽ ")
     } else if score >= SCORE_OK_THRESHOLD {
@@ -150,26 +162,114 @@ fn render_header(inner_width: usize, score: u32) {
             11,
         )
     );
+    if let Some(text) = category_text {
+        println!(
+            "{}",
+            pad_line(
+                inner_width,
+                &format!("{}", text.if_supports_color(Stream::Stdout, |t| t.cyan())),
+                text.width(),
+            )
+        );
+    }
     println!("{}", empty_line(inner_width));
 }
 
 /// Render the dimension score bars.
-fn render_dimension_bars(inner_width: usize, ds: &DimensionScores, dim_text: &str) {
-    let colored_dim = format!(
-        "{}: {}  {}: {}  {}: {}  {}: {}  {}: {}",
-        "Security".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.security.to_string(), ds.security),
-        "Reliability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.reliability.to_string(), ds.reliability),
-        "Maintainability".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.maintainability.to_string(), ds.maintainability),
-        "Performance".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.performance.to_string(), ds.performance),
-        "Dependencies".if_supports_color(Stream::Stdout, |t| t.dimmed()),
-        colorize_by_score(&ds.dependencies.to_string(), ds.dependencies),
-    );
+fn render_dimension_bars(inner_width: usize, dimensions: &[(&str, u32)], dim_text: &str) {
+    let colored_dim = dimensions
+        .iter()
+        .map(|(name, score)| {
+            format!(
+                "{}: {}",
+                name.if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                colorize_by_score(&score.to_string(), *score)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
     println!("{}", pad_line(inner_width, &colored_dim, dim_text.width()));
     println!("{}", empty_line(inner_width));
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DisplayDimension {
+    Security,
+    Reliability,
+    Maintainability,
+    Performance,
+    Dependencies,
+}
+
+const fn category_dimension(category: ScanCategory) -> DisplayDimension {
+    match category {
+        ScanCategory::Security => DisplayDimension::Security,
+        ScanCategory::Correctness
+        | ScanCategory::ErrorHandling
+        | ScanCategory::Async
+        | ScanCategory::Framework => DisplayDimension::Reliability,
+        ScanCategory::Architecture | ScanCategory::Style => DisplayDimension::Maintainability,
+        ScanCategory::Performance => DisplayDimension::Performance,
+        ScanCategory::Dependencies | ScanCategory::Cargo => DisplayDimension::Dependencies,
+    }
+}
+
+const fn category_name(category: ScanCategory) -> &'static str {
+    match category {
+        ScanCategory::ErrorHandling => "Error Handling",
+        ScanCategory::Performance => "Performance",
+        ScanCategory::Security => "Security",
+        ScanCategory::Correctness => "Correctness",
+        ScanCategory::Architecture => "Architecture",
+        ScanCategory::Dependencies => "Dependencies",
+        ScanCategory::Async => "Async",
+        ScanCategory::Framework => "Framework",
+        ScanCategory::Cargo => "Cargo",
+        ScanCategory::Style => "Style",
+    }
+}
+
+fn category_scope_text(selected_categories: &[ScanCategory]) -> Option<String> {
+    if selected_categories.is_empty() {
+        return None;
+    }
+    let mut names = Vec::new();
+    for category in selected_categories {
+        let name = category_name(*category);
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    Some(format!("Category scan: {}", names.join(", ")))
+}
+
+fn selected_dimension_scores(
+    scores: &DimensionScores,
+    selected_categories: &[ScanCategory],
+) -> Vec<(&'static str, u32)> {
+    let selected = |dimension| {
+        selected_categories.is_empty()
+            || selected_categories
+                .iter()
+                .any(|category| category_dimension(*category) == dimension)
+    };
+    let mut dimensions = Vec::new();
+    if selected(DisplayDimension::Security) {
+        dimensions.push(("Security", scores.security));
+    }
+    if selected(DisplayDimension::Reliability) {
+        dimensions.push(("Reliability", scores.reliability));
+    }
+    if selected(DisplayDimension::Maintainability) {
+        dimensions.push(("Maintainability", scores.maintainability));
+    }
+    if selected(DisplayDimension::Performance) {
+        dimensions.push(("Performance", scores.performance));
+    }
+    if selected(DisplayDimension::Dependencies) {
+        dimensions.push(("Dependencies", scores.dependencies));
+    }
+    dimensions
 }
 
 /// Render the stats footer (error/warning counts, skipped passes).
@@ -224,7 +324,7 @@ fn render_stats_footer(
 // ── Main score box ───────────────────────────────────────────────────────
 
 /// Print the ASCII doctor box with score.
-fn print_score_box(result: &ReportV1) {
+fn print_score_box(result: &ReportV1, selected_categories: &[ScanCategory]) {
     let (Some(score), Some(label), Some(ds)) = (
         result.score,
         result.score_label,
@@ -236,10 +336,13 @@ fn print_score_box(result: &ReportV1) {
     // Build content lines for width calculation
     let score_text = format!("{score} / 100  {label}");
     let bar = build_score_bar(score);
-    let dim_text = format!(
-        "Security: {}  Reliability: {}  Maintainability: {}  Performance: {}  Dependencies: {}",
-        ds.security, ds.reliability, ds.maintainability, ds.performance, ds.dependencies
-    );
+    let dimensions = selected_dimension_scores(ds, selected_categories);
+    let dim_text = dimensions
+        .iter()
+        .map(|(name, score)| format!("{name}: {score}"))
+        .collect::<Vec<_>>()
+        .join("  ");
+    let category_text = category_scope_text(selected_categories);
     let info_part = if result.info_count > 0 {
         format!("  ℹ {} info(s)", result.info_count)
     } else {
@@ -279,13 +382,16 @@ fn print_score_box(result: &ReportV1) {
     if let Some(ref text) = skipped_text {
         widths.push(text.width());
     }
+    if let Some(ref text) = category_text {
+        widths.push(text.width());
+    }
     let max_width = widths.into_iter().max().unwrap_or(40).max(40);
     let iw = max_width + 2;
 
     // Render box
     println!("  {}{}{}", dim("┌"), dim(&"─".repeat(iw)), dim("┐"));
 
-    render_header(iw, score);
+    render_header(iw, score, category_text.as_deref());
 
     // Score + compass caption + bar
     let colored_score = colorize_by_score(&score_text, score);
@@ -298,7 +404,7 @@ fn print_score_box(result: &ReportV1) {
     println!("{}", pad_line(iw, &bar.colored, bar.plain.width()));
     println!("{}", empty_line(iw));
 
-    render_dimension_bars(iw, ds, &dim_text);
+    render_dimension_bars(iw, &dimensions, &dim_text);
     render_stats_footer(iw, result, &stats, skipped_text.as_deref());
 
     println!("  {}{}{}", dim("└"), dim(&"─".repeat(iw)), dim("┘"));
@@ -652,6 +758,31 @@ mod tests {
         result.source_file_count = 0;
         // Should print "No Rust source files found" and return early
         render_terminal(&result, &[], false, true);
+    }
+
+    #[test]
+    fn category_card_lists_categories_and_only_their_dimensions() {
+        let result = make_result(80, vec![], 0, 0, 0);
+        let scores = result.dimension_scores.as_ref().unwrap();
+        let dimensions =
+            selected_dimension_scores(scores, &[ScanCategory::Security, ScanCategory::Performance]);
+        assert_eq!(dimensions, vec![("Security", 80), ("Performance", 80)]);
+        assert_eq!(
+            category_scope_text(&[
+                ScanCategory::Security,
+                ScanCategory::Performance,
+                ScanCategory::Security,
+            ])
+            .as_deref(),
+            Some("Category scan: Security, Performance")
+        );
+        render_terminal_for_categories(
+            &result,
+            &[],
+            false,
+            true,
+            &[ScanCategory::Security, ScanCategory::Performance],
+        );
     }
 
     // --- print_diagnostics grouping ---

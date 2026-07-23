@@ -62,6 +62,7 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 - **A 0–100 health score** across five weighted dimensions, with an ASCII doctor that reacts to the result
 - **MCP server**: 4 read-only tools + 2 expert audit prompts for Claude Code, Cursor, Windsurf, or any MCP client
 - **Diff mode**: `--diff` scans only changed files for fast CI feedback
+- **Category scans**: select one or more categories, skip irrelevant passes, and get a score scoped to that selection
 - **Workspace support**: scan every crate or pick specific members
 - **Inline suppression**: `// rust-doctor-disable-next-line <rule>`
 - **Output modes**: terminal, `--json`, `--score` (bare integer for CI), `--sarif` (GitHub code scanning)
@@ -158,6 +159,9 @@ rust-doctor --project core,api
 # Verbose output with file:line details
 rust-doctor --verbose
 
+# Scan only security and performance findings
+rust-doctor --category security,performance
+
 # Hide warning details in terminal output and bound workspace concurrency
 rust-doctor --warnings hide --jobs 4
 
@@ -186,6 +190,24 @@ rust-doctor version
 Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer to stdout. `--json`, `--json-compact`, and `--sarif` write machine output to stdout; `--json-out` atomically writes JSON to the selected file instead.
 
 `--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
+
+### Category scans
+
+`--category` accepts a comma-separated selection from `error-handling`,
+`performance`, `security`, `correctness`, `architecture`, `dependencies`,
+`async`, `framework`, `cargo`, and `style`.
+
+```bash
+rust-doctor --category security
+rust-doctor --category security,dependencies --score
+```
+
+Category scans filter custom rules before analysis and avoid external passes
+that cannot produce a selected category. Clippy still runs because its lint
+registry spans several categories. Diagnostics, package scores, the overall
+score, and the terminal score card are restricted to the selected categories.
+When several scoring dimensions are selected, their standard weights are
+preserved and unselected dimensions are excluded from the average.
 
 ## Exit Codes
 
@@ -541,6 +563,11 @@ weighted by severity:
 
 The dimension is clamped to `[0, 100]`, and the overall score is the weighted
 average of the five, also clamped to `[0, 100]`.
+
+With `--category`, only dimensions represented by the selected categories enter
+the weighted average. Selecting multiple categories from the same dimension,
+such as `correctness` and `error-handling`, combines their unique violated rules
+inside that dimension.
 
 The score counts unique rules, not occurrences — fixing one `.unwrap()` won't
 move it, but removing the last `.unwrap()` drops the penalty entirely.
