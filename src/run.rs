@@ -146,7 +146,7 @@ pub fn bootstrap_project(
     ),
     crate::error::BootstrapError,
 > {
-    discovery::bootstrap_project(&cli.directory, cli.offline)
+    discovery::bootstrap_project_for_scan(&cli.directory, cli.offline, cli.evaluation_profile)
 }
 
 /// Run the scan passes and return the result.
@@ -431,14 +431,16 @@ fn run_staged(
             "failed to fingerprint staged configuration: {error}"
         ))
     })?;
-    let snapshot_project =
-        discovery::discover_project(&snapshot.root().join("Cargo.toml"), cli.offline).map_err(
-            |error| {
-                crate::error::DiffError::StagedSnapshot(format!(
-                    "Cargo metadata failed for the index snapshot: {error}"
-                ))
-            },
-        )?;
+    let snapshot_project = discovery::discover_project_for_scan(
+        &snapshot.root().join("Cargo.toml"),
+        cli.offline,
+        cli.evaluation_profile,
+    )
+    .map_err(|error| {
+        crate::error::DiffError::StagedSnapshot(format!(
+            "Cargo metadata failed for the index snapshot: {error}"
+        ))
+    })?;
     let mut result = scan::scan_project_scoped_for_categories(
         &snapshot_project,
         resolved,
@@ -507,22 +509,25 @@ fn run_baseline(
             );
         }
     };
-    let base_project =
-        match discovery::discover_project(&snapshot.root().join("Cargo.toml"), cli.offline) {
-            Ok(project) => project,
-            Err(error) => {
-                return degraded_baseline(
-                    cli,
-                    project,
-                    resolved,
-                    suppress_spinner,
-                    control,
-                    scope,
-                    format!("base Cargo metadata failed: {error}"),
-                    selected_categories,
-                );
-            }
-        };
+    let base_project = match discovery::discover_project_for_scan(
+        &snapshot.root().join("Cargo.toml"),
+        cli.offline,
+        cli.evaluation_profile,
+    ) {
+        Ok(project) => project,
+        Err(error) => {
+            return degraded_baseline(
+                cli,
+                project,
+                resolved,
+                suppress_spinner,
+                control,
+                scope,
+                format!("base Cargo metadata failed: {error}"),
+                selected_categories,
+            );
+        }
+    };
     let base_file_config = if cli.no_project_config {
         None
     } else {

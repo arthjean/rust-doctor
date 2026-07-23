@@ -5,12 +5,14 @@ corpus manifest contains 100 GitHub repositories pinned to full commits and
 declares a conservative minimum of 260 Cargo roots. Preparation verifies the
 actual roots before it writes its own manifest.
 
-The manifest pins evaluation profile `1.1`: every Rust Doctor custom rule is
+The manifest pins evaluation profile `1.2`: every Rust Doctor custom rule is
 forced on at warning severity, repository config and inline suppressions are
-ignored, and execution is offline. Compiler and dependency adapters are
-excluded because their output depends on each repository's build environment;
-their conformance is gated separately. Every record carries the profile and
-catalog SHA-256 plus exact expected, attempted, and reported roots.
+ignored, and execution is offline. Workspace metadata uses Cargo's `--no-deps`
+policy, which retains workspace packages and declared dependencies without
+fetching external crates. Compiler and dependency adapters are excluded because
+their output depends on each repository's build environment; their conformance
+is gated separately. Every record carries the profile and catalog SHA-256 plus
+exact expected, attempted, and reported roots.
 
 ```bash
 cargo run --bin rust-doctor-eval -- prepare \
@@ -31,10 +33,9 @@ Preparation is the only network phase. Linux scans fail closed unless
 `bubblewrap` is available. Each checkout is read-only, network and inherited
 environment are removed, and build output is confined to a disposable scratch
 directory. `prepare` creates a marked `.rust-doctor-cargo-home` below the
-checkout root. Dependency prefetching may populate that directory only during
-the network phase; corpus execution never mounts the inherited host Cargo home
-and rejects Cargo credential files. Rustup toolchains and the exact Cargo,
-rustc, rustdoc and Clippy proxies are mounted read-only.
+checkout root. Corpus execution never mounts the inherited host Cargo home and
+rejects Cargo credential files. Rustup toolchains and the exact Cargo, rustc,
+rustdoc and Clippy proxies are mounted read-only.
 
 Each sandbox defaults to 2 GiB aggregate resident memory, 64 processes and a
 2 GiB scratch tmpfs. The limits are configurable with

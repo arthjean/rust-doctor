@@ -379,30 +379,35 @@ fn build_passes(
         if !resolved.evaluation_profile {
             passes.push(Box::new(clippy::ClippyPass::default()));
         }
-        let mut custom_rules: Vec<Box<dyn rules::CustomRule>> = rules::error_handling::all_rules()
-            .into_iter()
-            .chain(rules::performance::all_rules())
-            .chain(rules::reliability::all_rules())
-            .chain(rules::complexity::all_rules())
-            .chain(rules::security::all_rules())
-            .chain(rules::tranche::all_rules())
-            .chain(if has_async_runtime {
-                rules::async_rules::all_rules()
-            } else {
-                vec![]
-            })
-            .chain(rules::framework::rules_for_frameworks(frameworks))
-            .chain(rules::framework_packs::rules_for_capabilities(
-                framework_capabilities,
-                resolved.verbose,
-            ))
-            .collect();
+        let mut custom_rules: Vec<Box<dyn rules::CustomRule>> = if resolved.evaluation_profile {
+            rules::all_custom_rules()
+        } else {
+            rules::error_handling::all_rules()
+                .into_iter()
+                .chain(rules::performance::all_rules())
+                .chain(rules::reliability::all_rules())
+                .chain(rules::complexity::all_rules())
+                .chain(rules::security::all_rules())
+                .chain(rules::tranche::all_rules())
+                .chain(if has_async_runtime {
+                    rules::async_rules::all_rules()
+                } else {
+                    vec![]
+                })
+                .chain(rules::framework::rules_for_frameworks(frameworks))
+                .chain(rules::framework_packs::rules_for_capabilities(
+                    framework_capabilities,
+                    resolved.verbose,
+                ))
+                .collect()
+        };
         if let Ok(catalog) = built_in_catalog() {
             custom_rules.retain_mut(|rule| {
                 let Some(descriptor) = catalog.exact(rule.name()) else {
                     return false;
                 };
-                if !descriptor.applicable_frameworks.is_empty()
+                if !resolved.evaluation_profile
+                    && !descriptor.applicable_frameworks.is_empty()
                     && !descriptor
                         .applicable_frameworks
                         .iter()

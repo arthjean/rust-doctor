@@ -143,10 +143,21 @@ pub fn discover_project(
     manifest_path: &Path,
     offline: bool,
 ) -> Result<ProjectInfo, crate::error::DiscoveryError> {
+    discover_project_for_scan(manifest_path, offline, false)
+}
+
+pub(crate) fn discover_project_for_scan(
+    manifest_path: &Path,
+    offline: bool,
+    evaluation_profile: bool,
+) -> Result<ProjectInfo, crate::error::DiscoveryError> {
     use crate::error::DiscoveryError;
 
     let mut cmd = MetadataCommand::new();
     cmd.manifest_path(manifest_path);
+    if evaluation_profile {
+        cmd.no_deps();
+    }
     if offline {
         cmd.other_options(["--offline".to_string()]);
     }
@@ -429,6 +440,15 @@ pub fn bootstrap_project(
     offline: bool,
 ) -> Result<(PathBuf, ProjectInfo, Option<crate::config::FileConfig>), crate::error::BootstrapError>
 {
+    bootstrap_project_for_scan(directory, offline, false)
+}
+
+pub(crate) fn bootstrap_project_for_scan(
+    directory: &Path,
+    offline: bool,
+    evaluation_profile: bool,
+) -> Result<(PathBuf, ProjectInfo, Option<crate::config::FileConfig>), crate::error::BootstrapError>
+{
     let target_dir = directory.canonicalize().map_err(|source| {
         crate::error::BootstrapError::InvalidDirectory {
             path: directory.display().to_string(),
@@ -441,7 +461,7 @@ pub fn bootstrap_project(
         return Err(crate::error::BootstrapError::NoCargo { path: target_dir });
     }
 
-    let project_info = discover_project(&cargo_toml, offline)?;
+    let project_info = discover_project_for_scan(&cargo_toml, offline, evaluation_profile)?;
 
     let file_config = crate::config::load_file_config(
         &project_info.root_dir,
@@ -600,5 +620,30 @@ mod tests {
     fn test_discover_project_bad_path() {
         let result = discover_project(Path::new("/nonexistent/Cargo.toml"), false);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn evaluation_discovery_does_not_fetch_uncached_dependencies() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        std::fs::write(
+            directory.path().join("Cargo.toml"),
+            r#"
+                [package]
+                name = "offline-evaluation"
+                version = "0.1.0"
+                edition = "2024"
+
+                [dependencies]
+                rust-doctor-intentionally-unavailable = "=999.999.999"
+            "#,
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("src/lib.rs"), "pub fn value() {}\n").unwrap();
+
+        let project =
+            discover_project_for_scan(&directory.path().join("Cargo.toml"), true, true).unwrap();
+        assert_eq!(project.name, "offline-evaluation");
+        assert_eq!(project.workspace_members.len(), 1);
     }
 }

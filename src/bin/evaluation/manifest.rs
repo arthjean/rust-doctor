@@ -98,8 +98,8 @@ pub(crate) fn validate_corpus_manifest(manifest: &CorpusManifest) -> Result<()> 
 }
 
 fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
-    let required_adapters = ["clippy", "custom-rules", "dependencies"];
-    if profile.version != "1.1"
+    let required_adapters = ["clippy", "custom-rules", "dependencies", "metadata"];
+    if profile.version != "1.2"
         || profile.normalized_severity != "warning"
         || !profile.force_candidate_rules
         || profile.respect_inline_suppressions
@@ -118,6 +118,7 @@ fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
         ("clippy", "excluded-environment-dependent"),
         ("custom-rules", "required-all-candidates"),
         ("dependencies", "excluded-environment-dependent"),
+        ("metadata", "workspace-members-no-deps"),
     ];
     if profile.adapter_policy.len() != expected.len()
         || expected.iter().any(|(adapter, policy)| {
@@ -125,7 +126,7 @@ fn validate_evaluation_profile(profile: &EvaluationProfile) -> Result<()> {
         })
     {
         return Err(EvalError::InvalidManifest(
-            "evaluation adapter policy must require all custom rules and exclude environment-dependent adapters"
+            "evaluation adapter policy must require all custom rules, use dependency-free workspace metadata, and exclude environment-dependent adapters"
                 .to_string(),
         ));
     }

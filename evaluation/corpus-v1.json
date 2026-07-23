@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "evaluation_profile": {
-    "version": "1.1",
+    "version": "1.2",
     "normalized_severity": "warning",
     "force_candidate_rules": true,
     "respect_inline_suppressions": false,
@@ -10,7 +10,8 @@
     "adapter_policy": {
       "clippy": "excluded-environment-dependent",
       "custom-rules": "required-all-candidates",
-      "dependencies": "excluded-environment-dependent"
+      "dependencies": "excluded-environment-dependent",
+      "metadata": "workspace-members-no-deps"
     }
   },
   "repositories": [
