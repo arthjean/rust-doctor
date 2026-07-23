@@ -15,10 +15,6 @@ impl AnalysisPass for MachetePass {
         "dependencies (cargo-machete)"
     }
 
-    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
-        filter.matches(&Category::Dependencies)
-    }
-
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_machete_available() {
             return Err(crate::error::PassError::Skipped {
@@ -40,13 +36,14 @@ fn is_machete_available() -> bool {
 }
 
 fn run_machete(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
-    let child = Command::new("cargo")
-        .args(["machete", "--with-metadata"])
-        .current_dir(project_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("failed to spawn cargo machete: {e}"))?;
+    let child = process::spawn_in_group(
+        Command::new("cargo")
+            .args(["machete", "--with-metadata"])
+            .current_dir(project_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .map_err(|e| format!("failed to spawn cargo machete: {e}"))?;
 
     let result = process::run_with_timeout(child, MACHETE_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
 

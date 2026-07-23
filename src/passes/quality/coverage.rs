@@ -22,10 +22,6 @@ impl AnalysisPass for CoveragePass {
         "coverage"
     }
 
-    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
-        filter.matches(&Category::Correctness)
-    }
-
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         let lcov_path = find_lcov_report(project_root);
 

@@ -1,0 +1,3 @@
+edition = "2024"
+# imports_granularity = "Crate"       # requires nightly — uncomment when MSRV moves to nightly or option stabilizes
+# group_imports = "StdExternalCrate"  # requires nightly — uncomment when MSRV moves to nightly or option stabilizes

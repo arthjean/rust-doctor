@@ -1,9 +1,6 @@
-use crate::{clippy, rules};
+use crate::catalog::{AnalyzerKind, built_in_catalog};
 
-// ---------------------------------------------------------------------------
-// Rule knowledge base (derived from trait implementations at runtime)
-// ---------------------------------------------------------------------------
-
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct RuleDoc {
     pub(super) name: &'static str,
     pub(super) category: String,
@@ -12,83 +9,168 @@ pub(super) struct RuleDoc {
     pub(super) fix: &'static str,
 }
 
-/// Return cached rule docs. Computed once on first call since rules are static.
+/// Compatibility view derived from the canonical catalog, never maintained separately.
 pub(super) fn rule_docs() -> &'static [RuleDoc] {
     static DOCS: std::sync::OnceLock<Vec<RuleDoc>> = std::sync::OnceLock::new();
     DOCS.get_or_init(|| {
-        rules::all_custom_rules()
+        let Ok(catalog) = built_in_catalog() else {
+            return Vec::new();
+        };
+        catalog
+            .descriptors()
             .iter()
-            .map(|rule| RuleDoc {
-                name: rule.name(),
-                category: rule.category().to_string(),
-                severity: rule.severity().to_string(),
-                description: rule.description(),
-                fix: rule.fix_hint(),
+            .filter(|descriptor| descriptor.analyzer_kind == AnalyzerKind::SynAst)
+            .map(|descriptor| RuleDoc {
+                name: descriptor.canonical_id.as_str(),
+                category: descriptor.category.to_string(),
+                severity: descriptor.default_severity.to_string(),
+                description: descriptor.description.as_str(),
+                fix: descriptor.fix_guidance.as_str(),
             })
             .collect()
     })
 }
 
-pub(super) fn get_rule_explanation(rule: &str) -> String {
-    // Look up in the data-driven registry first
-    let docs = rule_docs();
-    if let Some(doc) = docs.iter().find(|d| d.name == rule) {
-        return format!(
-            "## {}\n\n**Category:** {} | **Severity:** {}\n\n{}\n\n**Fix:** {}",
-            doc.name, doc.category, doc.severity, doc.description, doc.fix
-        );
-    }
-
-    // Fall back to clippy lint lookup
-    let lint_name = rule.strip_prefix("clippy::").unwrap_or(rule);
-    if clippy::known_lint_names().contains(&lint_name) {
-        format!(
-            "## {rule}\n\nThis is a Clippy lint tracked by rust-doctor with custom severity/category mapping.\n\nSee full documentation: https://rust-lang.github.io/rust-clippy/master/index.html#{lint_name}"
-        )
-    } else {
-        format!("Unknown rule: `{rule}`\n\nUse the `list_rules` tool to see all available rules.")
+/// Documented structural false-positive caveats for specific heuristic rules.
+///
+/// These syn-only rules are correct in spirit but, lacking type information,
+/// have known blind spots worth surfacing so users calibrate confidence.
+pub(super) fn rule_limitation(rule: &str) -> Option<&'static str> {
+    match rule {
+        "unwrap-in-production" => Some(
+            "Matches `.unwrap()`/`.expect()` syntactically; it cannot tell a \
+             provably-infallible unwrap from a risky one.",
+        ),
+        "large-enum-variant" => Some(
+            "Counts a variant's fields, not its byte size; a few wide-type fields \
+             can outweigh many small ones, and vice versa.",
+        ),
+        "blocking-in-async" => Some(
+            "Flags known blocking calls by name inside async fns; it cannot follow \
+             calls into other functions or resolve aliased imports.",
+        ),
+        "sql-injection-risk" => Some(
+            "Flags string-built queries heuristically; it cannot confirm the \
+             interpolated value is actually untrusted input.",
+        ),
+        _ => None,
     }
 }
 
+pub(super) fn get_rule_explanation(rule: &str) -> String {
+    // Look up in the data-driven registry first
+    let Ok(catalog) = built_in_catalog() else {
+        return "Rule catalog is unavailable because its invariant validation failed.".to_string();
+    };
+    if let Some(descriptor) = catalog.exact(rule) {
+        let analysis = match descriptor.analyzer_kind {
+            AnalyzerKind::SynAst => "Heuristic (syn AST only)",
+            AnalyzerKind::Clippy => "Type-aware (Clippy lint)",
+            _ => "External analyzer",
+        };
+        let mut out = format!(
+            "## {}\n\n**Provider:** {} | **Category:** {} | **Severity:** {} | **Analysis:** {} | **Confidence:** {:?}\n\n{}\n\n**Fix:** {}\n\nDocumentation: {}",
+            descriptor.canonical_id,
+            descriptor.provider,
+            descriptor.category,
+            descriptor.default_severity,
+            analysis,
+            descriptor.confidence,
+            descriptor.description,
+            descriptor.fix_guidance,
+            descriptor.documentation_url,
+        );
+        if let Some(limitation) = rule_limitation(rule) {
+            use std::fmt::Write;
+            let _ = write!(out, "\n\n**Known limitation:** {limitation}");
+        }
+        return out;
+    }
+
+    format!("Unknown rule: `{rule}`\n\nUse the `list_rules` tool to see all available rules.")
+}
+
 pub(super) fn get_all_rules_listing() -> String {
-    let mut text = String::from("# rust-doctor Rules\n\n## Custom Rules (AST-based via syn)\n\n");
+    let Ok(catalog) = built_in_catalog() else {
+        return "Rule catalog is unavailable because its invariant validation failed.".to_string();
+    };
+    let mut text = String::from(
+        "# rust-doctor Rules\n\nCustom rules are heuristic; Clippy lints are type-aware.\n\n",
+    );
 
     use std::fmt::Write;
-    let docs = rule_docs();
+    let custom: Vec<_> = catalog
+        .descriptors()
+        .iter()
+        .filter(|descriptor| descriptor.analyzer_kind == AnalyzerKind::SynAst)
+        .collect();
+    let clippy: Vec<_> = catalog
+        .descriptors()
+        .iter()
+        .filter(|descriptor| descriptor.analyzer_kind == AnalyzerKind::Clippy)
+        .collect();
+    let external: Vec<_> = catalog
+        .descriptors()
+        .iter()
+        .filter(|descriptor| {
+            !matches!(
+                descriptor.analyzer_kind,
+                AnalyzerKind::SynAst | AnalyzerKind::Clippy
+            )
+        })
+        .collect();
+
+    let _ = writeln!(text, "## Custom Rules ({})\n", custom.len());
     let mut current_category = String::new();
-    for doc in docs {
-        if doc.category != current_category {
-            if !current_category.is_empty() {
-                text.push('\n');
-            }
-            let _ = writeln!(text, "### {}", doc.category);
-            current_category.clone_from(&doc.category);
+    for descriptor in &custom {
+        let category = descriptor.category.to_string();
+        if category != current_category {
+            let _ = writeln!(text, "### {category}");
+            current_category = category;
         }
+        let caveat = if rule_limitation(&descriptor.canonical_id).is_some() {
+            " (known limitation)"
+        } else {
+            ""
+        };
         let _ = writeln!(
             text,
-            "- `{}` ({}) — {}",
-            doc.name,
-            doc.severity.to_lowercase(),
-            doc.description
-                .split(". ")
-                .next()
-                .unwrap_or(doc.description)
+            "- `{}` ({}, {}){caveat}: {}",
+            descriptor.canonical_id,
+            descriptor.category,
+            descriptor.default_severity,
+            descriptor.description
         );
     }
 
-    text.push_str("\n## Clippy Lints (55+ with category/severity overrides)\n\n");
-    text.push_str(
-        "rust-doctor runs `cargo clippy` with pedantic, nursery, and cargo lint groups.\n",
-    );
-    text.push_str("55+ lints have explicit category and severity overrides across:\n");
-    text.push_str(
-        "Error Handling, Performance, Security, Correctness, Architecture, Cargo, Async, Style\n",
-    );
-    text.push_str("\nUse `explain_rule` with a clippy lint name for details.\n");
+    text.push_str("\n### Known heuristic limitations\n\n");
+    for descriptor in &custom {
+        if let Some(limitation) = rule_limitation(&descriptor.canonical_id) {
+            let _ = writeln!(text, "- `{}`: {limitation}", descriptor.canonical_id);
+        }
+    }
 
-    text.push_str("\n## External Tools\n\n");
-    text.push_str("- **cargo-audit** — Vulnerability scanning for dependencies (install: `cargo install cargo-audit`)\n");
-    text.push_str("- **cargo-machete** — Unused dependency detection (install: `cargo install cargo-machete`)\n");
+    let _ = writeln!(text, "\n## Clippy Lints ({})\n", clippy.len());
+    for descriptor in clippy {
+        let _ = writeln!(
+            text,
+            "- `{}` ({}, {})",
+            descriptor.canonical_id, descriptor.category, descriptor.default_severity
+        );
+    }
+
+    let _ = writeln!(
+        text,
+        "\n## External Tools and Project Rules ({})\n",
+        external.len()
+    );
+    for descriptor in external {
+        let _ = writeln!(
+            text,
+            "- `{}` ({})",
+            descriptor.canonical_id, descriptor.provider
+        );
+    }
 
     text
 }

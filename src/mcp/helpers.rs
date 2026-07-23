@@ -1,3 +1,5 @@
+use crate::diagnostics::{CanonicalDiagnostic, DiagnosticLocation, ReportV1};
+#[cfg(test)]
 use crate::diagnostics::{Diagnostic, ScanResult};
 use crate::{config, discovery};
 use rmcp::ErrorData as McpError;
@@ -6,11 +8,32 @@ use std::collections::HashMap;
 use super::types::{DiagnosticExample, DiagnosticGroup, MAX_EXAMPLES_PER_GROUP};
 
 // ---------------------------------------------------------------------------
+// Directory scope validation (fail-closed)
+// ---------------------------------------------------------------------------
+
+/// Pick the allowed scope root by precedence, without I/O: `RUST_DOCTOR_MCP_ROOT`
+/// first (for containers/CI), then `$HOME`. Empty values are ignored. Returns
+/// `None` when neither is available — the caller MUST then reject (fail-closed).
+fn pick_scope_root(mcp_root: Option<&str>, home: Option<&str>) -> Option<String> {
+    mcp_root
+        .filter(|s| !s.is_empty())
+        .or_else(|| home.filter(|s| !s.is_empty()))
+        .map(str::to_string)
+}
+
+/// Pure scope check: the canonical target must live under the allowed root.
+/// Both arguments must already be canonicalized (no I/O here → unit-testable).
+fn is_within_scope(canonical_target: &std::path::Path, allowed_root: &std::path::Path) -> bool {
+    canonical_target.starts_with(allowed_root)
+}
+
+// ---------------------------------------------------------------------------
 // Project discovery helper
 // ---------------------------------------------------------------------------
 
 /// Discover project + load file config + resolve with defaults.
-/// Validates that the directory is under `$HOME` to prevent scanning arbitrary paths.
+/// Validates that the directory is within the allowed scope (RUST_DOCTOR_MCP_ROOT
+/// or $HOME) to prevent scanning arbitrary paths; fails closed if neither is set.
 pub(super) fn discover_and_resolve(
     directory: &str,
     ignore_project_config: bool,
@@ -22,28 +45,40 @@ pub(super) fn discover_and_resolve(
     ),
     McpError,
 > {
-    // Validate directory scope: must be under $HOME (fail closed)
+    // Validate directory scope (fail closed). The target is canonicalized first to
+    // defeat `../` traversal and TOCTOU, then checked against an allowed root.
     let canonical = std::path::Path::new(directory)
         .canonicalize()
         .map_err(|_| {
             McpError::invalid_params("directory path is invalid or does not exist", None)
         })?;
 
-    if let Ok(home) = std::env::var("HOME") {
-        let home_canonical = std::path::Path::new(&home).canonicalize().map_err(|_| {
+    // Precedence: RUST_DOCTOR_MCP_ROOT (container/CI override) > $HOME. If neither
+    // is set, REJECT — never fall open to scanning arbitrary paths like /etc, /proc.
+    let mcp_root = std::env::var("RUST_DOCTOR_MCP_ROOT").ok();
+    let home = std::env::var("HOME").ok();
+    let allowed_root = pick_scope_root(mcp_root.as_deref(), home.as_deref()).ok_or_else(|| {
+        McpError::invalid_params(
+            "directory scope cannot be validated — set RUST_DOCTOR_MCP_ROOT to the allowed root \
+             (no $HOME present)",
+            None,
+        )
+    })?;
+    let allowed_canonical = std::path::Path::new(&allowed_root)
+        .canonicalize()
+        .map_err(|_| {
             McpError::internal_error(
-                "$HOME path is invalid; cannot validate directory scope",
+                "scope root path is invalid; cannot validate directory scope",
                 None,
             )
         })?;
-        if !canonical.starts_with(&home_canonical) {
-            return Err(McpError::invalid_params(
-                "directory must be under $HOME",
-                None,
-            ));
-        }
+    if !is_within_scope(&canonical, &allowed_canonical) {
+        // Do not echo the raw path back to the client.
+        return Err(McpError::invalid_params(
+            "directory is outside the allowed scope",
+            None,
+        ));
     }
-    // If $HOME is not set (e.g. containers): allow — no scope to validate against
 
     // Pass the already-canonicalized path to avoid TOCTOU between validation and use
     let (target_dir, project_info, file_config) = discovery::bootstrap_project(&canonical, false)
@@ -58,6 +93,9 @@ pub(super) fn discover_and_resolve(
             }
             crate::error::BootstrapError::Discovery(_) => {
                 "project discovery failed — check that `cargo metadata` runs successfully"
+            }
+            crate::error::BootstrapError::Config(_) => {
+                "project configuration is invalid; fix rust-doctor.toml or ignore project config"
             }
         };
         eprintln!("MCP bootstrap error: {e}");
@@ -93,6 +131,7 @@ pub(super) fn discover_and_resolve(
 
 /// Group individual diagnostics by rule, sorted by severity then count.
 /// Reduces thousands of findings to ~70 compact groups.
+#[cfg(test)]
 pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGroup> {
     let mut groups: HashMap<&str, Vec<&Diagnostic>> = HashMap::new();
     for diag in diagnostics {
@@ -144,6 +183,7 @@ pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGro
 
 /// Generate a complete markdown report of scan results.
 /// This is the sole output of the scan tool — no JSON, pure readable text.
+#[cfg(test)]
 pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]) -> String {
     use std::fmt::Write;
 
@@ -240,4 +280,172 @@ pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]
     }
 
     s
+}
+
+/// Group the canonical MCP-visible diagnostics without reinterpreting metadata.
+pub(super) fn group_report_diagnostics(
+    diagnostics: &[CanonicalDiagnostic],
+) -> Vec<DiagnosticGroup> {
+    let mut groups: HashMap<&str, Vec<&CanonicalDiagnostic>> = HashMap::new();
+    for diagnostic in diagnostics {
+        if diagnostic.visible_on.iter().any(|value| value == "mcp") {
+            groups.entry(&diagnostic.rule).or_default().push(diagnostic);
+        }
+    }
+    let mut result: Vec<DiagnosticGroup> = groups
+        .into_iter()
+        .filter_map(|(rule, diagnostics)| {
+            let first = diagnostics.first()?;
+            let examples = diagnostics
+                .iter()
+                .take(MAX_EXAMPLES_PER_GROUP)
+                .map(|diagnostic| match &diagnostic.location {
+                    DiagnosticLocation::Source { path, range } => DiagnosticExample {
+                        file_path: path.clone(),
+                        line: Some(range.start.line),
+                        column: Some(range.start.column),
+                    },
+                    DiagnosticLocation::Project => DiagnosticExample {
+                        file_path: "<project>".to_string(),
+                        line: None,
+                        column: None,
+                    },
+                })
+                .collect();
+            Some(DiagnosticGroup {
+                rule: rule.to_string(),
+                severity: first.severity.to_string(),
+                category: first.category.to_string(),
+                count: diagnostics.len(),
+                message: first.message.clone(),
+                help: diagnostics
+                    .iter()
+                    .find_map(|diagnostic| diagnostic.help.as_ref())
+                    .cloned(),
+                examples,
+            })
+        })
+        .collect();
+    result.sort_by(|left, right| {
+        let severity = |value: &str| match value {
+            "error" => 0,
+            "warning" => 1,
+            _ => 2,
+        };
+        severity(&left.severity)
+            .cmp(&severity(&right.severity))
+            .then(right.count.cmp(&left.count))
+    });
+    result
+}
+
+/// Render the MCP narrative from the same immutable Report V1 used by JSON.
+pub(super) fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> String {
+    use std::fmt::Write;
+    let mut output = String::with_capacity(8192);
+    let score = report
+        .score
+        .map_or_else(|| "n/a".to_string(), |value| value.to_string());
+    let label = report
+        .score_label
+        .map_or_else(|| "nothing to scan".to_string(), |value| value.to_string());
+    let _ = writeln!(
+        output,
+        "## {score}/100 ({label}) - {} files in {:.1}s",
+        report.source_file_count, report.elapsed
+    );
+    let _ = writeln!(
+        output,
+        "{} errors | {} warnings | {} info | {} rules triggered\n",
+        report.error_count,
+        report.warning_count,
+        report.info_count,
+        groups.len()
+    );
+    for group in groups {
+        let _ = writeln!(
+            output,
+            "- `{}` ({}, {}) x{}: {}",
+            group.rule, group.category, group.severity, group.count, group.message
+        );
+        if let Some(help) = &group.help {
+            let _ = writeln!(output, "  fix: {help}");
+        }
+        for example in &group.examples {
+            let _ = writeln!(
+                output,
+                "  at {}{}",
+                example.file_path,
+                example
+                    .line
+                    .map_or(String::new(), |line| format!(":{line}"))
+            );
+        }
+    }
+    if report.completeness.state != crate::diagnostics::CompletenessState::Complete {
+        let _ = writeln!(
+            output,
+            "\nAnalysis completeness: {:?}",
+            report.completeness.state
+        );
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_within_scope, pick_scope_root};
+    use std::path::Path;
+
+    // --- US-006: directory scope precedence (RUST_DOCTOR_MCP_ROOT > $HOME) ---
+
+    #[test]
+    fn test_pick_scope_root_prefers_mcp_root() {
+        assert_eq!(
+            pick_scope_root(Some("/srv/work"), Some("/home/user")),
+            Some("/srv/work".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_pick_scope_root_falls_back_to_home() {
+        assert_eq!(
+            pick_scope_root(None, Some("/home/user")),
+            Some("/home/user".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_pick_scope_root_ignores_empty() {
+        // Empty env values must not be treated as a valid root.
+        assert_eq!(
+            pick_scope_root(Some(""), Some("/home/user")),
+            Some("/home/user".to_string()),
+        );
+        assert_eq!(pick_scope_root(Some(""), Some("")), None);
+    }
+
+    #[test]
+    fn test_pick_scope_root_fail_closed_when_neither_set() {
+        // Neither RUST_DOCTOR_MCP_ROOT nor $HOME → None → caller rejects (fail-closed).
+        assert_eq!(pick_scope_root(None, None), None);
+    }
+
+    #[test]
+    fn test_is_within_scope() {
+        assert!(is_within_scope(
+            Path::new("/home/user/project"),
+            Path::new("/home/user")
+        ));
+        assert!(is_within_scope(
+            Path::new("/home/user"),
+            Path::new("/home/user")
+        ));
+        // Outside the allowed root is rejected.
+        assert!(!is_within_scope(Path::new("/etc"), Path::new("/home/user")));
+        assert!(!is_within_scope(
+            Path::new("/home/userother"),
+            Path::new("/home/user/")
+        ));
+    }
 }

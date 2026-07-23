@@ -3,7 +3,9 @@
 //! Produces a valid SARIF 2.1.0 JSON file from a `ScanResult`.
 //! See <https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html>
 
-use crate::diagnostics::{Diagnostic, ScanResult, Severity};
+use crate::diagnostics::{
+    CanonicalDiagnostic, Diagnostic, DiagnosticLocation, ReportV1, ScanResult, Severity,
+};
 use serde::Serialize;
 use std::borrow::Cow;
 
@@ -55,6 +57,18 @@ struct ReportingDescriptor<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     help_uri: Option<&'a str>,
     default_configuration: DefaultConfiguration,
+    /// Standard SARIF property bag; carries `heuristic` for syn-only rules so
+    /// GitHub Code Scanning consumers can calibrate confidence (US-013).
+    /// Omitted for type-aware clippy lints and external-tool findings, keeping
+    /// the output backward-compatible.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    properties: Option<RuleProperties>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuleProperties {
+    heuristic: bool,
 }
 
 #[derive(Serialize)]
@@ -70,6 +84,8 @@ struct Result_<'a> {
     level: &'static str,
     message: Message<'a>,
     locations: Vec<Location<'a>>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    partial_fingerprints: std::collections::BTreeMap<&'static str, &'a str>,
 }
 
 #[derive(Serialize)]
@@ -134,6 +150,8 @@ fn build_rules(diagnostics: &[Diagnostic]) -> Vec<ReportingDescriptor<'_>> {
                 default_configuration: DefaultConfiguration {
                     level: severity_to_sarif_level(d.severity),
                 },
+                properties: crate::rules::is_heuristic_rule(&d.rule)
+                    .then_some(RuleProperties { heuristic: true }),
             });
         }
     }
@@ -167,6 +185,68 @@ fn diagnostic_to_result(d: &Diagnostic) -> Result_<'_> {
                 region,
             },
         }],
+        partial_fingerprints: std::collections::BTreeMap::new(),
+    }
+}
+
+fn build_report_rules<'a>(
+    diagnostics: &'a [&'a CanonicalDiagnostic],
+) -> Vec<ReportingDescriptor<'a>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut rules = Vec::new();
+    for diagnostic in diagnostics {
+        if seen.insert(diagnostic.rule.as_str()) {
+            rules.push(ReportingDescriptor {
+                id: &diagnostic.rule,
+                short_description: Message {
+                    text: Cow::Borrowed(&diagnostic.title),
+                },
+                help_uri: Some(&diagnostic.url),
+                default_configuration: DefaultConfiguration {
+                    level: severity_to_sarif_level(diagnostic.severity),
+                },
+                properties: diagnostic
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "heuristic")
+                    .then_some(RuleProperties { heuristic: true }),
+            });
+        }
+    }
+    rules
+}
+
+fn canonical_to_result(diagnostic: &CanonicalDiagnostic) -> Result_<'_> {
+    let locations = match &diagnostic.location {
+        DiagnosticLocation::Source { path, range } => vec![Location {
+            physical_location: PhysicalLocation {
+                artifact_location: ArtifactLocation {
+                    uri: Cow::Borrowed(path),
+                    uri_base_id: "%SRCROOT%",
+                },
+                region: Some(Region {
+                    start_line: range.start.line,
+                    start_column: Some(range.start.column),
+                }),
+            },
+        }],
+        DiagnosticLocation::Project => Vec::new(),
+    };
+    let text = diagnostic
+        .help
+        .as_ref()
+        .map_or(Cow::Borrowed(diagnostic.message.as_str()), |help| {
+            Cow::Owned(format!("{}: {help}", diagnostic.message))
+        });
+    Result_ {
+        rule_id: &diagnostic.rule,
+        level: severity_to_sarif_level(diagnostic.severity),
+        message: Message { text },
+        locations,
+        partial_fingerprints: std::collections::BTreeMap::from([(
+            "rustDoctorSiteId/v1",
+            diagnostic.site_id.as_str(),
+        )]),
     }
 }
 
@@ -195,7 +275,7 @@ pub fn render_sarif(scan_result: &ScanResult) -> Result<String, serde_json::Erro
                 driver: ToolComponent {
                     name: TOOL_NAME,
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    information_uri: "https://github.com/ArthurDEV44/rust-doctor",
+                    information_uri: "https://github.com/arthjean/rust-doctor",
                     rules,
                 },
             },
@@ -203,6 +283,36 @@ pub fn render_sarif(scan_result: &ScanResult) -> Result<String, serde_json::Erro
         }],
     };
 
+    serde_json::to_string_pretty(&log)
+}
+
+/// Convert the immutable canonical report into SARIF without rewriting findings.
+pub fn render_report_sarif(report: &ReportV1) -> Result<String, serde_json::Error> {
+    let diagnostics: Vec<&CanonicalDiagnostic> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.visible_on.iter().any(|value| value == "sarif"))
+        .collect();
+    let rules = build_report_rules(&diagnostics);
+    let results = diagnostics
+        .iter()
+        .map(|diagnostic| canonical_to_result(diagnostic))
+        .collect();
+    let log = SarifLog {
+        schema: SARIF_SCHEMA,
+        version: SARIF_VERSION,
+        runs: vec![Run {
+            tool: Tool {
+                driver: ToolComponent {
+                    name: TOOL_NAME,
+                    version: report.tool_version.clone(),
+                    information_uri: "https://github.com/arthjean/rust-doctor",
+                    rules,
+                },
+            },
+            results,
+        }],
+    };
     serde_json::to_string_pretty(&log)
 }
 
@@ -244,6 +354,12 @@ mod tests {
             error_count,
             warning_count,
             info_count,
+            pass_timings: vec![],
+            suppressed_security: vec![],
+            planned_files: vec![],
+            analyzed_files: vec![],
+            compiler_evidence: vec![],
+            execution: crate::diagnostics::ScanExecution::default(),
         }
     }
 
@@ -304,6 +420,55 @@ mod tests {
         assert_eq!(severity_to_sarif_level(Severity::Error), "error");
         assert_eq!(severity_to_sarif_level(Severity::Warning), "warning");
         assert_eq!(severity_to_sarif_level(Severity::Info), "note");
+    }
+
+    #[test]
+    fn test_heuristic_rule_carries_property() {
+        let diags = vec![
+            Diagnostic {
+                file_path: PathBuf::from("src/main.rs"),
+                rule: "unwrap-in-production".to_string(),
+                category: Category::ErrorHandling,
+                severity: Severity::Warning,
+                message: "heuristic finding".to_string(),
+                help: None,
+                line: Some(1),
+                column: None,
+                fix: None,
+            },
+            Diagnostic {
+                file_path: PathBuf::from("src/main.rs"),
+                rule: "clippy::needless_return".to_string(),
+                category: Category::Style,
+                severity: Severity::Warning,
+                message: "clippy finding".to_string(),
+                help: None,
+                line: Some(2),
+                column: None,
+                fix: None,
+            },
+        ];
+        let result = make_scan_result(diags);
+        let sarif = render_sarif(&result).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&sarif).unwrap();
+        let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
+            .as_array()
+            .unwrap();
+
+        let heuristic = rules
+            .iter()
+            .find(|r| r["id"] == "unwrap-in-production")
+            .unwrap();
+        assert_eq!(heuristic["properties"]["heuristic"], true);
+
+        let clippy = rules
+            .iter()
+            .find(|r| r["id"] == "clippy::needless_return")
+            .unwrap();
+        assert!(
+            clippy.get("properties").is_none(),
+            "clippy lints must not carry the heuristic property"
+        );
     }
 
     #[test]

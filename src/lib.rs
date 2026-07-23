@@ -26,6 +26,9 @@
 
 #![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
+// Restriction lints (unwrap/expect/panic) are enforced in prod but normal in
+// tests. Belt for clippy #13981 where allow-*-in-tests misses some contexts.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // Expect these pedantic lints project-wide — they conflict with our design choices.
 // Using #[expect] so the compiler warns if any suppression becomes dead.
 #![expect(
@@ -38,7 +41,7 @@
 )]
 #![expect(
     clippy::missing_errors_doc,
-    reason = "# Errors docs added to key functions; remaining deferred until v1.0"
+    reason = "deferred until v1.0 public API stabilization"
 )]
 #![expect(
     clippy::doc_markdown,
@@ -60,10 +63,6 @@
     clippy::items_after_statements,
     reason = "inline test helpers after setup"
 )]
-#![expect(
-    clippy::too_many_lines,
-    reason = "some analysis functions are inherently long"
-)]
 #![expect(clippy::cast_sign_loss, reason = "score clamped to 0-100 before cast")]
 #![expect(
     clippy::used_underscore_binding,
@@ -84,6 +83,9 @@ pub mod discovery;
 pub mod error;
 /// Auto-fix application for machine-applicable diagnostic fixes.
 pub mod fixer;
+/// Feature-gated language server implementation used by the CLI stdio mode.
+#[cfg(feature = "lsp")]
+pub(crate) mod lsp;
 /// MCP (Model Context Protocol) server for AI tool integration.
 #[cfg(feature = "mcp")]
 pub mod mcp;
@@ -98,13 +100,25 @@ pub mod scan;
 /// Interactive setup wizard for AI agent integration.
 pub mod setup;
 
+/// Pipeline helper functions used by the CLI entry point.
+///
+/// This module is public so the binary crate can call these functions,
+/// but its contents are not part of the stable public API.
+#[doc(hidden)]
+pub mod run;
+
 // Internal implementation modules
 pub(crate) mod cache;
+pub(crate) mod catalog;
+pub(crate) mod completeness;
 pub(crate) mod diff;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
+pub(crate) mod share;
 pub(crate) mod suppression;
+pub(crate) mod telemetry;
+pub(crate) mod workflows;
 pub(crate) mod workspace;
 
 // Re-export pass modules at crate root so existing `use crate::audit` etc. still work.
@@ -117,3 +131,6 @@ pub(crate) use passes::security::deny;
 pub(crate) use passes::security::geiger;
 pub(crate) use passes::static_analysis::clippy;
 pub(crate) use passes::static_analysis::rules;
+
+#[cfg(test)]
+mod report_contract_tests;

@@ -1,0 +1,532 @@
+# Format: `=== rule-id`, then `--- kind relative/path.rs` and Rust source.
+# Kinds are positive, negative, or limitation:<documented-name>.
+
+=== unwrap-in-production
+--- positive src/lib.rs
+fn value(input: Option<u8>) -> u8 { input.unwrap() }
+--- positive src/lib.rs
+fn value(input: Result<u8, ()>) -> u8 { input.expect("value") }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> u8 { input.unwrap_or_default() }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> Option<u8> { input.map(|v| v + 1) }
+--- negative src/lib.rs
+fn value(input: Result<u8, ()>) -> u8 { match input { Ok(v) => v, Err(()) => 0 } }
+--- negative src/lib.rs
+fn value(input: Option<u8>) -> u8 { if let Some(v) = input { v } else { 0 } }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn accepts_unwrap() { Some(1).unwrap(); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn helper() { Some(1).unwrap(); } }
+
+=== panic-in-library
+--- positive src/lib.rs
+pub fn value() -> u8 { panic!("missing") }
+--- positive src/module.rs
+pub fn value() -> u8 { unimplemented!() }
+--- negative src/main.rs
+fn main() { panic!("binary boundary") }
+--- negative src/bin/tool.rs
+fn run() { todo!() }
+--- negative src/lib.rs
+pub fn value() -> Option<u8> { None }
+--- negative src/lib.rs
+pub fn value(ok: bool) -> u8 { assert!(ok); 1 }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn accepts_panic() { panic!("expected") }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn helper() { todo!() } }
+
+=== box-dyn-error-in-public-api
+--- positive src/lib.rs
+pub fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+--- positive src/lib.rs
+struct Api; impl Api { pub fn error(&self) -> Box<dyn Error> { loop {} } }
+--- negative src/lib.rs
+fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+--- negative src/lib.rs
+pub fn load() -> Result<(), LoadError> { loop {} }
+--- negative src/lib.rs
+pub fn load() {}
+--- negative src/lib.rs
+pub fn load() -> Box<String> { Box::new(String::new()) }
+--- limitation:test-function-exception src/lib.rs
+#[test] pub fn load() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
+
+=== result-unit-error
+--- positive src/lib.rs
+pub fn parse() -> Result<u8, ()> { Err(()) }
+--- positive src/lib.rs
+struct Api; impl Api { pub fn save(&self) -> Result<(), ()> { Ok(()) } }
+--- negative src/lib.rs
+fn parse() -> Result<u8, ()> { Err(()) }
+--- negative src/lib.rs
+pub fn parse() -> Result<u8, ParseError> { loop {} }
+--- negative src/lib.rs
+pub fn parse() -> Option<u8> { None }
+--- negative src/lib.rs
+pub fn parse() {}
+--- limitation:test-function-exception src/lib.rs
+#[test] pub fn parse() -> Result<u8, ()> { Err(()) }
+
+=== high-cyclomatic-complexity
+--- positive src/lib.rs
+fn complex(v: u8) -> u8 {
+    if v > 0 {} if v > 1 {} if v > 2 {} if v > 3 {}
+    if v > 4 {} if v > 5 {} if v > 6 {} if v > 7 {}
+    if v > 8 {} if v > 9 {} if v > 10 {} if v > 11 {}
+    if v > 12 {} if v > 13 {} if v > 14 {} if v > 15 {}
+    v
+}
+--- positive src/lib.rs
+fn complex(v: u8) -> u8 {
+    match v { 0 => 0, 1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 => 5, 6 => 6,
+        7 => 7, 8 => 8, 9 => 9, 10 => 10, 11 => 11, 12 => 12, 13 => 13,
+        14 => 14, 15 => 15, _ => 16 }
+}
+--- negative src/lib.rs
+fn simple(v: bool) -> u8 { if v { 1 } else { 0 } }
+--- negative src/lib.rs
+fn linear() -> u8 { let value = 1; value + 1 }
+--- negative src/lib.rs
+fn closure() { let _nested = || { if true {} if true {} if true {} }; }
+--- negative src/lib.rs
+fn moderate(a: bool, b: bool) { if a && b {} }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn complex() { if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn complex() { if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} if true {} } }
+
+=== unnecessary-allocation
+--- positive src/lib.rs
+fn values() { for _ in 0..2 { let _value: Vec<u8> = Vec::new(); } }
+--- positive src/lib.rs
+fn values() { while ready() { let _value = String::new(); } }
+--- negative src/lib.rs
+fn values() { let _value: Vec<u8> = Vec::new(); }
+--- negative src/lib.rs
+fn values() { for _ in 0..2 { let _value: Vec<u8> = Vec::with_capacity(4); } }
+--- negative src/lib.rs
+fn values() { for _ in 0..2 { let _value = vec![1, 2]; } }
+--- negative src/lib.rs
+fn values() { loop { let _value = String::default(); break; } }
+
+=== excessive-clone
+--- positive src/lib.rs
+fn copy(a: String, b: String, c: String) { let _ = a.clone(); let _ = b.clone(); let _ = c.clone(); }
+--- positive src/lib.rs
+fn copy(values: Vec<String>) { for value in values { let _ = value.clone(); let _ = value.clone(); let _ = value.clone(); } }
+--- negative src/lib.rs
+fn copy(a: String, b: String) { let _ = a.clone(); let _ = b.clone(); }
+--- negative src/lib.rs
+fn copy(a: String) { let _ = a.to_owned(); let _ = a.to_string(); }
+--- negative src/lib.rs
+fn copy() {}
+--- negative src/lib.rs
+fn copy(a: &str) { let _ = a.len(); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn copy() { let a = String::new(); let _ = a.clone(); let _ = a.clone(); let _ = a.clone(); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn copy() { let a = String::new(); let _ = a.clone(); let _ = a.clone(); let _ = a.clone(); } }
+
+=== collect-then-iterate
+--- positive src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().iter().count(); }
+--- positive src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().into_iter().count(); }
+--- negative src/lib.rs
+fn values() { let _values: Vec<_> = (0..4).collect(); }
+--- negative src/lib.rs
+fn values() { let values: Vec<_> = (0..4).collect(); let _ = values.iter().count(); }
+--- negative src/lib.rs
+fn values() { let _ = (0..4).map(|v| v + 1).count(); }
+--- negative src/lib.rs
+fn values() { let _ = (0..4).collect::<Vec<_>>().len(); }
+
+=== large-enum-variant
+--- positive src/lib.rs
+enum Message { Empty, Data(u8, u8, u8, u8, u8, u8) }
+--- positive src/lib.rs
+enum Message { Small(u8), Data(u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Color { Red(u8), Green(u8), Blue(u8) }
+--- negative src/lib.rs
+enum Single { Data(u8, u8, u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Boundary { Empty, Data(u8, u8, u8, u8, u8) }
+--- negative src/lib.rs
+enum Boundary { Small(u8, u8), Data(u8, u8, u8, u8, u8, u8) }
+
+=== string-from-literal
+--- positive src/lib.rs
+fn value() { let _ = String::from("literal"); }
+--- positive src/lib.rs
+fn value() { let _ = "literal".to_string(); }
+--- negative src/lib.rs
+fn value(input: &str) { let _ = String::from(input); }
+--- negative src/lib.rs
+fn value(input: &str) { let _ = input.to_string(); }
+--- negative src/lib.rs
+fn value() { let _ = String::new(); }
+--- negative src/lib.rs
+fn value() { let _ = format!("literal"); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn value() { let _ = String::from("literal"); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { fn value() { let _ = "literal".to_string(); } }
+
+=== hardcoded-secrets
+--- positive src/lib.rs
+fn auth() { let api_key = "AKIA1234567890ABCDEF"; use_value(api_key); }
+--- positive src/lib.rs
+const PASSWORD: &str = "mK9!zQ2@vL7#pR4x";
+--- negative src/lib.rs
+fn auth() { let api_key = "short"; use_value(api_key); }
+--- negative src/lib.rs
+fn auth() { let api_key = "replace-with-your-key"; use_value(api_key); }
+--- negative src/lib.rs
+fn auth() { let endpoint = "mK9!zQ2@vL7#pR4x"; use_value(endpoint); }
+--- negative src/lib.rs
+fn auth() { let token_url = "mK9!zQ2@vL7#pR4x"; use_value(token_url); }
+--- limitation:test-function-exception src/lib.rs
+#[test] fn auth() { let password = "mK9!zQ2@vL7#pR4x"; use_value(password); }
+--- limitation:cfg-test-exception src/lib.rs
+#[cfg(test)] mod tests { const PASSWORD: &str = "mK9!zQ2@vL7#pR4x"; }
+
+=== unsafe-block-audit
+--- positive src/lib.rs
+fn read(pointer: *const u8) -> u8 { unsafe { *pointer } }
+--- positive src/lib.rs
+unsafe fn read(pointer: *const u8) -> u8 { *pointer }
+--- negative src/lib.rs
+fn read(value: &u8) -> u8 { *value }
+--- negative src/lib.rs
+fn label() -> &'static str { "unsafe" }
+--- negative src/lib.rs
+#![allow(unsafe_code)]
+fn read(value: &u8) -> u8 { *value }
+--- negative src/lib.rs
+fn read() -> Option<u8> { None }
+--- limitation:forbid-unsafe-code-short-circuit src/lib.rs
+#![forbid(unsafe_code)]
+unsafe fn read(pointer: *const u8) -> u8 { *pointer }
+
+=== sql-injection-risk
+--- positive src/lib.rs
+fn query(db: &Db, name: &str) { db.query(format!("SELECT {name}")); }
+--- positive src/lib.rs
+fn query(db: &Db, name: &str) { db.execute(&format!("DELETE {name}")); }
+--- negative src/lib.rs
+fn query(db: &Db) { db.query("SELECT * FROM users"); }
+--- negative src/lib.rs
+fn query(name: &str) { let _sql = format!("SELECT {name}"); }
+--- negative src/lib.rs
+fn query(db: &Db, name: &str) { db.log(format!("SELECT {name}")); }
+--- negative src/lib.rs
+fn query(db: &Db, sql: String) { db.query(sql); }
+--- limitation:immediate-format-only src/lib.rs
+fn query(db: &Db, name: &str) { let sql = format!("SELECT {name}"); db.query(sql); }
+
+=== blocking-in-async
+--- positive src/lib.rs
+async fn work() { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- positive src/lib.rs
+async fn work() { let _ = std::fs::read("input"); }
+--- negative src/lib.rs
+fn work() { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn work() { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
+--- negative src/lib.rs
+async fn work() { tokio::task::spawn_blocking(|| std::fs::read("input")); }
+--- negative src/lib.rs
+async fn work(reader: &mut Reader) { let _ = reader.read_to_string(); }
+--- limitation:method-call-types-unknown src/lib.rs
+async fn work(reader: &mut std::fs::File) { let _ = reader.read_to_string(); }
+
+=== block-on-in-async
+--- positive src/lib.rs
+async fn work(runtime: &Runtime) { runtime.block_on(job()); }
+--- positive src/lib.rs
+async fn work() { futures::executor::block_on(job()); }
+--- negative src/lib.rs
+fn work(runtime: &Runtime) { runtime.block_on(job()); }
+--- negative src/lib.rs
+async fn work() { job().await; }
+--- negative src/lib.rs
+async fn work(runtime: &Runtime) { runtime.enter(); }
+--- negative src/lib.rs
+async fn work() { block_onto(job()); }
+
+=== tokio-main-missing
+--- positive src/main.rs
+async fn main() {}
+--- positive src/main.rs
+#[allow(dead_code)] async fn main() {}
+--- negative src/main.rs
+#[tokio::main] async fn main() {}
+--- negative src/main.rs
+fn main() {}
+--- negative src/lib.rs
+async fn main() {}
+--- negative src/main.rs
+async fn run() {}
+--- limitation:main-file-only src/lib.rs
+async fn main() {}
+
+=== tokio-spawn-without-move
+--- positive src/lib.rs
+fn work() { tokio::spawn(async { job().await }); }
+--- positive src/lib.rs
+fn work() { spawn(async { job().await }); }
+--- negative src/lib.rs
+fn work() { tokio::spawn(async move { job().await }); }
+--- negative src/lib.rs
+fn work() { other::spawn(async { job().await }); }
+--- negative src/lib.rs
+fn work() { tokio::spawn(job()); }
+--- negative src/lib.rs
+fn work() { let _task = async { job().await }; }
+--- limitation:async-block-syntax-only src/lib.rs
+fn work() { tokio::spawn(job()); }
+
+=== axum-handler-not-async
+--- positive src/lib.rs
+fn create(Json(payload): Json<Payload>) {}
+--- positive src/lib.rs
+fn show(Path(id): axum::extract::Path<u64>) {}
+--- negative src/lib.rs
+async fn create(Json(payload): Json<Payload>) {}
+--- negative src/lib.rs
+fn create(payload: Payload) {}
+--- negative src/lib.rs
+fn create(payload: MyJson<Payload>) {}
+--- negative src/lib.rs
+fn create() {}
+--- limitation:top-level-functions-only src/lib.rs
+struct Api; impl Api { fn create(&self, Json(payload): Json<Payload>) {} }
+
+=== actix-blocking-handler
+--- positive src/lib.rs
+async fn handler(_: web::Json<Payload>) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- positive src/lib.rs
+async fn handler(_: web::Path<u64>) { let _ = std::fs::read("input"); }
+--- negative src/lib.rs
+fn handler(_: web::Json<Payload>) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn handler(_: Payload) { std::thread::sleep(std::time::Duration::from_secs(1)); }
+--- negative src/lib.rs
+async fn handler(_: web::Json<Payload>) { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
+--- negative src/lib.rs
+fn helper() { let _ = std::fs::read("input"); }
+--- limitation:web-prefix-only src/lib.rs
+async fn handler(_: actix_web::web::Json<Payload>) { let _ = std::fs::read("input"); }
+
+=== blocking-lock-in-async
+--- positive src/lib.rs
+async fn work(mutex: &std::sync::Mutex<u8>) { let _guard = mutex.lock(); }
+--- positive src/lib.rs
+struct Service; impl Service { async fn work(&self, request_mutex: &Mutex<u8>) { let _ = request_mutex.lock(); } }
+--- negative src/lib.rs
+fn work(mutex: &std::sync::Mutex<u8>) { let _guard = mutex.lock(); }
+--- negative src/lib.rs
+async fn work(state: &State) { let _guard = state.lock(); }
+--- negative src/lib.rs
+#[test] async fn work(mutex: &Mutex<u8>) { let _ = mutex.lock(); }
+--- negative src/lib.rs
+macro_rules! acquire { ($mutex:expr) => { $mutex.lock() }; } async fn work(mutex: &Mutex<u8>) { acquire!(mutex); }
+
+=== catch-unwind-discarded
+--- positive src/lib.rs
+fn isolate() { let _ = std::panic::catch_unwind(job).ok(); }
+--- positive src/lib.rs
+fn isolate() { let _ = catch_unwind(job).unwrap_or_default(); }
+--- negative src/lib.rs
+fn isolate() { match std::panic::catch_unwind(job) { Ok(v) => use_value(v), Err(payload) => report(payload) } }
+--- negative src/lib.rs
+fn isolate() { let _ = other_operation().ok(); }
+--- negative src/lib.rs
+#[test] fn isolate() { let _ = std::panic::catch_unwind(job).ok(); }
+--- negative src/lib.rs
+macro_rules! isolate { () => { std::panic::catch_unwind(job).ok() }; } fn work() { isolate!(); }
+
+=== await-holding-refcell-ref
+--- positive src/lib.rs
+async fn work(cell: &RefCell<State>) { let state_ref = cell.borrow(); next().await; use_ref(&state_ref); }
+--- positive src/lib.rs
+async fn work(cell: &RefCell<State>) { let state_ref = cell.borrow_mut(); next().await; use_ref(&state_ref); }
+--- negative src/lib.rs
+async fn work(cell: &RefCell<State>) { next().await; let state_ref = cell.borrow(); use_ref(&state_ref); }
+--- negative src/lib.rs
+async fn work(cell: &RefCell<State>) { { let state_ref = cell.borrow(); use_ref(&state_ref); } next().await; }
+--- negative src/lib.rs
+#[test] async fn work(cell: &RefCell<State>) { let state_ref = cell.borrow(); next().await; use_ref(&state_ref); }
+--- negative src/lib.rs
+macro_rules! borrow_then_await { ($cell:expr) => {{ let state_ref = $cell.borrow(); next().await; }}; } async fn work(cell: &RefCell<State>) { borrow_then_await!(cell); }
+
+=== mem-forget-resource
+--- positive src/lib.rs
+fn leak(file_guard: FileGuard) { std::mem::forget(file_guard); }
+--- positive src/lib.rs
+fn leak(permit: Permit) { mem::forget(permit); }
+--- negative src/lib.rs
+fn release(file_guard: FileGuard) { std::mem::drop(file_guard); }
+--- negative src/lib.rs
+fn forget_number(value: u64) { std::mem::forget(value); }
+--- negative src/lib.rs
+#[test] fn leak(file_guard: FileGuard) { std::mem::forget(file_guard); }
+--- negative src/lib.rs
+macro_rules! leak { ($guard:expr) => { std::mem::forget($guard) }; } fn work(file_guard: FileGuard) { leak!(file_guard); }
+
+=== process-exit-in-library
+--- positive src/lib.rs
+pub fn fatal() { std::process::exit(2); }
+--- positive src/server.rs
+fn fatal() { process::exit(1); }
+--- negative src/main.rs
+fn main() { std::process::exit(0); }
+--- negative src/bin/tool.rs
+fn main() { std::process::exit(2); }
+--- negative tests/integration.rs
+fn stop() { std::process::exit(1); }
+--- negative src/lib.rs
+#[test] fn stop() { std::process::exit(1); }
+
+=== spawn-in-drop
+--- positive src/lib.rs
+struct Worker; impl Drop for Worker { fn drop(&mut self) { tokio::spawn(cleanup()); } }
+--- positive src/lib.rs
+struct Worker; impl std::ops::Drop for Worker { fn drop(&mut self) { tokio::spawn(async move { cleanup().await }); } }
+--- negative src/lib.rs
+fn start() { tokio::spawn(job()); }
+--- negative src/lib.rs
+struct Worker; impl Drop for Worker { fn drop(&mut self) { tokio::task::spawn(cleanup()); } }
+--- negative src/lib.rs
+struct Worker; impl Drop for Worker { fn drop(&mut self) { cleanup(); } }
+--- negative src/lib.rs
+macro_rules! spawn_cleanup { () => { tokio::spawn(cleanup()) }; } struct Worker; impl Drop for Worker { fn drop(&mut self) { spawn_cleanup!(); } }
+
+=== command-shell-interpolation
+--- positive src/lib.rs
+fn run(input: &str) { std::process::Command::new("sh").arg("-c").arg(input); }
+--- positive build.rs
+fn run(script: &str) { Command::new("cmd").arg("/C").arg(script); }
+--- negative src/lib.rs
+fn run() { Command::new("sh").arg("-c").arg("echo safe"); }
+--- negative src/lib.rs
+fn run(input: &str) { Command::new("tool").arg(input); }
+--- negative src/lib.rs
+fn run(input: &str) { Command::new("sh").arg("--version").arg(input); }
+--- negative src/lib.rs
+#[test] fn run(input: &str) { Command::new("sh").arg("-c").arg(input); }
+
+=== insecure-http-client
+--- positive src/lib.rs
+fn load(client: &Client) { client.get("http://service.internal/data"); }
+--- positive src/lib.rs
+fn send(client: &Client) { client.post("http://example.com/events"); }
+--- negative src/lib.rs
+fn load(client: &Client) { client.get("https://example.com/data"); }
+--- negative src/lib.rs
+fn load(client: &Client) { client.get("http://localhost:8080/data"); }
+--- negative src/lib.rs
+fn load(client: &Client, endpoint: &str) { client.get(endpoint); }
+--- negative src/lib.rs
+#[test] fn load(client: &Client) { client.get("http://example.com/fixture"); }
+
+=== regex-created-in-loop
+--- positive src/lib.rs
+fn parse(pattern: &str) { for _ in inputs() { let _ = Regex::new(pattern); } }
+--- positive src/lib.rs
+fn parse(pattern: &str) { while ready() { let _ = regex::Regex::new(pattern); } }
+--- negative src/lib.rs
+fn parse(pattern: &str) { let regex = Regex::new(pattern); for input in inputs() { regex.find(input); } }
+--- negative build.rs
+fn main() { for _ in inputs() { let _ = Regex::new("x"); } }
+--- negative src/lib.rs
+#[test] fn parse() { for _ in inputs() { let _ = Regex::new("x"); } }
+--- negative src/lib.rs
+macro_rules! compile { ($pattern:expr) => { Regex::new($pattern) }; } fn parse(pattern: &str) { for _ in inputs() { compile!(pattern); } }
+
+=== temporary-cstring-pointer
+--- positive src/lib.rs
+fn pointer(input: &str) { let ptr = std::ffi::CString::new(input).unwrap().as_ptr(); use_ptr(ptr); }
+--- positive src/lib.rs
+fn pointer(input: &str) { consume(CString::new(input).expect("cstring").as_ptr()); }
+--- negative src/lib.rs
+fn pointer(input: &str) { let value = CString::new(input).unwrap(); consume(value.as_ptr()); }
+--- negative src/lib.rs
+fn pointer(input: &str) { let _owned = CString::new(input).unwrap().into_raw(); }
+--- negative src/lib.rs
+#[test] fn pointer(input: &str) { consume(CString::new(input).unwrap().as_ptr()); }
+--- negative src/lib.rs
+macro_rules! pointer { ($input:expr) => { CString::new($input).unwrap().as_ptr() }; } fn use_it(input: &str) { consume(pointer!(input)); }
+
+=== unbounded-collect
+--- positive src/lib.rs
+fn read(input: &str) { let values: Vec<_> = input.lines().collect(); }
+--- positive src/lib.rs
+fn read(reader: Reader) { let bytes: Vec<_> = reader.bytes().collect(); }
+--- negative src/lib.rs
+fn read(input: &str) { let values: Vec<_> = input.lines().take(100).collect(); }
+--- negative src/lib.rs
+fn read(fixed: &str) { let values: Vec<_> = fixed.lines().collect(); }
+--- negative src/lib.rs
+fn read() { let values: Vec<_> = [1, 2, 3].into_iter().collect(); }
+--- negative src/lib.rs
+#[test] fn read(input: &str) { let values: Vec<_> = input.lines().collect(); }
+
+=== weak-crypto-hash
+--- positive src/lib.rs
+fn hash(password: &[u8]) { let _ = md5::compute(password); }
+--- positive src/lib.rs
+fn hash(secret_token: &[u8]) { let _ = sha1::digest(secret_token); }
+--- negative src/lib.rs
+fn hash(password: &[u8]) { let _ = sha2::Sha256::digest(password); }
+--- negative src/lib.rs
+fn checksum(payload: &[u8]) { let _ = md5::compute(payload); }
+--- negative src/lib.rs
+#[test] fn hash(password: &[u8]) { let _ = md5::compute(password); }
+--- negative src/lib.rs
+macro_rules! weak { ($value:expr) => { md5::compute($value) }; } fn hash(password: &[u8]) { let _ = weak!(password); }
+
+=== actix-web-data-lock
+--- positive src/lib.rs
+async fn handler(state: web::Data<std::sync::Mutex<State>>) { let _guard = state.lock(); }
+--- positive src/lib.rs
+async fn handler(state: web::Data<RwLock<State>>) { let _guard = state.lock(); }
+--- negative src/lib.rs
+fn handler(state: web::Data<Mutex<State>>) { let _guard = state.lock(); }
+--- negative src/lib.rs
+async fn handler(state: web::Data<State>) { state.lock(); }
+--- negative src/lib.rs
+#[test] async fn handler(state: web::Data<Mutex<State>>) { state.lock(); }
+--- negative src/lib.rs
+macro_rules! acquire { ($state:expr) => { $state.lock() }; } async fn handler(state: web::Data<Mutex<State>>) { acquire!(state); }
+
+=== axum-extension-request-state
+--- positive src/lib.rs
+async fn handler(Extension(state): Extension<std::sync::Arc<AppState>>) { use_state(state); }
+--- positive src/lib.rs
+async fn handler(value: axum::Extension<Arc<Service>>) { use_state(value); }
+--- negative src/lib.rs
+async fn handler(State(state): State<Arc<AppState>>) { use_state(state); }
+--- negative src/lib.rs
+async fn handler(Extension(trace): Extension<TraceId>) { use_trace(trace); }
+--- negative src/lib.rs
+fn handler(Extension(state): Extension<Arc<AppState>>) { use_state(state); }
+--- negative src/lib.rs
+#[test] async fn handler(Extension(state): Extension<Arc<AppState>>) { use_state(state); }
+
+=== tokio-unbounded-channel
+--- positive src/lib.rs
+fn channel() { let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel(); }
+--- positive src/lib.rs
+fn channel() { let channel = mpsc::unbounded_channel::<Event>(); use_channel(channel); }
+--- negative src/lib.rs
+fn channel() { let (_tx, _rx) = tokio::sync::mpsc::channel(128); }
+--- negative src/lib.rs
+fn channel() { let channel = other::unbounded_channel(); use_channel(channel); }
+--- negative src/lib.rs
+#[test] fn channel() { let _ = tokio::sync::mpsc::unbounded_channel::<Event>(); }
+--- negative src/lib.rs
+macro_rules! channel { () => { tokio::sync::mpsc::unbounded_channel() }; } fn make() { let _ = channel!(); }

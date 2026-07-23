@@ -1,10 +1,13 @@
 use crate::config::ResolvedConfig;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic};
+use crate::process::{ProcessStop, ScanControl};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+pub const ANALYSIS_FAILURE_RULE: &str = "rust-doctor::analysis-work-unit-failed";
 
 /// Trait for pluggable analysis passes.
 ///
@@ -18,25 +21,36 @@ pub trait AnalysisPass: Send + Sync {
     /// The `project_root` is the absolute path to the project being scanned.
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError>;
 
-    /// Returns whether this pass can produce diagnostics for the given category filter.
-    /// Defaults to `true` for backward compatibility.
-    fn produces_category(&self, _filter: crate::cli::CategoryFilter) -> bool {
+    /// Required checks make the score non-authoritative when incomplete.
+    fn required(&self) -> bool {
         true
+    }
+
+    /// Drain adapter-specific compiler evidence after `run` completes.
+    fn take_compiler_evidence(&self) -> Vec<CompilerDiagnosticEvidence> {
+        Vec::new()
     }
 }
 
 /// Result from a single analysis pass (internal).
 struct PassResult {
     name: String,
+    required: bool,
     result: Result<Vec<Diagnostic>, crate::error::PassError>,
+    elapsed: std::time::Duration,
+    stop: Option<ProcessStop>,
 }
 
 /// Result from the scan orchestrator (diagnostics + metadata, no score).
 /// Score calculation happens once in main after all workspace members are merged.
+#[derive(Default)]
 pub struct ScanPassResult {
     pub diagnostics: Vec<Diagnostic>,
     pub skipped_passes: Vec<String>,
     pub elapsed: std::time::Duration,
+    pub pass_timings: Vec<(String, std::time::Duration)>,
+    pub compiler_evidence: Vec<CompilerDiagnosticEvidence>,
+    pub checks: Vec<CheckState>,
 }
 
 /// Orchestrates multiple analysis passes in parallel and merges results.
@@ -53,13 +67,34 @@ impl ScanOrchestrator {
     /// skipped passes, and the elapsed time.
     ///
     /// `suppress_spinner` should be true for `--score` or `--json` modes.
+    #[cfg(test)]
     pub fn run(
         &self,
         project_root: &Path,
         config: &ResolvedConfig,
         suppress_spinner: bool,
     ) -> ScanPassResult {
+        self.run_controlled(
+            project_root,
+            config,
+            suppress_spinner,
+            &ScanControl::unlimited(),
+        )
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "pass outcomes, partial diagnostics, check states, and compiler evidence are reduced at one orchestration boundary"
+    )]
+    pub fn run_controlled(
+        &self,
+        project_root: &Path,
+        config: &ResolvedConfig,
+        suppress_spinner: bool,
+        control: &ScanControl,
+    ) -> ScanPassResult {
         let start = Instant::now();
+        tracing::debug!(passes = self.passes.len(), "starting scan passes");
 
         // Create spinner
         let spinner = if suppress_spinner {
@@ -78,7 +113,7 @@ impl ScanOrchestrator {
         };
 
         // Run passes in parallel using std::thread::scope
-        let results = self.run_passes_parallel(project_root);
+        let results = self.run_passes_parallel(project_root, control);
 
         spinner.finish_and_clear();
 
@@ -86,13 +121,67 @@ impl ScanOrchestrator {
         let mut all_diagnostics = Vec::new();
         let mut skipped_passes = Vec::new();
         let mut pass_errors = Vec::new();
+        let mut pass_timings = Vec::new();
+        let mut checks = Vec::new();
 
         for result in results {
+            pass_timings.push((result.name.clone(), result.elapsed));
+            let stopped_status = result.stop.map(|stop| match stop {
+                ProcessStop::TimedOut => CheckStatus::TimedOut,
+                ProcessStop::Cancelled => CheckStatus::Cancelled,
+            });
             match result.result {
-                Ok(diagnostics) => all_diagnostics.extend(diagnostics),
+                Ok(mut diagnostics) => {
+                    let work_failures: Vec<_> = diagnostics
+                        .iter()
+                        .filter(|diagnostic| diagnostic.rule == ANALYSIS_FAILURE_RULE)
+                        .map(|diagnostic| diagnostic.message.clone())
+                        .collect();
+                    diagnostics.retain(|diagnostic| diagnostic.rule != ANALYSIS_FAILURE_RULE);
+                    let compiler_failed =
+                        result.name == "clippy" && diagnostics.iter().any(is_compiler_failure);
+                    all_diagnostics.extend(diagnostics);
+                    let work_units_failed = !work_failures.is_empty();
+                    let status =
+                        stopped_status.unwrap_or(if compiler_failed || work_units_failed {
+                            CheckStatus::Failed
+                        } else {
+                            CheckStatus::Completed
+                        });
+                    let reason = match status {
+                        CheckStatus::TimedOut => Some("scan deadline reached".to_string()),
+                        CheckStatus::Cancelled => Some("scan cancellation requested".to_string()),
+                        CheckStatus::Failed if compiler_failed => {
+                            Some("project compilation failed".to_string())
+                        }
+                        CheckStatus::Failed if work_units_failed => {
+                            Some(summarize_work_failures(&work_failures))
+                        }
+                        _ => None,
+                    };
+                    if let Some(reason) = &reason {
+                        skipped_passes.push(format!(
+                            "{}: {}: {reason}",
+                            result.name,
+                            check_status_name(status)
+                        ));
+                    }
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status,
+                        reason,
+                    });
+                }
                 Err(crate::error::PassError::Skipped { pass, reason }) => {
-                    skipped_passes.push(format!("{pass} (not installed)"));
+                    skipped_passes.push(format!("{pass}: skipped: {reason}"));
                     eprintln!("Info: {pass}: {reason}");
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status: CheckStatus::Skipped,
+                        reason: Some(reason.clone()),
+                    });
                     // Emit a visible diagnostic so MCP/JSON consumers see the skip
                     all_diagnostics.push(crate::diagnostics::Diagnostic {
                         file_path: std::path::PathBuf::from("Cargo.toml"),
@@ -106,15 +195,49 @@ impl ScanOrchestrator {
                         fix: None,
                     });
                 }
+                Err(crate::error::PassError::TimedOut { pass, reason }) => {
+                    skipped_passes.push(format!("{pass}: timed out: {reason}"));
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status: CheckStatus::TimedOut,
+                        reason: Some(reason),
+                    });
+                }
+                Err(crate::error::PassError::Cancelled { pass, reason }) => {
+                    skipped_passes.push(format!("{pass}: cancelled: {reason}"));
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status: CheckStatus::Cancelled,
+                        reason: Some(reason),
+                    });
+                }
                 Err(e) => {
-                    skipped_passes.push(result.name.clone());
-                    pass_errors.push(format!("{}: {}", result.name, e));
+                    let error = format!("{}: failed: {e}", result.name);
+                    skipped_passes.push(error.clone());
+                    pass_errors.push(error);
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status: CheckStatus::Failed,
+                        reason: Some(e.to_string()),
+                    });
                 }
             }
         }
+        let compiler_evidence = self
+            .passes
+            .iter()
+            .flat_map(|pass| pass.take_compiler_evidence())
+            .collect();
 
         // If all passes failed, report it
-        if skipped_passes.len() == self.passes.len() && !self.passes.is_empty() {
+        if checks
+            .iter()
+            .all(|check| check.status != CheckStatus::Completed)
+            && !self.passes.is_empty()
+        {
             eprintln!("No analysis could be completed:");
             for err in &pass_errors {
                 eprintln!("  - {err}");
@@ -128,10 +251,20 @@ impl ScanOrchestrator {
         // Filter diagnostics by config
         let filtered = filter_diagnostics(all_diagnostics, config);
 
+        tracing::debug!(
+            diagnostics = filtered.len(),
+            skipped = skipped_passes.len(),
+            elapsed_ms = start.elapsed().as_millis(),
+            "scan passes complete"
+        );
+
         ScanPassResult {
             diagnostics: filtered,
             skipped_passes,
             elapsed: start.elapsed(),
+            pass_timings,
+            compiler_evidence,
+            checks,
         }
     }
 
@@ -140,14 +273,38 @@ impl ScanOrchestrator {
         clippy::needless_collect,
         reason = "handles must be collected before joining"
     )]
-    fn run_passes_parallel(&self, project_root: &Path) -> Vec<PassResult> {
+    fn run_passes_parallel(&self, project_root: &Path, control: &ScanControl) -> Vec<PassResult> {
         std::thread::scope(|s| {
             let handles: Vec<_> = self
                 .passes
                 .iter()
                 .map(|pass| {
                     let name = pass.name().to_string();
-                    s.spawn(move || (name, pass.run(project_root)))
+                    let required = pass.required();
+                    let control = control.clone();
+                    s.spawn(move || {
+                        let start = Instant::now();
+                        let _ = crate::process::take_process_stop();
+                        let result = match control.stop_reason() {
+                            Some(ProcessStop::TimedOut) => Err(crate::error::PassError::TimedOut {
+                                pass: name.clone(),
+                                reason: "scan deadline reached before launch".to_string(),
+                            }),
+                            Some(ProcessStop::Cancelled) => {
+                                Err(crate::error::PassError::Cancelled {
+                                    pass: name.clone(),
+                                    reason: "scan cancellation requested before launch".to_string(),
+                                })
+                            }
+                            None => crate::process::with_scan_control(control.clone(), || {
+                                pass.run(project_root)
+                            }),
+                        };
+                        let stop =
+                            crate::process::take_process_stop().or_else(|| control.stop_reason());
+                        let elapsed = start.elapsed();
+                        (name, required, result, elapsed, stop)
+                    })
                 })
                 .collect();
 
@@ -157,8 +314,15 @@ impl ScanOrchestrator {
                 .into_iter()
                 .enumerate()
                 .map(|(i, h)| {
-                    if let Ok((name, result)) = h.join() {
-                        PassResult { name, result }
+                    if let Ok((name, required, result, elapsed, stop)) = h.join() {
+                        tracing::debug!(pass = %name, elapsed_ms = elapsed.as_millis(), "pass complete");
+                        PassResult {
+                            name,
+                            required,
+                            result,
+                            elapsed,
+                            stop,
+                        }
                     } else {
                         let name = pass_names
                             .get(i)
@@ -166,12 +330,53 @@ impl ScanOrchestrator {
                             .unwrap_or_else(|| "<unknown>".to_string());
                         PassResult {
                             name: name.clone(),
+                            required: true,
                             result: Err(crate::error::PassError::Panicked { pass: name }),
+                            elapsed: Duration::ZERO,
+                            stop: None,
                         }
                     }
                 })
                 .collect()
         })
+    }
+}
+
+fn is_compiler_failure(diagnostic: &Diagnostic) -> bool {
+    diagnostic.severity == crate::diagnostics::Severity::Error
+        && (matches!(diagnostic.rule.as_str(), "compiler-error" | "compiler-ice")
+            || diagnostic.rule.strip_prefix('E').is_some_and(|code| {
+                !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_digit())
+            }))
+}
+
+fn summarize_work_failures(failures: &[String]) -> String {
+    let mut reason = failures
+        .iter()
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("; ");
+    if failures.len() > 8 {
+        use std::fmt::Write;
+        let _ = write!(
+            reason,
+            "; and {} more failed work units",
+            failures.len() - 8
+        );
+    }
+    reason
+}
+
+const fn check_status_name(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Planned => "planned",
+        CheckStatus::Running => "running",
+        CheckStatus::Completed => "completed",
+        CheckStatus::Skipped => "skipped",
+        CheckStatus::Failed => "failed",
+        CheckStatus::TimedOut => "timed out",
+        CheckStatus::Cancelled => "cancelled",
     }
 }
 
@@ -197,7 +402,9 @@ pub fn filter_diagnostics(
         .into_iter()
         .filter(|d| {
             // Filter by rule name
-            if ignored_rules.contains(d.rule.as_str()) {
+            if ignored_rules.contains(d.rule.as_str())
+                && d.category != crate::diagnostics::Category::Security
+            {
                 return false;
             }
             // Filter by file pattern
@@ -253,6 +460,7 @@ pub fn build_glob_set(patterns: &[String]) -> Result<GlobSet, globset::Error> {
 
 /// Count the number of .rs source files under a directory.
 /// Uses a lightweight counter instead of collecting into a Vec.
+#[cfg(test)]
 pub fn count_source_files(root: &Path) -> usize {
     fn count_recursive(dir: &Path) -> usize {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -266,11 +474,7 @@ pub fn count_source_files(root: &Path) -> usize {
             };
             if meta.is_dir() {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if !name.starts_with('.')
-                    && name != "target"
-                    && name != "vendor"
-                    && name != "generated"
-                {
+                if !name.starts_with('.') && name != "target" && name != "vendor" {
                     count += count_recursive(&path);
                 }
             } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
@@ -291,10 +495,6 @@ pub fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Maximum file size to parse (10 MB). Files larger than this are skipped
-/// to prevent out-of-memory crashes from pathologically large `.rs` files.
-const MAX_RS_FILE_SIZE: u64 = 10 * 1024 * 1024;
-
 fn collect_rs_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -307,21 +507,13 @@ fn collect_rs_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
         };
         if meta.is_dir() {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            // Skip hidden dirs, target, vendor, generated, and common non-source dirs
-            if !name.starts_with('.') && name != "target" && name != "vendor" && name != "generated"
-            {
+            // Generated Rust remains planned work. Policy controls its consumer
+            // surfaces, but collection cannot silently erase a valid Cargo target.
+            if !name.starts_with('.') && name != "target" && name != "vendor" {
                 collect_rs_files_recursive(&path, files);
             }
         } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
-            if meta.len() > MAX_RS_FILE_SIZE {
-                eprintln!(
-                    "Warning: skipping oversized file {} ({} bytes)",
-                    path.display(),
-                    meta.len()
-                );
-            } else {
-                files.push(path);
-            }
+            files.push(path);
         }
     }
 }
@@ -343,9 +535,14 @@ mod tests {
             diff: None,
             fail_on: FailOn::None,
             rules_config: std::collections::HashMap::new(),
+            category_config: std::collections::HashMap::new(),
+            tag_config: std::collections::HashMap::new(),
+            path_overrides: vec![],
             enable_rules: vec![],
             score_fail_below: None,
-            category_filter: None,
+            respect_inline_disables: true,
+            max_parallelism: None,
+            evaluation_profile: false,
         }
     }
 
@@ -493,7 +690,10 @@ mod tests {
         let config = make_config();
         let result = orch.run(Path::new("."), &config, true);
         assert_eq!(result.diagnostics.len(), 1);
-        assert_eq!(result.skipped_passes, vec!["failing"]);
+        assert_eq!(
+            result.skipped_passes,
+            vec!["failing: failed: failing: pass failed"]
+        );
     }
 
     #[test]

@@ -5,32 +5,8 @@ alwaysApply: true
 
 # rust-doctor — Rust code health scanner
 
-Rust 2024, MSRV 1.85, single crate (not a workspace).
+Les conventions de ce dépôt vivent dans un fichier unique : **[AGENTS.md](../../AGENTS.md)**.
 
-## Commands
+Lis-le avant toute modification. Commandes de build et de test, structure du projet, pipeline d'exécution, notes par sous-système, style de code, règles d'architecture (Always / Ask First / Never) et patterns de test y sont tous couverts.
 
-```bash
-cargo build                        # Debug build (with MCP server)
-cargo test                         # All tests
-cargo clippy --all-targets -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings
-cargo fmt --check
-```
-
-## Code Style
-
-- Clippy pedantic enabled
-- Custom errors with `thiserror::Error` — no `anyhow`, no `Box<dyn Error>` in library code
-- `Result<T, E>` + `?` everywhere — `unwrap()` only in tests
-- New passes implement `AnalysisPass` trait, new rules implement `CustomRule` trait
-- Diagnostics → stderr, score → stdout
-
-## Boundaries
-
-### Always
-- Run `catch_unwind` around custom rules
-- MCP tools are read-only — no filesystem writes
-
-### Never
-- Use `anyhow` — use typed errors with `thiserror`
-- Add `unsafe` blocks in production code
-- Break the stderr/stdout output routing
+Pour faire évoluer les conventions, édite `AGENTS.md` — pas ce fichier.

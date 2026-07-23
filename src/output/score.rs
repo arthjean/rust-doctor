@@ -1,4 +1,3 @@
-use crate::cli::CategoryFilter;
 use crate::diagnostics::{Category, Diagnostic, DimensionScores, ScoreLabel, Severity};
 use std::collections::{HashMap, HashSet};
 
@@ -36,25 +35,12 @@ const fn category_dimension(category: &Category) -> Dimension {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Dimension {
+enum Dimension {
     Security,
     Reliability,
     Maintainability,
     Performance,
     Dependencies,
-}
-
-pub const fn filter_dimension(filter: CategoryFilter) -> Dimension {
-    match filter {
-        CategoryFilter::Security => Dimension::Security,
-        CategoryFilter::Correctness
-        | CategoryFilter::ErrorHandling
-        | CategoryFilter::Async
-        | CategoryFilter::Framework => Dimension::Reliability,
-        CategoryFilter::Architecture | CategoryFilter::Style => Dimension::Maintainability,
-        CategoryFilter::Performance => Dimension::Performance,
-        CategoryFilter::Dependencies | CategoryFilter::Cargo => Dimension::Dependencies,
-    }
 }
 
 /// Compute the score for a single dimension from its unique rules by severity.
@@ -76,10 +62,18 @@ fn dimension_score(error_count: usize, warning_count: usize, info_count: usize) 
 /// The overall score is the weighted average of all dimension scores.
 ///
 /// Returns `(score, label, dimension_scores)`.
-#[allow(clippy::option_if_let_else)]
-pub fn calculate_score(
+pub fn calculate_score(diagnostics: &[Diagnostic]) -> (u32, ScoreLabel, DimensionScores) {
+    calculate_score_for_categories(diagnostics, &[])
+}
+
+/// Calculate a score restricted to the selected diagnostic categories.
+///
+/// Diagnostics outside the selection are ignored. The overall score only
+/// includes dimensions represented by the selection, while retaining the
+/// standard dimension weights. An empty selection preserves full-scan scoring.
+pub fn calculate_score_for_categories(
     diagnostics: &[Diagnostic],
-    category_filter: Option<CategoryFilter>,
+    selected_categories: &[Category],
 ) -> (u32, ScoreLabel, DimensionScores) {
     // Collect unique rules per (dimension, severity).
     let mut dim_errors: HashMap<Dimension, HashSet<&str>> = HashMap::new();
@@ -87,6 +81,9 @@ pub fn calculate_score(
     let mut dim_infos: HashMap<Dimension, HashSet<&str>> = HashMap::new();
 
     for d in diagnostics {
+        if !selected_categories.is_empty() && !selected_categories.contains(&d.category) {
+            continue;
+        }
         let dim = category_dimension(&d.category);
         match d.severity {
             Severity::Error => {
@@ -123,38 +120,30 @@ pub fn calculate_score(
         dependencies,
     };
 
-    // Calculate score based on category filtering or weighted average
-    let score = if let Some(filter) = category_filter {
-        let active_dim = filter_dimension(filter);
-        match active_dim {
-            Dimension::Security => security,
-            Dimension::Reliability => reliability,
-            Dimension::Maintainability => maintainability,
-            Dimension::Performance => performance,
-            Dimension::Dependencies => dependencies,
-        }
-    } else {
-        let total_weight = WEIGHT_SECURITY
-            + WEIGHT_RELIABILITY
-            + WEIGHT_MAINTAINABILITY
-            + WEIGHT_PERFORMANCE
-            + WEIGHT_DEPENDENCIES;
-        let weighted_sum = f64::from(security).mul_add(
-            WEIGHT_SECURITY,
-            f64::from(reliability).mul_add(
-                WEIGHT_RELIABILITY,
-                f64::from(maintainability).mul_add(
-                    WEIGHT_MAINTAINABILITY,
-                    f64::from(performance).mul_add(
-                        WEIGHT_PERFORMANCE,
-                        f64::from(dependencies) * WEIGHT_DEPENDENCIES,
-                    ),
-                ),
-            ),
-        );
-        (weighted_sum / total_weight).round().clamp(0.0, 100.0) as u32
+    let includes_dimension = |dimension| {
+        selected_categories.is_empty()
+            || selected_categories
+                .iter()
+                .any(|category| category_dimension(category) == dimension)
     };
-
+    let weighted_dimensions = [
+        (Dimension::Security, security, WEIGHT_SECURITY),
+        (Dimension::Reliability, reliability, WEIGHT_RELIABILITY),
+        (
+            Dimension::Maintainability,
+            maintainability,
+            WEIGHT_MAINTAINABILITY,
+        ),
+        (Dimension::Performance, performance, WEIGHT_PERFORMANCE),
+        (Dimension::Dependencies, dependencies, WEIGHT_DEPENDENCIES),
+    ];
+    let (weighted_sum, total_weight) = weighted_dimensions
+        .into_iter()
+        .filter(|(dimension, _, _)| includes_dimension(*dimension))
+        .fold((0.0, 0.0), |(sum, weight_sum), (_, value, weight)| {
+            (f64::from(value).mul_add(weight, sum), weight_sum + weight)
+        });
+    let score = (weighted_sum / total_weight).round().clamp(0.0, 100.0) as u32;
     let label = score_label(score);
 
     (score, label, dimensions)

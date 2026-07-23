@@ -1,11 +1,11 @@
 {
   "name": "@rust-doctor/win32-x64",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "rust-doctor native binary for Windows x64",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ArthurDEV44/rust-doctor"
+    "url": "https://github.com/arthjean/rust-doctor"
   },
   "os": ["win32"],
   "cpu": ["x64"],

@@ -1,0 +1,10 @@
+{
+  "name": "@rust-doctor/zed-extension",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "check": "cargo check --manifest-path Cargo.toml",
+    "smoke": "bun test tests",
+    "package": "bun run check && bun run smoke"
+  }
+}

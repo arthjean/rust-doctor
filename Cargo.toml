@@ -1,49 +1,71 @@
 [package]
 name = "rust-doctor"
-version = "0.1.20"
+version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97"
 description = "A unified code health tool for Rust — scan, score, and fix your codebase"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/ArthurDEV44/rust-doctor"
+repository = "https://github.com/arthjean/rust-doctor"
+homepage = "https://rust-doctor.vercel.app"
+documentation = "https://docs.rs/rust-doctor"
 readme = "README.md"
 keywords = ["lint", "clippy", "code-quality", "health", "diagnostics"]
 categories = ["development-tools", "command-line-utilities"]
-exclude = ["npm/", ".claude-plugin/", ".claude/", ".meta/", "tasks/", "server.json", "website/", "rust-doctor-video/", "assets/"]
+exclude = ["npm/", "editors/", "scripts/", ".github/", ".claude-plugin/", ".claude/", ".meta/", "tasks/", "action.yml", "server.json", "assets/"]
 
 [dependencies]
 cargo_metadata = "0.19"
 clap = { version = "4.6", features = ["derive"] }
 dialoguer = "0.11"
 globset = "0.4"
+jsonschema = { version = "0.48.5", default-features = false }
 indicatif = "0.18"
 owo-colors = { version = "4", features = ["supports-colors"] }
 unicode-width = "0.2"
 rayon = "1.11"
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 syn = { version = "2", features = ["full", "parsing", "visit"] }
 toml = "1"
+toml_edit = "0.23"
 tempfile = "3"
 thiserror = "2.0.18"
-rmcp = { version = "~1.2", features = ["server", "transport-io", "macros"], optional = true }
-tokio = { version = "1.50.0", features = ["rt-multi-thread"], optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rmcp = { version = "=1.4.0", features = ["server", "transport-io", "macros"], optional = true }
+tokio = { version = "1.50.0", features = ["io-std", "macros", "rt-multi-thread", "sync", "time"], optional = true }
+tower-lsp-server = { version = "0.23", optional = true }
 schemars = { version = "1", optional = true }
+
+# Unix-only: kill a `cargo`/`rustc` subprocess tree by process group (US-008).
+# Already in the lock transitively, so no binary-size delta; safe API keeps
+# `#![forbid(unsafe_code)]` intact (no `unsafe`, unlike a hand-rolled `setpgid`).
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["process"] }
 
 [features]
 default = ["mcp"]
 mcp = ["dep:rmcp", "dep:tokio", "dep:schemars"]
+lsp = ["dep:tokio", "dep:tower-lsp-server"]
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
-must_use_candidate = "allow"
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
 option_if_let_else = "allow"
 significant_drop_tightening = "allow"
+# Restriction lints — cherry-picked (never enable the whole restriction group).
+# panic-like escapes are denied; unwrap/expect stay warn (see clippy #9222,
+# tokio #3887). CI keeps unwrap/expect/todo as warnings, not hard errors.
+panic = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+unwrap_in_result = "warn"
 
 [profile.release]
 strip = true

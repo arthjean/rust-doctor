@@ -1,6 +1,6 @@
 ---
 source: tests/snapshots.rs
-assertion_line: 99
+assertion_line: 104
 expression: result
 ---
 {
@@ -42,5 +42,6 @@ expression: result
   ],
   "error_count": 1,
   "warning_count": 1,
-  "info_count": 0
+  "info_count": 0,
+  "pass_timings": []
 }

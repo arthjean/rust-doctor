@@ -50,6 +50,12 @@ pub struct ScoreInput {
         description = "When true, cargo-audit runs with --no-fetch (no network access). Defaults to true in MCP mode."
     )]
     pub offline: bool,
+    /// Ignore the project's rust-doctor.toml config file.
+    #[serde(default)]
+    #[schemars(
+        description = "When true, ignores the project's rust-doctor.toml config file (so config cannot suppress security rules and inflate the score). Useful for untrusted projects. Aligned with the scan tool; defaults to false."
+    )]
+    pub ignore_project_config: bool,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema)]

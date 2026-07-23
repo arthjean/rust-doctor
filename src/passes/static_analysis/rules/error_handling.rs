@@ -1,5 +1,5 @@
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
+use crate::rules::{CustomRule, has_cfg_test, has_test_attr, is_test_context};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -46,7 +46,7 @@ struct UnwrapVisitor<'a> {
 impl<'ast> Visit<'ast> for UnwrapVisitor<'_> {
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         let was_in_test = self.in_test;
-        if has_test_attr(&i.attrs) {
+        if is_test_context(&i.attrs) {
             self.in_test = true;
         }
         syn::visit::visit_item_fn(self, i);
@@ -133,7 +133,7 @@ struct PanicVisitor<'a> {
 impl<'ast> Visit<'ast> for PanicVisitor<'_> {
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         let was_in_test = self.in_test;
-        if has_test_attr(&i.attrs) {
+        if is_test_context(&i.attrs) {
             self.in_test = true;
         }
         syn::visit::visit_item_fn(self, i);

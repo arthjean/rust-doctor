@@ -1,0 +1,618 @@
+{
+  "schema_version": "1.0",
+  "evaluation_profile": {
+    "version": "1.0",
+    "normalized_severity": "warning",
+    "force_candidate_rules": true,
+    "respect_inline_suppressions": false,
+    "respect_project_config": false,
+    "offline": true,
+    "adapter_policy": {
+      "clippy": "required-offline",
+      "custom-rules": "required-all-candidates",
+      "dependencies": "optional-offline"
+    }
+  },
+  "repositories": [
+    {
+      "name": "serde-rs_serde",
+      "url": "https://github.com/serde-rs/serde.git",
+      "commit": "7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_tokio",
+      "url": "https://github.com/tokio-rs/tokio.git",
+      "commit": "bc0933ccffb62e010d3ccb497abc22cec2e73f54",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_cargo",
+      "url": "https://github.com/rust-lang/cargo.git",
+      "commit": "a5180470a56237730590129556bc178d3b188118",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_rustfmt",
+      "url": "https://github.com/rust-lang/rustfmt.git",
+      "commit": "cd670efa2051459d8a4b0cab741c486746cda95a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_rust-clippy",
+      "url": "https://github.com/rust-lang/rust-clippy.git",
+      "commit": "3f4c5f539f46097e5a865447803dfd55cfc8da04",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_rust-analyzer",
+      "url": "https://github.com/rust-lang/rust-analyzer.git",
+      "commit": "1174734d9c6453d13d2b5e3d578512c579ca37f1",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_mdBook",
+      "url": "https://github.com/rust-lang/mdBook.git",
+      "commit": "4f8c9460977e18974b37bb9a2292219bfa317632",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_rustup",
+      "url": "https://github.com/rust-lang/rustup.git",
+      "commit": "c950062148fd649833012c668f0d6fd2b2ccf727",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_rustlings",
+      "url": "https://github.com/rust-lang/rustlings.git",
+      "commit": "734461f2fb8c7bb8403f4a9bd1fc7f983d32860b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_miri",
+      "url": "https://github.com/rust-lang/miri.git",
+      "commit": "ed0b1bc0b0fd0114ec17ea29dbea492382ca4303",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_anyhow",
+      "url": "https://github.com/dtolnay/anyhow.git",
+      "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_thiserror",
+      "url": "https://github.com/dtolnay/thiserror.git",
+      "commit": "aa9d91f75302025e0c1d4c535d84a5bfdad62508",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_syn",
+      "url": "https://github.com/dtolnay/syn.git",
+      "commit": "23dbaab4b0c43f56cd803894054cf366661e53b0",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_quote",
+      "url": "https://github.com/dtolnay/quote.git",
+      "commit": "723dcb47d3f0ddc896e17287c8a8d3f2ea2317d5",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_proc-macro2",
+      "url": "https://github.com/dtolnay/proc-macro2.git",
+      "commit": "ed8a5497669cd63db33bf24646f261b012bbbc4a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "clap-rs_clap",
+      "url": "https://github.com/clap-rs/clap.git",
+      "commit": "466b2be56c5811d1af62c407f5a00456350ece62",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "BurntSushi_ripgrep",
+      "url": "https://github.com/BurntSushi/ripgrep.git",
+      "commit": "59e318f5ace48db54f37bb67c152535bc17fa153",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "sharkdp_fd",
+      "url": "https://github.com/sharkdp/fd.git",
+      "commit": "1bfeea237a48c9545211e5c21d623d398fa712c6",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "sharkdp_bat",
+      "url": "https://github.com/sharkdp/bat.git",
+      "commit": "78951393e29bfd2f2a45f4326b9d2bb5e737dd2a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "eza-community_eza",
+      "url": "https://github.com/eza-community/eza.git",
+      "commit": "471bfbc7b03cbac8c738e8d9050edb06ee79132a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "nushell_nushell",
+      "url": "https://github.com/nushell/nushell.git",
+      "commit": "3e414b0279c6f844a33ff2a1a3755ea712ea76e6",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "starship_starship",
+      "url": "https://github.com/starship/starship.git",
+      "commit": "af8e7eb81cb00407aeeb303e0a9f2473b2a73e83",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "helix-editor_helix",
+      "url": "https://github.com/helix-editor/helix.git",
+      "commit": "19c0a0ed5a9bd807c8d8b798d53a85ccd2c2034d",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "alacritty_alacritty",
+      "url": "https://github.com/alacritty/alacritty.git",
+      "commit": "852e971cddfabe222d2d5bcda466e130f53af207",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "wezterm_wezterm",
+      "url": "https://github.com/wezterm/wezterm.git",
+      "commit": "76b606ec597a3c0263fa60321548637451c0a547",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "zellij-org_zellij",
+      "url": "https://github.com/zellij-org/zellij.git",
+      "commit": "812ad861bc3f4a8ba6f411c1a3b1163bfef43766",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "lapce_lapce",
+      "url": "https://github.com/lapce/lapce.git",
+      "commit": "c9e4c33948033f10f003991a037d949a708eedf8",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "linebender_xilem",
+      "url": "https://github.com/linebender/xilem.git",
+      "commit": "c5950bcb03d4f3d187a20d1159f6aa276fd056bf",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "linebender_vello",
+      "url": "https://github.com/linebender/vello.git",
+      "commit": "af32d531fd805899d9a5c4385ceae81ce8f45b29",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_axum",
+      "url": "https://github.com/tokio-rs/axum.git",
+      "commit": "0704574455272caa79ff3ae8207adf8f620516c9",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tower-rs_tower",
+      "url": "https://github.com/tower-rs/tower.git",
+      "commit": "df06d70dbea345facbffb5881fe8647f53bf424d",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "hyperium_hyper",
+      "url": "https://github.com/hyperium/hyper.git",
+      "commit": "67ace6484db5d4a15367013847768f5f94f4b97d",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "hyperium_http",
+      "url": "https://github.com/hyperium/http.git",
+      "commit": "03c8cd7faeddfad00873b4d58a45ecdf74ebebe6",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "hyperium_tonic",
+      "url": "https://github.com/hyperium/tonic.git",
+      "commit": "4d8f56b9b58e60a644cb6b0cb17e2f151dde1771",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "seanmonstar_reqwest",
+      "url": "https://github.com/seanmonstar/reqwest.git",
+      "commit": "221abe9ec921e22fe1bafaed47b51b03bed4b7c3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rustls_rustls",
+      "url": "https://github.com/rustls/rustls.git",
+      "commit": "78c8c4ccae0a838a03ad79a3ab83080fd3f27714",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rustls_webpki",
+      "url": "https://github.com/rustls/webpki.git",
+      "commit": "eda393077763af287fe393bab624e6b7a84f77a4",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "quinn-rs_quinn",
+      "url": "https://github.com/quinn-rs/quinn.git",
+      "commit": "fec2f8960df489767bfccef5b08b72013f1b992a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "smol-rs_smol",
+      "url": "https://github.com/smol-rs/smol.git",
+      "commit": "2ac167b63d3190cbfbdc9378e4f8c64af3bbc92b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "async-rs_async-std",
+      "url": "https://github.com/async-rs/async-std.git",
+      "commit": "844b552531521f517a2b02c4ed685ae176608247",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "smol-rs_async-channel",
+      "url": "https://github.com/smol-rs/async-channel.git",
+      "commit": "34e669e0571930913535ee8e50c92f01bce3795c",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "crossbeam-rs_crossbeam",
+      "url": "https://github.com/crossbeam-rs/crossbeam.git",
+      "commit": "b23b7e8eca2efdad9bdc1ceb1aee1207a852c03b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rayon-rs_rayon",
+      "url": "https://github.com/rayon-rs/rayon.git",
+      "commit": "1f9bb2538e50f1e6d1bc2e3d06a361ba2af0b632",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "Amanieu_parking_lot",
+      "url": "https://github.com/Amanieu/parking_lot.git",
+      "commit": "d20d71e5a8955ec1d2a53e3659142a505476bb3d",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "serde-rs_json",
+      "url": "https://github.com/serde-rs/json.git",
+      "commit": "de8500740cdcabffb9734f503e4889def823cf10",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "bincode-org_bincode",
+      "url": "https://github.com/bincode-org/bincode.git",
+      "commit": "5565ee164515ccc5161b66c7f573b905336ba1ef",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "ron-rs_ron",
+      "url": "https://github.com/ron-rs/ron.git",
+      "commit": "31529b8b8d8c44ebf6ef91975da6cb14ae76a505",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "toml-rs_toml",
+      "url": "https://github.com/toml-rs/toml.git",
+      "commit": "a0c14f4b6a46ee61a2ffbb8bd760f014bc157a64",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-random_rand",
+      "url": "https://github.com/rust-random/rand.git",
+      "commit": "486da4477ff88444c2bcce303ba74630354333f1",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-num_num",
+      "url": "https://github.com/rust-num/num.git",
+      "commit": "24d7853f49caa9f3fe15fa99afc6d24111b13bc6",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "bitflags_bitflags",
+      "url": "https://github.com/bitflags/bitflags.git",
+      "commit": "c3f8d31d59f3ba8c05833fb322ecab8a2cb88060",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "time-rs_time",
+      "url": "https://github.com/time-rs/time.git",
+      "commit": "d1c55a454051c83e8fd2ad8431cf37b90dd6ea31",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "chronotope_chrono",
+      "url": "https://github.com/chronotope/chrono.git",
+      "commit": "7fa24eac9514db65eb8bddf7fadeca71b68e414a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "uuid-rs_uuid",
+      "url": "https://github.com/uuid-rs/uuid.git",
+      "commit": "6a8aeab3d02838f6fef71e69cdfda963e8c4158b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_regex",
+      "url": "https://github.com/rust-lang/regex.git",
+      "commit": "2b527599eb9eea0dcc288c704584f242f26a5c61",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "BurntSushi_aho-corasick",
+      "url": "https://github.com/BurntSushi/aho-corasick.git",
+      "commit": "c82178696b9ddc18b56c3c74853529e7926ff329",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-lang_hashbrown",
+      "url": "https://github.com/rust-lang/hashbrown.git",
+      "commit": "227319c890c9663e953fdae44fd78e1c3a38bac3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "indexmap-rs_indexmap",
+      "url": "https://github.com/indexmap-rs/indexmap.git",
+      "commit": "571943c5b3ec56eb2710e4bcbdda25557f7b3e49",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "petgraph_petgraph",
+      "url": "https://github.com/petgraph/petgraph.git",
+      "commit": "ed714652ab4576104e506c096b6ed9f5128613a7",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_bytes",
+      "url": "https://github.com/tokio-rs/bytes.git",
+      "commit": "d5c8ad3227afe459c09f1d0d85455abf00f0381a",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_tracing",
+      "url": "https://github.com/tokio-rs/tracing.git",
+      "commit": "d9d4c542de10f5d3a711b7a45ffe450fd0666437",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_mio",
+      "url": "https://github.com/tokio-rs/mio.git",
+      "commit": "dd27b5b162f488aef95becb56975f86235337910",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_prost",
+      "url": "https://github.com/tokio-rs/prost.git",
+      "commit": "aed74ad0e844959ee6948f29c4e9cff0f278e89e",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "dtolnay_serde-yaml",
+      "url": "https://github.com/dtolnay/serde-yaml.git",
+      "commit": "2009506d33767dfc88e979d6bc0d53d09f941c94",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "diesel-rs_diesel",
+      "url": "https://github.com/diesel-rs/diesel.git",
+      "commit": "7a01afe5bd88dbd72635e55d209d37ea3527ce07",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "launchbadge_sqlx",
+      "url": "https://github.com/launchbadge/sqlx.git",
+      "commit": "1d674f51581598f55436451d5b4b73100cae0b56",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "SeaQL_sea-orm",
+      "url": "https://github.com/SeaQL/sea-orm.git",
+      "commit": "2295fc11a4e862fec48b0200fe1e8159e836e80d",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tokio-rs_mini-redis",
+      "url": "https://github.com/tokio-rs/mini-redis.git",
+      "commit": "3d93b42bc363220f85af4fc9e1bebd35b588a4a3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "actix_actix-web",
+      "url": "https://github.com/actix/actix-web.git",
+      "commit": "eee23e2326d1f063c2959a71fa642e1b7c3b1dc9",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "actix_actix",
+      "url": "https://github.com/actix/actix.git",
+      "commit": "f4f985a27c5783b137c421daffb0d8d73e3e32c8",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rwf2_Rocket",
+      "url": "https://github.com/rwf2/Rocket.git",
+      "commit": "3a54d079aef060a8f732bd04ea54b0581a604087",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "poem-web_poem",
+      "url": "https://github.com/poem-web/poem.git",
+      "commit": "873856620daeaae0830c5e1f6ed745d2ffcc0599",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "salvo-rs_salvo",
+      "url": "https://github.com/salvo-rs/salvo.git",
+      "commit": "6ce107ba59dc5a9cf2fc0fc4d96d67e3bdafc181",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "leptos-rs_leptos",
+      "url": "https://github.com/leptos-rs/leptos.git",
+      "commit": "c94f4aefdd16b5e5af8a2803b3f5c726759690dd",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "yewstack_yew",
+      "url": "https://github.com/yewstack/yew.git",
+      "commit": "0539d37ba48bd1a39fd792b5bf10366ea8288413",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "DioxusLabs_dioxus",
+      "url": "https://github.com/DioxusLabs/dioxus.git",
+      "commit": "f717a8e184a522d078b70bb4b4d62a5f9a99ddfc",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "bevyengine_bevy",
+      "url": "https://github.com/bevyengine/bevy.git",
+      "commit": "71372e9963e788a70b74f18156c5cd406d7644b6",
+      "minimum_project_roots": 50
+    },
+    {
+      "name": "FyroxEngine_Fyrox",
+      "url": "https://github.com/FyroxEngine/Fyrox.git",
+      "commit": "ef626105c4bc5452caec9f92ec1b3e2cfd4d9ea3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "ggez_ggez",
+      "url": "https://github.com/ggez/ggez.git",
+      "commit": "5bf48498ddbe596e66f3328e9b459b404cf0c3d9",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "not-fl3_macroquad",
+      "url": "https://github.com/not-fl3/macroquad.git",
+      "commit": "92279a746405949138616714918fc0f120171352",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "gfx-rs_wgpu",
+      "url": "https://github.com/gfx-rs/wgpu.git",
+      "commit": "f892b2e235752117175098d26ba7c2c6d5f5c6b3",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rust-windowing_winit",
+      "url": "https://github.com/rust-windowing/winit.git",
+      "commit": "d84ec647d80d9ef76c5a42b948c852b8e0db9210",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "iced-rs_iced",
+      "url": "https://github.com/iced-rs/iced.git",
+      "commit": "9854bd32b5039a92549c7fe73509eb66a003e3bc",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "slint-ui_slint",
+      "url": "https://github.com/slint-ui/slint.git",
+      "commit": "db06531ed04de1083ee1b778cb6003b4caa196ce",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "emilk_egui",
+      "url": "https://github.com/emilk/egui.git",
+      "commit": "3fcadda5ba186c9a0f8c1546e2a3fefae6b1e863",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "tauri-apps_tauri",
+      "url": "https://github.com/tauri-apps/tauri.git",
+      "commit": "08acfb3fa04945a6a4f822d66c7556111d9385aa",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "denoland_deno",
+      "url": "https://github.com/denoland/deno.git",
+      "commit": "e2f15f2bf345c69d1f364484b6aaf9674ff7a475",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "biomejs_biome",
+      "url": "https://github.com/biomejs/biome.git",
+      "commit": "ec8c50101f0d9b1ae9636e7f5f82bd6923f7ffde",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "oxc-project_oxc",
+      "url": "https://github.com/oxc-project/oxc.git",
+      "commit": "678bbb5f3429c1e2e62392469003eaeb7d97eb4b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "swc-project_swc",
+      "url": "https://github.com/swc-project/swc.git",
+      "commit": "1e3ed5caf878cfb867a374e768ae8e8344531441",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "apache_datafusion",
+      "url": "https://github.com/apache/datafusion.git",
+      "commit": "dfe0f26b5f944c2ca7dfa748313f8eac00232775",
+      "minimum_project_roots": 30
+    },
+    {
+      "name": "apache_arrow-rs",
+      "url": "https://github.com/apache/arrow-rs.git",
+      "commit": "cd17899fe4c68c812a9585ccaf4a36f1d30e0978",
+      "minimum_project_roots": 20
+    },
+    {
+      "name": "pola-rs_polars",
+      "url": "https://github.com/pola-rs/polars.git",
+      "commit": "d757b6ec093287ce9ec14c2edb7e57a6aa253615",
+      "minimum_project_roots": 25
+    },
+    {
+      "name": "bytecodealliance_wasmtime",
+      "url": "https://github.com/bytecodealliance/wasmtime.git",
+      "commit": "2c72afc5ccd3fa385d83c6b144a3d305d94550d0",
+      "minimum_project_roots": 40
+    },
+    {
+      "name": "bytecodealliance_wasm-tools",
+      "url": "https://github.com/bytecodealliance/wasm-tools.git",
+      "commit": "917be720b8d4853c63c1ae3fa7274bf6252fd57b",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rustwasm_wasm-bindgen",
+      "url": "https://github.com/rustwasm/wasm-bindgen.git",
+      "commit": "1a2860ea1c2d730150bb71b37969165f8c68ed2f",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "rustwasm_wasm-pack",
+      "url": "https://github.com/rustwasm/wasm-pack.git",
+      "commit": "abd5afe8bb7512372103a70f812e1262baeed005",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "EmbarkStudios_cargo-deny",
+      "url": "https://github.com/EmbarkStudios/cargo-deny.git",
+      "commit": "bca0dde53651ee946720e4540b5ce2610bec8f06",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "RustSec_rustsec",
+      "url": "https://github.com/RustSec/rustsec.git",
+      "commit": "04cc3a7e0e0a81370a08c6f4aea3192255b19275",
+      "minimum_project_roots": 1
+    },
+    {
+      "name": "cargo-bins_cargo-binstall",
+      "url": "https://github.com/cargo-bins/cargo-binstall.git",
+      "commit": "57726869e28f4038a847ec56e5fdd9142fded110",
+      "minimum_project_roots": 1
+    }
+  ]
+}

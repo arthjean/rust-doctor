@@ -1,24 +1,89 @@
-use crate::scan;
+use crate::diagnostics::{ReportV1, ScanMode, ScanResult};
+use crate::discovery::ProjectInfo;
+use crate::{config, scan};
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
     CallToolResult, Content, GetPromptResult, LoggingLevel, LoggingMessageNotificationParam,
     PromptMessage, PromptMessageRole,
 };
+use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, prompt, prompt_router, tool, tool_router};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use super::RustDoctorServer;
-use super::helpers::{discover_and_resolve, format_scan_report, group_diagnostics};
+use super::helpers::{discover_and_resolve, format_report_scan, group_report_diagnostics};
 use super::rules::{get_all_rules_listing, get_rule_explanation};
 use super::types::{
     DeepAuditArgs, ExplainRuleInput, HealthCheckArgs, ScanInput, ScoreInput, ScoreOutput,
 };
 
+/// MCP timeout for a single scan/score call. On expiry the work is cancelled
+/// cooperatively, not detached.
+const MCP_SCAN_TIMEOUT_SECS: u64 = 300;
+
+/// Run a scan on a blocking thread under a 5-minute absolute timeout.
+///
+/// On timeout the shared cancel flag is set so the (now-detached) blocking scan
+/// stops launching new passes instead of running to completion in the background
+/// and exhausting the blocking pool (US-007). The client-facing timeout message is
+/// unchanged.
+async fn run_scan_with_timeout(
+    project_info: ProjectInfo,
+    resolved: config::ResolvedConfig,
+    offline: bool,
+    tool: &str,
+    request_context: &RequestContext<RoleServer>,
+) -> Result<(ScanResult, ProjectInfo, config::ResolvedConfig), McpError> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_task = Arc::clone(&cancel);
+    let mut scan_future = tokio::task::spawn_blocking(move || {
+        let result = scan::scan_project_cancellable(
+            &project_info,
+            &resolved,
+            offline,
+            &[],
+            true,
+            &cancel_task,
+        )?;
+        Ok::<_, crate::error::ScanError>((result, project_info, resolved))
+    });
+    let timeout = tokio::time::sleep(Duration::from_secs(MCP_SCAN_TIMEOUT_SECS));
+    tokio::pin!(timeout);
+    tokio::select! {
+        join_result = &mut scan_future => join_result
+            .map_err(|e| McpError::internal_error(format!("scan task failed: {e}"), None))?
+            .map_err(|e| {
+                eprintln!("MCP {tool} error: {e}");
+                McpError::internal_error(
+                    "scan failed — check project compiles with `cargo check`",
+                    None,
+                )
+            }),
+        () = request_context.ct.cancelled() => {
+            cancel.store(true, Ordering::Relaxed);
+            Err(McpError::internal_error(
+                "scan cancelled by client",
+                None,
+            ))
+        }
+        () = &mut timeout => {
+            cancel.store(true, Ordering::Relaxed);
+            Err(McpError::internal_error(
+                "scan timed out after 5 minutes — project may be too large or a subprocess is hanging",
+                None,
+            ))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tool and prompt implementations
 // ---------------------------------------------------------------------------
 
-#[tool_router]
-#[prompt_router]
+#[tool_router(vis = "pub(super)")]
+#[prompt_router(vis = "pub(super)")]
 impl RustDoctorServer {
     pub(super) fn new() -> Self {
         Self {
@@ -32,10 +97,9 @@ impl RustDoctorServer {
         description = "Run a full Rust code health analysis on a project directory. \
 Use this tool when you need detailed diagnostics — it returns all findings with file:line precision. \
 Takes 5-30 seconds depending on project size. \
-Returns JSON with: diagnostics array (each has rule, severity, message, file_path, line, column, help), \
-score (0-100), score_label, source_file_count, elapsed_secs, error_count, warning_count, info_count, skipped_passes. \
+Returns a readable projection of canonical Report V1 diagnostics with stable rule metadata and locations. \
 Severity levels: error (bugs/security), warning (code smells), info (suggestions). \
-Runs 4 passes in parallel: clippy (55+ lints), 19 custom AST rules, cargo-audit (CVEs), cargo-machete (unused deps). \
+Runs Clippy, the canonical custom-rule catalog, and configured Cargo analyzers in parallel. \
 Set 'diff' to a branch name to only scan changed files. \
 After scanning, use explain_rule on any rule ID to get fix guidance.",
         annotations(
@@ -51,8 +115,10 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         meta: rmcp::model::Meta,
         client: rmcp::Peer<RoleServer>,
         params: Parameters<ScanInput>,
+        request_context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
+        let requested_root = std::path::PathBuf::from(&input.directory);
         let progress_token = meta.get_progress_token();
 
         // Send start progress if client supports it
@@ -106,27 +172,9 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
 
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(300),
-            tokio::task::spawn_blocking(move || {
-                scan::scan_project(&project_info, &resolved, offline, &[], true)
-            }),
-        )
-        .await
-        .map_err(|_| {
-            McpError::internal_error(
-                "scan timed out after 5 minutes — project may be too large or a subprocess is hanging",
-                None,
-            )
-        })?
-        .map_err(|e| McpError::internal_error(format!("scan task failed: {e}"), None))?
-        .map_err(|e| {
-            eprintln!("MCP scan error: {e}");
-            McpError::internal_error(
-                "scan failed — check project compiles with `cargo check`",
-                None,
-            )
-        })?;
+        let (result, project_info, resolved) =
+            run_scan_with_timeout(project_info, resolved, offline, "scan", &request_context)
+                .await?;
 
         // Send completion progress
         if let Some(ref token) = progress_token {
@@ -159,8 +207,21 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
             })
             .await;
 
-        let grouped = group_diagnostics(&result.diagnostics);
-        let report = format_scan_report(&result, &grouped);
+        let mode = if resolved.diff.is_some() {
+            ScanMode::Baseline
+        } else {
+            ScanMode::Full
+        };
+        let report = ReportV1::from_scan_with_context(
+            &result,
+            &project_info,
+            &resolved,
+            mode,
+            &requested_root,
+            crate::diagnostics::GateResult::NotEvaluated,
+        );
+        let grouped = group_report_diagnostics(&report.diagnostics);
+        let report = format_report_scan(&report, &grouped);
 
         Ok(CallToolResult::success(vec![Content::text(report)]))
     }
@@ -186,6 +247,7 @@ If you also need the diagnostics, use scan instead — it includes the score too
         meta: rmcp::model::Meta,
         client: rmcp::Peer<RoleServer>,
         params: Parameters<ScoreInput>,
+        request_context: RequestContext<RoleServer>,
     ) -> Result<Json<ScoreOutput>, McpError> {
         let input = params.0;
         let progress_token = meta.get_progress_token();
@@ -208,31 +270,14 @@ If you also need the diagnostics, use scan instead — it includes the score too
             })
             .await;
 
-        let (_dir, project_info, resolved) = discover_and_resolve(&input.directory, false)?;
+        let (_dir, project_info, resolved) =
+            discover_and_resolve(&input.directory, input.ignore_project_config)?;
 
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let offline = input.offline;
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(300),
-            tokio::task::spawn_blocking(move || {
-                scan::scan_project(&project_info, &resolved, offline, &[], true)
-            }),
-        )
-        .await
-        .map_err(|_| {
-            McpError::internal_error(
-                "scan timed out after 5 minutes — project may be too large or a subprocess is hanging",
-                None,
-            )
-        })?
-        .map_err(|e| McpError::internal_error(format!("scan task failed: {e}"), None))?
-        .map_err(|e| {
-            eprintln!("MCP score error: {e}");
-            McpError::internal_error(
-                "scan failed — check project compiles with `cargo check`",
-                None,
-            )
-        })?;
+        let (result, _project_info, _resolved) =
+            run_scan_with_timeout(project_info, resolved, offline, "score", &request_context)
+                .await?;
 
         if let Some(ref token) = progress_token {
             let _ = client
@@ -293,8 +338,7 @@ For unknown rules, returns guidance to use list_rules.",
         description = "List all available rust-doctor rules as formatted markdown. \
 Use this to discover which checks exist before scanning, or to find a rule ID for explain_rule. \
 Instant response — no project scanning required. \
-Returns: 19 custom AST rules (grouped by Error Handling, Performance, Architecture, Security, Async, Framework), \
-55+ clippy lints with custom severity overrides, and 2 external tools (cargo-audit, cargo-machete). \
+Returns every canonical custom, Clippy, external, and project rule directly from the shared catalog. \
 Each entry shows rule ID, severity, and one-line summary.",
         annotations(
             title = "List Rules",

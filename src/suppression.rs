@@ -48,18 +48,27 @@ pub fn apply_inline_suppressions(
             &abs_buf
         };
 
-        // Guard: only read files under the project root to prevent path traversal
-        if let Ok(canonical) = abs_path.canonicalize()
-            && let Ok(root_canonical) = project_root.canonicalize()
-            && !canonical.starts_with(&root_canonical)
-        {
+        // Guard (fail-closed): resolve symlinks/`..` and verify the file is under
+        // the project root BEFORE reading it. If the path can't be canonicalized
+        // or escapes the root, skip it — never read an unresolved or out-of-tree
+        // path. Reading the *canonical* path (not `abs_path`) closes the symlink
+        // TOCTOU window between this check and the read.
+        let (Ok(canonical), Ok(root_canonical)) =
+            (abs_path.canonicalize(), project_root.canonicalize())
+        else {
+            continue;
+        };
+        if !canonical.starts_with(&root_canonical) {
             continue; // skip out-of-tree files
         }
 
-        if let Ok(content) = fs::read_to_string(abs_path) {
+        if let Ok(content) = fs::read_to_string(&canonical) {
             let file_suppressions = parse_suppressions(&content);
             if !file_suppressions.is_empty() {
-                suppressions.insert(file_path, file_suppressions);
+                // Key by the normalized absolute path so lookups anchor to a
+                // single file identity (US-011), independent of the abs/rel
+                // path shape clippy vs the rule engine happen to emit.
+                suppressions.insert(normalize_path(&file_path, project_root), file_suppressions);
             }
         }
     }
@@ -72,11 +81,44 @@ pub fn apply_inline_suppressions(
     let original_count = diagnostics.len();
     let filtered: Vec<Diagnostic> = diagnostics
         .into_iter()
-        .filter(|d| !is_suppressed(d, &suppressions))
+        .filter(|d| !is_suppressed(d, &suppressions, project_root))
         .collect();
     let suppressed_count = original_count - filtered.len();
 
     (filtered, suppressed_count)
+}
+
+/// Return a human-readable reason when an inline directive suppresses one finding.
+///
+/// The source read uses the same canonical in-root guard as normal suppression
+/// application. Unresolved paths, symlink escapes, and unreadable sources yield
+/// no evidence instead of allowing an out-of-project read.
+pub fn inline_suppression_reason(diagnostic: &Diagnostic, project_root: &Path) -> Option<String> {
+    let line = diagnostic.line?;
+    let joined = if diagnostic.file_path.is_absolute() {
+        diagnostic.file_path.clone()
+    } else {
+        project_root.join(&diagnostic.file_path)
+    };
+    let canonical = joined.canonicalize().ok()?;
+    let root = project_root.canonicalize().ok()?;
+    if !canonical.starts_with(&root) {
+        return None;
+    }
+    let content = fs::read_to_string(canonical).ok()?;
+    parse_suppressions(&content)
+        .into_iter()
+        .find(|candidate| {
+            candidate.target_line == line
+                && (candidate.rule.is_none()
+                    || candidate.rule.as_deref() == Some(diagnostic.rule.as_str()))
+        })
+        .map(|candidate| {
+            candidate.rule.map_or_else(
+                || format!("inline suppression targets every rule on line {line}"),
+                |rule| format!("inline suppression targets rule {rule} on line {line}"),
+            )
+        })
 }
 
 /// Parse suppression comments from file content.
@@ -172,25 +214,41 @@ fn parse_rule_name(rest: &str) -> Option<String> {
     }
 }
 
-/// Check if a diagnostic is suppressed by any suppression in its file.
-fn is_suppressed(diag: &Diagnostic, suppressions: &HashMap<PathBuf, Vec<Suppression>>) -> bool {
+/// Resolve a path to an absolute, normalized identity anchored at `project_root`.
+///
+/// Relative paths are joined onto `project_root`; the result is canonicalized
+/// when the file exists (resolving `.`/`..`/symlinks), else returned lexically.
+/// This gives every file one absolute identity, so suppression matching can be
+/// an exact lookup instead of a path-suffix test. It kills the cross-member bug
+/// (US-011) — a `// rust-doctor-disable-*` in `crateB/src/main.rs` can no longer
+/// neutralize a diagnostic in `crateA/src/main.rs` — while still bridging the
+/// absolute-vs-relative mismatch clippy and the rule engine emit for the SAME
+/// file.
+fn normalize_path(path: &Path, project_root: &Path) -> PathBuf {
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    };
+    joined.canonicalize().unwrap_or(joined)
+}
+
+/// Check if a diagnostic is suppressed by a suppression in its file.
+///
+/// Matching anchors both sides to their absolute path identity (see
+/// [`normalize_path`]): no path-suffix matching, so homonymous files in
+/// different workspace members never cross-suppress (US-011).
+fn is_suppressed(
+    diag: &Diagnostic,
+    suppressions: &HashMap<PathBuf, Vec<Suppression>>,
+    project_root: &Path,
+) -> bool {
     let Some(line) = diag.line else {
         return false; // Diagnostics without line numbers can't be suppressed inline
     };
 
-    // Try exact path match first, then try matching by file name suffix
-    // (handles absolute vs relative path mismatches between clippy and rule engine diagnostics)
-    let file_suppressions = suppressions.get(&diag.file_path).or_else(|| {
-        suppressions.iter().find_map(|(k, v)| {
-            if diag.file_path.ends_with(k) || k.ends_with(&diag.file_path) {
-                Some(v)
-            } else {
-                None
-            }
-        })
-    });
-
-    let Some(file_suppressions) = file_suppressions else {
+    let key = normalize_path(&diag.file_path, project_root);
+    let Some(file_suppressions) = suppressions.get(&key) else {
         return false;
     };
 
@@ -281,75 +339,137 @@ mod tests {
 
     // --- is_suppressed ---
 
+    /// A non-existent root: `normalize_path` falls back to a lexical join, so
+    /// keys and diagnostics resolve deterministically without touching disk.
+    const TEST_ROOT: &str = "/rust-doctor-suppression-test-root";
+
+    /// Build a suppression map keyed the same way the production code keys it
+    /// (normalized absolute path), so unit tests exercise the real lookup path.
+    fn supp_map(file: &str, suppressions: Vec<Suppression>) -> HashMap<PathBuf, Vec<Suppression>> {
+        let mut map = HashMap::new();
+        map.insert(
+            normalize_path(Path::new(file), Path::new(TEST_ROOT)),
+            suppressions,
+        );
+        map
+    }
+
     #[test]
     fn test_suppressed_by_specific_rule() {
         let diag = make_diag("test.rs", "unwrap-in-production", 5);
-        let mut suppressions = HashMap::new();
-        suppressions.insert(
-            PathBuf::from("test.rs"),
+        let suppressions = supp_map(
+            "test.rs",
             vec![Suppression {
                 target_line: 5,
                 rule: Some("unwrap-in-production".to_string()),
             }],
         );
-        assert!(is_suppressed(&diag, &suppressions));
+        assert!(is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
     }
 
     #[test]
     fn test_suppressed_by_wildcard() {
         let diag = make_diag("test.rs", "any-rule", 5);
-        let mut suppressions = HashMap::new();
-        suppressions.insert(
-            PathBuf::from("test.rs"),
+        let suppressions = supp_map(
+            "test.rs",
             vec![Suppression {
                 target_line: 5,
                 rule: None,
             }],
         );
-        assert!(is_suppressed(&diag, &suppressions));
+        assert!(is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
     }
 
     #[test]
     fn test_not_suppressed_wrong_rule() {
         let diag = make_diag("test.rs", "rule-a", 5);
-        let mut suppressions = HashMap::new();
-        suppressions.insert(
-            PathBuf::from("test.rs"),
+        let suppressions = supp_map(
+            "test.rs",
             vec![Suppression {
                 target_line: 5,
                 rule: Some("rule-b".to_string()),
             }],
         );
-        assert!(!is_suppressed(&diag, &suppressions));
+        assert!(!is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
     }
 
     #[test]
     fn test_not_suppressed_wrong_line() {
         let diag = make_diag("test.rs", "rule-a", 5);
-        let mut suppressions = HashMap::new();
-        suppressions.insert(
-            PathBuf::from("test.rs"),
+        let suppressions = supp_map(
+            "test.rs",
             vec![Suppression {
                 target_line: 10,
                 rule: Some("rule-a".to_string()),
             }],
         );
-        assert!(!is_suppressed(&diag, &suppressions));
+        assert!(!is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
     }
 
     #[test]
     fn test_not_suppressed_no_line_number() {
         let mut diag = make_diag("test.rs", "rule-a", 5);
         diag.line = None;
-        let mut suppressions = HashMap::new();
-        suppressions.insert(
-            PathBuf::from("test.rs"),
+        let suppressions = supp_map(
+            "test.rs",
             vec![Suppression {
                 target_line: 5,
                 rule: None,
             }],
         );
-        assert!(!is_suppressed(&diag, &suppressions));
+        assert!(!is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
+    }
+
+    // --- US-011: cross-member suppression matching ---
+
+    #[test]
+    fn test_homonym_members_do_not_cross_suppress() {
+        // A suppression keyed under `crateB/src/main.rs` must NOT neutralize a
+        // diagnostic carrying the shorter member-relative `src/main.rs` path —
+        // exactly the orientation the old bidirectional `k.ends_with(diag)`
+        // suffix match got wrong.
+        let diag = make_diag("src/main.rs", "rule-a", 5);
+        let suppressions = supp_map(
+            "crateB/src/main.rs",
+            vec![Suppression {
+                target_line: 5,
+                rule: Some("rule-a".to_string()),
+            }],
+        );
+        assert!(!is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
+    }
+
+    #[test]
+    fn test_homonym_members_do_not_cross_suppress_mirror() {
+        // The mirror orientation (`diag.ends_with(k)`) must also not match.
+        let diag = make_diag("crateA/src/main.rs", "rule-a", 5);
+        let suppressions = supp_map(
+            "src/main.rs",
+            vec![Suppression {
+                target_line: 5,
+                rule: Some("rule-a".to_string()),
+            }],
+        );
+        assert!(!is_suppressed(&diag, &suppressions, Path::new(TEST_ROOT)));
+    }
+
+    #[test]
+    fn test_abs_rel_mismatch_still_matches_same_file() {
+        // Legitimate origin case: clippy emits an absolute path, the rule engine
+        // a relative one, for the SAME file. Normalization bridges them so the
+        // suppression still applies.
+        let root = Path::new(TEST_ROOT);
+        let abs = root.join("src/main.rs");
+        let diag = make_diag("src/main.rs", "rule-a", 5);
+        let mut suppressions = HashMap::new();
+        suppressions.insert(
+            normalize_path(&abs, root),
+            vec![Suppression {
+                target_line: 5,
+                rule: Some("rule-a".to_string()),
+            }],
+        );
+        assert!(is_suppressed(&diag, &suppressions, root));
     }
 
     // --- apply_inline_suppressions with real files ---
@@ -393,6 +513,89 @@ mod tests {
         assert_eq!(suppressed, 1);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].rule, "other-rule");
+    }
+
+    #[test]
+    fn inline_reason_retains_the_matching_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.rs");
+        std::fs::write(
+            &path,
+            "// rust-doctor-disable-next-line test-rule\nlet value = 1;\n",
+        )
+        .unwrap();
+        let diagnostic = make_diag(path.to_str().unwrap(), "test-rule", 2);
+        let reason = inline_suppression_reason(&diagnostic, dir.path()).unwrap();
+        assert!(reason.contains("test-rule"));
+        assert!(reason.contains("line 2"));
+    }
+
+    #[test]
+    fn test_apply_homonym_workspace_no_cross_suppression() {
+        // Regression for US-011: two workspace members each own a `src/main.rs`.
+        // A suppression comment lives only in `crateB`. The homonymous diagnostic
+        // in `crateA` (carrying the shorter member-relative path the rule engine
+        // emits) must survive. On pre-US-011 code the bidirectional `ends_with`
+        // suppressed it too, so `suppressed` was 2 and this assertion failed.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let crate_b_src = root.join("crateB/src");
+        std::fs::create_dir_all(&crate_b_src).unwrap();
+        std::fs::write(
+            crate_b_src.join("main.rs"),
+            "// rust-doctor-disable-next-line test-rule\nfn b() {}\n",
+        )
+        .unwrap();
+
+        // crateA's diagnostic uses the short, member-relative path; it must survive.
+        let surviving_diag = make_diag("src/main.rs", "test-rule", 2);
+        // crateB's own diagnostic — legitimately suppressed by its own comment.
+        let suppressed_diag = make_diag("crateB/src/main.rs", "test-rule", 2);
+
+        let (filtered, suppressed) =
+            apply_inline_suppressions(vec![surviving_diag, suppressed_diag], root);
+
+        assert_eq!(
+            suppressed, 1,
+            "only crateB's own diagnostic must be suppressed"
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].file_path, PathBuf::from("src/main.rs"));
+    }
+
+    #[test]
+    fn test_out_of_root_file_not_read() {
+        // Fail-closed scope guard: a diagnostic pointing at a file OUTSIDE the
+        // project root must not have its suppressions read, so a `disable`
+        // comment planted out-of-tree cannot neutralize an in-scope diagnostic.
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("evil.rs");
+        std::fs::write(
+            &outside_file,
+            "// rust-doctor-disable-next-line test-rule\nfn x() {}\n",
+        )
+        .unwrap();
+
+        let diag = Diagnostic {
+            file_path: outside_file,
+            rule: "test-rule".to_string(),
+            category: Category::Style,
+            severity: Severity::Warning,
+            message: "test".to_string(),
+            help: None,
+            line: Some(2),
+            column: None,
+            fix: None,
+        };
+
+        let (filtered, suppressed) = apply_inline_suppressions(vec![diag], root.path());
+        assert_eq!(
+            suppressed, 0,
+            "an out-of-root suppression comment must not apply"
+        );
+        assert_eq!(filtered.len(), 1);
     }
 
     // --- find_line_comment_start ---

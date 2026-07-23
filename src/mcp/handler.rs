@@ -16,6 +16,10 @@ use super::rules::{get_rule_explanation, rule_docs};
 
 #[derive(Clone)]
 pub struct RustDoctorServer {
+    #[allow(
+        dead_code,
+        reason = "rmcp's generated tool handler consumes this router outside compiler-visible calls"
+    )]
     pub(super) tool_router: ToolRouter<Self>,
     pub(super) prompt_router: PromptRouter<Self>,
 }

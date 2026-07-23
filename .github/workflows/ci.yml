@@ -13,13 +13,12 @@ jobs:
     name: Check & Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
+          toolchain: stable
           components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Check
         run: cargo check
@@ -47,3 +46,42 @@ jobs:
 
       - name: Publish dry-run
         run: cargo publish --dry-run
+
+  artifact-smoke:
+    name: Built artifact smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Build release surfaces
+        run: |
+          cargo build --release --bin rust-doctor --bin rust-doctor-eval
+          cargo build --release --no-default-features --bin rust-doctor --target-dir target/no-default
+          cargo package --locked
+          mkdir -p artifacts
+          bash scripts/release/package-native.sh \
+            target/release/rust-doctor \
+            x86_64-unknown-linux-gnu \
+            tar.gz \
+            artifacts
+
+      - name: Exercise built and final packaged surfaces
+        run: |
+          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
+          test -n "$crate_package"
+          target/release/rust-doctor-eval smoke \
+            --binary target/release/rust-doctor \
+            --no-default-binary target/no-default/release/rust-doctor \
+            --schema schemas/report-v1.schema.json \
+            --npm-root npm \
+            --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
+            --crate-package "$crate_package"

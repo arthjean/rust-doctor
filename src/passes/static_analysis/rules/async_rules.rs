@@ -1,5 +1,5 @@
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::rules::{CustomRule, has_cfg_test, has_test_attr};
+use crate::rules::CustomRule;
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -107,7 +107,6 @@ impl CustomRule for BlockingInAsync {
             diagnostics: Vec::new(),
             in_async: false,
             in_spawn_blocking: false,
-            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -119,43 +118,25 @@ struct BlockingVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
     in_async: bool,
     in_spawn_blocking: bool,
-    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for BlockingVisitor<'_> {
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         let was_async = self.in_async;
-        let was_in_test = self.in_test;
         if i.sig.asyncness.is_some() {
             self.in_async = true;
         }
-        if has_test_attr(&i.attrs) {
-            self.in_test = true;
-        }
         syn::visit::visit_item_fn(self, i);
         self.in_async = was_async;
-        self.in_test = was_in_test;
-    }
-
-    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
-        if has_cfg_test(&i.attrs) {
-            return; // Skip entire #[cfg(test)] module
-        }
-        syn::visit::visit_item_mod(self, i);
     }
 
     fn visit_impl_item_fn(&mut self, i: &'ast syn::ImplItemFn) {
         let was_async = self.in_async;
-        let was_in_test = self.in_test;
         if i.sig.asyncness.is_some() {
             self.in_async = true;
         }
-        if has_test_attr(&i.attrs) {
-            self.in_test = true;
-        }
         syn::visit::visit_impl_item_fn(self, i);
         self.in_async = was_async;
-        self.in_test = was_in_test;
     }
 
     fn visit_expr_async(&mut self, i: &'ast syn::ExprAsync) {
@@ -168,7 +149,6 @@ impl<'ast> Visit<'ast> for BlockingVisitor<'_> {
     fn visit_expr_call(&mut self, i: &'ast syn::ExprCall) {
         if self.in_async
             && !self.in_spawn_blocking
-            && !self.in_test
             && let syn::Expr::Path(func_path) = i.func.as_ref()
         {
             let segments: Vec<String> = func_path
@@ -213,26 +193,24 @@ impl<'ast> Visit<'ast> for BlockingVisitor<'_> {
             }
 
             // Check short patterns only if full pattern didn't match
-            if !matched {
-                if let [.., second_last, last] = segments.as_slice() {
-                    for (a, b, help) in BLOCKING_SHORT {
-                        if second_last == *a && last == *b {
-                            let span = func_path.path.span();
-                            self.diagnostics.push(Diagnostic {
-                                file_path: self.path.to_path_buf(),
-                                rule: "blocking-in-async".to_string(),
-                                category: Category::Async,
-                                severity: Severity::Error,
-                                message: format!(
-                                    "Blocking call `{}` inside async context",
-                                    segments.join("::")
-                                ),
-                                help: Some(help.to_string()),
-                                line: Some(span.start().line as u32),
-                                column: Some(span.start().column as u32 + 1),
-                                fix: None,
-                            });
-                        }
+            if !matched && let [.., second_last, last] = segments.as_slice() {
+                for (a, b, help) in BLOCKING_SHORT {
+                    if second_last == *a && last == *b {
+                        let span = func_path.path.span();
+                        self.diagnostics.push(Diagnostic {
+                            file_path: self.path.to_path_buf(),
+                            rule: "blocking-in-async".to_string(),
+                            category: Category::Async,
+                            severity: Severity::Error,
+                            message: format!(
+                                "Blocking call `{}` inside async context",
+                                segments.join("::")
+                            ),
+                            help: Some(help.to_string()),
+                            line: Some(span.start().line as u32),
+                            column: Some(span.start().column as u32 + 1),
+                            fix: None,
+                        });
                     }
                 }
             }
@@ -277,7 +255,6 @@ impl CustomRule for BlockOnInAsync {
             path,
             diagnostics: Vec::new(),
             in_async: false,
-            in_test: false,
         };
         visitor.visit_file(syntax);
         visitor.diagnostics
@@ -288,43 +265,25 @@ struct BlockOnVisitor<'a> {
     path: &'a Path,
     diagnostics: Vec<Diagnostic>,
     in_async: bool,
-    in_test: bool,
 }
 
 impl<'ast> Visit<'ast> for BlockOnVisitor<'_> {
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         let was_async = self.in_async;
-        let was_in_test = self.in_test;
         if i.sig.asyncness.is_some() {
             self.in_async = true;
         }
-        if has_test_attr(&i.attrs) {
-            self.in_test = true;
-        }
         syn::visit::visit_item_fn(self, i);
         self.in_async = was_async;
-        self.in_test = was_in_test;
-    }
-
-    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
-        if has_cfg_test(&i.attrs) {
-            return; // Skip entire #[cfg(test)] module
-        }
-        syn::visit::visit_item_mod(self, i);
     }
 
     fn visit_impl_item_fn(&mut self, i: &'ast syn::ImplItemFn) {
         let was_async = self.in_async;
-        let was_in_test = self.in_test;
         if i.sig.asyncness.is_some() {
             self.in_async = true;
         }
-        if has_test_attr(&i.attrs) {
-            self.in_test = true;
-        }
         syn::visit::visit_impl_item_fn(self, i);
         self.in_async = was_async;
-        self.in_test = was_in_test;
     }
 
     fn visit_expr_async(&mut self, i: &'ast syn::ExprAsync) {
@@ -335,7 +294,7 @@ impl<'ast> Visit<'ast> for BlockOnVisitor<'_> {
     }
 
     fn visit_expr_method_call(&mut self, i: &'ast syn::ExprMethodCall) {
-        if self.in_async && !self.in_test && i.method == "block_on" {
+        if self.in_async && i.method == "block_on" {
             let span = i.method.span();
             self.diagnostics.push(Diagnostic {
                 file_path: self.path.to_path_buf(),
@@ -354,7 +313,6 @@ impl<'ast> Visit<'ast> for BlockOnVisitor<'_> {
 
     fn visit_expr_call(&mut self, i: &'ast syn::ExprCall) {
         if self.in_async
-            && !self.in_test
             && let syn::Expr::Path(func_path) = i.func.as_ref()
         {
             let segments: Vec<String> = func_path
@@ -512,69 +470,6 @@ mod tests {
             r"
             fn main() {
                 futures::executor::block_on(async { 42 });
-            }
-            ",
-        );
-        assert!(diags.is_empty());
-    }
-
-    // --- test-code skipping ---
-
-    #[test]
-    fn test_blocking_in_test_fn_skipped() {
-        let diags = check(
-            &BlockingInAsync,
-            r"
-            #[test]
-            async fn test_something() {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-            ",
-        );
-        assert!(diags.is_empty());
-    }
-
-    #[test]
-    fn test_blocking_in_cfg_test_module_skipped() {
-        let diags = check(
-            &BlockingInAsync,
-            r"
-            #[cfg(test)]
-            mod tests {
-                async fn helper() {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                }
-            }
-            ",
-        );
-        assert!(diags.is_empty());
-    }
-
-    #[test]
-    fn test_block_on_in_test_fn_skipped() {
-        let diags = check(
-            &BlockOnInAsync,
-            r"
-            #[test]
-            async fn test_something() {
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(async { 42 });
-            }
-            ",
-        );
-        assert!(diags.is_empty());
-    }
-
-    #[test]
-    fn test_block_on_in_cfg_test_module_skipped() {
-        let diags = check(
-            &BlockOnInAsync,
-            r"
-            #[cfg(test)]
-            mod tests {
-                async fn helper() {
-                    futures::executor::block_on(async { 42 });
-                }
             }
             ",
         );

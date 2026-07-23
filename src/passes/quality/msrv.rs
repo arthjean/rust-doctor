@@ -21,10 +21,6 @@ impl AnalysisPass for MsrvPass {
         "msrv"
     }
 
-    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
-        filter.matches(&Category::Cargo)
-    }
-
     fn run(&self, _project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         let mut diagnostics = Vec::new();
 
@@ -71,24 +67,24 @@ impl AnalysisPass for MsrvPass {
         }
 
         // Check current rustc against declared MSRV
-        if let Some((major, minor)) = get_rustc_version() {
-            if (major, minor) < msrv_parsed {
-                diagnostics.push(Diagnostic {
-                    file_path: PathBuf::from("Cargo.toml"),
-                    rule: "msrv-incompatible".to_string(),
-                    category: Category::Cargo,
-                    severity: Severity::Warning,
-                    message: format!(
-                        "Current rustc ({major}.{minor}) is older than declared MSRV ({msrv})"
-                    ),
-                    help: Some(format!(
-                        "Install Rust {msrv} or newer: rustup update stable"
-                    )),
-                    line: None,
-                    column: None,
-                    fix: None,
-                });
-            }
+        if let Some((major, minor)) = get_rustc_version()
+            && (major, minor) < msrv_parsed
+        {
+            diagnostics.push(Diagnostic {
+                file_path: PathBuf::from("Cargo.toml"),
+                rule: "msrv-incompatible".to_string(),
+                category: Category::Cargo,
+                severity: Severity::Warning,
+                message: format!(
+                    "Current rustc ({major}.{minor}) is older than declared MSRV ({msrv})"
+                ),
+                help: Some(format!(
+                    "Install Rust {msrv} or newer: rustup update stable"
+                )),
+                line: None,
+                column: None,
+                fix: None,
+            });
         }
 
         Ok(diagnostics)

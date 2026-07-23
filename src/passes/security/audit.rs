@@ -22,10 +22,6 @@ impl AnalysisPass for AuditPass {
         "dependencies (cargo-audit)"
     }
 
-    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
-        filter.matches(&Category::Dependencies)
-    }
-
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_cargo_audit_available() {
             return Err(crate::error::PassError::Skipped {
@@ -47,13 +43,14 @@ fn run_audit(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, Stri
     if offline {
         args.push("--no-fetch");
     }
-    let child = Command::new("cargo")
-        .args(&args)
-        .current_dir(project_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("failed to spawn cargo audit: {e}"))?;
+    let child = process::spawn_in_group(
+        Command::new("cargo")
+            .args(&args)
+            .current_dir(project_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .map_err(|e| format!("failed to spawn cargo audit: {e}"))?;
 
     let result = process::run_with_timeout(child, AUDIT_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
 

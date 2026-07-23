@@ -15,10 +15,6 @@ impl AnalysisPass for SemVerPass {
         "semver (cargo-semver-checks)"
     }
 
-    fn produces_category(&self, filter: crate::cli::CategoryFilter) -> bool {
-        filter.matches(&Category::Cargo)
-    }
-
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_semver_checks_available() {
             return Err(crate::error::PassError::Skipped {
@@ -41,13 +37,15 @@ fn is_semver_checks_available() -> bool {
 }
 
 fn run_semver_checks(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
-    let child = Command::new("cargo")
-        .args(["semver-checks", "check-release"])
-        .current_dir(project_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("failed to spawn cargo semver-checks: {e}"))?;
+    let child = process::spawn_in_group(
+        Command::new("cargo")
+            .args(["semver-checks", "check-release"])
+            .current_dir(project_root)
+            .env("CARGO_TARGET_DIR", project_root.join("target/rust-doctor"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .map_err(|e| format!("failed to spawn cargo semver-checks: {e}"))?;
 
     let result = process::run_with_timeout(child, SEMVER_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
 
@@ -74,26 +72,26 @@ fn parse_semver_output(output: &str) -> Vec<Diagnostic> {
         let trimmed = line.trim();
 
         // Match violation lines: "--- failure[name]: description"
-        if let Some(rest) = trimmed.strip_prefix("--- failure[") {
-            if let Some(bracket_end) = rest.find("]:") {
-                let violation_name = &rest[..bracket_end];
-                let description = rest[bracket_end + 2..].trim();
+        if let Some(rest) = trimmed.strip_prefix("--- failure[")
+            && let Some(bracket_end) = rest.find("]:")
+        {
+            let violation_name = &rest[..bracket_end];
+            let description = rest[bracket_end + 2..].trim();
 
-                diagnostics.push(Diagnostic {
-                    file_path: PathBuf::from("Cargo.toml"),
-                    rule: "semver-violation".to_string(),
-                    category: Category::Cargo,
-                    severity: Severity::Warning,
-                    message: format!("{violation_name}: {description}"),
-                    help: Some(format!(
-                        "This is a semver-incompatible change ({violation_name}). \
+            diagnostics.push(Diagnostic {
+                file_path: PathBuf::from("Cargo.toml"),
+                rule: "semver-violation".to_string(),
+                category: Category::Cargo,
+                severity: Severity::Warning,
+                message: format!("{violation_name}: {description}"),
+                help: Some(format!(
+                    "This is a semver-incompatible change ({violation_name}). \
                          Bump the major version or revert the breaking change."
-                    )),
-                    line: None,
-                    column: None,
-                    fix: None,
-                });
-            }
+                )),
+                line: None,
+                column: None,
+                fix: None,
+            });
         }
     }
 

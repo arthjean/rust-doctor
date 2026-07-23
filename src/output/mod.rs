@@ -2,10 +2,14 @@ mod score;
 mod terminal;
 
 pub use score::calculate_score;
+pub(crate) use score::calculate_score_for_categories;
 pub use terminal::render_terminal;
+pub(crate) use terminal::render_terminal_for_categories;
 
-use crate::diagnostics::ScanResult;
+use crate::diagnostics::{ReportV1, ScanResult};
 use owo_colors::{OwoColorize, Stream};
+use std::io::Write;
+use std::path::Path;
 
 /// Render `--score` mode: bare integer to stdout.
 pub fn render_score(result: &ScanResult) {
@@ -25,15 +29,82 @@ pub fn render_score(result: &ScanResult) {
     println!("{}", result.score);
 }
 
-/// Render `--json` mode: full ScanResult as JSON to stdout.
+/// Render the immutable Report V1 value to stdout or atomically to a file.
 ///
 /// # Errors
 ///
-/// Returns an error if serialization fails.
-pub fn render_json(result: &ScanResult) -> Result<(), serde_json::Error> {
-    let json = serde_json::to_string_pretty(result)?;
-    println!("{json}");
+/// Returns an error if serialization or the atomic destination write fails.
+pub fn render_json(
+    report: &ReportV1,
+    compact: bool,
+    destination: Option<&Path>,
+) -> Result<(), crate::error::OutputError> {
+    let serialized = if compact {
+        serde_json::to_vec(report)
+    } else {
+        serde_json::to_vec_pretty(report)
+    };
+    let mut bytes = match serialized {
+        Ok(bytes) => bytes,
+        Err(source) if destination.is_none() => renderer_failure_bytes(report, compact, &source)?,
+        Err(source) => return Err(crate::error::OutputError::Serialize(source)),
+    };
+    bytes.push(b'\n');
+
+    if let Some(path) = destination {
+        let parent = path
+            .parent()
+            .filter(|value| !value.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|source| {
+            crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+        temporary
+            .write_all(&bytes)
+            .map_err(|source| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        temporary
+            .flush()
+            .map_err(|source| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        temporary
+            .persist(path)
+            .map_err(|error| crate::error::OutputError::Write {
+                path: path.to_path_buf(),
+                source: error.error,
+            })?;
+    } else {
+        std::io::stdout()
+            .write_all(&bytes)
+            .map_err(crate::error::OutputError::Stdout)?;
+    }
     Ok(())
+}
+
+fn renderer_failure_bytes(
+    report: &ReportV1,
+    compact: bool,
+    source: &serde_json::Error,
+) -> Result<Vec<u8>, crate::error::OutputError> {
+    let fallback = ReportV1::failure(
+        Path::new(&report.requested_root),
+        report.mode,
+        "renderer",
+        &format!("failed to serialize Report V1: {source}"),
+    );
+    if compact {
+        serde_json::to_vec(&fallback)
+    } else {
+        serde_json::to_vec_pretty(&fallback)
+    }
+    .map_err(crate::error::OutputError::Serialize)
 }
 
 #[cfg(test)]
@@ -64,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_perfect_score() {
-        let (score, label, dims) = calculate_score(&[], None);
+        let (score, label, dims) = calculate_score(&[]);
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -80,7 +151,7 @@ mod tests {
             make_diag("rule1", Severity::Error),
             make_diag("rule2", Severity::Error),
         ];
-        let (score, label, dims) = calculate_score(&diags, None);
+        let (score, label, dims) = calculate_score(&diags);
         assert_eq!(dims.reliability, 97);
         assert_eq!(dims.security, 100);
         assert_eq!(score, 99);
@@ -95,7 +166,7 @@ mod tests {
             make_diag("w3", Severity::Warning),
             make_diag("w4", Severity::Warning),
         ];
-        let (score, label, dims) = calculate_score(&diags, None);
+        let (score, label, dims) = calculate_score(&diags);
         assert_eq!(dims.reliability, 97);
         assert_eq!(score, 99);
         assert_eq!(label, ScoreLabel::Great);
@@ -110,7 +181,7 @@ mod tests {
             make_diag("rule1", Severity::Error),
             make_diag("rule1", Severity::Error),
         ];
-        let (score, _, dims) = calculate_score(&diags, None);
+        let (score, _, dims) = calculate_score(&diags);
         assert_eq!(dims.reliability, 99);
         assert_eq!(score, 100);
     }
@@ -124,7 +195,7 @@ mod tests {
         for i in 0..20 {
             diags.push(make_diag(&format!("warn{i}"), Severity::Warning));
         }
-        let (score, label, dims) = calculate_score(&diags, None);
+        let (score, label, dims) = calculate_score(&diags);
         assert_eq!(dims.reliability, 70);
         assert_eq!(score, 93);
         assert_eq!(label, ScoreLabel::Great);
@@ -136,7 +207,7 @@ mod tests {
         for i in 0..100 {
             diags.push(make_diag(&format!("err{i}"), Severity::Error));
         }
-        let (score, label, dims) = calculate_score(&diags, None);
+        let (score, label, dims) = calculate_score(&diags);
         assert_eq!(dims.reliability, 0);
         assert_eq!(score, 77);
         assert_eq!(label, ScoreLabel::Great);
@@ -172,7 +243,7 @@ mod tests {
                 Category::Dependencies,
             ));
         }
-        let (score, label, dims) = calculate_score(&diags, None);
+        let (score, label, dims) = calculate_score(&diags);
         assert_eq!(dims.security, 0);
         assert_eq!(dims.reliability, 0);
         assert_eq!(dims.maintainability, 0);
@@ -199,7 +270,7 @@ mod tests {
             make_diag_with_category("sec1", Severity::Error, Category::Security),
             make_diag_with_category("sec2", Severity::Error, Category::Security),
         ];
-        let (_, _, dims) = calculate_score(&diags, None);
+        let (_, _, dims) = calculate_score(&diags);
         assert_eq!(dims.security, 97);
         assert_eq!(dims.reliability, 100);
         assert_eq!(dims.maintainability, 100);
@@ -213,13 +284,13 @@ mod tests {
             make_diag_with_category("sec1", Severity::Error, Category::Security),
             make_diag_with_category("sec2", Severity::Error, Category::Security),
         ];
-        let (score, _, _) = calculate_score(&diags, None);
+        let (score, _, _) = calculate_score(&diags);
         assert_eq!(score, 99);
     }
 
     #[test]
     fn test_empty_diagnostics_all_dimensions_100() {
-        let (score, label, dims) = calculate_score(&[], None);
+        let (score, label, dims) = calculate_score(&[]);
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -236,7 +307,7 @@ mod tests {
             make_diag_with_category("perf1", Severity::Warning, Category::Performance),
             make_diag_with_category("style1", Severity::Info, Category::Style),
         ];
-        let (_, _, dims) = calculate_score(&diags, None);
+        let (_, _, dims) = calculate_score(&diags);
         assert_eq!(dims.security, 99);
         assert_eq!(dims.performance, 99);
         assert_eq!(dims.maintainability, 100);
@@ -250,27 +321,79 @@ mod tests {
             make_diag_with_category("dep1", Severity::Warning, Category::Dependencies),
             make_diag_with_category("cargo1", Severity::Warning, Category::Cargo),
         ];
-        let (_, _, dims) = calculate_score(&diags, None);
+        let (_, _, dims) = calculate_score(&diags);
         assert_eq!(dims.dependencies, 99);
         assert_eq!(dims.security, 100);
     }
 
     #[test]
-    fn test_category_filtered_score() {
-        use crate::cli::CategoryFilter;
+    fn category_score_is_not_diluted_by_unselected_dimensions() {
         let diags = vec![
-            make_diag_with_category("arch1", Severity::Error, Category::Architecture),
-            make_diag_with_category("arch2", Severity::Error, Category::Architecture),
             make_diag_with_category("sec1", Severity::Error, Category::Security),
+            make_diag_with_category("sec2", Severity::Error, Category::Security),
         ];
-        let (score_unfiltered, _, dims_unfiltered) = calculate_score(&diags, None);
-        assert_eq!(dims_unfiltered.maintainability, 97);
-        assert_eq!(dims_unfiltered.security, 99);
-        assert_ne!(score_unfiltered, dims_unfiltered.maintainability);
+        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::Security]);
+        assert_eq!(score, 97);
+        assert_eq!(dims.security, 97);
+    }
 
-        let (score_filtered, _, dims_filtered) =
-            calculate_score(&diags, Some(CategoryFilter::Architecture));
-        assert_eq!(dims_filtered.maintainability, 97);
-        assert_eq!(score_filtered, 97);
+    #[test]
+    fn category_score_ignores_unselected_categories_in_the_same_dimension() {
+        let diags = vec![
+            make_diag_with_category("errors", Severity::Error, Category::ErrorHandling),
+            make_diag_with_category("correctness", Severity::Error, Category::Correctness),
+        ];
+        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::ErrorHandling]);
+        assert_eq!(score, 99);
+        assert_eq!(dims.reliability, 99);
+    }
+
+    #[test]
+    fn category_score_preserves_weights_across_selected_dimensions() {
+        let diags = vec![
+            make_diag_with_category("sec1", Severity::Error, Category::Security),
+            make_diag_with_category("sec2", Severity::Error, Category::Security),
+            make_diag_with_category("perf1", Severity::Error, Category::Performance),
+        ];
+        let (score, _, _) =
+            calculate_score_for_categories(&diags, &[Category::Security, Category::Performance]);
+        assert_eq!(score, 98);
+    }
+
+    #[test]
+    fn json_destination_is_atomic_and_data_matches_compact_form() {
+        let report = crate::diagnostics::ReportV1::failure(
+            std::path::Path::new("/repo"),
+            crate::diagnostics::ScanMode::Full,
+            "scan",
+            "failed",
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("report.json");
+        render_json(&report, false, Some(&destination)).unwrap();
+        let pretty: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&destination).unwrap()).unwrap();
+        let compact: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(pretty, compact);
+
+        let unwritable = directory.path().join("missing/report.json");
+        assert!(render_json(&report, false, Some(&unwritable)).is_err());
+        assert!(!unwritable.exists());
+    }
+
+    #[test]
+    fn renderer_failure_produces_a_parseable_failure_report() {
+        let report = crate::diagnostics::ReportV1::failure(
+            std::path::Path::new("/repo"),
+            crate::diagnostics::ScanMode::Full,
+            "scan",
+            "failed",
+        );
+        let error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let bytes = renderer_failure_bytes(&report, true, &error).unwrap();
+        let fallback: crate::diagnostics::ReportV1 = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(fallback.outcome, crate::diagnostics::ReportOutcome::Failed);
+        assert_eq!(fallback.error.unwrap().kind, "renderer");
     }
 }

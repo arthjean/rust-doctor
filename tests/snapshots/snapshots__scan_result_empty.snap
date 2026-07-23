@@ -1,6 +1,6 @@
 ---
 source: tests/snapshots.rs
-assertion_line: 55
+assertion_line: 56
 expression: result
 ---
 {
@@ -19,5 +19,6 @@ expression: result
   "skipped_passes": [],
   "error_count": 0,
   "warning_count": 0,
-  "info_count": 0
+  "info_count": 0,
+  "pass_timings": []
 }
