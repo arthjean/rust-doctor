@@ -43,11 +43,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo env PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
+          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
             "$TEST_BINARY" --exact \
             evaluation::sandbox::tests::malicious_build_script_cannot_write_outside_sandbox \
             --nocapture
-          sudo env PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
+          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
             "$TEST_BINARY" --exact \
             evaluation::process::tests::cleanup_monitor_removes_cgroup_after_abrupt_parent_exit \
             --nocapture
@@ -62,7 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          sudo env PATH="$PATH" \
+          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
             --prepared "$RUNNER_TEMP/ep003-prepared.json" \
@@ -90,7 +93,8 @@ jobs:
           }
           trap cleanup EXIT
           set +e
-          sudo env PATH="$PATH" \
+          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
             --prepared "$RUNNER_TEMP/ep003-prepared.json" \
@@ -106,7 +110,8 @@ jobs:
           cleanup
           trap - EXIT
           set +e
-          sudo env PATH="$PATH" \
+          sudo env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
             target/release/rust-doctor-eval corpus \
             --manifest evaluation/corpus-v1.json \
             --prepared "$RUNNER_TEMP/ep003-prepared.json" \
