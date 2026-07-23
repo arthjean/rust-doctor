@@ -1025,6 +1025,18 @@ pub fn emit_handoff(
     resolved: &config::ResolvedConfig,
     project_info: &discovery::ProjectInfo,
 ) -> Result<(), String> {
+    let interactive = std::io::stdin().is_terminal()
+        && std::io::stderr().is_terminal()
+        && !cli.score
+        && !cli.wants_json()
+        && !cli.sarif;
+    if cli.output_dir.is_none()
+        && cli.handoff.is_none()
+        && !cli.reset_handoff_target
+        && !interactive
+    {
+        return Ok(());
+    }
     let report = ReportV1::from_scan_with_context(
         scan_result,
         project_info,
@@ -1040,11 +1052,7 @@ pub fn emit_handoff(
             target: cli.handoff,
             remember_target: cli.remember_handoff_target,
             reset_target: cli.reset_handoff_target,
-            interactive: std::io::stdin().is_terminal()
-                && std::io::stderr().is_terminal()
-                && !cli.score
-                && !cli.wants_json()
-                && !cli.sarif,
+            interactive,
         },
     )
     .map_err(|error| error.to_string())?;
