@@ -237,7 +237,7 @@ pub(crate) fn command(
             "0",
             "--setenv",
             "PATH",
-            "/toolchain/bin:/usr/bin:/bin",
+            "/toolchain/bin:/tool:/usr/bin:/bin",
             "--chdir",
             "/workspace",
             "--",
