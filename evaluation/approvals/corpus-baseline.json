@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "subject_sha256": "bce3992d34b03bf803ac0531ffee1bdc7fec18487c3b80e10c8049d642a2d0b3",
+  "repository": "arthjean/rust-doctor",
+  "head_sha": "bf3d275ad605003975f1ad55d8c7aaab71357ccb",
+  "run_id": 30015936173,
+  "artifact_id": 8567752198,
+  "artifact_name": "ep003-corpus-baseline",
+  "artifact_digest": "sha256:4c88548c0a14d3e61c8225433e14a47698256b1dee67f6dad59bee458710267e",
+  "artifact_url": "https://github.com/arthjean/rust-doctor/actions/runs/30015936173/artifacts/8567752198",
+  "reviewed_by": "arthjean",
+  "reviewed_at": "2026-07-23T14:49:27Z",
+  "review_source": "protected-ci"
+}
