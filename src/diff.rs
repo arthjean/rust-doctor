@@ -791,7 +791,10 @@ pub fn validate_staged_policy_snapshot(
         if path.file_name() == Some(OsStr::new("Cargo.lock")) {
             continue;
         }
-        if worktree.get(path) != snapshot.get(path) {
+        if !policy_contents_equal(
+            worktree.get(path).map(Vec::as_slice),
+            snapshot.get(path).map(Vec::as_slice),
+        ) {
             drift.insert(path.clone());
         }
     }
@@ -807,6 +810,27 @@ pub fn validate_staged_policy_snapshot(
     Err(DiffError::StagedSnapshot(format!(
         "configuration or ignore policy differs between the index and worktree: {paths}"
     )))
+}
+
+fn policy_contents_equal(worktree: Option<&[u8]>, snapshot: Option<&[u8]>) -> bool {
+    match (worktree, snapshot) {
+        (Some(worktree), Some(snapshot)) => {
+            worktree == snapshot
+                || canonical_policy_bytes(worktree).eq(canonical_policy_bytes(snapshot))
+        }
+        (None, None) => true,
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+fn canonical_policy_bytes(content: &[u8]) -> impl Iterator<Item = u8> + '_ {
+    content.iter().enumerate().filter_map(|(index, byte)| {
+        if *byte == b'\r' && content.get(index + 1) == Some(&b'\n') {
+            None
+        } else {
+            Some(*byte)
+        }
+    })
 }
 
 /// Stable fingerprint for the policy and Cargo inputs used by one snapshot.
@@ -1535,6 +1559,44 @@ mod tests {
             std::fs::read_to_string(snapshot.root().join("src/lib.rs")).unwrap(),
             "pub fn staged() {}\n"
         );
+    }
+
+    #[test]
+    fn staged_policy_ignores_only_crlf_conversion() {
+        let worktree = tempfile::tempdir().unwrap();
+        let snapshot = tempfile::tempdir().unwrap();
+        std::fs::write(
+            worktree.path().join("Cargo.toml"),
+            b"[package]\r\nname = \"fixture\"\r\n",
+        )
+        .unwrap();
+        std::fs::write(
+            snapshot.path().join("Cargo.toml"),
+            b"[package]\nname = \"fixture\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            worktree.path().join("rust-doctor.toml"),
+            b"[scan]\r\ntimeout = 300\r\n",
+        )
+        .unwrap();
+        std::fs::write(
+            snapshot.path().join("rust-doctor.toml"),
+            b"[scan]\ntimeout = 300\n",
+        )
+        .unwrap();
+
+        validate_staged_policy_snapshot(worktree.path(), snapshot.path()).unwrap();
+
+        std::fs::write(
+            snapshot.path().join("rust-doctor.toml"),
+            b"[scan]\ntimeout = 301\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_staged_policy_snapshot(worktree.path(), snapshot.path()),
+            Err(DiffError::StagedSnapshot(_))
+        ));
     }
 
     fn git<const N: usize>(root: &Path, arguments: [&str; N]) {
