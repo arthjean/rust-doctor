@@ -1,0 +1,175 @@
+name: EP-003 Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ep003-baseline
+  cancel-in-progress: false
+
+jobs:
+  corpus-baseline:
+    name: corpus baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    environment: ep003-baseline
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+          components: clippy
+      - name: Install sandbox runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+      - name: Build evaluation binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --bin rust-doctor --bin rust-doctor-eval
+          test_binary=$(cargo test --no-run --bin rust-doctor-eval --message-format=json |
+            jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' |
+            tail -n 1)
+          test -n "$test_binary"
+          echo "TEST_BINARY=$test_binary" >> "$GITHUB_ENV"
+      - name: Prove malicious fixture and interruption cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
+            "$TEST_BINARY" --exact \
+            evaluation::sandbox::tests::malicious_build_script_cannot_write_outside_sandbox \
+            --nocapture
+          sudo env PATH="$PATH" RUST_DOCTOR_REQUIRE_SANDBOX_TESTS=1 \
+            "$TEST_BINARY" --exact \
+            evaluation::process::tests::cleanup_monitor_removes_cgroup_after_abrupt_parent_exit \
+            --nocapture
+      - name: Prepare pinned public corpus
+        run: |
+          target/release/rust-doctor-eval prepare \
+            --manifest evaluation/corpus-v1.json \
+            --checkout-root "$RUNNER_TEMP/ep003-corpus" \
+            --prepared-out "$RUNNER_TEMP/ep003-prepared.json"
+      - name: Record protected corpus baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sudo env PATH="$PATH" \
+            target/release/rust-doctor-eval corpus \
+            --manifest evaluation/corpus-v1.json \
+            --prepared "$RUNNER_TEMP/ep003-prepared.json" \
+            --checkout-root "$RUNNER_TEMP/ep003-corpus" \
+            --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
+            --tool-revision "$GITHUB_SHA" \
+            --output "$GITHUB_WORKSPACE/evidence/corpus-baseline.ndjson"
+          sudo chown "$USER":"$(id -gn)" evidence/corpus-baseline.ndjson
+          cp "$RUNNER_TEMP/ep003-prepared.json" evidence/prepared.json
+          test "$(wc -l < evidence/corpus-baseline.ndjson)" -eq 100
+          test "$(jq -s 'map(.expected_roots | length) | add' evidence/corpus-baseline.ndjson)" -ge 250
+          test "$(jq -s 'all(.[]; .complete and (.expected_roots == .attempted_roots) and (.attempted_roots == .reported_roots))' evidence/corpus-baseline.ndjson)" = true
+          test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
+      - name: Prove bounded retries and budgets fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r checkout; do
+            touch "$RUNNER_TEMP/ep003-corpus/$checkout/.rust-doctor-retry-probe"
+          done < <(jq -r '.repositories[].checkout_dir' "$RUNNER_TEMP/ep003-prepared.json")
+          cleanup() {
+            while IFS= read -r checkout; do
+              rm -f "$RUNNER_TEMP/ep003-corpus/$checkout/.rust-doctor-retry-probe"
+            done < <(jq -r '.repositories[].checkout_dir' "$RUNNER_TEMP/ep003-prepared.json")
+          }
+          trap cleanup EXIT
+          set +e
+          sudo env PATH="$PATH" \
+            target/release/rust-doctor-eval corpus \
+            --manifest evaluation/corpus-v1.json \
+            --prepared "$RUNNER_TEMP/ep003-prepared.json" \
+            --checkout-root "$RUNNER_TEMP/ep003-corpus" \
+            --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
+            --tool-revision "$GITHUB_SHA" \
+            --output "$GITHUB_WORKSPACE/evidence/retry-failure.ndjson"
+          retry_status=$?
+          set -e
+          test "$retry_status" -ne 0
+          sudo chown "$USER":"$(id -gn)" evidence/retry-failure.ndjson
+          test "$(jq -s 'all(.[]; (.complete | not) and .attempts == 3 and ([.failure_chain[].attempt] | unique) == [1,2,3])' evidence/retry-failure.ndjson)" = true
+          cleanup
+          trap - EXIT
+          set +e
+          sudo env PATH="$PATH" \
+            target/release/rust-doctor-eval corpus \
+            --manifest evaluation/corpus-v1.json \
+            --prepared "$RUNNER_TEMP/ep003-prepared.json" \
+            --checkout-root "$RUNNER_TEMP/ep003-corpus" \
+            --binary "$GITHUB_WORKSPACE/target/release/rust-doctor" \
+            --tool-revision "$GITHUB_SHA" \
+            --global-timeout-secs 1 \
+            --output "$GITHUB_WORKSPACE/evidence/budget-failure.ndjson"
+          budget_status=$?
+          set -e
+          test "$budget_status" -ne 0
+          sudo chown "$USER":"$(id -gn)" evidence/budget-failure.ndjson
+          test "$(jq -s 'any(.[]; any(.failure_chain[]; .kind == "global_budget" or .kind == "repository_budget"))' evidence/budget-failure.ndjson)" = true
+          test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
+      - name: Upload immutable corpus baseline
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep003-corpus-baseline
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Emit corpus artifact identity
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
+
+  performance-baseline:
+    name: performance baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: ep003-baseline
+    env:
+      RUST_DOCTOR_BENCHMARK_HOST_CLASS: github-ubuntu-24.04-x64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+          components: clippy
+      - name: Build benchmark binary
+        run: cargo build --release --bin rust-doctor --bin rust-doctor-eval
+      - name: Record protected performance baseline
+        run: |
+          mkdir -p evidence
+          target/release/rust-doctor-eval benchmark \
+            --manifest evaluation/benchmarks-v1.json \
+            --binary target/release/rust-doctor \
+            --output evidence/benchmark-baseline.json \
+            --repetitions 3 \
+            --record
+      - name: Upload immutable performance baseline
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep003-performance-baseline
+          path: evidence/benchmark-baseline.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Emit performance artifact identity
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
