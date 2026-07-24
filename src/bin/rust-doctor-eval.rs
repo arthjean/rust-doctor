@@ -8,7 +8,7 @@ use std::process::ExitCode;
 #[derive(Debug, Parser)]
 #[command(
     name = "rust-doctor-eval",
-    about = "Offline corpus, regression, benchmark, and artifact gates for rust-doctor"
+    about = "Corpus, regression, benchmark, and artifact gates for rust-doctor"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -138,7 +138,7 @@ struct SmokeArgs {
     /// Verified Cargo package produced by `cargo package --locked`.
     #[arg(long = "crate-package")]
     crate_package: PathBuf,
-    #[arg(long, default_value_t = 120)]
+    #[arg(long, default_value_t = 300)]
     timeout_secs: u64,
 }
 
