@@ -2,9 +2,24 @@ name: EP-003 Baseline
 
 on:
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Failed EP-006 protected run whose candidate evidence will be reviewed
+        required: false
+        type: string
+      candidate_pr:
+        description: Open pull request number bound by the protected source run
+        required: false
+        type: string
+      candidate_sha:
+        description: Full candidate commit SHA bound by the protected source run
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ep003-baseline
@@ -13,6 +28,7 @@ concurrency:
 jobs:
   corpus-baseline:
     name: corpus baseline
+    if: ${{ inputs.source_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: ep003-baseline
@@ -178,6 +194,7 @@ jobs:
 
   performance-baseline:
     name: performance baseline
+    if: ${{ inputs.source_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     environment: ep003-baseline
@@ -215,3 +232,594 @@ jobs:
           echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
           echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
           echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
+
+  candidate-review-validate:
+    name: validate candidate review
+    if: ${{ inputs.source_run_id != '' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      build-artifact-id: ${{ steps.source.outputs.build-artifact-id }}
+      build-artifact-digest: ${{ steps.source.outputs.build-artifact-digest }}
+      candidate-artifact-id: ${{ steps.source.outputs.candidate-artifact-id }}
+      candidate-artifact-digest: ${{ steps.source.outputs.candidate-artifact-digest }}
+      final-artifact-id: ${{ steps.source.outputs.final-artifact-id }}
+      final-artifact-digest: ${{ steps.source.outputs.final-artifact-digest }}
+      source-run-id: ${{ steps.source.outputs.source-run-id }}
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          path: trusted
+          persist-credentials: false
+      - name: Validate exact protected source
+        id: source
+        env:
+          CANDIDATE_PR: ${{ inputs.candidate_pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_ACTOR" = arthjean
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANDIDATE_PR" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git -C trusted rev-parse HEAD)" = "$GITHUB_SHA"
+          trusted/scripts/evaluation/verify-candidate-ref.sh \
+            "$CANDIDATE_PR" \
+            "$CANDIDATE_SHA" \
+            trusted
+
+          run_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}")
+          jq -e \
+            --arg trusted_revision "$GITHUB_SHA" \
+            '
+              .status == "completed"
+              and .conclusion == "failure"
+              and .event == "workflow_dispatch"
+              and .head_branch == "master"
+              and .head_sha == $trusted_revision
+              and .path == ".github/workflows/ep006-protected-evidence.yml"
+            ' <<<"$run_json" >/dev/null
+
+          jobs_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100")
+          jq -e '
+            (.jobs | length) == 4
+            and ([.jobs[] | select(
+              .name == "validate trusted ref and candidate"
+              and .conclusion == "success"
+            )] | length) == 1
+            and ([.jobs[] | select(
+              .name == "disposable candidate build"
+              and .conclusion == "success"
+            )] | length) == 1
+            and ([.jobs[] | select(
+              .name == "trusted mutation and corpus"
+              and .conclusion == "success"
+            )] | length) == 1
+            and ([.jobs[] | select(
+              .name == "trusted delta and empty promotion"
+              and .conclusion == "failure"
+            )] | length) == 1
+          ' <<<"$jobs_json" >/dev/null
+
+          artifacts_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100")
+          jq -e '
+            (.artifacts | length) == 3
+            and all(.artifacts[];
+              (.expired | not)
+              and (.digest | test("^sha256:[0-9a-f]{64}$"))
+            )
+            and ([.artifacts[] | select(
+              .name == "ep006-candidate-binaries"
+            )] | length) == 1
+            and ([.artifacts[] | select(
+              .name == "ep006-protected-candidate"
+            )] | length) == 1
+            and ([.artifacts[] | select(
+              .name == "ep006-protected-promotion"
+            )] | length) == 1
+          ' <<<"$artifacts_json" >/dev/null
+
+          build_artifact_id=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-candidate-binaries")
+            | .id
+          ' <<<"$artifacts_json")
+          build_artifact_digest=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-candidate-binaries")
+            | .digest
+          ' <<<"$artifacts_json")
+          candidate_artifact_id=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-protected-candidate")
+            | .id
+          ' <<<"$artifacts_json")
+          candidate_artifact_digest=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-protected-candidate")
+            | .digest
+          ' <<<"$artifacts_json")
+          final_artifact_id=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-protected-promotion")
+            | .id
+          ' <<<"$artifacts_json")
+          final_artifact_digest=$(jq -er '
+            .artifacts[]
+            | select(.name == "ep006-protected-promotion")
+            | .digest
+          ' <<<"$artifacts_json")
+
+          echo "source-run-id=$SOURCE_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "build-artifact-id=$build_artifact_id" >> "$GITHUB_OUTPUT"
+          echo "build-artifact-digest=$build_artifact_digest" >> "$GITHUB_OUTPUT"
+          echo "candidate-artifact-id=$candidate_artifact_id" >> "$GITHUB_OUTPUT"
+          echo "candidate-artifact-digest=$candidate_artifact_digest" >> "$GITHUB_OUTPUT"
+          echo "final-artifact-id=$final_artifact_id" >> "$GITHUB_OUTPUT"
+          echo "final-artifact-digest=$final_artifact_digest" >> "$GITHUB_OUTPUT"
+
+  candidate-review:
+    name: protected candidate review
+    if: ${{ inputs.source_run_id != '' }}
+    needs: candidate-review-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: ep003-baseline
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          path: trusted
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+      - name: Verify protected environment contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_ACTOR" = arthjean
+      - name: Download protected candidate binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ep006-candidate-binaries
+          path: source-build
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.candidate-review-validate.outputs.source-run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Download protected candidate evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ep006-protected-candidate
+          path: source-candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.candidate-review-validate.outputs.source-run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Download failed-closed delta evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ep006-protected-promotion
+          path: source-final
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.candidate-review-validate.outputs.source-run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Read approved corpus identity
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          approval=trusted/evaluation/approvals/corpus-baseline.json
+          echo "run-id=$(jq -er '.run_id' "$approval")" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=$(jq -er '.artifact_name' "$approval")" >> "$GITHUB_OUTPUT"
+      - name: Download approved corpus baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ steps.baseline.outputs.artifact-name }}
+          path: approved
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.baseline.outputs.run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Verify every protected source member
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.build-artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.build-artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.candidate-artifact-digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.candidate-artifact-id }}
+          CANDIDATE_PR: ${{ inputs.candidate_pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          FINAL_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.final-artifact-digest }}
+          FINAL_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.final-artifact-id }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.candidate-review-validate.outputs.source-run-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find source-build -maxdepth 1 -type f -printf '%f\n' | sort)" = \
+            $'build-identity.json\nrust-doctor'
+          test "$(find source-candidate -maxdepth 1 -type f -printf '%f\n' | sort)" = \
+            $'candidate-identity.json\ncorpus-candidate.ndjson\nmutation-evidence.json\nmutation-test.log\nprepared.json'
+          test "$(find source-final -maxdepth 1 -type f -printf '%f\n' | sort)" = \
+            $'delta-exit-status.txt\ndelta.json'
+
+          policy=trusted/evaluation/trusted/ep006-promotion-policy.json
+          expected_rules=$(jq -c '[.rules[].rule]' "$policy")
+          binary_sha256=$(sha256sum source-build/rust-doctor | cut -d' ' -f1)
+          corpus_sha256=$(sha256sum source-candidate/corpus-candidate.ndjson | cut -d' ' -f1)
+          mutation_sha256=$(sha256sum source-candidate/mutation-evidence.json | cut -d' ' -f1)
+          oracle_sha256=$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)
+          fixture_sha256=$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)
+          policy_sha256=$(sha256sum "$policy" | cut -d' ' -f1)
+
+          jq -e \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$SOURCE_RUN_ID" \
+            --arg binary_sha256 "$binary_sha256" \
+            '
+              .schema_version == "1.1"
+              and .candidate_sha == $candidate_sha
+              and .trusted_revision == $trusted_revision
+              and .workflow_run_id == $run_id
+              and .binary_sha256 == $binary_sha256
+            ' source-build/build-identity.json >/dev/null
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson candidate_pr "$CANDIDATE_PR" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$SOURCE_RUN_ID" \
+            --argjson build_artifact_id "$BUILD_ARTIFACT_ID" \
+            --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
+            --arg corpus_sha256 "$corpus_sha256" \
+            --arg mutation_sha256 "$mutation_sha256" \
+            --arg binary_sha256 "$binary_sha256" \
+            '
+              .schema_version == "1.0"
+              and .repository == $repository
+              and .candidate_pr == $candidate_pr
+              and .candidate_sha == $candidate_sha
+              and .trusted_revision == $trusted_revision
+              and .workflow_run_id == $run_id
+              and .build_artifact_id == $build_artifact_id
+              and .build_artifact_digest == $build_artifact_digest
+              and .corpus_sha256 == $corpus_sha256
+              and .mutation_sha256 == $mutation_sha256
+              and .production_binary_sha256 == $binary_sha256
+            ' source-candidate/candidate-identity.json >/dev/null
+          jq -e \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg oracle_revision "$GITHUB_SHA" \
+            --arg oracle_sha256 "$oracle_sha256" \
+            --arg fixture_sha256 "$fixture_sha256" \
+            --arg policy_sha256 "$policy_sha256" \
+            --arg binary_sha256 "$binary_sha256" \
+            --argjson expected_rules "$expected_rules" \
+            '
+              .schema_version == "1.1"
+              and .candidate_sha == $candidate_sha
+              and .oracle_revision == $oracle_revision
+              and .oracle_sha256 == $oracle_sha256
+              and .fixture_sha256 == $fixture_sha256
+              and .policy_sha256 == $policy_sha256
+              and .production_binary_sha256 == $binary_sha256
+              and .execution_configuration == "exact-production-binary"
+              and .sandboxed == true
+              and .mutations_per_rule == 1000
+              and .rules == $expected_rules
+              and .status == "passed"
+            ' source-candidate/mutation-evidence.json >/dev/null
+          test "$(wc -l < source-candidate/mutation-test.log)" -eq 15
+          test "$(grep -Ec \
+            '^mutation passed rule=[a-z0-9-]+ mutations=1000 parseable=1000 fired=[0-9]+ quiet=[0-9]+$' \
+            source-candidate/mutation-test.log)" -eq 15
+          test "$(wc -l < source-candidate/corpus-candidate.ndjson)" -eq 100
+          test "$(jq -s --arg revision "$CANDIDATE_SHA" '
+            all(.[];
+              .tool_revision == $revision
+              and .expected_roots == .attempted_roots
+              and .attempted_roots == .reported_roots
+              and (
+                .complete
+                or (
+                  .attempts == 3
+                  and (.failure_chain | length) > 0
+                  and all(.failure_chain[]; .kind == "incomplete_report")
+                  and ([.failure_chain[].attempt] | unique) == [1, 2, 3]
+                  and all(.root_states[]; . == "complete" or . == "incomplete")
+                )
+              )
+            )
+          ' source-candidate/corpus-candidate.ndjson)" = true
+          test "$(jq -s --argjson expected "$expected_rules" '
+            all(.[];
+              . as $record
+              | all($expected[];
+                  ($record.catalog[.] != null)
+                  and ($record.catalog[.].default_enabled == false)
+                )
+            )
+          ' source-candidate/corpus-candidate.ndjson)" = true
+
+          test "$(tr -d '\n' < source-final/delta-exit-status.txt)" = 3
+          jq -e --argjson expected "$expected_rules" '
+            .blocked == true
+            and (.reasons | length) > 0
+            and (.promotion_reviews | length) == 0
+            and .incomplete_root_change_percentage_points <= 0.2
+            and all(.reasons[];
+              . as $reason
+              | any($expected[];
+                  . as $rule
+                  | $reason | startswith("rule \($rule) changed across ")
+                )
+            )
+          ' source-final/delta.json >/dev/null
+
+          for identity in \
+            "$BUILD_ARTIFACT_ID:ep006-candidate-binaries:$BUILD_ARTIFACT_DIGEST" \
+            "$CANDIDATE_ARTIFACT_ID:ep006-protected-candidate:$CANDIDATE_ARTIFACT_DIGEST" \
+            "$FINAL_ARTIFACT_ID:ep006-protected-promotion:$FINAL_ARTIFACT_DIGEST"
+          do
+            IFS=: read -r artifact_id artifact_name digest_algorithm digest_value <<<"$identity"
+            artifact_json=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}")
+            jq -e \
+              --argjson artifact_id "$artifact_id" \
+              --argjson run_id "$SOURCE_RUN_ID" \
+              --arg artifact_name "$artifact_name" \
+              --arg digest "${digest_algorithm}:${digest_value}" \
+              --arg trusted_revision "$GITHUB_SHA" \
+              '
+                .id == $artifact_id
+                and .name == $artifact_name
+                and .expired == false
+                and .digest == $digest
+                and .workflow_run.id == $run_id
+                and .workflow_run.head_sha == $trusted_revision
+              ' <<<"$artifact_json" >/dev/null
+          done
+          (
+            cd trusted
+            scripts/evaluation/verify-approved-artifact.sh \
+              evaluation/approvals/corpus-baseline.json \
+              "$GITHUB_WORKSPACE/approved/corpus-baseline.ndjson" \
+              ep003-corpus-baseline \
+              .github/workflows/ep003-baseline.yml
+          )
+      - name: Build trusted evaluator
+        run: |
+          cargo build \
+            --manifest-path trusted/Cargo.toml \
+            --release \
+            --bin rust-doctor-eval
+      - name: Stage reviewed candidate corpus
+        run: |
+          mkdir -p review/evidence
+          cp source-candidate/corpus-candidate.ndjson review/corpus-baseline.ndjson
+      - name: Upload reviewed corpus baseline
+        id: corpus-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep003-corpus-baseline
+          path: review/corpus-baseline.ndjson
+          if-no-files-found: error
+          retention-days: 90
+      - name: Bind reviewed corpus approval
+        id: approval
+        env:
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.corpus-upload.outputs.artifact-digest) }}
+          ARTIFACT_ID: ${{ steps.corpus-upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          reviewed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          subject_sha256=$(sha256sum review/corpus-baseline.ndjson | cut -d' ' -f1)
+          jq -n \
+            --arg subject_sha256 "$subject_sha256" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg head_sha "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson artifact_id "$ARTIFACT_ID" \
+            --arg artifact_digest "$ARTIFACT_DIGEST" \
+            --arg reviewed_at "$reviewed_at" \
+            '{
+              schema_version: "1.0",
+              subject_sha256: $subject_sha256,
+              repository: $repository,
+              head_sha: $head_sha,
+              run_id: $run_id,
+              artifact_id: $artifact_id,
+              artifact_name: "ep003-corpus-baseline",
+              artifact_digest: $artifact_digest,
+              artifact_url: (
+                "https://github.com/\($repository)/actions/runs/\($run_id)/artifacts/\($artifact_id)"
+              ),
+              reviewed_by: "arthjean",
+              reviewed_at: $reviewed_at,
+              review_source: "protected-ci"
+            }' > review/evidence/corpus-baseline-approval.json
+          echo "reviewed-at=$reviewed_at" >> "$GITHUB_OUTPUT"
+      - name: Execute approved diagnostic delta
+        run: |
+          trusted/target/release/rust-doctor-eval delta \
+            --baseline approved/corpus-baseline.ndjson \
+            --baseline-approval trusted/evaluation/approvals/corpus-baseline.json \
+            --candidate review/corpus-baseline.ndjson \
+            --candidate-approval review/evidence/corpus-baseline-approval.json \
+            --output review/evidence/delta.json
+      - name: Prove reviewed replacement and empty promotion
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.build-artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.build-artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.candidate-artifact-digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.candidate-artifact-id }}
+          CANDIDATE_PR: ${{ inputs.candidate_pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CORPUS_ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.corpus-upload.outputs.artifact-digest) }}
+          CORPUS_ARTIFACT_ID: ${{ steps.corpus-upload.outputs.artifact-id }}
+          FINAL_ARTIFACT_DIGEST: ${{ needs.candidate-review-validate.outputs.final-artifact-digest }}
+          FINAL_ARTIFACT_ID: ${{ needs.candidate-review-validate.outputs.final-artifact-id }}
+          REVIEWED_AT: ${{ steps.approval.outputs.reviewed-at }}
+          SOURCE_RUN_ID: ${{ needs.candidate-review-validate.outputs.source-run-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          policy=trusted/evaluation/trusted/ep006-promotion-policy.json
+          expected_rules=$(jq -c '[.rules[].rule]' "$policy")
+          test "$(jq -r '.decision' "$policy")" = no_default_promotions
+          jq -e '
+            .thresholds.max_affected_complete_roots_percent == 0.5
+            and .thresholds.max_incomplete_root_change_percentage_points == 0.2
+            and .thresholds.max_confirmed_false_positive_percent == 2.0
+            and all(.rules[]; .decision == "keep_opt_in")
+          ' "$policy" >/dev/null
+          jq -e '
+            .blocked == false
+            and (.reasons | length) == 0
+            and (.promotion_reviews | length) == 0
+            and .incomplete_root_change_percentage_points <= 0.2
+          ' review/evidence/delta.json >/dev/null
+          jq -s -e --argjson expected "$expected_rules" '
+            all(.[];
+              . as $record
+              | all($expected[];
+                  ($record.catalog[.] != null)
+                  and ($record.catalog[.].default_enabled == false)
+                )
+            )
+          ' review/corpus-baseline.ndjson >/dev/null
+
+          corpus_sha256=$(sha256sum review/corpus-baseline.ndjson | cut -d' ' -f1)
+          delta_sha256=$(sha256sum review/evidence/delta.json | cut -d' ' -f1)
+          mutation_sha256=$(sha256sum source-candidate/mutation-evidence.json | cut -d' ' -f1)
+          cp source-candidate/candidate-identity.json review/evidence/
+          cp source-candidate/mutation-evidence.json review/evidence/
+          cp source-candidate/mutation-test.log review/evidence/
+          cp source-final/delta.json review/evidence/source-delta.json
+          cp source-final/delta-exit-status.txt review/evidence/source-delta-exit-status.txt
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson candidate_pr "$CANDIDATE_PR" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson source_run_id "$SOURCE_RUN_ID" \
+            --argjson review_run_id "$GITHUB_RUN_ID" \
+            --arg reviewed_at "$REVIEWED_AT" \
+            --argjson build_artifact_id "$BUILD_ARTIFACT_ID" \
+            --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
+            --argjson candidate_artifact_id "$CANDIDATE_ARTIFACT_ID" \
+            --arg candidate_artifact_digest "$CANDIDATE_ARTIFACT_DIGEST" \
+            --argjson source_final_artifact_id "$FINAL_ARTIFACT_ID" \
+            --arg source_final_artifact_digest "$FINAL_ARTIFACT_DIGEST" \
+            --argjson corpus_artifact_id "$CORPUS_ARTIFACT_ID" \
+            --arg corpus_artifact_digest "$CORPUS_ARTIFACT_DIGEST" \
+            --arg corpus_sha256 "$corpus_sha256" \
+            --arg mutation_sha256 "$mutation_sha256" \
+            --arg delta_sha256 "$delta_sha256" \
+            --slurpfile policy "$policy" \
+            --slurpfile delta review/evidence/delta.json \
+            --slurpfile candidate review/corpus-baseline.ndjson \
+            '{
+              schema_version: "1.0",
+              epic: "EP-006",
+              stories: ["US-031", "US-032", "US-033"],
+              repository: $repository,
+              candidate_pr: $candidate_pr,
+              candidate_sha: $candidate_sha,
+              trusted_revision: $trusted_revision,
+              source_workflow_run_id: $source_run_id,
+              review_workflow_run_id: $review_run_id,
+              review: {
+                environment: "ep003-baseline",
+                reviewed_by: "arthjean",
+                reviewed_at: $reviewed_at,
+                decision: "approved_replacement_baseline"
+              },
+              decision: "no_default_promotions",
+              success: true,
+              thresholds: $policy[0].thresholds,
+              promoted_rules: [],
+              kept_opt_in: [
+                $policy[0].rules[] as $entry
+                | {
+                    rule: $entry.rule,
+                    story: $entry.story,
+                    decision: $entry.decision,
+                    reason: $entry.reason,
+                    corpus_occurrences: (
+                      [$candidate[] | (.per_rule_counts[$entry.rule] // 0)] | add
+                    )
+                  }
+              ],
+              false_positive_review: {
+                required_before_default_activation: true,
+                reviewed_rules: [],
+                status: "not_required_for_empty_promotion"
+              },
+              source_artifacts: {
+                build: {
+                  id: $build_artifact_id,
+                  name: "ep006-candidate-binaries",
+                  digest: $build_artifact_digest
+                },
+                candidate: {
+                  id: $candidate_artifact_id,
+                  name: "ep006-protected-candidate",
+                  digest: $candidate_artifact_digest,
+                  corpus_sha256: $corpus_sha256,
+                  mutation_sha256: $mutation_sha256
+                },
+                failed_closed_delta: {
+                  id: $source_final_artifact_id,
+                  name: "ep006-protected-promotion",
+                  digest: $source_final_artifact_digest
+                }
+              },
+              reviewed_artifacts: {
+                corpus: {
+                  id: $corpus_artifact_id,
+                  name: "ep003-corpus-baseline",
+                  digest: $corpus_artifact_digest,
+                  sha256: $corpus_sha256
+                }
+              },
+              delta: {
+                sha256: $delta_sha256,
+                exit_status: 0,
+                blocked: $delta[0].blocked,
+                reasons: $delta[0].reasons,
+                affected_root_percent: $delta[0].affected_root_percent,
+                incomplete_root_change_percentage_points:
+                  $delta[0].incomplete_root_change_percentage_points,
+                complete_baseline_roots: $delta[0].complete_baseline_roots,
+                complete_candidate_roots: $delta[0].complete_candidate_roots
+              }
+            }' > review/evidence/promotion-evidence.json
+      - name: Upload reviewed promotion evidence
+        id: promotion-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep006-reviewed-promotion
+          path: review/evidence/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Emit reviewed artifact identities
+        run: |
+          echo "corpus-artifact-id=${{ steps.corpus-upload.outputs.artifact-id }}"
+          echo "corpus-artifact-digest=sha256:${{ steps.corpus-upload.outputs.artifact-digest }}"
+          echo "promotion-artifact-id=${{ steps.promotion-upload.outputs.artifact-id }}"
+          echo "promotion-artifact-digest=sha256:${{ steps.promotion-upload.outputs.artifact-digest }}"
