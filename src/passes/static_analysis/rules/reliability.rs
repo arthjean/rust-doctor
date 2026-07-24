@@ -123,7 +123,6 @@ impl CustomRule for ReliabilityRule {
             ReliabilityKind::CatchUnwindDiscarded
                 | ReliabilityKind::MemForgetResource
                 | ReliabilityKind::ProcessExitInLibrary
-                | ReliabilityKind::SpawnInDrop
         )
     }
 

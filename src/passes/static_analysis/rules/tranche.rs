@@ -118,10 +118,7 @@ impl CustomRule for TrancheRule {
     }
 
     fn default_enabled(&self) -> bool {
-        matches!(
-            self.kind,
-            TrancheKind::RegexCreatedInLoop | TrancheKind::TemporaryCStringPointer
-        )
+        self.kind == TrancheKind::RegexCreatedInLoop
     }
 
     fn confidence(&self) -> Confidence {
