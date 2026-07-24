@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.ArthurDEV44/rust-doctor",
+  "name": "io.github.arthjean/rust-doctor",
   "description": "Rust code health scanner — security, performance, correctness, architecture diagnostics",
   "version": "0.1.20",
   "title": "rust-doctor",

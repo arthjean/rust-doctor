@@ -158,7 +158,7 @@ jobs:
           bun scripts/release/packages.ts update-action "$version"
           git switch -c "$branch"
           git config user.name "Arthur Jean"
-          git config user.email "ArthurDEV44@users.noreply.github.com"
+          git config user.email "128491831+arthjean@users.noreply.github.com"
           git add action.yml
           git commit -m "chore(action): target rust-doctor ${version}"
           git push -u origin "$branch"
