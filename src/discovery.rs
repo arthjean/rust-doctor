@@ -582,15 +582,24 @@ pub(crate) fn source_surface_for_project_path(project: &ProjectInfo, path: &Path
     } else {
         project.root_dir.join(path)
     };
-    let contexts = project
+    let member = project
         .workspace_members
         .iter()
         .filter(|member| absolute.starts_with(&member.root_dir))
-        .max_by_key(|member| member.root_dir.components().count())
-        .map_or(project.cargo_targets.as_slice(), |member| {
-            member.cargo_targets.as_slice()
-        });
-    source_surface_for_path(&absolute, contexts)
+        .max_by_key(|member| member.root_dir.components().count());
+    let normalized = member
+        .and_then(|member| member.root_dir.strip_prefix(&project.root_dir).ok())
+        .and_then(|member_relative| {
+            path.strip_prefix(member_relative)
+                .ok()
+                .zip(Some(member_relative))
+        })
+        .filter(|(remainder, member_relative)| remainder.starts_with(member_relative))
+        .map_or(absolute, |(remainder, _)| project.root_dir.join(remainder));
+    let contexts = member.map_or(project.cargo_targets.as_slice(), |member| {
+        member.cargo_targets.as_slice()
+    });
+    source_surface_for_path(&normalized, contexts)
 }
 
 fn dependency_edge_features(
@@ -1069,6 +1078,36 @@ mod tests {
         assert_eq!(
             source_surface_for_path(&nested_library, &contexts),
             SourceSurface::Unknown
+        );
+    }
+
+    #[test]
+    fn workspace_target_classification_tolerates_repeated_member_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("crates/member/src")).unwrap();
+        std::fs::write(
+            root.path().join("Cargo.toml"),
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/member\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("crates/member/Cargo.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("crates/member/src/lib.rs"),
+            "pub fn value() {}\n",
+        )
+        .unwrap();
+
+        let project = discover_project(&root.path().join("Cargo.toml"), false).unwrap();
+        assert_eq!(
+            source_surface_for_project_path(
+                &project,
+                Path::new("crates/member/crates/member/src/lib.rs"),
+            ),
+            SourceSurface::Library
         );
     }
 

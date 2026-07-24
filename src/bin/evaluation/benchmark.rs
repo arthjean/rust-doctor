@@ -355,7 +355,7 @@ fn write_package(root: &Path, name: &str) -> Result<()> {
     write(
         &root.join("Cargo.toml"),
         &format!(
-            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n"
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n"
         ),
     )
 }
