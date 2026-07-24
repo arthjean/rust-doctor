@@ -1526,7 +1526,9 @@ mod tests {
         let snapshot = materialize_staged(repository.path()).unwrap();
         let snapshot_path = snapshot.root().to_path_buf();
         assert_eq!(
-            std::fs::read_to_string(snapshot.root().join("src/lib.rs")).unwrap(),
+            std::fs::read_to_string(snapshot.root().join("src/lib.rs"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "pub fn value() -> u8 { 2 }\n"
         );
         drop(snapshot);
@@ -1556,7 +1558,9 @@ mod tests {
         let snapshot = materialize_staged(&project).unwrap();
         assert!(snapshot.root().join("Cargo.toml").is_file());
         assert_eq!(
-            std::fs::read_to_string(snapshot.root().join("src/lib.rs")).unwrap(),
+            std::fs::read_to_string(snapshot.root().join("src/lib.rs"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "pub fn staged() {}\n"
         );
     }

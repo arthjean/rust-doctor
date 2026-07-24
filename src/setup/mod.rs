@@ -626,12 +626,12 @@ fn resolve_hook_path(project: &Path) -> Result<PathBuf, SetupError> {
         project,
         &[
             "rev-parse",
-            "--path-format=absolute",
+            "--path-format=relative",
             "--git-path",
             "hooks/pre-commit",
         ],
     )?;
-    Ok(PathBuf::from(default_hook))
+    Ok(project.join(default_hook))
 }
 
 fn git_output(project: &Path, args: &[&str]) -> Result<String, SetupError> {
