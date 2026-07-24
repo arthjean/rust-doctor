@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "epic": "EP-006",
+  "stories": ["US-031", "US-032", "US-033"],
+  "decision": "no_default_promotions",
+  "thresholds": {
+    "max_affected_complete_roots_percent": 0.5,
+    "max_incomplete_root_change_percentage_points": 0.2,
+    "max_confirmed_false_positive_percent": 2.0
+  },
+  "rules": [
+    {
+      "rule": "blocking-lock-in-async",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "catch-unwind-discarded",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "the observed occurrence is an intentional executor restart boundary"
+    },
+    {
+      "rule": "await-holding-refcell-ref",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "mem-forget-resource",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "observed guard-disarm patterns do not establish default-grade precision"
+    },
+    {
+      "rule": "process-exit-in-library",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "the corpus contains intentional CLI process boundaries"
+    },
+    {
+      "rule": "spawn-in-drop",
+      "story": "US-031",
+      "decision": "keep_opt_in",
+      "reason": "zero observed occurrences cannot establish default-grade precision"
+    },
+    {
+      "rule": "command-shell-interpolation",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "ffi-cstring-lifetime",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "insecure-http-client",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "regex-created-in-loop",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "the observed sample includes lazy initialization and test-context false positives"
+    },
+    {
+      "rule": "temporary-cstring-pointer",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "zero observed occurrences cannot establish default-grade precision"
+    },
+    {
+      "rule": "unbounded-collect",
+      "story": "US-032",
+      "decision": "keep_opt_in",
+      "reason": "not selected for default activation by the protected corpus review"
+    },
+    {
+      "rule": "actix-web-data-lock",
+      "story": "US-033",
+      "decision": "keep_opt_in",
+      "reason": "the medium-confidence framework pack remains opt-in"
+    },
+    {
+      "rule": "axum-extension-request-state",
+      "story": "US-033",
+      "decision": "keep_opt_in",
+      "reason": "the medium-confidence framework pack remains opt-in"
+    },
+    {
+      "rule": "tokio-unbounded-channel",
+      "story": "US-033",
+      "decision": "keep_opt_in",
+      "reason": "the medium-confidence framework pack remains opt-in"
+    }
+  ]
+}
