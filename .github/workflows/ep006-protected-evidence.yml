@@ -1,0 +1,706 @@
+name: EP-006 Protected Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_pr:
+        description: Open pull request number whose exact head will be evaluated
+        required: true
+        type: string
+      candidate_sha:
+        description: Full candidate commit SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ep006-protected-evidence-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: validate trusted ref and candidate
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate-sha: ${{ steps.candidate.outputs.candidate-sha }}
+      candidate-pr: ${{ steps.candidate.outputs.candidate-pr }}
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          path: trusted
+          persist-credentials: false
+      - name: Verify exact open pull request head
+        id: candidate
+        env:
+          CANDIDATE_PR: ${{ inputs.candidate_pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted/scripts/evaluation/verify-candidate-ref.sh \
+            "$CANDIDATE_PR" \
+            "$CANDIDATE_SHA" \
+            trusted
+          echo "candidate-sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          echo "candidate-pr=$CANDIDATE_PR" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: disposable candidate build
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ep006-candidate-binaries
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Install sandbox runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if sysctl -n kernel.unprivileged_userns_clone >/dev/null 2>&1; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+      - name: Checkout trusted oracle sources
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          path: trusted
+          persist-credentials: false
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          path: candidate
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.candidate-sha }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+      - name: Inject production-configuration mutation runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rules=candidate/src/passes/static_analysis/rules
+          test -d "$rules" && test ! -L "$rules"
+          test -f "$rules/mod.rs" && test ! -L "$rules/mod.rs"
+          test -f candidate/src/lib.rs && test ! -L candidate/src/lib.rs
+          test ! -e "$rules/ep006_trusted_mutation.rs" \
+            && test ! -L "$rules/ep006_trusted_mutation.rs"
+          test ! -e "$rules/ep006-trusted-conformance.txt" \
+            && test ! -L "$rules/ep006-trusted-conformance.txt"
+          test ! -e "$rules/ep006-trusted-policy.json" \
+            && test ! -L "$rules/ep006-trusted-policy.json"
+          test ! -e candidate/src/bin/ep006-trusted-mutation.rs \
+            && test ! -L candidate/src/bin/ep006-trusted-mutation.rs
+          ! grep -q 'ep006_trusted_mutation' "$rules/mod.rs"
+          ! grep -q 'run_ep006_trusted_mutation' candidate/src/lib.rs
+          cp trusted/evaluation/trusted/ep006-mutation.rs \
+            "$rules/ep006_trusted_mutation.rs"
+          cp trusted/evaluation/trusted/ep006-conformance.txt \
+            "$rules/ep006-trusted-conformance.txt"
+          cp trusted/evaluation/trusted/ep006-promotion-policy.json \
+            "$rules/ep006-trusted-policy.json"
+          cp trusted/evaluation/trusted/ep006-mutation-main.rs \
+            candidate/src/bin/ep006-trusted-mutation.rs
+          printf '\n#[cfg(ep006_trusted_mutation)]\npub(crate) mod ep006_trusted_mutation;\n' \
+            >> "$rules/mod.rs"
+          printf '\n#[cfg(ep006_trusted_mutation)]\n#[doc(hidden)]\npub fn run_ep006_trusted_mutation() -> i32 {\n    passes::static_analysis::rules::ep006_trusted_mutation::run()\n}\n' \
+            >> candidate/src/lib.rs
+      - name: Build untrusted candidate artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_bin=$(command -v cargo)
+          cargo_home="$RUNNER_TEMP/ep006-cargo-home"
+          target="$RUNNER_TEMP/ep006-target"
+          rustup_home=${RUSTUP_HOME:-"$HOME/.rustup"}
+          mkdir -p "$cargo_home" "$target"
+          sandbox=(
+            bwrap
+            --die-with-parent
+            --new-session
+            --unshare-all
+            --unshare-user
+            --disable-userns
+            --clearenv
+            --ro-bind / /
+            --proc /proc
+            --dev /dev
+            --bind "$cargo_home" "$cargo_home"
+            --bind "$target" "$target"
+            --tmpfs /tmp
+            --setenv HOME /tmp
+            --setenv CARGO_HOME "$cargo_home"
+            --setenv CARGO_NET_OFFLINE true
+            --setenv CARGO_TARGET_DIR "$target"
+            --setenv CARGO_TERM_COLOR always
+            --setenv RUSTUP_HOME "$rustup_home"
+            --setenv RUSTUP_TOOLCHAIN 1.97
+            --setenv PATH "$PATH"
+            --chdir "$GITHUB_WORKSPACE/candidate"
+          )
+          "${sandbox[@]}" \
+            --share-net \
+            --setenv CARGO_NET_OFFLINE false \
+            -- "$cargo_bin" fetch --locked
+          "${sandbox[@]}" \
+            -- "$cargo_bin" build --locked --release --bin rust-doctor
+          "${sandbox[@]}" \
+            --setenv RUSTFLAGS \
+              '--cfg ep006_trusted_mutation --check-cfg=cfg(ep006_trusted_mutation)' \
+            -- "$cargo_bin" build \
+              --locked \
+              --release \
+              --bin ep006-trusted-mutation
+          mkdir -p build-evidence
+          cp "$target/release/rust-doctor" build-evidence/
+          cp "$target/release/ep006-trusted-mutation" build-evidence/
+      - name: Bind build inputs and outputs
+        env:
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg oracle_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)" \
+            --arg fixture_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)" \
+            --arg policy_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-promotion-policy.json | cut -d' ' -f1)" \
+            --arg main_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation-main.rs | cut -d' ' -f1)" \
+            --arg binary_sha256 "$(sha256sum build-evidence/rust-doctor | cut -d' ' -f1)" \
+            --arg mutation_binary_sha256 "$(sha256sum build-evidence/ep006-trusted-mutation | cut -d' ' -f1)" \
+            '{
+              schema_version: "1.0",
+              candidate_sha: $candidate_sha,
+              trusted_revision: $trusted_revision,
+              workflow_run_id: $run_id,
+              oracle_sha256: $oracle_sha256,
+              fixture_sha256: $fixture_sha256,
+              policy_sha256: $policy_sha256,
+              main_sha256: $main_sha256,
+              binary_sha256: $binary_sha256,
+              mutation_binary_sha256: $mutation_binary_sha256
+            }' > build-evidence/build-identity.json
+      - name: Upload untrusted candidate binaries
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep006-candidate-binaries
+          path: build-evidence/
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate:
+    name: trusted mutation and corpus
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ep006-protected-candidate
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      corpus-sha256: ${{ steps.identity.outputs.corpus-sha256 }}
+      mutation-sha256: ${{ steps.identity.outputs.mutation-sha256 }}
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          path: trusted
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+          components: clippy
+      - name: Install sandbox runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if sysctl -n kernel.unprivileged_userns_clone >/dev/null 2>&1; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+      - name: Download candidate binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.artifact-name }}
+          path: candidate-build
+          digest-mismatch: error
+      - name: Verify candidate build identity
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x candidate-build/rust-doctor \
+            candidate-build/ep006-trusted-mutation
+          jq -e \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg oracle_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)" \
+            --arg fixture_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)" \
+            --arg policy_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-promotion-policy.json | cut -d' ' -f1)" \
+            --arg main_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation-main.rs | cut -d' ' -f1)" \
+            --arg binary_sha256 "$(sha256sum candidate-build/rust-doctor | cut -d' ' -f1)" \
+            --arg mutation_binary_sha256 "$(sha256sum candidate-build/ep006-trusted-mutation | cut -d' ' -f1)" \
+            '
+              .schema_version == "1.0"
+              and .candidate_sha == $candidate_sha
+              and .trusted_revision == $trusted_revision
+              and .workflow_run_id == $run_id
+              and .oracle_sha256 == $oracle_sha256
+              and .fixture_sha256 == $fixture_sha256
+              and .policy_sha256 == $policy_sha256
+              and .main_sha256 == $main_sha256
+              and .binary_sha256 == $binary_sha256
+              and .mutation_binary_sha256 == $mutation_binary_sha256
+            ' candidate-build/build-identity.json >/dev/null
+          artifact_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILD_ARTIFACT_ID}")
+          jq -e \
+            --argjson artifact_id "$BUILD_ARTIFACT_ID" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg digest "$BUILD_ARTIFACT_DIGEST" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            '
+              .id == $artifact_id
+              and .name == "ep006-candidate-binaries"
+              and .expired == false
+              and .digest == $digest
+              and .workflow_run.id == $run_id
+              and .workflow_run.head_sha == $trusted_revision
+            ' <<<"$artifact_json" >/dev/null
+      - name: Record sandboxed production-rule mutation evidence
+        env:
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          bwrap \
+            --die-with-parent \
+            --new-session \
+            --unshare-net \
+            --ro-bind / / \
+            --dev /dev \
+            --proc /proc \
+            --tmpfs /tmp \
+            --clearenv \
+            --setenv HOME /tmp \
+            --setenv TMPDIR /tmp \
+            --chdir "$GITHUB_WORKSPACE" \
+            "$GITHUB_WORKSPACE/candidate-build/ep006-trusted-mutation" \
+            2>&1 | tee evidence/mutation-test.log
+          jq -n \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg oracle_revision "$GITHUB_SHA" \
+            --slurpfile policy trusted/evaluation/trusted/ep006-promotion-policy.json \
+            '{
+              schema_version: "1.0",
+              oracle_revision: $oracle_revision,
+              candidate_sha: $candidate_sha,
+              execution_configuration: "production",
+              sandboxed: true,
+              mutations_per_rule: 1000,
+              rules: [$policy[0].rules[].rule],
+              status: "passed"
+            }' > evidence/mutation-evidence.json
+      - name: Build trusted evaluator
+        run: |
+          cargo build \
+            --manifest-path trusted/Cargo.toml \
+            --release \
+            --bin rust-doctor-eval
+      - name: Prepare pinned public corpus with trusted evaluator
+        env:
+          RUSTUP_TOOLCHAIN: '1.97'
+        run: |
+          trusted/target/release/rust-doctor-eval prepare \
+            --manifest "$GITHUB_WORKSPACE/trusted/evaluation/corpus-v1.json" \
+            --checkout-root "$RUNNER_TEMP/ep006-corpus" \
+            --prepared-out "$RUNNER_TEMP/ep006-prepared.json"
+      - name: Execute offline candidate corpus with trusted evaluator
+        env:
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/ep006-prepared.json" evidence/prepared.json
+          set +e
+          trusted/scripts/evaluation/run-in-delegated-cgroup.sh \
+            env HOME="$HOME" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$HOME/.rustup" \
+            RUSTUP_TOOLCHAIN=1.97 PATH="$PATH" \
+            trusted/target/release/rust-doctor-eval corpus \
+            --manifest "$GITHUB_WORKSPACE/trusted/evaluation/corpus-v1.json" \
+            --prepared "$RUNNER_TEMP/ep006-prepared.json" \
+            --checkout-root "$RUNNER_TEMP/ep006-corpus" \
+            --binary "$GITHUB_WORKSPACE/candidate-build/rust-doctor" \
+            --tool-revision "$CANDIDATE_SHA" \
+            --output-limit-mib 256 \
+            --output "$GITHUB_WORKSPACE/evidence/corpus-candidate.ndjson"
+          corpus_status=$?
+          set -e
+          test "$corpus_status" -eq 0 || test "$corpus_status" -eq 3
+          test "$(wc -l < evidence/corpus-candidate.ndjson)" -eq 100
+          test "$(jq -s 'map(.expected_roots | length) | add' evidence/corpus-candidate.ndjson)" -ge 250
+          test "$(jq -s 'all(.[]; (.expected_roots == .attempted_roots) and (.attempted_roots == .reported_roots))' evidence/corpus-candidate.ndjson)" = true
+          test "$(jq -s --arg revision "$CANDIDATE_SHA" \
+            'all(.[]; .tool_revision == $revision)' \
+            evidence/corpus-candidate.ndjson)" = true
+          test "$(jq -s 'all(.[]; .complete or (.attempts == 3 and (.failure_chain | length) > 0 and all(.failure_chain[]; .kind == "incomplete_report") and ([.failure_chain[].attempt] | unique) == [1,2,3] and all(.root_states[]; . == "complete" or . == "incomplete")))' evidence/corpus-candidate.ndjson)" = true
+          if jq -s -e 'all(.[]; .complete)' evidence/corpus-candidate.ndjson >/dev/null; then
+            test "$corpus_status" -eq 0
+          else
+            test "$corpus_status" -eq 3
+          fi
+          test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
+      - name: Bind candidate evidence identity
+        id: identity
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          CANDIDATE_PR: ${{ needs.validate.outputs.candidate-pr }}
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          corpus_sha256=$(sha256sum evidence/corpus-candidate.ndjson | cut -d' ' -f1)
+          mutation_sha256=$(sha256sum evidence/mutation-evidence.json | cut -d' ' -f1)
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson candidate_pr "$CANDIDATE_PR" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson build_artifact_id "$BUILD_ARTIFACT_ID" \
+            --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
+            --arg corpus_sha256 "$corpus_sha256" \
+            --arg mutation_sha256 "$mutation_sha256" \
+            '{
+              schema_version: "1.0",
+              repository: $repository,
+              candidate_pr: $candidate_pr,
+              candidate_sha: $candidate_sha,
+              trusted_revision: $trusted_revision,
+              workflow_run_id: $run_id,
+              build_artifact_id: $build_artifact_id,
+              build_artifact_digest: $build_artifact_digest,
+              corpus_sha256: $corpus_sha256,
+              mutation_sha256: $mutation_sha256
+            }' > evidence/candidate-identity.json
+          echo "corpus-sha256=$corpus_sha256" >> "$GITHUB_OUTPUT"
+          echo "mutation-sha256=$mutation_sha256" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable candidate evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep006-protected-candidate
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  evaluate:
+    name: trusted delta and empty promotion
+    needs: [validate, build, candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          path: trusted
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+      - name: Download same-run candidate evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.candidate.outputs.artifact-name }}
+          path: candidate-evidence
+          digest-mismatch: error
+      - name: Read approved corpus identity
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          approval=trusted/evaluation/approvals/corpus-baseline.json
+          echo "run-id=$(jq -er '.run_id' "$approval")" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=$(jq -er '.artifact_name' "$approval")" >> "$GITHUB_OUTPUT"
+      - name: Download approved corpus baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ steps.baseline.outputs.artifact-name }}
+          path: approved
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.baseline.outputs.run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Verify every trusted evidence member
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact-digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.candidate.outputs.artifact-id }}
+          CANDIDATE_PR: ${{ needs.validate.outputs.candidate-pr }}
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+          CORPUS_SHA256: ${{ needs.candidate.outputs.corpus-sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          MUTATION_SHA256: ${{ needs.candidate.outputs.mutation-sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          policy=trusted/evaluation/trusted/ep006-promotion-policy.json
+          expected_rules=$(jq -c '[.rules[].rule]' "$policy")
+          test "$(sha256sum candidate-evidence/corpus-candidate.ndjson | cut -d' ' -f1)" \
+            = "$CORPUS_SHA256"
+          test "$(sha256sum candidate-evidence/mutation-evidence.json | cut -d' ' -f1)" \
+            = "$MUTATION_SHA256"
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson candidate_pr "$CANDIDATE_PR" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson build_artifact_id "$BUILD_ARTIFACT_ID" \
+            --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
+            --arg corpus_sha256 "$CORPUS_SHA256" \
+            --arg mutation_sha256 "$MUTATION_SHA256" \
+            '
+              .schema_version == "1.0"
+              and .repository == $repository
+              and .candidate_pr == $candidate_pr
+              and .candidate_sha == $candidate_sha
+              and .trusted_revision == $trusted_revision
+              and .workflow_run_id == $run_id
+              and .build_artifact_id == $build_artifact_id
+              and .build_artifact_digest == $build_artifact_digest
+              and .corpus_sha256 == $corpus_sha256
+              and .mutation_sha256 == $mutation_sha256
+            ' candidate-evidence/candidate-identity.json >/dev/null
+          jq -e \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg oracle_revision "$GITHUB_SHA" \
+            --argjson expected_rules "$expected_rules" \
+            '
+              .schema_version == "1.0"
+              and .candidate_sha == $candidate_sha
+              and .oracle_revision == $oracle_revision
+              and .execution_configuration == "production"
+              and .sandboxed == true
+              and .mutations_per_rule == 1000
+              and .rules == $expected_rules
+              and .status == "passed"
+            ' candidate-evidence/mutation-evidence.json >/dev/null
+          build_artifact_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILD_ARTIFACT_ID}")
+          jq -e \
+            --argjson artifact_id "$BUILD_ARTIFACT_ID" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg digest "$BUILD_ARTIFACT_DIGEST" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            '
+              .id == $artifact_id
+              and .name == "ep006-candidate-binaries"
+              and .expired == false
+              and .digest == $digest
+              and .workflow_run.id == $run_id
+              and .workflow_run.head_sha == $trusted_revision
+            ' <<<"$build_artifact_json" >/dev/null
+          candidate_artifact_json=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${CANDIDATE_ARTIFACT_ID}")
+          jq -e \
+            --argjson artifact_id "$CANDIDATE_ARTIFACT_ID" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg digest "$CANDIDATE_ARTIFACT_DIGEST" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            '
+              .id == $artifact_id
+              and .name == "ep006-protected-candidate"
+              and .expired == false
+              and .digest == $digest
+              and .workflow_run.id == $run_id
+              and .workflow_run.head_sha == $trusted_revision
+            ' <<<"$candidate_artifact_json" >/dev/null
+          trusted/scripts/evaluation/verify-approved-artifact.sh \
+            trusted/evaluation/approvals/corpus-baseline.json \
+            approved/corpus-baseline.ndjson \
+            ep003-corpus-baseline \
+            .github/workflows/ep003-baseline.yml
+      - name: Execute trusted diagnostic delta
+        id: delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cargo build \
+            --manifest-path trusted/Cargo.toml \
+            --release \
+            --bin rust-doctor-eval
+          set +e
+          trusted/target/release/rust-doctor-eval delta \
+            --baseline approved/corpus-baseline.ndjson \
+            --baseline-approval trusted/evaluation/approvals/corpus-baseline.json \
+            --candidate candidate-evidence/corpus-candidate.ndjson \
+            --output evidence/delta.json
+          delta_status=$?
+          set -e
+          test "$delta_status" -eq 0 || test "$delta_status" -eq 3
+          echo "$delta_status" > evidence/delta-exit-status.txt
+          echo "status=$delta_status" >> "$GITHUB_OUTPUT"
+      - name: Prove unchanged thresholds and empty promotion
+        env:
+          BUILD_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+          BUILD_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.candidate.outputs.artifact-digest }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.candidate.outputs.artifact-id }}
+          CANDIDATE_ARTIFACT_NAME: ${{ needs.candidate.outputs.artifact-name }}
+          CANDIDATE_PR: ${{ needs.validate.outputs.candidate-pr }}
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
+          DELTA_STATUS: ${{ steps.delta.outputs.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          policy=trusted/evaluation/trusted/ep006-promotion-policy.json
+          expected_rules=$(jq -c '[.rules[].rule]' "$policy")
+          test "$(jq -r '.decision' "$policy")" = "no_default_promotions"
+          jq -e '
+            .thresholds.max_affected_complete_roots_percent == 0.5
+            and .thresholds.max_incomplete_root_change_percentage_points == 0.2
+            and .thresholds.max_confirmed_false_positive_percent == 2.0
+            and all(.rules[]; .decision == "keep_opt_in")
+          ' "$policy" >/dev/null
+          jq -s -e --argjson expected "$expected_rules" '
+            all(.[];
+              . as $record
+              | all($expected[];
+                  ($record.catalog[.] != null)
+                  and ($record.catalog[.].default_enabled == false)
+                )
+            )
+          ' candidate-evidence/corpus-candidate.ndjson >/dev/null
+          jq -e --argjson expected "$expected_rules" --argjson status "$DELTA_STATUS" '
+            (.promotion_reviews | length) == 0
+            and .incomplete_root_change_percentage_points <= 0.2
+            and (($status == 0 and (.blocked | not)) or ($status == 3 and .blocked))
+            and all(.reasons[];
+              capture("^rule (?<rule>[^ ]+) changed across [0-9.]+% of complete roots, above 0.5%$").rule
+              as $rule
+              | ($expected | index($rule)) != null
+            )
+          ' evidence/delta.json >/dev/null
+          corpus_sha256=$(sha256sum candidate-evidence/corpus-candidate.ndjson | cut -d' ' -f1)
+          delta_sha256=$(sha256sum evidence/delta.json | cut -d' ' -f1)
+          mutation_sha256=$(sha256sum candidate-evidence/mutation-evidence.json | cut -d' ' -f1)
+          cp candidate-evidence/candidate-identity.json evidence/
+          cp candidate-evidence/mutation-evidence.json evidence/
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson candidate_pr "$CANDIDATE_PR" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg trusted_revision "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson build_artifact_id "$BUILD_ARTIFACT_ID" \
+            --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
+            --argjson candidate_artifact_id "$CANDIDATE_ARTIFACT_ID" \
+            --arg candidate_artifact_name "$CANDIDATE_ARTIFACT_NAME" \
+            --arg candidate_artifact_digest "$CANDIDATE_ARTIFACT_DIGEST" \
+            --arg corpus_sha256 "$corpus_sha256" \
+            --arg delta_sha256 "$delta_sha256" \
+            --arg mutation_sha256 "$mutation_sha256" \
+            --argjson delta_status "$DELTA_STATUS" \
+            --slurpfile policy "$policy" \
+            --slurpfile delta evidence/delta.json \
+            --slurpfile candidate candidate-evidence/corpus-candidate.ndjson \
+            '{
+              schema_version: "1.0",
+              epic: "EP-006",
+              stories: ["US-031", "US-032", "US-033"],
+              repository: $repository,
+              candidate_pr: $candidate_pr,
+              candidate_sha: $candidate_sha,
+              trusted_revision: $trusted_revision,
+              workflow_run_id: $run_id,
+              decision: "no_default_promotions",
+              success: true,
+              thresholds: $policy[0].thresholds,
+              promoted_rules: [],
+              kept_opt_in: [
+                $policy[0].rules[] as $entry
+                | {
+                    rule: $entry.rule,
+                    story: $entry.story,
+                    decision: $entry.decision,
+                    reason: $entry.reason,
+                    corpus_occurrences: (
+                      [$candidate[] | (.per_rule_counts[$entry.rule] // 0)] | add
+                    )
+                  }
+              ],
+              false_positive_review: {
+                required_before_default_activation: true,
+                reviewed_rules: [],
+                status: "not_required_for_empty_promotion"
+              },
+              build_artifact: {
+                id: $build_artifact_id,
+                name: "ep006-candidate-binaries",
+                digest: $build_artifact_digest
+              },
+              candidate_artifact: {
+                id: $candidate_artifact_id,
+                name: $candidate_artifact_name,
+                digest: $candidate_artifact_digest,
+                corpus_sha256: $corpus_sha256,
+                mutation_sha256: $mutation_sha256
+              },
+              delta: {
+                sha256: $delta_sha256,
+                exit_status: $delta_status,
+                blocked: $delta[0].blocked,
+                reasons: $delta[0].reasons,
+                affected_root_percent: $delta[0].affected_root_percent,
+                incomplete_root_change_percentage_points:
+                  $delta[0].incomplete_root_change_percentage_points,
+                complete_baseline_roots: $delta[0].complete_baseline_roots,
+                complete_candidate_roots: $delta[0].complete_candidate_roots
+              }
+            }' > evidence/promotion-evidence.json
+      - name: Upload final protected evidence
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep006-protected-promotion
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Emit final artifact identity
+        if: always()
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
