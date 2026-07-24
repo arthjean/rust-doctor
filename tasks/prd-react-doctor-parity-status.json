@@ -93,12 +93,12 @@
     {
       "id": "EP-005",
       "title": "CI, Distribution and Editor Surfaces",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 7,
-      "stories_done": 6,
+      "stories_done": 7,
       "reviewed_at": "2026-07-24T07:07:53Z",
-      "remaining_gate": "US-025 requires the candidate SHA to pass the five-platform release matrix on Linux x64, Linux arm64, macOS x64, macOS arm64 and Windows x64.",
+      "certified_at": "2026-07-24T10:12:34Z",
       "evidence": [
         "cargo fmt --check",
         "cargo +1.97 check --all-targets",
@@ -111,7 +111,8 @@
         "cargo deny check",
         "local Linux x64 packed crate, npm and native archive smoke passed",
         "VS Code/Cursor and Zed package gates passed against the real LSP server",
-        "independent DEEP Git and shell review completed with no remaining HIGH or MEDIUM finding"
+        "independent DEEP Git and shell review completed with no remaining HIGH or MEDIUM finding",
+        "CI success: https://github.com/arthjean/rust-doctor/actions/runs/30083976100 at 423838661e51a7721c14c9c50ccfc345815e8956; five-platform release matrix passed on Linux x64, Linux arm64, macOS x64, macOS arm64 and Windows x64"
       ]
     },
     {
@@ -645,7 +646,7 @@
       "id": "US-025",
       "title": "Make release and package publication reproducible",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-016", "US-023", "US-024"],
@@ -653,11 +654,12 @@
       "completed_at": "2026-07-22T14:05:54Z",
       "reviewed_at": "2026-07-24T07:07:53Z",
       "implementation_complete_at": "2026-07-24T07:07:53Z",
-      "remaining_gate": "Run the five-platform release build and packed smoke matrix on the committed candidate SHA.",
+      "certified_at": "2026-07-24T10:12:34Z",
       "evidence": [
         "local Linux x64 rust-doctor-eval smoke passed for default and no-default binaries, generated .crate, packed npm wrapper and platform tarballs, and the checksummed extracted native archive",
         "cargo package --locked --allow-dirty passed locally; release CI uses cargo package --locked on a clean candidate",
-        ".github/workflows/release.yml defines all five required target builds and final-artifact smokes"
+        ".github/workflows/release.yml defines all five required target builds and final-artifact smokes",
+        "CI success: https://github.com/arthjean/rust-doctor/actions/runs/30083976100 at 423838661e51a7721c14c9c50ccfc345815e8956; final .crate, npm wrapper and native archive smoke passed on Linux x64, Linux arm64, macOS x64, macOS arm64 and Windows x64"
       ]
     },
     {
