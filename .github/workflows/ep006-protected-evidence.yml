@@ -90,36 +90,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: '1.97'
-      - name: Inject production-configuration mutation runner
-        shell: bash
-        run: |
-          set -euo pipefail
-          rules=candidate/src/passes/static_analysis/rules
-          test -d "$rules" && test ! -L "$rules"
-          test -f "$rules/mod.rs" && test ! -L "$rules/mod.rs"
-          test -f candidate/src/lib.rs && test ! -L candidate/src/lib.rs
-          test ! -e "$rules/ep006_trusted_mutation.rs" \
-            && test ! -L "$rules/ep006_trusted_mutation.rs"
-          test ! -e "$rules/ep006-trusted-conformance.txt" \
-            && test ! -L "$rules/ep006-trusted-conformance.txt"
-          test ! -e "$rules/ep006-trusted-policy.json" \
-            && test ! -L "$rules/ep006-trusted-policy.json"
-          test ! -e candidate/src/bin/ep006-trusted-mutation.rs \
-            && test ! -L candidate/src/bin/ep006-trusted-mutation.rs
-          ! grep -q 'ep006_trusted_mutation' "$rules/mod.rs"
-          ! grep -q 'run_ep006_trusted_mutation' candidate/src/lib.rs
-          cp trusted/evaluation/trusted/ep006-mutation.rs \
-            "$rules/ep006_trusted_mutation.rs"
-          cp trusted/evaluation/trusted/ep006-conformance.txt \
-            "$rules/ep006-trusted-conformance.txt"
-          cp trusted/evaluation/trusted/ep006-promotion-policy.json \
-            "$rules/ep006-trusted-policy.json"
-          cp trusted/evaluation/trusted/ep006-mutation-main.rs \
-            candidate/src/bin/ep006-trusted-mutation.rs
-          printf '\n#[cfg(ep006_trusted_mutation)]\npub(crate) mod ep006_trusted_mutation;\n' \
-            >> "$rules/mod.rs"
-          printf '\n#[cfg(ep006_trusted_mutation)]\n#[doc(hidden)]\npub fn run_ep006_trusted_mutation() -> i32 {\n    passes::static_analysis::rules::ep006_trusted_mutation::run()\n}\n' \
-            >> candidate/src/lib.rs
       - name: Build untrusted candidate artifacts
         shell: bash
         run: |
@@ -159,16 +129,8 @@ jobs:
             -- "$cargo_bin" fetch --locked
           "${sandbox[@]}" \
             -- "$cargo_bin" build --locked --release --bin rust-doctor
-          "${sandbox[@]}" \
-            --setenv RUSTFLAGS \
-              '--cfg ep006_trusted_mutation --check-cfg=cfg(ep006_trusted_mutation)' \
-            -- "$cargo_bin" build \
-              --locked \
-              --release \
-              --bin ep006-trusted-mutation
           mkdir -p build-evidence
           cp "$target/release/rust-doctor" build-evidence/
-          cp "$target/release/ep006-trusted-mutation" build-evidence/
       - name: Bind build inputs and outputs
         env:
           CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
@@ -179,23 +141,13 @@ jobs:
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg trusted_revision "$GITHUB_SHA" \
             --argjson run_id "$GITHUB_RUN_ID" \
-            --arg oracle_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)" \
-            --arg fixture_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)" \
-            --arg policy_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-promotion-policy.json | cut -d' ' -f1)" \
-            --arg main_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation-main.rs | cut -d' ' -f1)" \
             --arg binary_sha256 "$(sha256sum build-evidence/rust-doctor | cut -d' ' -f1)" \
-            --arg mutation_binary_sha256 "$(sha256sum build-evidence/ep006-trusted-mutation | cut -d' ' -f1)" \
             '{
-              schema_version: "1.0",
+              schema_version: "1.1",
               candidate_sha: $candidate_sha,
               trusted_revision: $trusted_revision,
               workflow_run_id: $run_id,
-              oracle_sha256: $oracle_sha256,
-              fixture_sha256: $fixture_sha256,
-              policy_sha256: $policy_sha256,
-              main_sha256: $main_sha256,
-              binary_sha256: $binary_sha256,
-              mutation_binary_sha256: $mutation_binary_sha256
+              binary_sha256: $binary_sha256
             }' > build-evidence/build-identity.json
       - name: Upload untrusted candidate binaries
         id: upload
@@ -253,29 +205,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x candidate-build/rust-doctor \
-            candidate-build/ep006-trusted-mutation
+          chmod +x candidate-build/rust-doctor
           jq -e \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg trusted_revision "$GITHUB_SHA" \
             --argjson run_id "$GITHUB_RUN_ID" \
-            --arg oracle_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)" \
-            --arg fixture_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)" \
-            --arg policy_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-promotion-policy.json | cut -d' ' -f1)" \
-            --arg main_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation-main.rs | cut -d' ' -f1)" \
             --arg binary_sha256 "$(sha256sum candidate-build/rust-doctor | cut -d' ' -f1)" \
-            --arg mutation_binary_sha256 "$(sha256sum candidate-build/ep006-trusted-mutation | cut -d' ' -f1)" \
             '
-              .schema_version == "1.0"
+              .schema_version == "1.1"
               and .candidate_sha == $candidate_sha
               and .trusted_revision == $trusted_revision
               and .workflow_run_id == $run_id
-              and .oracle_sha256 == $oracle_sha256
-              and .fixture_sha256 == $fixture_sha256
-              and .policy_sha256 == $policy_sha256
-              and .main_sha256 == $main_sha256
               and .binary_sha256 == $binary_sha256
-              and .mutation_binary_sha256 == $mutation_binary_sha256
             ' candidate-build/build-identity.json >/dev/null
           artifact_json=$(gh api \
             "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILD_ARTIFACT_ID}")
@@ -292,7 +233,18 @@ jobs:
               and .workflow_run.id == $run_id
               and .workflow_run.head_sha == $trusted_revision
             ' <<<"$artifact_json" >/dev/null
-      - name: Record sandboxed production-rule mutation evidence
+      - name: Build trusted external mutation oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          oracle=trusted/src/bin/ep006-protected-mutation.rs
+          test ! -e "$oracle" && test ! -L "$oracle"
+          cp trusted/evaluation/trusted/ep006-mutation.rs "$oracle"
+          cargo build \
+            --manifest-path trusted/Cargo.toml \
+            --release \
+            --bin ep006-protected-mutation
+      - name: Record sandboxed exact-production mutation evidence
         env:
           CANDIDATE_SHA: ${{ needs.validate.outputs.candidate-sha }}
         shell: bash
@@ -310,18 +262,33 @@ jobs:
             --clearenv \
             --setenv HOME /tmp \
             --setenv TMPDIR /tmp \
+            --setenv CARGO_HOME "$CARGO_HOME" \
+            --setenv RUSTUP_HOME "$HOME/.rustup" \
+            --setenv RUSTUP_TOOLCHAIN 1.97 \
+            --setenv PATH "$PATH" \
             --chdir "$GITHUB_WORKSPACE" \
-            "$GITHUB_WORKSPACE/candidate-build/ep006-trusted-mutation" \
+            "$GITHUB_WORKSPACE/trusted/target/release/ep006-protected-mutation" \
+            "$GITHUB_WORKSPACE/candidate-build/rust-doctor" \
+            "$GITHUB_WORKSPACE/trusted/evaluation/trusted/ep006-conformance.txt" \
+            "$GITHUB_WORKSPACE/trusted/evaluation/trusted/ep006-promotion-policy.json" \
             2>&1 | tee evidence/mutation-test.log
           jq -n \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg oracle_revision "$GITHUB_SHA" \
+            --arg oracle_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)" \
+            --arg fixture_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)" \
+            --arg policy_sha256 "$(sha256sum trusted/evaluation/trusted/ep006-promotion-policy.json | cut -d' ' -f1)" \
+            --arg production_binary_sha256 "$(sha256sum candidate-build/rust-doctor | cut -d' ' -f1)" \
             --slurpfile policy trusted/evaluation/trusted/ep006-promotion-policy.json \
             '{
-              schema_version: "1.0",
+              schema_version: "1.1",
               oracle_revision: $oracle_revision,
+              oracle_sha256: $oracle_sha256,
+              fixture_sha256: $fixture_sha256,
+              policy_sha256: $policy_sha256,
               candidate_sha: $candidate_sha,
-              execution_configuration: "production",
+              production_binary_sha256: $production_binary_sha256,
+              execution_configuration: "exact-production-binary",
               sandboxed: true,
               mutations_per_rule: 1000,
               rules: [$policy[0].rules[].rule],
@@ -388,6 +355,7 @@ jobs:
           set -euo pipefail
           corpus_sha256=$(sha256sum evidence/corpus-candidate.ndjson | cut -d' ' -f1)
           mutation_sha256=$(sha256sum evidence/mutation-evidence.json | cut -d' ' -f1)
+          production_binary_sha256=$(sha256sum candidate-build/rust-doctor | cut -d' ' -f1)
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --argjson candidate_pr "$CANDIDATE_PR" \
@@ -398,6 +366,7 @@ jobs:
             --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
             --arg corpus_sha256 "$corpus_sha256" \
             --arg mutation_sha256 "$mutation_sha256" \
+            --arg production_binary_sha256 "$production_binary_sha256" \
             '{
               schema_version: "1.0",
               repository: $repository,
@@ -408,7 +377,8 @@ jobs:
               build_artifact_id: $build_artifact_id,
               build_artifact_digest: $build_artifact_digest,
               corpus_sha256: $corpus_sha256,
-              mutation_sha256: $mutation_sha256
+              mutation_sha256: $mutation_sha256,
+              production_binary_sha256: $production_binary_sha256
             }' > evidence/candidate-identity.json
           echo "corpus-sha256=$corpus_sha256" >> "$GITHUB_OUTPUT"
           echo "mutation-sha256=$mutation_sha256" >> "$GITHUB_OUTPUT"
@@ -475,6 +445,12 @@ jobs:
           set -euo pipefail
           policy=trusted/evaluation/trusted/ep006-promotion-policy.json
           expected_rules=$(jq -c '[.rules[].rule]' "$policy")
+          oracle_sha256=$(sha256sum trusted/evaluation/trusted/ep006-mutation.rs | cut -d' ' -f1)
+          fixture_sha256=$(sha256sum trusted/evaluation/trusted/ep006-conformance.txt | cut -d' ' -f1)
+          policy_sha256=$(sha256sum "$policy" | cut -d' ' -f1)
+          production_binary_sha256=$(jq -er \
+            '.production_binary_sha256' \
+            candidate-evidence/candidate-identity.json)
           test "$(sha256sum candidate-evidence/corpus-candidate.ndjson | cut -d' ' -f1)" \
             = "$CORPUS_SHA256"
           test "$(sha256sum candidate-evidence/mutation-evidence.json | cut -d' ' -f1)" \
@@ -489,6 +465,7 @@ jobs:
             --arg build_artifact_digest "$BUILD_ARTIFACT_DIGEST" \
             --arg corpus_sha256 "$CORPUS_SHA256" \
             --arg mutation_sha256 "$MUTATION_SHA256" \
+            --arg production_binary_sha256 "$production_binary_sha256" \
             '
               .schema_version == "1.0"
               and .repository == $repository
@@ -500,16 +477,25 @@ jobs:
               and .build_artifact_digest == $build_artifact_digest
               and .corpus_sha256 == $corpus_sha256
               and .mutation_sha256 == $mutation_sha256
+              and .production_binary_sha256 == $production_binary_sha256
             ' candidate-evidence/candidate-identity.json >/dev/null
           jq -e \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg oracle_revision "$GITHUB_SHA" \
+            --arg oracle_sha256 "$oracle_sha256" \
+            --arg fixture_sha256 "$fixture_sha256" \
+            --arg policy_sha256 "$policy_sha256" \
+            --arg production_binary_sha256 "$production_binary_sha256" \
             --argjson expected_rules "$expected_rules" \
             '
-              .schema_version == "1.0"
+              .schema_version == "1.1"
               and .candidate_sha == $candidate_sha
               and .oracle_revision == $oracle_revision
-              and .execution_configuration == "production"
+              and .oracle_sha256 == $oracle_sha256
+              and .fixture_sha256 == $fixture_sha256
+              and .policy_sha256 == $policy_sha256
+              and .production_binary_sha256 == $production_binary_sha256
+              and .execution_configuration == "exact-production-binary"
               and .sandboxed == true
               and .mutations_per_rule == 1000
               and .rules == $expected_rules
@@ -608,12 +594,9 @@ jobs:
           jq -e --argjson expected "$expected_rules" --argjson status "$DELTA_STATUS" '
             (.promotion_reviews | length) == 0
             and .incomplete_root_change_percentage_points <= 0.2
-            and (($status == 0 and (.blocked | not)) or ($status == 3 and .blocked))
-            and all(.reasons[];
-              capture("^rule (?<rule>[^ ]+) changed across [0-9.]+% of complete roots, above 0.5%$").rule
-              as $rule
-              | ($expected | index($rule)) != null
-            )
+            and $status == 0
+            and (.blocked | not)
+            and (.reasons | length) == 0
           ' evidence/delta.json >/dev/null
           corpus_sha256=$(sha256sum candidate-evidence/corpus-candidate.ndjson | cut -d' ' -f1)
           delta_sha256=$(sha256sum evidence/delta.json | cut -d' ' -f1)
@@ -648,7 +631,7 @@ jobs:
               trusted_revision: $trusted_revision,
               workflow_run_id: $run_id,
               decision: "no_default_promotions",
-              success: true,
+              success: ($delta_status == 0 and ($delta[0].blocked | not)),
               thresholds: $policy[0].thresholds,
               promoted_rules: [],
               kept_opt_in: [
