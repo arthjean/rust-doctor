@@ -5,17 +5,6 @@ write_output() {
   printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
 }
 
-if [[ "$SKIP_SCAN" == true ]]; then
-  write_output score ""
-  write_output errors 0
-  write_output warnings 0
-  write_output outcome skipped
-  write_output completeness complete
-  write_output report-file ""
-  write_output exit-code 0
-  exit 0
-fi
-
 case "$INPUT_BLOCKING" in
   error|warning|info|none) ;;
   *) echo "::error::blocking must be error, warning, info, or none"; exit 2 ;;
@@ -41,35 +30,41 @@ if [[ -n "$INPUT_MAX_DURATION" ]]; then
   ARGS+=(--max-duration "$INPUT_MAX_DURATION")
 fi
 
-case "$RESOLVED_SCOPE" in
-  full) ARGS+=(--scope full) ;;
-  changed) ARGS+=(--scope changed --base "$BASE_SHA") ;;
-  baseline) ARGS+=(--baseline --base "$BASE_SHA") ;;
-  staged) ARGS+=(--staged) ;;
-  api-files)
-    ARGS+=(--scope files)
-    FILE_COUNT=0
-    while IFS= read -r -d '' path; do
-      case "$path" in
-        *.rs)
-          candidate="$path"
-          if [[ "$candidate" != /* ]]; then
-            candidate="$(git -C "$SCAN_ROOT" rev-parse --show-toplevel)/$candidate"
-          fi
-          if [[ "$candidate" == "$SCAN_ROOT"/* ]]; then
-            ARGS+=(--files "$candidate")
-            FILE_COUNT=$((FILE_COUNT + 1))
-          fi
-          ;;
-      esac
-    done < "$CHANGED_PATHS_FILE"
-    if [[ "$FILE_COUNT" -eq 0 ]]; then
-      ARGS=("$SCAN_ROOT" --json-out "$REPORT_FILE" --blocking "$INPUT_BLOCKING" --scope full)
-      [[ "$INPUT_REQUIRE_COMPLETE" == true ]] && ARGS+=(--require-complete)
-    fi
-    ;;
-  *) echo "::error::internal invalid resolved scope '$RESOLVED_SCOPE'"; exit 2 ;;
-esac
+SCOPE_MARKER=""
+if [[ "$SKIP_SCAN" == true ]]; then
+  SCOPE_MARKER=$(mktemp "$SCAN_ROOT/.rust-doctor-action-scope.XXXXXX")
+  trap '[[ -z "$SCOPE_MARKER" ]] || rm -f -- "$SCOPE_MARKER"' EXIT
+  MARKER_RELATIVE=$(realpath --relative-to="$SCAN_ROOT" "$SCOPE_MARKER")
+  ARGS+=(--scope files --files "$MARKER_RELATIVE")
+else
+  case "$RESOLVED_SCOPE" in
+    full) ARGS+=(--scope full) ;;
+    changed) ARGS+=(--scope changed --base "$BASE_SHA") ;;
+    baseline) ARGS+=(--baseline --base "$BASE_SHA") ;;
+    staged) ARGS+=(--staged) ;;
+    api-files)
+      ARGS+=(--scope files)
+      FILE_COUNT=0
+      while IFS= read -r -d '' path; do
+        case "$path" in
+          *.rs)
+            candidate=$(realpath -m -- "$GIT_ROOT/$path")
+            if [[ "$candidate" == "$SCAN_ROOT"/* && -f "$candidate" ]]; then
+              relative=$(realpath --relative-to="$SCAN_ROOT" "$candidate")
+              ARGS+=(--files "$relative")
+              FILE_COUNT=$((FILE_COUNT + 1))
+            fi
+            ;;
+        esac
+      done < "$CHANGED_PATHS_FILE"
+      if [[ "$FILE_COUNT" -eq 0 ]]; then
+        ARGS=("$SCAN_ROOT" --json-out "$REPORT_FILE" --blocking "$INPUT_BLOCKING" --scope full)
+        [[ "$INPUT_REQUIRE_COMPLETE" == true ]] && ARGS+=(--require-complete)
+      fi
+      ;;
+    *) echo "::error::internal invalid resolved scope '$RESOLVED_SCOPE'"; exit 2 ;;
+  esac
+fi
 
 if [[ -n "$DEGRADED_REASON" ]]; then
   echo "::warning::$DEGRADED_REASON"
@@ -81,7 +76,7 @@ EXIT_CODE=$?
 set -e
 [[ "$EXIT_CODE" =~ ^[0-4]$ ]] || EXIT_CODE=2
 
-if [[ ! -s "$REPORT_FILE" ]] || ! jq -e '.schema_version | startswith("1")' "$REPORT_FILE" >/dev/null 2>&1; then
+if [[ ! -s "$REPORT_FILE" ]] || ! rust-doctor validate-report "$REPORT_FILE" >/dev/null 2>&1; then
   echo "::error::rust-doctor did not produce a valid Report V1"
   rm -f "$REPORT_FILE"
   write_output score ""
@@ -90,6 +85,17 @@ if [[ ! -s "$REPORT_FILE" ]] || ! jq -e '.schema_version | startswith("1")' "$RE
   write_output outcome failed
   write_output completeness incomplete
   write_output report-file ""
+  write_output exit-code 2
+  exit 0
+fi
+if [[ "$SKIP_SCAN" == true ]] && ! jq -e '.outcome == "nothing_to_scan"' "$REPORT_FILE" >/dev/null; then
+  echo "::error::irrelevant-only scope did not produce a nothing_to_scan Report V1"
+  write_output score ""
+  write_output errors 0
+  write_output warnings 0
+  write_output outcome failed
+  write_output completeness incomplete
+  write_output report-file "$REPORT_FILE"
   write_output exit-code 2
   exit 0
 fi

@@ -99,14 +99,13 @@ runs:
 
     - name: Restore Rust Doctor binary
       id: tool-cache
-      if: steps.prepare.outputs.skip != 'true'
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/.cargo/bin/rust-doctor
         key: rust-doctor-tool-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
 
     - name: Install exact Rust Doctor version
-      if: steps.prepare.outputs.skip != 'true' && steps.tool-cache.outputs.cache-hit != 'true'
+      if: steps.tool-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
@@ -123,7 +122,6 @@ runs:
         fi
 
     - name: Verify installed binary
-      if: steps.prepare.outputs.skip != 'true'
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
@@ -151,9 +149,11 @@ runs:
         INPUT_REQUIRE_COMPLETE: ${{ inputs.require-complete }}
         INPUT_MAX_DURATION: ${{ inputs.max-duration }}
         RESOLVED_SCOPE: ${{ steps.prepare.outputs.scope }}
+        REQUESTED_SCOPE: ${{ steps.prepare.outputs.requested-scope }}
         BASE_SHA: ${{ steps.prepare.outputs.base-sha }}
         CHANGED_PATHS_FILE: ${{ steps.prepare.outputs.changed-paths-file }}
         SCAN_ROOT: ${{ steps.prepare.outputs.scan-root }}
+        GIT_ROOT: ${{ steps.prepare.outputs.git-root }}
         SKIP_SCAN: ${{ steps.prepare.outputs.skip }}
         DEGRADED_REASON: ${{ steps.prepare.outputs.degraded-reason }}
         RUNNER_TEMP: ${{ runner.temp }}
@@ -165,6 +165,8 @@ runs:
       shell: bash
       env:
         REPORT_FILE: ${{ steps.scan.outputs.report-file }}
+        SCAN_ROOT: ${{ steps.prepare.outputs.scan-root }}
+        GIT_ROOT: ${{ steps.prepare.outputs.git-root }}
         RUNNER_TEMP: ${{ runner.temp }}
       run: bash "$GITHUB_ACTION_PATH/scripts/action/sarif.sh"
 
@@ -197,12 +199,27 @@ runs:
         REPOSITORY: ${{ github.repository }}
         COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         BASE_SHA: ${{ steps.prepare.outputs.base-sha }}
+        SCAN_ROOT: ${{ steps.prepare.outputs.scan-root }}
+        GIT_ROOT: ${{ steps.prepare.outputs.git-root }}
+        DEGRADED_REASON: ${{ steps.prepare.outputs.degraded-reason }}
         SERVER_URL: ${{ github.server_url }}
         RUN_ID: ${{ github.run_id }}
         RUN_ATTEMPT: ${{ github.run_attempt }}
         EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
         SKIP_SCAN: ${{ steps.prepare.outputs.skip }}
       run: bash "$GITHUB_ACTION_PATH/scripts/action/report.sh"
+
+    - name: Report unavailable token-backed channels
+      if: inputs.token == '' && (inputs.comment == 'true' || inputs.review-comments == 'true' || inputs.commit-status == 'true')
+      shell: bash
+      env:
+        COMMENT_ENABLED: ${{ inputs.comment }}
+        REVIEW_COMMENTS_ENABLED: ${{ inputs.review-comments }}
+        COMMIT_STATUS_ENABLED: ${{ inputs.commit-status }}
+      run: |
+        [[ "$COMMENT_ENABLED" != true ]] || echo "::warning::Rust Doctor comment channel skipped: token is unavailable"
+        [[ "$REVIEW_COMMENTS_ENABLED" != true ]] || echo "::warning::Rust Doctor review-comment channel skipped: token is unavailable"
+        [[ "$COMMIT_STATUS_ENABLED" != true ]] || echo "::warning::Rust Doctor status channel skipped: token is unavailable"
 
     - name: Enforce scan outcome
       if: always() && steps.scan.outputs.exit-code != '0'

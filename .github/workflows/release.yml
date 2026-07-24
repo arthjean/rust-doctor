@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +18,14 @@ jobs:
         with:
           bun-version: latest
       - name: Validate tag and package versions
+        if: github.event_name == 'push'
         run: bun scripts/release/packages.ts validate "$GITHUB_REF_NAME"
+      - name: Validate package versions for verification
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          bun scripts/release/packages.ts validate "v${version}"
 
   build:
     name: Build and smoke ${{ matrix.target }}
@@ -82,6 +90,17 @@ jobs:
           binary="target/${{ matrix.target }}/release/${{ matrix.binary }}"
           bun scripts/release/packages.ts pack "${{ matrix.platform }}" "$binary" artifacts
 
+      - name: Checksum final native archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+          fi
+
       - name: Exercise built and final packaged surfaces
         shell: bash
         run: |
@@ -110,6 +129,7 @@ jobs:
   release:
     name: Publish immutable GitHub assets
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -163,6 +183,7 @@ jobs:
   publish-crate:
     name: Publish crates.io package
     needs: release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -198,11 +219,12 @@ jobs:
         if: steps.crate-state.outputs.publish == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --locked --no-verify
+        run: cargo publish --locked
 
   publish-npm:
     name: Verify or publish npm packages
     needs: [release, publish-crate]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -221,6 +243,7 @@ jobs:
   propose-action-major:
     name: Propose action major upgrade
     needs: publish-npm
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write

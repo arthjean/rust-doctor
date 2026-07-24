@@ -474,6 +474,14 @@ pub enum Command {
     Telemetry(TelemetryArgs),
     /// Show Rust Doctor and local Rust toolchain information
     Version,
+    /// Validate a Report V1 instance against the checked Draft 2020-12 schema
+    #[command(hide = true)]
+    ValidateReport(ValidateReportArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ValidateReportArgs {
+    pub path: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -1143,6 +1151,15 @@ mod tests {
         assert!(
             Cli::try_parse_from(["rust-doctor", "ci", "upgrade", "--version", "latest"]).is_err()
         );
+    }
+
+    #[test]
+    fn test_hidden_report_validator_command() {
+        let cli = Cli::try_parse_from(["rust-doctor", "validate-report", "report.json"]).unwrap();
+        let Some(Command::ValidateReport(arguments)) = cli.command else {
+            panic!("expected validate-report command");
+        };
+        assert_eq!(arguments.path, PathBuf::from("report.json"));
     }
 
     #[test]

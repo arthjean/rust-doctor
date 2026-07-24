@@ -22,7 +22,8 @@
     "build": "bun build src/extension.ts --target=node --format=cjs --external=vscode --outdir=dist",
     "typecheck": "tsc --noEmit",
     "smoke": "bun test tests",
-    "package": "bun run build && bun run typecheck && bun run smoke && bunx vsce package --no-dependencies"
+    "e2e": "bun ../lsp-e2e.ts",
+    "package": "bun run build && bun run typecheck && bun run smoke && bunx vsce package --no-dependencies && bun run e2e"
   },
   "dependencies": {
     "vscode-languageclient": "10.1.0"
@@ -83,8 +84,8 @@
         },
         "rustDoctor.configurationPath": {
           "type": "string",
-          "default": "rust-doctor.toml",
-          "description": "Project-relative Rust Doctor configuration path."
+          "default": "",
+          "description": "Optional project-relative Rust Doctor configuration path. Empty uses normal project discovery and defaults."
         },
         "rustDoctor.trace": {
           "type": "string",

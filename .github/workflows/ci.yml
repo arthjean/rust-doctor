@@ -92,3 +92,34 @@ jobs:
             --bun "$(command -v bun)" \
             --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
             --crate-package "$crate_package"
+
+  editor-adapters:
+    name: Packaged editor adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Build the real language server
+        run: cargo build --features lsp --bin rust-doctor
+
+      - name: Build, test, package, and exercise VS Code/Cursor adapter
+        working-directory: editors/vscode
+        env:
+          RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
+        run: |
+          bun install --frozen-lockfile
+          bun run package
+
+      - name: Build, test, package, and exercise Zed adapter
+        working-directory: editors/zed
+        env:
+          RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
+        run: bun run package

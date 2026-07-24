@@ -5,6 +5,7 @@
   "scripts": {
     "check": "cargo check --manifest-path Cargo.toml",
     "smoke": "bun test tests",
-    "package": "bun run check && bun run smoke"
+    "e2e": "bun ../lsp-e2e.ts",
+    "package": "bun run check && bun run smoke && bun run e2e"
   }
 }

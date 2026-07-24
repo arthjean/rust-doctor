@@ -26,7 +26,29 @@ pub fn handle(command: &Command) -> ExitCode {
             print_version_report();
             ExitCode::SUCCESS
         }
+        Command::ValidateReport(arguments) => match validate_report(&arguments.path) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                ExitCode::from(crate::run::EXIT_SCAN_ERROR)
+            }
+        },
     }
+}
+
+fn validate_report(path: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("failed to read Report V1 '{}': {error}", path.display()))?;
+    let report: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Report V1 '{}' is not valid JSON: {error}", path.display()))?;
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../schemas/report-v1.schema.json"))
+            .map_err(|error| format!("checked Report V1 schema is invalid: {error}"))?;
+    let validator = jsonschema::validator_for(&schema)
+        .map_err(|error| format!("checked Report V1 schema could not be compiled: {error}"))?;
+    validator
+        .validate(&report)
+        .map_err(|error| format!("Report V1 '{}' is schema-invalid: {error}", path.display()))
 }
 
 fn handle_telemetry(arguments: &TelemetryArgs) -> ExitCode {
@@ -409,6 +431,10 @@ fn print_version_report() {
     println!("{}", cargo.as_deref().unwrap_or("cargo unavailable"));
     println!("target {target}");
     println!("os {} ({})", std::env::consts::OS, std::env::consts::ARCH);
+    #[cfg(feature = "lsp")]
+    println!("lsp-protocol {}", crate::lsp::PROTOCOL_MAJOR);
+    #[cfg(not(feature = "lsp"))]
+    println!("lsp-protocol unavailable");
 }
 
 fn tool_output(program: &str, arguments: &[&str]) -> Option<String> {
@@ -452,5 +478,31 @@ const fn rule_level(value: RuleLevelArg) -> &'static str {
         RuleLevelArg::Info => "info",
         RuleLevelArg::Warning => "warning",
         RuleLevelArg::Error => "error",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_validator_uses_the_complete_checked_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let valid = directory.path().join("valid.json");
+        std::fs::write(
+            &valid,
+            include_bytes!("../../tests/fixtures/report-v1/nothing-to-scan.json"),
+        )
+        .unwrap();
+        validate_report(&valid).unwrap();
+
+        let invalid = directory.path().join("invalid.json");
+        let mut report: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../tests/fixtures/report-v1/nothing-to-scan.json"
+        ))
+        .unwrap();
+        report["completeness"]["state"] = serde_json::json!([]);
+        std::fs::write(&invalid, serde_json::to_vec(&report).unwrap()).unwrap();
+        assert!(validate_report(&invalid).is_err());
     }
 }

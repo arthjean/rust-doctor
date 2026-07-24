@@ -1,7 +1,7 @@
 use super::analysis::{self, EditorFinding};
 use crate::config::{self, ResolvedConfig};
 use crate::diagnostics::Diagnostic as RustDiagnostic;
-use crate::discovery::ProjectInfo;
+use crate::discovery::{FrameworkCapability, ProjectInfo};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tower_lsp_server::jsonrpc::Result as LspResult;
+use tower_lsp_server::jsonrpc::{Error as LspError, Result as LspResult};
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CodeActionResponse, DidChangeTextDocumentParams,
@@ -22,9 +22,12 @@ use tower_lsp_server::ls_types::{
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
+use super::PROTOCOL_MAJOR;
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Settings {
+    protocol_major: Option<u32>,
     debounce_ms: u64,
     on_save_project_checks: bool,
     project_budget_ms: u64,
@@ -34,6 +37,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            protocol_major: None,
             debounce_ms: 300,
             on_save_project_checks: false,
             project_budget_ms: 10_000,
@@ -53,7 +57,6 @@ impl Settings {
 struct ProjectContext {
     info: Arc<ProjectInfo>,
     config: ResolvedConfig,
-    frameworks: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -61,6 +64,7 @@ struct Document {
     text: String,
     version: i32,
     findings: Vec<EditorFinding>,
+    degraded: bool,
     cancellation: Arc<AtomicBool>,
 }
 
@@ -88,10 +92,18 @@ pub(super) async fn serve() {
 }
 
 impl Backend {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the scheduling lifecycle keeps cancellation, timeout, degradation, and publication state together"
+    )]
     async fn schedule_analysis(&self, uri: Uri, text: String, version: i32) {
         let cancellation = Arc::new(AtomicBool::new(false));
         let (settings, project) = {
             let mut state = self.state.write().await;
+            let retained_findings = state
+                .documents
+                .get(&uri)
+                .map_or_else(Vec::new, |document| document.findings.clone());
             if let Some(previous) = state.documents.get(&uri) {
                 previous.cancellation.store(true, Ordering::Release);
             }
@@ -100,7 +112,8 @@ impl Backend {
                 Document {
                     text: text.clone(),
                     version,
-                    findings: Vec::new(),
+                    findings: retained_findings,
+                    degraded: false,
                     cancellation: Arc::clone(&cancellation),
                 },
             );
@@ -141,12 +154,14 @@ impl Backend {
             let source = text.clone();
             let task_cancel = Arc::clone(&cancellation);
             let analysis_project = Arc::clone(&project);
+            let capabilities =
+                framework_capabilities_for_path(&analysis_project.info, &path).to_vec();
             let result = tokio::task::spawn_blocking(move || {
                 analysis::analyze(
                     &source,
                     &relative,
                     &analysis_project.config,
-                    &analysis_project.frameworks,
+                    &capabilities,
                     &task_cancel,
                 )
             })
@@ -156,18 +171,55 @@ impl Backend {
             }
             let findings = match result {
                 Ok(Ok(findings)) => findings,
-                Ok(Err(_)) => Vec::new(),
+                Ok(Err(error)) => {
+                    client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!(
+                                "document analysis is degraded; preserving last-known-good diagnostics: {error}"
+                            ),
+                        )
+                        .await;
+                    if let Some(findings) =
+                        mark_degraded(&state, &uri, version, &cancellation).await
+                    {
+                        let diagnostics = findings
+                            .iter()
+                            .map(|finding| finding.to_diagnostic(true))
+                            .collect();
+                        client
+                            .publish_diagnostics(uri, diagnostics, Some(version))
+                            .await;
+                    }
+                    return;
+                }
                 Err(error) => {
                     client
                         .log_message(
                             MessageType::ERROR,
-                            format!("document analysis failed: {error}"),
+                            format!(
+                                "document analysis failed; preserving last-known-good diagnostics: {error}"
+                            ),
                         )
                         .await;
-                    Vec::new()
+                    if let Some(findings) =
+                        mark_degraded(&state, &uri, version, &cancellation).await
+                    {
+                        let diagnostics = findings
+                            .iter()
+                            .map(|finding| finding.to_diagnostic(true))
+                            .collect();
+                        client
+                            .publish_diagnostics(uri, diagnostics, Some(version))
+                            .await;
+                    }
+                    return;
                 }
             };
-            let diagnostics = findings.iter().map(EditorFinding::to_diagnostic).collect();
+            let diagnostics = findings
+                .iter()
+                .map(|finding| finding.to_diagnostic(false))
+                .collect();
             let publish = replace_findings(&state, &uri, version, &cancellation, findings).await;
             if publish {
                 client
@@ -199,7 +251,7 @@ impl Backend {
         let cancel = Arc::new(AtomicBool::new(false));
         let scan_cancel = Arc::clone(&cancel);
         let scan_project = Arc::clone(&project);
-        let mut task = tokio::task::spawn_blocking(move || {
+        let task = tokio::task::spawn_blocking(move || {
             crate::scan::scan_project_cancellable(
                 &scan_project.info,
                 &scan_project.config,
@@ -209,14 +261,12 @@ impl Backend {
                 &scan_cancel,
             )
         });
-        let result = tokio::select! {
-            result = &mut task => Some(result),
-            () = tokio::time::sleep(Duration::from_millis(settings.project_budget_ms)) => {
-                cancel.store(true, Ordering::Release);
-                let _ = task.await;
-                None
-            }
-        };
+        let result = wait_for_project_task(
+            task,
+            &cancel,
+            Duration::from_millis(settings.project_budget_ms),
+        )
+        .await;
         let Some(Ok(Ok(result))) = result else {
             self.client
                 .log_message(
@@ -224,6 +274,15 @@ impl Backend {
                     "on-save project analysis did not complete within its budget",
                 )
                 .await;
+            if let Some(findings) = mark_degraded_current(&self.state, &uri, version).await {
+                let diagnostics = findings
+                    .iter()
+                    .map(|finding| finding.to_diagnostic(true))
+                    .collect();
+                self.client
+                    .publish_diagnostics(uri, diagnostics, Some(version))
+                    .await;
+            }
             return;
         };
         let Some(path) = file_path(&uri) else {
@@ -236,13 +295,17 @@ impl Backend {
             .filter(|diagnostic| diagnostic.file_path == path || diagnostic.file_path == relative)
             .collect();
         let findings = analysis::convert(&text, relative, diagnostics);
-        let diagnostics = findings.iter().map(EditorFinding::to_diagnostic).collect();
+        let diagnostics = findings
+            .iter()
+            .map(|finding| finding.to_diagnostic(false))
+            .collect();
         {
             let mut state = self.state.write().await;
             if let Some(document) = state.documents.get_mut(&uri)
                 && document.version == version
             {
                 document.findings = findings;
+                document.degraded = false;
             } else {
                 return;
             }
@@ -255,18 +318,25 @@ impl Backend {
 
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        let settings = params
-            .initialization_options
-            .clone()
-            .and_then(|value| serde_json::from_value::<Settings>(value).ok())
-            .unwrap_or_default()
-            .bounded();
+        let settings = params.initialization_options.clone().map_or_else(
+            || Ok(Settings::default()),
+            |value| {
+                serde_json::from_value::<Settings>(value).map_err(|error| {
+                    LspError::invalid_params(format!(
+                        "invalid Rust Doctor initialization options: {error}"
+                    ))
+                })
+            },
+        )?;
+        validate_protocol(&settings)?;
+        let settings = settings.bounded();
         let root_uri = initialization_root(&params);
-        let project = root_uri
-            .as_ref()
-            .and_then(file_path)
-            .and_then(|root| load_project(&root, &settings).ok())
-            .map(Arc::new);
+        let project = match root_uri.as_ref().and_then(file_path) {
+            Some(root) => Some(Arc::new(
+                load_project(&root, &settings).map_err(LspError::invalid_params)?,
+            )),
+            None => None,
+        };
         {
             let mut state = self.state.write().await;
             state.settings = settings;
@@ -286,8 +356,8 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 experimental: Some(serde_json::json!({
-                    "rustDoctorProtocolVersion": 1,
-                    "lspCompatibility": "3.17+"
+                    "rustDoctorProtocolVersion": PROTOCOL_MAJOR,
+                    "lspCompatibility": "3.18"
                 })),
                 ..ServerCapabilities::default()
             },
@@ -386,6 +456,9 @@ impl LanguageServer for Backend {
         let Some(document) = document else {
             return Ok(None);
         };
+        if document.degraded {
+            return Ok(None);
+        }
         let mut actions = Vec::new();
         for diagnostic in params.context.diagnostics {
             let Some(data) = diagnostic.data.as_ref() else {
@@ -461,12 +534,35 @@ fn load_project(root: &Path, settings: &Settings) -> Result<ProjectContext, Stri
     } else {
         config::resolve_config_defaults(file_config.as_ref())
     };
-    let frameworks = info.frameworks.iter().map(ToString::to_string).collect();
     Ok(ProjectContext {
         info: Arc::new(info),
         config: resolved,
-        frameworks,
     })
+}
+
+fn validate_protocol(settings: &Settings) -> LspResult<()> {
+    if let Some(protocol_major) = settings.protocol_major
+        && protocol_major != PROTOCOL_MAJOR
+    {
+        return Err(LspError::invalid_params(format!(
+            "unsupported Rust Doctor protocol major {protocol_major}; server supports {PROTOCOL_MAJOR}"
+        )));
+    }
+    Ok(())
+}
+
+fn framework_capabilities_for_path<'a>(
+    project: &'a ProjectInfo,
+    path: &Path,
+) -> &'a [FrameworkCapability] {
+    project
+        .workspace_members
+        .iter()
+        .filter(|member| path.starts_with(&member.root_dir))
+        .max_by_key(|member| member.root_dir.components().count())
+        .map_or(project.framework_capabilities.as_slice(), |member| {
+            member.framework_capabilities.as_slice()
+        })
 }
 
 #[allow(
@@ -501,10 +597,57 @@ async fn replace_findings(
             return false;
         }
         document.findings = findings;
+        document.degraded = false;
         true
     });
     drop(state);
     accepted
+}
+
+async fn mark_degraded(
+    state: &RwLock<State>,
+    uri: &Uri,
+    version: i32,
+    cancellation: &Arc<AtomicBool>,
+) -> Option<Vec<EditorFinding>> {
+    let mut state = state.write().await;
+    state.documents.get_mut(uri).and_then(|document| {
+        if document.version != version || !Arc::ptr_eq(&document.cancellation, cancellation) {
+            return None;
+        }
+        document.degraded = true;
+        Some(document.findings.clone())
+    })
+}
+
+async fn mark_degraded_current(
+    state: &RwLock<State>,
+    uri: &Uri,
+    version: i32,
+) -> Option<Vec<EditorFinding>> {
+    let mut state = state.write().await;
+    state.documents.get_mut(uri).and_then(|document| {
+        if document.version != version {
+            return None;
+        }
+        document.degraded = true;
+        Some(document.findings.clone())
+    })
+}
+
+async fn wait_for_project_task<T>(
+    mut task: tokio::task::JoinHandle<T>,
+    cancellation: &AtomicBool,
+    budget: Duration,
+) -> Option<Result<T, tokio::task::JoinError>> {
+    tokio::select! {
+        result = &mut task => Some(result),
+        () = tokio::time::sleep(budget) => {
+            cancellation.store(true, Ordering::Release);
+            task.abort();
+            None
+        }
+    }
 }
 
 const fn contains(range: Range, position: Position) -> bool {
@@ -522,6 +665,7 @@ mod tests {
     #[test]
     fn default_settings_hold_latency_and_network_contract() {
         let settings = Settings::default();
+        assert_eq!(settings.protocol_major, None);
         assert_eq!(settings.debounce_ms, 300);
         assert!(!settings.on_save_project_checks);
         assert_eq!(settings.project_budget_ms, 10_000);
@@ -533,5 +677,30 @@ mod tests {
         assert!(contains(range, Position::new(2, 4)));
         assert!(contains(range, Position::new(2, 8)));
         assert!(!contains(range, Position::new(2, 9)));
+    }
+
+    #[test]
+    fn incompatible_protocol_major_is_rejected() {
+        let settings = Settings {
+            protocol_major: Some(PROTOCOL_MAJOR + 1),
+            ..Settings::default()
+        };
+        assert!(validate_protocol(&settings).is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn project_budget_returns_without_awaiting_blocked_work() {
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let task_cancellation = Arc::clone(&cancellation);
+        let task = tokio::task::spawn_blocking(move || {
+            while !task_cancellation.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let started = std::time::Instant::now();
+        let result = wait_for_project_task(task, &cancellation, Duration::from_millis(20)).await;
+        assert!(result.is_none());
+        assert!(started.elapsed() < Duration::from_millis(200));
+        assert!(cancellation.load(Ordering::Acquire));
     }
 }

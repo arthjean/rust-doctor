@@ -73,5 +73,9 @@ lto = true
 codegen-units = 1
 opt-level = "z"
 
+[[example]]
+name = "generate-report-v1-schema"
+required-features = ["mcp"]
+
 [dev-dependencies]
 insta = { version = "1.46.3", features = ["json"] }

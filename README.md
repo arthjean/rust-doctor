@@ -411,7 +411,7 @@ Build the binary with the editor server enabled:
 cargo install rust-doctor --features lsp
 ```
 
-The VS Code and Cursor extension lives in `editors/vscode`; the Zed extension lives in `editors/zed`. Both launch `rust-doctor --lsp`, use 300 ms file-local analysis by default, expose hover metadata and safe suppression actions, and keep project-wide on-save checks opt-in. See each editor directory for binary-path and packaging instructions.
+The VS Code and Cursor extension lives in `editors/vscode`; the Zed extension lives in `editors/zed`. Both launch `rust-doctor --lsp`, negotiate Rust Doctor editor protocol major 1 independently from the binary version, use 300 ms file-local analysis by default, expose hover metadata and safe suppression actions, and keep project-wide on-save checks opt-in. An empty configuration path uses normal project discovery and defaults; set a path only to require that specific file. See each editor directory for binary-path and packaging instructions.
 
 ## Managed CI
 
@@ -424,7 +424,7 @@ rust-doctor ci config --review-comments=true --commit-status=true
 rust-doctor ci upgrade --version v1
 ```
 
-`ci config` and `ci upgrade` mutate only the marker-owned workflow block. `ci install --pr` creates a branch and pull request only after local Git and provider validation succeeds. GitLab is supported as a gate-only scaffold with `rust-doctor ci install --provider gitlab`; comments, statuses and SARIF remain GitHub-only channels.
+`ci config` and `ci upgrade` mutate only the marker-owned workflow block. `ci install --pr` creates a branch and pull request only after local Git and provider validation succeeds; a failed push or PR creation restores the original checkout and removes the temporary remote branch when one was created. GitLab is supported as a gate-only scaffold with `rust-doctor ci install --provider gitlab`; it uses baseline scope only for merge requests with a non-empty base SHA and otherwise runs full scope. Comments, statuses and SARIF remain GitHub-only channels.
 
 The Action can also be configured directly:
 
@@ -440,7 +440,7 @@ The Action can also be configured directly:
     token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Pull requests resolve their base locally, then use the paginated GitHub API only when history is unavailable. Reporting channels degrade independently: a denied comment, status or SARIF permission does not replace the configured scan gate.
+Pull requests resolve their base locally, then use the paginated GitHub API only when history is unavailable. API fallback is reported as a degraded files scope and is never labeled introduced-only. Reporting channels degrade independently: a denied comment, status or SARIF permission does not replace the configured scan gate.
 
 ## Configuration
 

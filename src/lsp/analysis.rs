@@ -16,7 +16,7 @@ pub(super) struct EditorFinding {
 }
 
 impl EditorFinding {
-    pub(super) fn to_diagnostic(&self) -> Diagnostic {
+    pub(super) fn to_diagnostic(&self, degraded: bool) -> Diagnostic {
         Diagnostic {
             range: self.range,
             severity: Some(self.severity),
@@ -26,6 +26,7 @@ impl EditorFinding {
             data: Some(serde_json::json!({
                 "canonical_id": self.rule,
                 "identity": self.identity,
+                "degraded": degraded,
             })),
             ..Diagnostic::default()
         }
@@ -36,11 +37,11 @@ pub(super) fn analyze(
     source: &str,
     path: &Path,
     config: &crate::config::ResolvedConfig,
-    frameworks: &[String],
+    capabilities: &[crate::discovery::FrameworkCapability],
     cancelled: &AtomicBool,
 ) -> Result<Vec<EditorFinding>, syn::Error> {
     let diagnostics =
-        crate::rules::analyze_editor_source(source, path, config, frameworks, cancelled)?;
+        crate::rules::analyze_editor_source(source, path, config, capabilities, cancelled)?;
     Ok(convert(source, path, diagnostics))
 }
 

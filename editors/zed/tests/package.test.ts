@@ -11,6 +11,8 @@ describe("Zed adapter package", () => {
     expect(source).toContain('"--lsp"');
     expect(source).toContain('"debounceMs": 300');
     expect(source).toContain('"onSaveProjectChecks": false');
+    expect(source).toContain('"protocolMajor"');
+    expect(source).not.toContain('"configurationPath": "rust-doctor.toml"');
   });
 
   test("contains no developer paths, downloads, or telemetry", () => {
@@ -18,5 +20,6 @@ describe("Zed adapter package", () => {
     expect(source).not.toContain("download_file");
     expect(source.toLowerCase()).not.toContain("telemetry");
     expect(source).toContain("RUST_DOCTOR_SELECTED_BINARY");
+    expect(source).toContain('arg("version")');
   });
 });

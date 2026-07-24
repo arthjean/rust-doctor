@@ -31,6 +31,7 @@ if [[ "$RESOLVED_SCOPE" == auto ]]; then
     RESOLVED_SCOPE=full
   fi
 fi
+REQUESTED_SCOPE="$RESOLVED_SCOPE"
 
 if [[ "$RESOLVED_SCOPE" == baseline || "$RESOLVED_SCOPE" == changed ]]; then
   LOCAL_BASE=false
@@ -106,6 +107,7 @@ CONFIG_FINGERPRINT=$(
 write_output scan-root "$SCAN_ROOT"
 write_output git-root "$GIT_ROOT"
 write_output scope "$RESOLVED_SCOPE"
+write_output requested-scope "$REQUESTED_SCOPE"
 write_output base-sha "$BASE_SHA_VALUE"
 write_output changed-paths-file "$CHANGED_PATHS_FILE"
 write_output scan-cache-path "$SCAN_ROOT/.rust-doctor-cache.json"
