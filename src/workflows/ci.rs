@@ -78,6 +78,31 @@ impl CiSettings {
             self.action_major.clone_from(version);
         }
     }
+
+    fn validate(&self) -> Result<(), CiError> {
+        if !matches!(
+            self.blocking.as_str(),
+            "error" | "warning" | "info" | "none"
+        ) {
+            return Err(CiError::Metadata(
+                "blocking must be error, warning, info, or none".to_string(),
+            ));
+        }
+        let Some(major) = self.action_major.strip_prefix('v') else {
+            return Err(CiError::Metadata(
+                "action version must be a major reference such as v1".to_string(),
+            ));
+        };
+        if major.is_empty()
+            || major.starts_with('0')
+            || !major.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(CiError::Metadata(
+                "action version must be a non-zero major reference such as v1".to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 pub fn install(arguments: &CiInstallArgs) -> Result<String, CiError> {
@@ -256,10 +281,14 @@ fn parse_settings(content: &str) -> Result<CiSettings, CiError> {
         .lines()
         .find_map(|line| line.strip_prefix(SETTINGS_PREFIX))
         .ok_or_else(|| CiError::Metadata("settings marker is missing".to_string()))?;
-    serde_json::from_str(line).map_err(|error| CiError::Metadata(error.to_string()))
+    let settings: CiSettings =
+        serde_json::from_str(line).map_err(|error| CiError::Metadata(error.to_string()))?;
+    settings.validate()?;
+    Ok(settings)
 }
 
 fn render_managed(provider: CiProvider, settings: &CiSettings) -> Result<String, CiError> {
+    settings.validate()?;
     let metadata =
         serde_json::to_string(settings).map_err(|error| CiError::Metadata(error.to_string()))?;
     let body = match provider {
@@ -295,16 +324,20 @@ fn render_github(settings: &CiSettings) -> String {
 }
 
 fn render_gitlab(settings: &CiSettings) -> String {
-    let scope_arguments = match settings.scope {
-        CiScope::Full => "--scope full".to_string(),
-        CiScope::Changed => {
-            "--scope changed --base \"$CI_MERGE_REQUEST_DIFF_BASE_SHA\"".to_string()
-        }
-        CiScope::Baseline => "--baseline --base \"$CI_MERGE_REQUEST_DIFF_BASE_SHA\"".to_string(),
-        CiScope::Staged => "--staged".to_string(),
+    let (merge_request_arguments, fallback_arguments) = match settings.scope {
+        CiScope::Full => ("--scope full", "--scope full"),
+        CiScope::Changed => (
+            "--scope changed --base \"$CI_MERGE_REQUEST_DIFF_BASE_SHA\"",
+            "--scope full",
+        ),
+        CiScope::Baseline => (
+            "--baseline --base \"$CI_MERGE_REQUEST_DIFF_BASE_SHA\"",
+            "--scope full",
+        ),
+        CiScope::Staged => ("--staged", "--staged"),
     };
     format!(
-        "rust-doctor:\n  image: rust:1.97\n  stage: test\n  variables:\n    CARGO_HOME: \"$CI_PROJECT_DIR/.cargo\"\n  cache:\n    key: \"rust-doctor-{action_major}\"\n    paths: [.cargo/bin, .rust-doctor-cache.json]\n  before_script:\n    - cargo install rust-doctor --locked\n  script:\n    - rust-doctor . {scope_arguments} --blocking {blocking} --require-complete\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'\n",
+        "rust-doctor:\n  image: rust:1.97\n  stage: test\n  variables:\n    CARGO_HOME: \"$CI_PROJECT_DIR/.cargo\"\n  cache:\n    key: \"rust-doctor-{action_major}\"\n    paths: [.cargo/bin, .rust-doctor-cache.json]\n  before_script:\n    - cargo install rust-doctor --locked\n  script:\n    - |\n      if [[ \"$CI_PIPELINE_SOURCE\" == \"merge_request_event\" && -n \"${{CI_MERGE_REQUEST_DIFF_BASE_SHA:-}}\" ]]; then\n        rust-doctor . {merge_request_arguments} --blocking {blocking} --require-complete\n      else\n        rust-doctor . {fallback_arguments} --blocking {blocking} --require-complete\n      fi\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'\n",
         action_major = settings.action_major,
         blocking = settings.blocking,
     )
@@ -419,57 +452,324 @@ fn install_through_pull_request(
     action_major: &str,
     issue: Option<u64>,
 ) -> Result<String, CiError> {
+    install_through_pull_request_with(
+        root,
+        path,
+        before,
+        after,
+        action_major,
+        issue,
+        &ProcessRunner,
+    )
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the pull request install keeps its transactional steps and rollback boundary visible in one function"
+)]
+fn install_through_pull_request_with(
+    root: &Path,
+    path: &Path,
+    before: Option<&str>,
+    after: &str,
+    action_major: &str,
+    issue: Option<u64>,
+    runner: &dyn CiCommandRunner,
+) -> Result<String, CiError> {
     require_clean_worktree(root)?;
-    run_checked(root, "gh", ["auth", "status"])?;
-    run_checked(root, "git", ["remote", "get-url", "origin"])?;
+    runner.run(root, "gh", &[OsStr::new("auth"), OsStr::new("status")])?;
+    let push_target = remote_push_target(root)?;
+    let original = checkout_state(root)?;
     let branch = format!("rust-doctor/ci-{action_major}");
-    if command_success(
+    let remote_ref = format!("refs/heads/{branch}");
+    if runner.success(
         root,
         "git",
-        ["show-ref", "--verify", &format!("refs/heads/{branch}")],
+        &[
+            OsStr::new("show-ref"),
+            OsStr::new("--verify"),
+            OsStr::new(&format!("refs/heads/{branch}")),
+        ],
     ) {
         return Err(CiError::Remote(format!(
             "local branch '{branch}' already exists"
         )));
     }
-    run_checked(root, "git", ["switch", "-c", &branch])?;
-    if let Err(error) = atomic_write(root, path, before, after) {
+    if remote_ref_target(root, &push_target, &remote_ref)?.is_some() {
         return Err(CiError::Remote(format!(
-            "branch was created but workflow write failed: {error}"
+            "remote branch '{branch}' already exists"
         )));
     }
+    runner.run(
+        root,
+        "git",
+        &[OsStr::new("switch"), OsStr::new("-c"), OsStr::new(&branch)],
+    )?;
     let relative = path
         .strip_prefix(root)
         .map_err(|error| CiError::Remote(error.to_string()))?;
-    run_checked_os(root, "git", [OsStr::new("add"), relative.as_os_str()])?;
-    run_checked(
+    let mut transaction_commit = None;
+    let operation = (|| {
+        atomic_write(root, path, before, after)?;
+        runner.run(root, "git", &[OsStr::new("add"), relative.as_os_str()])?;
+        runner.run(
+            root,
+            "git",
+            &[
+                OsStr::new("commit"),
+                OsStr::new("-m"),
+                OsStr::new("ci: install rust-doctor workflow"),
+            ],
+        )?;
+        transaction_commit = Some(command_stdout(
+            root,
+            "git",
+            &["rev-parse", "--verify", "HEAD"],
+        )?);
+        let lease = format!("--force-with-lease={remote_ref}:");
+        runner.run(
+            root,
+            "git",
+            &[
+                OsStr::new("push"),
+                OsStr::new(&lease),
+                OsStr::new(&push_target),
+                OsStr::new(&branch),
+            ],
+        )?;
+        let mut body = String::from(
+            "Install the managed Rust Doctor workflow with baseline scans, explicit completeness, and least-privilege reporting permissions.",
+        );
+        if let Some(number) = issue {
+            body.push_str("\n\nRefs #");
+            body.push_str(&number.to_string());
+        }
+        runner.run(
+            root,
+            "gh",
+            &[
+                OsStr::new("pr"),
+                OsStr::new("create"),
+                OsStr::new("--title"),
+                OsStr::new("ci: install Rust Doctor workflow"),
+                OsStr::new("--body"),
+                OsStr::new(&body),
+                OsStr::new("--head"),
+                OsStr::new(&branch),
+            ],
+        )
+    })();
+    match operation {
+        Ok(()) => Ok(format!("Created CI pull request from branch {branch}")),
+        Err(error) => {
+            let rollback = rollback_pull_request_install(
+                root,
+                path,
+                before,
+                after,
+                relative,
+                &original,
+                &branch,
+                &push_target,
+                transaction_commit.as_deref(),
+                runner,
+            );
+            let detail = if rollback.is_empty() {
+                "local and remote changes were rolled back".to_string()
+            } else {
+                rollback.join("; ")
+            };
+            Err(CiError::Remote(format!("{error}; {detail}")))
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CheckoutState {
+    branch: Option<String>,
+    head: String,
+}
+
+fn checkout_state(root: &Path) -> Result<CheckoutState, CiError> {
+    let head = command_stdout(root, "git", &["rev-parse", "--verify", "HEAD"])?;
+    let branch = Command::new("git")
+        .current_dir(root)
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .output()
+        .map_err(|error| CiError::Remote(format!("failed to inspect current branch: {error}")))
+        .and_then(|output| {
+            if output.status.success() {
+                Ok(Some(
+                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                ))
+            } else if output.status.code() == Some(1) {
+                Ok(None)
+            } else {
+                Err(CiError::Remote(
+                    String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                ))
+            }
+        })?;
+    Ok(CheckoutState { branch, head })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "rollback receives the exact transaction state needed to restore local and remote Git state"
+)]
+fn rollback_pull_request_install(
+    root: &Path,
+    path: &Path,
+    before: Option<&str>,
+    after: &str,
+    relative: &Path,
+    original: &CheckoutState,
+    branch: &str,
+    push_target: &str,
+    transaction_commit: Option<&str>,
+    runner: &dyn CiCommandRunner,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    if let Err(error) = runner.run(
         root,
         "git",
-        ["commit", "-m", "ci: install rust-doctor workflow"],
-    )?;
-    run_checked(root, "git", ["push", "-u", "origin", &branch])?;
-    let mut body = String::from(
-        "Install the managed Rust Doctor workflow with baseline scans, explicit completeness, and least-privilege reporting permissions.",
-    );
-    if let Some(number) = issue {
-        body.push_str("\n\nRefs #");
-        body.push_str(&number.to_string());
-    }
-    run_checked(
-        root,
-        "gh",
-        [
-            "pr",
-            "create",
-            "--title",
-            "ci: install Rust Doctor workflow",
-            "--body",
-            &body,
-            "--head",
-            &branch,
+        &[
+            OsStr::new("reset"),
+            OsStr::new(&original.head),
+            OsStr::new("--"),
+            relative.as_os_str(),
         ],
+    ) {
+        failures.push(format!("failed to reset the workflow index: {error}"));
+    }
+    if let Err(error) = restore_workflow(root, path, before, after) {
+        failures.push(format!("failed to restore the workflow file: {error}"));
+    }
+    let switch_arguments: Vec<&OsStr> = original.branch.as_ref().map_or_else(
+        || {
+            vec![
+                OsStr::new("switch"),
+                OsStr::new("--detach"),
+                OsStr::new(&original.head),
+            ]
+        },
+        |branch| vec![OsStr::new("switch"), OsStr::new(branch)],
+    );
+    if let Err(error) = runner.run(root, "git", &switch_arguments) {
+        failures.push(format!("failed to restore the original checkout: {error}"));
+    } else if let Err(error) = runner.run(
+        root,
+        "git",
+        &[OsStr::new("branch"), OsStr::new("-D"), OsStr::new(branch)],
+    ) {
+        failures.push(format!("failed to remove local branch '{branch}': {error}"));
+    }
+    if let Some(transaction_commit) = transaction_commit {
+        let remote_ref = format!("refs/heads/{branch}");
+        match remote_ref_target(root, push_target, &remote_ref) {
+            Ok(Some(remote_commit)) if remote_commit == transaction_commit => {
+                let lease = format!("--force-with-lease={remote_ref}:{transaction_commit}");
+                if let Err(error) = runner.run(
+                    root,
+                    "git",
+                    &[
+                        OsStr::new("push"),
+                        OsStr::new(&lease),
+                        OsStr::new(push_target),
+                        OsStr::new("--delete"),
+                        OsStr::new(branch),
+                    ],
+                ) {
+                    failures.push(format!(
+                        "remote branch '{branch}' may remain and must be removed manually: {error}"
+                    ));
+                }
+            }
+            Ok(Some(remote_commit)) => failures.push(format!(
+                "remote branch '{branch}' now points to unrelated commit {remote_commit}; it was preserved"
+            )),
+            Ok(None) => {}
+            Err(error) => failures.push(format!(
+                "remote branch '{branch}' could not be verified after rollback and may require manual removal: {error}"
+            )),
+        }
+    }
+    failures
+}
+
+fn remote_push_target(root: &Path) -> Result<String, CiError> {
+    let targets = command_stdout(
+        root,
+        "git",
+        &["remote", "get-url", "--push", "--all", "origin"],
     )?;
-    Ok(format!("Created CI pull request from branch {branch}"))
+    let mut targets = targets.lines().filter(|target| !target.is_empty());
+    let target = targets
+        .next()
+        .ok_or_else(|| CiError::Remote("origin has no push target".to_string()))?;
+    if targets.next().is_some() {
+        return Err(CiError::Remote(
+            "origin defines multiple push targets; refusing transactional install".to_string(),
+        ));
+    }
+    Ok(target.to_string())
+}
+
+fn remote_ref_target(
+    root: &Path,
+    push_target: &str,
+    remote_ref: &str,
+) -> Result<Option<String>, CiError> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["ls-remote", "--heads", push_target, remote_ref])
+        .output()
+        .map_err(|error| CiError::Remote(format!("failed to inspect remote branch: {error}")))?;
+    if !output.status.success() {
+        return Err(CiError::Remote(format!(
+            "failed to inspect remote branch: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut targets = stdout
+        .lines()
+        .filter_map(|line| line.split_whitespace().next());
+    let target = targets.next().map(str::to_string);
+    if targets.next().is_some() {
+        return Err(CiError::Remote(format!(
+            "remote branch query for '{remote_ref}' returned multiple refs"
+        )));
+    }
+    Ok(target)
+}
+
+fn restore_workflow(
+    root: &Path,
+    path: &Path,
+    before: Option<&str>,
+    after: &str,
+) -> Result<(), CiError> {
+    let current = read_optional(path)?;
+    if current.as_deref() == before {
+        return Ok(());
+    }
+    if current.as_deref() != Some(after) {
+        return Err(CiError::Conflict {
+            path: path.to_path_buf(),
+            message: "workflow changed during CI transaction; preserving concurrent local content"
+                .to_string(),
+        });
+    }
+    if let Some(content) = before {
+        atomic_write(root, path, current.as_deref(), content)
+    } else {
+        ensure_contained(root, path)?;
+        fs::remove_file(path).map_err(|source| CiError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
 }
 
 fn require_clean_worktree(root: &Path) -> Result<(), CiError> {
@@ -493,18 +793,14 @@ fn require_clean_worktree(root: &Path) -> Result<(), CiError> {
     Ok(())
 }
 
-fn run_checked<'a>(
-    root: &Path,
-    program: &str,
-    arguments: impl IntoIterator<Item = &'a str>,
-) -> Result<(), CiError> {
+fn command_stdout(root: &Path, program: &str, arguments: &[&str]) -> Result<String, CiError> {
     let output = Command::new(program)
         .current_dir(root)
         .args(arguments)
         .output()
         .map_err(|error| CiError::Remote(format!("failed to launch {program}: {error}")))?;
     if output.status.success() {
-        Ok(())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         Err(CiError::Remote(format!(
             "{program} failed: {}",
@@ -513,36 +809,37 @@ fn run_checked<'a>(
     }
 }
 
-fn run_checked_os<const N: usize>(
-    root: &Path,
-    program: &str,
-    arguments: [&OsStr; N],
-) -> Result<(), CiError> {
-    let output = Command::new(program)
-        .current_dir(root)
-        .args(arguments)
-        .output()
-        .map_err(|error| CiError::Remote(format!("failed to launch {program}: {error}")))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(CiError::Remote(format!(
-            "{program} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )))
-    }
+trait CiCommandRunner {
+    fn run(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> Result<(), CiError>;
+    fn success(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> bool;
 }
 
-fn command_success<'a>(
-    root: &Path,
-    program: &str,
-    arguments: impl IntoIterator<Item = &'a str>,
-) -> bool {
-    Command::new(program)
-        .current_dir(root)
-        .args(arguments)
-        .status()
-        .is_ok_and(|status| status.success())
+struct ProcessRunner;
+
+impl CiCommandRunner for ProcessRunner {
+    fn run(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> Result<(), CiError> {
+        let output = Command::new(program)
+            .current_dir(root)
+            .args(arguments)
+            .output()
+            .map_err(|error| CiError::Remote(format!("failed to launch {program}: {error}")))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(CiError::Remote(format!(
+                "{program} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )))
+        }
+    }
+
+    fn success(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> bool {
+        Command::new(program)
+            .current_dir(root)
+            .args(arguments)
+            .status()
+            .is_ok_and(|status| status.success())
+    }
 }
 
 const fn blocking(value: FailOn) -> &'static str {
@@ -557,6 +854,7 @@ const fn blocking(value: FailOn) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     fn settings() -> CiSettings {
         CiSettings {
@@ -617,5 +915,236 @@ mod tests {
         )
         .unwrap();
         assert_eq!(merged, "include: local.yml\nmanaged\n");
+    }
+
+    #[test]
+    fn managed_metadata_rejects_yaml_injection() {
+        let mut malicious = settings();
+        malicious.action_major = "v1\n      pull-requests: write".to_string();
+        let error = render_managed(CiProvider::Github, &malicious).unwrap_err();
+        assert!(error.to_string().contains("major reference"));
+    }
+
+    #[test]
+    #[expect(
+        clippy::literal_string_with_formatting_args,
+        reason = "the asserted GitLab shell condition intentionally contains parameter-expansion braces"
+    )]
+    fn gitlab_baseline_requires_merge_request_base_and_falls_back_to_full() {
+        let rendered = render_managed(CiProvider::Gitlab, &settings()).unwrap();
+        assert!(rendered.contains(
+            "[[ \"$CI_PIPELINE_SOURCE\" == \"merge_request_event\" && -n \"${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}\" ]]"
+        ));
+        assert!(
+            rendered
+                .contains("rust-doctor . --baseline --base \"$CI_MERGE_REQUEST_DIFF_BASE_SHA\"")
+        );
+        assert!(rendered.contains("else\n        rust-doctor . --scope full"));
+    }
+
+    #[derive(Clone, Copy)]
+    enum InjectedFailure {
+        Push,
+        PullRequest,
+    }
+
+    struct InjectedRunner {
+        failure: InjectedFailure,
+        failed: Cell<bool>,
+    }
+
+    impl InjectedRunner {
+        const fn new(failure: InjectedFailure) -> Self {
+            Self {
+                failure,
+                failed: Cell::new(false),
+            }
+        }
+
+        fn arguments(arguments: &[&OsStr]) -> Vec<String> {
+            arguments
+                .iter()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect()
+        }
+    }
+
+    impl CiCommandRunner for InjectedRunner {
+        fn run(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> Result<(), CiError> {
+            let arguments_text = Self::arguments(arguments);
+            if program == "gh" && arguments_text == ["auth", "status"] {
+                return Ok(());
+            }
+            let fail_push = program == "git"
+                && matches!(self.failure, InjectedFailure::Push)
+                && arguments_text
+                    .first()
+                    .is_some_and(|argument| argument == "push")
+                && !arguments_text.iter().any(|argument| argument == "--delete");
+            let fail_pull_request = program == "gh"
+                && matches!(self.failure, InjectedFailure::PullRequest)
+                && arguments_text.starts_with(&["pr".to_string(), "create".to_string()]);
+            if !self.failed.get() && (fail_push || fail_pull_request) {
+                self.failed.set(true);
+                return Err(CiError::Remote("injected command failure".to_string()));
+            }
+            ProcessRunner.run(root, program, arguments)
+        }
+
+        fn success(&self, root: &Path, program: &str, arguments: &[&OsStr]) -> bool {
+            ProcessRunner.success(root, program, arguments)
+        }
+    }
+
+    fn git(root: &Path, arguments: &[&str]) -> String {
+        command_stdout(root, "git", arguments).unwrap()
+    }
+
+    fn transaction_fixture() -> (tempfile::TempDir, tempfile::TempDir, String) {
+        let repository = tempfile::tempdir().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        git(repository.path(), &["init", "-q"]);
+        git(
+            repository.path(),
+            &["config", "user.email", "tests@rust-doctor.local"],
+        );
+        git(
+            repository.path(),
+            &["config", "user.name", "Rust Doctor Tests"],
+        );
+        fs::write(repository.path().join("README.md"), "fixture\n").unwrap();
+        git(repository.path(), &["add", "README.md"]);
+        git(repository.path(), &["commit", "-qm", "baseline"]);
+        git(remote.path(), &["init", "--bare", "-q"]);
+        git(
+            repository.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        let branch = git(repository.path(), &["branch", "--show-current"]);
+        git(repository.path(), &["push", "-qu", "origin", &branch]);
+        (repository, remote, branch)
+    }
+
+    fn assert_transaction_rolled_back(failure: InjectedFailure) {
+        let (repository, remote, original_branch) = transaction_fixture();
+        let root = repository.path();
+        let path = root.join(".github/workflows/rust-doctor.yml");
+        let rendered = render_managed(CiProvider::Github, &settings()).unwrap();
+        let runner = InjectedRunner::new(failure);
+        let error =
+            install_through_pull_request_with(root, &path, None, &rendered, "v1", None, &runner)
+                .unwrap_err();
+        assert!(error.to_string().contains("rolled back"));
+        assert_eq!(git(root, &["branch", "--show-current"]), original_branch);
+        assert!(!path.exists());
+        assert!(
+            !command_success(
+                root,
+                "git",
+                &["show-ref", "--verify", "refs/heads/rust-doctor/ci-v1"]
+            ),
+            "temporary local branch remains"
+        );
+        assert!(
+            git(
+                remote.path(),
+                &["for-each-ref", "--format=%(refname)", "refs/heads"]
+            )
+            .lines()
+            .all(|reference| reference != "refs/heads/rust-doctor/ci-v1"),
+            "temporary remote branch remains"
+        );
+        assert!(git(root, &["status", "--porcelain"]).is_empty());
+    }
+
+    fn command_success(root: &Path, program: &str, arguments: &[&str]) -> bool {
+        Command::new(program)
+            .current_dir(root)
+            .args(arguments)
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    #[test]
+    fn push_failure_restores_original_branch_and_files() {
+        assert_transaction_rolled_back(InjectedFailure::Push);
+    }
+
+    #[test]
+    fn pull_request_failure_removes_remote_branch_and_restores_local_state() {
+        assert_transaction_rolled_back(InjectedFailure::PullRequest);
+    }
+
+    #[test]
+    fn preexisting_remote_branch_is_never_deleted() {
+        let (repository, remote, original_branch) = transaction_fixture();
+        let root = repository.path();
+        git(root, &["branch", "rust-doctor/ci-v1"]);
+        git(root, &["push", "-q", "origin", "rust-doctor/ci-v1"]);
+        git(root, &["branch", "-D", "rust-doctor/ci-v1"]);
+        let path = root.join(".github/workflows/rust-doctor.yml");
+        let rendered = render_managed(CiProvider::Github, &settings()).unwrap();
+        let runner = InjectedRunner::new(InjectedFailure::PullRequest);
+        let error =
+            install_through_pull_request_with(root, &path, None, &rendered, "v1", None, &runner)
+                .unwrap_err();
+        assert!(error.to_string().contains("remote branch"));
+        assert_eq!(git(root, &["branch", "--show-current"]), original_branch);
+        assert!(!path.exists());
+        assert!(
+            git(
+                remote.path(),
+                &["for-each-ref", "--format=%(refname)", "refs/heads"]
+            )
+            .lines()
+            .any(|reference| reference == "refs/heads/rust-doctor/ci-v1")
+        );
+    }
+
+    #[test]
+    fn multiple_push_targets_are_rejected_before_local_or_remote_mutation() {
+        let (repository, remote, original_branch) = transaction_fixture();
+        let other_remote = tempfile::tempdir().unwrap();
+        git(other_remote.path(), &["init", "--bare", "-q"]);
+        let root = repository.path();
+        git(
+            root,
+            &[
+                "remote",
+                "set-url",
+                "--add",
+                "--push",
+                "origin",
+                remote.path().to_str().unwrap(),
+            ],
+        );
+        git(
+            root,
+            &[
+                "remote",
+                "set-url",
+                "--add",
+                "--push",
+                "origin",
+                other_remote.path().to_str().unwrap(),
+            ],
+        );
+        let path = root.join(".github/workflows/rust-doctor.yml");
+        let rendered = render_managed(CiProvider::Github, &settings()).unwrap();
+        let runner = InjectedRunner::new(InjectedFailure::PullRequest);
+        let error =
+            install_through_pull_request_with(root, &path, None, &rendered, "v1", None, &runner)
+                .unwrap_err();
+        assert!(error.to_string().contains("multiple push targets"));
+        assert_eq!(git(root, &["branch", "--show-current"]), original_branch);
+        assert!(!path.exists());
+        assert!(
+            git(
+                remote.path(),
+                &["for-each-ref", "--format=%(refname)", "refs/heads"]
+            )
+            .lines()
+            .all(|reference| reference != "refs/heads/rust-doctor/ci-v1")
+        );
     }
 }

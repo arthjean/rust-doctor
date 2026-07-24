@@ -541,8 +541,23 @@ mod tests {
 
     #[test]
     fn oversized_output_is_terminated_and_reported() {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "while :; do printf 'oversized-output\\n'; done"]);
+        const ROLE: &str = "RUST_DOCTOR_OVERSIZED_OUTPUT_ROLE";
+        if std::env::var_os(ROLE).is_some() {
+            let mut stdout = std::io::stdout().lock();
+            let chunk = [b'x'; 8192];
+            loop {
+                std::io::Write::write_all(&mut stdout, &chunk).unwrap();
+            }
+        }
+
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "evaluation::process::tests::oversized_output_is_terminated_and_reported",
+                "--nocapture",
+            ])
+            .env(ROLE, "child");
         let output = run_capped(command, Duration::from_secs(10), 1024).unwrap();
         assert!(output.output_overflow);
         assert!(!output.timed_out);

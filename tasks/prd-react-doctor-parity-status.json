@@ -3,7 +3,7 @@
     "file": "tasks/prd-react-doctor-parity.md",
     "title": "React Doctor Product Parity for Rust Doctor",
     "created_at": "2026-07-22",
-    "updated_at": "2026-07-23",
+    "updated_at": "2026-07-24",
     "status": "IN_PROGRESS",
     "reopened_reason": "Adversarial parity audit found unproven and contradicted acceptance criteria; prior completion timestamps are retained as implementation history, not current certification.",
     "react_reference_sha": "3d7ea66c3f45fa55828559fce5cc38e879b9907a",
@@ -93,10 +93,27 @@
     {
       "id": "EP-005",
       "title": "CI, Distribution and Editor Surfaces",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 7,
-      "stories_done": 0
+      "stories_done": 7,
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T10:12:34Z",
+      "evidence": [
+        "cargo fmt --check",
+        "cargo +1.97 check --all-targets",
+        "cargo check --all-targets --all-features",
+        "cargo build",
+        "cargo build --no-default-features",
+        "cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings",
+        "cargo test --all-features",
+        "cargo audit",
+        "cargo deny check",
+        "local Linux x64 packed crate, npm and native archive smoke passed",
+        "VS Code/Cursor and Zed package gates passed against the real LSP server",
+        "independent DEEP Git and shell review completed with no remaining HIGH or MEDIUM finding",
+        "CI success: https://github.com/arthjean/rust-doctor/actions/runs/30083976100 at 423838661e51a7721c14c9c50ccfc345815e8956; five-platform release matrix passed on Linux x64, Linux arm64, macOS x64, macOS arm64 and Windows x64"
+      ]
     },
     {
       "id": "EP-006",
@@ -565,85 +582,142 @@
       "id": "US-022",
       "title": "Manage CI installation, configuration and upgrades",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-017", "US-021"],
       "started_at": "2026-07-22T13:17:49Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "workflows::ci::tests::github_permissions_are_channel_scoped_and_pinned",
+        "workflows::ci::tests::gitlab_baseline_requires_merge_request_base_and_falls_back_to_full",
+        "workflows::ci::tests::managed_metadata_rejects_yaml_injection",
+        "workflows::ci::tests::push_failure_restores_original_branch_and_files",
+        "workflows::ci::tests::pull_request_failure_removes_remote_branch_and_restores_local_state",
+        "workflows::ci::tests::preexisting_remote_branch_is_never_deleted",
+        "workflows::ci::tests::multiple_push_targets_are_rejected_before_local_or_remote_mutation",
+        "independent DEEP Git and shell review completed with no remaining HIGH or MEDIUM finding"
+      ]
     },
     {
       "id": "US-023",
       "title": "Upgrade the GitHub Action scan and cache contract",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-009", "US-011", "US-016", "US-017"],
       "started_at": "2026-07-22T13:22:27Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "action_contract::action_declares_complete_contract_and_pins_third_party_actions",
+        "action_contract::changed_path_resolution_preserves_unusual_rust_filenames",
+        "action_contract::api_fallback_passes_repository_paths_through_the_relative_files_contract",
+        "action_contract::explicit_and_degraded_full_scopes_never_skip_a_pull_request",
+        "action_contract::absolute_subdirectory_in_nested_detached_checkout_resolves_inner_repository",
+        "workflows::dispatch::tests::report_validator_uses_the_complete_checked_schema"
+      ]
     },
     {
       "id": "US-024",
       "title": "Publish sticky PR summaries, inline findings and stable SARIF",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-003", "US-005", "US-023"],
       "started_at": "2026-07-22T13:28:02Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "action_contract::review_payload_is_json_safe_rebased_and_accepts_right_context_lines",
+        "action_contract::sarif_payload_rebases_nested_paths_and_preserves_canonical_identity",
+        "action_contract::sticky_summary_updates_after_an_independent_status_permission_failure",
+        "sarif::tests::test_diagnostics_map_to_sarif_results",
+        "sarif::tests::test_rules_are_deduplicated"
+      ]
     },
     {
       "id": "US-025",
       "title": "Make release and package publication reproducible",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-016", "US-023", "US-024"],
       "started_at": "2026-07-22T13:29:52Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "implementation_complete_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T10:12:34Z",
+      "evidence": [
+        "local Linux x64 rust-doctor-eval smoke passed for default and no-default binaries, generated .crate, packed npm wrapper and platform tarballs, and the checksummed extracted native archive",
+        "cargo package --locked --allow-dirty passed locally; release CI uses cargo package --locked on a clean candidate",
+        ".github/workflows/release.yml defines all five required target builds and final-artifact smokes",
+        "CI success: https://github.com/arthjean/rust-doctor/actions/runs/30083976100 at 423838661e51a7721c14c9c50ccfc345815e8956; final .crate, npm wrapper and native archive smoke passed on Linux x64, Linux arm64, macOS x64, macOS arm64 and Windows x64"
+      ]
     },
     {
       "id": "US-026",
       "title": "Implement a feature-gated Rust Doctor language server",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": ["US-001", "US-003", "US-010", "US-012"],
       "started_at": "2026-07-22T13:34:31Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "lsp::server::tests::incompatible_protocol_major_is_rejected",
+        "lsp::server::tests::project_budget_returns_without_awaiting_blocked_work",
+        "lsp::analysis::tests::converts_utf8_byte_columns_to_utf16_positions",
+        "lsp::analysis::tests::analyzes_ten_thousand_line_editor_document_within_latency_budget",
+        "editors/lsp-e2e.ts real JSON-RPC lifecycle passed through both packaged adapters"
+      ]
     },
     {
       "id": "US-027",
       "title": "Ship a VS Code-compatible editor adapter",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": ["US-026"],
       "started_at": "2026-07-22T13:42:39Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "editors/vscode: bun install --frozen-lockfile",
+        "editors/vscode: bun run package",
+        "VS Code and Cursor adapter contract: 4 Bun tests passed",
+        "editors/lsp-e2e.ts launched the real server without project config and rejected an incompatible protocol major"
+      ]
     },
     {
       "id": "US-028",
       "title": "Ship a Zed editor adapter",
       "epic": "EP-005",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": ["US-026"],
       "started_at": "2026-07-22T13:42:39Z",
       "completed_at": "2026-07-22T14:05:54Z",
-      "reviewed_at": "2026-07-22T14:05:54Z"
+      "reviewed_at": "2026-07-24T07:07:53Z",
+      "certified_at": "2026-07-24T07:07:53Z",
+      "evidence": [
+        "editors/zed: bun run package",
+        "Zed adapter package: 2 Bun tests passed",
+        "editors/lsp-e2e.ts launched the real server without project config and rejected an incompatible protocol major"
+      ]
     },
     {
       "id": "US-029",

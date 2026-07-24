@@ -670,6 +670,6 @@ mod tests {
         let (requested, project, _) =
             bootstrap_project(&directory.path().join("src/nested"), true).unwrap();
         assert!(requested.ends_with("src/nested"));
-        assert_eq!(project.root_dir, directory.path());
+        assert_eq!(project.root_dir, directory.path().canonicalize().unwrap());
     }
 }

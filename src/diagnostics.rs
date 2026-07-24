@@ -1200,8 +1200,7 @@ fn diagnostic_ownership(
         .file_path
         .components()
         .any(|component| matches!(component, std::path::Component::ParentDir))
-        || (diagnostic.file_path.is_absolute()
-            && !diagnostic.file_path.starts_with(&project.root_dir))
+        || (diagnostic.file_path.has_root() && !diagnostic.file_path.starts_with(&project.root_dir))
     {
         return DiagnosticOwnership::Unowned;
     }

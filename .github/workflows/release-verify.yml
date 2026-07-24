@@ -1,0 +1,125 @@
+name: Release verification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - name: Validate tag and package versions
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: bun scripts/release/packages.ts validate "$GITHUB_REF_NAME"
+      - name: Validate package versions for verification
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          bun scripts/release/packages.ts validate "v${version}"
+
+  build:
+    name: Build and smoke ${{ matrix.target }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux-x64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            platform: linux-arm64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            platform: darwin-x64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: aarch64-apple-darwin
+            os: macos-14
+            platform: darwin-arm64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform: win32-x64
+            archive: zip
+            binary: rust-doctor.exe
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Build default and no-default artifacts
+        shell: bash
+        run: |
+          cargo build --release --features lsp --target "${{ matrix.target }}" --bin rust-doctor --bin rust-doctor-eval
+          cargo build --release --no-default-features --target "${{ matrix.target }}" --target-dir target/no-default --bin rust-doctor
+          cargo package --locked
+          mkdir -p artifacts
+          bash scripts/release/package-native.sh \
+            "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            "${{ matrix.target }}" \
+            "${{ matrix.archive }}" \
+            artifacts
+
+      - name: Package npm tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          bun scripts/release/packages.ts pack "${{ matrix.platform }}" "$binary" artifacts
+
+      - name: Checksum final native archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+          fi
+
+      - name: Exercise built and final packaged surfaces
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
+          test -n "$crate_package"
+          target/${{ matrix.target }}/release/rust-doctor-eval smoke \
+            --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --schema schemas/report-v1.schema.json \
+            --npm-platform-package "artifacts/rust-doctor-npm-${{ matrix.platform }}-${version}.tgz" \
+            --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
+            --bun "$(command -v bun)" \
+            --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
+            --crate-package "$crate_package"
+          if [[ "${{ matrix.platform }}" != "linux-x64" ]]; then
+            rm "artifacts/rust-doctor-npm-${version}.tgz"
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-doctor-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error

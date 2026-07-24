@@ -454,7 +454,7 @@ pub fn analyze_editor_source(
     source: &str,
     path: &Path,
     config: &crate::config::ResolvedConfig,
-    frameworks: &[String],
+    capabilities: &[crate::discovery::FrameworkCapability],
     cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<Vec<Diagnostic>, syn::Error> {
     use std::sync::atomic::Ordering;
@@ -470,10 +470,7 @@ pub fn analyze_editor_source(
             continue;
         };
         if !descriptor.applicable_frameworks.is_empty()
-            && !descriptor
-                .applicable_frameworks
-                .iter()
-                .any(|required| frameworks.iter().any(|active| active == required))
+            && framework_packs::capability_decision(rule.as_ref(), capabilities).is_err()
         {
             continue;
         }

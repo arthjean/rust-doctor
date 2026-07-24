@@ -222,7 +222,7 @@ fn call_path_ends(call: &syn::ExprCall, suffix: &[&str]) -> bool {
             .eq(suffix.iter().copied())
 }
 
-fn capability_decision(
+pub(super) fn capability_decision(
     rule: &dyn CustomRule,
     capabilities: &[FrameworkCapability],
 ) -> Result<(), String> {

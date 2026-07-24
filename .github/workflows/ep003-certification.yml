@@ -68,6 +68,8 @@ jobs:
             evaluation::process::tests::oversized_output_is_terminated_and_reported \
             --nocapture
       - name: Prepare pinned public corpus
+        env:
+          RUSTUP_TOOLCHAIN: '1.97'
         run: |
           target/release/rust-doctor-eval prepare \
             --manifest evaluation/corpus-v1.json \
@@ -320,6 +322,7 @@ jobs:
         with:
           toolchain: '1.97'
           targets: ${{ matrix.target }}
+          components: clippy
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest

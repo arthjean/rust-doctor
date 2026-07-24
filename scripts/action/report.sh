@@ -2,6 +2,8 @@
 set -euo pipefail
 
 MARKER='<!-- rust-doctor-report:v1 -->'
+INLINE_PREFIX='<!-- rust-doctor-inline:'
+REVIEW_MARKER='<!-- rust-doctor-review:v1 -->'
 TARGET_URL="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}"
 
 warn_channel() {
@@ -11,6 +13,8 @@ warn_channel() {
 status_state() {
   if [[ "$SKIP_SCAN" == true ]]; then
     printf 'success'
+  elif [[ -n "${DEGRADED_REASON:-}" ]]; then
+    printf 'error'
   elif [[ "$EXIT_CODE" == 0 ]]; then
     printf 'success'
   elif [[ "$EXIT_CODE" == 3 ]]; then
@@ -23,6 +27,8 @@ status_state() {
 status_description() {
   if [[ "$SKIP_SCAN" == true ]]; then
     printf 'Skipped: no Rust-relevant changes'
+  elif [[ -n "${DEGRADED_REASON:-}" ]]; then
+    printf 'Incomplete: requested scope degraded'
   elif [[ -s "${REPORT_FILE:-}" ]]; then
     jq -r '
       if .completeness.state != "complete" then
@@ -53,64 +59,136 @@ if [[ "$COMMIT_STATUS_ENABLED" == true ]]; then
   fi
 fi
 
+SCAN_PREFIX=$(realpath --relative-to="$GIT_ROOT" "$SCAN_ROOT")
+
+build_changed_lines() {
+  local destination=$1
+  local ndjson
+  ndjson=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-lines.XXXXXX.ndjson")
+  while IFS= read -r -d '' path; do
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[1-9][0-9]*$ ]] || continue
+      jq -cn --arg path "$path" --argjson line "$line" '{path: $path, line: $line}' >> "$ndjson"
+    done < <(
+      git diff --unified=3 --no-color --no-ext-diff "$BASE_SHA...$COMMIT_SHA" -- "$path" 2>/dev/null |
+        awk '
+          /^@@ / {
+            split($0, fields, " ")
+            right = fields[3]
+            sub(/^\+/, "", right)
+            sub(/,.*/, "", right)
+            right += 0
+            in_hunk = 1
+            next
+          }
+          in_hunk && /^\\/ { next }
+          in_hunk && /^-/ { next }
+          in_hunk && /^\+/ { print right; right += 1; next }
+          in_hunk && /^ / { print right; right += 1 }
+        '
+    )
+  done < <(git diff --name-only -z "$BASE_SHA...$COMMIT_SHA" --)
+  jq -s 'unique_by([.path, .line])' "$ndjson" > "$destination"
+  rm -f "$ndjson"
+}
+
 INLINE_POSTED=0
 INLINE_OMITTED=0
 if [[ "$REVIEW_COMMENTS_ENABLED" == true && "$EVENT_NAME" == pull_request && -s "${REPORT_FILE:-}" ]]; then
   if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ || ! "$BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
     warn_channel review-comment "pull-request number or base commit is unavailable"
+  elif ! jq -e '
+    .report_constructed == true
+    and .completeness.state == "complete"
+    and (.outcome != "partial" and .outcome != "failed")
+  ' "$REPORT_FILE" >/dev/null; then
+    warn_channel review-comment "replacement report is incomplete; preserving prior inline findings"
   else
-    CHANGED_LINES=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-lines.XXXXXX")
-    git -c core.quotePath=false diff --unified=0 --no-color --no-ext-diff "$BASE_SHA...$COMMIT_SHA" -- 2>/dev/null | \
-      perl -ne '
-        if (/^\+\+\+ b\/(.*)$/) { $path=$1; next }
-        if (/^@@ .* \+([0-9]+)(?:,([0-9]+))? /) {
-          $start=$1;
-          $count=defined($2) ? $2 : 1;
-          for ($line=$start; $line<$start+$count; $line++) {
-            print "$path\t$line\n";
+    CHANGED_LINES=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-lines.XXXXXX.json")
+    COMMENTS_ALL=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-comments.XXXXXX.json")
+    COMMENTS_NEW=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-comments-new.XXXXXX.json")
+    EXISTING_PAGES=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-existing-pages.XXXXXX.json")
+    EXISTING=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-existing.XXXXXX.json")
+    REVIEW_PAYLOAD=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-review.XXXXXX.json")
+    build_changed_lines "$CHANGED_LINES"
+    jq \
+      --arg git_root "$GIT_ROOT" \
+      --arg scan_root "$SCAN_ROOT" \
+      --arg scan_prefix "$SCAN_PREFIX" \
+      --slurpfile changed "$CHANGED_LINES" '
+      def safe:
+        tostring
+        | gsub("[\u0000-\u001f\u007f]"; " ")
+        | gsub("`"; "\\\\`")
+        | gsub("<"; "&lt;")
+        | gsub(">"; "&gt;");
+      def repository_path:
+        if startswith($git_root + "/") then .[($git_root | length) + 1:]
+        elif startswith($scan_root + "/") then
+          (if $scan_prefix == "." then "" else $scan_prefix + "/" end)
+          + .[($scan_root | length) + 1:]
+        elif startswith("/") then null
+        elif $scan_prefix == "." then .
+        else $scan_prefix + "/" + .
+        end;
+      [
+        .diagnostics[]
+        | select(.visible_on | index("pr-comment"))
+        | select(.location.kind == "source")
+        | (.location.path | repository_path) as $path
+        | select($path != null)
+        | .location.range.start.line as $line
+        | select(any($changed[0][]; .path == $path and .line == $line))
+        | {
+            site_id,
+            path: $path,
+            line: $line,
+            side: "RIGHT",
+            body: ("<!-- rust-doctor-inline:" + .site_id + " -->\n**" + (.rule | safe) + "**: " + (.message | safe))
           }
-        }
-      ' > "$CHANGED_LINES" || true
+      ]
+      | unique_by(.site_id)
+      | sort_by(.path, .line, .site_id)
+    ' "$REPORT_FILE" > "$COMMENTS_ALL"
+    COMMENT_COUNT=$(jq 'length' "$COMMENTS_ALL")
+    if (( COMMENT_COUNT > 50 )); then
+      INLINE_OMITTED=$((COMMENT_COUNT - 50))
+    fi
+    jq '.[0:50] | map(del(.site_id))' "$COMMENTS_ALL" > "$COMMENTS_NEW"
 
-    EXISTING=$(mktemp "${RUNNER_TEMP:-/tmp}/rust-doctor-existing.XXXXXX")
-    gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" \
-      --jq '.[].body' > "$EXISTING" 2>/dev/null || true
-    declare -A SEEN=()
-    while IFS=$'\t' read -r site_id rule message path line; do
-      [[ "$site_id" =~ ^[0-9a-fA-F]+$ ]] || continue
-      [[ "$line" =~ ^[1-9][0-9]*$ ]] || continue
-      [[ -z "${SEEN[$site_id]:-}" ]] || continue
-      SEEN[$site_id]=1
-      if ! awk -F $'\t' -v path="$path" -v line="$line" '$1 == path && $2 == line { found=1 } END { exit !found }' "$CHANGED_LINES"; then
-        continue
-      fi
-      if [[ "$INLINE_POSTED" -ge 50 ]]; then
-        INLINE_OMITTED=$((INLINE_OMITTED + 1))
-        continue
-      fi
-      inline_marker="<!-- rust-doctor-inline:${site_id} -->"
-      if grep -Fq "$inline_marker" "$EXISTING"; then
-        continue
-      fi
-      safe_rule=$(printf '%s' "$rule" | tr -d '\000-\010\013\014\016-\037\177' | sed 's/`/\\`/g; s/</\&lt;/g; s/>/\&gt;/g')
-      safe_message=$(printf '%s' "$message" | tr '\n\r\t' '   ' | tr -d '\000-\010\013\014\016-\037\177' | sed 's/`/\\`/g; s/</\&lt;/g; s/>/\&gt;/g')
-      body=$(printf '%s\n**%s**: %s' "$inline_marker" "$safe_rule" "$safe_message")
-      if gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments" \
-        -X POST \
-        -f body="$body" \
-        -f commit_id="$COMMIT_SHA" \
-        -f path="$path" \
-        -F line="$line" \
-        -f side=RIGHT >/dev/null 2>&1; then
-        INLINE_POSTED=$((INLINE_POSTED + 1))
+    EXISTING_READY=true
+    if gh api --paginate --slurp \
+      "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" > "$EXISTING_PAGES" 2>/dev/null; then
+      jq --arg prefix "$INLINE_PREFIX" \
+        '[.[][] | select(.body | startswith($prefix)) | {id, body}]' \
+        "$EXISTING_PAGES" > "$EXISTING"
+    else
+      EXISTING_READY=false
+      warn_channel review-comment "existing inline findings could not be loaded"
+    fi
+
+    NEW_COUNT=$(jq 'length' "$COMMENTS_NEW")
+    OLD_COUNT=0
+    if [[ "$EXISTING_READY" == true ]]; then
+      OLD_COUNT=$(jq 'length' "$EXISTING")
+    fi
+    if [[ "$EXISTING_READY" == true && ( "$NEW_COUNT" -gt 0 || "$OLD_COUNT" -gt 0 ) ]]; then
+      jq -n --arg body "$REVIEW_MARKER" --slurpfile comments "$COMMENTS_NEW" \
+        '{body: $body, event: "COMMENT", comments: $comments[0]}' > "$REVIEW_PAYLOAD"
+      if gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+        -X POST --input "$REVIEW_PAYLOAD" >/dev/null 2>&1; then
+        INLINE_POSTED=$NEW_COUNT
+        while IFS= read -r comment_id; do
+          if ! gh api "repos/${REPOSITORY}/pulls/comments/${comment_id}" \
+            -X DELETE >/dev/null 2>&1; then
+            warn_channel review-comment "new review published but an older inline comment could not be retired"
+          fi
+        done < <(jq -r '.[].id' "$EXISTING")
       else
-        warn_channel review-comment "permission denied or changed-line position rejected"
-        break
+        warn_channel review-comment "permission denied or changed-line positions rejected; preserving prior inline findings"
       fi
-    done < <(
-      jq -r '.diagnostics[] | select(.visible_on | index("pr-comment")) | select(.location.kind == "source") | [.site_id, .rule, .message, .location.path, .location.range.start.line] | @tsv' "$REPORT_FILE"
-    )
-    rm -f "$CHANGED_LINES" "$EXISTING"
+    fi
+    rm -f "$CHANGED_LINES" "$COMMENTS_ALL" "$COMMENTS_NEW" "$EXISTING_PAGES" "$EXISTING" "$REVIEW_PAYLOAD"
   fi
 fi
 
@@ -124,17 +202,20 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
     jq -r \
       --arg marker "$MARKER" \
       --arg target "$TARGET_URL" \
+      --arg degraded "${DEGRADED_REASON:-}" \
       --argjson inline_posted "$INLINE_POSTED" \
       --argjson inline_omitted "$INLINE_OMITTED" '
       def safe:
         tostring
-        | gsub("[\\u0000-\\u001f\\u007f]"; " ")
+        | gsub("[\u0000-\u001f\u007f]"; " ")
         | gsub("\\|"; "\\\\|")
         | gsub("`"; "\\\\`")
         | gsub("<"; "&lt;")
         | gsub(">"; "&gt;");
       def score: if .summary.score == null then "unavailable" else (.summary.score | tostring) + "/100" end;
-      def baseline: .baseline // {new_count: .summary.diagnostic_count, fixed_count: 0};
+      def baseline_available: .mode == "baseline" and .baseline != null and $degraded == "";
+      def introduced: if baseline_available then (.baseline.new_count | tostring) else "unavailable" end;
+      def fixed: if baseline_available then (.baseline.fixed_count | tostring) else "unavailable" end;
       def pr_diagnostics: [.diagnostics[] | select(.visible_on | index("pr-comment"))];
       def packages: ([.projects[].cargo_package_id] | unique | map(safe) | join(", "));
       def top_rules:
@@ -147,10 +228,11 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
       "| Metric | Result |\n|---|---:|\n" +
       "| Completeness | " + (.completeness.state | safe) + " |\n" +
       "| Score | " + score + " |\n" +
-      "| Introduced | " + (pr_diagnostics | length | tostring) + " |\n" +
-      "| Fixed | " + (baseline.fixed_count | tostring) + " |\n" +
+      "| Introduced | " + introduced + " |\n" +
+      "| Fixed | " + fixed + " |\n" +
       "| Errors | " + (pr_diagnostics | map(select(.severity == "error")) | length | tostring) + " |\n" +
       "| Warnings | " + (pr_diagnostics | map(select(.severity == "warning")) | length | tostring) + " |\n\n" +
+      (if $degraded == "" then "" else "Scope degraded: " + ($degraded | safe) + "\n\n" end) +
       "Affected packages: " + packages + "\n\n" +
       "Top rule groups: " + top_rules + "\n\n" +
       (if $inline_posted + $inline_omitted > 0 then

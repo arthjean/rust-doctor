@@ -120,4 +120,4 @@ The smoke suite invokes terminal, score, JSON, SARIF, baseline, malformed and
 failure paths from built binaries. It checks MCP initialize, tool discovery,
 every reporting scope, and deadline-observed cancellation. It installs the
 final npm tarballs, executes each extracted native archive, and builds the
-exact verified `.crate` contents offline.
+exact verified `.crate` contents with locked dependencies before running its tests.

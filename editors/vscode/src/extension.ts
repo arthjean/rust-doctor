@@ -17,7 +17,13 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
-import { isCompatibleVersion, resolveBinaryPath } from "./binary";
+import {
+  isCompatibleProtocol,
+  isCompatibleVersion,
+  initializationOptions,
+  resolveBinaryPath,
+  RUST_DOCTOR_PROTOCOL_MAJOR,
+} from "./binary";
 
 let client: LanguageClient | undefined;
 let startupErrorShown = false;
@@ -40,7 +46,7 @@ function settings(): RustDoctorSettings {
     debounceMs: configuration.get("debounceMs", 300),
     onSaveProjectChecks: configuration.get("onSaveProjectChecks", false),
     projectBudgetMs: configuration.get("projectBudgetMs", 10_000),
-    configurationPath: configuration.get("configurationPath", "rust-doctor.toml"),
+    configurationPath: configuration.get("configurationPath", ""),
     trace: configuration.get("trace", "off"),
   };
 }
@@ -53,7 +59,7 @@ function traceEnvironment(level: RustDoctorSettings["trace"]): NodeJS.ProcessEnv
 }
 
 function verifyBinary(binaryPath: string): string | undefined {
-  const result = spawnSync(binaryPath, ["--version"], {
+  const result = spawnSync(binaryPath, ["version"], {
     encoding: "utf8",
     timeout: 5_000,
     windowsHide: true,
@@ -62,6 +68,9 @@ function verifyBinary(binaryPath: string): string | undefined {
   if (result.status !== 0) return `${binaryPath} exited with status ${result.status ?? "unknown"}`;
   if (!isCompatibleVersion(result.stdout)) {
     return `${binaryPath} is incompatible; Rust Doctor 0.2.0 or newer is required`;
+  }
+  if (!isCompatibleProtocol(result.stdout)) {
+    return `${binaryPath} does not provide Rust Doctor LSP protocol ${RUST_DOCTOR_PROTOCOL_MAJOR}`;
   }
   return undefined;
 }
@@ -91,12 +100,7 @@ async function startClient(): Promise<void> {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "rust" }],
     diagnosticCollectionName: "rust-doctor",
-    initializationOptions: {
-      debounceMs: configuration.debounceMs,
-      onSaveProjectChecks: configuration.onSaveProjectChecks,
-      projectBudgetMs: configuration.projectBudgetMs,
-      configurationPath: configuration.configurationPath,
-    },
+    initializationOptions: initializationOptions(configuration),
     connectionOptions: { maxRestartCount: 0 },
   };
   client = new LanguageClient("rustDoctor", "Rust Doctor", serverOptions, clientOptions);

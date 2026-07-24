@@ -644,14 +644,19 @@ fn smoke_crate(crate_package: &Path, timeout: Duration) -> Result<()> {
         )));
     }
     let target = extraction.path().join("target");
-    let mut check = Command::new("cargo");
-    check
-        .current_dir(&package_root)
-        .args(["check", "--locked", "--offline", "--no-default-features"])
+    let mut test = Command::new("cargo");
+    test.current_dir(&package_root)
+        .args([
+            "test",
+            "--locked",
+            "--no-default-features",
+            "--lib",
+            "--bins",
+        ])
         .env("CARGO_TARGET_DIR", target);
     require_success(
-        "verified Cargo package build",
-        &run_capped(check, timeout, OUTPUT_CAP)?,
+        "verified Cargo package build and test",
+        &run_capped(test, timeout, OUTPUT_CAP)?,
     )
 }
 
@@ -834,7 +839,8 @@ fn require_success(surface: &str, output: &ProcessOutput) -> Result<()> {
     }
     if !output.status.success() {
         return Err(EvalError::Command(format!(
-            "{surface} smoke failed: {}",
+            "{surface} smoke failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout).trim(),
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
