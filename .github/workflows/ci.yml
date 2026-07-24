@@ -126,4 +126,4 @@ jobs:
 
   release-verification:
     name: Five-platform release verification
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/release-verify.yml
