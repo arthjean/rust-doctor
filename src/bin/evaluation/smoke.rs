@@ -649,7 +649,6 @@ fn smoke_crate(crate_package: &Path, timeout: Duration) -> Result<()> {
         .args([
             "test",
             "--locked",
-            "--offline",
             "--no-default-features",
             "--lib",
             "--bins",
