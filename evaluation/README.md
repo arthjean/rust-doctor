@@ -72,22 +72,21 @@ positives, missing labels, or uncertain labels blocks default activation.
 Promotions are derived from the two catalogs, so callers cannot omit a promoted
 rule. Labels bind repository, Cargo root, rule, site, and evidence fingerprint.
 
-The pull-request certification writes
-`promotion-review-template.json` beside the initial delta report. It contains
-the exact hash-ordered, deduplicated sample used by the gate, with no source
-text or host path. After that immutable candidate artifact is reviewed,
-`evaluation/approvals/ep006-candidate.json` binds its GitHub run, artifact
-digest and NDJSON SHA-256, while `evaluation/approvals/ep006-labels.json` binds
-the reviewed labels to the same SHA-256. The EP-006 promotion workflow downloads
-that earlier candidate instead of rescanning the corpus, verifies both artifact
-identities through the GitHub API, and emits the final delta and promotion
-sample even when a threshold blocks activation.
+The base-controlled EP-006 protected workflow must be dispatched from
+`master` with an open same-repository pull request and its exact full head SHA.
+It verifies the candidate ancestry, builds untrusted binaries in a disposable
+namespace with read-only sources and oracle inputs, and transfers only
+hash-bound outputs to fresh trusted jobs. Those jobs run the production-rule
+mutation oracle and pinned corpus, verify every artifact identity and evidence
+member, and compare against the approved baseline.
 
-Both candidate collection and final promotion use the
-`ep006-protected-evidence` environment. It forbids self-review and admin bypass,
-requires an independent reviewer, and permits only the exact evidence branch.
-Candidate verification checks that live policy and the successful GitHub
-Actions deployment created by it.
+The trusted promotion policy keeps all EP-006 candidates opt-in unless a later
+base-controlled policy explicitly qualifies them. The final job proves that
+thresholds are unchanged, no rule became default-enabled, no promotion review
+was requested, and every delta reason is confined to an expected EP-006 rule.
+It then emits immutable mutation, corpus, delta, and empty-promotion evidence.
+Candidate code receives no secrets and cannot modify the workflow, policy,
+evaluator, or final evidence used by the dispatched run.
 
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
 threshold. Approval JSON binds the exact subject SHA-256, repository commit,
