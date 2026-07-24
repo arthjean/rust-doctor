@@ -574,7 +574,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(outcome.directory, directory.path());
+        assert_eq!(outcome.directory, directory.path().canonicalize().unwrap());
         let dump: serde_json::Value = serde_json::from_slice(
             &std::fs::read(directory.path().join("diagnostics.json")).unwrap(),
         )

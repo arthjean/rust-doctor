@@ -839,7 +839,8 @@ fn require_success(surface: &str, output: &ProcessOutput) -> Result<()> {
     }
     if !output.status.success() {
         return Err(EvalError::Command(format!(
-            "{surface} smoke failed: {}",
+            "{surface} smoke failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout).trim(),
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
