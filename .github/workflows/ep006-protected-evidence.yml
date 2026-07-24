@@ -545,11 +545,14 @@ jobs:
               and .workflow_run.id == $run_id
               and .workflow_run.head_sha == $trusted_revision
             ' <<<"$candidate_artifact_json" >/dev/null
-          trusted/scripts/evaluation/verify-approved-artifact.sh \
-            trusted/evaluation/approvals/corpus-baseline.json \
-            approved/corpus-baseline.ndjson \
-            ep003-corpus-baseline \
-            .github/workflows/ep003-baseline.yml
+          (
+            cd trusted
+            scripts/evaluation/verify-approved-artifact.sh \
+              evaluation/approvals/corpus-baseline.json \
+              "$GITHUB_WORKSPACE/approved/corpus-baseline.ndjson" \
+              ep003-corpus-baseline \
+              .github/workflows/ep003-baseline.yml
+          )
       - name: Execute trusted diagnostic delta
         id: delta
         shell: bash
