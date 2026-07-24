@@ -68,6 +68,8 @@ jobs:
             evaluation::process::tests::oversized_output_is_terminated_and_reported \
             --nocapture
       - name: Prepare pinned public corpus
+        env:
+          RUSTUP_TOOLCHAIN: '1.97'
         run: |
           target/release/rust-doctor-eval prepare \
             --manifest evaluation/corpus-v1.json \
