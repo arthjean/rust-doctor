@@ -241,7 +241,8 @@ impl ProcessWatchdog {
             loop {
                 let stop_requested = stop_rx.recv_timeout(Duration::from_millis(50)).is_ok();
                 let reason = control.stop_reason().or_else(|| {
-                    (started.elapsed() >= pass_timeout).then_some(ProcessStop::TimedOut)
+                    (!stop_requested && started.elapsed() >= pass_timeout)
+                        .then_some(ProcessStop::TimedOut)
                 });
                 let Some(reason) = reason else {
                     if stop_requested {
