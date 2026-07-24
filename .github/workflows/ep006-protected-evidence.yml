@@ -62,7 +62,7 @@ jobs:
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ep006-candidate-binaries
-      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-digest: ${{ format('sha256:{0}', steps.upload.outputs.artifact-digest) }}
     steps:
       - name: Install sandbox runtime
         run: |
@@ -214,7 +214,7 @@ jobs:
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ep006-protected-candidate
-      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-digest: ${{ format('sha256:{0}', steps.upload.outputs.artifact-digest) }}
       corpus-sha256: ${{ steps.identity.outputs.corpus-sha256 }}
       mutation-sha256: ${{ steps.identity.outputs.mutation-sha256 }}
     steps:
@@ -703,4 +703,4 @@ jobs:
         run: |
           echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
           echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
-          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
+          echo "artifact-digest=sha256:${{ steps.upload.outputs.artifact-digest }}"
