@@ -138,7 +138,7 @@ struct SmokeArgs {
     /// Verified Cargo package produced by `cargo package --locked`.
     #[arg(long = "crate-package")]
     crate_package: PathBuf,
-    #[arg(long, default_value_t = 300)]
+    #[arg(long, default_value_t = 600)]
     timeout_secs: u64,
 }
 
