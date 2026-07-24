@@ -123,3 +123,7 @@ jobs:
         env:
           RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
         run: bun run package
+
+  release-verification:
+    name: Five-platform release verification
+    uses: ./.github/workflows/release.yml
