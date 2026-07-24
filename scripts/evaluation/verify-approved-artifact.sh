@@ -59,13 +59,17 @@ jq -e \
 artifact_json=$(gh api "repos/${repository}/actions/artifacts/${artifact_id}")
 jq -e \
   --argjson id "$artifact_id" \
+  --argjson run_id "$run_id" \
   --arg name "$artifact_name" \
   --arg digest "$artifact_digest" \
+  --arg head_sha "$head_sha" \
   '
     .id == $id
     and .name == $name
     and .expired == false
     and .digest == $digest
+    and .workflow_run.id == $run_id
+    and .workflow_run.head_sha == $head_sha
   ' <<<"$artifact_json" >/dev/null
 
 actual_subject_sha256=$(sha256sum "$subject" | cut -d' ' -f1)
