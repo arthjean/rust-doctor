@@ -239,13 +239,14 @@ impl ProcessWatchdog {
         let handle = thread::spawn(move || {
             let started = Instant::now();
             loop {
-                if stop_rx.recv_timeout(Duration::from_millis(50)).is_ok() {
-                    return None;
-                }
+                let stop_requested = stop_rx.recv_timeout(Duration::from_millis(50)).is_ok();
                 let reason = control.stop_reason().or_else(|| {
                     (started.elapsed() >= pass_timeout).then_some(ProcessStop::TimedOut)
                 });
                 let Some(reason) = reason else {
+                    if stop_requested {
+                        return None;
+                    }
                     continue;
                 };
                 if let Ok(mut process) = child.lock()
@@ -356,7 +357,6 @@ mod tests {
 
         let started = Instant::now();
         cancel.store(true, Ordering::Relaxed);
-        std::thread::sleep(Duration::from_millis(100));
         assert_eq!(watchdog.finish(), Some(ProcessStop::Cancelled));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
