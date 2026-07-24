@@ -1825,6 +1825,7 @@ dependencies = [
 name = "rust-doctor"
 version = "0.2.0"
 dependencies = [
+ "cargo-platform",
  "cargo_metadata",
  "clap",
  "dialoguer",

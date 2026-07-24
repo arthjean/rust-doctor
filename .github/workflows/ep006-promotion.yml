@@ -1,0 +1,133 @@
+name: EP-006 Promotion
+
+on:
+  pull_request:
+    paths:
+      - evaluation/approvals/ep006-candidate.json
+      - evaluation/approvals/ep006-labels.json
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Original EP-003 certification run containing the reviewed candidate
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ep006-promotion-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  promotion:
+    name: promotion
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.97'
+      - name: Initialize review evidence
+        shell: bash
+        run: |
+          mkdir -p evidence
+          if [[ -f evaluation/approvals/ep006-candidate.json ]]; then
+            cp evaluation/approvals/ep006-candidate.json evidence/candidate-approval.json
+          fi
+          if [[ -f evaluation/approvals/ep006-labels.json ]]; then
+            cp evaluation/approvals/ep006-labels.json evidence/reviewed-labels.json
+          fi
+      - name: Read exact artifact identities
+        id: identity
+        shell: bash
+        env:
+          DISPATCH_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          baseline=evaluation/approvals/corpus-baseline.json
+          candidate=evaluation/approvals/ep006-candidate.json
+          labels=evaluation/approvals/ep006-labels.json
+          test -s "$candidate"
+          test -s "$labels"
+          candidate_run_id=$(jq -er '.run_id | select(type == "number" and . > 0)' "$candidate")
+          if [[ -n "${DISPATCH_RUN_ID:-}" && "$DISPATCH_RUN_ID" != "$candidate_run_id" ]]; then
+            echo "workflow input does not match the reviewed candidate run" >&2
+            exit 1
+          fi
+          echo "baseline-run-id=$(jq -er '.run_id' "$baseline")" >> "$GITHUB_OUTPUT"
+          echo "baseline-artifact-name=$(jq -er '.artifact_name' "$baseline")" >> "$GITHUB_OUTPUT"
+          echo "candidate-run-id=$candidate_run_id" >> "$GITHUB_OUTPUT"
+          echo "candidate-artifact-name=$(jq -er '.artifact_name' "$candidate")" >> "$GITHUB_OUTPUT"
+      - name: Download approved corpus baseline
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ steps.identity.outputs.baseline-artifact-name }}
+          path: approved
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.identity.outputs.baseline-run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Download reviewed corpus candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ steps.identity.outputs.candidate-artifact-name }}
+          path: candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.identity.outputs.candidate-run-id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Verify immutable artifacts and review binding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/evaluation/verify-approved-artifact.sh \
+            evaluation/approvals/corpus-baseline.json \
+            approved/corpus-baseline.ndjson \
+            ep003-corpus-baseline \
+            .github/workflows/ep003-baseline.yml
+          scripts/evaluation/verify-candidate-artifact.sh \
+            evaluation/approvals/ep006-candidate.json \
+            candidate/corpus-candidate.ndjson \
+            ep003-corpus-candidate \
+            .github/workflows/ep003-certification.yml \
+            "${{ steps.identity.outputs.candidate-run-id }}"
+      - name: Execute artifact-bound promotion gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --bin rust-doctor-eval
+          set +e
+          target/release/rust-doctor-eval delta \
+            --baseline approved/corpus-baseline.ndjson \
+            --baseline-approval evaluation/approvals/corpus-baseline.json \
+            --candidate candidate/corpus-candidate.ndjson \
+            --candidate-approval evaluation/approvals/ep006-candidate.json \
+            --labels evaluation/approvals/ep006-labels.json \
+            --review-template evidence/promotion-review.json \
+            --output evidence/delta.json
+          gate_status=$?
+          set -e
+          echo "$gate_status" > evidence/gate-exit-status.txt
+          exit "$gate_status"
+      - name: Upload final promotion evidence
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ep006-promotion
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Emit promotion artifact identity
+        if: always()
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"

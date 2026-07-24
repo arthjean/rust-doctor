@@ -1,5 +1,7 @@
 use crate::config::ResolvedConfig;
-use crate::diagnostics::{CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic};
+use crate::diagnostics::{
+    AnalysisFailureReceipt, CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic,
+};
 use crate::process::{ProcessStop, ScanControl};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -51,6 +53,7 @@ pub struct ScanPassResult {
     pub pass_timings: Vec<(String, std::time::Duration)>,
     pub compiler_evidence: Vec<CompilerDiagnosticEvidence>,
     pub checks: Vec<CheckState>,
+    pub analysis_failures: Vec<AnalysisFailureReceipt>,
 }
 
 /// Orchestrates multiple analysis passes in parallel and merges results.
@@ -123,6 +126,7 @@ impl ScanOrchestrator {
         let mut pass_errors = Vec::new();
         let mut pass_timings = Vec::new();
         let mut checks = Vec::new();
+        let mut analysis_failures = Vec::new();
 
         for result in results {
             pass_timings.push((result.name.clone(), result.elapsed));
@@ -132,6 +136,12 @@ impl ScanOrchestrator {
             });
             match result.result {
                 Ok(mut diagnostics) => {
+                    analysis_failures.extend(
+                        diagnostics
+                            .iter()
+                            .filter(|diagnostic| diagnostic.rule == ANALYSIS_FAILURE_RULE)
+                            .map(|diagnostic| analysis_failure_receipt(&result.name, diagnostic)),
+                    );
                     let work_failures: Vec<_> = diagnostics
                         .iter()
                         .filter(|diagnostic| diagnostic.rule == ANALYSIS_FAILURE_RULE)
@@ -265,6 +275,7 @@ impl ScanOrchestrator {
             pass_timings,
             compiler_evidence,
             checks,
+            analysis_failures,
         }
     }
 
@@ -339,6 +350,29 @@ impl ScanOrchestrator {
                 })
                 .collect()
         })
+    }
+}
+
+fn analysis_failure_receipt(check: &str, diagnostic: &Diagnostic) -> AnalysisFailureReceipt {
+    let (kind, detail) = diagnostic
+        .message
+        .split_once(':')
+        .unwrap_or(("analysis_failed", diagnostic.message.as_str()));
+    let (rule, reason) = if kind == "rule_panicked" {
+        detail
+            .split_once(':')
+            .map_or((None, detail), |(rule, reason)| {
+                (Some(rule.to_string()), reason)
+            })
+    } else {
+        (None, detail)
+    };
+    AnalysisFailureReceipt {
+        check: check.to_string(),
+        kind: kind.to_string(),
+        path: diagnostic.file_path.to_string_lossy().replace('\\', "/"),
+        rule,
+        reason: reason.to_string(),
     }
 }
 
@@ -623,6 +657,28 @@ mod tests {
         }
     }
 
+    struct WorkFailurePass;
+
+    impl AnalysisPass for WorkFailurePass {
+        fn name(&self) -> &'static str {
+            "custom rules"
+        }
+
+        fn run(&self, _root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+            Ok(vec![Diagnostic {
+                file_path: PathBuf::from("src/lib.rs"),
+                rule: ANALYSIS_FAILURE_RULE.to_string(),
+                category: Category::Correctness,
+                severity: Severity::Info,
+                message: "rule_panicked:ffi-cstring-lifetime:synthetic panic".to_string(),
+                help: None,
+                line: None,
+                column: None,
+                fix: None,
+            }])
+        }
+    }
+
     #[test]
     fn test_orchestrator_merges_results() {
         let pass1 = SuccessPass {
@@ -662,6 +718,24 @@ mod tests {
         assert_eq!(
             result.skipped_passes,
             vec!["failing: failed: failing: pass failed"]
+        );
+    }
+
+    #[test]
+    fn failed_rule_work_unit_is_structured_and_marks_the_check_failed() {
+        let orchestrator = ScanOrchestrator::new(vec![Box::new(WorkFailurePass)]);
+        let result = orchestrator.run(Path::new("."), &make_config(), true);
+
+        assert_eq!(result.checks[0].status, CheckStatus::Failed);
+        assert_eq!(
+            result.analysis_failures,
+            vec![AnalysisFailureReceipt {
+                check: "custom rules".to_string(),
+                kind: "rule_panicked".to_string(),
+                path: "src/lib.rs".to_string(),
+                rule: Some("ffi-cstring-lifetime".to_string()),
+                reason: "synthetic panic".to_string(),
+            }]
         );
     }
 

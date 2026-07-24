@@ -207,9 +207,10 @@ mod tests {
             root_dir: PathBuf::from(root),
             package_id: package_id.to_string(),
             targets: vec![format!("{name}:[Lib]")],
+            cargo_targets: vec![],
             frameworks: vec![],
             framework_capabilities: vec![],
-            rust_version: Some("1.85".to_string()),
+            rust_version: Some("1.97".to_string()),
         }
     }
 

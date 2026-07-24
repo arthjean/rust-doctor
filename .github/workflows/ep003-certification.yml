@@ -13,8 +13,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  phase:
+    name: phase
+    runs-on: ubuntu-24.04
+    outputs:
+      promotion: ${{ steps.detect.outputs.promotion }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Detect artifact-bound promotion phase
+        id: detect
+        shell: bash
+        run: |
+          if [[ -s evaluation/approvals/ep006-candidate.json &&
+                -s evaluation/approvals/ep006-labels.json ]]; then
+            echo "promotion=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "promotion=false" >> "$GITHUB_OUTPUT"
+          fi
+
   corpus:
     name: corpus
+    needs: phase
+    if: needs.phase.outputs.promotion != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -43,8 +63,13 @@ jobs:
           test_binary=$(cargo test --no-run --bin rust-doctor-eval --message-format=json |
             jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' |
             tail -n 1)
+          mutation_test_binary=$(cargo test --no-run --all-features --lib --message-format=json |
+            jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' |
+            tail -n 1)
           test -n "$test_binary"
+          test -n "$mutation_test_binary"
           echo "TEST_BINARY=$test_binary" >> "$GITHUB_ENV"
+          echo "MUTATION_TEST_BINARY=$mutation_test_binary" >> "$GITHUB_ENV"
       - name: Prove malicious fixture and interruption cleanup
         shell: bash
         run: |
@@ -67,6 +92,23 @@ jobs:
             "$TEST_BINARY" --exact \
             evaluation::process::tests::oversized_output_is_terminated_and_reported \
             --nocapture
+      - name: Record protected custom-rule mutation evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          "$MUTATION_TEST_BINARY" --exact \
+            passes::static_analysis::rules::tests::seeded_mutations_are_subprocess_isolated_and_semantically_bounded \
+            --nocapture 2>&1 | tee evidence/mutation-test.log
+          jq -n \
+            --arg revision "$GITHUB_SHA" \
+            '{
+              schema_version: "1.0",
+              test: "passes::static_analysis::rules::tests::seeded_mutations_are_subprocess_isolated_and_semantically_bounded",
+              mutations_per_custom_rule: 1000,
+              tool_revision: $revision,
+              status: "passed"
+            }' > evidence/mutation-evidence.json
       - name: Prepare pinned public corpus
         env:
           RUSTUP_TOOLCHAIN: '1.97'
@@ -154,12 +196,18 @@ jobs:
           test "$(jq -s 'any(.[]; any(.failure_chain[]; .kind == "global_budget" or .kind == "repository_budget"))' evidence/budget-failure.ndjson)" = true
           test -z "$(sudo find /sys/fs/cgroup -name 'rust-doctor-*' -print -quit)"
       - name: Upload candidate corpus
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ep003-corpus-candidate
           path: evidence/
           if-no-files-found: error
           retention-days: 30
+      - name: Emit candidate artifact identity
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
 
   delta:
     name: delta
@@ -213,15 +261,23 @@ jobs:
             --baseline approved/corpus-baseline.ndjson \
             --baseline-approval evaluation/approvals/corpus-baseline.json \
             --candidate candidate/corpus-candidate.ndjson \
+            --review-template evidence/promotion-review-template.json \
             --output evidence/delta.json
       - name: Upload diagnostic gate evidence
         if: always()
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ep003-delta
-          path: evidence/delta.json
+          path: evidence/
           if-no-files-found: error
           retention-days: 30
+      - name: Emit diagnostic artifact identity
+        if: always()
+        run: |
+          echo "artifact-id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact-url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact-digest=${{ steps.upload.outputs.artifact-digest }}"
 
   performance:
     name: performance

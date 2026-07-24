@@ -2,7 +2,7 @@ use super::manifest::{hex_digest, read_json, sha256_file, write_json_atomic};
 use super::model::{
     CORPUS_SCHEMA_VERSION, CorpusRecord, DELTA_SCHEMA_VERSION, DeltaReport, DiagnosticLabel,
     EvaluationDiagnostic, EvaluationRule, EvidenceApproval, LabelFile, PromotionReview,
-    ReviewLabel, RootState, RuleDelta, RuntimeDelta,
+    PromotionReviewTemplate, PromotionRuleSample, ReviewLabel, RootState, RuleDelta, RuntimeDelta,
 };
 use super::{EvalError, Result};
 use crate::DeltaArgs;
@@ -50,16 +50,12 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
     let baseline_sha256 = sha256_file(&args.baseline)?;
     let candidate_sha256 = sha256_file(&args.candidate)?;
     validate_approval(&args.baseline_approval, &baseline_sha256, "baseline")?;
-    let approved_replacement = args
+    let candidate_approval = args
         .candidate_approval
         .as_deref()
-        .map_or(Ok(false), |path| {
-            validate_approval(path, &candidate_sha256, "candidate").map(|()| true)
-        })?;
-    let labels = args.labels.as_deref().map_or_else(
-        || Ok(Vec::new()),
-        |path| read_labels(path, &candidate_sha256),
-    )?;
+        .map(|path| validate_approval(path, &candidate_sha256, "candidate"))
+        .transpose()?;
+    let approved_replacement = candidate_approval.is_some();
     let baseline_catalog = corpus_catalog(&baseline)?;
     let candidate_catalog = corpus_catalog(&candidate)?;
     let promoted_rules = derive_promoted_rules(baseline_catalog, candidate_catalog);
@@ -129,6 +125,16 @@ pub(crate) fn run(args: DeltaArgs) -> Result<()> {
         })
         .cloned()
         .collect();
+    if let Some(path) = args.review_template.as_deref() {
+        write_json_atomic(
+            path,
+            &promotion_review_template(&promotion_population, &promoted_rules, &candidate_sha256),
+        )?;
+    }
+    let labels = args.labels.as_deref().map_or_else(
+        || Ok(Vec::new()),
+        |path| read_labels(path, &candidate_sha256, candidate_approval.as_ref()),
+    )?;
     let promotion_reviews = promotion_reviews(&promotion_population, &promoted_rules, &labels);
     let mut reasons = Vec::new();
     if affected_root_percent > 0.5 && !approved_replacement {
@@ -595,7 +601,11 @@ fn index_diagnostics(
     }
 }
 
-fn read_labels(path: &Path, candidate_sha256: &str) -> Result<Vec<DiagnosticLabel>> {
+fn read_labels(
+    path: &Path,
+    candidate_sha256: &str,
+    candidate_approval: Option<&EvidenceApproval>,
+) -> Result<Vec<DiagnosticLabel>> {
     let labels: LabelFile = read_json(path)?;
     if labels.schema_version != DELTA_SCHEMA_VERSION || labels.candidate_sha256 != candidate_sha256
     {
@@ -604,6 +614,12 @@ fn read_labels(path: &Path, candidate_sha256: &str) -> Result<Vec<DiagnosticLabe
         )));
     }
     validate_approval_value(&labels.approval, candidate_sha256, "label candidate")?;
+    if candidate_approval != Some(&labels.approval) {
+        return Err(EvalError::InvalidManifest(
+            "labels must embed the exact reviewed candidate approval supplied to the gate"
+                .to_string(),
+        ));
+    }
     let mut seen = HashSet::new();
     for label in &labels.labels {
         if label.repository.is_empty()
@@ -628,9 +644,10 @@ fn read_labels(path: &Path, candidate_sha256: &str) -> Result<Vec<DiagnosticLabe
     Ok(labels.labels)
 }
 
-fn validate_approval(path: &Path, subject_sha256: &str, subject: &str) -> Result<()> {
+fn validate_approval(path: &Path, subject_sha256: &str, subject: &str) -> Result<EvidenceApproval> {
     let approval: EvidenceApproval = read_json(path)?;
-    validate_approval_value(&approval, subject_sha256, subject)
+    validate_approval_value(&approval, subject_sha256, subject)?;
+    Ok(approval)
 }
 
 fn validate_approval_value(
@@ -697,24 +714,7 @@ fn promotion_reviews(
         .collect();
     let mut reviews = Vec::new();
     for rule in promoted_rules {
-        let mut sample: Vec<_> = candidate_diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.rule == *rule)
-            .collect();
-        sample.sort_by_key(|diagnostic| {
-            hex_digest(
-                format!(
-                    "{}\0{}\0{}\0{}\0{}",
-                    diagnostic.repository,
-                    diagnostic.package_root,
-                    diagnostic.rule,
-                    diagnostic.site_id,
-                    diagnostic.fingerprint
-                )
-                .as_bytes(),
-            )
-        });
-        sample.truncate(100);
+        let sample = promotion_sample(candidate_diagnostics, rule);
         let mut labeled = 0usize;
         let mut confirmed = 0usize;
         let mut false_positives = 0usize;
@@ -751,6 +751,71 @@ fn promotion_reviews(
         });
     }
     reviews
+}
+
+fn promotion_review_template(
+    candidate_diagnostics: &[EvaluationDiagnostic],
+    promoted_rules: &[String],
+    candidate_sha256: &str,
+) -> PromotionReviewTemplate {
+    let samples = promoted_rules
+        .iter()
+        .map(|rule| {
+            let labels = promotion_sample(candidate_diagnostics, rule)
+                .into_iter()
+                .map(|diagnostic| DiagnosticLabel {
+                    repository: diagnostic.repository.clone(),
+                    package_root: diagnostic.package_root.clone(),
+                    rule: diagnostic.rule.clone(),
+                    site_id: diagnostic.site_id.clone(),
+                    evidence_fingerprint: diagnostic.fingerprint.clone(),
+                    label: ReviewLabel::Uncertain,
+                })
+                .collect::<Vec<_>>();
+            PromotionRuleSample {
+                rule: rule.clone(),
+                sample_size: labels.len(),
+                labels,
+            }
+        })
+        .collect();
+    PromotionReviewTemplate {
+        schema_version: DELTA_SCHEMA_VERSION.to_string(),
+        candidate_sha256: candidate_sha256.to_string(),
+        samples,
+    }
+}
+
+fn promotion_sample<'a>(
+    candidate_diagnostics: &'a [EvaluationDiagnostic],
+    rule: &str,
+) -> Vec<&'a EvaluationDiagnostic> {
+    let mut sample: Vec<_> = candidate_diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.rule == rule)
+        .collect();
+    sample.sort_by_key(|diagnostic| {
+        hex_digest(
+            format!(
+                "{}\0{}\0{}\0{}\0{}",
+                diagnostic.repository,
+                diagnostic.package_root,
+                diagnostic.rule,
+                diagnostic.site_id,
+                diagnostic.fingerprint
+            )
+            .as_bytes(),
+        )
+    });
+    sample.dedup_by(|left, right| {
+        left.repository == right.repository
+            && left.package_root == right.package_root
+            && left.rule == right.rule
+            && left.site_id == right.site_id
+            && left.fingerprint == right.fingerprint
+    });
+    sample.truncate(100);
+    sample
 }
 
 fn runtime_deltas(pairs: &[(&CorpusRecord, &CorpusRecord)]) -> Vec<RuntimeDelta> {
@@ -911,6 +976,37 @@ mod tests {
         let reviews = promotion_reviews(&introduced, &["rule".to_string()], &labels);
         assert!(reviews[0].eligible_for_default);
         assert!((reviews[0].false_positive_percent - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn review_template_uses_the_exact_bounded_promotion_sample() {
+        let diagnostics: Vec<_> = (0..120)
+            .rev()
+            .map(|index| diagnostic("rule", &format!("key-{index}"), &format!("{index:064x}")))
+            .chain([diagnostic("other-rule", "only", &"f".repeat(64))])
+            .collect();
+        let promoted_rules = vec!["other-rule".to_string(), "rule".to_string()];
+        let template = promotion_review_template(&diagnostics, &promoted_rules, &"c".repeat(64));
+        assert_eq!(
+            template
+                .samples
+                .iter()
+                .map(|sample| (sample.rule.as_str(), sample.sample_size))
+                .collect::<Vec<_>>(),
+            [("other-rule", 1), ("rule", 100)]
+        );
+
+        let labels: Vec<_> = template
+            .samples
+            .iter()
+            .flat_map(|sample| sample.labels.iter().cloned())
+            .map(|mut label| {
+                label.label = ReviewLabel::TruePositive;
+                label
+            })
+            .collect();
+        let reviews = promotion_reviews(&diagnostics, &promoted_rules, &labels);
+        assert!(reviews.iter().all(|review| review.eligible_for_default));
     }
 
     #[test]

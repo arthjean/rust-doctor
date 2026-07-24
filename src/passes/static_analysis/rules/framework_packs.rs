@@ -1,6 +1,6 @@
-use super::{CustomRule, has_cfg_test, is_test_context};
+use super::{CustomRule, RuleContext, has_cfg_test, is_test_context};
 use crate::catalog::Confidence;
-use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::diagnostics::{Category, Diagnostic, Severity, SourceSurface};
 use crate::discovery::{Framework, FrameworkCapability};
 use std::path::Path;
 use syn::spanned::Spanned;
@@ -21,6 +21,23 @@ struct FrameworkPackRule {
 impl FrameworkPackRule {
     const fn new(kind: PackKind) -> Self {
         Self { kind }
+    }
+
+    fn analyze(&self, syntax: &syn::File, path: &Path, context: RuleContext) -> Vec<Diagnostic> {
+        if matches!(
+            context.source_surface,
+            SourceSurface::Test | SourceSurface::Example | SourceSurface::Bench
+        ) {
+            return Vec::new();
+        }
+        let mut visitor = PackVisitor {
+            rule: self,
+            path,
+            diagnostics: Vec::new(),
+            actix_locked_state_depth: 0,
+        };
+        visitor.visit_file(syntax);
+        visitor.diagnostics
     }
 }
 
@@ -101,14 +118,25 @@ impl CustomRule for FrameworkPackRule {
     }
 
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-        let mut visitor = PackVisitor {
-            rule: self,
+        self.analyze(
+            syntax,
             path,
-            diagnostics: Vec::new(),
-            actix_locked_state_depth: 0,
-        };
-        visitor.visit_file(syntax);
-        visitor.diagnostics
+            RuleContext {
+                source_surface: crate::config::classify_source_surface(
+                    &path.to_string_lossy(),
+                    false,
+                ),
+            },
+        )
+    }
+
+    fn check_file_with_context(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        context: RuleContext,
+    ) -> Vec<Diagnostic> {
+        self.analyze(syntax, path, context)
     }
 }
 
@@ -222,7 +250,11 @@ fn call_path_ends(call: &syn::ExprCall, suffix: &[&str]) -> bool {
             .eq(suffix.iter().copied())
 }
 
-pub(super) fn capability_decision(
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "the report projection consumes the exact rule gate decision while the containing passes module remains crate-private"
+)]
+pub(crate) fn capability_decision(
     rule: &dyn CustomRule,
     capabilities: &[FrameworkCapability],
 ) -> Result<(), String> {
@@ -366,6 +398,7 @@ mod tests {
                 .map(|feature| (*feature).to_string())
                 .collect(),
             target_contexts: vec!["all-targets".to_string()],
+            analyzed_target: Some("x86_64-unknown-linux-gnu".to_string()),
             active: true,
             gate_reason: None,
         }
@@ -413,6 +446,23 @@ mod tests {
         assert_eq!(
             capability_decision(&rule, &[renamed]).unwrap_err(),
             "renamed dependency requires an explicit capability mapping"
+        );
+    }
+
+    #[test]
+    fn target_mismatch_abstains_with_analyzed_target_reason() {
+        let mut mismatched = capability(Framework::Tokio, Some("1.50.0"), &["sync"]);
+        mismatched.target_contexts.clear();
+        mismatched.active = false;
+        mismatched.gate_reason = Some(
+            "dependency target cfg does not match analyzed target x86_64-unknown-linux-gnu"
+                .to_string(),
+        );
+        let rule = FrameworkPackRule::new(PackKind::TokioUnboundedChannel);
+
+        assert_eq!(
+            capability_decision(&rule, &[mismatched]).unwrap_err(),
+            "dependency target cfg does not match analyzed target x86_64-unknown-linux-gnu"
         );
     }
 }

@@ -475,19 +475,19 @@ fn read() { let values: Vec<_> = [1, 2, 3].into_iter().collect(); }
 --- negative src/lib.rs
 #[test] fn read(input: &str) { let values: Vec<_> = input.lines().collect(); }
 
-=== weak-crypto-hash
+=== ffi-cstring-lifetime
 --- positive src/lib.rs
-fn hash(password: &[u8]) { let _ = md5::compute(password); }
+fn pointer(input: &str) -> Result<(), NulError> { let ptr = CString::new(input)?.as_ptr(); use_ptr(ptr); Ok(()) }
 --- positive src/lib.rs
-fn hash(secret_token: &[u8]) { let _ = sha1::digest(secret_token); }
+fn pointer(input: &str) -> *const c_char { return CString::new(input)?.as_ptr(); }
 --- negative src/lib.rs
-fn hash(password: &[u8]) { let _ = sha2::Sha256::digest(password); }
+fn pointer(input: &str) -> Result<(), NulError> { let value = CString::new(input)?; use_ptr(value.as_ptr()); Ok(()) }
 --- negative src/lib.rs
-fn checksum(payload: &[u8]) { let _ = md5::compute(payload); }
+fn pointer(input: &str) -> Result<(), NulError> { consume(CString::new(input)?.as_ptr()); Ok(()) }
 --- negative src/lib.rs
-#[test] fn hash(password: &[u8]) { let _ = md5::compute(password); }
+#[test] fn pointer(input: &str) -> Result<(), NulError> { let ptr = CString::new(input)?.as_ptr(); use_ptr(ptr); Ok(()) }
 --- negative src/lib.rs
-macro_rules! weak { ($value:expr) => { md5::compute($value) }; } fn hash(password: &[u8]) { let _ = weak!(password); }
+macro_rules! pointer { ($input:expr) => { CString::new($input)?.as_ptr() }; } fn use_it(input: &str) -> Result<(), NulError> { consume(pointer!(input)); Ok(()) }
 
 === actix-web-data-lock
 --- positive src/lib.rs

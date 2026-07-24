@@ -1,6 +1,6 @@
-use super::{CustomRule, has_cfg_test, is_test_context};
+use super::{CustomRule, RuleContext, has_cfg_test, is_test_context};
 use crate::catalog::Confidence;
-use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::diagnostics::{Category, Diagnostic, Severity, SourceSurface};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -23,6 +23,28 @@ struct ReliabilityRule {
 impl ReliabilityRule {
     const fn new(kind: ReliabilityKind) -> Self {
         Self { kind }
+    }
+
+    fn analyze(&self, syntax: &syn::File, path: &Path, context: RuleContext) -> Vec<Diagnostic> {
+        if matches!(
+            context.source_surface,
+            SourceSurface::Test | SourceSurface::Bench | SourceSurface::Example
+        ) || (self.kind == ReliabilityKind::ProcessExitInLibrary
+            && context.source_surface != SourceSurface::Library)
+        {
+            return Vec::new();
+        }
+        let mut visitor = ReliabilityVisitor {
+            rule: self,
+            path,
+            diagnostics: Vec::new(),
+            async_depth: 0,
+            loop_depth: 0,
+            drop_depth: 0,
+            refcell_borrow_active: false,
+        };
+        visitor.visit_file(syntax);
+        visitor.diagnostics
     }
 }
 
@@ -96,7 +118,13 @@ impl CustomRule for ReliabilityRule {
     }
 
     fn default_enabled(&self) -> bool {
-        false
+        matches!(
+            self.kind,
+            ReliabilityKind::CatchUnwindDiscarded
+                | ReliabilityKind::MemForgetResource
+                | ReliabilityKind::ProcessExitInLibrary
+                | ReliabilityKind::SpawnInDrop
+        )
     }
 
     fn confidence(&self) -> Confidence {
@@ -122,22 +150,25 @@ impl CustomRule for ReliabilityRule {
     }
 
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-        if non_production_path(path)
-            || (self.kind == ReliabilityKind::ProcessExitInLibrary && binary_boundary(path))
-        {
-            return Vec::new();
-        }
-        let mut visitor = ReliabilityVisitor {
-            rule: self,
+        self.analyze(
+            syntax,
             path,
-            diagnostics: Vec::new(),
-            async_depth: 0,
-            loop_depth: 0,
-            drop_depth: 0,
-            refcell_borrow_active: false,
-        };
-        visitor.visit_file(syntax);
-        visitor.diagnostics
+            RuleContext {
+                source_surface: crate::config::classify_source_surface(
+                    &path.to_string_lossy(),
+                    false,
+                ),
+            },
+        )
+    }
+
+    fn check_file_with_context(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        context: RuleContext,
+    ) -> Vec<Diagnostic> {
+        self.analyze(syntax, path, context)
     }
 }
 
@@ -369,22 +400,6 @@ fn resource_expression(expression: &Expr) -> bool {
         Expr::Paren(paren) => resource_expression(&paren.expr),
         _ => false,
     }
-}
-
-fn binary_boundary(path: &Path) -> bool {
-    path.file_name().is_some_and(|name| name == "main.rs")
-        || path
-            .components()
-            .any(|component| component.as_os_str() == "bin")
-}
-
-fn non_production_path(path: &Path) -> bool {
-    path.components().any(|component| {
-        matches!(
-            component.as_os_str().to_str(),
-            Some("tests" | "examples" | "benches")
-        )
-    })
 }
 
 pub fn all_rules() -> Vec<Box<dyn CustomRule>> {

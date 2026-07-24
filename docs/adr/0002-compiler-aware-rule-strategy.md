@@ -9,7 +9,7 @@
 
 Rust Doctor keeps stable Clippy, Cargo/rustc JSON, and `syn` as its only default analysis backends. No Dylint or rustc-driver dependency is introduced. Candidates that require resolved types, MIR, interprocedural ownership, or macro expansion remain experimental in `evaluation/rule-backlog-v1.json` until stable evidence exists.
 
-This is a no-go decision for a deeper compiler backend in R3. It preserves Rust 1.85, `forbid(unsafe_code)`, the five release targets, the current single-package distribution, and Report V1 semantics. It also avoids pretending that syntax evidence can prove a type-level defect.
+This is a no-go decision for a deeper compiler backend in R3. It preserves Rust 1.97, `forbid(unsafe_code)`, the five release targets, the current single-package distribution, and Report V1 semantics. It also avoids pretending that syntax evidence can prove a type-level defect.
 
 ## Candidate model
 
@@ -29,8 +29,8 @@ None of the five justifies a nightly backend. The two framework candidates and t
 
 | Strategy | Rust support | Build coupling | Runtime cost relative to current scan | Binary/dependency delta | Distribution | Unsafe constraint | Precision ceiling |
 |---|---|---|---|---|---|---|---|
-| Stable Clippy + `syn` | Stable, MSRV 1.85 | Existing Cargo package build plus local AST | No new process; one existing Clippy run and the existing AST traversal | 0 new backend dependencies | Existing five targets | Preserved | High for emitted compiler facts, medium for AST heuristics |
-| Cargo/rustc JSON | Stable, MSRV 1.85 with additive parsing | Existing Cargo invocation | 0 extra compiler invocations when reusing current message stream | 0 new dependencies | Existing five targets | Preserved | High only for facts the compiler emits |
+| Stable Clippy + `syn` | Stable, MSRV 1.97 | Existing Cargo package build plus local AST | No new process; one existing Clippy run and the existing AST traversal | 0 new backend dependencies | Existing five targets | Preserved | High for emitted compiler facts, medium for AST heuristics |
+| Cargo/rustc JSON | Stable, MSRV 1.97 with additive parsing | Existing Cargo invocation | 0 extra compiler invocations when reusing current message stream | 0 new dependencies | Existing five targets | Preserved | High only for facts the compiler emits |
 | Dylint | Nightly toolchain coupled | Driver and lint library must match compiler internals | At least one additional compiler-driver execution | Not measured because MSRV and target gates fail before integration | Toolchain-specific dynamic artifacts | Cannot prove the project invariant across backend dependencies | High type precision, medium semantic intent |
 | rustc-driver | Nightly commit coupled | Direct rustc-private API lockstep | Replacement or additional compiler-driver execution | Not measured because stable/MSRV gates fail before integration | Per-toolchain artifacts for all targets | Cannot prove the project invariant across backend dependencies | Highest compiler access, unchanged intent ambiguity |
 

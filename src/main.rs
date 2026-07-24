@@ -94,15 +94,18 @@ fn run() -> ExitCode {
     // Apply fixes, emit output, show plan
     run::apply_fixes_if_requested(&cli, &scan_result);
 
-    if let Err(e) = run::emit_output(&cli, &scan_result, &resolved, &project_info) {
-        eprintln!("Error: {e}");
-        return ExitCode::from(run::EXIT_SCAN_ERROR);
-    }
-    if let Err(error) = run::emit_handoff(&cli, &scan_result, &resolved, &project_info) {
+    let report = match run::emit_output(&cli, &scan_result, &resolved, &project_info) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return ExitCode::from(run::EXIT_SCAN_ERROR);
+        }
+    };
+    if let Err(error) = run::emit_handoff(&cli, &report) {
         eprintln!("Warning: diagnostic handoff failed: {error}");
     }
-    run::emit_scan_telemetry(&cli, &scan_result);
-    if let Err(error) = run::emit_share_if_requested(&cli, &scan_result) {
+    run::emit_scan_telemetry(&cli, &report);
+    if let Err(error) = run::emit_share_if_requested(&cli, &report) {
         eprintln!("Error: share URL was not created: {error}");
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }

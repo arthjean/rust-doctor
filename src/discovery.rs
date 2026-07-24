@@ -1,10 +1,15 @@
+use crate::diagnostics::SourceSurface;
 use cargo_metadata::{DependencyKind, MetadataCommand, TargetKind};
+use cargo_platform::Cfg;
+#[cfg(test)]
+use cargo_platform::Platform;
 use std::collections::BTreeSet;
 #[cfg(test)]
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Detected framework or runtime in the project's dependencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,8 +38,24 @@ pub(crate) struct FrameworkCapability {
     pub(crate) version: Option<String>,
     pub(crate) enabled_features: Vec<String>,
     pub(crate) target_contexts: Vec<String>,
+    pub(crate) analyzed_target: Option<String>,
     pub(crate) active: bool,
     pub(crate) gate_reason: Option<String>,
+}
+
+/// Cargo-owned source root used to classify files without directory-name guesses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CargoTargetContext {
+    pub(crate) name: String,
+    pub(crate) src_path: PathBuf,
+    pub(crate) source_surface: SourceSurface,
+}
+
+#[derive(Debug)]
+struct AnalyzedTarget {
+    triple: Option<String>,
+    cfgs: Vec<Cfg>,
+    error: Option<String>,
 }
 
 impl std::fmt::Display for Framework {
@@ -91,6 +112,8 @@ pub struct ProjectInfo {
     pub package_id: String,
     /// Primary Cargo targets with their target kinds.
     pub targets: Vec<String>,
+    /// Cargo-owned source roots for exact source-surface classification.
+    pub(crate) cargo_targets: Vec<CargoTargetContext>,
     /// Rust edition of the primary package.
     pub edition: String,
     /// Detected frameworks/runtimes from dependencies.
@@ -126,6 +149,8 @@ pub struct WorkspaceMember {
     pub package_id: String,
     /// Cargo target names and kinds.
     pub targets: Vec<String>,
+    /// Cargo-owned source roots for exact source-surface classification.
+    pub(crate) cargo_targets: Vec<CargoTargetContext>,
     /// Framework capabilities detected for this member.
     pub frameworks: Vec<Framework>,
     /// Versioned framework evidence isolated to this package.
@@ -146,6 +171,10 @@ pub fn discover_project(
     discover_project_for_scan(manifest_path, offline, false)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Cargo metadata discovery projects one response into the canonical package and workspace capability model"
+)]
 pub(crate) fn discover_project_for_scan(
     manifest_path: &Path,
     offline: bool,
@@ -153,13 +182,22 @@ pub(crate) fn discover_project_for_scan(
 ) -> Result<ProjectInfo, crate::error::DiscoveryError> {
     use crate::error::DiscoveryError;
 
+    let project_root = manifest_path.parent().unwrap_or(manifest_path);
+    let analyzed_target = analyzed_target(project_root);
     let mut cmd = MetadataCommand::new();
     cmd.manifest_path(manifest_path);
     if evaluation_profile {
         cmd.no_deps();
     }
+    let mut cargo_options = Vec::new();
     if offline {
-        cmd.other_options(["--offline".to_string()]);
+        cargo_options.push("--offline".to_string());
+    }
+    if let Some(target) = &analyzed_target.triple {
+        cargo_options.extend(["--filter-platform".to_string(), target.clone()]);
+    }
+    if !cargo_options.is_empty() {
+        cmd.other_options(cargo_options);
     }
     let metadata = cmd
         .exec()
@@ -182,6 +220,7 @@ pub(crate) fn discover_project_for_scan(
     let version = primary.version.to_string();
     let package_id = primary.id.repr.clone();
     let targets = package_targets(primary);
+    let cargo_targets = package_target_contexts(primary);
     let edition = primary.edition.as_str().to_string();
     let rust_version = primary
         .rust_version
@@ -203,7 +242,7 @@ pub(crate) fn discover_project_for_scan(
     let workspace_members_info: Vec<WorkspaceMember> = members
         .iter()
         .map(|pkg| {
-            let framework_capabilities = framework_capabilities(pkg, &metadata);
+            let framework_capabilities = framework_capabilities(pkg, &metadata, &analyzed_target);
             WorkspaceMember {
                 name: pkg.name.clone(),
                 root_dir: PathBuf::from(pkg.manifest_path.parent().map_or(
@@ -212,6 +251,7 @@ pub(crate) fn discover_project_for_scan(
                 )),
                 package_id: pkg.id.repr.clone(),
                 targets: package_targets(pkg),
+                cargo_targets: package_target_contexts(pkg),
                 frameworks: active_frameworks(&framework_capabilities),
                 framework_capabilities,
                 rust_version: pkg
@@ -241,6 +281,7 @@ pub(crate) fn discover_project_for_scan(
         version,
         package_id,
         targets,
+        cargo_targets,
         edition,
         frameworks,
         framework_capabilities,
@@ -255,9 +296,14 @@ pub(crate) fn discover_project_for_scan(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "framework capability derivation keeps dependency identity, target cfg, feature, and fail-closed gate evidence together"
+)]
 fn framework_capabilities(
     package: &cargo_metadata::Package,
     metadata: &cargo_metadata::Metadata,
+    analyzed_target: &AnalyzedTarget,
 ) -> Vec<FrameworkCapability> {
     let package_node = metadata
         .resolve
@@ -273,37 +319,53 @@ fn framework_capabilities(
         let Some(framework) = framework_for_dependency(&dependency.name) else {
             continue;
         };
-        let resolved_dependency = package_node.and_then(|node| {
-            node.deps.iter().find(|candidate| {
+        let dependency_key = dependency.rename.as_deref().unwrap_or(&dependency.name);
+        let resolved_dependencies: Vec<_> = package_node
+            .into_iter()
+            .flat_map(|node| node.deps.iter())
+            .filter(|candidate| candidate.name == dependency_key)
+            .filter(|candidate| {
+                candidate.dep_kinds.iter().any(|kind| {
+                    kind.kind == DependencyKind::Normal
+                        && kind.target.as_ref().is_none_or(|platform| {
+                            analyzed_target.triple.as_deref().is_some_and(|triple| {
+                                platform.matches(triple, &analyzed_target.cfgs)
+                            })
+                        })
+                })
+            })
+            .filter(|candidate| {
                 metadata
                     .packages
                     .iter()
                     .find(|resolved| resolved.id == candidate.pkg)
-                    .is_some_and(|resolved| resolved.name == dependency.name)
+                    .is_some_and(|resolved| {
+                        resolved.name == dependency.name
+                            && dependency.req.matches(&resolved.version)
+                            && dependency_source_matches(dependency, resolved)
+                    })
             })
-        });
+            .collect();
+        let edge_ambiguous = resolved_dependencies.len() > 1;
+        let resolved_dependency = resolved_dependencies
+            .len()
+            .eq(&1)
+            .then(|| resolved_dependencies[0]);
         let resolved_package = resolved_dependency.and_then(|node| {
             metadata
                 .packages
                 .iter()
                 .find(|resolved| resolved.id == node.pkg)
         });
-        let enabled_features = resolved_dependency
-            .and_then(|node| {
-                metadata.resolve.as_ref().and_then(|resolve| {
-                    resolve
-                        .nodes
-                        .iter()
-                        .find(|resolved| resolved.id == node.pkg)
-                })
-            })
-            .map_or_else(Vec::new, |node| {
-                let mut features = node.features.clone();
-                features.sort();
-                features.dedup();
-                features
-            });
-        let target_contexts = resolved_dependency.map_or_else(Vec::new, |node| {
+        let enabled_features = resolved_package.map_or_else(Vec::new, |resolved| {
+            dependency_edge_features(
+                dependency,
+                package_node.map_or(&[], |node| node.features.as_slice()),
+                &package.features,
+                &resolved.features,
+            )
+        });
+        let declared_target_contexts = resolved_dependency.map_or_else(Vec::new, |node| {
             let mut targets: Vec<_> = node
                 .dep_kinds
                 .iter()
@@ -319,12 +381,44 @@ fn framework_capabilities(
             targets.dedup();
             targets
         });
+        let target_contexts = resolved_dependency.map_or_else(Vec::new, |node| {
+            let mut targets: Vec<_> =
+                node.dep_kinds
+                    .iter()
+                    .filter(|kind| kind.kind == DependencyKind::Normal)
+                    .filter(|kind| {
+                        kind.target.as_ref().is_none_or(|platform| {
+                            analyzed_target.triple.as_deref().is_some_and(|triple| {
+                                platform.matches(triple, &analyzed_target.cfgs)
+                            })
+                        })
+                    })
+                    .map(|kind| {
+                        kind.target.as_ref().map_or_else(
+                            || "all-targets".to_string(),
+                            std::string::ToString::to_string,
+                        )
+                    })
+                    .collect();
+            targets.sort();
+            targets.dedup();
+            targets
+        });
         let gate_reason = if dependency.rename.is_some() {
             Some("renamed dependency requires an explicit capability mapping".to_string())
+        } else if edge_ambiguous {
+            Some("dependency edge is ambiguous for the analyzed target".to_string())
         } else if resolved_dependency.is_none() && dependency.optional {
             Some("optional dependency feature is disabled".to_string())
         } else if resolved_package.is_none() {
             Some("resolved dependency version is unavailable".to_string())
+        } else if let Some(error) = &analyzed_target.error {
+            Some(format!("analyzed target is unavailable: {error}"))
+        } else if !declared_target_contexts.is_empty() && target_contexts.is_empty() {
+            Some(format!(
+                "dependency target cfg does not match analyzed target {}",
+                analyzed_target.triple.as_deref().unwrap_or("unknown")
+            ))
         } else if target_contexts.is_empty() {
             Some("dependency has no active normal target context".to_string())
         } else {
@@ -335,12 +429,30 @@ fn framework_capabilities(
             version: resolved_package.map(|resolved| resolved.version.to_string()),
             enabled_features,
             target_contexts,
+            analyzed_target: analyzed_target.triple.clone(),
             active: gate_reason.is_none(),
             gate_reason,
         });
     }
-    capabilities.sort_by_key(|capability| capability.framework.to_string());
+    capabilities.sort_by(|left, right| {
+        right
+            .active
+            .cmp(&left.active)
+            .then(left.framework.to_string().cmp(&right.framework.to_string()))
+            .then(left.version.cmp(&right.version))
+    });
     capabilities
+}
+
+fn dependency_source_matches(
+    dependency: &cargo_metadata::Dependency,
+    resolved: &cargo_metadata::Package,
+) -> bool {
+    match (&dependency.source, &resolved.source) {
+        (Some(expected), Some(actual)) => expected == &actual.repr,
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn active_frameworks(capabilities: &[FrameworkCapability]) -> Vec<Framework> {
@@ -370,6 +482,295 @@ fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
         .collect();
     targets.sort();
     targets
+}
+
+fn package_target_contexts(package: &cargo_metadata::Package) -> Vec<CargoTargetContext> {
+    let mut contexts: Vec<_> = package
+        .targets
+        .iter()
+        .map(|target| CargoTargetContext {
+            name: target.name.clone(),
+            src_path: PathBuf::from(target.src_path.as_std_path()),
+            source_surface: source_surface_for_target(&target.kind),
+        })
+        .collect();
+    contexts.sort_by(|left, right| {
+        left.src_path
+            .cmp(&right.src_path)
+            .then(left.name.cmp(&right.name))
+    });
+    contexts
+}
+
+fn source_surface_for_target(kinds: &[TargetKind]) -> SourceSurface {
+    if kinds.contains(&TargetKind::CustomBuild) {
+        SourceSurface::BuildScript
+    } else if kinds.contains(&TargetKind::Test) {
+        SourceSurface::Test
+    } else if kinds.contains(&TargetKind::Bench) {
+        SourceSurface::Bench
+    } else if kinds.contains(&TargetKind::Example) {
+        SourceSurface::Example
+    } else if kinds.contains(&TargetKind::Bin) {
+        SourceSurface::Binary
+    } else if kinds.iter().any(|kind| {
+        matches!(
+            kind,
+            TargetKind::Lib
+                | TargetKind::RLib
+                | TargetKind::DyLib
+                | TargetKind::CDyLib
+                | TargetKind::StaticLib
+                | TargetKind::ProcMacro
+        )
+    }) {
+        SourceSurface::Library
+    } else {
+        SourceSurface::Unknown
+    }
+}
+
+/// Classify a source file from Cargo target ownership. Ambiguous nested source
+/// files abstain instead of being assigned from their directory name.
+pub(crate) fn source_surface_for_path(
+    path: &Path,
+    contexts: &[CargoTargetContext],
+) -> SourceSurface {
+    let normalized = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if let Some(exact) = contexts.iter().find(|context| {
+        context
+            .src_path
+            .canonicalize()
+            .unwrap_or_else(|_| context.src_path.clone())
+            == normalized
+    }) {
+        return exact.source_surface;
+    }
+
+    let mut owners: Vec<_> = contexts
+        .iter()
+        .filter(|context| {
+            let root = context
+                .src_path
+                .canonicalize()
+                .unwrap_or_else(|_| context.src_path.clone());
+            let Some(parent) = root.parent() else {
+                return false;
+            };
+            match root.file_name().and_then(|name| name.to_str()) {
+                Some("lib.rs" | "main.rs") => normalized.starts_with(parent),
+                Some(_) => root
+                    .file_stem()
+                    .is_some_and(|stem| normalized.starts_with(parent.join(stem))),
+                None => false,
+            }
+        })
+        .collect();
+    owners.sort_by_key(|context| context.source_surface);
+    owners.dedup_by_key(|context| context.source_surface);
+    if owners.len() == 1 {
+        owners[0].source_surface
+    } else {
+        SourceSurface::Unknown
+    }
+}
+
+/// Classify a source file against the owning package's Cargo targets.
+pub(crate) fn source_surface_for_project_path(project: &ProjectInfo, path: &Path) -> SourceSurface {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project.root_dir.join(path)
+    };
+    let contexts = project
+        .workspace_members
+        .iter()
+        .filter(|member| absolute.starts_with(&member.root_dir))
+        .max_by_key(|member| member.root_dir.components().count())
+        .map_or(project.cargo_targets.as_slice(), |member| {
+            member.cargo_targets.as_slice()
+        });
+    source_surface_for_path(&absolute, contexts)
+}
+
+fn dependency_edge_features(
+    dependency: &cargo_metadata::Dependency,
+    active_package_features: &[String],
+    package_features: &std::collections::BTreeMap<String, Vec<String>>,
+    dependency_features: &std::collections::BTreeMap<String, Vec<String>>,
+) -> Vec<String> {
+    let dependency_key = dependency.rename.as_deref().unwrap_or(&dependency.name);
+    let mut requested: BTreeSet<String> = dependency.features.iter().cloned().collect();
+    if dependency.uses_default_features {
+        requested.insert("default".to_string());
+    }
+
+    let mut pending_package_features: Vec<_> = active_package_features.to_vec();
+    let mut visited_package_features = BTreeSet::new();
+    while let Some(feature) = pending_package_features.pop() {
+        if !visited_package_features.insert(feature.clone()) {
+            continue;
+        }
+        for activation in package_features.get(&feature).into_iter().flatten() {
+            if let Some((dependency_name, dependency_feature)) = activation.split_once('/') {
+                if dependency_name.trim_end_matches('?') == dependency_key {
+                    requested.insert(dependency_feature.to_string());
+                }
+            } else if !activation.starts_with("dep:") {
+                pending_package_features.push(activation.clone());
+            }
+        }
+    }
+
+    let mut enabled = BTreeSet::new();
+    let mut pending: Vec<_> = requested.into_iter().collect();
+    while let Some(feature) = pending.pop() {
+        if !enabled.insert(feature.clone()) {
+            continue;
+        }
+        for activation in dependency_features.get(&feature).into_iter().flatten() {
+            if !activation.starts_with("dep:") && !activation.contains('/') {
+                pending.push(activation.clone());
+            }
+        }
+    }
+    enabled.into_iter().collect()
+}
+
+fn analyzed_target(project_root: &Path) -> AnalyzedTarget {
+    let configured_target = match configured_build_target(project_root) {
+        Ok(target) => target,
+        Err(error) => {
+            return AnalyzedTarget {
+                triple: None,
+                cfgs: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+    let mut version = Command::new("rustc");
+    version.arg("-vV").current_dir(project_root);
+    let triple = configured_target.or_else(|| {
+        version.output().ok().and_then(|output| {
+            output.status.success().then(|| {
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .find_map(|line| line.strip_prefix("host: ").map(str::to_string))
+            })?
+        })
+    });
+    let Some(triple) = triple else {
+        return AnalyzedTarget {
+            triple: None,
+            cfgs: Vec::new(),
+            error: Some("rustc did not report a host triple".to_string()),
+        };
+    };
+
+    let mut command = Command::new("rustc");
+    command
+        .args(["--print", "cfg", "--target", &triple])
+        .current_dir(project_root);
+    let output = match command.output() {
+        Ok(output) if output.status.success() => output,
+        Ok(_) => {
+            return AnalyzedTarget {
+                triple: Some(triple),
+                cfgs: Vec::new(),
+                error: Some("rustc --print cfg failed".to_string()),
+            };
+        }
+        Err(error) => {
+            return AnalyzedTarget {
+                triple: Some(triple),
+                cfgs: Vec::new(),
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    let cfgs: Result<Vec<Cfg>, _> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::parse)
+        .collect();
+    match cfgs {
+        Ok(cfgs) => AnalyzedTarget {
+            triple: Some(triple),
+            cfgs,
+            error: None,
+        },
+        Err(error) => AnalyzedTarget {
+            triple: Some(triple),
+            cfgs: Vec::new(),
+            error: Some(format!("rustc target cfg was invalid: {error}")),
+        },
+    }
+}
+
+fn configured_build_target(project_root: &Path) -> Result<Option<String>, String> {
+    if let Ok(target) = std::env::var("CARGO_BUILD_TARGET") {
+        let target = target.trim();
+        if !target.is_empty() {
+            return Ok(Some(target.to_string()));
+        }
+    }
+
+    let mut roots = Vec::new();
+    let mut current = Some(project_root);
+    while let Some(root) = current {
+        roots.push(root.join(".cargo"));
+        current = root.parent();
+    }
+    if let Some(cargo_home) = std::env::var_os("CARGO_HOME") {
+        roots.push(PathBuf::from(cargo_home));
+    } else if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    {
+        roots.push(PathBuf::from(home).join(".cargo"));
+    }
+
+    let mut seen = BTreeSet::new();
+    for root in roots {
+        if !seen.insert(root.clone()) {
+            continue;
+        }
+        let candidates = [root.join("config.toml"), root.join("config")];
+        let existing: Vec<_> = candidates.iter().filter(|path| path.is_file()).collect();
+        if existing.len() > 1 {
+            return Err(format!(
+                "both '{}' and '{}' configure Cargo; analyzed target is ambiguous",
+                candidates[0].display(),
+                candidates[1].display()
+            ));
+        }
+        let Some(path) = existing.first() else {
+            continue;
+        };
+        let content = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read '{}': {error}", path.display()))?;
+        let config: toml::Value = toml::from_str(&content)
+            .map_err(|error| format!("cannot parse '{}': {error}", path.display()))?;
+        let Some(target) = config.get("build").and_then(|build| build.get("target")) else {
+            continue;
+        };
+        if let Some(target) = target.as_str() {
+            return Ok(Some(target.to_string()));
+        }
+        if let Some(targets) = target.as_array() {
+            let targets: Vec<_> = targets.iter().filter_map(toml::Value::as_str).collect();
+            return match targets.as_slice() {
+                [target] => Ok(Some((*target).to_string())),
+                [] => Err(format!("'{}' has an empty build.target", path.display())),
+                _ => Err(format!(
+                    "'{}' configures multiple build targets; framework gates abstain",
+                    path.display()
+                )),
+            };
+        }
+        return Err(format!(
+            "'{}' build.target must be a string or array of strings",
+            path.display()
+        ));
+    }
+    Ok(None)
 }
 
 /// Detect frameworks from dependency names.
@@ -623,6 +1024,125 @@ mod tests {
         assert!(!info.is_no_std);
         // rust-doctor depends on tokio (for MCP server)
         assert!(info.frameworks.contains(&Framework::Tokio));
+        assert!(
+            info.cargo_targets
+                .iter()
+                .any(|target| target.source_surface == SourceSurface::Library)
+        );
+        assert_eq!(
+            source_surface_for_project_path(&info, Path::new("src/lib.rs")),
+            SourceSurface::Library
+        );
+        assert_eq!(
+            source_surface_for_project_path(&info, Path::new("src/main.rs")),
+            SourceSurface::Binary
+        );
+    }
+
+    #[test]
+    fn cargo_target_paths_override_directory_name_guesses() {
+        let root = tempfile::tempdir().unwrap();
+        let custom_library = root.path().join("custom/api.rs");
+        let custom_binary = root.path().join("tools/daemon.rs");
+        let nested_library = root.path().join("custom/module.rs");
+        let contexts = vec![
+            CargoTargetContext {
+                name: "api".to_string(),
+                src_path: custom_library.clone(),
+                source_surface: SourceSurface::Library,
+            },
+            CargoTargetContext {
+                name: "daemon".to_string(),
+                src_path: custom_binary.clone(),
+                source_surface: SourceSurface::Binary,
+            },
+        ];
+
+        assert_eq!(
+            source_surface_for_path(&custom_library, &contexts),
+            SourceSurface::Library
+        );
+        assert_eq!(
+            source_surface_for_path(&custom_binary, &contexts),
+            SourceSurface::Binary
+        );
+        assert_eq!(
+            source_surface_for_path(&nested_library, &contexts),
+            SourceSurface::Unknown
+        );
+    }
+
+    #[test]
+    fn target_cfg_is_evaluated_for_the_analyzed_target() {
+        let linux: Platform = "cfg(target_os = \"linux\")".parse().unwrap();
+        let windows: Platform = "cfg(windows)".parse().unwrap();
+        let cfgs = vec![
+            "unix".parse().unwrap(),
+            "target_os=\"linux\"".parse().unwrap(),
+        ];
+
+        assert!(linux.matches("x86_64-unknown-linux-gnu", &cfgs));
+        assert!(!windows.matches("x86_64-unknown-linux-gnu", &cfgs));
+    }
+
+    #[test]
+    fn dependency_features_are_isolated_to_the_member_edge() {
+        let dependency: cargo_metadata::Dependency = serde_json::from_value(serde_json::json!({
+            "name": "tokio",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "req": "^1",
+            "kind": null,
+            "rename": null,
+            "optional": false,
+            "uses_default_features": true,
+            "features": ["sync"],
+            "target": null,
+            "registry": null
+        }))
+        .unwrap();
+        let package_features = std::collections::BTreeMap::from([(
+            "runtime".to_string(),
+            vec!["tokio/rt".to_string()],
+        )]);
+        let dependency_features = std::collections::BTreeMap::from([
+            ("default".to_string(), vec!["macros".to_string()]),
+            ("macros".to_string(), Vec::new()),
+            ("rt".to_string(), Vec::new()),
+            ("sync".to_string(), Vec::new()),
+            ("full".to_string(), vec!["net".to_string()]),
+            ("net".to_string(), Vec::new()),
+        ]);
+
+        assert_eq!(
+            dependency_edge_features(
+                &dependency,
+                &["runtime".to_string()],
+                &package_features,
+                &dependency_features,
+            ),
+            vec![
+                "default".to_string(),
+                "macros".to_string(),
+                "rt".to_string(),
+                "sync".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cargo_config_target_is_resolved_without_using_the_host() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".cargo")).unwrap();
+        std::fs::write(
+            root.path().join(".cargo/config.toml"),
+            "[build]\ntarget = \"wasm32-unknown-unknown\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            configured_build_target(root.path()).unwrap().as_deref(),
+            Some("wasm32-unknown-unknown")
+        );
     }
 
     #[test]

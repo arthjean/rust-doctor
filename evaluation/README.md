@@ -72,6 +72,17 @@ positives, missing labels, or uncertain labels blocks default activation.
 Promotions are derived from the two catalogs, so callers cannot omit a promoted
 rule. Labels bind repository, Cargo root, rule, site, and evidence fingerprint.
 
+The pull-request certification writes
+`promotion-review-template.json` beside the initial delta report. It contains
+the exact hash-ordered, deduplicated sample used by the gate, with no source
+text or host path. After that immutable candidate artifact is reviewed,
+`evaluation/approvals/ep006-candidate.json` binds its GitHub run, artifact
+digest and NDJSON SHA-256, while `evaluation/approvals/ep006-labels.json` binds
+the reviewed labels to the same SHA-256. The EP-006 promotion workflow downloads
+that earlier candidate instead of rescanning the corpus, verifies both artifact
+identities through the GitHub API, and emits the final delta and promotion
+sample even when a threshold blocks activation.
+
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
 threshold. Approval JSON binds the exact subject SHA-256, repository commit,
 successful protected workflow run, artifact ID, artifact digest, reviewer and

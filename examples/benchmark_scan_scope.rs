@@ -176,7 +176,7 @@ fn write_package(root: &Path, name: &str, kind: PackageKind) -> Result<(), Strin
     std::fs::create_dir_all(root.join("src"))
         .map_err(|error| format!("failed to create '{}': {error}", root.display()))?;
     let mut manifest = format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n"
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n"
     );
     if matches!(kind, PackageKind::ProcMacro) {
         manifest.push_str("\n[lib]\nproc-macro = true\n");

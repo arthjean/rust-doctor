@@ -147,21 +147,19 @@ impl Backend {
                     return;
                 }
             };
-            let relative = path
-                .strip_prefix(&project.info.root_dir)
-                .unwrap_or(&path)
-                .to_path_buf();
             let source = text.clone();
             let task_cancel = Arc::clone(&cancellation);
             let analysis_project = Arc::clone(&project);
             let capabilities =
                 framework_capabilities_for_path(&analysis_project.info, &path).to_vec();
+            let cargo_targets = cargo_targets_for_path(&analysis_project.info, &path).to_vec();
             let result = tokio::task::spawn_blocking(move || {
                 analysis::analyze(
                     &source,
-                    &relative,
+                    &path,
                     &analysis_project.config,
                     &capabilities,
+                    &cargo_targets,
                     &task_cancel,
                 )
             })
@@ -562,6 +560,20 @@ fn framework_capabilities_for_path<'a>(
         .max_by_key(|member| member.root_dir.components().count())
         .map_or(project.framework_capabilities.as_slice(), |member| {
             member.framework_capabilities.as_slice()
+        })
+}
+
+fn cargo_targets_for_path<'a>(
+    project: &'a ProjectInfo,
+    path: &Path,
+) -> &'a [crate::discovery::CargoTargetContext] {
+    project
+        .workspace_members
+        .iter()
+        .filter(|member| path.starts_with(&member.root_dir))
+        .max_by_key(|member| member.root_dir.components().count())
+        .map_or(project.cargo_targets.as_slice(), |member| {
+            member.cargo_targets.as_slice()
         })
 }
 

@@ -551,8 +551,11 @@ fn policy_decisions(
     path: &Path,
     project: &discovery::ProjectInfo,
 ) -> Vec<WhyDecision> {
-    let frameworks: Vec<String> = project
-        .frameworks
+    let package = package_for_path(project, path);
+    let frameworks: Vec<String> = package
+        .map_or(project.frameworks.as_slice(), |member| {
+            member.frameworks.as_slice()
+        })
         .iter()
         .map(ToString::to_string)
         .map(|value| value.to_ascii_lowercase())
@@ -588,7 +591,12 @@ fn policy_decisions(
             });
         }
         if selected.is_some() {
-            decisions.extend(framework_context_decisions(descriptor, project));
+            decisions.extend(framework_context_decisions(
+                descriptor,
+                package.map_or(project.framework_capabilities.as_slice(), |member| {
+                    member.framework_capabilities.as_slice()
+                }),
+            ));
         }
     }
     decisions
@@ -596,12 +604,11 @@ fn policy_decisions(
 
 fn framework_context_decisions(
     descriptor: &RuleDescriptor,
-    project: &discovery::ProjectInfo,
+    capabilities: &[discovery::FrameworkCapability],
 ) -> Vec<WhyDecision> {
     let mut decisions = Vec::new();
     for requirement in &descriptor.framework_requirements {
-        for capability in project
-            .framework_capabilities
+        for capability in capabilities
             .iter()
             .filter(|capability| capability.framework.to_string() == requirement.framework)
         {
@@ -614,11 +621,15 @@ fn framework_context_decisions(
                 .to_string(),
                 rule: Some(descriptor.canonical_id.clone()),
                 explanation: format!(
-                    "{} version={} features=[{}] targets=[{}]{}",
+                    "{} version={} features=[{}] targets=[{}] analyzed_target={}{}",
                     requirement.framework,
                     capability.version.as_deref().unwrap_or("unresolved"),
                     capability.enabled_features.join(", "),
                     capability.target_contexts.join(", "),
+                    capability
+                        .analyzed_target
+                        .as_deref()
+                        .unwrap_or("unresolved"),
                     capability
                         .gate_reason
                         .as_ref()
@@ -627,7 +638,43 @@ fn framework_context_decisions(
             });
         }
     }
+    if let Some(rule) = crate::rules::all_custom_rules()
+        .into_iter()
+        .find(|rule| rule.name() == descriptor.canonical_id)
+        && !rule.applicable_frameworks().is_empty()
+    {
+        let gate = crate::rules::framework_packs::capability_decision(rule.as_ref(), capabilities);
+        decisions.push(WhyDecision {
+            kind: if gate.is_ok() {
+                "framework_rule_context"
+            } else {
+                "framework_rule_gate"
+            }
+            .to_string(),
+            rule: Some(descriptor.canonical_id.clone()),
+            explanation: gate.map_or_else(
+                |reason| format!("rule gate inactive: {reason}"),
+                |()| "rule version, feature, and target gate is active".to_string(),
+            ),
+        });
+    }
     decisions
+}
+
+fn package_for_path<'a>(
+    project: &'a discovery::ProjectInfo,
+    path: &Path,
+) -> Option<&'a discovery::WorkspaceMember> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project.root_dir.join(path)
+    };
+    project
+        .workspace_members
+        .iter()
+        .filter(|member| absolute.starts_with(&member.root_dir))
+        .max_by_key(|member| member.root_dir.components().count())
 }
 
 fn unavailable_required_evidence(checks: &[crate::diagnostics::CheckState]) -> Vec<String> {

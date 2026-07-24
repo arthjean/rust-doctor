@@ -268,6 +268,14 @@ pub(crate) struct ResolvedRulePolicy {
     surfaces: BTreeSet<VisibilitySurface>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PolicySuppressionSource {
+    Rule,
+    Category,
+    Tag,
+    Path,
+}
+
 impl ResolvedRulePolicy {
     pub(crate) fn visible_on(&self, surface: VisibilitySurface) -> bool {
         self.surfaces.contains(&surface)
@@ -493,6 +501,72 @@ impl ResolvedConfig {
             threshold,
             surfaces,
         }
+    }
+
+    /// Return the highest-precedence selector that disabled an emitted finding.
+    /// Catalog-default opt-in state is activation, not a user suppression.
+    pub(crate) fn suppression_source(
+        &self,
+        descriptor: &RuleDescriptor,
+        path: Option<&Path>,
+    ) -> Option<PolicySuppressionSource> {
+        if self.evaluation_profile {
+            return None;
+        }
+        let default_level = RuleLevel::from(descriptor.default_severity);
+        let mut level = if descriptor.default_enabled {
+            default_level
+        } else {
+            RuleLevel::Off
+        };
+        let mut source = None;
+
+        for tag in &descriptor.tags {
+            if let Some(policy_level) = self.tag_config.get(tag).and_then(|policy| policy.severity)
+            {
+                level = policy_level;
+                source = (level == RuleLevel::Off).then_some(PolicySuppressionSource::Tag);
+            }
+        }
+        if let Some(policy_level) = self
+            .category_config
+            .get(category_key(&descriptor.category))
+            .and_then(|policy| policy.severity)
+        {
+            level = policy_level;
+            source = (level == RuleLevel::Off).then_some(PolicySuppressionSource::Category);
+        }
+        for rule in std::iter::once(descriptor.canonical_id.as_str())
+            .chain(descriptor.aliases.iter().map(String::as_str))
+        {
+            if let Some(policy) = self.rules_config.get(rule) {
+                if let Some(policy_level) = policy.severity {
+                    level = policy_level;
+                    source = (level == RuleLevel::Off).then_some(PolicySuppressionSource::Rule);
+                } else if let Some(enabled) = policy.enabled {
+                    if enabled && level == RuleLevel::Off {
+                        level = default_level;
+                    } else if !enabled {
+                        level = RuleLevel::Off;
+                    }
+                    source = (level == RuleLevel::Off).then_some(PolicySuppressionSource::Rule);
+                }
+            }
+        }
+        if let Some(path) = path {
+            let normalized = normalize_config_path(path);
+            for path_override in &self.path_overrides {
+                if globset::Glob::new(&path_override.pattern)
+                    .is_ok_and(|glob| glob.compile_matcher().is_match(&normalized))
+                    && let Some(policy_level) = path_override.severity
+                {
+                    level = policy_level;
+                    source = (level == RuleLevel::Off).then_some(PolicySuppressionSource::Path);
+                }
+            }
+        }
+
+        (level == RuleLevel::Off).then_some(source).flatten()
     }
 
     /// Explain the ordered selectors that contribute to one effective policy.

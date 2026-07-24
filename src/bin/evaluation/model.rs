@@ -126,7 +126,7 @@ pub(crate) enum RootState {
     Complete,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ReviewLabel {
     TruePositive,
@@ -134,7 +134,7 @@ pub(crate) enum ReviewLabel {
     Uncertain,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LabelFile {
     pub(crate) schema_version: String,
@@ -143,7 +143,7 @@ pub(crate) struct LabelFile {
     pub(crate) labels: Vec<DiagnosticLabel>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DiagnosticLabel {
     pub(crate) repository: String,
@@ -154,7 +154,7 @@ pub(crate) struct DiagnosticLabel {
     pub(crate) label: ReviewLabel,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EvidenceApproval {
     pub(crate) schema_version: String,
@@ -169,6 +169,20 @@ pub(crate) struct EvidenceApproval {
     pub(crate) reviewed_by: String,
     pub(crate) reviewed_at: String,
     pub(crate) review_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct PromotionReviewTemplate {
+    pub(crate) schema_version: String,
+    pub(crate) candidate_sha256: String,
+    pub(crate) samples: Vec<PromotionRuleSample>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct PromotionRuleSample {
+    pub(crate) rule: String,
+    pub(crate) sample_size: usize,
+    pub(crate) labels: Vec<DiagnosticLabel>,
 }
 
 #[derive(Debug, Clone, Serialize)]

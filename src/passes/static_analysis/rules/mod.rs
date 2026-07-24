@@ -10,7 +10,8 @@ pub mod tranche;
 
 use crate::cache::{self, ScanCache};
 use crate::catalog::{Confidence, NumericRange};
-use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::diagnostics::{Category, Diagnostic, Severity, SourceSurface};
+use crate::discovery::CargoTargetContext;
 use crate::scanner::{self, AnalysisPass};
 use globset::GlobSet;
 use rayon::prelude::*;
@@ -106,6 +107,17 @@ pub trait CustomRule: Send + Sync {
     /// Check a parsed Rust file and return diagnostics.
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic>;
 
+    /// Check a parsed Rust file with Cargo-owned source context. Rules whose
+    /// behavior does not vary by target can keep implementing `check_file`.
+    fn check_file_with_context(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        _context: RuleContext,
+    ) -> Vec<Diagnostic> {
+        self.check_file(syntax, path)
+    }
+
     /// Helper to construct a `Diagnostic` using this rule's metadata.
     fn diagnostic(
         &self,
@@ -126,6 +138,23 @@ pub trait CustomRule: Send + Sync {
             column,
             fix: None,
         }
+    }
+}
+
+/// Exact source context resolved from Cargo target paths before a rule runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuleContext {
+    pub source_surface: SourceSurface,
+}
+
+impl RuleContext {
+    fn for_path(path: &Path, cargo_targets: &[CargoTargetContext]) -> Self {
+        let source_surface = if cargo_targets.is_empty() {
+            crate::config::classify_source_surface(&path.to_string_lossy(), false)
+        } else {
+            crate::discovery::source_surface_for_path(path, cargo_targets)
+        };
+        Self { source_surface }
     }
 }
 
@@ -155,22 +184,28 @@ impl RuleEngine {
         ignore_rules: &[String],
         enable_rules: &[String],
     ) -> Vec<Diagnostic> {
-        self.scan_selected_with_config(project_root, None, ignore_files, ignore_rules, enable_rules)
+        self.scan_selected_with_context(
+            project_root,
+            None,
+            ignore_files,
+            ignore_rules,
+            enable_rules,
+            &[],
+        )
     }
 
-    /// Scan only the supplied files when scope resolution narrowed local AST
-    /// work. Compiler-aware passes are narrowed independently at package level.
     #[expect(
         clippy::too_many_lines,
         reason = "file selection, cache partitioning, panic isolation, and parallel rule execution form one rule-engine transaction"
     )]
-    pub fn scan_selected_with_config(
+    fn scan_selected_with_context(
         &self,
         project_root: &Path,
         selected_files: Option<&[PathBuf]>,
         ignore_files: &[String],
         ignore_rules: &[String],
         enable_rules: &[String],
+        cargo_targets: &[CargoTargetContext],
     ) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
             return vec![];
@@ -217,6 +252,14 @@ impl RuleEngine {
                     rule.supported_threshold()
                 )
             })
+            .chain(cargo_targets.iter().map(|target| {
+                format!(
+                    "cargo-target:{}:{}:{:?}",
+                    target.name,
+                    target.src_path.display(),
+                    target.source_surface
+                )
+            }))
             .collect();
         let config_hash = cache::compute_config_hash(
             project_root,
@@ -248,7 +291,7 @@ impl RuleEngine {
                     Ok(metadata) if metadata.len() > MAX_RS_FILE_SIZE => {
                         all_diagnostics.push(analysis_failure(
                             rel_path,
-                            format!("oversized_file:{}:{}", rel_path.display(), metadata.len()),
+                            format!("oversized_file:{}", metadata.len()),
                         ));
                         return None;
                     }
@@ -256,7 +299,7 @@ impl RuleEngine {
                     Err(error) => {
                         all_diagnostics.push(analysis_failure(
                             rel_path,
-                            format!("metadata_failed:{}:{error}", rel_path.display()),
+                            format!("metadata_failed:{error}"),
                         ));
                         return None;
                     }
@@ -265,10 +308,8 @@ impl RuleEngine {
                     Ok(content) => Some((file_path, content)),
                     Err(error) => {
                         eprintln!("Warning: could not read '{}': {error}", file_path.display());
-                        all_diagnostics.push(analysis_failure(
-                            rel_path,
-                            format!("read_failed:{}:{error}", rel_path.display()),
-                        ));
+                        all_diagnostics
+                            .push(analysis_failure(rel_path, format!("read_failed:{error}")));
                         None
                     }
                 }
@@ -311,18 +352,19 @@ impl RuleEngine {
                     Ok(syntax) => {
                         let mut diagnostics = Vec::new();
                         let mut cacheable = true;
+                        let context = RuleContext::for_path(file_path, cargo_targets);
                         for rule in &self.rules {
-                            let (mut findings, failure) =
-                                run_rule_safely_with_status(rule.as_ref(), &syntax, rel_path);
+                            let (mut findings, failure) = run_rule_safely_with_status(
+                                rule.as_ref(),
+                                &syntax,
+                                rel_path,
+                                context,
+                            );
                             diagnostics.append(&mut findings);
                             if let Some(failure) = failure {
                                 diagnostics.push(analysis_failure(
                                     rel_path,
-                                    format!(
-                                        "rule_panicked:{}:{}:{failure}",
-                                        rel_path.display(),
-                                        rule.name()
-                                    ),
+                                    format!("rule_panicked:{}:{failure}", rule.name()),
                                 ));
                                 cacheable = false;
                             }
@@ -332,10 +374,7 @@ impl RuleEngine {
                     Err(error) => {
                         eprintln!("Warning: parse error in '{}': {error}", rel_path.display());
                         (
-                            vec![analysis_failure(
-                                rel_path,
-                                format!("parse_failed:{}:{error}", rel_path.display()),
-                            )],
+                            vec![analysis_failure(rel_path, format!("parse_failed:{error}"))],
                             false,
                         )
                     }
@@ -362,16 +401,24 @@ impl RuleEngine {
 
 /// Run a single rule with panic isolation.
 #[cfg(feature = "lsp")]
-fn run_rule_safely(rule: &dyn CustomRule, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-    run_rule_safely_with_status(rule, syntax, path).0
+fn run_rule_safely(
+    rule: &dyn CustomRule,
+    syntax: &syn::File,
+    path: &Path,
+    context: RuleContext,
+) -> Vec<Diagnostic> {
+    run_rule_safely_with_status(rule, syntax, path, context).0
 }
 
 fn run_rule_safely_with_status(
     rule: &dyn CustomRule,
     syntax: &syn::File,
     path: &Path,
+    context: RuleContext,
 ) -> (Vec<Diagnostic>, Option<String>) {
-    let result = panic::catch_unwind(AssertUnwindSafe(|| rule.check_file(syntax, path)));
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        rule.check_file_with_context(syntax, path, context)
+    }));
 
     match result {
         Ok(diagnostics) => (diagnostics, None),
@@ -455,11 +502,13 @@ pub fn analyze_editor_source(
     path: &Path,
     config: &crate::config::ResolvedConfig,
     capabilities: &[crate::discovery::FrameworkCapability],
+    cargo_targets: &[CargoTargetContext],
     cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<Vec<Diagnostic>, syn::Error> {
     use std::sync::atomic::Ordering;
 
     let syntax = syn::parse_file(source)?;
+    let context = RuleContext::for_path(path, cargo_targets);
     let catalog = crate::catalog::built_in_catalog().ok();
     let mut diagnostics = Vec::new();
     for mut rule in all_custom_rules() {
@@ -481,7 +530,7 @@ pub fn analyze_editor_source(
         if let Some(threshold) = policy.threshold {
             rule.set_threshold(threshold);
         }
-        let mut findings = run_rule_safely(rule.as_ref(), &syntax, path);
+        let mut findings = run_rule_safely(rule.as_ref(), &syntax, path, context);
         for finding in &mut findings {
             finding.severity = severity;
         }
@@ -524,6 +573,7 @@ pub struct RuleEnginePass {
     ignore_rules: Vec<String>,
     enable_rules: Vec<String>,
     selected_files: Option<Vec<PathBuf>>,
+    cargo_targets: Vec<CargoTargetContext>,
 }
 
 impl RuleEnginePass {
@@ -540,11 +590,17 @@ impl RuleEnginePass {
             ignore_rules,
             enable_rules,
             selected_files: None,
+            cargo_targets: Vec::new(),
         }
     }
 
     pub fn with_selected_files(mut self, selected_files: Vec<PathBuf>) -> Self {
         self.selected_files = Some(selected_files);
+        self
+    }
+
+    pub fn with_cargo_targets(mut self, cargo_targets: Vec<CargoTargetContext>) -> Self {
+        self.cargo_targets = cargo_targets;
         self
     }
 }
@@ -555,12 +611,13 @@ impl AnalysisPass for RuleEnginePass {
     }
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
-        Ok(self.engine.scan_selected_with_config(
+        Ok(self.engine.scan_selected_with_context(
             project_root,
             self.selected_files.as_deref(),
             &self.ignore_files,
             &self.ignore_rules,
             &self.enable_rules,
+            &self.cargo_targets,
         ))
     }
 }
@@ -1336,6 +1393,67 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.rule == scanner::ANALYSIS_FAILURE_RULE)
         );
+    }
+
+    #[test]
+    fn cargo_target_context_reaches_rules_before_execution() {
+        struct LibraryOnlyRule;
+        impl CustomRule for LibraryOnlyRule {
+            fn name(&self) -> &'static str {
+                "library-only"
+            }
+            fn category(&self) -> Category {
+                Category::Correctness
+            }
+            fn severity(&self) -> Severity {
+                Severity::Warning
+            }
+            fn description(&self) -> &'static str {
+                "library only"
+            }
+            fn fix_hint(&self) -> &'static str {
+                "none"
+            }
+            fn check_file(&self, _: &syn::File, _: &Path) -> Vec<Diagnostic> {
+                Vec::new()
+            }
+            fn check_file_with_context(
+                &self,
+                _: &syn::File,
+                path: &Path,
+                context: RuleContext,
+            ) -> Vec<Diagnostic> {
+                (context.source_surface == SourceSurface::Library)
+                    .then(|| self.diagnostic(path, "library".to_string(), None, None, None))
+                    .into_iter()
+                    .collect()
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let library = dir.path().join("custom/api.rs");
+        let binary = dir.path().join("custom/daemon.rs");
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(&library, "pub fn api() {}\n").unwrap();
+        std::fs::write(&binary, "fn main() {}\n").unwrap();
+        let pass =
+            RuleEnginePass::with_config(vec![Box::new(LibraryOnlyRule)], vec![], vec![], vec![])
+                .with_cargo_targets(vec![
+                    CargoTargetContext {
+                        name: "api".to_string(),
+                        src_path: library,
+                        source_surface: SourceSurface::Library,
+                    },
+                    CargoTargetContext {
+                        name: "daemon".to_string(),
+                        src_path: binary,
+                        source_surface: SourceSurface::Binary,
+                    },
+                ]);
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "library");
     }
 
     #[test]

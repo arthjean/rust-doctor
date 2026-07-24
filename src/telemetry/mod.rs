@@ -7,7 +7,7 @@ mod model;
 mod privacy;
 mod transport;
 
-use crate::diagnostics::ScanResult;
+use crate::diagnostics::ReportV1;
 use model::{AggregateEvent, InvocationSurface};
 use std::path::Path;
 
@@ -60,7 +60,7 @@ pub(crate) fn status() -> String {
     }
 }
 
-pub(crate) fn record_scan(no_telemetry: bool, offline: bool, result: &ScanResult) {
+pub(crate) fn record_scan(no_telemetry: bool, offline: bool, report: &ReportV1) {
     let surface = if std::env::var_os("GITHUB_ACTIONS").is_some() {
         InvocationSurface::Action
     } else {
@@ -69,7 +69,7 @@ pub(crate) fn record_scan(no_telemetry: bool, offline: bool, result: &ScanResult
     deliver_if_enabled(
         no_telemetry,
         offline,
-        &AggregateEvent::scan(surface, result),
+        &AggregateEvent::scan(surface, report),
     );
 }
 
@@ -141,7 +141,14 @@ fn deliver_if_enabled(no_telemetry: bool, offline: bool, event: &AggregateEvent)
 }
 
 fn enabled_endpoint(no_telemetry: bool, offline: bool) -> Option<String> {
-    if no_telemetry || offline || environment_disabled() {
+    if !(DeliveryPolicy {
+        no_telemetry,
+        offline,
+        environment_disabled: environment_disabled(),
+        has_consent: true,
+    })
+    .allows()
+    {
         return None;
     }
     privacy::load()
@@ -149,6 +156,20 @@ fn enabled_endpoint(no_telemetry: bool, offline: bool) -> Option<String> {
         .flatten()
         .filter(|consent| consent.enabled)
         .map(|consent| consent.endpoint)
+}
+
+#[derive(Clone, Copy)]
+struct DeliveryPolicy {
+    no_telemetry: bool,
+    offline: bool,
+    environment_disabled: bool,
+    has_consent: bool,
+}
+
+impl DeliveryPolicy {
+    const fn allows(self) -> bool {
+        self.has_consent && !self.no_telemetry && !self.offline && !self.environment_disabled
+    }
 }
 
 fn environment_disabled() -> bool {
@@ -214,9 +235,9 @@ mod tests {
     fn event_schema_cannot_serialize_prohibited_fields() {
         let event = AggregateEvent::session(InvocationSurface::Cli);
         let value = serde_json::to_value(event).unwrap();
+        assert_eq!(value["schema_version"], "1.1");
         let serialized = value.to_string();
         for prohibited in [
-            "path",
             "repository",
             "source_text",
             "diagnostic_message",
@@ -227,6 +248,60 @@ mod tests {
         ] {
             assert!(!serialized.contains(prohibited), "found {prohibited}");
         }
+        assert_eq!(value["suppression_counts"]["path"], 0);
+        assert!(!serialized.contains("/home/"));
+        assert!(!serialized.contains("src/lib.rs"));
+    }
+
+    #[test]
+    fn every_surface_uses_the_same_fail_closed_delivery_policy() {
+        let allowed = DeliveryPolicy {
+            no_telemetry: false,
+            offline: false,
+            environment_disabled: false,
+            has_consent: true,
+        };
+        assert!(allowed.allows());
+        for denied in [
+            DeliveryPolicy {
+                has_consent: false,
+                ..allowed
+            },
+            DeliveryPolicy {
+                no_telemetry: true,
+                ..allowed
+            },
+            DeliveryPolicy {
+                offline: true,
+                ..allowed
+            },
+            DeliveryPolicy {
+                environment_disabled: true,
+                ..allowed
+            },
+        ] {
+            assert!(!denied.allows());
+        }
+
+        for surface in [
+            InvocationSurface::Cli,
+            InvocationSurface::Action,
+            InvocationSurface::Mcp,
+            InvocationSurface::Lsp,
+        ] {
+            let event = serde_json::to_value(AggregateEvent::session(surface)).unwrap();
+            assert_eq!(event["schema_version"], "1.1");
+        }
+    }
+
+    #[test]
+    fn crash_events_use_the_same_current_schema_as_session_events() {
+        let event =
+            AggregateEvent::crash(InvocationSurface::Cli, "panic payload redacted".to_string());
+        let value = serde_json::to_value(event).unwrap();
+        assert_eq!(value["schema_version"], "1.1");
+        assert_eq!(value["event_kind"], "crash");
+        assert!(value["suppression_counts"].is_object());
     }
 
     #[test]
