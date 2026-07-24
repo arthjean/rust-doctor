@@ -11,6 +11,7 @@ subject=$2
 expected_artifact=$3
 expected_workflow=$4
 expected_run_id=$5
+environment_name=ep006-protected-evidence
 
 jq -e '
   .schema_version == "1.0"
@@ -21,7 +22,7 @@ jq -e '
   and (.artifact_digest | test("^sha256:[0-9a-f]{64}$"))
   and (.reviewed_by | type == "string" and length > 0)
   and (.reviewed_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
-  and .review_source == "codeowners"
+  and .review_source == "protected-environment"
 ' "$approval" >/dev/null
 
 repository=$(jq -r '.repository' "$approval")
@@ -66,10 +67,51 @@ jq -e \
   ' <<<"$run_json" >/dev/null
 source_head_sha=$(jq -r '.pull_requests[0].head.sha' <<<"$run_json")
 pull_request_number=$(jq -r '.pull_requests[0].number' <<<"$run_json")
+source_author=$(gh api "repos/${repository}/pulls/${pull_request_number}" \
+  --jq '.user.login')
 
 jobs_json=$(gh api "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100")
 jq -e 'any(.jobs[]; .name == "corpus" and .conclusion == "success")' \
   <<<"$jobs_json" >/dev/null
+corpus_job_id=$(jq -er '
+  [.jobs[] | select(.name == "corpus" and .conclusion == "success")]
+  | sort_by(.id)
+  | last.id
+' <<<"$jobs_json")
+expected_job_url="https://github.com/${repository}/actions/runs/${run_id}/job/${corpus_job_id}"
+
+deployments_json=$(gh api --method GET "repos/${repository}/deployments" \
+  -f sha="$head_sha" \
+  -f environment="$environment_name" \
+  -f per_page=100)
+deployment_id=""
+while IFS= read -r candidate_deployment_id; do
+  deployment_statuses=$(gh api --method GET \
+    "repos/${repository}/deployments/${candidate_deployment_id}/statuses" \
+    -f per_page=100)
+  if jq -e --arg job_url "$expected_job_url" \
+    'any(.[]; .state == "success" and .log_url == $job_url)' \
+    <<<"$deployment_statuses" >/dev/null; then
+    deployment_id=$candidate_deployment_id
+    break
+  fi
+done < <(jq -r '
+  [
+    .[]
+    | select(
+        .environment == $environment
+        and .sha == $sha
+        and .performed_via_github_app.slug == "github-actions"
+      )
+  ]
+  | sort_by(.id)
+  | reverse[]
+  | .id
+' --arg environment "$environment_name" --arg sha "$head_sha" <<<"$deployments_json")
+if [[ -z "$deployment_id" ]]; then
+  echo "candidate corpus job has no successful protected-environment deployment" >&2
+  exit 1
+fi
 
 artifact_json=$(gh api "repos/${repository}/actions/artifacts/${artifact_id}")
 jq -e \
@@ -108,45 +150,102 @@ while IFS= read -r changed_path; do
   esac
 done < <(git diff --name-only "$source_head_sha" HEAD)
 
-reviews_json=$(gh api "repos/${repository}/pulls/${pull_request_number}/reviews?per_page=100")
-review_json=$(jq -c \
+current_head_sha=$(git rev-parse HEAD)
+current_run_json=$(gh api "repos/${repository}/actions/runs/${GITHUB_RUN_ID:?}")
+jq -e \
+  --arg repository "$repository" \
+  --arg sha "$current_head_sha" \
+  '
+    .event == "pull_request"
+    and .head_repository.full_name == $repository
+    and .head_sha == $sha
+    and .path == ".github/workflows/ep006-promotion.yml"
+  ' <<<"$current_run_json" >/dev/null
+environment_json=$(gh api \
+  "repos/${repository}/environments/${environment_name}")
+jq -e \
+  --arg author "$source_author" \
   --arg reviewer "$reviewed_by" \
   '
+    .can_admins_bypass == false
+    and .deployment_branch_policy.custom_branch_policies == true
+    and any(
+      .protection_rules[];
+      .type == "required_reviewers"
+      and .prevent_self_review == true
+      and any(
+        .reviewers[];
+        .type == "User"
+        and (.reviewer.login | ascii_downcase) == ($reviewer | ascii_downcase)
+        and (.reviewer.login | ascii_downcase) != ($author | ascii_downcase)
+      )
+    )
+  ' <<<"$environment_json" >/dev/null
+branch_policies_json=$(gh api \
+  "repos/${repository}/environments/${environment_name}/deployment-branch-policies")
+jq -e \
+  --arg branch "$(jq -r '.head_branch' <<<"$run_json")" \
+  '
+    (.branch_policies | length) == 1
+    and .branch_policies[0].name == $branch
+    and .branch_policies[0].type == "branch"
+  ' <<<"$branch_policies_json" >/dev/null
+current_jobs_json=$(gh api \
+  "repos/${repository}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100")
+promotion_job_id=$(jq -er '
+  [
+    .jobs[]
+    | select(.name == "promotion" and (.status == "in_progress" or .conclusion == "success"))
+  ]
+  | sort_by(.id)
+  | last.id
+' <<<"$current_jobs_json")
+promotion_job_url="https://github.com/${repository}/actions/runs/${GITHUB_RUN_ID}/job/${promotion_job_id}"
+promotion_deployments=$(gh api --method GET "repos/${repository}/deployments" \
+  -f environment="$environment_name" \
+  -f per_page=100)
+promotion_authorized_at=""
+while IFS= read -r promotion_deployment_id; do
+  promotion_statuses=$(gh api --method GET \
+    "repos/${repository}/deployments/${promotion_deployment_id}/statuses" \
+    -f per_page=100)
+  promotion_authorized_at=$(jq -er --arg job_url "$promotion_job_url" '
     [
       .[]
       | select(
-          .state == "APPROVED"
-          and (.user.login | ascii_downcase) == ($reviewer | ascii_downcase)
-          and (.commit_id | test("^[0-9a-f]{40}$"))
+          (.state == "in_progress" or .state == "success")
+          and .log_url == $job_url
         )
     ]
-    | sort_by(.submitted_at)
-    | last // empty
-  ' <<<"$reviews_json")
-if [[ -z "$review_json" ]]; then
-  echo "candidate approval has no matching APPROVED GitHub review" >&2
+    | sort_by(.created_at)
+    | first.created_at
+  ' <<<"$promotion_statuses" 2>/dev/null || true)
+  if [[ -n "$promotion_authorized_at" ]]; then
+    break
+  fi
+done < <(jq -r '
+  [
+    .[]
+    | select(
+        .environment == $environment
+        and .performed_via_github_app.slug == "github-actions"
+      )
+  ]
+  | sort_by(.id)
+  | reverse[]
+  | .id
+' --arg environment "$environment_name" <<<"$promotion_deployments")
+if [[ -z "$promotion_authorized_at" ]]; then
+  echo "promotion job has no protected-environment authorization" >&2
   exit 1
 fi
-review_commit=$(jq -r '.commit_id' <<<"$review_json")
-review_submitted_at=$(jq -r '.submitted_at' <<<"$review_json")
 if ! jq -en \
   --arg reviewed_at "$reviewed_at" \
-  --arg submitted_at "$review_submitted_at" \
-  '($submitted_at | fromdateiso8601) >= ($reviewed_at | fromdateiso8601)' >/dev/null; then
-  echo "GitHub review predates the declared candidate review" >&2
+  --arg authorized_at "$promotion_authorized_at" \
+  '($authorized_at | fromdateiso8601) >= ($reviewed_at | fromdateiso8601)' >/dev/null; then
+  echo "protected environment authorization predates the declared candidate review" >&2
   exit 1
 fi
-if ! git cat-file -e "${review_commit}^{commit}" 2>/dev/null; then
-  git fetch --no-tags origin "$review_commit"
-fi
-git merge-base --is-ancestor "$source_head_sha" "$review_commit"
-git merge-base --is-ancestor "$review_commit" HEAD
-while IFS= read -r changed_path; do
-  if [[ "$changed_path" != "tasks/prd-react-doctor-parity-status.json" ]]; then
-    echo "only status evidence may change after the approved GitHub review" >&2
-    exit 1
-  fi
-done < <(git diff --name-only "$review_commit" HEAD)
 
 printf 'verified %s from candidate run %s artifact %s\n' \
   "$subject_sha256" "$run_id" "$artifact_id"

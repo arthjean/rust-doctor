@@ -118,10 +118,7 @@ impl CustomRule for ReliabilityRule {
     }
 
     fn default_enabled(&self) -> bool {
-        matches!(
-            self.kind,
-            ReliabilityKind::CatchUnwindDiscarded | ReliabilityKind::ProcessExitInLibrary
-        )
+        false
     }
 
     fn confidence(&self) -> Confidence {

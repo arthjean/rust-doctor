@@ -83,6 +83,12 @@ that earlier candidate instead of rescanning the corpus, verifies both artifact
 identities through the GitHub API, and emits the final delta and promotion
 sample even when a threshold blocks activation.
 
+Both candidate collection and final promotion use the
+`ep006-protected-evidence` environment. It forbids self-review and admin bypass,
+requires an independent reviewer, and permits only the exact evidence branch.
+Candidate verification checks that live policy and the successful GitHub
+Actions deployment created by it.
+
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
 threshold. Approval JSON binds the exact subject SHA-256, repository commit,
 successful protected workflow run, artifact ID, artifact digest, reviewer and

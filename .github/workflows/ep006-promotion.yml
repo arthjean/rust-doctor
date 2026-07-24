@@ -5,16 +5,11 @@ on:
     paths:
       - evaluation/approvals/ep006-candidate.json
       - evaluation/approvals/ep006-labels.json
-  workflow_dispatch:
-    inputs:
-      candidate_run_id:
-        description: Original EP-003 certification run containing the reviewed candidate
-        required: true
-        type: string
 
 permissions:
   actions: read
   contents: read
+  deployments: read
   pull-requests: read
 
 concurrency:
@@ -26,6 +21,7 @@ jobs:
     name: promotion
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    environment: ep006-protected-evidence
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -47,8 +43,6 @@ jobs:
       - name: Read exact artifact identities
         id: identity
         shell: bash
-        env:
-          DISPATCH_RUN_ID: ${{ inputs.candidate_run_id }}
         run: |
           set -euo pipefail
           baseline=evaluation/approvals/corpus-baseline.json
@@ -57,10 +51,6 @@ jobs:
           test -s "$candidate"
           test -s "$labels"
           candidate_run_id=$(jq -er '.run_id | select(type == "number" and . > 0)' "$candidate")
-          if [[ -n "${DISPATCH_RUN_ID:-}" && "$DISPATCH_RUN_ID" != "$candidate_run_id" ]]; then
-            echo "workflow input does not match the reviewed candidate run" >&2
-            exit 1
-          fi
           echo "baseline-run-id=$(jq -er '.run_id' "$baseline")" >> "$GITHUB_OUTPUT"
           echo "baseline-artifact-name=$(jq -er '.artifact_name' "$baseline")" >> "$GITHUB_OUTPUT"
           echo "candidate-run-id=$candidate_run_id" >> "$GITHUB_OUTPUT"

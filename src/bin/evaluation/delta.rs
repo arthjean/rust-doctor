@@ -675,7 +675,7 @@ fn validate_approval_value(
         || approval.reviewed_at.trim().is_empty()
         || !matches!(
             approval.review_source.as_str(),
-            "protected-ci" | "codeowners"
+            "protected-ci" | "protected-environment"
         )
     {
         return Err(EvalError::InvalidManifest(format!(
