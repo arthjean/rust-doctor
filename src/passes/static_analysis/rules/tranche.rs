@@ -118,7 +118,7 @@ impl CustomRule for TrancheRule {
     }
 
     fn default_enabled(&self) -> bool {
-        self.kind == TrancheKind::RegexCreatedInLoop
+        false
     }
 
     fn confidence(&self) -> Confidence {

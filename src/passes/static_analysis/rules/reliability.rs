@@ -120,9 +120,7 @@ impl CustomRule for ReliabilityRule {
     fn default_enabled(&self) -> bool {
         matches!(
             self.kind,
-            ReliabilityKind::CatchUnwindDiscarded
-                | ReliabilityKind::MemForgetResource
-                | ReliabilityKind::ProcessExitInLibrary
+            ReliabilityKind::CatchUnwindDiscarded | ReliabilityKind::ProcessExitInLibrary
         )
     }
 
