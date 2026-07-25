@@ -58,6 +58,8 @@ struct AnalyzedTarget {
     error: Option<String>,
 }
 
+const EMBEDDED_TARGET_CFG: &str = include_str!(concat!(env!("OUT_DIR"), "/rust-doctor-target.cfg"));
+
 impl std::fmt::Display for Framework {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -657,46 +659,52 @@ fn analyzed_target(project_root: &Path) -> AnalyzedTarget {
             };
         }
     };
-    let print_host = configured_target.is_none();
+    let Some(configured_target) = configured_target else {
+        return embedded_target();
+    };
     let mut command = Command::new("rustc");
     command.current_dir(project_root);
-    if let Some(triple) = &configured_target {
-        command.args(["--print", "cfg", "--target", triple]);
-    } else {
-        command.args(["--print", "host-tuple", "--print", "cfg"]);
-    }
+    command.args(["--print", "cfg", "--target", &configured_target]);
     let output = match command.output() {
         Ok(output) if output.status.success() => output,
         Ok(_) => {
             return AnalyzedTarget {
-                triple: configured_target,
+                triple: Some(configured_target),
                 cfgs: Vec::new(),
                 error: Some("rustc target discovery failed".to_string()),
             };
         }
         Err(error) => {
             return AnalyzedTarget {
-                triple: configured_target,
+                triple: Some(configured_target),
                 cfgs: Vec::new(),
                 error: Some(error.to_string()),
             };
         }
     };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut lines = stdout.lines();
-    let triple = configured_target.or_else(|| lines.next().map(str::to_string));
-    let Some(triple) = triple.filter(|triple| !triple.trim().is_empty()) else {
+    analyzed_target_from_cfg(configured_target, &String::from_utf8_lossy(&output.stdout))
+}
+
+fn embedded_target() -> AnalyzedTarget {
+    let Some((triple, cfg)) = EMBEDDED_TARGET_CFG.split_once('\n') else {
         return AnalyzedTarget {
             triple: None,
             cfgs: Vec::new(),
-            error: Some("rustc did not report a host triple".to_string()),
+            error: Some("embedded rustc target cfg is invalid".to_string()),
         };
     };
-    let cfgs: Result<Vec<Cfg>, _> = stdout
-        .lines()
-        .skip(usize::from(print_host))
-        .map(str::parse)
-        .collect();
+    analyzed_target_from_cfg(triple.to_string(), cfg)
+}
+
+fn analyzed_target_from_cfg(triple: String, cfg: &str) -> AnalyzedTarget {
+    if triple.trim().is_empty() {
+        return AnalyzedTarget {
+            triple: None,
+            cfgs: Vec::new(),
+            error: Some("rustc did not report a target triple".to_string()),
+        };
+    }
+    let cfgs: Result<Vec<Cfg>, _> = cfg.lines().map(str::parse).collect();
     match cfgs {
         Ok(cfgs) => AnalyzedTarget {
             triple: Some(triple),
@@ -1025,7 +1033,7 @@ mod tests {
         assert!(!info.is_workspace);
         assert_eq!(info.member_count, 1);
         assert_eq!(info.default_member_ids, vec![info.package_id.clone()]);
-        assert!(!info.has_build_script);
+        assert!(info.has_build_script);
         assert!(!info.is_no_std);
         // rust-doctor depends on tokio (for MCP server)
         assert!(info.frameworks.contains(&Framework::Tokio));
@@ -1178,6 +1186,14 @@ mod tests {
             configured_build_target(root.path()).unwrap().as_deref(),
             Some("wasm32-unknown-unknown")
         );
+    }
+
+    #[test]
+    fn embedded_target_is_well_formed() {
+        let target = embedded_target();
+        assert!(target.error.is_none(), "{:?}", target.error);
+        assert!(target.triple.is_some());
+        assert!(!target.cfgs.is_empty());
     }
 
     #[test]
