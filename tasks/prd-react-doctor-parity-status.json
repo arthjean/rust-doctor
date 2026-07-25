@@ -3,7 +3,7 @@
     "file": "tasks/prd-react-doctor-parity.md",
     "title": "React Doctor Product Parity for Rust Doctor",
     "created_at": "2026-07-22",
-    "updated_at": "2026-07-24",
+    "updated_at": "2026-07-25",
     "status": "IN_PROGRESS",
     "reopened_reason": "Adversarial parity audit found unproven and contradicted acceptance criteria; prior completion timestamps are retained as implementation history, not current certification.",
     "react_reference_sha": "3d7ea66c3f45fa55828559fce5cc38e879b9907a",
@@ -121,8 +121,8 @@
       "status": "IN_PROGRESS",
       "priority": "P2",
       "stories_total": 8,
-      "stories_done": 3,
-      "reviewed_at": "2026-07-24T12:55:59Z",
+      "stories_done": 6,
+      "reviewed_at": "2026-07-25T12:35:01Z",
       "evidence": [
         "cargo fmt --check",
         "cargo +1.97 check --all-targets",
@@ -136,10 +136,16 @@
         "independent DEEP review completed; all mandatory correctness and privacy findings were remediated",
         "rust-doctor-web bun run lint",
         "rust-doctor-web build:verified: 159 pages, 125 generated rule pages, zero JavaScript bytes on rule pages",
-        "rust-doctor-web deterministic build provenance binds the Rust binary SHA, catalog SHA and eight real command replays"
+        "rust-doctor-web deterministic build provenance binds the Rust binary SHA, catalog SHA and eight real command replays",
+        "EP-003 performance run 30157333250 at candidate d99819f2156463ceb0ede554c0443f33df50110b passed against the protected baseline; artifact 8619387946 sha256:aae3bbeb8521de35f77f1d625e20994aaab14b5aaf8dda52de2cee913cb77dc2: https://github.com/arthjean/rust-doctor/actions/runs/30157333250/artifacts/8619387946",
+        "EP-006 protected source run 30157474107 at trusted master f7dfe9b98f8d9b96813c376cbfc23d520eb9188b evaluated candidate d99819f2156463ceb0ede554c0443f33df50110b: https://github.com/arthjean/rust-doctor/actions/runs/30157474107",
+        "protected candidate artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f contains 15 rules x 1000 passing mutations and 100 pinned repositories with 2709 Cargo roots, 85 complete and 15 structured incomplete; corpus sha256:15471b591c005a51431b821feed4fa1761b4c08ab3b26fe69deb8f82bbc306f5",
+        "failed-closed delta artifact 8619516146 sha256:bb33547b5d8cfea0e745bff814488e5b22046a248473b1cde9eafa40ccef1605 recorded exit 3 solely for await-holding-refcell-ref at 0.833% of complete roots, with zero incomplete-root drift and no promotion review",
+        "protected review run 30158115100 at trusted master f7dfe9b98f8d9b96813c376cbfc23d520eb9188b approved the exact replacement corpus in environment ep003-baseline: https://github.com/arthjean/rust-doctor/actions/runs/30158115100",
+        "reviewed corpus artifact 8619534506 sha256:113012c40f2f0152783d1c262952d1724c3cf2671752bbcd984b8ef008feafd6: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534506",
+        "reviewed promotion artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 proves delta sha256:3df66ae97bef4f2b565f0e47c1b35de2e06eea34b7611920f394384ec8fc90ce, blocked=false, empty reasons and promotions, and unchanged 0.5/0.2/2.0 thresholds: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
       ],
       "remaining_evidence": [
-        "protected corpus and mutation promotion artifacts for US-031 through US-033",
         "browser-based automated WCAG 2.2 AA audit for US-034 requires explicit browser authorization",
         "real CLI maximum-cardinality and oversized-payload rejection for US-036"
       ]
@@ -781,60 +787,60 @@
       "id": "US-031",
       "title": "Ship the first reliability and concurrency rule tranche",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:32:20Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-24T12:18:30Z",
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
       "evidence": [
         "passes::static_analysis::rules::tests::conformance_fixtures_match_rule_behavior",
         "scanner::tests::failed_rule_work_unit_is_structured_and_marks_the_check_failed",
-        "scope_semantics::parse_failure_is_failed_required_work_and_never_authoritative"
-      ],
-      "remaining_evidence": [
-        "protected mutation and corpus delta artifact proving at most 2% confirmed false positives before default activation"
+        "scope_semantics::parse_failure_is_failed_required_work_and_never_authoritative",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per rule and recorded corpus occurrences blocking-lock-in-async=6, catch-unwind-discarded=2, await-holding-refcell-ref=307, mem-forget-resource=27, process-exit-in-library=109, spawn-in-drop=0",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps all US-031 rules opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
       ]
     },
     {
       "id": "US-032",
       "title": "Ship the first API, performance and security rule tranche",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:32:20Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-24T12:18:30Z",
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
       "evidence": [
         "discovery::tests::cargo_target_paths_override_directory_name_guesses",
         "report_contract_tests::ownership_and_source_surface_do_not_leak_across_roots",
-        "passes::static_analysis::rules::tests::conformance_fixtures_match_rule_behavior"
-      ],
-      "remaining_evidence": [
-        "protected mutation and corpus delta artifact proving at most 2% confirmed false positives before default activation"
+        "passes::static_analysis::rules::tests::conformance_fixtures_match_rule_behavior",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per rule and recorded corpus occurrences command-shell-interpolation=3, ffi-cstring-lifetime=0, insecure-http-client=1, regex-created-in-loop=19, temporary-cstring-pointer=0, unbounded-collect=11",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps all US-032 rules opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
       ]
     },
     {
       "id": "US-033",
       "title": "Add version-aware framework capability packs",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-011", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:40:32Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-24T12:18:30Z",
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
       "evidence": [
         "discovery::tests::target_cfg_is_evaluated_for_the_analyzed_target",
         "discovery::tests::dependency_features_are_isolated_to_the_member_edge",
-        "Report V1 framework_gates serialize rule-level capability decisions and abstention reasons"
-      ],
-      "remaining_evidence": [
-        "protected pack mutation and corpus delta artifacts before default activation"
+        "Report V1 framework_gates serialize rule-level capability decisions and abstention reasons",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per pack rule and recorded corpus occurrences actix-web-data-lock=0, axum-extension-request-state=0, tokio-unbounded-channel=89",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps every framework pack opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
       ]
     },
     {
