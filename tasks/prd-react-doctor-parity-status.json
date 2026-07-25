@@ -118,11 +118,12 @@
     {
       "id": "EP-006",
       "title": "Rust-Native Rule Moat and Public Product Loop",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "stories_total": 8,
-      "stories_done": 6,
-      "reviewed_at": "2026-07-25T12:35:01Z",
+      "stories_done": 8,
+      "reviewed_at": "2026-07-25T18:27:29Z",
+      "certified_at": "2026-07-25T18:27:29Z",
       "evidence": [
         "cargo fmt --check",
         "cargo +1.97 check --all-targets",
@@ -143,11 +144,13 @@
         "failed-closed delta artifact 8619516146 sha256:bb33547b5d8cfea0e745bff814488e5b22046a248473b1cde9eafa40ccef1605 recorded exit 3 solely for await-holding-refcell-ref at 0.833% of complete roots, with zero incomplete-root drift and no promotion review",
         "protected review run 30158115100 at trusted master f7dfe9b98f8d9b96813c376cbfc23d520eb9188b approved the exact replacement corpus in environment ep003-baseline: https://github.com/arthjean/rust-doctor/actions/runs/30158115100",
         "reviewed corpus artifact 8619534506 sha256:113012c40f2f0152783d1c262952d1724c3cf2671752bbcd984b8ef008feafd6: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534506",
-        "reviewed promotion artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 proves delta sha256:3df66ae97bef4f2b565f0e47c1b35de2e06eea34b7611920f394384ec8fc90ce, blocked=false, empty reasons and promotions, and unchanged 0.5/0.2/2.0 thresholds: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
-      ],
-      "remaining_evidence": [
-        "browser-based automated WCAG 2.2 AA audit for US-034 requires explicit browser authorization",
-        "real CLI maximum-cardinality and oversized-payload rejection for US-036"
+        "reviewed promotion artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 proves delta sha256:3df66ae97bef4f2b565f0e47c1b35de2e06eea34b7611920f394384ec8fc90ce, blocked=false, empty reasons and promotions, and unchanged 0.5/0.2/2.0 thresholds: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775",
+        "rust-doctor-web PR #1 merged exact head 3cab2868276cfd085614bd31182ab1b0ad4f1d51 as 8190d3eac96294c27b950b0a338922db1d894129: https://github.com/arthjean/rust-doctor-web/pull/1",
+        "rust-doctor-web post-merge run 30167228841 succeeded at 8190d3eac96294c27b950b0a338922db1d894129; public contract artifact 8621952891 sha256:e94b725337f3188bfb6954250496ad4af840b3c2cbe61774490239ae2414c086: https://github.com/arthjean/rust-doctor-web/actions/runs/30167228841/artifacts/8621952891",
+        "Vercel production deployment dpl_88pK7rQYy7VNPFPDJF4wC3CGgXE6 is READY for exact web merge 8190d3eac96294c27b950b0a338922db1d894129",
+        "rust-doctor PR #15 merged exact head 90492c6ed38e08d624e7da9443789ccdf436b8d8 as da96179ec665cd5d79a8ac8aec1c6bda67438bde: https://github.com/arthjean/rust-doctor/pull/15",
+        "rust-doctor post-merge CI run 30168489980 succeeded at da96179ec665cd5d79a8ac8aec1c6bda67438bde; public contract artifact 8622280919 sha256:b34f9e9077848a36d43cd7ff2cfa2f5dc2c67eb6ca3b217535efb0272ad92415 binds clean Rust source da96179ec665cd5d79a8ac8aec1c6bda67438bde to clean website source 8190d3eac96294c27b950b0a338922db1d894129 with 125 rules, 8 audited routes x 3 profiles, zero violations and 25/25 incomplete nodes reviewed: https://github.com/arthjean/rust-doctor/actions/runs/30168489980/artifacts/8622280919",
+        "EP-003 post-merge run 30168489919 succeeded at da96179ec665cd5d79a8ac8aec1c6bda67438bde; delta artifact 8622439416 sha256:ab5ed07528fa2b69d0c0b1c7d25848bab6e02bd18bfa2441ef3a6e071640d1ec proves 2522/2522 complete roots, zero introduced, removed or changed findings, zero incomplete-root drift, blocked=false and no promotion review: https://github.com/arthjean/rust-doctor/actions/runs/30168489919/artifacts/8622439416"
       ]
     }
   ],
@@ -847,23 +850,26 @@
       "id": "US-034",
       "title": "Generate the public documentation and rule catalog",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-005", "US-018", "US-025"],
       "started_at": "2026-07-22T14:45:57Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-24T12:18:30Z",
+      "reviewed_at": "2026-07-25T18:27:29Z",
+      "certified_at": "2026-07-25T18:27:29Z",
       "evidence": [
         "the canonical CLI catalog remains available through rules list --json",
         "the PRD repository boundary was enforced: no nested website or Cargo workspace was introduced",
         "rust-doctor-web build:verified generated 159 pages and 125 rule pages with zero JavaScript bytes on rule pages",
         "rust-doctor-web verify:public fails on stale catalog, undocumented rules, invalid examples, internal links and structural accessibility regressions",
         "public/catalog/build-provenance.json binds the binary SHA, catalog SHA and full, staged, baseline, JSON, SARIF, share, MCP and CI command replays",
-        ".github/workflows/public-contract.yml reconstructs Rust Doctor and uploads the verified provenance artifact"
-      ],
-      "remaining_evidence": [
-        "browser-based automated WCAG 2.2 AA audit requires explicit browser authorization"
+        ".github/workflows/public-contract.yml reconstructs Rust Doctor and uploads the verified provenance artifact",
+        "rust-doctor-web PR #1 merged exact head 3cab2868276cfd085614bd31182ab1b0ad4f1d51 as 8190d3eac96294c27b950b0a338922db1d894129: https://github.com/arthjean/rust-doctor-web/pull/1",
+        "post-merge public contract run 30167228841 succeeded at 8190d3eac96294c27b950b0a338922db1d894129; artifact 8621952891 sha256:e94b725337f3188bfb6954250496ad4af840b3c2cbe61774490239ae2414c086: https://github.com/arthjean/rust-doctor-web/actions/runs/30167228841/artifacts/8621952891",
+        "Vercel production deployment dpl_88pK7rQYy7VNPFPDJF4wC3CGgXE6 is READY for exact web merge 8190d3eac96294c27b950b0a338922db1d894129",
+        "cross-repository public contract artifact 8622280919 sha256:b34f9e9077848a36d43cd7ff2cfa2f5dc2c67eb6ca3b217535efb0272ad92415 binds clean Rust source da96179ec665cd5d79a8ac8aec1c6bda67438bde to clean website source 8190d3eac96294c27b950b0a338922db1d894129, 125 rules and all 8 documented command routes",
+        "WCAG 2.2 AA automated audit covers 8 routes x desktop light, desktop dark and mobile light; artifact 8622280919 records 24 passed states, zero violations, zero failed custom checks, zero browser errors and 25/25 incomplete nodes explicitly reviewed"
       ]
     },
     {
@@ -891,22 +897,25 @@
       "id": "US-036",
       "title": "Publish explicitly shared health reports",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-004", "US-005", "US-025", "US-034", "US-035"],
       "started_at": "2026-07-22T14:55:41Z",
       "completed_at": "2026-07-22T16:09:18Z",
-      "reviewed_at": "2026-07-24T12:18:30Z",
+      "reviewed_at": "2026-07-25T18:27:29Z",
+      "certified_at": "2026-07-25T18:27:29Z",
       "evidence": [
         "ep006_product_loop::explicit_share_is_stateless_percent_encoded_and_source_free",
         "share::tests::oversized_payload_is_rejected_without_a_partial_url",
         "share::tests::skipped_checks_are_fixed_allowlisted_names_with_bounded_cardinality",
         "rust-doctor-web share contract accepts complete, partial and incomplete independently from score authority",
-        "rust-doctor-web verifies maximum public query cardinalities and prominently renders completeness, authority, heuristic limits and editable stateless provenance"
-      ],
-      "remaining_evidence": [
-        "real CLI maximum-cardinality and oversized-payload rejection integration"
+        "rust-doctor-web verifies maximum public query cardinalities and prominently renders completeness, authority, heuristic limits and editable stateless provenance",
+        "ep006_product_loop::real_cli_share_covers_maximum_cardinalities_and_percent_encoding exercises the real debug CLI with maximum public category and check cardinalities",
+        "ep006_product_loop::real_cli_oversized_share_preserves_local_output_without_partial_url exercises the real debug CLI, proves exit 2, preserves local output and emits no share URL on stdout or stderr",
+        "share::tests::aggregate_contract_rejects_values_outside_public_bounds and share::tests::aggregate_contract_accepts_inclusive_file_boundary enforce the producer bounds matched by the web consumer",
+        "rust-doctor PR #15 CI run 30167694786 succeeded at exact head 90492c6ed38e08d624e7da9443789ccdf436b8d8; public contract artifact 8622076887 sha256:d3716259a65cf324a243b26020eaa2912312a912eecbbac1b1e613934bacac61: https://github.com/arthjean/rust-doctor/actions/runs/30167694786/artifacts/8622076887",
+        "rust-doctor PR #15 merged as da96179ec665cd5d79a8ac8aec1c6bda67438bde and post-merge CI run 30168489980 plus EP-003 run 30168489919 both succeeded at that exact default-branch SHA"
       ]
     }
   ]
