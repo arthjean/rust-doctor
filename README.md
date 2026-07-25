@@ -12,30 +12,19 @@
 
 **The one-command health check for your Rust project.** rust-doctor scans for security, performance, correctness, architecture, and dependency issues, then folds everything into a single 0–100 score with diagnostics you can act on.
 
-It runs `cargo clippy`, `cargo-audit`, `cargo-deny`, `cargo-geiger`, and 34 custom AST rules in one pass, and ships as a CLI, a library crate, an [MCP](https://modelcontextprotocol.io/) server, an npm package, and a GitHub Action, so it works in your terminal, your CI, and inside Claude Code, Cursor, or any MCP agent.
-
-```console
-$ rust-doctor                          # rust-doctor scanning its own codebase
-
-   ◠ ◠    rust-doctor
-    ▽     99 / 100   Great
-
-   ████████████████████████████████████████
-
-   Security 99 · Reliability 99 · Maintainability 100 · Performance 99 · Dependencies 99
-
-   ✓ 0 errors   ⚠ 44 warnings   ℹ 42 infos   ·   60 files scanned in 32.9s
-```
+It combines 34 custom AST rules with Clippy and optional Cargo analyzers behind one canonical diagnostic contract. CLI, API, MCP, and Action scans emit versioned Report V1; SARIF and editor integrations project the same rule and source identities. Supply-chain analysis prefers `cargo-deny` and falls back to `cargo-audit` when `cargo-deny` is unavailable.
 
 ## Quickstart
 
-No Rust toolchain required — `npx` downloads a pre-built native binary for your platform:
+`npx` downloads a pre-built native binary, so installing rust-doctor does not require compiling it:
 
 ```bash
 npx rust-doctor            # scan the current directory and print the score
 ```
 
-Prefer cargo? `cargo install rust-doctor`. Want it in your AI agent? `npx rust-doctor setup`. Other formats are in [Installation](#installation).
+Scanning requires Cargo because project discovery runs `cargo metadata`. Full compiler-aware analysis also requires rustc and Clippy; other Cargo analyzers are optional and degrade explicitly when unavailable.
+
+Prefer cargo? `cargo install rust-doctor`. Want it in your AI agent? `npx rust-doctor install`. Other formats are in [Installation](#installation). Browse the generated rule catalog and product documentation at [rust-doctor.vercel.app](https://rust-doctor.vercel.app).
 
 ### See it in action →
 
@@ -48,26 +37,31 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 | You're using | It gives you | rust-doctor adds |
 |---|---|---|
 | `cargo clippy` | 700+ built-in lints | Category + severity mapping, 34 custom AST rules (security, async, framework, architecture), and a single 0–100 score |
-| `cargo audit` / `cargo deny` | CVE and supply-chain checks | One pass that also runs clippy, geiger, and machete — skipping gracefully when a tool isn't installed |
-| Separate CI steps | Each tool's own output | One command with `--json`, `--sarif`, `--diff`, `--score`, and PR comments |
-| Claude Code / Cursor | Code generation | An MCP server and a slash-command skill, so the agent scans, scores, and fixes as it writes |
+| `cargo audit` / `cargo deny` | CVE and supply-chain checks | `cargo-deny` as the primary adapter, `cargo-audit` as its fallback, plus geiger and machete |
+| Separate CI steps | Each tool's own output | Report V1, `--sarif`, scoped and baseline scans, completeness gates, and stable PR reporting |
+| Coding agents and editors | Code generation and inline diagnostics | MCP, skills, and handoffs for agents; one LSP contract for VS Code, Cursor, and Zed |
 
 ## Features
 
-- **700+ clippy lints** with explicit severity overrides and category mapping
+- **700+ Clippy lints**, including 74 with explicit severity overrides and category mapping
 - **34 custom AST rules** via [syn](https://crates.io/crates/syn): error handling, performance, security, async, architecture, and framework anti-patterns
 - **Async anti-pattern detection**: blocking calls and `block_on` inside an async context
-- **Framework-aware rules**: tokio, axum, actix-web — only run when the dependency is present
-- **Supply-chain auditing**: CVEs via `cargo-audit`, bans/licenses via `cargo-deny`, unsafe via `cargo-geiger`, unused deps via `cargo-machete`
+- **Framework-aware rules**: dependency-gated tokio, axum, and actix-web checks plus capability packs gated by Cargo version, features, and target
+- **Supply-chain auditing**: advisories, licenses, bans, unsafe usage, and unused dependencies through optional Cargo adapters
+- **Canonical rule policy**: typed rule, category, tag, path, threshold, and output-surface controls
 - **A 0–100 health score** across five weighted dimensions, with an ASCII doctor that reacts to the result
-- **MCP server**: 4 read-only tools + 2 expert audit prompts for Claude Code, Cursor, Windsurf, or any MCP client
-- **Diff mode**: `--diff` scans only changed files for fast CI feedback
+- **Report V1**: stable diagnostic identities, explicit outcomes, completeness, score authority, package ownership, and structured errors
+- **Six scan scopes**: full, files, changed, lines, staged index, and baseline comparison
+- **Honest partial analysis**: check states, one wall-clock budget, cancellation, and `--require-complete`
+- **MCP server**: 4 read-only tools + 2 expert audit prompts for any MCP client
 - **Category scans**: select one or more categories, skip irrelevant passes, and get a score scoped to that selection
 - **Workspace support**: scan every crate or pick specific members
 - **Inline suppression**: `// rust-doctor-disable-next-line <rule>`
-- **Output modes**: terminal, `--json`, `--score` (bare integer for CI), `--sarif` (GitHub code scanning)
-- **`--fix`**: apply machine-applicable fixes to source files
-- **Setup wizard**: `rust-doctor setup` auto-detects Claude Code, Cursor, and Windsurf and wires up MCP or installs the skill in one command
+- **Output and handoff modes**: terminal, Report V1 JSON, score, SARIF, bounded diagnostic dumps, agent handoff, and stateless sharing
+- **Agent installer**: reversible skill, MCP, and staged-hook setup for Claude Code, Cursor, Codex, OpenCode, and Windsurf
+- **Editor diagnostics**: a feature-gated LSP plus VS Code-compatible and Zed adapters
+- **Managed CI**: GitHub baseline, review, status, and SARIF channels plus a GitLab gate-only scaffold
+- **Privacy by default**: zero telemetry network requests without explicit consent and no report upload for `--share`
 - **Distributed everywhere**: CLI binary, library crate, MCP server, npm package, and GitHub Action
 
 ## Installation
@@ -84,7 +78,7 @@ Or install globally:
 npm install -g rust-doctor
 ```
 
-This downloads a pre-built native binary for your platform — no Rust toolchain required.
+This downloads a pre-built native binary for your platform. Installation needs no Rust compiler; scanning still requires Cargo.
 
 ### cargo install (from source)
 
