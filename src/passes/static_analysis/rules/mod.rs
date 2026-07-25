@@ -17,6 +17,7 @@ use globset::GlobSet;
 use rayon::prelude::*;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_RS_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
@@ -191,12 +192,17 @@ impl RuleEngine {
             ignore_rules,
             enable_rules,
             &[],
+            None,
         )
     }
 
     #[expect(
         clippy::too_many_lines,
         reason = "file selection, cache partitioning, panic isolation, and parallel rule execution form one rule-engine transaction"
+    )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the optional progress sink belongs to the existing rule-engine transaction context"
     )]
     fn scan_selected_with_context(
         &self,
@@ -206,6 +212,7 @@ impl RuleEngine {
         ignore_rules: &[String],
         enable_rules: &[String],
         cargo_targets: &[CargoTargetContext],
+        on_file_progress: Option<&scanner::FileProgressCallback>,
     ) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
             return vec![];
@@ -315,6 +322,8 @@ impl RuleEngine {
                 }
             })
             .collect();
+        let total_file_count = file_contents.len();
+        let worker_count = rayon::current_num_threads();
 
         // Partition into fresh (cache hit) and stale (need scanning) files,
         // keeping the pre-computed hash for stale files to avoid double hashing.
@@ -338,6 +347,18 @@ impl RuleEngine {
                 .unwrap_or(&[])
                 .to_vec()
         }));
+        let started_file_count = AtomicUsize::new(fresh_files.len());
+        let scanned_file_count = AtomicUsize::new(fresh_files.len());
+        if !fresh_files.is_empty()
+            && let Some(report_progress) = on_file_progress
+        {
+            report_progress(scanner::FileProgressUpdate {
+                started: fresh_files.len(),
+                scanned: fresh_files.len(),
+                total: total_file_count,
+                workers: worker_count,
+            });
+        }
 
         // Process stale files in parallel with rayon
         let stale_results: Vec<(std::path::PathBuf, String, Vec<Diagnostic>, bool)> = stale_files
@@ -347,6 +368,15 @@ impl RuleEngine {
                     return None;
                 }
                 let rel_path = file_path.strip_prefix(project_root).unwrap_or(file_path);
+                let started = started_file_count.fetch_add(1, Ordering::Relaxed) + 1;
+                if let Some(report_progress) = on_file_progress {
+                    report_progress(scanner::FileProgressUpdate {
+                        started,
+                        scanned: scanned_file_count.load(Ordering::Relaxed),
+                        total: total_file_count,
+                        workers: worker_count,
+                    });
+                }
 
                 let (diagnostics, cacheable) = match syn::parse_file(content) {
                     Ok(syntax) => {
@@ -380,6 +410,15 @@ impl RuleEngine {
                     }
                 };
 
+                let scanned = scanned_file_count.fetch_add(1, Ordering::Relaxed) + 1;
+                if let Some(report_progress) = on_file_progress {
+                    report_progress(scanner::FileProgressUpdate {
+                        started: started_file_count.load(Ordering::Relaxed),
+                        scanned,
+                        total: total_file_count,
+                        workers: worker_count,
+                    });
+                }
                 Some((rel_path.to_path_buf(), hash.clone(), diagnostics, cacheable))
             })
             .collect();
@@ -603,6 +642,22 @@ impl RuleEnginePass {
         self.cargo_targets = cargo_targets;
         self
     }
+
+    fn run_engine(
+        &self,
+        project_root: &Path,
+        on_file_progress: Option<&scanner::FileProgressCallback>,
+    ) -> Vec<Diagnostic> {
+        self.engine.scan_selected_with_context(
+            project_root,
+            self.selected_files.as_deref(),
+            &self.ignore_files,
+            &self.ignore_rules,
+            &self.enable_rules,
+            &self.cargo_targets,
+            on_file_progress,
+        )
+    }
 }
 
 impl AnalysisPass for RuleEnginePass {
@@ -611,14 +666,15 @@ impl AnalysisPass for RuleEnginePass {
     }
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
-        Ok(self.engine.scan_selected_with_context(
-            project_root,
-            self.selected_files.as_deref(),
-            &self.ignore_files,
-            &self.ignore_rules,
-            &self.enable_rules,
-            &self.cargo_targets,
-        ))
+        Ok(self.run_engine(project_root, None))
+    }
+
+    fn run_with_progress(
+        &self,
+        project_root: &Path,
+        on_file_progress: &scanner::FileProgressCallback,
+    ) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+        Ok(self.run_engine(project_root, Some(on_file_progress)))
     }
 }
 
@@ -1347,6 +1403,48 @@ mod tests {
         let engine = RuleEngine::new(vec![Box::new(AlwaysWarnsRule)]);
         let diags = engine.scan_with_config(dir.path(), &[], &[], &[]);
         assert_eq!(diags.len(), 3);
+    }
+
+    #[test]
+    fn rule_engine_reports_real_file_progress() {
+        let dir = make_temp_project(&[
+            ("main.rs", "fn main() {}"),
+            ("lib.rs", "pub fn hello() {}"),
+            ("utils.rs", "pub fn util() {}"),
+        ]);
+        let pass =
+            RuleEnginePass::with_config(vec![Box::new(AlwaysWarnsRule)], vec![], vec![], vec![]);
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_events = std::sync::Arc::clone(&events);
+        let on_file_progress: scanner::FileProgressCallback =
+            std::sync::Arc::new(move |progress| {
+                captured_events.lock().unwrap().push((
+                    progress.started,
+                    progress.scanned,
+                    progress.total,
+                    progress.workers,
+                ));
+            });
+
+        let diagnostics = pass
+            .run_with_progress(dir.path(), &on_file_progress)
+            .unwrap();
+        let events = events.lock().unwrap();
+
+        assert_eq!(diagnostics.len(), 3);
+        assert!(
+            events
+                .first()
+                .is_some_and(|event| { event.0 > 0 && event.1 == 0 && event.2 == 3 })
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| (event.0, event.1, event.2) == (3, 3, 3))
+        );
+        assert!(events.iter().all(|event| event.0 >= event.1));
+        assert!(events.iter().all(|event| event.3 > 0));
+        drop(events);
     }
 
     #[test]
