@@ -128,6 +128,7 @@ jobs:
     name: Public website contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: ep006-public-contract
     permissions:
       contents: read
     steps:
@@ -143,6 +144,7 @@ jobs:
           repository: arthjean/rust-doctor-web
           ref: 8190d3eac96294c27b950b0a338922db1d894129
           path: rust-doctor-web
+          ssh-key: ${{ secrets.RUST_DOCTOR_WEB_DEPLOY_KEY }}
           persist-credentials: false
 
       - name: Resolve candidate source identity
