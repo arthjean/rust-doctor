@@ -339,7 +339,7 @@ The `scan` tool accepts full, files, changed, lines, staged, and baseline scopes
 **Automatic setup (recommended):**
 
 ```bash
-rust-doctor setup  # detects Claude Code and configures MCP or installs skill
+rust-doctor install  # detects Claude Code and configures MCP or installs skill
 ```
 
 **Or one-command MCP install:**
@@ -441,7 +441,7 @@ If you prefer slash commands over MCP servers, rust-doctor ships a Claude Code s
 **Automatic install (recommended):**
 
 ```bash
-rust-doctor setup  # choose "CLI + Skills", select Claude Code
+rust-doctor install  # choose "CLI + Skills", select Claude Code
 ```
 
 **Or via npx:**
@@ -477,7 +477,7 @@ Build the binary with the editor server enabled:
 cargo install rust-doctor --features lsp
 ```
 
-The VS Code and Cursor extension lives in `editors/vscode`; the Zed extension lives in `editors/zed`. Both launch `rust-doctor --lsp`, negotiate Rust Doctor editor protocol major 1 independently from the binary version, use 300 ms file-local analysis by default, expose hover metadata and safe suppression actions, and keep project-wide on-save checks opt-in. An empty configuration path uses normal project discovery and defaults; set a path only to require that specific file. See each editor directory for binary-path and packaging instructions.
+The [VS Code and Cursor extension](editors/vscode) and [Zed extension](editors/zed) both launch `rust-doctor --lsp`, negotiate Rust Doctor editor protocol major 1 independently from the binary version, use 300 ms file-local analysis by default, expose hover metadata and safe suppression actions, and keep project-wide on-save checks opt-in. An empty configuration path uses normal project discovery and defaults; set a path only to require that specific file. See each editor directory for binary-path and packaging instructions.
 
 ## Managed CI
 
@@ -501,6 +501,7 @@ The Action can also be configured directly:
     blocking: warning
     require-complete: true
     comment: true
+    review-comments: false
     commit-status: true
     sarif: true
     token: ${{ secrets.GITHUB_TOKEN }}
