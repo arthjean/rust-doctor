@@ -657,48 +657,44 @@ fn analyzed_target(project_root: &Path) -> AnalyzedTarget {
             };
         }
     };
-    let mut version = Command::new("rustc");
-    version.arg("-vV").current_dir(project_root);
-    let triple = configured_target.or_else(|| {
-        version.output().ok().and_then(|output| {
-            output.status.success().then(|| {
-                String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .find_map(|line| line.strip_prefix("host: ").map(str::to_string))
-            })?
-        })
-    });
-    let Some(triple) = triple else {
+    let print_host = configured_target.is_none();
+    let mut command = Command::new("rustc");
+    command.current_dir(project_root);
+    if let Some(triple) = &configured_target {
+        command.args(["--print", "cfg", "--target", triple]);
+    } else {
+        command.args(["--print", "host-tuple", "--print", "cfg"]);
+    }
+    let output = match command.output() {
+        Ok(output) if output.status.success() => output,
+        Ok(_) => {
+            return AnalyzedTarget {
+                triple: configured_target,
+                cfgs: Vec::new(),
+                error: Some("rustc target discovery failed".to_string()),
+            };
+        }
+        Err(error) => {
+            return AnalyzedTarget {
+                triple: configured_target,
+                cfgs: Vec::new(),
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    let triple = configured_target.or_else(|| lines.next().map(str::to_string));
+    let Some(triple) = triple.filter(|triple| !triple.trim().is_empty()) else {
         return AnalyzedTarget {
             triple: None,
             cfgs: Vec::new(),
             error: Some("rustc did not report a host triple".to_string()),
         };
     };
-
-    let mut command = Command::new("rustc");
-    command
-        .args(["--print", "cfg", "--target", &triple])
-        .current_dir(project_root);
-    let output = match command.output() {
-        Ok(output) if output.status.success() => output,
-        Ok(_) => {
-            return AnalyzedTarget {
-                triple: Some(triple),
-                cfgs: Vec::new(),
-                error: Some("rustc --print cfg failed".to_string()),
-            };
-        }
-        Err(error) => {
-            return AnalyzedTarget {
-                triple: Some(triple),
-                cfgs: Vec::new(),
-                error: Some(error.to_string()),
-            };
-        }
-    };
-    let cfgs: Result<Vec<Cfg>, _> = String::from_utf8_lossy(&output.stdout)
+    let cfgs: Result<Vec<Cfg>, _> = stdout
         .lines()
+        .skip(usize::from(print_host))
         .map(str::parse)
         .collect();
     match cfgs {
