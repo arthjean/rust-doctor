@@ -2,7 +2,7 @@ use crate::catalog::built_in_catalog;
 use crate::config::{ResolvedConfig, VisibilitySurface};
 use crate::diagnostics::{
     Category, CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic, PackageExecution,
-    ScanExecution, ScanResult, Severity,
+    ScanExecution, ScanResult, Severity, SuppressionCounts,
 };
 use crate::discovery::ProjectInfo;
 use crate::process::{ProcessStop, ScanControl};
@@ -179,10 +179,14 @@ pub(crate) fn scan_project_scoped_for_categories(
     );
 
     // Step 7: Apply project policy, then inline suppressions.
-    let (mut configured_diagnostics, mut suppressed_security) =
+    let (mut configured_diagnostics, mut suppressed_security, mut suppression_counts) =
         apply_rule_configuration(passes_output.diagnostics, resolved);
     dedup_diagnostics(&mut configured_diagnostics);
-    let mut all_diagnostics = apply_suppressions(configured_diagnostics, project_info, resolved);
+    let (mut all_diagnostics, inline_suppressions) =
+        apply_suppressions(configured_diagnostics, project_info, resolved);
+    suppression_counts.inline = suppression_counts
+        .inline
+        .saturating_add(inline_suppressions);
     retain_selected_categories(&mut all_diagnostics, selected_categories);
     retain_selected_categories(&mut suppressed_security, selected_categories);
     passes_output.compiler_evidence.retain(|evidence| {
@@ -199,6 +203,7 @@ pub(crate) fn scan_project_scoped_for_categories(
         passes_output.elapsed,
         passes_output.pass_timings,
         suppressed_security,
+        suppression_counts,
         passes_output.planned_files,
         passes_output.analyzed_files,
         passes_output.compiler_evidence,
@@ -209,8 +214,9 @@ pub(crate) fn scan_project_scoped_for_categories(
         resolved,
         selected_categories,
     );
+    result.execution.analysis_failures = passes_output.analysis_failures;
     if let Some(candidates) = line_score_candidates {
-        let (mut configured, _) = apply_rule_configuration(candidates, resolved);
+        let (mut configured, _, _) = apply_rule_configuration(candidates, resolved);
         dedup_diagnostics(&mut configured);
         let mut configured = if resolved.respect_inline_disables {
             suppression::apply_inline_suppressions(configured, &project_info.root_dir).0
@@ -342,6 +348,9 @@ fn build_passes(
         .map_or(project_info.framework_capabilities.as_slice(), |member| {
             member.framework_capabilities.as_slice()
         });
+    let cargo_targets = member.map_or(project_info.cargo_targets.as_slice(), |member| {
+        member.cargo_targets.as_slice()
+    });
     let has_async_runtime = frameworks.iter().any(|f| {
         matches!(
             f,
@@ -420,7 +429,8 @@ fn build_passes(
                 resolved.ignore_files.clone(),
                 resolved.ignore_rules.clone(),
                 cache_policy,
-            );
+            )
+            .with_cargo_targets(cargo_targets.to_vec());
             if let Some(files) = selected_files {
                 rule_pass = rule_pass.with_selected_files(files);
             }
@@ -511,6 +521,7 @@ struct PassesOutput {
     compiler_evidence: Vec<CompilerDiagnosticEvidence>,
     checks: Vec<CheckState>,
     package_executions: Vec<PackageExecution>,
+    analysis_failures: Vec<crate::diagnostics::AnalysisFailureReceipt>,
 }
 
 #[expect(
@@ -538,6 +549,7 @@ fn run_passes(
     let mut all_compiler_evidence = Vec::new();
     let mut all_checks = Vec::new();
     let mut package_executions = Vec::new();
+    let mut all_analysis_failures = Vec::new();
     let ignore_set = scanner::build_glob_set(&resolved.ignore_files).ok();
     let scan_work: Vec<(PathBuf, Vec<PathBuf>)> = scan_roots
         .iter()
@@ -654,6 +666,11 @@ fn run_passes(
         for ((scan_root, root_files), (root_started, mut pass_result)) in
             batch.iter().zip(batch_results)
         {
+            rebase_analysis_failure_paths(
+                &mut pass_result.analysis_failures,
+                scan_root,
+                &project_info.root_dir,
+            );
             rebase_pass_paths(
                 &mut pass_result.diagnostics,
                 &mut pass_result.compiler_evidence,
@@ -702,6 +719,7 @@ fn run_passes(
             batch_elapsed = batch_elapsed.max(pass_result.elapsed);
             all_pass_timings.extend(pass_result.pass_timings);
             all_compiler_evidence.extend(pass_result.compiler_evidence);
+            all_analysis_failures.extend(pass_result.analysis_failures);
         }
         total_elapsed += batch_elapsed;
     }
@@ -801,6 +819,7 @@ fn run_passes(
         total_elapsed += workspace_result.elapsed;
         all_pass_timings.extend(workspace_result.pass_timings);
         all_compiler_evidence.extend(workspace_result.compiler_evidence);
+        all_analysis_failures.extend(workspace_result.analysis_failures);
     }
 
     all_checks.sort_by(|left, right| left.name.cmp(&right.name));
@@ -817,6 +836,22 @@ fn run_passes(
         compiler_evidence: all_compiler_evidence,
         checks: all_checks,
         package_executions,
+        analysis_failures: all_analysis_failures,
+    }
+}
+
+fn rebase_analysis_failure_paths(
+    failures: &mut [crate::diagnostics::AnalysisFailureReceipt],
+    scan_root: &Path,
+    workspace_root: &Path,
+) {
+    for failure in failures {
+        let path = scan_root.join(&failure.path);
+        failure.path = path
+            .strip_prefix(workspace_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
     }
 }
 
@@ -932,30 +967,31 @@ fn apply_suppressions(
     diagnostics: Vec<Diagnostic>,
     project_info: &ProjectInfo,
     resolved: &ResolvedConfig,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, usize) {
     if !resolved.respect_inline_disables {
         if resolved.verbose {
             eprintln!("Inline rust-doctor suppression directives are ignored for this scan");
         }
-        return diagnostics;
+        return (diagnostics, 0);
     }
     let (diagnostics, suppressed_count) =
         suppression::apply_inline_suppressions(diagnostics, &project_info.root_dir);
     if resolved.verbose && suppressed_count > 0 {
         eprintln!("Suppressed {suppressed_count} diagnostic(s) via inline comments");
     }
-    diagnostics
+    (diagnostics, suppressed_count)
 }
 
 fn apply_rule_configuration(
     diagnostics: Vec<Diagnostic>,
     resolved: &ResolvedConfig,
-) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
+) -> (Vec<Diagnostic>, Vec<Diagnostic>, SuppressionCounts) {
     let Ok(catalog) = built_in_catalog() else {
-        return (diagnostics, Vec::new());
+        return (diagnostics, Vec::new(), SuppressionCounts::default());
     };
     let mut included = Vec::with_capacity(diagnostics.len());
     let mut suppressed_security = Vec::new();
+    let mut suppression_counts = SuppressionCounts::default();
 
     for mut diagnostic in diagnostics {
         let resolved_descriptor =
@@ -967,8 +1003,27 @@ fn apply_rule_configuration(
         if let Some(severity) = policy.severity {
             diagnostic.severity = severity;
             included.push(diagnostic);
-        } else if descriptor.category == Category::Security {
-            suppressed_security.push(diagnostic);
+        } else {
+            match resolved.suppression_source(descriptor, Some(&diagnostic.file_path)) {
+                Some(config::PolicySuppressionSource::Rule) => {
+                    suppression_counts.rule = suppression_counts.rule.saturating_add(1);
+                }
+                Some(config::PolicySuppressionSource::Category) => {
+                    suppression_counts.category = suppression_counts.category.saturating_add(1);
+                }
+                Some(config::PolicySuppressionSource::Tag) => {
+                    suppression_counts.tag = suppression_counts.tag.saturating_add(1);
+                }
+                Some(config::PolicySuppressionSource::Path) => {
+                    suppression_counts.path = suppression_counts.path.saturating_add(1);
+                }
+                None => {}
+            }
+            if descriptor.category == Category::Security {
+                suppression_counts.security_policy =
+                    suppression_counts.security_policy.saturating_add(1);
+                suppressed_security.push(diagnostic);
+            }
         }
     }
 
@@ -978,7 +1033,7 @@ fn apply_rule_configuration(
             suppressed_security.len()
         );
     }
-    (included, suppressed_security)
+    (included, suppressed_security, suppression_counts)
 }
 
 fn category_requested(selected_categories: &[Category], category: &Category) -> bool {
@@ -1057,6 +1112,7 @@ fn build_result(
     elapsed: Duration,
     pass_timings: Vec<(String, Duration)>,
     suppressed_security: Vec<Diagnostic>,
+    suppression_counts: SuppressionCounts,
     planned_files: Vec<PathBuf>,
     analyzed_files: Vec<PathBuf>,
     compiler_evidence: Vec<CompilerDiagnosticEvidence>,
@@ -1131,6 +1187,8 @@ fn build_result(
             checks,
             packages: package_executions,
             baseline: None,
+            suppression_counts,
+            analysis_failures: Vec::new(),
         },
     }
 }
@@ -1217,6 +1275,7 @@ fn empty_scoped_result(
         Duration::ZERO,
         Vec::new(),
         Vec::new(),
+        SuppressionCounts::default(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -1311,6 +1370,7 @@ mod tests {
             Duration::from_secs(1),
             vec![],
             vec![],
+            SuppressionCounts::default(),
             vec![],
             vec![],
             vec![],
@@ -1342,6 +1402,7 @@ mod tests {
             Duration::ZERO,
             vec![],
             vec![],
+            SuppressionCounts::default(),
             vec![],
             vec![],
             vec![],
@@ -1367,6 +1428,7 @@ mod tests {
             Duration::from_millis(100),
             vec![],
             vec![],
+            SuppressionCounts::default(),
             vec![],
             vec![],
             vec![],
@@ -1398,7 +1460,7 @@ mod tests {
         let resolved = config::resolve_config_defaults(Some(&file_config));
         let mut security = make_diagnostic("hardcoded-secrets", Severity::Error, Some(2));
         security.category = Category::Security;
-        let (included, suppressed) = apply_rule_configuration(
+        let (included, suppressed, counts) = apply_rule_configuration(
             vec![
                 make_diagnostic("unwrap-in-production", Severity::Warning, Some(1)),
                 security,
@@ -1409,6 +1471,8 @@ mod tests {
         assert_eq!(included[0].severity, Severity::Error);
         assert_eq!(suppressed.len(), 1);
         assert_eq!(suppressed[0].rule, "hardcoded-secrets");
+        assert_eq!(counts.rule, 1);
+        assert_eq!(counts.security_policy, 1);
     }
 
     #[test]
@@ -1427,8 +1491,9 @@ mod tests {
         let resolved = config::resolve_config_defaults(Some(&file_config));
         let mut diagnostic = make_diagnostic("unwrap-in-production", Severity::Warning, Some(1));
         diagnostic.file_path = PathBuf::from("tests/integration.rs");
-        let (included, _) = apply_rule_configuration(vec![diagnostic], &resolved);
+        let (included, _, counts) = apply_rule_configuration(vec![diagnostic], &resolved);
         assert!(included.is_empty());
+        assert_eq!(counts.path, 1);
     }
 
     #[test]

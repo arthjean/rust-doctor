@@ -3,12 +3,40 @@
     "AuditMetadata": {
       "description": "Verbose policy audit data that never re-enables suppressed findings.",
       "properties": {
+        "analysis_failures": {
+          "default": [],
+          "items": { "$ref": "#/$defs/AnalysisFailureReceipt" },
+          "type": "array"
+        },
         "suppressed_security": {
           "items": { "$ref": "#/$defs/CanonicalDiagnostic" },
           "type": "array"
+        },
+        "suppression_counts": {
+          "$ref": "#/$defs/SuppressionCounts",
+          "default": {
+            "category": 0,
+            "inline": 0,
+            "path": 0,
+            "rule": 0,
+            "security_policy": 0,
+            "tag": 0
+          }
         }
       },
       "required": ["suppressed_security"],
+      "type": "object"
+    },
+    "AnalysisFailureReceipt": {
+      "description": "Structured failed analysis work retained after panic containment.",
+      "properties": {
+        "check": { "type": "string" },
+        "kind": { "type": "string" },
+        "path": { "type": "string" },
+        "reason": { "type": "string" },
+        "rule": { "type": ["string", "null"] }
+      },
+      "required": ["check", "kind", "path", "reason"],
       "type": "object"
     },
     "BaselineReport": {
@@ -180,6 +208,31 @@
       "enum": ["machine_applicable", "maybe_incorrect", "has_placeholders", "unspecified"],
       "type": "string"
     },
+    "FrameworkCapabilityReport": {
+      "description": "Version, feature, and analyzed-target evidence for one framework gate.",
+      "properties": {
+        "active": { "type": "boolean" },
+        "analyzed_target": { "type": ["string", "null"] },
+        "enabled_features": { "items": { "type": "string" }, "type": "array" },
+        "framework": { "type": "string" },
+        "gate_reason": { "type": ["string", "null"] },
+        "rule_gates": { "default": [], "items": { "$ref": "#/$defs/FrameworkRuleGateReport" }, "type": "array" },
+        "target_contexts": { "items": { "type": "string" }, "type": "array" },
+        "version": { "type": ["string", "null"] }
+      },
+      "required": ["framework", "enabled_features", "target_contexts", "active"],
+      "type": "object"
+    },
+    "FrameworkRuleGateReport": {
+      "description": "Exact activation receipt for one framework-aware custom rule.",
+      "properties": {
+        "active": { "type": "boolean" },
+        "gate_reason": { "type": ["string", "null"] },
+        "rule": { "type": "string" }
+      },
+      "required": ["rule", "active"],
+      "type": "object"
+    },
     "GateResult": {
       "description": "Quality-gate decision carried independently from scan outcome.",
       "enum": ["passed", "failed", "not_evaluated"],
@@ -202,6 +255,7 @@
         "checks": { "items": { "$ref": "#/$defs/CheckState" }, "type": "array" },
         "completeness": { "$ref": "#/$defs/ReportCompleteness" },
         "framework_capabilities": { "items": { "type": "string" }, "type": "array" },
+        "framework_gates": { "default": [], "items": { "$ref": "#/$defs/FrameworkCapabilityReport" }, "type": "array" },
         "diagnostics": { "default": [], "items": { "$ref": "#/$defs/CanonicalDiagnostic" }, "type": "array" },
         "elapsed_ms": { "default": 0, "format": "uint64", "minimum": 0, "type": "integer" },
         "package_root": { "type": "string" },
@@ -318,6 +372,19 @@
         "generated", "macro_expansion", "unknown"
       ],
       "type": "string"
+    },
+    "SuppressionCounts": {
+      "description": "Suppression provenance retained for privacy-safe aggregate reporting.",
+      "properties": {
+        "category": { "format": "uint", "minimum": 0, "type": "integer" },
+        "inline": { "format": "uint", "minimum": 0, "type": "integer" },
+        "path": { "format": "uint", "minimum": 0, "type": "integer" },
+        "rule": { "format": "uint", "minimum": 0, "type": "integer" },
+        "security_policy": { "format": "uint", "minimum": 0, "type": "integer" },
+        "tag": { "format": "uint", "minimum": 0, "type": "integer" }
+      },
+      "required": ["inline", "rule", "category", "tag", "path", "security_policy"],
+      "type": "object"
     }
   },
   "$id": "https://rust-doctor.vercel.app/schemas/report-v1.schema.json",

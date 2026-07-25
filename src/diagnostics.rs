@@ -150,7 +150,7 @@ impl CompilerDiagnosticEvidence {
 }
 
 /// Human-readable health assessment label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
 pub enum ScoreLabel {
     #[serde(rename = "Great")]
@@ -239,6 +239,8 @@ pub struct ScanExecution {
     pub checks: Vec<CheckState>,
     pub packages: Vec<PackageExecution>,
     pub baseline: Option<BaselineReport>,
+    pub suppression_counts: SuppressionCounts,
+    pub analysis_failures: Vec<AnalysisFailureReceipt>,
 }
 
 impl Default for ScanExecution {
@@ -249,6 +251,8 @@ impl Default for ScanExecution {
             checks: Vec::new(),
             packages: Vec::new(),
             baseline: None,
+            suppression_counts: SuppressionCounts::default(),
+            analysis_failures: Vec::new(),
         }
     }
 }
@@ -266,7 +270,7 @@ pub struct PackageExecution {
 }
 
 /// Stable machine-output mode vocabulary for Report V1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ScanMode {
@@ -393,7 +397,7 @@ pub enum DiagnosticOwnership {
 }
 
 /// Rust-native source context shared by policy and machine consumers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SourceSurface {
@@ -406,6 +410,36 @@ pub enum SourceSurface {
     Generated,
     MacroExpansion,
     Unknown,
+}
+
+/// Suppression provenance retained for privacy-safe aggregate reporting.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+pub struct SuppressionCounts {
+    pub inline: usize,
+    pub rule: usize,
+    pub category: usize,
+    pub tag: usize,
+    pub path: usize,
+    pub security_policy: usize,
+}
+
+/// Structured failed analysis work retained after panic containment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+pub struct AnalysisFailureReceipt {
+    pub check: String,
+    pub kind: String,
+    pub path: String,
+    pub rule: Option<String>,
+    pub reason: String,
+}
+
+impl SuppressionCounts {
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.inline + self.rule + self.category + self.tag + self.path
+    }
 }
 
 /// Related source evidence retained by adapters that expose it.
@@ -484,6 +518,8 @@ pub struct ProjectReport {
     pub package_root: String,
     pub targets: Vec<String>,
     pub framework_capabilities: Vec<String>,
+    #[serde(default)]
+    pub framework_gates: Vec<FrameworkCapabilityReport>,
     pub planned_files: Vec<String>,
     pub analyzed_files: Vec<String>,
     pub checks: Vec<CheckState>,
@@ -496,6 +532,30 @@ pub struct ProjectReport {
     pub elapsed_ms: u64,
     #[serde(default)]
     pub diagnostics: Vec<CanonicalDiagnostic>,
+}
+
+/// Version, feature, and analyzed-target evidence for one framework gate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+pub struct FrameworkCapabilityReport {
+    pub framework: String,
+    pub version: Option<String>,
+    pub enabled_features: Vec<String>,
+    pub target_contexts: Vec<String>,
+    pub analyzed_target: Option<String>,
+    pub active: bool,
+    pub gate_reason: Option<String>,
+    #[serde(default)]
+    pub rule_gates: Vec<FrameworkRuleGateReport>,
+}
+
+/// Exact activation receipt for one framework-aware custom rule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(JsonSchema))]
+pub struct FrameworkRuleGateReport {
+    pub rule: String,
+    pub active: bool,
+    pub gate_reason: Option<String>,
 }
 
 /// Machine-readable summary independent of terminal presentation.
@@ -547,6 +607,10 @@ pub struct ReportError {
 #[cfg_attr(feature = "mcp", derive(JsonSchema))]
 pub struct AuditMetadata {
     pub suppressed_security: Vec<CanonicalDiagnostic>,
+    #[serde(default)]
+    pub suppression_counts: SuppressionCounts,
+    #[serde(default)]
+    pub analysis_failures: Vec<AnalysisFailureReceipt>,
 }
 
 /// Versioned Report V1. Legacy top-level score/count fields remain during the
@@ -715,6 +779,8 @@ impl ReportV1 {
             error: None,
             audit: AuditMetadata {
                 suppressed_security,
+                suppression_counts: result.execution.suppression_counts.clone(),
+                analysis_failures: result.execution.analysis_failures.clone(),
             },
             baseline: result.execution.baseline.clone(),
             score,
@@ -939,8 +1005,11 @@ fn canonicalize(
             },
         });
     let ownership = diagnostic_ownership(diagnostic, project);
-    let source_surface =
-        crate::config::classify_source_surface(&normalized_path, macro_expansion.is_some());
+    let source_surface = if macro_expansion.is_some() {
+        SourceSurface::MacroExpansion
+    } else {
+        crate::discovery::source_surface_for_project_path(project, evidence_path)
+    };
     let policy = descriptor.map(|value| config.rule_policy(value, Some(&diagnostic.file_path)));
     let visible_on = policy.map_or_else(all_surface_names, |value| {
         surface_names(|surface| value.visible_on(surface))
@@ -1011,6 +1080,14 @@ fn normalize_report_files(root: &std::path::Path, paths: &[PathBuf]) -> Vec<Stri
     files.dedup();
     files
 }
+
+type ProjectReportMember<'a> = (
+    String,
+    &'a std::path::Path,
+    Vec<String>,
+    Vec<String>,
+    Vec<FrameworkCapabilityReport>,
+);
 
 #[expect(
     clippy::too_many_arguments,
@@ -1091,6 +1168,10 @@ fn project_reports(
                                 .collect()
                         },
                     ),
+                    framework_gates: member.map_or_else(
+                        || framework_capability_reports(&project.framework_capabilities),
+                        |member| framework_capability_reports(&member.framework_capabilities),
+                    ),
                     planned_files,
                     analyzed_files,
                     checks: execution.checks.clone(),
@@ -1115,78 +1196,125 @@ fn project_reports(
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
-    let members: Vec<(String, &std::path::Path, Vec<String>, Vec<String>)> =
-        if project.workspace_members.is_empty() {
-            vec![(
-                project.package_id.clone(),
-                project.root_dir.as_path(),
-                project.targets.clone(),
-                project_frameworks,
-            )]
-        } else {
-            project
-                .workspace_members
-                .iter()
-                .map(|member| {
-                    (
-                        member.package_id.clone(),
-                        member.root_dir.as_path(),
-                        member.targets.clone(),
-                        member
-                            .frameworks
-                            .iter()
-                            .map(std::string::ToString::to_string)
-                            .collect(),
-                    )
-                })
-                .collect()
-        };
+    let members: Vec<ProjectReportMember<'_>> = if project.workspace_members.is_empty() {
+        vec![(
+            project.package_id.clone(),
+            project.root_dir.as_path(),
+            project.targets.clone(),
+            project_frameworks,
+            framework_capability_reports(&project.framework_capabilities),
+        )]
+    } else {
+        project
+            .workspace_members
+            .iter()
+            .map(|member| {
+                (
+                    member.package_id.clone(),
+                    member.root_dir.as_path(),
+                    member.targets.clone(),
+                    member
+                        .frameworks
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
+                    framework_capability_reports(&member.framework_capabilities),
+                )
+            })
+            .collect()
+    };
 
     members
         .into_iter()
-        .map(|(package_id, root, targets, framework_capabilities)| {
-            let normalized_root = normalize_path(&project.root_dir, root);
-            let prefix = if normalized_root == "." {
-                String::new()
-            } else {
-                format!("{normalized_root}/")
-            };
-            let planned_files: Vec<String> = all_planned_files
-                .iter()
-                .filter(|path| prefix.is_empty() || path.starts_with(&prefix))
-                .cloned()
-                .collect();
-            let analyzed_files: Vec<String> = all_analyzed_files
-                .iter()
-                .filter(|path| prefix.is_empty() || path.starts_with(&prefix))
-                .cloned()
-                .collect();
-            ProjectReport {
-                cargo_package_id: package_id.clone(),
-                package_root: normalized_root,
-                targets,
-                framework_capabilities,
-                analyzed_files,
-                planned_files,
-                checks: checks.to_vec(),
-                skipped_reasons: checks
+        .map(
+            |(package_id, root, targets, framework_capabilities, framework_gates)| {
+                let normalized_root = normalize_path(&project.root_dir, root);
+                let prefix = if normalized_root == "." {
+                    String::new()
+                } else {
+                    format!("{normalized_root}/")
+                };
+                let planned_files: Vec<String> = all_planned_files
                     .iter()
-                    .filter(|check| check.status != CheckStatus::Completed)
-                    .filter_map(|check| check.reason.clone())
-                    .collect(),
-                completeness: completeness.clone(),
-                score,
-                score_authoritative: completeness.score_authoritative,
-                elapsed_ms: duration_millis(result.elapsed),
-                diagnostics: diagnostics
-                    .iter()
-                    .filter(|diagnostic| match &diagnostic.ownership {
-                        DiagnosticOwnership::Package { package_id: owner } => owner == &package_id,
-                        DiagnosticOwnership::Workspace => true,
-                        DiagnosticOwnership::Unowned => false,
-                    })
+                    .filter(|path| prefix.is_empty() || path.starts_with(&prefix))
                     .cloned()
-                    .collect(),
+                    .collect();
+                let analyzed_files: Vec<String> = all_analyzed_files
+                    .iter()
+                    .filter(|path| prefix.is_empty() || path.starts_with(&prefix))
+                    .cloned()
+                    .collect();
+                ProjectReport {
+                    cargo_package_id: package_id.clone(),
+                    package_root: normalized_root,
+                    targets,
+                    framework_capabilities,
+                    framework_gates,
+                    analyzed_files,
+                    planned_files,
+                    checks: checks.to_vec(),
+                    skipped_reasons: checks
+                        .iter()
+                        .filter(|check| check.status != CheckStatus::Completed)
+                        .filter_map(|check| check.reason.clone())
+                        .collect(),
+                    completeness: completeness.clone(),
+                    score,
+                    score_authoritative: completeness.score_authoritative,
+                    elapsed_ms: duration_millis(result.elapsed),
+                    diagnostics: diagnostics
+                        .iter()
+                        .filter(|diagnostic| match &diagnostic.ownership {
+                            DiagnosticOwnership::Package { package_id: owner } => {
+                                owner == &package_id
+                            }
+                            DiagnosticOwnership::Workspace => true,
+                            DiagnosticOwnership::Unowned => false,
+                        })
+                        .cloned()
+                        .collect(),
+                }
+            },
+        )
+        .collect()
+}
+
+fn framework_capability_reports(
+    capabilities: &[crate::discovery::FrameworkCapability],
+) -> Vec<FrameworkCapabilityReport> {
+    let rules = crate::rules::all_custom_rules();
+    capabilities
+        .iter()
+        .map(|capability| {
+            let framework = capability.framework.to_string();
+            let rule_gates = rules
+                .iter()
+                .filter(|rule| {
+                    rule.applicable_frameworks()
+                        .first()
+                        .is_some_and(|candidate| *candidate == framework)
+                })
+                .map(|rule| {
+                    let gate = crate::rules::framework_packs::capability_decision(
+                        rule.as_ref(),
+                        capabilities,
+                    );
+                    FrameworkRuleGateReport {
+                        rule: rule.name().to_string(),
+                        active: gate.is_ok(),
+                        gate_reason: gate.err(),
+                    }
+                })
+                .collect();
+            FrameworkCapabilityReport {
+                framework,
+                version: capability.version.clone(),
+                enabled_features: capability.enabled_features.clone(),
+                target_contexts: capability.target_contexts.clone(),
+                analyzed_target: capability.analyzed_target.clone(),
+                active: capability.active,
+                gate_reason: capability.gate_reason.clone(),
+                rule_gates,
             }
         })
         .collect()

@@ -31,7 +31,7 @@ pub(crate) fn deliver(endpoint: &str, event: &AggregateEvent) -> Result<(), Stri
         .map_err(|error| error.to_string())?;
     let response = client
         .post(endpoint)
-        .header("x-rust-doctor-schema", "1.0")
+        .header("x-rust-doctor-schema", event.schema_version)
         .json(event)
         .send()
         .map_err(|error| error.to_string())?;

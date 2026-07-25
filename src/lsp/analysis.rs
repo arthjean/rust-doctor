@@ -38,10 +38,17 @@ pub(super) fn analyze(
     path: &Path,
     config: &crate::config::ResolvedConfig,
     capabilities: &[crate::discovery::FrameworkCapability],
+    cargo_targets: &[crate::discovery::CargoTargetContext],
     cancelled: &AtomicBool,
 ) -> Result<Vec<EditorFinding>, syn::Error> {
-    let diagnostics =
-        crate::rules::analyze_editor_source(source, path, config, capabilities, cancelled)?;
+    let diagnostics = crate::rules::analyze_editor_source(
+        source,
+        path,
+        config,
+        capabilities,
+        cargo_targets,
+        cancelled,
+    )?;
     Ok(convert(source, path, diagnostics))
 }
 
@@ -166,8 +173,15 @@ mod tests {
         let config = crate::config::resolve_config_defaults(None);
         let cancelled = AtomicBool::new(false);
         let started = Instant::now();
-        let findings =
-            analyze(&source, Path::new("src/large.rs"), &config, &[], &cancelled).unwrap();
+        let findings = analyze(
+            &source,
+            Path::new("src/large.rs"),
+            &config,
+            &[],
+            &[],
+            &cancelled,
+        )
+        .unwrap();
         assert!(findings.is_empty());
         assert!(
             started.elapsed() < Duration::from_millis(500),

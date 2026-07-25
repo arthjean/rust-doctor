@@ -892,7 +892,7 @@ fn materialize_fixture() -> Result<tempfile::TempDir> {
         .map_err(|error| EvalError::io("cannot create artifact source", fixture.path(), error))?;
     std::fs::write(
         fixture.path().join("Cargo.toml"),
-        "[package]\nname = \"artifact-smoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n",
+        "[package]\nname = \"artifact-smoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n",
     )
     .map_err(|error| EvalError::io("cannot write artifact manifest", fixture.path(), error))?;
     std::fs::write(

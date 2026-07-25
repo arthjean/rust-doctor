@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-const MANIFEST: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n";
+const MANIFEST: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n";
 const FAST_CONFIG: &str = "lint = false\ndependencies = false\n";
 
 #[test]
@@ -345,12 +345,12 @@ fn root_packages_exclusions_and_nested_path_members_follow_cargo_metadata() {
     write_package(repository.path(), "root");
     write(
         &repository.path().join("Cargo.toml"),
-        "[package]\nname = \"root\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n\n[workspace]\nresolver = \"3\"\nmembers = [\"crates/a\"]\ndefault-members = [\".\"]\nexclude = [\"excluded\"]\n",
+        "[package]\nname = \"root\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n\n[workspace]\nresolver = \"3\"\nmembers = [\"crates/a\"]\ndefault-members = [\".\"]\nexclude = [\"excluded\"]\n",
     );
     write_package(&repository.path().join("crates/a"), "a");
     write(
         &repository.path().join("crates/a/Cargo.toml"),
-        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\n\n[dependencies]\nshared = { path = \"../../shared\" }\n",
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n\n[dependencies]\nshared = { path = \"../../shared\" }\n",
     );
     write_package(&repository.path().join("shared"), "shared");
     write_package(&repository.path().join("excluded"), "excluded");
@@ -529,7 +529,19 @@ fn parse_failure_is_failed_required_work_and_never_authoritative() {
                     && check["status"] == "failed"
                     && check["reason"]
                         .as_str()
-                        .is_some_and(|reason| reason.contains("parse_failed:tests/broken.rs"))
+                        .is_some_and(|reason| reason.contains("parse_failed:"))
+            })
+    );
+    assert!(
+        report["audit"]["analysis_failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|failure| {
+                failure["check"] == "custom rules"
+                    && failure["kind"] == "parse_failed"
+                    && failure["path"] == "tests/broken.rs"
+                    && failure["rule"].is_null()
             })
     );
 }

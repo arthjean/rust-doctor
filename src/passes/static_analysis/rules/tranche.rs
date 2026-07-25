@@ -1,6 +1,6 @@
-use super::{CustomRule, has_cfg_test, is_test_context};
+use super::{CustomRule, RuleContext, has_cfg_test, is_test_context};
 use crate::catalog::Confidence;
-use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::diagnostics::{Category, Diagnostic, Severity, SourceSurface};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -9,11 +9,11 @@ use syn::{Expr, ExprCall, ExprLit, ExprMethodCall, ItemFn, ItemMod, Lit};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TrancheKind {
     CommandShellInterpolation,
+    FfiCStringLifetime,
     InsecureHttpClient,
     RegexCreatedInLoop,
     TemporaryCStringPointer,
     UnboundedCollect,
-    WeakCryptoHash,
 }
 
 struct TrancheRule {
@@ -24,17 +24,38 @@ impl TrancheRule {
     const fn new(kind: TrancheKind) -> Self {
         Self { kind }
     }
+
+    fn analyze(&self, syntax: &syn::File, path: &Path, context: RuleContext) -> Vec<Diagnostic> {
+        if matches!(
+            context.source_surface,
+            SourceSurface::Test | SourceSurface::Example | SourceSurface::Bench
+        ) || (matches!(
+            self.kind,
+            TrancheKind::RegexCreatedInLoop | TrancheKind::UnboundedCollect
+        ) && context.source_surface == SourceSurface::BuildScript)
+        {
+            return Vec::new();
+        }
+        let mut visitor = TrancheVisitor {
+            rule: self,
+            path,
+            diagnostics: Vec::new(),
+            loop_depth: 0,
+        };
+        visitor.visit_file(syntax);
+        visitor.diagnostics
+    }
 }
 
 impl CustomRule for TrancheRule {
     fn name(&self) -> &'static str {
         match self.kind {
             TrancheKind::CommandShellInterpolation => "command-shell-interpolation",
+            TrancheKind::FfiCStringLifetime => "ffi-cstring-lifetime",
             TrancheKind::InsecureHttpClient => "insecure-http-client",
             TrancheKind::RegexCreatedInLoop => "regex-created-in-loop",
             TrancheKind::TemporaryCStringPointer => "temporary-cstring-pointer",
             TrancheKind::UnboundedCollect => "unbounded-collect",
-            TrancheKind::WeakCryptoHash => "weak-crypto-hash",
         }
     }
 
@@ -44,9 +65,9 @@ impl CustomRule for TrancheRule {
                 Category::Performance
             }
             TrancheKind::CommandShellInterpolation
+            | TrancheKind::FfiCStringLifetime
             | TrancheKind::InsecureHttpClient
-            | TrancheKind::TemporaryCStringPointer
-            | TrancheKind::WeakCryptoHash => Category::Security,
+            | TrancheKind::TemporaryCStringPointer => Category::Security,
         }
     }
 
@@ -59,6 +80,9 @@ impl CustomRule for TrancheRule {
             TrancheKind::CommandShellInterpolation => {
                 "Detect dynamic input passed through a command shell"
             }
+            TrancheKind::FfiCStringLifetime => {
+                "Detect CString pointers stored or returned after the owner is dropped"
+            }
             TrancheKind::InsecureHttpClient => "Detect non-local plain HTTP transport literals",
             TrancheKind::RegexCreatedInLoop => "Detect regular expressions compiled inside loops",
             TrancheKind::TemporaryCStringPointer => {
@@ -67,9 +91,6 @@ impl CustomRule for TrancheRule {
             TrancheKind::UnboundedCollect => {
                 "Detect input-like iterators collected without an explicit bound"
             }
-            TrancheKind::WeakCryptoHash => {
-                "Detect weak digests applied directly to secret-like values"
-            }
         }
     }
 
@@ -77,6 +98,9 @@ impl CustomRule for TrancheRule {
         match self.kind {
             TrancheKind::CommandShellInterpolation => {
                 "Invoke the program directly and pass untrusted values as individual arguments."
+            }
+            TrancheKind::FfiCStringLifetime => {
+                "Bind the CString owner before taking its pointer and keep that binding alive."
             }
             TrancheKind::InsecureHttpClient => {
                 "Use HTTPS or document and narrowly suppress a trusted local transport."
@@ -89,9 +113,6 @@ impl CustomRule for TrancheRule {
             }
             TrancheKind::UnboundedCollect => {
                 "Apply a validated take limit or stream the input without collecting it all."
-            }
-            TrancheKind::WeakCryptoHash => {
-                "Use a security-appropriate primitive and keep password hashing deliberately slow."
             }
         }
     }
@@ -106,29 +127,32 @@ impl CustomRule for TrancheRule {
                 Confidence::High
             }
             TrancheKind::CommandShellInterpolation
-            | TrancheKind::InsecureHttpClient
-            | TrancheKind::WeakCryptoHash => Confidence::Medium,
+            | TrancheKind::FfiCStringLifetime
+            | TrancheKind::InsecureHttpClient => Confidence::Medium,
             TrancheKind::UnboundedCollect => Confidence::Low,
         }
     }
 
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-        if non_production_path(path)
-            || (matches!(
-                self.kind,
-                TrancheKind::RegexCreatedInLoop | TrancheKind::UnboundedCollect
-            ) && path.file_name().is_some_and(|name| name == "build.rs"))
-        {
-            return Vec::new();
-        }
-        let mut visitor = TrancheVisitor {
-            rule: self,
+        self.analyze(
+            syntax,
             path,
-            diagnostics: Vec::new(),
-            loop_depth: 0,
-        };
-        visitor.visit_file(syntax);
-        visitor.diagnostics
+            RuleContext {
+                source_surface: crate::config::classify_source_surface(
+                    &path.to_string_lossy(),
+                    false,
+                ),
+            },
+        )
+    }
+
+    fn check_file_with_context(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        context: RuleContext,
+    ) -> Vec<Diagnostic> {
+        self.analyze(syntax, path, context)
     }
 }
 
@@ -161,14 +185,47 @@ impl<'ast> Visit<'ast> for TrancheVisitor<'_> {
 
     fn visit_item_fn(&mut self, node: &'ast ItemFn) {
         if !is_test_context(&node.attrs) {
+            if self.rule.kind == TrancheKind::FfiCStringLifetime
+                && let Some(statement) = node.block.stmts.last()
+                && tail_expression(statement).is_some_and(ffi_cstring_pointer)
+            {
+                self.emit(statement.span());
+            }
             visit::visit_item_fn(self, node);
         }
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
         if !is_test_context(&node.attrs) {
+            if self.rule.kind == TrancheKind::FfiCStringLifetime
+                && let Some(statement) = node.block.stmts.last()
+                && tail_expression(statement).is_some_and(ffi_cstring_pointer)
+            {
+                self.emit(statement.span());
+            }
             visit::visit_impl_item_fn(self, node);
         }
+    }
+
+    fn visit_local(&mut self, node: &'ast syn::Local) {
+        if self.rule.kind == TrancheKind::FfiCStringLifetime
+            && node
+                .init
+                .as_ref()
+                .is_some_and(|init| ffi_cstring_pointer(&init.expr))
+        {
+            self.emit(node.span());
+        }
+        visit::visit_local(self, node);
+    }
+
+    fn visit_expr_return(&mut self, node: &'ast syn::ExprReturn) {
+        if self.rule.kind == TrancheKind::FfiCStringLifetime
+            && node.expr.as_deref().is_some_and(ffi_cstring_pointer)
+        {
+            self.emit(node.span());
+        }
+        visit::visit_expr_return(self, node);
     }
 
     fn visit_expr_loop(&mut self, node: &'ast syn::ExprLoop) {
@@ -194,9 +251,6 @@ impl<'ast> Visit<'ast> for TrancheVisitor<'_> {
             TrancheKind::RegexCreatedInLoop
                 if self.loop_depth > 0 && call_path_ends(node, &["Regex", "new"]) =>
             {
-                self.emit(node.span());
-            }
-            TrancheKind::WeakCryptoHash if weak_hash_of_sensitive_value(node) => {
                 self.emit(node.span());
             }
             _ => {}
@@ -276,6 +330,34 @@ fn temporary_cstring_pointer(call: &ExprMethodCall) -> bool {
     matches!(unwrap.receiver.as_ref(), Expr::Call(constructor) if call_path_ends(constructor, &["CString", "new"]))
 }
 
+fn ffi_cstring_pointer(expression: &Expr) -> bool {
+    let expression = match expression {
+        Expr::Paren(paren) => return ffi_cstring_pointer(&paren.expr),
+        Expr::Group(group) => return ffi_cstring_pointer(&group.expr),
+        expression => expression,
+    };
+    let Expr::MethodCall(pointer) = expression else {
+        return false;
+    };
+    if pointer.method != "as_ptr" {
+        return false;
+    }
+    let Expr::Try(try_expression) = pointer.receiver.as_ref() else {
+        return false;
+    };
+    matches!(
+        try_expression.expr.as_ref(),
+        Expr::Call(constructor) if call_path_ends(constructor, &["CString", "new"])
+    )
+}
+
+const fn tail_expression(statement: &syn::Stmt) -> Option<&Expr> {
+    match statement {
+        syn::Stmt::Expr(expression, None) => Some(expression),
+        _ => None,
+    }
+}
+
 fn unbounded_input_collect(call: &ExprMethodCall) -> bool {
     call.method == "collect"
         && !method_chain_contains(&call.receiver, "take")
@@ -287,39 +369,6 @@ fn unbounded_input_collect(call: &ExprMethodCall) -> bool {
                 .iter()
                 .any(|marker| name.contains(marker))
         })
-}
-
-fn weak_hash_of_sensitive_value(call: &ExprCall) -> bool {
-    let Expr::Path(path) = call.func.as_ref() else {
-        return false;
-    };
-    let segments: Vec<_> = path
-        .path
-        .segments
-        .iter()
-        .map(|segment| segment.ident.to_string().to_ascii_lowercase())
-        .collect();
-    let weak = segments
-        .iter()
-        .any(|segment| matches!(segment.as_str(), "md5" | "sha1"));
-    let digest = segments
-        .last()
-        .is_some_and(|segment| matches!(segment.as_str(), "compute" | "digest" | "hash" | "new"));
-    weak && digest && call.args.iter().any(sensitive_expression)
-}
-
-fn sensitive_expression(expression: &Expr) -> bool {
-    match expression {
-        Expr::Path(path) => path.path.segments.last().is_some_and(|segment| {
-            let name = segment.ident.to_string().to_ascii_lowercase();
-            ["password", "passwd", "secret", "token", "credential"]
-                .iter()
-                .any(|marker| name.contains(marker))
-        }),
-        Expr::Reference(reference) => sensitive_expression(&reference.expr),
-        Expr::MethodCall(call) => sensitive_expression(&call.receiver),
-        _ => false,
-    }
 }
 
 fn call_path_ends(call: &ExprCall, suffix: &[&str]) -> bool {
@@ -373,22 +422,13 @@ fn receiver_root_name(expression: &Expr) -> Option<String> {
     }
 }
 
-fn non_production_path(path: &Path) -> bool {
-    path.components().any(|component| {
-        matches!(
-            component.as_os_str().to_str(),
-            Some("tests" | "examples" | "benches")
-        )
-    })
-}
-
 pub fn all_rules() -> Vec<Box<dyn CustomRule>> {
     vec![
         Box::new(TrancheRule::new(TrancheKind::CommandShellInterpolation)),
+        Box::new(TrancheRule::new(TrancheKind::FfiCStringLifetime)),
         Box::new(TrancheRule::new(TrancheKind::InsecureHttpClient)),
         Box::new(TrancheRule::new(TrancheKind::RegexCreatedInLoop)),
         Box::new(TrancheRule::new(TrancheKind::TemporaryCStringPointer)),
         Box::new(TrancheRule::new(TrancheKind::UnboundedCollect)),
-        Box::new(TrancheRule::new(TrancheKind::WeakCryptoHash)),
     ]
 }

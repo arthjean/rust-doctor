@@ -1,4 +1,4 @@
-use crate::diagnostics::{CheckStatus, ScanResult};
+use crate::diagnostics::{CheckStatus, CompletenessState, ReportV1, SuppressionCounts};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -28,7 +28,7 @@ pub(crate) struct AggregateEvent {
     pub(crate) completeness: &'static str,
     pub(crate) aggregate_counts: AggregateCounts,
     pub(crate) pass_states: BTreeMap<String, usize>,
-    pub(crate) suppression_count: usize,
+    pub(crate) suppression_counts: SuppressionCounts,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) crash_summary: Option<String>,
 }
@@ -50,44 +50,51 @@ pub(crate) struct AggregateCounts {
 }
 
 impl AggregateEvent {
-    pub(crate) fn scan(surface: InvocationSurface, result: &ScanResult) -> Self {
-        let score_authoritative = crate::completeness::score_is_authoritative(result);
+    pub(crate) fn scan(surface: InvocationSurface, report: &ReportV1) -> Self {
         let mut pass_states = BTreeMap::new();
-        for check in &result.execution.checks {
-            *pass_states
-                .entry(status_name(check.status).to_string())
-                .or_default() += 1;
+        let mut workspace_checks = std::collections::BTreeSet::new();
+        for project in &report.projects {
+            for check in &project.checks {
+                if check.name.starts_with("workspace:")
+                    && !workspace_checks.insert((check.name.clone(), status_name(check.status)))
+                {
+                    continue;
+                }
+                *pass_states
+                    .entry(status_name(check.status).to_string())
+                    .or_default() += 1;
+            }
         }
         Self {
-            schema_version: "1.0",
+            schema_version: "1.1",
             event_id: event_id(),
             event_kind: "scan",
             tool_version: env!("CARGO_PKG_VERSION"),
             platform: platform(),
             invocation_surface: surface,
-            duration_bucket: duration_bucket(result.elapsed),
-            completeness: if score_authoritative {
-                "complete"
-            } else {
-                "incomplete"
+            duration_bucket: duration_bucket(Duration::from_millis(report.elapsed_ms)),
+            completeness: match report.completeness.state {
+                CompletenessState::Complete => "complete",
+                CompletenessState::Partial => "partial",
+                CompletenessState::Incomplete => "incomplete",
             },
             aggregate_counts: AggregateCounts {
-                errors: result.error_count,
-                warnings: result.warning_count,
-                info: result.info_count,
-                diagnostics: result.diagnostics.len(),
-                planned_files: result.planned_files.len(),
-                analyzed_files: result.analyzed_files.len(),
+                errors: report.summary.error_count,
+                warnings: report.summary.warning_count,
+                info: report.summary.info_count,
+                diagnostics: report.summary.diagnostic_count,
+                planned_files: report.completeness.planned_files,
+                analyzed_files: report.completeness.analyzed_files,
             },
             pass_states,
-            suppression_count: result.suppressed_security.len(),
+            suppression_counts: report.audit.suppression_counts.clone(),
             crash_summary: None,
         }
     }
 
     pub(crate) fn session(surface: InvocationSurface) -> Self {
         Self {
-            schema_version: "1.0",
+            schema_version: "1.1",
             event_id: event_id(),
             event_kind: "session",
             tool_version: env!("CARGO_PKG_VERSION"),
@@ -97,7 +104,7 @@ impl AggregateEvent {
             completeness: "not-applicable",
             aggregate_counts: AggregateCounts::default(),
             pass_states: BTreeMap::new(),
-            suppression_count: 0,
+            suppression_counts: SuppressionCounts::default(),
             crash_summary: None,
         }
     }

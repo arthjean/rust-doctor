@@ -65,16 +65,16 @@ pub fn emit_server_telemetry(cli: &Cli) {
 }
 
 /// Record aggregate scan metadata without affecting output or exit status.
-pub fn emit_scan_telemetry(cli: &Cli, result: &ScanResult) {
-    crate::telemetry::record_scan(cli.no_telemetry, cli_network_disabled(cli), result);
+pub fn emit_scan_telemetry(cli: &Cli, report: &ReportV1) {
+    crate::telemetry::record_scan(cli.no_telemetry, cli_network_disabled(cli), report);
 }
 
 /// Print the explicit stateless share URL after normal terminal output.
-pub fn emit_share_if_requested(cli: &Cli, result: &ScanResult) -> Result<(), String> {
+pub fn emit_share_if_requested(cli: &Cli, report: &ReportV1) -> Result<(), String> {
     if !cli.share {
         return Ok(());
     }
-    let url = crate::share::build_url(result).map_err(|error| error.to_string())?;
+    let url = crate::share::build_url(report).map_err(|error| error.to_string())?;
     println!("\nShare: {url}");
     Ok(())
 }
@@ -985,7 +985,7 @@ pub fn emit_output(
     scan_result: &ScanResult,
     resolved: &config::ResolvedConfig,
     project_info: &discovery::ProjectInfo,
-) -> Result<(), crate::error::OutputError> {
+) -> Result<ReportV1, crate::error::OutputError> {
     let mode = mode_from_reporting_scope(&scan_result.execution.reporting_scope);
     let report = ReportV1::from_scan_with_context(
         scan_result,
@@ -1012,19 +1012,14 @@ pub fn emit_output(
             &cli.category,
         );
     }
-    Ok(())
+    Ok(report)
 }
 
 /// Write the bounded diagnostic dump and optional agent handoff.
 ///
 /// Failure is returned as a secondary warning so callers can preserve the
 /// already-computed report and quality-gate result.
-pub fn emit_handoff(
-    cli: &Cli,
-    scan_result: &ScanResult,
-    resolved: &config::ResolvedConfig,
-    project_info: &discovery::ProjectInfo,
-) -> Result<(), String> {
+pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
     let interactive = std::io::stdin().is_terminal()
         && std::io::stderr().is_terminal()
         && !cli.score
@@ -1037,16 +1032,8 @@ pub fn emit_handoff(
     {
         return Ok(());
     }
-    let report = ReportV1::from_scan_with_context(
-        scan_result,
-        project_info,
-        resolved,
-        mode_from_reporting_scope(&scan_result.execution.reporting_scope),
-        &cli.directory,
-        evaluate_gate_result(cli, scan_result, resolved),
-    );
     let outcome = crate::handoff::execute(
-        &report,
+        report,
         &crate::handoff::HandoffRequest {
             output_dir: cli.output_dir.clone(),
             target: cli.handoff,

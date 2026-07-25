@@ -14,6 +14,7 @@ categories = ["development-tools", "command-line-utilities"]
 exclude = ["npm/", "editors/", "scripts/", ".github/", ".claude-plugin/", ".claude/", ".meta/", "tasks/", "action.yml", "server.json", "assets/"]
 
 [dependencies]
+cargo-platform = "0.1.9"
 cargo_metadata = "0.19"
 clap = { version = "4.6", features = ["derive"] }
 dialoguer = "0.11"

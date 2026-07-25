@@ -95,6 +95,9 @@ struct DeltaArgs {
     labels: Option<PathBuf>,
     #[arg(long)]
     candidate_approval: Option<PathBuf>,
+    /// Write the deterministic promoted-rule review sample before applying label gates.
+    #[arg(long)]
+    review_template: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

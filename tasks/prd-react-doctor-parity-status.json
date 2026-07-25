@@ -3,7 +3,7 @@
     "file": "tasks/prd-react-doctor-parity.md",
     "title": "React Doctor Product Parity for Rust Doctor",
     "created_at": "2026-07-22",
-    "updated_at": "2026-07-24",
+    "updated_at": "2026-07-25",
     "status": "IN_PROGRESS",
     "reopened_reason": "Adversarial parity audit found unproven and contradicted acceptance criteria; prior completion timestamps are retained as implementation history, not current certification.",
     "react_reference_sha": "3d7ea66c3f45fa55828559fce5cc38e879b9907a",
@@ -121,7 +121,34 @@
       "status": "IN_PROGRESS",
       "priority": "P2",
       "stories_total": 8,
-      "stories_done": 0
+      "stories_done": 6,
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "evidence": [
+        "cargo fmt --check",
+        "cargo +1.97 check --all-targets",
+        "cargo check --all-targets --all-features",
+        "cargo build",
+        "cargo build --no-default-features",
+        "cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings",
+        "cargo test --all-features",
+        "cargo audit",
+        "cargo deny check",
+        "independent DEEP review completed; all mandatory correctness and privacy findings were remediated",
+        "rust-doctor-web bun run lint",
+        "rust-doctor-web build:verified: 159 pages, 125 generated rule pages, zero JavaScript bytes on rule pages",
+        "rust-doctor-web deterministic build provenance binds the Rust binary SHA, catalog SHA and eight real command replays",
+        "EP-003 performance run 30157333250 at candidate d99819f2156463ceb0ede554c0443f33df50110b passed against the protected baseline; artifact 8619387946 sha256:aae3bbeb8521de35f77f1d625e20994aaab14b5aaf8dda52de2cee913cb77dc2: https://github.com/arthjean/rust-doctor/actions/runs/30157333250/artifacts/8619387946",
+        "EP-006 protected source run 30157474107 at trusted master f7dfe9b98f8d9b96813c376cbfc23d520eb9188b evaluated candidate d99819f2156463ceb0ede554c0443f33df50110b: https://github.com/arthjean/rust-doctor/actions/runs/30157474107",
+        "protected candidate artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f contains 15 rules x 1000 passing mutations and 100 pinned repositories with 2709 Cargo roots, 85 complete and 15 structured incomplete; corpus sha256:15471b591c005a51431b821feed4fa1761b4c08ab3b26fe69deb8f82bbc306f5",
+        "failed-closed delta artifact 8619516146 sha256:bb33547b5d8cfea0e745bff814488e5b22046a248473b1cde9eafa40ccef1605 recorded exit 3 solely for await-holding-refcell-ref at 0.833% of complete roots, with zero incomplete-root drift and no promotion review",
+        "protected review run 30158115100 at trusted master f7dfe9b98f8d9b96813c376cbfc23d520eb9188b approved the exact replacement corpus in environment ep003-baseline: https://github.com/arthjean/rust-doctor/actions/runs/30158115100",
+        "reviewed corpus artifact 8619534506 sha256:113012c40f2f0152783d1c262952d1724c3cf2671752bbcd984b8ef008feafd6: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534506",
+        "reviewed promotion artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 proves delta sha256:3df66ae97bef4f2b565f0e47c1b35de2e06eea34b7611920f394384ec8fc90ce, blocked=false, empty reasons and promotions, and unchanged 0.5/0.2/2.0 thresholds: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
+      ],
+      "remaining_evidence": [
+        "browser-based automated WCAG 2.2 AA audit for US-034 requires explicit browser authorization",
+        "real CLI maximum-cardinality and oversized-payload rejection for US-036"
+      ]
     }
   ],
   "stories": [
@@ -723,61 +750,98 @@
       "id": "US-029",
       "title": "Build an evidence-ranked Rust rule mining backlog",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-012", "US-013", "US-014"],
       "started_at": "2026-07-22T14:24:18Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-24T12:18:30Z",
+      "certified_at": "2026-07-24T12:18:30Z",
+      "evidence": [
+        "evaluation/rule-backlog-v1.json",
+        "evaluation::backlog::tests::checked_backlog_is_complete_and_deterministic",
+        "cargo test --all-features"
+      ]
     },
     {
       "id": "US-030",
       "title": "Validate the compiler-aware extension strategy",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-029"],
       "started_at": "2026-07-22T14:31:16Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-24T12:18:30Z",
+      "certified_at": "2026-07-24T12:18:30Z",
+      "evidence": [
+        "docs/adr/0002-compiler-aware-rule-strategy.md",
+        "cargo +1.97 check --all-targets",
+        "cargo check --all-targets --all-features",
+        "cargo build --no-default-features"
+      ]
     },
     {
       "id": "US-031",
       "title": "Ship the first reliability and concurrency rule tranche",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:32:20Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
+      "evidence": [
+        "passes::static_analysis::rules::tests::conformance_fixtures_match_rule_behavior",
+        "scanner::tests::failed_rule_work_unit_is_structured_and_marks_the_check_failed",
+        "scope_semantics::parse_failure_is_failed_required_work_and_never_authoritative",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per rule and recorded corpus occurrences blocking-lock-in-async=6, catch-unwind-discarded=2, await-holding-refcell-ref=307, mem-forget-resource=27, process-exit-in-library=109, spawn-in-drop=0",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps all US-031 rules opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
+      ]
     },
     {
       "id": "US-032",
       "title": "Ship the first API, performance and security rule tranche",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:32:20Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
+      "evidence": [
+        "discovery::tests::cargo_target_paths_override_directory_name_guesses",
+        "report_contract_tests::ownership_and_source_surface_do_not_leak_across_roots",
+        "passes::static_analysis::rules::tests::conformance_fixtures_match_rule_behavior",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per rule and recorded corpus occurrences command-shell-interpolation=3, ffi-cstring-lifetime=0, insecure-http-client=1, regex-created-in-loop=19, temporary-cstring-pointer=0, unbounded-collect=11",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps all US-032 rules opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
+      ]
     },
     {
       "id": "US-033",
       "title": "Add version-aware framework capability packs",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-001", "US-002", "US-011", "US-012", "US-013", "US-029"],
       "started_at": "2026-07-22T14:40:32Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-25T12:35:01Z",
+      "certified_at": "2026-07-25T12:35:01Z",
+      "evidence": [
+        "discovery::tests::target_cfg_is_evaluated_for_the_analyzed_target",
+        "discovery::tests::dependency_features_are_isolated_to_the_member_edge",
+        "Report V1 framework_gates serialize rule-level capability decisions and abstention reasons",
+        "protected artifact 8619505092 sha256:7ecc14710a2e4479f30fcdb8a4a4adcdaa089a8c626633cb02ff2864a49e333f passed 1000 mutations per pack rule and recorded corpus occurrences actix-web-data-lock=0, axum-extension-request-state=0, tokio-unbounded-channel=89",
+        "protected review artifact 8619534775 sha256:5a1bfb6ec0b7077d87e9212cfde7b20cce388c12f99cd96640d8b0f21def0e84 keeps every framework pack opt-in with no default promotion: https://github.com/arthjean/rust-doctor/actions/runs/30158115100/artifacts/8619534775"
+      ]
     },
     {
       "id": "US-034",
@@ -789,19 +853,39 @@
       "blocked_by": ["US-001", "US-005", "US-018", "US-025"],
       "started_at": "2026-07-22T14:45:57Z",
       "completed_at": "2026-07-22T15:19:27Z",
-      "reviewed_at": "2026-07-22T15:19:27Z"
+      "reviewed_at": "2026-07-24T12:18:30Z",
+      "evidence": [
+        "the canonical CLI catalog remains available through rules list --json",
+        "the PRD repository boundary was enforced: no nested website or Cargo workspace was introduced",
+        "rust-doctor-web build:verified generated 159 pages and 125 rule pages with zero JavaScript bytes on rule pages",
+        "rust-doctor-web verify:public fails on stale catalog, undocumented rules, invalid examples, internal links and structural accessibility regressions",
+        "public/catalog/build-provenance.json binds the binary SHA, catalog SHA and full, staged, baseline, JSON, SARIF, share, MCP and CI command replays",
+        ".github/workflows/public-contract.yml reconstructs Rust Doctor and uploads the verified provenance artifact"
+      ],
+      "remaining_evidence": [
+        "browser-based automated WCAG 2.2 AA audit requires explicit browser authorization"
+      ]
     },
     {
       "id": "US-035",
       "title": "Add privacy-safe opt-in observability",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": ["US-004", "US-010", "US-017", "US-023", "US-026"],
       "started_at": "2026-07-22T14:52:11Z",
-      "completed_at": "2026-07-22T16:09:18Z",
-      "reviewed_at": "2026-07-22T16:09:18Z"
+      "completed_at": "2026-07-24T12:55:59Z",
+      "reviewed_at": "2026-07-24T12:55:59Z",
+      "certified_at": "2026-07-24T12:55:59Z",
+      "evidence": [
+        "ep006_product_loop::explicit_telemetry_uses_the_aggregate_allowlist_and_overrides_make_zero_requests",
+        "ep006_product_loop::revoked_consent_and_overrides_make_zero_requests_across_every_surface",
+        "telemetry::tests::event_schema_cannot_serialize_prohibited_fields",
+        "telemetry::tests::every_surface_uses_the_same_fail_closed_delivery_policy",
+        "telemetry::privacy::tests::consent_round_trip_is_versioned_without_event_storage",
+        "cargo test --all-features"
+      ]
     },
     {
       "id": "US-036",
@@ -813,7 +897,17 @@
       "blocked_by": ["US-004", "US-005", "US-025", "US-034", "US-035"],
       "started_at": "2026-07-22T14:55:41Z",
       "completed_at": "2026-07-22T16:09:18Z",
-      "reviewed_at": "2026-07-22T16:09:18Z"
+      "reviewed_at": "2026-07-24T12:18:30Z",
+      "evidence": [
+        "ep006_product_loop::explicit_share_is_stateless_percent_encoded_and_source_free",
+        "share::tests::oversized_payload_is_rejected_without_a_partial_url",
+        "share::tests::skipped_checks_are_fixed_allowlisted_names_with_bounded_cardinality",
+        "rust-doctor-web share contract accepts complete, partial and incomplete independently from score authority",
+        "rust-doctor-web verifies maximum public query cardinalities and prominently renders completeness, authority, heuristic limits and editable stateless provenance"
+      ],
+      "remaining_evidence": [
+        "real CLI maximum-cardinality and oversized-payload rejection integration"
+      ]
     }
   ]
 }

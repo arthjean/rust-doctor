@@ -72,6 +72,22 @@ positives, missing labels, or uncertain labels blocks default activation.
 Promotions are derived from the two catalogs, so callers cannot omit a promoted
 rule. Labels bind repository, Cargo root, rule, site, and evidence fingerprint.
 
+The base-controlled EP-006 protected workflow must be dispatched from
+`master` with an open same-repository pull request and its exact full head SHA.
+It verifies the candidate ancestry, builds untrusted binaries in a disposable
+namespace with read-only sources and oracle inputs, and transfers only
+hash-bound outputs to fresh trusted jobs. Those jobs run the production-rule
+mutation oracle and pinned corpus, verify every artifact identity and evidence
+member, and compare against the approved baseline.
+
+The trusted promotion policy keeps all EP-006 candidates opt-in unless a later
+base-controlled policy explicitly qualifies them. The final job proves that
+thresholds are unchanged, no rule became default-enabled, no promotion review
+was requested, and every delta reason is confined to an expected EP-006 rule.
+It then emits immutable mutation, corpus, delta, and empty-promotion evidence.
+Candidate code receives no secrets and cannot modify the workflow, policy,
+evaluator, or final evidence used by the dispatched run.
+
 A reviewed replacement baseline can acknowledge only the diagnostic-growth
 threshold. Approval JSON binds the exact subject SHA-256, repository commit,
 successful protected workflow run, artifact ID, artifact digest, reviewer and

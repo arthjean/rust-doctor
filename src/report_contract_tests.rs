@@ -4,24 +4,37 @@ use crate::diagnostics::{
     DimensionScores, GateResult, ReportV1, ScanExecution, ScanMode, ScanResult, ScoreLabel,
     Severity, SourceSurface,
 };
-use crate::discovery::{ProjectInfo, WorkspaceMember};
+use crate::discovery::{CargoTargetContext, ProjectInfo, WorkspaceMember};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 fn project(root: PathBuf) -> ProjectInfo {
+    let cargo_targets = vec![
+        CargoTargetContext {
+            name: "fixture".to_string(),
+            src_path: root.join("src/lib.rs"),
+            source_surface: SourceSurface::Library,
+        },
+        CargoTargetContext {
+            name: "fixture-cli".to_string(),
+            src_path: root.join("crates/cli/src/main.rs"),
+            source_surface: SourceSurface::Binary,
+        },
+    ];
     ProjectInfo {
         root_dir: root.clone(),
         name: "fixture".to_string(),
         version: "0.1.0".to_string(),
         package_id: "fixture 0.1.0 (path+file:///fixture)".to_string(),
         targets: vec!["fixture:[Lib]".to_string()],
+        cargo_targets: cargo_targets.clone(),
         edition: "2024".to_string(),
         frameworks: vec![],
         framework_capabilities: vec![],
         is_workspace: false,
         member_count: 1,
         has_build_script: false,
-        rust_version: Some("1.85".to_string()),
+        rust_version: Some("1.97".to_string()),
         is_no_std: false,
         package_metadata: serde_json::json!({}),
         workspace_members: vec![WorkspaceMember {
@@ -29,9 +42,10 @@ fn project(root: PathBuf) -> ProjectInfo {
             root_dir: root,
             package_id: "fixture 0.1.0 (path+file:///fixture)".to_string(),
             targets: vec!["fixture:[Lib]".to_string()],
+            cargo_targets,
             frameworks: vec![],
             framework_capabilities: vec![],
-            rust_version: Some("1.85".to_string()),
+            rust_version: Some("1.97".to_string()),
         }],
         default_member_ids: vec!["fixture 0.1.0 (path+file:///fixture)".to_string()],
     }
