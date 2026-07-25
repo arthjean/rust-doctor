@@ -278,6 +278,171 @@ fn explicit_share_is_stateless_percent_encoded_and_source_free() {
     assert_eq!(pairs.get("authoritative").map(String::as_str), Some("true"));
 }
 
+#[test]
+fn real_cli_share_covers_maximum_cardinalities_and_percent_encoding() {
+    let project = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let fixture = tempfile::NamedTempFile::new().unwrap();
+    write_project(project.path());
+
+    let (category_count, unavailable_check_count) =
+        write_cardinality_fixture(config.path(), project.path(), fixture.path());
+
+    let output = scan_command(config.path(), project.path())
+        .arg("--share")
+        .env("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE", fixture.path())
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let url = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Share: "))
+        .expect("share URL");
+    assert!(url.len() <= 8 * 1024);
+    assert!(url.contains("category=error-handling%3A1"));
+    assert!(url.contains("check=cancelled%3Abaseline"));
+
+    let parsed = reqwest::Url::parse(url).unwrap();
+    let pairs: Vec<_> = parsed.query_pairs().into_owned().collect();
+    assert_eq!(
+        pairs.iter().filter(|(key, _)| key == "category").count(),
+        category_count
+    );
+    assert_eq!(pairs.iter().filter(|(key, _)| key == "check").count(), 32);
+    assert!(pairs.iter().any(|(key, value)| {
+        key == "checks_omitted" && value == &(unavailable_check_count - 32).to_string()
+    }));
+    for prohibited in [
+        "product-loop",
+        "src%2Flib.rs",
+        "unwrap-in-production",
+        "private-source-marker",
+        "bounded+public+fixture",
+    ] {
+        assert!(!url.contains(prohibited), "share URL leaked {prohibited}");
+    }
+}
+
+#[test]
+fn real_cli_oversized_share_preserves_local_output_without_partial_url() {
+    let project = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let fixture = tempfile::NamedTempFile::new().unwrap();
+    write_project(project.path());
+
+    let mut report = cli_report(config.path(), project.path());
+    report["tool_version"] = Value::String("x".repeat(8 * 1024));
+    write_json(fixture.path(), &report);
+
+    let output = scan_command(config.path(), project.path())
+        .arg("--share")
+        .env("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE", fixture.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stdout.contains("rust-doctor"),
+        "local scan result disappeared: {stdout}"
+    );
+    assert!(!stdout.contains("Share: "));
+    assert!(!stdout.contains("https://rust-doctor.vercel.app/share/"));
+    assert!(!stderr.contains("https://rust-doctor.vercel.app/share/"));
+    assert!(stderr.contains("share URL was not created"));
+    assert!(stderr.contains("the maximum is 8192"));
+}
+
+fn write_cardinality_fixture(config_root: &Path, project: &Path, fixture: &Path) -> (usize, usize) {
+    let mut report = cli_report(config_root, project);
+    let template = report["diagnostics"][0].clone();
+    let categories = [
+        "error-handling",
+        "performance",
+        "security",
+        "correctness",
+        "architecture",
+        "dependencies",
+        "async",
+        "framework",
+        "cargo",
+        "style",
+    ];
+    report["diagnostics"] = Value::Array(
+        categories
+            .iter()
+            .map(|category| {
+                let mut diagnostic = template.clone();
+                diagnostic["category"] = Value::String((*category).to_string());
+                diagnostic["severity"] = Value::String("warning".to_string());
+                diagnostic
+            })
+            .collect(),
+    );
+    report["summary"]["error_count"] = serde_json::json!(0);
+    report["summary"]["warning_count"] = serde_json::json!(categories.len());
+    report["summary"]["info_count"] = serde_json::json!(0);
+    report["summary"]["diagnostic_count"] = serde_json::json!(categories.len());
+    report["error_count"] = serde_json::json!(0);
+    report["warning_count"] = serde_json::json!(categories.len());
+    report["info_count"] = serde_json::json!(0);
+
+    let check_names = [
+        "clippy",
+        "custom rules",
+        "dependencies (cargo-audit)",
+        "dependencies (cargo-deny)",
+        "dependencies (cargo-machete)",
+        "unsafe audit (cargo-geiger)",
+        "coverage",
+        "msrv",
+        "semver (cargo-semver-checks)",
+        "baseline",
+        "staged snapshot",
+        "package scan",
+        "scope:lines",
+    ];
+    let statuses = [
+        "planned",
+        "running",
+        "skipped",
+        "failed",
+        "timed_out",
+        "cancelled",
+    ];
+    report["projects"][0]["checks"] = Value::Array(
+        statuses
+            .iter()
+            .flat_map(|status| {
+                check_names.iter().map(move |name| {
+                    serde_json::json!({
+                        "name": name,
+                        "required": false,
+                        "status": status,
+                        "reason": "bounded public fixture"
+                    })
+                })
+            })
+            .collect(),
+    );
+    write_json(fixture, &report);
+    (categories.len(), statuses.len() * check_names.len())
+}
+
+fn cli_report(config_root: &Path, project: &Path) -> Value {
+    let output = scan_command(config_root, project)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn write_json(path: &Path, value: &Value) {
+    std::fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
+}
+
 fn write_project(root: &Path) {
     std::fs::create_dir(root.join("src")).unwrap();
     std::fs::write(root.join("Cargo.toml"), MANIFEST).unwrap();

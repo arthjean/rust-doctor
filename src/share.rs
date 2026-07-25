@@ -10,6 +10,7 @@ const SHARE_BASE_URL: &str = "https://rust-doctor.vercel.app/share/";
 const SHARE_SCHEMA_VERSION: &str = "1";
 const MAX_SHARE_URL_BYTES: usize = 8 * 1024;
 const MAX_SHARED_CHECKS: usize = 32;
+const MAX_SHARED_COUNT: usize = 1_000_000;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ShareError {
@@ -57,6 +58,8 @@ pub(crate) fn build_url(report: &ReportV1) -> Result<String, ShareError> {
         }
     }
     let omitted_checks = unavailable_checks.len().saturating_sub(MAX_SHARED_CHECKS);
+    let payload_is_valid =
+        public_payload_is_valid(report, score, dimensions, &category_counts, omitted_checks);
 
     let mut url = reqwest::Url::parse(SHARE_BASE_URL).map_err(|_| ShareError::InvalidBaseUrl)?;
     {
@@ -108,7 +111,50 @@ pub(crate) fn build_url(report: &ReportV1) -> Result<String, ShareError> {
             maximum: MAX_SHARE_URL_BYTES,
         });
     }
+    if !payload_is_valid {
+        return Err(ShareError::InvalidPayload);
+    }
     Ok(rendered)
+}
+
+fn public_payload_is_valid(
+    report: &ReportV1,
+    score: u32,
+    dimensions: &crate::diagnostics::DimensionScores,
+    category_counts: &BTreeMap<&str, usize>,
+    omitted_checks: usize,
+) -> bool {
+    let severity_count = report
+        .summary
+        .error_count
+        .checked_add(report.summary.warning_count)
+        .and_then(|count| count.checked_add(report.summary.info_count));
+    let category_count = category_counts.values().sum::<usize>();
+    let tool_version_is_valid = !report.tool_version.is_empty()
+        && report.tool_version.len() <= 32
+        && report
+            .tool_version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-'));
+
+    tool_version_is_valid
+        && score <= 100
+        && dimensions.security <= 100
+        && dimensions.reliability <= 100
+        && dimensions.maintainability <= 100
+        && dimensions.performance <= 100
+        && dimensions.dependencies <= 100
+        && report.summary.error_count <= MAX_SHARED_COUNT
+        && report.summary.warning_count <= MAX_SHARED_COUNT
+        && report.summary.info_count <= MAX_SHARED_COUNT
+        && report.completeness.planned_files > 0
+        && report.completeness.planned_files <= MAX_SHARED_COUNT
+        && report.completeness.analyzed_files <= report.completeness.planned_files
+        && category_counts
+            .values()
+            .all(|count| *count <= MAX_SHARED_COUNT)
+        && severity_count == Some(category_count)
+        && omitted_checks <= MAX_SHARED_COUNT
 }
 
 fn canonical_check_name(name: &str) -> Option<String> {
@@ -349,6 +395,58 @@ mod tests {
             build_url(&report),
             Err(ShareError::InvalidPayload)
         ));
+    }
+
+    #[test]
+    fn aggregate_contract_rejects_values_outside_public_bounds() {
+        let mut invalid = Vec::new();
+
+        let mut score = report();
+        score.score = Some(101);
+        invalid.push(("score above 100", score));
+
+        let mut dimension = report();
+        dimension.dimension_scores.as_mut().unwrap().security = 101;
+        invalid.push(("dimension above 100", dimension));
+
+        let mut no_planned_files = report();
+        no_planned_files.completeness.planned_files = 0;
+        invalid.push(("zero planned files", no_planned_files));
+
+        let mut analyzed_above_planned = report();
+        analyzed_above_planned.completeness.analyzed_files =
+            analyzed_above_planned.completeness.planned_files + 1;
+        invalid.push(("analyzed files above planned files", analyzed_above_planned));
+
+        let mut count_above_limit = report();
+        count_above_limit.summary.error_count = MAX_SHARED_COUNT + 1;
+        invalid.push(("aggregate count above limit", count_above_limit));
+
+        let mut inconsistent_counts = report();
+        inconsistent_counts.summary.warning_count += 1;
+        invalid.push(("severity and category totals differ", inconsistent_counts));
+
+        let mut invalid_tool_version = report();
+        invalid_tool_version.tool_version = "0.2.0/private".to_string();
+        invalid.push((
+            "tool version is outside the public grammar",
+            invalid_tool_version,
+        ));
+
+        for (label, report) in invalid {
+            assert!(
+                matches!(build_url(&report), Err(ShareError::InvalidPayload)),
+                "{label} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn aggregate_contract_accepts_inclusive_file_boundary() {
+        let mut report = report();
+        report.completeness.planned_files = MAX_SHARED_COUNT;
+        report.completeness.analyzed_files = MAX_SHARED_COUNT;
+        assert!(build_url(&report).is_ok());
     }
 
     #[test]

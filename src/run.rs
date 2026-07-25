@@ -3,6 +3,7 @@
 //! These functions handle MCP dispatch, project bootstrapping, scanning,
 //! output rendering, and quality gate checks.
 
+use std::borrow::Cow;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -74,9 +75,22 @@ pub fn emit_share_if_requested(cli: &Cli, report: &ReportV1) -> Result<(), Strin
     if !cli.share {
         return Ok(());
     }
-    let url = crate::share::build_url(report).map_err(|error| error.to_string())?;
+    let report = share_report_fixture(report)?;
+    let url = crate::share::build_url(report.as_ref()).map_err(|error| error.to_string())?;
     println!("\nShare: {url}");
     Ok(())
+}
+
+fn share_report_fixture(report: &ReportV1) -> Result<Cow<'_, ReportV1>, String> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE") {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("could not read internal share fixture: {error}"))?;
+        let fixture = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("could not parse internal share fixture: {error}"))?;
+        return Ok(Cow::Owned(fixture));
+    }
+    Ok(Cow::Borrowed(report))
 }
 
 /// Dispatch a typed subcommand before project bootstrap and scan subprocesses.
