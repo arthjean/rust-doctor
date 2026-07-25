@@ -535,6 +535,31 @@ files = ["**/generated/**"]
 
 CLI flags override config file values.
 
+Policy precedence is deterministic: catalog default, tag, category, exact rule, then the last matching path override. A `surfaces` list controls where an active rule is visible; it does not activate the rule. Test, benchmark, example, and generated-source findings are excluded from score and CI-failure surfaces by default unless an explicit policy includes them.
+
+Use the transactional rule commands instead of editing policy by hand. Every mutation validates the catalog and TOML first, preserves unrelated formatting, writes atomically, and supports `--dry-run`:
+
+```bash
+rust-doctor rules explain unwrap-in-production
+rust-doctor rules set unwrap-in-production error --dry-run
+rust-doctor rules enable string-from-literal --dry-run
+rust-doctor rules disable excessive-clone --dry-run
+rust-doctor rules category performance info --dry-run
+rust-doctor rules ignore-tag style --dry-run
+```
+
+## Privacy, telemetry, and sharing
+
+Local CLI, MCP, LSP, and Action runs send no telemetry by default. Enabling telemetry requires explicit consent to one HTTPS endpoint; loopback HTTP is accepted only for local development. Events contain aggregate product and completeness data, never source, paths, repository identity, diagnostic messages, Git remotes, environment values, or command arguments. Delivery is attempted once with no durable event queue or cross-project identifier.
+
+```bash
+rust-doctor telemetry status
+rust-doctor telemetry enable --endpoint https://telemetry.example.com --yes
+rust-doctor telemetry disable
+```
+
+`--no-telemetry`, `RUST_DOCTOR_TELEMETRY=0`, and `--offline` override stored consent. `--share` constructs a versioned URL locally from a bounded aggregate summary. It uploads no report or diagnostic data and includes no repository identity.
+
 ## Inline Suppression
 
 ```rust
