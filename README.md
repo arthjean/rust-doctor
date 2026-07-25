@@ -127,7 +127,7 @@ rust-doctor /path/to/project
 # Get bare score for CI
 rust-doctor --score
 
-# JSON output (pretty, compact, or atomic file)
+# Report V1 JSON (pretty, compact, or atomic file)
 rust-doctor --json
 rust-doctor --json-compact
 rust-doctor --json-out report.json
@@ -135,17 +135,29 @@ rust-doctor --json-out report.json
 # SARIF for code-scanning consumers
 rust-doctor --sarif
 
-# Scan only changed files, including untracked files
+# Report findings in changed files, including untracked files
 rust-doctor --scope changed --include-untracked
 
-# Scan against a specific branch
+# Report findings intersecting changed lines
+rust-doctor --scope lines --base main
+
+# Analyze the exact Git index snapshot
+rust-doctor --staged
+
+# Compare head with a merge-base and report introduced/fixed findings
+rust-doctor --baseline --base main
+
+# Report only explicit paths
+rust-doctor --scope files --files src/lib.rs,src/api.rs
+
+# Compare changed files against a specific branch
 rust-doctor --scope changed --base main
 
 # Fail CI on errors
 rust-doctor --blocking error
 
-# Require every mandatory analyzer to complete
-rust-doctor --require-complete
+# Bound the whole scan and require every mandatory analyzer to complete
+rust-doctor --max-duration 120 --require-complete
 
 # Scan specific workspace members
 rust-doctor --project core,api
@@ -155,6 +167,9 @@ rust-doctor --verbose
 
 # Scan only security and performance findings
 rust-doctor --category security,performance
+
+# Disable one analyzer family explicitly
+rust-doctor --disable-adapter network-dependent
 
 # Hide warning details in terminal output and bound workspace concurrency
 rust-doctor --warnings hide --jobs 4
@@ -168,11 +183,18 @@ rust-doctor --install-deps
 # Run as MCP server
 rust-doctor --mcp
 
-# Setup wizard — configure AI agents automatically
-rust-doctor setup
+# Write bounded diagnostic groups and hand them to Codex
+rust-doctor --output-dir rust-doctor-report --handoff codex
 
-# Inspect effective rules or explain one source location
+# Print a stateless public summary URL without uploading the report
+rust-doctor --share
+
+# Install agent integration; `setup` remains an alias
+rust-doctor install --agent codex --yes --hook pre-commit
+
+# Inspect effective rules, explain one rule, or explain one source location
 rust-doctor rules list --category security
+rust-doctor rules explain unwrap-in-production
 rust-doctor why src/lib.rs:42
 
 # Report binary, toolchain, target, and OS versions without building the project
@@ -181,9 +203,30 @@ rust-doctor version
 
 ### Output contract
 
+`--json`, `--json-compact`, and `--json-out` emit the same Report V1 data. Report construction, scan outcome, completeness, score authority, and quality-gate result are independent fields: an empty diagnostic list is not evidence of a complete or authoritative scan. Expected discovery, configuration, and scan failures remain schema-valid when JSON output is available.
+
+The checked [Draft 2020-12 schema](schemas/report-v1.schema.json) is the machine contract. [Report V1 migration rules](docs/report-v1-migration.md) define additive compatibility and when a new schema version is required.
+
 Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer to stdout. `--json`, `--json-compact`, and `--sarif` write machine output to stdout; `--json-out` atomically writes JSON to the selected file instead.
 
 `--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
+
+`--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. `--share` works only with terminal output and prints a sanitized stateless URL after the local report.
+
+### Scan scopes and completeness
+
+| Scope | Invocation | Contract |
+|---|---|---|
+| Full | `rust-doctor` | Analyze the discovered Cargo project or selected workspace members |
+| Files | `--scope files --files src/lib.rs` | Report explicit project-relative paths |
+| Changed | `--scope changed [--base main]` | Report affected files; uncommitted work has no historical snapshot |
+| Lines | `--scope lines [--base main]` | Report findings intersecting changed lines; degrade visibly to files when ranges are unavailable |
+| Staged | `--staged` | Analyze the exact Git index snapshot, including indexed manifests and policy |
+| Baseline | `--baseline [--base main]` | Compare head and merge-base findings, reporting introduced, fixed, and degraded states |
+
+Scope is both an execution input and a reporting contract. File-local AST rules read only selected files. Clippy and package/workspace analyzers may still execute at package scope, then report only diagnostics allowed by the requested scope.
+
+Every Report V1 instance accounts for planned and analyzed files plus completed, skipped, failed, timed-out, and cancelled checks. `--max-duration` applies one wall-clock budget to the complete scan. `--require-complete` returns exit code `4` when required work is incomplete.
 
 ### Category scans
 
@@ -210,19 +253,37 @@ failure apart from a crash:
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success: scan completed and all quality gates passed |
+| `0` | A valid report exists, incomplete analysis is either absent or allowed, and all quality gates passed |
 | `1` | Setup error: MCP server, installer, or `--install-deps` failed |
-| `2` | Scan error: project discovery, analysis, or output rendering failed |
-| `3` | Quality gate failed: score below `[score] fail_below` or `--blocking` threshold reached |
-| `4` | Required analysis incomplete while `--require-complete` is active |
+| `2` | No valid report is available: invalid arguments, discovery, scan, or output failure |
+| `3` | A valid report exists, completeness is satisfied or allowed, and the configured quality gate blocked |
+| `4` | Required analysis is incomplete while `--require-complete` is active, regardless of the finding gate |
+
+For scan commands, precedence is normative across every output mode:
+
+| Report | Completeness policy | Finding/score gate | Exit |
+|---|---|---|---|
+| Unavailable | Any | Any | `2` |
+| Available but incomplete | Required | Any | `4` |
+| Available | Complete or incompleteness allowed | Blocked | `3` |
+| Available | Complete or incompleteness allowed | Passed | `0` |
 
 Gate the build on a quality failure without masking a crash:
 
 ```bash
-rust-doctor --blocking error
-if [ $? -eq 3 ]; then
-  echo "Quality gate failed"
-  exit 1
+if rust-doctor --blocking error; then
+  :
+else
+  status=$?
+  case "$status" in
+    3)
+      echo "Quality gate failed"
+      exit 1
+      ;;
+    *)
+      exit "$status"
+      ;;
+  esac
 fi
 ```
 
@@ -231,15 +292,23 @@ fi
 The fastest way to integrate rust-doctor with your AI coding agent:
 
 ```bash
-npx rust-doctor@latest setup
+npx rust-doctor@latest install
 ```
 
-The wizard auto-detects installed agents (Claude Code, Cursor, Windsurf) and lets you choose:
+`setup` remains an alias for `install`. The installer auto-detects Claude Code, Cursor, Codex, OpenCode, and Windsurf, then previews a reversible plan:
 
-- **CLI + Skills** (default) — installs a `SKILL.md` that teaches your agent to use the rust-doctor CLI with deep analysis capabilities
-- **MCP Server** — configures the `rust-doctor --mcp` stdio server in your agent's config file
+- **CLI + Skills** (default): installs a `SKILL.md` that teaches the agent the rust-doctor workflow
+- **MCP Server**: configures the existing `rust-doctor --mcp` stdio entry
+- **Staged hook**: adds a namespaced pre-commit block without replacing unrelated hook content
 
-The wizard handles detection, configuration, and verification in one command. For manual setup, see the sections below.
+Use `--dry-run` for an exact preview, `--yes` for non-interactive installation, and `uninstall` to remove only Rust Doctor-managed files or marked blocks:
+
+```bash
+rust-doctor install --agent codex --mcp --hook pre-commit --dry-run
+rust-doctor uninstall --agent codex --dry-run
+```
+
+For manual setup, see the sections below.
 
 ## MCP Server
 
@@ -255,6 +324,8 @@ rust-doctor includes a built-in [Model Context Protocol](https://modelcontextpro
 | `list_rules` | List all available rules with their categories and severities. |
 
 All tools are read-only (`readOnlyHint: true`).
+
+The `scan` tool accepts full, files, changed, lines, staged, and baseline scopes. MCP scans default to offline mode, require an absolute project path under the user's home directory, and expose canonical rule documentation through `rule://<rule-id>` resources.
 
 ### Prompts
 
@@ -389,8 +460,9 @@ cp -r skills/rust-doctor/ ~/.claude/skills/rust-doctor/
 
 ```
 /rust-doctor                    # scan current project
-/rust-doctor --diff             # scan changed files only
-/rust-doctor --fix              # scan + apply fixes
+/rust-doctor --scope changed    # report changed-file findings
+/rust-doctor --staged           # scan the exact index snapshot
+/rust-doctor --baseline         # report introduced and fixed findings
 /rust-doctor --plan             # scan + remediation plan
 /rust-doctor src/               # scan a specific directory
 ```
