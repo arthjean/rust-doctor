@@ -580,15 +580,15 @@ implementations and the Clippy registry. MCP `list_rules` and `explain_rule`
 render that catalog, and tests assert these counts, so adding a rule does not
 require maintaining a second documentation table.
 
-#### Known heuristic limitations (⚠)
+#### Known heuristic limitations
 
 Without type information these rules have documented blind spots. They're still
 worth surfacing, but a finding is a prompt to look, not a confirmed defect:
 
-- `unwrap-in-production` — matches `.unwrap()`/`.expect()` syntactically; cannot tell a provably-infallible unwrap from a risky one.
-- `large-enum-variant` — counts a variant's fields, not its byte size; a few wide-type fields can outweigh many small ones.
-- `blocking-in-async` — flags known blocking calls by name inside async fns; cannot follow calls into other functions or resolve aliased imports.
-- `sql-injection-risk` — flags string-built queries heuristically; cannot confirm the interpolated value is actually untrusted input.
+- `unwrap-in-production`: matches `.unwrap()`/`.expect()` syntactically; cannot tell a provably-infallible unwrap from a risky one.
+- `large-enum-variant`: counts a variant's fields, not its byte size; a few wide-type fields can outweigh many small ones.
+- `blocking-in-async`: flags known blocking calls by name inside async fns; cannot follow calls into other functions or resolve aliased imports.
+- `sql-injection-risk`: flags string-built queries heuristically; cannot confirm the interpolated value is actually untrusted input.
 
 ### Clippy Lints (74 with overrides) - type-aware
 
@@ -596,45 +596,50 @@ rust-doctor runs `cargo clippy` with pedantic, nursery, and cargo lint groups. E
 
 ### External Tools (optional, auto-detected)
 
-These tools are optional — rust-doctor gracefully skips any that are missing and shows which passes were skipped. Run `rust-doctor --install-deps` to install them all at once.
+These tools are optional: rust-doctor records unavailable adapters as explicit skipped checks. Run `rust-doctor --install-deps` to install them all at once.
 
 | Tool | Install | What it does |
 |------|---------|-------------|
 | clippy | `rustup component add clippy` | 700+ lint checks |
-| cargo-deny | `cargo install cargo-deny` | Supply-chain checking (advisories, licenses, bans) |
-| cargo-audit | `cargo install cargo-audit` | CVE vulnerability scanning |
+| cargo-deny | `cargo install cargo-deny` | Primary supply-chain adapter (advisories, licenses, bans) |
+| cargo-audit | `cargo install cargo-audit` | Advisory fallback when cargo-deny is unavailable |
 | cargo-geiger | `cargo install cargo-geiger` | Unsafe code auditing across dependency tree |
 | cargo-machete | `cargo install cargo-machete` | Unused dependency detection |
 | cargo-semver-checks | `cargo install cargo-semver-checks` | Semver violation detection |
 
 ## Library Usage
 
-rust-doctor is available as a library crate:
+The versioned public API returns Report V1 without terminal rendering, process exit, or implicit network access:
 
 ```rust
 use std::path::Path;
+use rust_doctor::api::{ScanRequest, ScanScope};
 
-// Discover the project (finds Cargo.toml, loads config)
-let (dir, info, config) = rust_doctor::discovery::bootstrap_project(
-    Path::new("/path/to/project"), false,
-)?;
+let mut request = ScanRequest::new(Path::new("/path/to/project"));
+request.options.scope = ScanScope::Changed {
+    base: Some("main".to_string()),
+    include_untracked: true,
+};
 
-// Resolve config with defaults
-let resolved = rust_doctor::config::resolve_config_defaults(config.as_ref());
-
-// Run the scan
-let result = rust_doctor::scan::scan_project(&info, &resolved, false, &[], true)?;
-println!("Score: {}/100 ({})", result.score, result.score_label);
+let report = rust_doctor::api::scan(request)?;
+println!("Diagnostics: {}", report.summary.diagnostic_count);
+if let Some(score) = report
+    .summary
+    .score
+    .filter(|_| report.summary.score_authoritative)
+{
+    println!("Score: {score}");
+}
 ```
 
-Full API docs are on [docs.rs/rust-doctor](https://docs.rs/rust-doctor).
+`ScanOptions` exposes typed configuration overrides, adapter policy, workspace parallelism, deadline, cancellation, and every CLI scope. `scan_batch` preserves request order and successful sibling reports when another project fails; `invalidate_cache` removes only Rust Doctor's project cache. Full API docs are on [docs.rs/rust-doctor](https://docs.rs/rust-doctor).
 
 ## Score Calculation
 
 **Read the 0–100 score as a compass, not a thermometer.** It points you toward
 the weakest dimension; it isn't a precision measurement. The per-dimension
-scores (shown in the terminal box and in `--json`) carry the real signal — they
-tell you *where* to act.
+scores (shown in the terminal box and in `--json`) carry the real signal:
+they tell you *where* to act.
 
 ### How it's computed
 
@@ -661,7 +666,7 @@ the weighted average. Selecting multiple categories from the same dimension,
 such as `correctness` and `error-handling`, combines their unique violated rules
 inside that dimension.
 
-The score counts unique rules, not occurrences — fixing one `.unwrap()` won't
+The score counts unique rules, not occurrences: fixing one `.unwrap()` won't
 move it, but removing the last `.unwrap()` drops the penalty entirely.
 
 | Score | Label | Doctor |
@@ -674,17 +679,26 @@ move it, but removing the last `.unwrap()` drops the penalty entirely.
 
 - **Dimension saturation.** Penalties are linear and the floor is 0, so once a
   dimension accumulates ~67 distinct Error-severity rules (`100 ÷ 1.5`), it sits
-  at 0 and further distinct rules in that dimension stop moving the number — it's
+  at 0 and further distinct rules in that dimension stop moving the number. It is
   directional past that point, not proportional.
 - **Heuristic inputs.** The custom AST rules are `syn`-only (no types, no macro
-  expansion), so part of what feeds the score is a heuristic signal — see
-  [Rules](#rules). Clippy and external-tool findings are type-aware. The score
-  does not currently weight heuristic vs type-aware findings differently.
+  expansion), so part of what feeds the score is a heuristic signal; see
+  [Rules](#rules). Clippy is type-aware. External adapters instead inspect
+  manifests, lockfiles, dependency graphs, or tool-specific compiler metadata.
+  The score does not currently weight these evidence models differently.
+- **Surface policy.** Only diagnostics visible on the canonical `score` surface
+  enter the calculation. Test, benchmark, example, and generated-source findings
+  are excluded from score and CI failure by default unless policy includes them.
+- **Partial analysis.** A report may retain a score after a timeout, cancellation,
+  or required-check failure, but `summary.score_authoritative` is false. Never gate
+  on the integer without checking completeness or using `--require-complete`.
 - **Hand-tuned weights.** The dimension weights and severity penalties are
   deliberate but not empirically calibrated; treat cross-project score
   comparisons with caution.
-- **Empty projects.** A directory with no Rust source files scores 100 and emits
-  `No Rust source files found` — expected, not a clean bill of health.
+- **Nothing to scan.** When discovery and scope planning find no applicable
+  source, manifest, lockfile, package, or workspace work, Report V1 returns
+  `nothing_to_scan`, a null score, and a non-authoritative summary. A manifest-only
+  scope may still schedule dependency or package checks.
 
 ## Contributing
 
@@ -692,7 +706,7 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the dev
 setup, the CI gates to run before opening a PR (`cargo fmt`, `cargo clippy`,
 `cargo test`), and the guide to authoring a new rule. By participating you agree
 to the [Code of Conduct](CODE_OF_CONDUCT.md). For security issues, follow the
-[Security Policy](SECURITY.md) — please don't open a public issue.
+[Security Policy](SECURITY.md): please don't open a public issue.
 
 ## License
 
