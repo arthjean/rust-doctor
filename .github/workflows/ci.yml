@@ -124,6 +124,77 @@ jobs:
           RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
         run: bun run package
 
+  public-website:
+    name: Public website contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ep006-public-contract
+    permissions:
+      contents: read
+    steps:
+      - name: Check out Rust Doctor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: rust-doctor
+          persist-credentials: false
+
+      - name: Check out the independent website
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: arthjean/rust-doctor-web
+          ref: 8190d3eac96294c27b950b0a338922db1d894129
+          path: rust-doctor-web
+          ssh-key: ${{ secrets.RUST_DOCTOR_WEB_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Resolve candidate source identity
+        id: rust-doctor-source
+        run: echo "sha=$(git -C rust-doctor rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust 1.97
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: "1.97"
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build the candidate binary
+        working-directory: rust-doctor
+        run: cargo build --locked --bin rust-doctor
+
+      - name: Install website dependencies and Chromium
+        working-directory: rust-doctor-web
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps chromium
+
+      - name: Verify the external public contract
+        working-directory: rust-doctor-web
+        env:
+          RUST_DOCTOR_BIN: ${{ github.workspace }}/rust-doctor/target/debug/rust-doctor
+          RUST_DOCTOR_SOURCE_DIR: ${{ github.workspace }}/rust-doctor
+          RUST_DOCTOR_SOURCE_REF: ${{ steps.rust-doctor-source.outputs.sha }}
+          RUST_DOCTOR_SOURCE_SHA: ${{ steps.rust-doctor-source.outputs.sha }}
+          WCAG_AUDIT_PATH: ${{ runner.temp }}/rust-doctor-wcag-audit.json
+        run: |
+          bun run catalog:check-only
+          bun run catalog:sync
+          bun run build:verified
+          bun run audit:wcag
+
+      - name: Upload public-contract evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rust-doctor-public-contract
+          path: |
+            rust-doctor-web/public/catalog/build-provenance.json
+            ${{ runner.temp }}/rust-doctor-wcag-audit.json
+          if-no-files-found: error
+
   release-verification:
     name: Five-platform release verification
     uses: ./.github/workflows/release-verify.yml
