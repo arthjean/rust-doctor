@@ -10,6 +10,32 @@ use crate::diagnostics::{ReportV1, ScanResult};
 use owo_colors::{OwoColorize, Stream};
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+static ANIMATION_CANCELLATION: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+pub(crate) fn register_animation_cancellation(cancellation: &Arc<AtomicBool>) {
+    let _ = ANIMATION_CANCELLATION.set(Arc::clone(cancellation));
+}
+
+fn animation_cancelled() -> bool {
+    ANIMATION_CANCELLATION
+        .get()
+        .is_some_and(|cancellation| cancellation.load(Ordering::SeqCst))
+}
+
+fn animation_sleep(duration: Duration) {
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    let mut remaining = duration;
+    while !remaining.is_zero() && !animation_cancelled() {
+        let step = remaining.min(POLL_INTERVAL);
+        std::thread::sleep(step);
+        remaining = remaining.saturating_sub(step);
+    }
+}
 
 /// Render `--score` mode: bare integer to stdout.
 pub fn render_score(result: &ScanResult) {
@@ -17,6 +43,12 @@ pub fn render_score(result: &ScanResult) {
         eprintln!(
             "{}",
             "No Rust source files found".if_supports_color(Stream::Stderr, |t| t.yellow())
+        );
+    } else if !crate::completeness::score_is_reportable(result) {
+        eprintln!(
+            "{}",
+            "Score not shown: some checks could not complete."
+                .if_supports_color(Stream::Stderr, |t| t.dimmed())
         );
     }
     if !result.skipped_passes.is_empty() {
@@ -26,7 +58,14 @@ pub fn render_score(result: &ScanResult) {
             result.skipped_passes.len()
         );
     }
-    println!("{}", result.score);
+    if score_for_output(result).is_some() {
+        println!("{}", result.score);
+    }
+}
+
+fn score_for_output(result: &ScanResult) -> Option<u32> {
+    (result.source_file_count > 0 && crate::completeness::score_is_reportable(result))
+        .then_some(result.score)
 }
 
 /// Render the immutable Report V1 value to stdout or atomically to a file.
@@ -110,8 +149,12 @@ fn renderer_failure_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::{Category, Diagnostic, ScoreLabel, Severity};
+    use crate::diagnostics::{
+        Category, CheckState, CheckStatus, Diagnostic, DimensionScores, PackageExecution,
+        ScanExecution, ScoreLabel, Severity,
+    };
     use std::path::PathBuf;
+    use std::time::Duration;
 
     fn make_diag(rule: &str, severity: Severity) -> Diagnostic {
         make_diag_with_category(rule, severity, Category::ErrorHandling)
@@ -128,6 +171,43 @@ mod tests {
             line: Some(1),
             column: None,
             fix: None,
+        }
+    }
+
+    fn score_result(source_file_count: usize, authoritative: bool) -> ScanResult {
+        let path = PathBuf::from("src/main.rs");
+        let mut execution = ScanExecution::default();
+        if authoritative {
+            execution.checks.push(CheckState {
+                name: "custom rules".to_string(),
+                required: true,
+                status: CheckStatus::Completed,
+                reason: None,
+            });
+        }
+        ScanResult {
+            diagnostics: Vec::new(),
+            score: 93,
+            score_label: ScoreLabel::Great,
+            dimension_scores: DimensionScores {
+                security: 100,
+                reliability: 93,
+                maintainability: 100,
+                performance: 100,
+                dependencies: 100,
+            },
+            source_file_count,
+            elapsed: Duration::ZERO,
+            skipped_passes: Vec::new(),
+            error_count: 0,
+            warning_count: 0,
+            info_count: 0,
+            pass_timings: Vec::new(),
+            suppressed_security: Vec::new(),
+            planned_files: authoritative.then(|| path.clone()).into_iter().collect(),
+            analyzed_files: authoritative.then_some(path).into_iter().collect(),
+            compiler_evidence: Vec::new(),
+            execution,
         }
     }
 
@@ -298,6 +378,46 @@ mod tests {
         assert_eq!(dims.maintainability, 100);
         assert_eq!(dims.performance, 100);
         assert_eq!(dims.dependencies, 100);
+    }
+
+    #[test]
+    fn score_mode_prints_only_an_authoritative_score() {
+        assert_eq!(score_for_output(&score_result(1, true)), Some(93));
+        assert_eq!(score_for_output(&score_result(1, false)), None);
+        assert_eq!(score_for_output(&score_result(0, false)), None);
+
+        let mut partial_workspace = score_result(1, false);
+        partial_workspace.execution.packages = vec![
+            PackageExecution {
+                cargo_package_id: "scored".to_string(),
+                package_root: PathBuf::from("scored"),
+                planned_files: vec![PathBuf::from("scored/src/lib.rs")],
+                analyzed_files: vec![PathBuf::from("scored/src/lib.rs")],
+                checks: vec![CheckState {
+                    name: "custom rules".to_string(),
+                    required: true,
+                    status: CheckStatus::Completed,
+                    reason: None,
+                }],
+                elapsed: Duration::ZERO,
+                score: Some(93),
+            },
+            PackageExecution {
+                cargo_package_id: "failed".to_string(),
+                package_root: PathBuf::from("failed"),
+                planned_files: vec![PathBuf::from("failed/src/lib.rs")],
+                analyzed_files: vec![],
+                checks: vec![CheckState {
+                    name: "custom rules".to_string(),
+                    required: true,
+                    status: CheckStatus::Failed,
+                    reason: Some("analysis failed".to_string()),
+                }],
+                elapsed: Duration::ZERO,
+                score: None,
+            },
+        ];
+        assert_eq!(score_for_output(&partial_workspace), Some(93));
     }
 
     #[test]

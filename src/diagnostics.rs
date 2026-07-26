@@ -714,8 +714,8 @@ impl ReportV1 {
         let analyzed_files = normalize_report_files(root, &result.analyzed_files);
         let completeness = crate::completeness::compute(result);
         let nothing_to_scan = !crate::completeness::has_applicable_work(result);
-        let score = (!nothing_to_scan).then_some(result.score);
-        let score_label = (!nothing_to_scan).then_some(result.score_label);
+        let scan_score = (!nothing_to_scan).then_some(result.score);
+        let scan_score_label = (!nothing_to_scan).then_some(result.score_label);
         let outcome = if nothing_to_scan {
             ReportOutcome::NothingToScan
         } else if completeness.state != CompletenessState::Complete {
@@ -733,7 +733,13 @@ impl ReportV1 {
             &analyzed_files,
             &checks,
             &completeness,
-            score,
+            scan_score,
+        );
+        let (score, score_label, score_authoritative) = report_score_state(
+            scan_score,
+            scan_score_label,
+            !nothing_to_scan && completeness.score_authoritative,
+            &projects,
         );
         let summary = ReportSummary {
             score,
@@ -742,7 +748,7 @@ impl ReportV1 {
             warning_count: result.warning_count,
             info_count: result.info_count,
             diagnostic_count: diagnostics.len(),
-            score_authoritative: !nothing_to_scan && completeness.score_authoritative,
+            score_authoritative,
         };
         let reporting_scope =
             if result.execution.reporting_scope == "full" && mode != ScanMode::Full {
@@ -870,6 +876,25 @@ impl ReportV1 {
             warning_count: 0,
             info_count: 0,
         }
+    }
+}
+
+fn report_score_state(
+    score: Option<u32>,
+    score_label: Option<ScoreLabel>,
+    scan_score_authoritative: bool,
+    projects: &[ProjectReport],
+) -> (Option<u32>, Option<ScoreLabel>, bool) {
+    if projects.len() <= 1 {
+        return (score, score_label, scan_score_authoritative);
+    }
+    let has_authoritative_project = projects
+        .iter()
+        .any(|project| project.score_authoritative && project.score.is_some());
+    if has_authoritative_project && score.is_some() {
+        (score, score_label, true)
+    } else {
+        (None, None, false)
     }
 }
 
@@ -1108,6 +1133,7 @@ fn project_reports(
         return Vec::new();
     }
     if !result.execution.packages.is_empty() {
+        let multiple_packages = result.execution.packages.len() > 1;
         let package_roots: Vec<String> = result
             .execution
             .packages
@@ -1181,7 +1207,11 @@ fn project_reports(
                         .filter(|check| check.status != CheckStatus::Completed)
                         .filter_map(|check| check.reason.clone())
                         .collect(),
-                    score: execution.score,
+                    score: project_score_for_report(
+                        execution.score,
+                        &completeness,
+                        multiple_packages,
+                    ),
                     score_authoritative: completeness.score_authoritative,
                     completeness,
                     elapsed_ms: duration_millis(execution.elapsed),
@@ -1277,6 +1307,18 @@ fn project_reports(
             },
         )
         .collect()
+}
+
+const fn project_score_for_report(
+    score: Option<u32>,
+    completeness: &ReportCompleteness,
+    multiple_packages: bool,
+) -> Option<u32> {
+    if multiple_packages && !completeness.score_authoritative {
+        None
+    } else {
+        score
+    }
 }
 
 fn framework_capability_reports(
@@ -1647,5 +1689,75 @@ mod tests {
         assert_eq!(timings[0]["pass"], "clippy");
         assert!((timings[0]["elapsed_secs"].as_f64().unwrap() - 0.8).abs() < 0.001);
         assert_eq!(timings[1]["pass"], "custom rules");
+    }
+
+    fn test_completeness(score_authoritative: bool) -> ReportCompleteness {
+        ReportCompleteness {
+            state: if score_authoritative {
+                CompletenessState::Complete
+            } else {
+                CompletenessState::Incomplete
+            },
+            planned_files: 1,
+            analyzed_files: usize::from(score_authoritative),
+            completed_checks: usize::from(score_authoritative),
+            skipped_checks: 0,
+            failed_checks: usize::from(!score_authoritative),
+            timed_out_checks: 0,
+            cancelled_checks: 0,
+            required_checks: 1,
+            required_completed_checks: usize::from(score_authoritative),
+            score_authoritative,
+        }
+    }
+
+    fn test_project_report(score: Option<u32>, score_authoritative: bool) -> ProjectReport {
+        ProjectReport {
+            cargo_package_id: "fixture".to_string(),
+            package_root: "fixture".to_string(),
+            targets: Vec::new(),
+            framework_capabilities: Vec::new(),
+            framework_gates: Vec::new(),
+            planned_files: vec!["src/lib.rs".to_string()],
+            analyzed_files: Vec::new(),
+            checks: Vec::new(),
+            skipped_reasons: Vec::new(),
+            completeness: test_completeness(score_authoritative),
+            score,
+            score_authoritative,
+            elapsed_ms: 0,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn multi_project_score_remains_authoritative_when_one_project_completed() {
+        let projects = vec![
+            test_project_report(Some(68), true),
+            test_project_report(None, false),
+        ];
+        assert_eq!(
+            report_score_state(Some(68), Some(ScoreLabel::NeedsWork), false, &projects,),
+            (Some(68), Some(ScoreLabel::NeedsWork), true)
+        );
+    }
+
+    #[test]
+    fn failed_multi_project_score_is_null_without_changing_single_project_behavior() {
+        let incomplete = test_completeness(false);
+        assert_eq!(project_score_for_report(Some(42), &incomplete, true), None);
+        assert_eq!(
+            project_score_for_report(Some(42), &incomplete, false),
+            Some(42)
+        );
+
+        let projects = vec![
+            test_project_report(None, false),
+            test_project_report(None, false),
+        ];
+        assert_eq!(
+            report_score_state(Some(42), Some(ScoreLabel::Critical), false, &projects),
+            (None, None, false)
+        );
     }
 }

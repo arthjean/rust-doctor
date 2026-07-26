@@ -234,7 +234,7 @@ fn staged_scope_refuses_worktree_policy_drift() {
 }
 
 #[test]
-fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
+fn noninteractive_workspace_selects_all_and_changed_ownership_follows_cargo_metadata() {
     let repository = tempfile::tempdir().unwrap();
     write(
         &repository.path().join("Cargo.toml"),
@@ -248,8 +248,9 @@ fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
     let default = scan(repository.path(), &["--json", "--offline"]);
     assert_success(&default);
     let default = parse_report(&default);
-    assert_eq!(default["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(default["projects"].as_array().unwrap().len(), 2);
     assert_eq!(default["projects"][0]["package_root"], "crates/a");
+    assert_eq!(default["projects"][1]["package_root"], "crates/b");
 
     let all = scan(
         repository.path(),
@@ -359,8 +360,10 @@ fn root_packages_exclusions_and_nested_path_members_follow_cargo_metadata() {
     let default = scan(repository.path(), &["--json", "--offline"]);
     assert_success(&default);
     let default = parse_report(&default);
-    assert_eq!(default["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(default["projects"].as_array().unwrap().len(), 3);
     assert_eq!(default["projects"][0]["package_root"], ".");
+    assert_eq!(default["projects"][1]["package_root"], "crates/a");
+    assert_eq!(default["projects"][2]["package_root"], "shared");
 
     let all = scan(
         repository.path(),
@@ -473,6 +476,8 @@ fn baseline_renames_are_isolated_and_shallow_history_fails_complete_gate() {
     assert_eq!(degraded.status.code(), Some(1));
     let degraded = parse_report(&degraded);
     assert_eq!(degraded["baseline"]["baseline_degraded"], true);
+    assert_eq!(degraded["mode"], "files");
+    assert_eq!(degraded["reporting_scope"], "changed");
     assert_eq!(degraded["summary"]["score_authoritative"], false);
 }
 

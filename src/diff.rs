@@ -11,6 +11,8 @@ const MAX_GIT_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_POLICY_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_POLICY_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 const GIT_LFS_POINTER_HEADER: &[u8] = b"version https://git-lfs.github.com/spec/v1";
+const AUTO_BASE_CANDIDATES: [&str; 5] =
+    ["origin/main", "main", "origin/master", "master", "HEAD~1"];
 
 /// User-visible reporting scope. Execution scope is tracked separately because
 /// compiler-aware passes still execute for a full package.
@@ -129,6 +131,61 @@ impl ScopePlan {
         }
         paths
     }
+}
+
+/// Display-only Git metadata for the interactive scope prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopePromptContext {
+    pub is_current_changes: bool,
+    pub current_branch: Option<String>,
+    pub base_branch: Option<String>,
+    pub changed_rust_source_count: usize,
+}
+
+/// Derive best-effort prompt metadata from an already resolved scope.
+pub fn scope_prompt_context(project_root: &Path, plan: &ScopePlan) -> ScopePromptContext {
+    ScopePromptContext {
+        is_current_changes: plan
+            .base_commit
+            .as_deref()
+            .is_some_and(|base| base_commit_is_head(project_root, base)),
+        current_branch: current_branch_name(project_root),
+        base_branch: resolved_base_ref(project_root, plan),
+        changed_rust_source_count: changed_rust_source_count(plan),
+    }
+}
+
+fn changed_rust_source_count(plan: &ScopePlan) -> usize {
+    if plan.changes.is_empty() {
+        return plan.rust_files.len();
+    }
+    plan.changes
+        .iter()
+        .filter(|change| {
+            matches!(
+                change.kind,
+                ChangeKind::Added | ChangeKind::Copied | ChangeKind::Modified | ChangeKind::Renamed
+            )
+        })
+        .filter_map(|change| change.new_path.as_deref())
+        .filter(|path| plan.paths.contains(*path) && is_rust_file(path))
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn resolved_base_ref(project_root: &Path, plan: &ScopePlan) -> Option<String> {
+    let requested = plan.requested_base.as_deref()?;
+    if requested != "auto" {
+        return Some(requested.to_string());
+    }
+    let base_commit = plan.base_commit.as_deref()?;
+    AUTO_BASE_CANDIDATES
+        .into_iter()
+        .find(|candidate| {
+            verify_ref_exists(project_root, candidate).is_ok()
+                && merge_base(project_root, candidate).is_ok_and(|commit| commit == base_commit)
+        })
+        .map(str::to_string)
 }
 
 /// Resolve a request without changing the working tree or index.
@@ -311,7 +368,7 @@ fn resolve_merge_base(project_root: &Path, base_hint: &str) -> Result<String, Di
         return merge_base(project_root, base_hint).map_err(DiffError::MergeBaseFailed);
     }
 
-    for candidate in ["origin/main", "main", "origin/master", "master", "HEAD~1"] {
+    for candidate in AUTO_BASE_CANDIDATES {
         if verify_ref_exists(project_root, candidate).is_ok()
             && let Ok(commit) = merge_base(project_root, candidate)
         {
@@ -379,6 +436,33 @@ fn parse_commit(output: &[u8]) -> Result<String, String> {
         Ok(value.to_string())
     } else {
         Err("git returned an invalid commit ID".to_string())
+    }
+}
+
+fn base_commit_is_head(project_root: &Path, base_commit: &str) -> bool {
+    if base_commit == "HEAD" {
+        return true;
+    }
+    let Ok(base_commit) = parse_commit(base_commit.as_bytes()) else {
+        return false;
+    };
+    run_git(project_root, ["rev-parse", "--verify", "HEAD"], None)
+        .and_then(|output| parse_commit(&output))
+        .is_ok_and(|head_commit| head_commit == base_commit)
+}
+
+fn current_branch_name(project_root: &Path) -> Option<String> {
+    let output = run_git(
+        project_root,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        None,
+    )
+    .ok()?;
+    let branch = std::str::from_utf8(&output).ok()?.trim();
+    if branch.is_empty() || branch.chars().any(char::is_control) {
+        None
+    } else {
+        Some(branch.to_string())
     }
 }
 
@@ -1301,6 +1385,216 @@ mod tests {
                 LineRange { start: 2, end: 3 },
                 LineRange { start: 10, end: 10 }
             ]
+        );
+    }
+
+    #[test]
+    fn prompt_context_describes_current_and_branch_changes() {
+        let repository = tempfile::tempdir().unwrap();
+        git(
+            repository.path(),
+            ["init", "--quiet", "--initial-branch", "feature/prompt"],
+        );
+        git(
+            repository.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git(repository.path(), ["config", "user.name", "Test"]);
+        std::fs::write(repository.path().join("tracked.txt"), "initial\n").unwrap();
+        git(repository.path(), ["add", "tracked.txt"]);
+        git(repository.path(), ["commit", "--quiet", "-m", "initial"]);
+        let head = parse_commit(&run_git(repository.path(), ["rev-parse", "HEAD"], None).unwrap())
+            .unwrap();
+        let mut plan = ScopePlan {
+            reporting_scope: ReportingScope::Changed,
+            requested_base: Some("HEAD".to_string()),
+            base_commit: Some(head),
+            paths: BTreeSet::from([
+                PathBuf::from("Cargo.toml"),
+                PathBuf::from("src/deleted.rs"),
+                PathBuf::from("src/lib.rs"),
+            ]),
+            rust_files: BTreeSet::from([PathBuf::from("src/lib.rs")]),
+            line_ranges: BTreeMap::new(),
+            degradation_reason: None,
+            changes: Vec::new(),
+        };
+
+        assert_eq!(
+            scope_prompt_context(repository.path(), &plan),
+            ScopePromptContext {
+                is_current_changes: true,
+                current_branch: Some("feature/prompt".to_string()),
+                base_branch: Some("HEAD".to_string()),
+                changed_rust_source_count: 1,
+            }
+        );
+
+        std::fs::write(repository.path().join("tracked.txt"), "next\n").unwrap();
+        git(repository.path(), ["add", "tracked.txt"]);
+        git(repository.path(), ["commit", "--quiet", "-m", "next"]);
+        assert!(!scope_prompt_context(repository.path(), &plan).is_current_changes);
+
+        plan.base_commit = Some("HEAD".to_string());
+        git(repository.path(), ["checkout", "--quiet", "--detach"]);
+        let detached = scope_prompt_context(repository.path(), &plan);
+        assert!(detached.is_current_changes);
+        assert_eq!(detached.current_branch, None);
+    }
+
+    #[test]
+    fn prompt_context_fails_softly_outside_git() {
+        let directory = tempfile::tempdir().unwrap();
+        let plan = ScopePlan {
+            reporting_scope: ReportingScope::Changed,
+            requested_base: Some("auto".to_string()),
+            base_commit: Some("not-a-commit".to_string()),
+            paths: BTreeSet::from([PathBuf::from("src/lib.rs")]),
+            rust_files: BTreeSet::from([PathBuf::from("src/lib.rs")]),
+            line_ranges: BTreeMap::new(),
+            degradation_reason: None,
+            changes: Vec::new(),
+        };
+
+        assert_eq!(
+            scope_prompt_context(directory.path(), &plan),
+            ScopePromptContext {
+                is_current_changes: false,
+                current_branch: None,
+                base_branch: None,
+                changed_rust_source_count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn prompt_context_reports_the_auto_detected_base_branch() {
+        let repository = tempfile::tempdir().unwrap();
+        git(
+            repository.path(),
+            ["init", "--quiet", "--initial-branch", "main"],
+        );
+        git(
+            repository.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git(repository.path(), ["config", "user.name", "Test"]);
+        std::fs::create_dir(repository.path().join("src")).unwrap();
+        std::fs::write(
+            repository.path().join("src/lib.rs"),
+            "pub fn initial() {}\n",
+        )
+        .unwrap();
+        git(repository.path(), ["add", "."]);
+        git(repository.path(), ["commit", "--quiet", "-m", "initial"]);
+        git(
+            repository.path(),
+            ["checkout", "--quiet", "-b", "feature/base"],
+        );
+        std::fs::write(
+            repository.path().join("src/lib.rs"),
+            "pub fn initial() {}\npub fn changed() {}\n",
+        )
+        .unwrap();
+        git(repository.path(), ["add", "."]);
+        git(repository.path(), ["commit", "--quiet", "-m", "change"]);
+
+        let plan = resolve_scope(
+            repository.path(),
+            &ScopeRequest {
+                reporting_scope: ReportingScope::Changed,
+                base: None,
+                files: Vec::new(),
+                include_untracked: false,
+            },
+            &[],
+        )
+        .unwrap();
+        let context = scope_prompt_context(repository.path(), &plan);
+
+        assert_eq!(context.current_branch.as_deref(), Some("feature/base"));
+        assert_eq!(context.base_branch.as_deref(), Some("main"));
+        assert_eq!(context.changed_rust_source_count, 1);
+    }
+
+    #[test]
+    fn prompt_context_excludes_a_deleted_rust_file() {
+        let repository = tempfile::tempdir().unwrap();
+        git(repository.path(), ["init", "--quiet"]);
+        git(
+            repository.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git(repository.path(), ["config", "user.name", "Test"]);
+        std::fs::create_dir(repository.path().join("src")).unwrap();
+        std::fs::write(
+            repository.path().join("src/lib.rs"),
+            "pub fn deleted() {}\n",
+        )
+        .unwrap();
+        git(repository.path(), ["add", "."]);
+        git(repository.path(), ["commit", "--quiet", "-m", "initial"]);
+        std::fs::remove_file(repository.path().join("src/lib.rs")).unwrap();
+
+        let plan = resolve_scope(
+            repository.path(),
+            &ScopeRequest {
+                reporting_scope: ReportingScope::Changed,
+                base: Some("HEAD".to_string()),
+                files: Vec::new(),
+                include_untracked: false,
+            },
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            scope_prompt_context(repository.path(), &plan).changed_rust_source_count,
+            0
+        );
+    }
+
+    #[test]
+    fn prompt_context_counts_added_copied_modified_and_renamed_rust_files() {
+        let paths = [
+            "src/added.rs",
+            "src/copied.rs",
+            "src/modified.rs",
+            "src/renamed.rs",
+            "src/deleted.rs",
+            "src/type_changed.rs",
+        ];
+        let changes = [
+            ChangeKind::Added,
+            ChangeKind::Copied,
+            ChangeKind::Modified,
+            ChangeKind::Renamed,
+            ChangeKind::Deleted,
+            ChangeKind::TypeChanged,
+        ]
+        .into_iter()
+        .zip(paths)
+        .map(|(kind, path)| ChangedPath {
+            kind,
+            old_path: matches!(kind, ChangeKind::Renamed | ChangeKind::Deleted)
+                .then(|| PathBuf::from(format!("old/{path}"))),
+            new_path: (kind != ChangeKind::Deleted).then(|| PathBuf::from(path)),
+        })
+        .collect();
+        let plan = ScopePlan {
+            reporting_scope: ReportingScope::Changed,
+            requested_base: None,
+            base_commit: None,
+            paths: paths.into_iter().map(PathBuf::from).collect(),
+            rust_files: BTreeSet::new(),
+            line_ranges: BTreeMap::new(),
+            degradation_reason: None,
+            changes,
+        };
+
+        assert_eq!(
+            scope_prompt_context(Path::new("/not-a-repository"), &plan).changed_rust_source_count,
+            4
         );
     }
 

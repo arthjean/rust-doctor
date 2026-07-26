@@ -11,7 +11,7 @@ expression: "&output.stdout"
 
   ────────────────────────────────────────────────────────────
 
-  Docs: https://rust-doctor.vercel.app
+  Docs: https://rust-doctor.vercel.app/docs
   Learn more about fixing issues, setting up CI/CD, and
   configuring rules with a config file
 

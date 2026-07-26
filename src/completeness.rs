@@ -4,7 +4,7 @@
 )]
 
 use crate::diagnostics::{
-    CheckState, CheckStatus, CompletenessState, ReportCompleteness, ScanResult,
+    CheckState, CheckStatus, CompletenessState, PackageExecution, ReportCompleteness, ScanResult,
 };
 
 /// Normalize legacy pass timing and skip receipts into the same check model
@@ -114,6 +114,33 @@ pub(crate) fn compute_from_parts(
 /// full Report V1 contract.
 pub(crate) fn score_is_authoritative(result: &ScanResult) -> bool {
     compute(result).score_authoritative
+}
+
+/// Compute package completeness with the same invariant used by Report V1.
+pub(crate) fn compute_package(package: &PackageExecution) -> ReportCompleteness {
+    compute_from_parts(
+        package.planned_files.len(),
+        package.analyzed_files.len(),
+        &package.checks,
+        !package.planned_files.is_empty() || !package.checks.is_empty(),
+        false,
+    )
+}
+
+pub(crate) fn package_score_is_authoritative(package: &PackageExecution) -> bool {
+    compute_package(package).score_authoritative
+}
+
+/// A multi-project headline remains reportable when at least one package
+/// completed authoritatively, even if a sibling package could not be scored.
+pub(crate) fn score_is_reportable(result: &ScanResult) -> bool {
+    score_is_authoritative(result)
+        || (result.execution.packages.len() > 1
+            && result
+                .execution
+                .packages
+                .iter()
+                .any(|package| package.score.is_some() && package_score_is_authoritative(package)))
 }
 
 fn is_required_check(name: &str) -> bool {

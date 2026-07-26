@@ -15,7 +15,9 @@ pub fn resolve_members<'a>(
         return Err(WorkspaceError::NoMembers);
     }
     if selectors.iter().any(|selector| selector == "*") {
-        return Ok(members.iter().collect());
+        let mut selected: Vec<_> = members.iter().collect();
+        selected.sort_by_key(|member| relative_member_root(workspace_root, member));
+        return Ok(selected);
     }
     if selectors.is_empty() {
         let defaults: Vec<_> = members
@@ -31,6 +33,7 @@ pub fn resolve_members<'a>(
 
     let candidates = valid_candidates(members, workspace_root);
     let mut selected_ids = BTreeSet::new();
+    let mut selected = Vec::new();
     for selector in selectors {
         let normalized_selector = normalize_selector(selector);
         let matches: Vec<_> = members
@@ -48,7 +51,9 @@ pub fn resolve_members<'a>(
                 });
             }
             [member] => {
-                selected_ids.insert(member.package_id.as_str());
+                if selected_ids.insert(member.package_id.as_str()) {
+                    selected.push(*member);
+                }
             }
             _ => {
                 return Err(WorkspaceError::AmbiguousSelector {
@@ -62,10 +67,7 @@ pub fn resolve_members<'a>(
             }
         }
     }
-    Ok(members
-        .iter()
-        .filter(|member| selected_ids.contains(member.package_id.as_str()))
-        .collect())
+    Ok(selected)
 }
 
 /// Restrict selected members to owners of changed files. Root manifests and
@@ -221,11 +223,12 @@ mod tests {
             resolve_members(&members, Path::new("/ws"), &["core-id".into()], &[]).unwrap();
         assert_eq!(defaults.len(), 1);
         assert_eq!(defaults[0].name, "core");
+        let all = resolve_members(&members, Path::new("/ws"), &[], &["*".into()]).unwrap();
         assert_eq!(
-            resolve_members(&members, Path::new("/ws"), &[], &["*".into()])
-                .unwrap()
-                .len(),
-            3
+            all.iter()
+                .map(|member| member.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["root", "api", "core"]
         );
     }
 
@@ -245,6 +248,26 @@ mod tests {
                 .map(|member| member.name.as_str())
                 .collect::<Vec<_>>(),
             vec!["core", "api"]
+        );
+    }
+
+    #[test]
+    fn preserves_explicit_selector_order_while_deduplicating() {
+        let members = make_members();
+        let selected = resolve_members(
+            &members,
+            Path::new("/ws"),
+            &[],
+            &["api".into(), "root".into(), "api".into(), "core".into()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|member| member.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["api", "root", "core"]
         );
     }
 

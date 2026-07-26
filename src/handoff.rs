@@ -351,7 +351,7 @@ fn select_target(request: &HandoffRequest) -> Result<Option<HandoffTarget>, Hand
         .with_prompt("Diagnostic handoff target")
         .items(&labels)
         .default(labels.len().saturating_sub(1))
-        .interact()?;
+        .interact_on(&dialoguer::console::Term::stdout())?;
     Ok(targets
         .get(selection)
         .map(|(_, target)| *target)

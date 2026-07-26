@@ -225,17 +225,15 @@ pub(crate) fn scan_project_scoped_for_categories(
         };
         retain_selected_categories(&mut configured, selected_categories);
         let score_diagnostics = score_visible_diagnostics(&configured, resolved);
-        let (health_score, label, dimensions) =
-            output::calculate_score_for_categories(&score_diagnostics, selected_categories);
-        result.score = health_score;
-        result.score_label = label;
-        result.dimension_scores = dimensions;
-        assign_package_scores(
+        let (health_score, label, dimensions) = recalculate_package_scores_and_select_headline(
             &mut result.execution.packages,
             &score_diagnostics,
             &project_info.root_dir,
             selected_categories,
         );
+        result.score = health_score;
+        result.score_label = label;
+        result.dimension_scores = dimensions;
     }
 
     tracing::info!(
@@ -542,6 +540,7 @@ fn run_passes(
     control: &ScanControl,
     selected_categories: &[Category],
 ) -> PassesOutput {
+    let is_multi_root = scan_roots.len() > 1;
     let mut all_diagnostics = Vec::new();
     let mut all_skipped_passes = Vec::new();
     let mut total_elapsed = Duration::ZERO;
@@ -636,7 +635,7 @@ fn run_passes(
                         let pass_result = orchestrator.run_controlled(
                             scan_root,
                             resolved,
-                            suppress_spinner,
+                            suppress_spinner || is_multi_root,
                             control,
                         );
                         (true, pass_result)
@@ -802,7 +801,7 @@ fn run_passes(
             scanner::ScanOrchestrator::new(passes).run_controlled(
                 &project_info.root_dir,
                 resolved,
-                suppress_spinner,
+                suppress_spinner || is_multi_root,
                 control,
             )
         };
@@ -823,7 +822,6 @@ fn run_passes(
     }
 
     all_checks.sort_by(|left, right| left.name.cmp(&right.name));
-    package_executions.sort_by(|left, right| left.package_root.cmp(&right.package_root));
 
     PassesOutput {
         diagnostics: all_diagnostics,
@@ -1101,6 +1099,39 @@ fn score_visible_diagnostics(
     )
 }
 
+pub(crate) fn recalculate_package_scores_and_select_headline(
+    packages: &mut [PackageExecution],
+    diagnostics: &[Diagnostic],
+    workspace_root: &Path,
+    selected_categories: &[Category],
+) -> (
+    u32,
+    crate::diagnostics::ScoreLabel,
+    crate::diagnostics::DimensionScores,
+) {
+    let aggregate_score = output::calculate_score_for_categories(diagnostics, selected_categories);
+    let owners = diagnostic_package_owners(diagnostics, packages, workspace_root);
+    assign_package_scores_with_owners(packages, diagnostics, &owners, selected_categories);
+    if packages.len() <= 1 {
+        return aggregate_score;
+    }
+
+    let mut worst_package = None;
+    for (index, package) in packages.iter().enumerate() {
+        let Some(score) = package.score else {
+            continue;
+        };
+        if worst_package.is_none_or(|(_, worst_score)| score < worst_score) {
+            worst_package = Some((index, score));
+        }
+    }
+    let Some((worst_index, _)) = worst_package else {
+        return aggregate_score;
+    };
+    let worst_diagnostics = diagnostics_for_package(diagnostics, &owners, worst_index);
+    output::calculate_score_for_categories(&worst_diagnostics, selected_categories)
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the scan accumulator is unpacked once at the internal ScanResult construction boundary"
@@ -1137,13 +1168,12 @@ fn build_result(
         .count();
     let score_diagnostics = score_visible_diagnostics(&diagnostics, resolved);
     let (health_score, score_label, dimension_scores) =
-        output::calculate_score_for_categories(&score_diagnostics, selected_categories);
-    assign_package_scores(
-        &mut package_executions,
-        &score_diagnostics,
-        workspace_root,
-        selected_categories,
-    );
+        recalculate_package_scores_and_select_headline(
+            &mut package_executions,
+            &score_diagnostics,
+            workspace_root,
+            selected_categories,
+        );
 
     if let Some(reason) = &scope.degradation_reason {
         let check = CheckState {
@@ -1193,33 +1223,48 @@ fn build_result(
     }
 }
 
-pub(crate) fn assign_package_scores(
-    packages: &mut [PackageExecution],
+fn diagnostic_package_owners(
     diagnostics: &[Diagnostic],
+    packages: &[PackageExecution],
     workspace_root: &Path,
-    selected_categories: &[Category],
-) {
-    let owners: Vec<_> = diagnostics
+) -> Vec<Option<usize>> {
+    diagnostics
         .iter()
         .map(|diagnostic| diagnostic_package_owner(diagnostic, packages, workspace_root))
-        .collect();
+        .collect()
+}
+
+fn assign_package_scores_with_owners(
+    packages: &mut [PackageExecution],
+    diagnostics: &[Diagnostic],
+    owners: &[Option<usize>],
+    selected_categories: &[Category],
+) {
     for (package_index, package) in packages.iter_mut().enumerate() {
-        if package.planned_files.is_empty() && package.checks.is_empty() {
+        if !crate::completeness::package_score_is_authoritative(package) {
             package.score = None;
             continue;
         }
-        let package_diagnostics: Vec<_> = diagnostics
-            .iter()
-            .zip(&owners)
-            .filter(|(diagnostic, owner)| {
-                is_workspace_global_diagnostic(diagnostic) || **owner == Some(package_index)
-            })
-            .map(|(diagnostic, _)| diagnostic.clone())
-            .collect();
+        let package_diagnostics = diagnostics_for_package(diagnostics, owners, package_index);
         package.score = Some(
             output::calculate_score_for_categories(&package_diagnostics, selected_categories).0,
         );
     }
+}
+
+fn diagnostics_for_package(
+    diagnostics: &[Diagnostic],
+    owners: &[Option<usize>],
+    package_index: usize,
+) -> Vec<Diagnostic> {
+    diagnostics
+        .iter()
+        .zip(owners)
+        .filter(|(diagnostic, owner)| {
+            is_workspace_global_diagnostic(diagnostic) || **owner == Some(package_index)
+        })
+        .map(|(diagnostic, _)| diagnostic.clone())
+        .collect()
 }
 
 fn is_workspace_global_diagnostic(diagnostic: &Diagnostic) -> bool {
@@ -1292,6 +1337,7 @@ fn empty_scoped_result(
 mod tests {
     use super::*;
     use crate::diagnostics::Category;
+    use crate::discovery::WorkspaceMember;
     use std::path::PathBuf;
 
     fn make_diagnostic(rule: &str, severity: Severity, line: Option<u32>) -> Diagnostic {
@@ -1443,6 +1489,198 @@ mod tests {
         assert_eq!(result.error_count, 0);
         assert_eq!(result.warning_count, 0);
         assert_eq!(result.info_count, 0);
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the regression keeps three package completeness states and their score inputs visible in one scenario"
+    )]
+    fn incomplete_package_with_worst_raw_score_cannot_become_headline() {
+        let workspace_root = Path::new("/workspace");
+        let first_root = workspace_root.join("first");
+        let worst_root = workspace_root.join("worst");
+        let incomplete_root = workspace_root.join("incomplete");
+        let completed_check = || CheckState {
+            name: "custom rules".to_string(),
+            required: true,
+            status: CheckStatus::Completed,
+            reason: None,
+        };
+        let packages = vec![
+            PackageExecution {
+                cargo_package_id: "first".to_string(),
+                package_root: first_root.clone(),
+                planned_files: vec![first_root.join("src/lib.rs")],
+                analyzed_files: vec![first_root.join("src/lib.rs")],
+                checks: vec![completed_check()],
+                elapsed: Duration::ZERO,
+                score: None,
+            },
+            PackageExecution {
+                cargo_package_id: "worst".to_string(),
+                package_root: worst_root.clone(),
+                planned_files: vec![worst_root.join("src/lib.rs")],
+                analyzed_files: vec![worst_root.join("src/lib.rs")],
+                checks: vec![completed_check()],
+                elapsed: Duration::ZERO,
+                score: None,
+            },
+            PackageExecution {
+                cargo_package_id: "incomplete".to_string(),
+                package_root: incomplete_root.clone(),
+                planned_files: vec![
+                    incomplete_root.join("src/lib.rs"),
+                    incomplete_root.join("src/other.rs"),
+                ],
+                analyzed_files: vec![incomplete_root.join("src/lib.rs")],
+                checks: vec![completed_check()],
+                elapsed: Duration::ZERO,
+                score: None,
+            },
+        ];
+        let mut diagnostics = Vec::new();
+        for index in 0..4 {
+            let mut diagnostic = make_diagnostic(
+                &format!("first-performance-{index}"),
+                Severity::Error,
+                Some(index + 1),
+            );
+            diagnostic.file_path = PathBuf::from("first/src/lib.rs");
+            diagnostic.category = Category::Performance;
+            diagnostics.push(diagnostic);
+        }
+        let mut worst_diagnostics = Vec::new();
+        for index in 0..8 {
+            let mut diagnostic = make_diagnostic(
+                &format!("worst-reliability-{index}"),
+                Severity::Error,
+                Some(index + 1),
+            );
+            diagnostic.file_path = PathBuf::from("worst/src/lib.rs");
+            worst_diagnostics.push(diagnostic.clone());
+            diagnostics.push(diagnostic);
+        }
+        let mut incomplete_diagnostics = Vec::new();
+        for index in 0..20 {
+            let mut diagnostic = make_diagnostic(
+                &format!("incomplete-reliability-{index}"),
+                Severity::Error,
+                Some(index + 1),
+            );
+            diagnostic.file_path = PathBuf::from("incomplete/src/lib.rs");
+            incomplete_diagnostics.push(diagnostic.clone());
+            diagnostics.push(diagnostic);
+        }
+        let expected = output::calculate_score_for_categories(&worst_diagnostics, &[]);
+        let incomplete_raw = output::calculate_score_for_categories(&incomplete_diagnostics, &[]);
+        let combined = output::calculate_score_for_categories(&diagnostics, &[]);
+        assert_ne!(combined.0, expected.0);
+        assert!(incomplete_raw.0 < expected.0);
+
+        let config = config::resolve_config_defaults(None);
+        let result = build_result(
+            diagnostics,
+            2,
+            Vec::new(),
+            Duration::ZERO,
+            Vec::new(),
+            Vec::new(),
+            SuppressionCounts::default(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            packages,
+            workspace_root,
+            &diff::ScopePlan::full(),
+            &config,
+            &[],
+        );
+
+        assert_eq!(result.score, expected.0);
+        assert_eq!(result.score_label, expected.1);
+        assert_eq!(result.dimension_scores.reliability, expected.2.reliability);
+        assert_eq!(result.dimension_scores.performance, expected.2.performance);
+        assert_eq!(result.execution.packages[0].score, Some(99));
+        assert_eq!(result.execution.packages[1].score, Some(expected.0));
+        assert_eq!(result.execution.packages[2].score, None);
+        assert!(!crate::completeness::package_score_is_authoritative(
+            &result.execution.packages[2]
+        ));
+        assert!(crate::completeness::score_is_reportable(&result));
+    }
+
+    #[test]
+    fn run_passes_preserves_selected_root_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let first_root = directory.path().join("z-selected-first");
+        let second_root = directory.path().join("a-selected-second");
+        std::fs::create_dir_all(&first_root).unwrap();
+        std::fs::create_dir_all(&second_root).unwrap();
+        let members = vec![
+            WorkspaceMember {
+                name: "first".to_string(),
+                root_dir: first_root.clone(),
+                package_id: "first 0.1.0".to_string(),
+                targets: Vec::new(),
+                cargo_targets: Vec::new(),
+                frameworks: Vec::new(),
+                framework_capabilities: Vec::new(),
+                rust_version: None,
+            },
+            WorkspaceMember {
+                name: "second".to_string(),
+                root_dir: second_root.clone(),
+                package_id: "second 0.1.0".to_string(),
+                targets: Vec::new(),
+                cargo_targets: Vec::new(),
+                frameworks: Vec::new(),
+                framework_capabilities: Vec::new(),
+                rust_version: None,
+            },
+        ];
+        let project = ProjectInfo {
+            root_dir: directory.path().to_path_buf(),
+            name: "workspace".to_string(),
+            version: "0.1.0".to_string(),
+            package_id: "workspace 0.1.0".to_string(),
+            targets: Vec::new(),
+            cargo_targets: Vec::new(),
+            edition: "2024".to_string(),
+            frameworks: Vec::new(),
+            framework_capabilities: Vec::new(),
+            is_workspace: true,
+            member_count: members.len(),
+            has_build_script: false,
+            rust_version: None,
+            is_no_std: false,
+            package_metadata: serde_json::json!({}),
+            workspace_members: members,
+            default_member_ids: Vec::new(),
+        };
+        let mut resolved = config::resolve_config_defaults(None);
+        resolved.adapter_policy = config::AdapterPolicy::none();
+        resolved.max_parallelism = Some(2);
+        let roots = vec![first_root.clone(), second_root.clone()];
+
+        let output = run_passes(
+            &project,
+            &resolved,
+            &roots,
+            &diff::ScopePlan::full(),
+            true,
+            true,
+            &ScanControl::unlimited(),
+            &[Category::Performance],
+        );
+
+        let actual_roots: Vec<_> = output
+            .package_executions
+            .iter()
+            .map(|package| package.package_root.clone())
+            .collect();
+        assert_eq!(actual_roots, vec![first_root, second_root]);
     }
 
     #[test]
