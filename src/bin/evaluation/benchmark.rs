@@ -427,7 +427,7 @@ fn run_once(
         .arg(metrics.path())
         .arg(binary)
         .arg(materialized.root.path())
-        .args(["--json-compact", "--offline"])
+        .args(["--json", "--json-compact", "--offline"])
         .args(mode_arguments(materialized, mode)?);
     let output = run_capped(command, Duration::from_mins(30), COMMAND_OUTPUT_CAP)?;
     if output.timed_out || !output.status.success() {

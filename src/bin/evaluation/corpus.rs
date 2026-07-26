@@ -1124,6 +1124,7 @@ fn scan_root(
     };
     let scan_args = vec![
         workspace_root,
+        "--json".to_string(),
         "--json-compact".to_string(),
         "--offline".to_string(),
         "--no-project-config".to_string(),

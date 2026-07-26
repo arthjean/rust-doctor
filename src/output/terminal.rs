@@ -317,7 +317,7 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
                 .any(|surface| surface == "terminal")
         })
         .count();
-    let diagnostics: Vec<_> = result
+    let mut diagnostics: Vec<_> = result
         .diagnostics
         .iter()
         .filter(|diagnostic| {
@@ -328,6 +328,9 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
                 && (options.show_warnings || diagnostic.severity != Severity::Warning)
         })
         .collect();
+    sort_terminal_diagnostics(&mut diagnostics);
+    let groups = diagnostic_groups(&diagnostics);
+    let recommended_error_groups = select_top_error_groups(&groups);
     output.animation.has_findings = !diagnostics.is_empty();
     let stderr_reveal_start = output.stderr.len();
 
@@ -380,6 +383,8 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
         let animation = render_diagnostics(
             &mut output.stderr,
             &diagnostics,
+            &groups,
+            &recommended_error_groups,
             options.verbose,
             result.resolved_root.as_deref(),
             options.show_agent_guidance,
@@ -416,7 +421,7 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
     output.animation.score = render_summary(
         &mut output.stdout,
         result,
-        &diagnostics,
+        &recommended_error_groups,
         options.selected_categories,
     );
     if !diagnostics.is_empty()
@@ -858,6 +863,53 @@ fn diagnostic_groups<'a>(diagnostics: &[&'a CanonicalDiagnostic]) -> Vec<Diagnos
     groups
 }
 
+fn sort_terminal_diagnostics(diagnostics: &mut [&CanonicalDiagnostic]) {
+    // React Doctor applies score-API rule priority, then preserves canonical
+    // scan order for ties. ReportV1 exposes no per-rule priority, so every
+    // group is unranked and this semantic order is the stable fallback.
+    // `site_id` is intentionally absent because its hash carries no importance.
+    diagnostics.sort_by(|left, right| {
+        let (left_path, left_line, left_column) = diagnostic_start(left);
+        let (right_path, right_line, right_column) = diagnostic_start(right);
+        left_path
+            .cmp(right_path)
+            .then(left_line.cmp(&right_line))
+            .then(left_column.cmp(&right_column))
+            .then(left.provider.cmp(&right.provider))
+            .then(left.rule.cmp(&right.rule))
+            .then(severity_sort_rank(left.severity).cmp(&severity_sort_rank(right.severity)))
+            .then(left.message.cmp(&right.message))
+    });
+}
+
+const fn diagnostic_start(diagnostic: &CanonicalDiagnostic) -> (&str, u32, u32) {
+    match &diagnostic.location {
+        DiagnosticLocation::Source { path, range } => {
+            (path.as_str(), range.start.line, range.start.column)
+        }
+        DiagnosticLocation::Project => ("", 0, 0),
+    }
+}
+
+const fn severity_sort_rank(severity: Severity) -> u8 {
+    // Matches the lexical order of React Doctor's serialized severity field.
+    match severity {
+        Severity::Error => 0,
+        Severity::Info => 1,
+        Severity::Warning => 2,
+    }
+}
+
+fn select_top_error_groups<'group, 'diagnostic>(
+    groups: &'group [DiagnosticGroup<'diagnostic>],
+) -> Vec<&'group DiagnosticGroup<'diagnostic>> {
+    groups
+        .iter()
+        .filter(|group| group.severity == Severity::Error)
+        .take(TOP_ERRORS_DISPLAY_COUNT)
+        .collect()
+}
+
 fn render_agent_guidance(output: &mut String) {
     const LINES: [&str; 13] = [
         "Treat Rust Doctor diagnostics as starting hypotheses. Read the relevant code before confirming or suppressing each finding.",
@@ -881,24 +933,24 @@ fn render_agent_guidance(output: &mut String) {
     output.push('\n');
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the renderer receives precomputed groups plus the existing terminal policy flags"
+)]
 fn render_diagnostics(
     output: &mut String,
     diagnostics: &[&CanonicalDiagnostic],
+    groups: &[DiagnosticGroup<'_>],
+    error_groups: &[&DiagnosticGroup<'_>],
     verbose: bool,
     root: Option<&str>,
     agent_environment: bool,
     hyperlinks: bool,
 ) -> DiagnosticsAnimation {
     let mut animation = DiagnosticsAnimation::default();
-    let groups = diagnostic_groups(diagnostics);
-    let error_groups: Vec<_> = groups
-        .iter()
-        .filter(|group| group.severity == Severity::Error)
-        .take(TOP_ERRORS_DISPLAY_COUNT)
-        .collect();
 
     if verbose {
-        for group in &groups {
+        for group in groups {
             render_diagnostic_group(output, group, true, root, agent_environment, hyperlinks);
         }
     } else if !error_groups.is_empty() {
@@ -912,7 +964,7 @@ fn render_diagnostics(
             "  {}\n",
             stderr_bold(&format!("Top {} {noun} you should fix", error_groups.len()))
         );
-        for group in &error_groups {
+        for group in error_groups {
             animation.top_error_block_starts.push(output.len());
             render_diagnostic_group(output, group, false, root, agent_environment, hyperlinks);
         }
@@ -948,7 +1000,7 @@ fn render_diagnostics(
         );
     }
 
-    render_migration_advisory(output, &groups);
+    render_migration_advisory(output, groups);
     output.push('\n');
     animation
 }
@@ -1252,7 +1304,7 @@ struct FrameLine {
 fn build_code_frame(root: &str, cluster: &DiagnosticCluster<'_>) -> Option<Vec<String>> {
     let source_path = safe_source_path(Path::new(root), cluster.path)?;
     let source = std::fs::read_to_string(source_path).ok()?;
-    let source_lines: Vec<_> = source.lines().collect();
+    let source_lines: Vec<_> = source.lines().map(neutralize_source_line).collect();
     if source_lines.is_empty() {
         return None;
     }
@@ -1285,8 +1337,7 @@ fn build_code_frame(root: &str, cluster: &DiagnosticCluster<'_>) -> Option<Vec<S
         let available_source_width = OUTPUT_MEASURE_WIDTH.saturating_sub(prefix_width);
         let raw_source = source_lines
             .get(line_number.saturating_sub(1) as usize)
-            .copied()
-            .unwrap_or("");
+            .map_or("", String::as_str);
         let clipped_source = clip_with_ellipsis(raw_source, available_source_width);
         let plain = format!("{marker} {line_number:>line_number_width$} | {clipped_source}");
         let styled_marker = if is_selected {
@@ -1320,6 +1371,16 @@ fn build_code_frame(root: &str, cluster: &DiagnosticCluster<'_>) -> Option<Vec<S
     }
 
     Some(box_frame(lines, OUTPUT_MEASURE_WIDTH))
+}
+
+fn neutralize_source_line(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| {
+            let code_point = u32::from(*character);
+            *character == '\t' || !(code_point <= 0x1f || (0x7f..=0x9f).contains(&code_point))
+        })
+        .collect()
 }
 
 fn safe_source_path(root: &Path, relative: &str) -> Option<PathBuf> {
@@ -1564,7 +1625,7 @@ fn render_migration_advisory(output: &mut String, groups: &[DiagnosticGroup<'_>]
 fn render_summary(
     output: &mut String,
     result: &ReportV1,
-    diagnostics: &[&CanonicalDiagnostic],
+    recommended_error_groups: &[&DiagnosticGroup<'_>],
     selected_categories: &[ScanCategory],
 ) -> Option<ScoreAnimation> {
     let headline_project = multi_project_headline_project(result);
@@ -1597,10 +1658,8 @@ fn render_summary(
         || result.diagnostics.iter().collect(),
         |project| project.diagnostics.iter().collect(),
     );
-    let top_rules: HashSet<_> = diagnostic_groups(diagnostics)
-        .into_iter()
-        .filter(|group| group.severity == Severity::Error)
-        .take(TOP_ERRORS_DISPLAY_COUNT)
+    let top_rules: HashSet<_> = recommended_error_groups
+        .iter()
         .map(|group| group.rule.to_string())
         .collect();
     let potential_score = projected_score(&projection_diagnostics, &top_rules, selected_categories)
@@ -2625,6 +2684,66 @@ mod tests {
     }
 
     #[test]
+    fn unranked_recommendation_groups_ignore_site_id_order() {
+        let mut semantic_first =
+            make_diagnostic("semantic-first", Severity::Error, Category::Security, 8);
+        let DiagnosticLocation::Source { path, .. } = &mut semantic_first.location else {
+            unreachable!();
+        };
+        *path = "src/a.rs".to_string();
+        semantic_first.site_id = "ffff".to_string();
+
+        let mut semantic_second =
+            make_diagnostic("semantic-second", Severity::Error, Category::Security, 2);
+        let DiagnosticLocation::Source { path, .. } = &mut semantic_second.location else {
+            unreachable!();
+        };
+        *path = "src/z.rs".to_string();
+        semantic_second.site_id = "0000".to_string();
+
+        let mut report_order = [semantic_first, semantic_second];
+        report_order.sort_by(|left, right| left.site_id.cmp(&right.site_id));
+        let mut diagnostics: Vec<_> = report_order.iter().collect();
+        sort_terminal_diagnostics(&mut diagnostics);
+        let rules: Vec<_> = diagnostic_groups(&diagnostics)
+            .into_iter()
+            .map(|group| group.rule)
+            .collect();
+
+        assert_eq!(rules, ["semantic-first", "semantic-second"]);
+    }
+
+    #[test]
+    fn code_frame_neutralizes_osc52_and_c1_controls_but_preserves_tabs() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        std::fs::write(
+            directory.path().join("src/lib.rs"),
+            "\tpub fn risky() {} // \x1b]52;c;dGVzdA==\x07\u{009b}31m\n",
+        )
+        .unwrap();
+        let cluster = DiagnosticCluster {
+            sites: vec![DiagnosticSite {
+                start_line: 1,
+                end_line: 1,
+                column: 2,
+            }],
+            path: "src/lib.rs",
+            start_line: 1,
+            end_line: 1,
+        };
+        let frame = owo_colors::with_override(false, || {
+            build_code_frame(&directory.path().to_string_lossy(), &cluster).unwrap()
+        });
+        let rendered = frame.join("\n");
+
+        assert!(rendered.contains('\t'));
+        assert!(!rendered.contains("\x1b]52;"));
+        assert!(!rendered.contains('\x07'));
+        assert!(!rendered.contains('\u{009b}'));
+    }
+
+    #[test]
     fn verbose_render_lists_warning_details_without_a_code_frame() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::create_dir(directory.path().join("src")).unwrap();
@@ -3175,26 +3294,35 @@ mod tests {
                 .any(|diagnostic| diagnostic.ownership == DiagnosticOwnership::Workspace)
         );
         let scoped: Vec<_> = headline.diagnostics.iter().collect();
-        let all: Vec<_> = result.diagnostics.iter().collect();
-        let all_top_rules: HashSet<_> = diagnostic_groups(&all)
+        let mut all: Vec<_> = result.diagnostics.iter().collect();
+        sort_terminal_diagnostics(&mut all);
+        let groups = diagnostic_groups(&all);
+        let top_rule_order: Vec<_> = select_top_error_groups(&groups)
             .into_iter()
-            .filter(|group| group.severity == Severity::Error)
-            .take(TOP_ERRORS_DISPLAY_COUNT)
-            .map(|group| group.rule.to_string())
+            .map(|group| group.rule)
             .collect();
         assert_eq!(
-            all_top_rules,
-            HashSet::from([
-                "other-security-0".to_string(),
-                "other-security-1".to_string(),
-                "other-security-2".to_string(),
-            ])
+            top_rule_order,
+            ["other-security-0", "worst-security-0", "other-security-1"]
         );
+        let all_top_rules: HashSet<_> = top_rule_order
+            .iter()
+            .map(|rule| (*rule).to_string())
+            .collect();
         let expected_projection = projected_score(&scoped, &all_top_rules, &[]).unwrap();
         let workspace_union_projection = projected_score(&all, &all_top_rules, &[]).unwrap();
         assert_ne!(expected_projection, workspace_union_projection);
 
         let output = render(&result, false);
+        let displayed_positions: Vec<_> = top_rule_order
+            .iter()
+            .map(|rule| output.stderr.find(&format!("{rule} title")).unwrap())
+            .collect();
+        assert!(
+            displayed_positions
+                .windows(2)
+                .all(|positions| positions[0] < positions[1])
+        );
         assert!(
             output
                 .stdout

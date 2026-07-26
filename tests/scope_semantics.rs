@@ -159,7 +159,10 @@ fn staged_scope_scans_index_content_instead_of_the_worktree() {
     let worktree = "pub fn working(value: Option<u8>) -> u8 { value.unwrap_or_default() }\n";
     write(&repository.path().join("src/lib.rs"), worktree);
 
-    let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--staged", "--scope", "files"],
+    );
     assert_success(&output);
     let report = parse_report(&output);
     assert_eq!(report["mode"], "staged");
@@ -178,6 +181,61 @@ fn staged_scope_scans_index_content_instead_of_the_worktree() {
         fs::read_to_string(repository.path().join("src/lib.rs")).unwrap(),
         worktree
     );
+}
+
+#[test]
+fn staged_lines_filter_with_cached_index_ranges() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "dependencies = false\n",
+    );
+    let worktree_source = "pub fn existing(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n\npub fn staged(input: Option<u8>) -> u8 {\n    input.unwrap_or_default()\n}\n";
+    write(&repository.path().join("src/lib.rs"), worktree_source);
+    init_repository(repository.path());
+
+    let staged_source = "pub fn existing(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n\npub fn staged(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n";
+    write(&repository.path().join("src/lib.rs"), staged_source);
+    git(repository.path(), &["add", "src/lib.rs"]);
+    write(&repository.path().join("src/lib.rs"), worktree_source);
+
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--staged", "--scope", "lines"],
+    );
+    assert_success(&output);
+    let report = parse_report(&output);
+    assert_eq!(report["mode"], "staged");
+    assert_eq!(report["reporting_scope"], "staged");
+    let unwraps: Vec<_> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|finding| finding["rule"] == "unwrap-in-production")
+        .collect();
+    assert_eq!(unwraps.len(), 1, "unexpected staged report: {report:#}");
+    assert_eq!(unwraps[0]["location"]["path"], "src/lib.rs");
+    assert_eq!(unwraps[0]["location"]["range"]["start"]["line"], 6);
+    assert_eq!(
+        fs::read_to_string(repository.path().join("src/lib.rs")).unwrap(),
+        worktree_source
+    );
+}
+
+#[test]
+fn unavailable_score_keeps_stdout_empty() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "lint = false\ndependencies = false\n[ignore]\nfiles = [\"src/**\"]\n",
+    );
+
+    let output = scan(repository.path(), &["--score", "--offline"]);
+    assert_success(&output);
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No Rust source files found"));
 }
 
 #[test]

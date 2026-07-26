@@ -143,6 +143,7 @@ fn base_cli_arguments(
     let mut arguments = vec![
         OsString::from("rust-doctor"),
         OsString::from(directory),
+        OsString::from("--json"),
         OsString::from("--json-compact"),
         OsString::from("--no-telemetry"),
     ];

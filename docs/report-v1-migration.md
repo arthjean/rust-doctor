@@ -1,6 +1,6 @@
 # Report V1 migration contract
 
-Report V1 is the only structured machine-output contract from rust-doctor 0.2 onward. `--json`, `--json-compact`, `--json-out`, SARIF, and MCP projections are built from the same immutable report value.
+Report V1 is the only structured machine-output contract from rust-doctor 0.2 onward. `--json`, its `--json-compact` and `--json-out` modifiers, SARIF, and MCP projections are built from the same immutable report value.
 
 `report_constructed`, `outcome`, `completeness`, `summary.score_authoritative`, and `gate_result` are independent. A schema-valid failure report has `report_constructed = true` even when scanning failed. `requested_root` preserves user input while `resolved_root` identifies the discovered Cargo root.
 
@@ -44,4 +44,4 @@ Use typed `[rules.<id>]`, `[categories.<category>]`, `[tags.<tag>]`, and `[[path
 
 ## File output
 
-`--json-out <path>` serializes the same Report V1 data as stdout. It writes a temporary sibling and renames only after serialization and flush complete. An error leaves stdout empty and does not leave a partial destination file.
+`--json --json-out <path>` serializes the same Report V1 data as stdout. It writes a temporary sibling and renames only after serialization and flush complete. An error leaves stdout empty and does not leave a partial destination file.

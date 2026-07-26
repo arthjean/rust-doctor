@@ -776,9 +776,15 @@ fn scope_request(
         });
     }
 
-    if (cli.staged || cli.baseline) && cli.scope != Scope::Full {
+    if cli.staged && matches!(cli.scope, Scope::Full | Scope::Changed) {
         return Err(crate::error::DiffError::InvalidScope(
-            "--staged and --baseline cannot be combined with --scope".to_string(),
+            "--staged supports only --scope files or --scope lines".to_string(),
+        )
+        .into());
+    }
+    if cli.baseline && cli.scope != Scope::Full {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--baseline cannot be combined with --scope".to_string(),
         )
         .into());
     }
@@ -808,6 +814,12 @@ fn scope_request(
         )
         .into());
     }
+    if cli.staged && cli.include_untracked {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--include-untracked cannot be combined with --staged".to_string(),
+        )
+        .into());
+    }
     if cli.include_untracked
         && !matches!(
             reporting_scope,
@@ -816,6 +828,12 @@ fn scope_request(
     {
         return Err(crate::error::DiffError::InvalidScope(
             "--include-untracked requires changed or lines scope".to_string(),
+        )
+        .into());
+    }
+    if cli.staged && !cli.files.is_empty() {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--files cannot be combined with --staged".to_string(),
         )
         .into());
     }
@@ -854,6 +872,20 @@ fn run_staged(
             selected_categories,
         );
     }
+    let mut staged_scope = scope.clone();
+    if cli.scope == Scope::Lines {
+        match diff::resolve_staged_line_ranges(&original_project.root_dir, scope) {
+            Ok(line_ranges) => {
+                staged_scope.reporting_scope = diff::ReportingScope::Lines;
+                staged_scope.line_ranges = line_ranges;
+            }
+            Err(error) => {
+                staged_scope.degradation_reason = Some(format!(
+                    "staged line ranges were unavailable; degraded to files scope: {error}"
+                ));
+            }
+        }
+    }
     let snapshot = diff::materialize_staged(&original_project.root_dir)?;
     diff::validate_staged_policy_snapshot(&original_project.root_dir, snapshot.root())?;
     let policy_fingerprint = diff::policy_fingerprint(snapshot.root()).map_err(|error| {
@@ -877,7 +909,7 @@ fn run_staged(
         effective_offline(cli, resolved),
         &cli.project,
         suppress_spinner,
-        scope,
+        &staged_scope,
         control,
         selected_categories,
     )?;

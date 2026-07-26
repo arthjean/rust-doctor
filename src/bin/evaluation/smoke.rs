@@ -81,7 +81,12 @@ fn smoke_json(
     schema: &jsonschema::Validator,
     timeout: Duration,
 ) -> Result<()> {
-    let output = invoke(binary, fixture, &["--json-compact", "--offline"], timeout)?;
+    let output = invoke(
+        binary,
+        fixture,
+        &["--json", "--json-compact", "--offline"],
+        timeout,
+    )?;
     require_success("JSON", &output)?;
     let report = parse_report("JSON", &output.stdout, schema)?;
     if report.diagnostics.is_empty() {
@@ -134,6 +139,7 @@ fn smoke_baseline(
             "--baseline",
             "--base",
             "HEAD",
+            "--json",
             "--json-compact",
             "--offline",
         ],
@@ -163,7 +169,7 @@ fn smoke_failures(
     let output = invoke(
         binary,
         malformed.path(),
-        &["--json-compact", "--offline"],
+        &["--json", "--json-compact", "--offline"],
         timeout,
     )?;
     if output.status.success() {
@@ -180,7 +186,12 @@ fn smoke_failures(
 
     std::fs::write(fixture.join(".rust-doctor-cache.json"), "corrupt cache")
         .map_err(|error| EvalError::io("cannot write corrupt cache fixture", fixture, error))?;
-    let corrupt = invoke(binary, fixture, &["--json-compact", "--offline"], timeout)?;
+    let corrupt = invoke(
+        binary,
+        fixture,
+        &["--json", "--json-compact", "--offline"],
+        timeout,
+    )?;
     require_success("corrupt cache", &corrupt)?;
     parse_report("corrupt cache", &corrupt.stdout, schema)?;
 
@@ -196,7 +207,12 @@ fn smoke_failures(
             error,
         )
     })?;
-    let invalid = invoke(binary, fixture, &["--json-compact", "--offline"], timeout)?;
+    let invalid = invoke(
+        binary,
+        fixture,
+        &["--json", "--json-compact", "--offline"],
+        timeout,
+    )?;
     if invalid.status.success() {
         return Err(EvalError::Command(
             "invalid-configuration smoke unexpectedly succeeded".to_string(),
@@ -215,7 +231,7 @@ fn smoke_failures(
     let output = invoke_with_path(
         binary,
         fixture,
-        &["--json-out"],
+        &["--json", "--json-out"],
         Some(&report_path),
         timeout,
     );
@@ -252,7 +268,7 @@ fn smoke_no_default(
     let output = invoke(
         no_default_binary,
         fixture,
-        &["--json-compact", "--offline"],
+        &["--json", "--json-compact", "--offline"],
         timeout,
     )?;
     require_success("no-default-features CLI", &output)?;

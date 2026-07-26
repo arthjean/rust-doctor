@@ -129,8 +129,8 @@ rust-doctor --score
 
 # Report V1 JSON (pretty, compact, or atomic file)
 rust-doctor --json
-rust-doctor --json-compact
-rust-doctor --json-out report.json
+rust-doctor --json --json-compact
+rust-doctor --json --json-out report.json
 
 # SARIF for code-scanning consumers
 rust-doctor --sarif
@@ -203,13 +203,13 @@ rust-doctor version
 
 ### Output contract
 
-`--json`, `--json-compact`, and `--json-out` emit the same Report V1 data. Report construction, scan outcome, completeness, score authority, and quality-gate result are independent fields: an empty diagnostic list is not evidence of a complete or authoritative scan. Expected discovery, configuration, and scan failures remain schema-valid when JSON output is available.
+`--json` emits Report V1 data. `--json-compact` selects compact serialization and `--json-out` selects an atomic file destination when combined with `--json`. Report construction, scan outcome, completeness, score authority, and quality-gate result are independent fields: an empty diagnostic list is not evidence of a complete or authoritative scan. Expected discovery, configuration, and scan failures remain schema-valid when JSON output is available.
 
 The checked [Draft 2020-12 schema](schemas/report-v1.schema.json) is the machine contract. [Report V1 migration rules](docs/report-v1-migration.md) define additive compatibility and when a new schema version is required.
 
-Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer to stdout. `--json`, `--json-compact`, and `--sarif` write machine output to stdout; `--json-out` atomically writes JSON to the selected file instead.
+Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer when an authoritative score is available; otherwise stdout stays empty and stderr explains why. `--json` and `--sarif` write machine output to stdout; `--json --json-compact` removes indentation, and `--json --json-out <path>` atomically writes JSON to the selected file instead.
 
-`--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
+`--score`, `--sarif`, and `--json` are mutually exclusive output modes. `--json-compact` and `--json-out` only take effect with `--json`; otherwise they are accepted and ignored, matching React Doctor. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
 
 `--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. Online terminal runs include a sanitized stateless sharing URL by default. `--share` requests the same local URL explicitly when the default footer is suppressed.
 
@@ -221,7 +221,7 @@ Terminal diagnostics are written to stderr and the score box is written to stdou
 | Files | `--scope files --files src/lib.rs` | Report explicit project-relative paths |
 | Changed | `--scope changed [--base main]` | Report affected files; uncommitted work has no historical snapshot |
 | Lines | `--scope lines [--base main]` | Report findings intersecting changed lines; degrade visibly to files when ranges are unavailable |
-| Staged | `--staged` | Analyze the exact Git index snapshot, including indexed manifests and policy |
+| Staged | `--staged [--scope files\|lines]` | Analyze the exact Git index snapshot; `lines` reports only diagnostics intersecting indexed hunks |
 | Baseline | `--baseline [--base main]` | Compare head and merge-base findings, reporting introduced, fixed, and degraded states |
 
 Scope is both an execution input and a reporting contract. File-local AST rules read only selected files. Clippy and package/workspace analyzers may still execute at package scope, then report only diagnostics allowed by the requested scope.
@@ -254,10 +254,11 @@ rust-doctor follows React Doctor's compact CLI contract:
 |------|---------|
 | `0` | The command succeeded and no effective gate blocked |
 | `1` | Invalid input, setup/scan/output failure, incomplete required analysis, or a blocking finding |
-| `130` | The process received `SIGINT` on a POSIX shell |
+| `130` | The process received `SIGINT` or `SIGTERM` |
 
-Errors block by default. `--blocking none` makes findings advisory. `--score`
-prints the bare score and does not fail only because findings exist.
+Errors block by default. `--blocking none` makes findings advisory. When a
+reliable score exists, `--score` prints it bare and does not fail only because
+findings exist.
 
 | Report | Completeness policy | Finding/score gate | Exit |
 |---|---|---|---|

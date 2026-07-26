@@ -338,6 +338,14 @@ fn resolve_staged_scope(
     })
 }
 
+/// Resolve changed-line ranges from the Git index for a staged snapshot.
+pub fn resolve_staged_line_ranges(
+    project_root: &Path,
+    plan: &ScopePlan,
+) -> Result<BTreeMap<PathBuf, Vec<LineRange>>, DiffError> {
+    resolve_line_ranges(project_root, "HEAD", &plan.rust_files, &plan.changes, true)
+}
+
 fn ensure_git_repository(project_root: &Path) -> Result<(), DiffError> {
     let output = run_git(project_root, ["rev-parse", "--is-inside-work-tree"], None)
         .map_err(|_| DiffError::GitNotFound)?;

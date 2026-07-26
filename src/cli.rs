@@ -14,26 +14,27 @@ Examples:
 
 Output contract:
   Terminal diagnostics use stderr; the score box uses stdout.
-  --score writes one integer to stdout.
-  --json, --json-compact, and --sarif write machine output to stdout.
-  --json-out writes JSON atomically to PATH instead of stdout.
+  --score writes one bare integer when available; otherwise stdout stays empty.
+  --json and --sarif write machine output to stdout.
+  --json-compact and --json-out modify --json only; otherwise they have no effect.
+  With --json, --json-out writes JSON atomically to PATH instead of stdout.
   --output-dir writes bounded diagnostic handoff files without changing stdout.
-  --score, --sarif, --json, and --json-compact are mutually exclusive.
-  --json-out may pair with --json or --json-compact, but not --score or --sarif.
+  --score, --sarif, and --json are mutually exclusive.
+  --json-compact and --json-out may pair with --json.
   Online terminal reports include a stateless sharing URL; --share requests it explicitly.
   --color and --no-color affect terminal output only and conflict when explicit.
 
 Exit codes:
   0    Success: scan completed, no blocking finding, or --blocking none
   1    Invalid input, scan/setup failure, incomplete analysis, or blocking finding
-  130  Interrupted by Ctrl-C on POSIX
+  130  Interrupted by SIGINT/SIGTERM
 
 Normative exit truth table (all output modes):
   Report unavailable, invalid, or required analysis incomplete    1
   Report complete, but the effective finding/score gate blocks    1
   Report complete, or incompleteness allowed, and gate passes     0
   Installer, MCP startup, or dependency-installation failure      1
-  SIGINT interruption on POSIX                                   130";
+  SIGINT/SIGTERM interruption                                    130";
 
 /// Diagnose your Rust project's health with a single command.
 ///
@@ -85,27 +86,27 @@ pub struct Cli {
     pub disable_adapter: Vec<AdapterGroup>,
 
     /// Print only the bare integer score (for CI piping)
-    #[arg(long, conflicts_with_all = ["json", "json_compact", "json_out", "sarif"])]
+    #[arg(long, conflicts_with_all = ["json", "sarif"])]
     pub score: bool,
 
     /// Output full scan results as JSON
-    #[arg(long, conflicts_with_all = ["score", "sarif", "json_compact"])]
+    #[arg(long, conflicts_with_all = ["score", "sarif"])]
     pub json: bool,
 
-    /// Output Report V1 as compact JSON
-    #[arg(long, conflicts_with_all = ["score", "sarif", "json"])]
+    /// With --json, output Report V1 as compact JSON
+    #[arg(long)]
     pub json_compact: bool,
 
-    /// Write Report V1 atomically to a file instead of stdout
-    #[arg(long, value_name = "PATH", conflicts_with_all = ["score", "sarif"])]
+    /// With --json, write Report V1 atomically to a file instead of stdout
+    #[arg(long, value_name = "PATH")]
     pub json_out: Option<PathBuf>,
 
     /// Output results in SARIF 2.1.0 format (for GitHub Code Scanning, GitLab SAST)
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out"])]
+    #[arg(long, conflicts_with_all = ["score", "json"])]
     pub sarif: bool,
 
     /// Print a stateless public summary URL without uploading report data
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif"])]
     pub share: bool,
 
     /// Write diagnostics.json, per-rule groups, and an agent handoff to DIR
@@ -129,7 +130,12 @@ pub struct Cli {
     pub diff: Option<String>,
 
     /// Reporting scope for the scan
-    #[arg(long, value_enum, default_value_t = Scope::Full)]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Scope::Full,
+        default_value_if("staged", "true", Some("files"))
+    )]
     pub scope: Scope,
 
     /// Explicit files for --scope files (repeat or comma-separate)
@@ -193,11 +199,11 @@ pub struct Cli {
     pub no_telemetry: bool,
 
     /// Run as an MCP (Model Context Protocol) stdio server for AI tool integration
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif", "lsp"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif", "lsp"])]
     pub mcp: bool,
 
     /// Run the feature-gated language server over stdio
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif", "mcp"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif", "mcp"])]
     pub lsp: bool,
 
     /// Ignore the project's rust-doctor.toml config file
@@ -223,7 +229,7 @@ pub struct Cli {
 
 impl Cli {
     pub const fn wants_json(&self) -> bool {
-        self.json || self.json_compact || self.json_out.is_some()
+        self.json
     }
 
     /// Validate value-dependent conflicts before project discovery starts.
@@ -244,10 +250,13 @@ impl Cli {
                 "--diff cannot be combined with --scope, --base, --staged, --baseline, --include-untracked, or --files",
             ));
         }
-        if (self.staged || self.baseline) && self.scope != Scope::Full {
+        if self.staged && matches!(self.scope, Scope::Full | Scope::Changed) {
             return Err(usage_error(
-                "--staged and --baseline cannot be combined with --scope",
+                "--staged supports only --scope files or --scope lines",
             ));
+        }
+        if self.baseline && self.scope != Scope::Full {
+            return Err(usage_error("--baseline cannot be combined with --scope"));
         }
         if self.base.is_some()
             && !self.baseline
@@ -257,15 +266,23 @@ impl Cli {
                 "--base requires --scope changed, --scope lines, or --baseline",
             ));
         }
+        if self.staged && self.include_untracked {
+            return Err(usage_error(
+                "--include-untracked cannot be combined with --staged",
+            ));
+        }
         if self.include_untracked && !matches!(self.scope, Scope::Changed | Scope::Lines) {
             return Err(usage_error(
                 "--include-untracked requires --scope changed or --scope lines",
             ));
         }
+        if self.staged && !self.files.is_empty() {
+            return Err(usage_error("--files cannot be combined with --staged"));
+        }
         if !self.files.is_empty() && self.scope != Scope::Files {
             return Err(usage_error("--files requires --scope files"));
         }
-        if self.scope == Scope::Files && self.files.is_empty() {
+        if self.scope == Scope::Files && self.files.is_empty() && !self.staged {
             return Err(usage_error(
                 "--scope files requires at least one --files path",
             ));
@@ -327,8 +344,8 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
     }
 }
 
-/// File-reporting scope. Staged and baseline are separate flags because they
-/// select an alternate source snapshot in addition to a reporting scope.
+/// File-reporting scope. Staged is a source modifier that composes with files
+/// or lines; baseline remains a separate comparison mode.
 #[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Scope {
     #[default]
@@ -870,6 +887,10 @@ mod tests {
         for removed_code in ["  2 ", "  3 ", "  4 "] {
             assert!(!help.contains(removed_code));
         }
+        assert!(help.contains(
+            "--score writes one bare integer when available; otherwise stdout stays empty."
+        ));
+        assert!(help.contains("Interrupted by SIGINT/SIGTERM"));
     }
 
     #[test]
@@ -893,13 +914,24 @@ mod tests {
     #[test]
     fn test_json_contract_flags() {
         let compact = Cli::try_parse_from(["rust-doctor", "--json-compact"]).unwrap();
-        assert!(compact.wants_json());
+        assert!(compact.json_compact);
+        assert!(!compact.wants_json());
 
         let file = Cli::try_parse_from(["rust-doctor", "--json-out", "report.json"]).unwrap();
         assert_eq!(file.json_out, Some(PathBuf::from("report.json")));
-        assert!(file.wants_json());
+        assert!(!file.wants_json());
 
-        assert!(Cli::try_parse_from(["rust-doctor", "--json", "--json-compact"]).is_err());
+        let combined = Cli::try_parse_from([
+            "rust-doctor",
+            "--json",
+            "--json-compact",
+            "--json-out",
+            "report.json",
+        ])
+        .unwrap();
+        assert!(combined.wants_json());
+        assert!(combined.json_compact);
+        assert_eq!(combined.json_out, Some(PathBuf::from("report.json")));
     }
 
     #[test]
@@ -1011,6 +1043,30 @@ mod tests {
         assert_eq!(files.files.len(), 2);
 
         assert!(Cli::try_parse_from(["rust-doctor", "--staged", "--baseline"]).is_err());
+
+        let staged = Cli::try_parse_from(["rust-doctor", "--staged"]).unwrap();
+        assert_eq!(staged.scope, Scope::Files);
+        assert!(staged.validate_contract().is_ok());
+
+        for scope in ["files", "lines"] {
+            let staged =
+                Cli::try_parse_from(["rust-doctor", "--staged", "--scope", scope]).unwrap();
+            assert!(staged.validate_contract().is_ok());
+        }
+        for scope in ["full", "changed"] {
+            let staged =
+                Cli::try_parse_from(["rust-doctor", "--staged", "--scope", scope]).unwrap();
+            assert!(staged.validate_contract().is_err());
+        }
+        let untracked = Cli::try_parse_from([
+            "rust-doctor",
+            "--staged",
+            "--scope",
+            "lines",
+            "--include-untracked",
+        ])
+        .unwrap();
+        assert!(untracked.validate_contract().is_err());
     }
 
     #[test]
@@ -1198,8 +1254,13 @@ mod tests {
 
     #[test]
     fn test_output_modes_have_stable_conflicts() {
-        assert!(Cli::try_parse_from(["rust-doctor", "--sarif", "--json-out", "x"]).is_err());
-        assert!(Cli::try_parse_from(["rust-doctor", "--score", "--json-compact"]).is_err());
+        let sarif =
+            Cli::try_parse_from(["rust-doctor", "--sarif", "--json-out", "unused.json"]).unwrap();
+        assert!(sarif.sarif);
+        assert!(!sarif.wants_json());
+        let score = Cli::try_parse_from(["rust-doctor", "--score", "--json-compact"]).unwrap();
+        assert!(score.score);
+        assert!(!score.wants_json());
         assert!(Cli::try_parse_from(["rust-doctor", "--share", "--json"]).is_err());
         assert!(
             Cli::try_parse_from(["rust-doctor", "--blocking", "error", "--fail-on", "warning"])
