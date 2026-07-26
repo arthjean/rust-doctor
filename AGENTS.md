@@ -26,84 +26,107 @@ cargo fmt --check                  # Format check
 
 ## Execution Pipeline
 
-```
-main.rs → --mcp flag? → mcp::run_mcp_server() (stdio transport, rmcp SDK)
-        → otherwise  → discovery::bootstrap_project()  → config resolution
-                      → scan::scan_project()            → orchestrator
-                      → output::render_*()              → terminal/json/score/sarif
+```mermaid
+flowchart TD
+    main["main.rs"] --> mode{"--mcp?"}
+    mode -->|yes| mcp["mcp::run_mcp_server()<br/>stdio transport, rmcp SDK"]
+    mode -->|no| bootstrap["discovery::bootstrap_project()"]
+    bootstrap --> config["config resolution"]
+    config --> scan["scan::scan_project()"]
+    scan --> orchestrator["orchestrator"]
+    orchestrator --> render["output::render_*()"]
+    render --> formats["terminal / JSON / score / SARIF"]
 ```
 
 Scan pipeline (`scan.rs`) :
 
-1. `resolve_scan_roots()` — workspace members or single project
-2. `run_passes()` — parallel over scan roots (rayon), then parallel passes per root (`std::thread::scope`)
-3. `dedup_diagnostics()` → `filter_to_changed_files()` (si `--diff`) → `apply_inline_suppressions()`
-4. Score calculation → output
+```mermaid
+flowchart TD
+    roots["1. resolve_scan_roots()<br/>workspace members or single project"]
+    passes["2. run_passes()<br/>scan roots in parallel with rayon<br/>passes per root with std::thread::scope"]
+    dedup["3. dedup_diagnostics()"]
+    diff["filter_to_changed_files()<br/>when --diff"]
+    suppress["apply_inline_suppressions()"]
+    score["4. Score calculation"]
+    output["Output"]
+
+    roots --> passes --> dedup --> diff --> suppress --> score --> output
+```
 
 ## Project Structure
 
-```
-src/
-├── main.rs            # CLI entry point, --mcp flag dispatches to mcp::run_mcp_server()
-├── lib.rs             # Module declarations + crate-root re-exports for passes
-├── scan.rs            # Scan orchestrator: resolve roots → run passes → dedup → score
-├── scanner.rs         # AnalysisPass trait + ScanOrchestrator
-├── diagnostics.rs     # Diagnostic, ScanResult, Severity, Category — central types
-├── config.rs          # Config resolution (CLI > TOML > Cargo.toml metadata > defaults)
-├── output/            # Score calculation + terminal/JSON rendering
-│   ├── mod.rs         # render_score(), render_json(), re-exports, tests
-│   ├── score.rs       # calculate_score(), dimension weights, score_label()
-│   └── terminal.rs    # render_terminal(), print_score_box(), print_diagnostics()
-├── mcp/               # MCP server (rmcp v1.4.0, stdio, feature-gated)
-│   ├── mod.rs         # Server struct, entry point, ServerHandler impl
-│   ├── types.rs       # Input/output schemas (ScanInput, ScoreInput, etc.)
-│   ├── tools.rs       # Tool + prompt handler implementations
-│   ├── helpers.rs     # discover_and_resolve(), format_scan_report(), group_diagnostics()
-│   └── rules.rs       # Rule documentation (explain_rule, list_rules)
-├── passes/            # Analysis passes grouped by domain
-│   ├── security/      # Security-focused passes
-│   │   ├── audit.rs   # cargo-audit pass
-│   │   ├── deny.rs    # cargo-deny pass
-│   │   └── geiger.rs  # cargo-geiger pass
-│   ├── static_analysis/  # Code analysis passes
-│   │   ├── clippy/    # Clippy integration (55+ lint registry)
-│   │   │   ├── mod.rs
-│   │   │   └── lint_registry.rs
-│   │   └── rules/     # Custom AST rules (syn::visit::Visit)
-│   │       ├── mod.rs         # RulesPass + CustomRule trait + all_custom_rules()
-│   │       ├── error_handling.rs  # unwrap, panic, box-dyn-error, result-unit-error
-│   │       ├── performance.rs     # clone, string-from-literal, collect-iterate, large-enum, allocation
-│   │       ├── complexity.rs      # high-cyclomatic-complexity
-│   │       ├── security.rs        # hardcoded-secrets, unsafe-block-audit, sql-injection
-│   │       ├── async_rules.rs     # blocking-in-async, block-on-in-async
-│   │       └── framework.rs       # tokio-main, axum-handler, actix-blocking, tokio-spawn
-│   └── quality/       # Quality & dependency passes
-│       ├── coverage.rs
-│       ├── msrv.rs
-│       ├── machete.rs
-│       └── semver_checks.rs
-├── setup/             # `rust-doctor setup` — agent integration scaffolding
-│   ├── mod.rs
-│   ├── detect.rs      # Detect installed agents/editors
-│   ├── mcp_config.rs  # MCP client config generation
-│   ├── skill.rs       # Skill file generation
-│   └── templates/
-├── run.rs             # Helpers extracted from main.rs: MCP dispatch, bootstrap, render, quality gate
-├── discovery.rs       # Project detection (frameworks, dependencies, workspace)
-├── diff.rs            # Git diff filtering
-├── cache.rs           # Incremental cache (.rust-doctor-cache.json)
-├── suppression.rs     # Inline suppression (// rust-doctor-disable-next-line)
-├── process.rs         # Subprocess runner with timeout
-├── fixer.rs           # Auto-fix suggestions
-├── plan.rs            # Remediation plan generation
-├── sarif.rs           # SARIF output format
-├── deps.rs            # Dependency analysis
-├── workspace.rs       # Cargo workspace resolution
-├── error.rs           # 7 thiserror error types
-└── cli.rs             # clap CLI definition
-tests/
-├── integration.rs     # Temp Rust projects with known violations
-└── snapshots.rs       # insta JSON snapshot tests
+```mermaid
+flowchart LR
+    project["rust-doctor"] --> src["src/"]
+    project --> tests["tests/"]
+
+    src --> main["main.rs<br/>CLI entry point; --mcp dispatches to mcp::run_mcp_server()"]
+    src --> lib["lib.rs<br/>Module declarations and crate-root pass re-exports"]
+    src --> scan["scan.rs<br/>Resolve roots, run passes, deduplicate, score"]
+    src --> scanner["scanner.rs<br/>AnalysisPass trait and ScanOrchestrator"]
+    src --> diagnostics["diagnostics.rs<br/>Diagnostic, ScanResult, Severity, Category"]
+    src --> config["config.rs<br/>CLI > TOML > Cargo.toml metadata > defaults"]
+    src --> output["output/<br/>Score calculation and terminal / JSON rendering"]
+    src --> mcp["mcp/<br/>rmcp v1.4.0 server, stdio, feature-gated"]
+    src --> passes["passes/<br/>Analysis passes grouped by domain"]
+    src --> setup["setup/<br/>rust-doctor setup agent integration scaffolding"]
+    src --> run["run.rs<br/>MCP dispatch, bootstrap, render, quality gate"]
+    src --> discovery["discovery.rs<br/>Project, framework, dependency, workspace detection"]
+    src --> diff["diff.rs<br/>Git diff filtering"]
+    src --> cache["cache.rs<br/>Incremental cache"]
+    src --> suppression["suppression.rs<br/>Inline suppression"]
+    src --> process["process.rs<br/>Subprocess runner with timeout"]
+    src --> fixer["fixer.rs<br/>Auto-fix suggestions"]
+    src --> plan["plan.rs<br/>Remediation plan generation"]
+    src --> sarif["sarif.rs<br/>SARIF output format"]
+    src --> deps["deps.rs<br/>Dependency analysis"]
+    src --> workspace["workspace.rs<br/>Cargo workspace resolution"]
+    src --> error["error.rs<br/>Seven thiserror error types"]
+    src --> cli["cli.rs<br/>clap CLI definition"]
+
+    output --> output_mod["mod.rs<br/>render_score(), render_json(), re-exports, tests"]
+    output --> output_score["score.rs<br/>calculate_score(), dimension weights, score_label()"]
+    output --> output_terminal["terminal.rs<br/>render_terminal(), print_score_box(), print_diagnostics()"]
+
+    mcp --> mcp_mod["mod.rs<br/>Server struct, entry point, ServerHandler impl"]
+    mcp --> mcp_types["types.rs<br/>Input/output schemas"]
+    mcp --> mcp_tools["tools.rs<br/>Tool and prompt handlers"]
+    mcp --> mcp_helpers["helpers.rs<br/>Discovery, report formatting, diagnostic grouping"]
+    mcp --> mcp_rules["rules.rs<br/>Rule documentation"]
+
+    passes --> security["security/<br/>Security-focused passes"]
+    passes --> static_analysis["static_analysis/<br/>Code analysis passes"]
+    passes --> quality["quality/<br/>Quality and dependency passes"]
+
+    security --> audit["audit.rs<br/>cargo-audit pass"]
+    security --> deny["deny.rs<br/>cargo-deny pass"]
+    security --> geiger["geiger.rs<br/>cargo-geiger pass"]
+
+    static_analysis --> clippy["clippy/<br/>Clippy integration, 55+ lint registry"]
+    static_analysis --> rules["rules/<br/>Custom AST rules via syn::visit::Visit"]
+    clippy --> clippy_mod["mod.rs"]
+    clippy --> lint_registry["lint_registry.rs"]
+    rules --> rules_mod["mod.rs<br/>RulesPass, CustomRule, all_custom_rules()"]
+    rules --> error_handling["error_handling.rs<br/>unwrap, panic, box-dyn-error, result-unit-error"]
+    rules --> performance["performance.rs<br/>clone, string literal, collection, enum, allocation rules"]
+    rules --> complexity["complexity.rs<br/>high-cyclomatic-complexity"]
+    rules --> security_rules["security.rs<br/>hardcoded secrets, unsafe audit, SQL injection"]
+    rules --> async_rules["async_rules.rs<br/>blocking and block_on in async"]
+    rules --> framework["framework.rs<br/>tokio, axum, and actix rules"]
+
+    quality --> coverage["coverage.rs"]
+    quality --> msrv["msrv.rs"]
+    quality --> machete["machete.rs"]
+    quality --> semver["semver_checks.rs"]
+
+    setup --> setup_mod["mod.rs"]
+    setup --> detect["detect.rs<br/>Installed agent/editor detection"]
+    setup --> mcp_config["mcp_config.rs<br/>MCP client config generation"]
+    setup --> skill["skill.rs<br/>Skill file generation"]
+    setup --> templates["templates/"]
+
+    tests --> integration["integration.rs<br/>Temporary Rust projects with known violations"]
+    tests --> snapshots["snapshots.rs<br/>insta JSON snapshot tests"]
 ```
 
 Note: `lib.rs` re-exports pass modules at the crate root (`pub(crate) use passes::security::audit`, etc.) so that `use crate::audit` paths work throughout the codebase.

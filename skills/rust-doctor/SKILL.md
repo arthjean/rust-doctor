@@ -22,36 +22,15 @@ rust-doctor is a 4-step pipeline that scans Rust codebases for security, perform
 
 ## Execution Flow
 
-```
-$ARGUMENTS -> [path?] [--diff [BASE]] [--fix] [--plan] [--score] [--sarif] [--offline] [--project <MEMBERS>]
-     |
-     v
-+---------------+
-|  Step 1:      |
-|  SCOPE        |  <- Detect project, resolve flags
-|  (instant)    |
-+-------+-------+
-        |
-        v
-+-------+-------+
-|  Step 2:      |
-|  SCAN         |  <- Run rust-doctor CLI
-|  (5-30s)      |
-+-------+-------+
-        |
-        v
-+-------+-------+
-|  Step 3:      |
-|  INTERPRET    |  <- Parse score, categorize findings
-|  (instant)    |
-+-------+-------+
-        |
-        v
-+-------+-------+
-|  Step 4:      |
-|  GUIDE        |  <- Actionable fixes, re-scan to verify
-|  (analysis)   |
-+-------+-------+
+```mermaid
+flowchart TD
+    arguments["$ARGUMENTS<br/>path? --diff BASE --fix --plan --score --sarif --offline --project MEMBERS"]
+    scope["Step 1: SCOPE<br/>instant<br/>Detect project and resolve flags"]
+    scan["Step 2: SCAN<br/>5-30s<br/>Run rust-doctor CLI"]
+    interpret["Step 3: INTERPRET<br/>instant<br/>Parse score and categorize findings"]
+    guide["Step 4: GUIDE<br/>analysis<br/>Provide actionable fixes and re-scan"]
+
+    arguments --> scope --> scan --> interpret --> guide
 ```
 
 ## Runtime Output Format

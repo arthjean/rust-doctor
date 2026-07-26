@@ -11,6 +11,11 @@ use std::time::{Duration, Instant};
 
 pub const ANALYSIS_FAILURE_RULE: &str = "rust-doctor::analysis-work-unit-failed";
 
+pub type FileProgressCallback = std::sync::Arc<dyn Fn(FileProgressUpdate) + Send + Sync + 'static>;
+
+const FILE_PROGRESS_TICK_INTERVAL: Duration = Duration::from_millis(50);
+const FILE_PROGRESS_TEMPLATE: &str = "{spinner:.cyan} {msg}{prefix:.dim}";
+
 /// Trait for pluggable analysis passes.
 ///
 /// Each pass is run in parallel and returns a list of diagnostics.
@@ -22,6 +27,18 @@ pub trait AnalysisPass: Send + Sync {
     /// Run the analysis and return diagnostics.
     /// The `project_root` is the absolute path to the project being scanned.
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError>;
+
+    /// Run the pass while reporting started files, scanned files, total files,
+    /// and workers.
+    ///
+    /// Passes without file-level progress keep the default implementation.
+    fn run_with_progress(
+        &self,
+        project_root: &Path,
+        _on_file_progress: &FileProgressCallback,
+    ) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+        self.run(project_root)
+    }
 
     /// Required checks make the score non-authoritative when incomplete.
     fn required(&self) -> bool {
@@ -41,6 +58,54 @@ struct PassResult {
     result: Result<Vec<Diagnostic>, crate::error::PassError>,
     elapsed: std::time::Duration,
     stop: Option<ProcessStop>,
+}
+
+#[derive(Clone, Copy)]
+pub struct FileProgressUpdate {
+    pub started: usize,
+    pub scanned: usize,
+    pub total: usize,
+    pub workers: usize,
+}
+
+#[derive(Clone, Copy)]
+struct FileProgress {
+    started: usize,
+    scanned: usize,
+    displayed: usize,
+    total: usize,
+    workers: usize,
+}
+
+impl FileProgress {
+    fn from_update(update: FileProgressUpdate) -> Self {
+        Self {
+            started: update.started.min(update.total),
+            scanned: update.scanned.min(update.total),
+            displayed: update.scanned.min(update.total),
+            total: update.total,
+            workers: update.workers,
+        }
+    }
+
+    fn observe(&mut self, update: FileProgressUpdate) -> bool {
+        let previous_message_state = (self.displayed, self.total, self.workers);
+        self.total = update.total;
+        self.workers = update.workers;
+        self.started = self.started.max(update.started).min(self.total);
+        self.scanned = self.scanned.max(update.scanned).min(self.total);
+        self.displayed = self.displayed.max(self.scanned).min(self.total);
+        previous_message_state != (self.displayed, self.total, self.workers)
+    }
+
+    fn tick(&mut self) -> bool {
+        let ceiling = self.started.min(self.total.saturating_sub(1));
+        if self.displayed >= ceiling {
+            return false;
+        }
+        self.displayed += 1;
+        true
+    }
 }
 
 /// Result from the scan orchestrator (diagnostics + metadata, no score).
@@ -99,26 +164,37 @@ impl ScanOrchestrator {
         let start = Instant::now();
         tracing::debug!(passes = self.passes.len(), "starting scan passes");
 
-        // Create spinner
-        let spinner = if suppress_spinner {
-            ProgressBar::hidden()
-        } else {
+        let progress_enabled = !suppress_spinner && !self.passes.is_empty();
+        let progress = if progress_enabled {
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::default_spinner()
-                    .template("{spinner:.cyan} {msg} [{elapsed}]")
+                    .template(FILE_PROGRESS_TEMPLATE)
                     .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✓"]),
+                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
             );
             pb.set_message("Scanning...");
             pb.enable_steady_tick(Duration::from_millis(100));
             pb
+        } else {
+            ProgressBar::hidden()
         };
 
         // Run passes in parallel using std::thread::scope
-        let results = self.run_passes_parallel(project_root, control);
+        let (results, file_progress) =
+            self.run_passes_parallel(project_root, control, &progress, progress_enabled);
 
-        spinner.finish_and_clear();
+        if progress_enabled {
+            let required_pass_failed = results
+                .iter()
+                .any(|result| result.required && (result.stop.is_some() || result.result.is_err()));
+            finish_scan_progress(
+                &progress,
+                file_progress,
+                start.elapsed(),
+                !required_pass_failed,
+            );
+        }
 
         // Collect diagnostics and track failures
         let mut all_diagnostics = Vec::new();
@@ -284,8 +360,20 @@ impl ScanOrchestrator {
         clippy::needless_collect,
         reason = "handles must be collected before joining"
     )]
-    fn run_passes_parallel(&self, project_root: &Path, control: &ScanControl) -> Vec<PassResult> {
+    fn run_passes_parallel(
+        &self,
+        project_root: &Path,
+        control: &ScanControl,
+        progress: &ProgressBar,
+        progress_enabled: bool,
+    ) -> (Vec<PassResult>, Option<FileProgress>) {
         std::thread::scope(|s| {
+            let pass_names: Vec<_> = self
+                .passes
+                .iter()
+                .map(|pass| pass.name().to_string())
+                .collect();
+            let (progress_sender, progress_receiver) = std::sync::mpsc::channel();
             let handles: Vec<_> = self
                 .passes
                 .iter()
@@ -293,6 +381,7 @@ impl ScanOrchestrator {
                     let name = pass.name().to_string();
                     let required = pass.required();
                     let control = control.clone();
+                    let progress_sender = progress_sender.clone();
                     s.spawn(move || {
                         let start = Instant::now();
                         let _ = crate::process::take_process_stop();
@@ -308,7 +397,16 @@ impl ScanOrchestrator {
                                 })
                             }
                             None => crate::process::with_scan_control(control.clone(), || {
-                                pass.run(project_root)
+                                if progress_enabled {
+                                    let file_progress_sender = progress_sender.clone();
+                                    let on_file_progress: FileProgressCallback =
+                                        std::sync::Arc::new(move |update| {
+                                            let _ = file_progress_sender.send(update);
+                                        });
+                                    pass.run_with_progress(project_root, &on_file_progress)
+                                } else {
+                                    pass.run(project_root)
+                                }
                             }),
                         };
                         let stop =
@@ -318,10 +416,11 @@ impl ScanOrchestrator {
                     })
                 })
                 .collect();
+            drop(progress_sender);
 
-            let pass_names: Vec<_> = self.passes.iter().map(|p| p.name().to_string()).collect();
+            let file_progress = track_file_progress(&progress_receiver, progress);
 
-            handles
+            let results = handles
                 .into_iter()
                 .enumerate()
                 .map(|(i, h)| {
@@ -348,8 +447,121 @@ impl ScanOrchestrator {
                         }
                     }
                 })
-                .collect()
+                .collect();
+            (results, file_progress)
         })
+    }
+}
+
+fn track_file_progress(
+    progress_receiver: &std::sync::mpsc::Receiver<FileProgressUpdate>,
+    progress: &ProgressBar,
+) -> Option<FileProgress> {
+    let mut file_progress: Option<FileProgress> = None;
+    let mut next_progress_tick = Instant::now() + FILE_PROGRESS_TICK_INTERVAL;
+    loop {
+        let now = Instant::now();
+        if now >= next_progress_tick {
+            if let Some(current) = file_progress.as_mut()
+                && current.tick()
+            {
+                render_file_progress(progress, *current);
+            }
+            next_progress_tick = now + FILE_PROGRESS_TICK_INTERVAL;
+        }
+
+        let wait = next_progress_tick.saturating_duration_since(Instant::now());
+        match progress_receiver.recv_timeout(wait) {
+            Ok(update) => {
+                if let Some(current) = file_progress.as_mut() {
+                    if current.observe(update) {
+                        render_file_progress(progress, *current);
+                    }
+                } else {
+                    let current = FileProgress::from_update(update);
+                    if current.displayed > 0 {
+                        render_file_progress(progress, current);
+                    }
+                    file_progress = Some(current);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    file_progress
+}
+
+fn render_file_progress(progress: &ProgressBar, files: FileProgress) {
+    progress.set_prefix(worker_count_suffix(files.workers));
+    progress.set_message(scan_files_message(files));
+}
+
+fn scan_files_message(progress: FileProgress) -> String {
+    format!(
+        "Scanning files ({}/{})...",
+        progress.displayed, progress.total
+    )
+}
+
+fn finish_scan_progress(
+    progress: &ProgressBar,
+    file_progress: Option<FileProgress>,
+    elapsed: Duration,
+    succeeded: bool,
+) {
+    let (symbol, color, message, prefix) = if succeeded {
+        file_progress.map_or_else(
+            || {
+                (
+                    "✔",
+                    "green",
+                    format!("Scan completed in {:.1}s", elapsed.as_secs_f64()),
+                    String::new(),
+                )
+            },
+            |files| {
+                (
+                    "✔",
+                    "green",
+                    format!(
+                        "Scanned {} in {:.1}s",
+                        file_count_label(files.scanned),
+                        elapsed.as_secs_f64()
+                    ),
+                    worker_count_suffix(files.workers),
+                )
+            },
+        )
+    } else {
+        (
+            "✖",
+            "red",
+            format!("Scanning failed after {:.1}s", elapsed.as_secs_f64()),
+            String::new(),
+        )
+    };
+    progress.set_prefix(prefix);
+    let template = format!("{{spinner:.{color}}} {{msg}}{{prefix:.dim}}");
+    progress.set_style(
+        ProgressStyle::default_spinner()
+            .template(&template)
+            .unwrap_or_else(|_| ProgressStyle::default_spinner())
+            .tick_strings(&[symbol]),
+    );
+    progress.finish_with_message(message);
+}
+
+fn file_count_label(count: usize) -> String {
+    let noun = if count == 1 { "file" } else { "files" };
+    format!("{count} {noun}")
+}
+
+fn worker_count_suffix(workers: usize) -> String {
+    if workers > 1 {
+        format!(" [~{workers} workers]")
+    } else {
+        String::new()
     }
 }
 
@@ -563,6 +775,48 @@ mod tests {
             column: None,
             fix: None,
         }
+    }
+
+    #[test]
+    fn scan_progress_matches_react_doctor_file_phases() {
+        let files = FileProgress::from_update(FileProgressUpdate {
+            started: 12,
+            scanned: 12,
+            total: 86,
+            workers: 8,
+        });
+        assert_eq!(scan_files_message(files), "Scanning files (12/86)...");
+        assert_eq!(worker_count_suffix(files.workers), " [~8 workers]");
+    }
+
+    #[test]
+    fn scan_progress_creeps_toward_started_files_and_snaps_to_scanned_files() {
+        let mut files = FileProgress::from_update(FileProgressUpdate {
+            started: 8,
+            scanned: 0,
+            total: 10,
+            workers: 4,
+        });
+
+        assert!(files.tick());
+        assert_eq!(files.displayed, 1);
+
+        files.observe(FileProgressUpdate {
+            started: 8,
+            scanned: 5,
+            total: 10,
+            workers: 4,
+        });
+        assert_eq!(files.displayed, 5);
+
+        files.observe(FileProgressUpdate {
+            started: 10,
+            scanned: 10,
+            total: 10,
+            workers: 4,
+        });
+        assert_eq!(files.displayed, 10);
+        assert!(!files.tick());
     }
 
     // --- Filter tests ---
