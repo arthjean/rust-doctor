@@ -116,7 +116,7 @@ flowchart LR
 
     quality --> coverage["coverage.rs"]
     quality --> msrv["msrv.rs"]
-    quality --> machete["machete.rs"]
+    quality --> shear["shear.rs"]
     quality --> semver["semver_checks.rs"]
 
     setup --> setup_mod["mod.rs"]

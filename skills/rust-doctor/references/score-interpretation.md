@@ -10,7 +10,7 @@ rust-doctor computes a 0-100 health score using **dimension-based weighted scori
 |-----------|--------|--------------------|
 | **Security** | 2.0x | `hardcoded-secrets`, `unsafe-block-audit`, `sql-injection-risk`, clippy security lints, cargo-audit CVEs, cargo-geiger unsafe counts |
 | **Reliability** | 1.5x | `unwrap-in-production`, `panic-in-library`, `blocking-in-async`, `block-on-in-async`, `tokio-main-missing`, `tokio-spawn-without-move`, framework rules, clippy correctness lints |
-| **Maintainability** | 1.0x | `high-cyclomatic-complexity`, `box-dyn-error-in-public-api`, `result-unit-error`, clippy architecture/style lints, cargo-machete unused deps |
+| **Maintainability** | 1.0x | `high-cyclomatic-complexity`, `box-dyn-error-in-public-api`, `result-unit-error`, clippy architecture/style lints, cargo-shear unused deps |
 | **Performance** | 1.0x | `excessive-clone`, `collect-then-iterate`, `large-enum-variant`, `unnecessary-allocation`, `string-from-literal`, clippy performance lints |
 | **Dependencies** | 1.0x | cargo-audit advisories, cargo-deny findings, cargo-semver-checks violations, MSRV compliance |
 

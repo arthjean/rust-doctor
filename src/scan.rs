@@ -7,8 +7,8 @@ use crate::diagnostics::{
 use crate::discovery::ProjectInfo;
 use crate::process::{ProcessStop, ScanControl};
 use crate::{
-    audit, clippy, config, coverage, deny, diff, geiger, machete, msrv, output, rules, scanner,
-    semver_checks, suppression, workspace,
+    audit, clippy, config, coverage, deny, diff, geiger, msrv, output, rules, scanner,
+    semver_checks, shear, suppression, workspace,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -502,7 +502,7 @@ fn build_workspace_global_passes(
         if !deny::is_cargo_deny_available() {
             passes.push(optional_pass(audit::AuditPass { offline }));
         }
-        passes.push(optional_pass(machete::MachetePass));
+        passes.push(optional_pass(shear::ShearPass { offline }));
     }
     passes
 }
@@ -1757,7 +1757,7 @@ mod tests {
         assert!(
             dependency_passes
                 .iter()
-                .any(|pass| pass.name() == "dependencies (cargo-machete)")
+                .any(|pass| pass.name() == "dependencies (cargo-shear)")
         );
     }
 

@@ -52,8 +52,8 @@ const TOOLS: &[ExternalTool] = &[
         method: InstallMethod::CargoInstall,
     },
     ExternalTool {
-        name: "cargo-machete",
-        subcommand: "machete",
+        name: "cargo-shear",
+        subcommand: "shear",
         description: "Unused dependency detection",
         method: InstallMethod::CargoInstall,
     },

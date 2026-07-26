@@ -251,7 +251,7 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
                     progress: 1.0,
                     total: Some(2.0),
                     message: Some(
-                        "Running analysis passes (clippy, rules, audit, machete)...".to_string(),
+                        "Running analysis passes (clippy, rules, audit, shear)...".to_string(),
                     ),
                 })
                 .await;
@@ -261,7 +261,7 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
                 level: LoggingLevel::Info,
                 logger: Some("rust-doctor".into()),
                 data: serde_json::json!(
-                    "Running 4 analysis passes (clippy, AST rules, cargo-audit, cargo-machete)..."
+                    "Running 4 analysis passes (clippy, AST rules, cargo-audit, cargo-shear)..."
                 ),
             })
             .await;

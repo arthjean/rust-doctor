@@ -121,9 +121,9 @@ pub(crate) mod workspace;
 
 // Re-export pass modules at crate root so existing `use crate::audit` etc. still work.
 pub(crate) use passes::quality::coverage;
-pub(crate) use passes::quality::machete;
 pub(crate) use passes::quality::msrv;
 pub(crate) use passes::quality::semver_checks;
+pub(crate) use passes::quality::shear;
 pub(crate) use passes::security::audit;
 pub(crate) use passes::security::deny;
 pub(crate) use passes::security::geiger;

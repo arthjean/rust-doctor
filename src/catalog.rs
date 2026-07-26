@@ -431,7 +431,7 @@ fn external_descriptors() -> Vec<RuleDescriptor> {
         ),
         (
             "unused-dependency",
-            "cargo-machete",
+            "cargo-shear",
             Category::Dependencies,
             Severity::Warning,
             AnalyzerKind::Dependency,

@@ -266,7 +266,7 @@ Unlisted lints inherit clippy's default severity and map to the Style category.
 |------|---------------|---------|
 | cargo-audit | CVEs in dependencies (RustSec Advisory DB) | `cargo install cargo-audit` |
 | cargo-deny | License compliance, duplicate crates, advisory DB, banned crates | `cargo install cargo-deny` |
-| cargo-machete | Unused dependencies in Cargo.toml | `cargo install cargo-machete` |
+| cargo-shear | Unused dependencies in Cargo.toml | `cargo install cargo-shear` |
 | cargo-geiger | Unsafe code usage across dependency graph | `cargo install cargo-geiger` |
 | cargo-semver-checks | Semver violations between releases | `cargo install cargo-semver-checks` |
 | coverage | Test coverage analysis | (built-in) |

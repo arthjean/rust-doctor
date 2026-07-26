@@ -37,7 +37,7 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 | You're using | It gives you | rust-doctor adds |
 |---|---|---|
 | `cargo clippy` | 700+ built-in lints | Category + severity mapping, 34 custom AST rules (security, async, framework, architecture), and a single 0–100 score |
-| `cargo audit` / `cargo deny` | CVE and supply-chain checks | `cargo-deny` as the primary adapter, `cargo-audit` as its fallback, plus geiger and machete |
+| `cargo audit` / `cargo deny` | CVE and supply-chain checks | `cargo-deny` as the primary adapter, `cargo-audit` as its fallback, plus geiger and cargo-shear |
 | Separate CI steps | Each tool's own output | Report V1, `--sarif`, scoped and baseline scans, completeness gates, and stable PR reporting |
 | Coding agents and editors | Code generation and inline diagnostics | MCP, skills, and handoffs for agents; one LSP contract for VS Code, Cursor, and Zed |
 
@@ -590,7 +590,7 @@ These tools are optional: rust-doctor records unavailable adapters as explicit s
 | cargo-deny | `cargo install cargo-deny` | Primary supply-chain adapter (advisories, licenses, bans) |
 | cargo-audit | `cargo install cargo-audit` | Advisory fallback when cargo-deny is unavailable |
 | cargo-geiger | `cargo install cargo-geiger` | Unsafe code auditing across dependency tree |
-| cargo-machete | `cargo install cargo-machete` | Unused dependency detection |
+| cargo-shear | `cargo install cargo-shear` | Unused dependency detection |
 | cargo-semver-checks | `cargo install cargo-semver-checks` | Semver violation detection |
 
 ## Library Usage

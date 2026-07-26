@@ -16,7 +16,7 @@ Rust Doctor has two different scope questions. Execution scope describes the wor
 | Clippy | Package-global | Full affected Cargo package, optionally selected with `-p` | Cargo may resolve dependencies unless offline |
 | MSRV | Package-global | Owning package manifest plus local `rustc --version` | None |
 | Coverage | Package-global | Existing coverage artifacts for the owning package | None |
-| cargo-machete | Workspace-global | Full selected Cargo graph | None after Cargo metadata is available |
+| cargo-shear | Workspace-global | Full selected Cargo graph | None after Cargo metadata is available |
 | cargo-geiger | Package-global | Full affected package and dependency graph | Cargo may resolve dependencies unless offline |
 | cargo-deny | Workspace-global | Lockfile and manifests for the selected workspace | Advisory and index access unless offline |
 | cargo-audit fallback | Workspace-global | Workspace lockfile | Advisory database access unless offline |
