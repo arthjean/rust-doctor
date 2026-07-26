@@ -544,7 +544,7 @@ rust-doctor telemetry enable --endpoint https://telemetry.example.com --yes
 rust-doctor telemetry disable
 ```
 
-`--no-telemetry`, `RUST_DOCTOR_TELEMETRY=0`, and `--offline` override stored consent. `--share` constructs a versioned URL locally from a bounded aggregate summary. It uploads no report or diagnostic data and includes no repository identity.
+`--no-telemetry`, `RUST_DOCTOR_TELEMETRY=0`, and `--offline` override stored consent. `--share` constructs a short URL locally from five bounded aggregates: the score (`s`), the error, warning, and info counts (`e`, `w`, `i`), and the analyzed file count (`f`). It uploads no report or diagnostic data and includes no repository identity.
 
 ## Inline Suppression
 
