@@ -372,7 +372,7 @@ pub fn resolve_config(cli: &Cli, file_config: Option<&FileConfig>) -> ResolvedCo
         .blocking
         .or(cli.fail_on)
         .or_else(|| fc.fail_on.map(FailOn::from))
-        .unwrap_or(FailOn::None);
+        .unwrap_or(FailOn::Error);
 
     ResolvedConfig {
         ignore_rules: fc.ignore.rules,
@@ -1166,7 +1166,7 @@ mod tests {
         assert!(resolved.lint);
         assert!(resolved.dependencies);
         assert_eq!(resolved.diff, None);
-        assert_eq!(resolved.fail_on, FailOn::None);
+        assert_eq!(resolved.fail_on, FailOn::Error);
         assert!(resolved.ignore_rules.is_empty());
         assert!(resolved.ignore_files.is_empty());
         assert_eq!(resolved.adapter_policy, AdapterPolicy::default());
@@ -1260,6 +1260,17 @@ mod tests {
         };
         let resolved = resolve_config(&cli, Some(&fc));
         assert_eq!(resolved.fail_on, FailOn::Warning);
+    }
+
+    #[test]
+    fn test_config_can_disable_default_findings_gate() {
+        let cli = cli_from(&["rust-doctor"]);
+        let fc = FileConfig {
+            fail_on: Some(BlockingLevel::None),
+            ..Default::default()
+        };
+        let resolved = resolve_config(&cli, Some(&fc));
+        assert_eq!(resolved.fail_on, FailOn::None);
     }
 
     #[test]

@@ -17,7 +17,7 @@ status_state() {
     printf 'error'
   elif [[ "$EXIT_CODE" == 0 ]]; then
     printf 'success'
-  elif [[ "$EXIT_CODE" == 3 ]]; then
+  elif [[ -s "${REPORT_FILE:-}" ]] && jq -e '.gate_result == "failed"' "$REPORT_FILE" >/dev/null 2>&1; then
     printf 'failure'
   else
     printf 'error'

@@ -4,8 +4,7 @@ use std::path::PathBuf;
 
 /// Exit-code reference shown after `--help` (clap `after_help`).
 ///
-/// Mirrors the exit constants in `run.rs` and the README so CI authors can
-/// distinguish setup, scan, quality-gate, and incomplete-analysis failures.
+/// Mirrors the React Doctor-compatible exit constants in `run.rs` and the README.
 const EXIT_CODES_HELP: &str = "\
 Examples:
   rust-doctor . --scope changed --base main --blocking warning
@@ -21,22 +20,20 @@ Output contract:
   --output-dir writes bounded diagnostic handoff files without changing stdout.
   --score, --sarif, --json, and --json-compact are mutually exclusive.
   --json-out may pair with --json or --json-compact, but not --score or --sarif.
-  --share prints one stateless public URL after the terminal report.
+  Online terminal reports include a stateless sharing URL; --share requests it explicitly.
   --color and --no-color affect terminal output only and conflict when explicit.
 
 Exit codes:
-  0  Success: scan completed and all quality gates passed
-  1  Setup error: installer, MCP server, or --install-deps failed
-  2  Scan error: project discovery, analysis, or output failed
-  3  Quality gate failed: score or --blocking threshold reached
-  4  Required analysis incomplete when --require-complete is active
+  0    Success: scan completed, no blocking finding, or --blocking none
+  1    Invalid input, scan/setup failure, incomplete analysis, or blocking finding
+  130  Interrupted by Ctrl-C on POSIX
 
 Normative exit truth table (all output modes):
-  Report unavailable or invalid arguments                         2
-  Report incomplete and --require-complete                        4
-  Report complete, or incompleteness allowed, but gate blocks     3
+  Report unavailable, invalid, or required analysis incomplete    1
+  Report complete, but the effective finding/score gate blocks    1
   Report complete, or incompleteness allowed, and gate passes     0
-  Installer, MCP startup, or dependency-installation failure      1";
+  Installer, MCP startup, or dependency-installation failure      1
+  SIGINT interruption on POSIX                                   130";
 
 /// Diagnose your Rust project's health with a single command.
 ///
@@ -58,6 +55,10 @@ pub struct Cli {
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
     pub directory: PathBuf,
+
+    /// Accept defaults and skip interactive prompts
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 
     /// Show detailed file:line information per diagnostic
     #[arg(long, short = 'v')]
@@ -159,7 +160,7 @@ pub struct Cli {
     #[arg(long)]
     pub require_complete: bool,
 
-    /// Fail the quality gate (exit code 3) when this severity is reached
+    /// Fail the quality gate (exit code 1) when this severity is reached
     #[arg(long, value_enum, conflicts_with = "fail_on")]
     pub blocking: Option<FailOn>,
 
@@ -425,11 +426,11 @@ pub enum ColorMode {
 /// When to exit with a non-zero status code
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailOn {
-    /// Exit 3 if any errors found
+    /// Exit 1 if any errors are found
     Error,
-    /// Exit 3 if any errors or warnings found
+    /// Exit 1 if any errors or warnings are found
     Warning,
-    /// Exit 3 if any errors, warnings, or info findings found
+    /// Exit 1 if any errors, warnings, or info findings are found
     Info,
     /// Always exit 0 (unless rust-doctor itself crashes)
     None,
@@ -853,20 +854,21 @@ mod tests {
 
     #[test]
     fn test_help_documents_exit_codes() {
-        // US-010: `--help` must carry the exit-code reference so CI authors can
-        // tell a quality-gate failure (3) from a crash (2) or setup error (1).
         let help = Cli::command().render_long_help().to_string();
         assert!(
             help.contains("Exit codes:"),
             "help is missing the exit-code section:\n{help}"
         );
-        assert!(help.contains("Quality gate failed"));
+        assert!(help.contains("blocking finding"));
         assert!(help.contains("Examples:"));
-        for code in ["  0 ", "  1 ", "  2 ", "  3 ", "  4 "] {
+        for code in ["  0 ", "  1 ", "  130 "] {
             assert!(
                 help.contains(code),
                 "help is missing exit code line `{code}`"
             );
+        }
+        for removed_code in ["  2 ", "  3 ", "  4 "] {
+            assert!(!help.contains(removed_code));
         }
     }
 
@@ -910,6 +912,14 @@ mod tests {
     fn test_verbose_flag() {
         let cli = Cli::try_parse_from(["rust-doctor", "--verbose"]).unwrap();
         assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_yes_flag() {
+        let cli = Cli::try_parse_from(["rust-doctor", "--yes"]).unwrap();
+        assert!(cli.yes);
+        let short = Cli::try_parse_from(["rust-doctor", "-y"]).unwrap();
+        assert!(short.yes);
     }
 
     #[test]

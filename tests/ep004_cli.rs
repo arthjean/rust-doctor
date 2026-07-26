@@ -84,7 +84,7 @@ fn explicit_output_directory_writes_bounded_handoff_without_prompting() {
             "--output-dir",
         ])
         .arg(&output_dir)
-        .args(["--handoff", "none", "--no-color"])
+        .args(["--handoff", "none", "--blocking", "none", "--no-color"])
         .output()
         .unwrap();
     assert!(
@@ -120,4 +120,45 @@ fn closed_stdout_pipe_terminates_without_a_crash_exit() {
         .unwrap();
     drop(child.stdout.take());
     assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn scan_exit_codes_follow_the_react_doctor_contract() {
+    let directory = project();
+    let scan = |extra: &[&str]| {
+        Command::new(binary())
+            .arg(directory.path())
+            .args([
+                "--offline",
+                "--disable-adapter",
+                "compiler-lint,supply-chain,quality,network-dependent",
+                "--no-color",
+            ])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+
+    let blocked = scan(&[]);
+    assert_eq!(blocked.status.code(), Some(1));
+
+    let advisory = scan(&["--blocking", "none"]);
+    assert!(advisory.status.success());
+
+    let score = scan(&["--score"]);
+    assert!(score.status.success());
+    assert!(
+        String::from_utf8(score.stdout)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .is_ok()
+    );
+
+    let unknown_flag = scan(&["--not-a-real-option", "--blocking", "none"]);
+    assert!(
+        unknown_flag.status.success(),
+        "React Doctor-compatible parsing should ignore unknown flags: {}",
+        String::from_utf8_lossy(&unknown_flag.stderr)
+    );
 }

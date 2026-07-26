@@ -506,6 +506,7 @@ fn sticky_summary_updates_after_an_independent_status_permission_failure() {
         serde_json::to_vec(&serde_json::json!({
             "report_constructed": true,
             "outcome": "findings",
+            "gate_result": "failed",
             "mode": "baseline",
             "baseline": {"new_count": 2, "fixed_count": 1},
             "completeness": {"state": "complete"},
@@ -570,7 +571,7 @@ exit 1
         .env("SERVER_URL", "https://github.com")
         .env("RUN_ID", "1")
         .env("RUN_ATTEMPT", "1")
-        .env("EXIT_CODE", "3")
+        .env("EXIT_CODE", "1")
         .env("SKIP_SCAN", "false")
         .env("RUNNER_TEMP", root)
         .status()

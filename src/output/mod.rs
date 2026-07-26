@@ -4,7 +4,7 @@ mod terminal;
 pub use score::calculate_score;
 pub(crate) use score::calculate_score_for_categories;
 pub use terminal::render_terminal;
-pub(crate) use terminal::render_terminal_for_categories;
+pub(crate) use terminal::{render_terminal_for_categories, render_welcome};
 
 use crate::diagnostics::{ReportV1, ScanResult};
 use owo_colors::{OwoColorize, Stream};

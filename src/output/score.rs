@@ -1,4 +1,6 @@
-use crate::diagnostics::{Category, Diagnostic, DimensionScores, ScoreLabel, Severity};
+use crate::diagnostics::{
+    CanonicalDiagnostic, Category, Diagnostic, DimensionScores, ScoreLabel, Severity,
+};
 use std::collections::{HashMap, HashSet};
 
 // --- Score constants ---
@@ -75,25 +77,57 @@ pub fn calculate_score_for_categories(
     diagnostics: &[Diagnostic],
     selected_categories: &[Category],
 ) -> (u32, ScoreLabel, DimensionScores) {
+    calculate_score_entries(
+        diagnostics.iter().map(|diagnostic| {
+            (
+                &diagnostic.category,
+                diagnostic.severity,
+                diagnostic.rule.as_str(),
+            )
+        }),
+        selected_categories,
+    )
+}
+
+pub(super) fn calculate_score_for_canonical<'a>(
+    diagnostics: impl IntoIterator<Item = &'a CanonicalDiagnostic>,
+    selected_categories: &[Category],
+) -> (u32, ScoreLabel, DimensionScores) {
+    calculate_score_entries(
+        diagnostics.into_iter().map(|diagnostic| {
+            (
+                &diagnostic.category,
+                diagnostic.severity,
+                diagnostic.rule.as_str(),
+            )
+        }),
+        selected_categories,
+    )
+}
+
+fn calculate_score_entries<'a>(
+    diagnostics: impl IntoIterator<Item = (&'a Category, Severity, &'a str)>,
+    selected_categories: &[Category],
+) -> (u32, ScoreLabel, DimensionScores) {
     // Collect unique rules per (dimension, severity).
     let mut dim_errors: HashMap<Dimension, HashSet<&str>> = HashMap::new();
     let mut dim_warnings: HashMap<Dimension, HashSet<&str>> = HashMap::new();
     let mut dim_infos: HashMap<Dimension, HashSet<&str>> = HashMap::new();
 
-    for d in diagnostics {
-        if !selected_categories.is_empty() && !selected_categories.contains(&d.category) {
+    for (category, severity, rule) in diagnostics {
+        if !selected_categories.is_empty() && !selected_categories.contains(category) {
             continue;
         }
-        let dim = category_dimension(&d.category);
-        match d.severity {
+        let dim = category_dimension(category);
+        match severity {
             Severity::Error => {
-                dim_errors.entry(dim).or_default().insert(d.rule.as_str());
+                dim_errors.entry(dim).or_default().insert(rule);
             }
             Severity::Warning => {
-                dim_warnings.entry(dim).or_default().insert(d.rule.as_str());
+                dim_warnings.entry(dim).or_default().insert(rule);
             }
             Severity::Info => {
-                dim_infos.entry(dim).or_default().insert(d.rule.as_str());
+                dim_infos.entry(dim).or_default().insert(rule);
             }
         }
     }

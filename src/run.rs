@@ -4,21 +4,29 @@
 //! output rendering, and quality gate checks.
 
 use std::borrow::Cow;
-use std::io::IsTerminal;
+use std::fmt::Write as _;
+use std::io::{IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use crate::cli::{Cli, ColorMode, FailOn, ScanCategory, Scope, WarningVisibility};
+use dialoguer::Select;
+use dialoguer::theme::ColorfulTheme;
+use sha2::{Digest, Sha256};
 
-/// Exit code for scan errors (project doesn't compile, discovery fails).
-pub const EXIT_SCAN_ERROR: u8 = 2;
-/// Exit code for quality gate failures (score below threshold, --fail-on).
-pub const EXIT_GATE_FAILURE: u8 = 3;
-/// Exit code for incomplete required analysis.
-pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 4;
+use crate::cli::{
+    CiInstallArgs, CiProvider, CiScope, Cli, ColorMode, FailOn, ScanCategory, Scope,
+    WarningVisibility,
+};
+
+/// Unified React Doctor-compatible failure code.
+pub const EXIT_SCAN_ERROR: u8 = 1;
+/// Unified React Doctor-compatible quality-gate code.
+pub const EXIT_GATE_FAILURE: u8 = 1;
+/// Unified React Doctor-compatible incomplete-analysis code.
+pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 1;
 use crate::diagnostics::{
     BaselineReport, Category, CheckState, CheckStatus, CompletenessState, GateResult, ReportV1,
     ScanMode, ScanResult,
@@ -36,6 +44,67 @@ pub fn configure_color(cli: &Cli) {
         ColorMode::Always => owo_colors::set_override(true),
         ColorMode::Never => owo_colors::set_override(false),
     }
+}
+
+/// Render the normal scan header without contaminating machine-readable modes.
+pub fn render_scan_welcome(cli: &Cli) -> std::io::Result<()> {
+    if cli.score || cli.wants_json() || cli.sarif {
+        return Ok(());
+    }
+    output::render_welcome(is_interactive_terminal(cli) && !cli.verbose)
+}
+
+/// Terminal capability policy shared by animation, spinners, and static output.
+pub fn is_interactive_terminal(cli: &Cli) -> bool {
+    std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && std::io::stderr().is_terminal()
+        && !cli.score
+        && !cli.wants_json()
+        && !cli.sarif
+        && std::env::var_os("TERM").is_none_or(|value| value != "dumb")
+        && !is_non_interactive_environment()
+}
+
+fn interactive_prompts_allowed(cli: &Cli) -> bool {
+    !cli.yes && is_interactive_terminal(cli)
+}
+
+fn is_non_interactive_environment() -> bool {
+    const MARKERS: [&str; 27] = [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "JENKINS_URL",
+        "TF_BUILD",
+        "CODEBUILD_BUILD_ID",
+        "TEAMCITY_VERSION",
+        "BITBUCKET_BUILD_NUMBER",
+        "CIRCLECI",
+        "TRAVIS",
+        "DRONE",
+        "GIT_DIR",
+        "CLAUDECODE",
+        "CLAUDE_CODE",
+        "CURSOR_AGENT",
+        "CODEX_CI",
+        "CODEX_SANDBOX",
+        "CODEX_SANDBOX_NETWORK_DISABLED",
+        "OPENCODE",
+        "GOOSE_TERMINAL",
+        "AMP_THREAD_ID",
+        "CLINE_ACTIVE",
+        "AUGMENT_AGENT",
+        "TRAE_AI_SHELL_ID",
+        "AGENT_SESSION_ID",
+        "AGENT_THREAD_ID",
+    ];
+    MARKERS
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        || std::env::var("AGENT")
+            .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "amp" | "goose"))
 }
 
 /// Install an opt-in, privacy-scrubbed crash hook for the selected surface.
@@ -198,7 +267,8 @@ pub(crate) fn run_scan_cancellable(
     resolved: &config::ResolvedConfig,
     cancel: &Arc<AtomicBool>,
 ) -> Result<ScanResult, crate::error::ScanError> {
-    let suppress_spinner = cli.score || cli.wants_json() || cli.sarif;
+    let suppress_spinner =
+        cli.score || cli.wants_json() || cli.sarif || !is_interactive_terminal(cli);
     if cli.fail_on.is_some() {
         eprintln!("Warning: --fail-on is deprecated; use --blocking");
     }
@@ -1024,6 +1094,9 @@ pub fn emit_output(
             resolved.verbose,
             cli.warnings != WarningVisibility::Hide,
             &cli.category,
+            !cli.share && !effective_offline(cli, resolved) && !is_non_interactive_environment(),
+            !is_interactive_terminal(cli),
+            is_non_interactive_environment(),
         );
     }
     Ok(report)
@@ -1034,11 +1107,7 @@ pub fn emit_output(
 /// Failure is returned as a secondary warning so callers can preserve the
 /// already-computed report and quality-gate result.
 pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
-    let interactive = std::io::stdin().is_terminal()
-        && std::io::stderr().is_terminal()
-        && !cli.score
-        && !cli.wants_json()
-        && !cli.sarif;
+    let interactive = interactive_prompts_allowed(cli);
     if cli.output_dir.is_none()
         && cli.handoff.is_none()
         && !cli.reset_handoff_target
@@ -1064,6 +1133,151 @@ pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Offer the same one-time post-scan GitHub Actions setup used by React Doctor.
+///
+/// The decision store contains only a SHA-256 project key and the answer. It
+/// never persists the repository name or path.
+pub fn offer_ci_setup(
+    cli: &Cli,
+    report: &ReportV1,
+    project_info: &discovery::ProjectInfo,
+) -> Result<(), crate::error::CiSetupPromptError> {
+    if !interactive_prompts_allowed(cli) || report.diagnostics.is_empty() {
+        return Ok(());
+    }
+    let Some(root) = nearest_git_root(&project_info.root_dir) else {
+        return Ok(());
+    };
+    if root.join(".github/workflows/rust-doctor.yml").is_file() || ci_prompt_was_handled(&root)? {
+        return Ok(());
+    }
+
+    eprintln!();
+    loop {
+        let choices = ["Yes - Adds the workflow file", "Learn more", "No"];
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(
+                "Add Rust Doctor to GitHub Actions?\n  Scan every pull request to prevent new Rust issues while you fix the backlog.\n  Uses the managed, least-privilege Rust Doctor workflow.",
+            )
+            .items(&choices)
+            .default(0)
+            .interact_opt()
+            ?;
+        match selection {
+            None => {
+                eprintln!("Cancelled.");
+                return Ok(());
+            }
+            Some(0) => {
+                record_ci_prompt_decision(&root, "accepted")?;
+                let message = crate::workflows::ci::install(&CiInstallArgs {
+                    directory: root,
+                    provider: CiProvider::Github,
+                    scope: CiScope::Baseline,
+                    blocking: FailOn::None,
+                    comment: true,
+                    review_comments: false,
+                    commit_status: true,
+                    sarif: true,
+                    version: "v1".to_string(),
+                    dry_run: false,
+                    pr: false,
+                    issue: None,
+                })
+                .map_err(|error| crate::error::CiSetupPromptError::Install(error.to_string()))?;
+                eprintln!("{message}");
+                return Ok(());
+            }
+            Some(1) => {
+                eprintln!("Visit https://rust-doctor.vercel.app to learn more.\n");
+            }
+            Some(_) => {
+                record_ci_prompt_decision(&root, "declined")?;
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn nearest_git_root(path: &Path) -> Option<PathBuf> {
+    let canonical = path.canonicalize().ok()?;
+    canonical
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+fn ci_prompt_was_handled(root: &Path) -> Result<bool, crate::error::CiSetupPromptError> {
+    let path = ci_prompt_decision_path(root)?;
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Ok(true),
+        Ok(_) => Err(crate::error::CiSetupPromptError::Io {
+            path,
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "path is not a regular file",
+            ),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(crate::error::CiSetupPromptError::Io { path, source }),
+    }
+}
+
+fn record_ci_prompt_decision(
+    root: &Path,
+    decision: &str,
+) -> Result<(), crate::error::CiSetupPromptError> {
+    let path = ci_prompt_decision_path(root)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "CI prompt state path has no parent",
+            ),
+        })?;
+    std::fs::create_dir_all(parent).map_err(|source| crate::error::CiSetupPromptError::Io {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|source| {
+        crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source,
+        }
+    })?;
+    writeln!(temporary, "{decision}")
+        .and_then(|()| temporary.as_file_mut().sync_all())
+        .map_err(|source| crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source,
+        })?;
+    temporary
+        .persist(&path)
+        .map_err(|error| crate::error::CiSetupPromptError::Io {
+            path,
+            source: error.error,
+        })?;
+    Ok(())
+}
+
+fn ci_prompt_decision_path(root: &Path) -> Result<PathBuf, crate::error::CiSetupPromptError> {
+    let config_root = crate::telemetry::config_root()
+        .map_err(|_| crate::error::CiSetupPromptError::StateDirectoryUnavailable)?;
+    Ok(config_root.join("ci-prompts").join(ci_prompt_key(root)))
+}
+
+fn ci_prompt_key(root: &Path) -> String {
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    let mut key = String::with_capacity(32);
+    for byte in digest.iter().take(16) {
+        let _ = write!(key, "{byte:02x}");
+    }
+    key
 }
 
 /// Emit a schema-valid failed Report V1 for expected bootstrap or scan errors.
@@ -1144,7 +1358,7 @@ fn evaluate_gate_result(
 ) -> GateResult {
     let configured = cli.require_complete
         || resolved.score_fail_below.is_some()
-        || resolved.fail_on != FailOn::None;
+        || (!cli.score && resolved.fail_on != FailOn::None);
     if !configured {
         return GateResult::NotEvaluated;
     }
@@ -1153,8 +1367,8 @@ fn evaluate_gate_result(
     let score_failed = resolved
         .score_fail_below
         .is_some_and(|threshold| scan_result.score < threshold);
-    let findings_failed =
-        check_fail_on_gate_for_config(scan_result, resolved, resolved.fail_on).is_some();
+    let findings_failed = !cli.score
+        && check_fail_on_gate_for_config(scan_result, resolved, resolved.fail_on).is_some();
     if incomplete || score_failed || findings_failed {
         GateResult::Failed
     } else {
@@ -1233,6 +1447,14 @@ pub fn check_fail_on_gate_for_config(
     resolved: &config::ResolvedConfig,
     fail_on: FailOn,
 ) -> Option<ExitCode> {
+    if scan_result
+        .execution
+        .baseline
+        .as_ref()
+        .is_some_and(|baseline| baseline.baseline_degraded)
+    {
+        return None;
+    }
     let Ok(catalog) = crate::catalog::built_in_catalog() else {
         return check_fail_on_gate(scan_result, fail_on);
     };
@@ -1359,6 +1581,26 @@ mod tests {
     }
 
     #[test]
+    fn degraded_baseline_does_not_fail_on_findings() {
+        let mut result = make_scan_result(50, 1, 0, 0);
+        result.execution.baseline = Some(BaselineReport {
+            requested_base: "main".to_string(),
+            resolved_base: None,
+            base_commit: String::new(),
+            head_config_fingerprint: String::new(),
+            base_config_fingerprint: None,
+            new_count: 1,
+            fixed_count: 0,
+            base_total: 0,
+            cross_file_match_count: 0,
+            baseline_degraded: true,
+            degraded_reason: Some("base unavailable".to_string()),
+        });
+        let resolved = config::resolve_config_defaults(None);
+        assert!(check_fail_on_gate_for_config(&result, &resolved, FailOn::Error).is_none());
+    }
+
+    #[test]
     fn test_require_complete_fails_for_a_timed_out_required_check() {
         let mut result = make_scan_result(100, 0, 0, 0);
         result.execution.checks.push(CheckState {
@@ -1369,5 +1611,15 @@ mod tests {
         });
         assert!(check_completeness_gate(&result, true).is_some());
         assert!(check_completeness_gate(&result, false).is_none());
+    }
+
+    #[test]
+    fn ci_prompt_key_is_stable_and_path_free() {
+        let root = Path::new("/private/project");
+        let key = ci_prompt_key(root);
+        assert_eq!(key.len(), 32);
+        assert!(key.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert!(!key.contains("private"));
+        assert_eq!(key, ci_prompt_key(root));
     }
 }

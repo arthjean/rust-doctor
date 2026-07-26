@@ -9,7 +9,7 @@ mod transport;
 
 use crate::diagnostics::ReportV1;
 use model::{AggregateEvent, InvocationSurface};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) use transport::validate_endpoint;
 
@@ -35,6 +35,19 @@ pub(crate) enum TelemetryError {
     InvalidEndpoint(String),
     #[error("telemetry consent prompt failed: {0}")]
     Prompt(#[source] dialoguer::Error),
+}
+
+pub(crate) fn config_root() -> Result<PathBuf, TelemetryError> {
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(path).join("rust-doctor"));
+    }
+    if let Some(path) = std::env::var_os("APPDATA") {
+        return Ok(PathBuf::from(path).join("rust-doctor"));
+    }
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| PathBuf::from(home).join(".config/rust-doctor"))
+        .ok_or(TelemetryError::ConfigHome)
 }
 
 pub(crate) fn enable(endpoint: &str) -> Result<(), TelemetryError> {

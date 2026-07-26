@@ -1,18 +1,129 @@
 use crate::cli::ScanCategory;
 use crate::diagnostics::{
-    CanonicalDiagnostic, DiagnosticLocation, DimensionScores, ReportV1, Severity,
+    CanonicalDiagnostic, Category, DiagnosticLocation, ReportOutcome, ReportV1, Severity,
 };
 use owo_colors::{OwoColorize, Stream};
-use std::collections::HashMap;
-use unicode_width::UnicodeWidthStr;
+use std::collections::HashSet;
+use std::fmt::Write as _;
+use std::io::{IsTerminal, Write as _};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::score::{SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD};
+use super::score::{SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD, calculate_score_for_canonical};
 
-const SCORE_BAR_WIDTH: usize = 40;
+const TOP_ERRORS_DISPLAY_COUNT: usize = 3;
+const SCORE_BAR_WIDTH: usize = 50;
+const OUTPUT_MEASURE_WIDTH: usize = 60;
+const CODE_FRAME_LINES_ABOVE: u32 = 1;
+const CODE_FRAME_LINES_BELOW: u32 = 1;
+const CODE_FRAME_MAX_LINE_LENGTH: usize = 200;
+const CODE_FRAME_CLUSTER_REACH: u32 = 3;
+const CODE_FRAME_MAX_SPAN: u32 = 20;
+const BRAND_URL: &str = "https://rust-doctor.vercel.app";
+const DOCS_URL: &str = "https://rust-doctor.vercel.app";
+const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
+const VERBOSE_COMMAND: &str = "npx rust-doctor@latest --verbose";
 
-/// Short caption framing the aggregate score as a direction, not a precise
-/// grade (US-012). The per-dimension scores below tell you *where* to act.
-const COMPASS_CAPTION: &str = "compass, not thermometer — see per-dimension scores";
+const DISPLAY_CATEGORIES: [&str; 5] = [
+    "Security",
+    "Bugs",
+    "Performance",
+    "Dependencies",
+    "Maintainability",
+];
+
+const WELCOME_TYPEWRITER_DELAY: Duration = Duration::from_millis(16);
+const WELCOME_INTER_LINE_DELAY: Duration = Duration::from_millis(250);
+const WELCOME_HOLD_DELAY: Duration = Duration::from_secs(1);
+
+/// Render the temporary welcome scene on an interactive terminal, or the
+/// static branded header used by pipes, CI, verbose output, and agent shells.
+#[allow(
+    clippy::redundant_pub_crate,
+    reason = "the private terminal module exposes this only through a crate-private re-export"
+)]
+pub(crate) fn render_welcome(animate: bool) -> std::io::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    if !animate {
+        writeln!(stdout, "Rust Doctor v{}", env!("CARGO_PKG_VERSION"))?;
+        writeln!(stdout)?;
+        return stdout.flush();
+    }
+
+    let face = ["┌─────┐", "│ ◠ ◠ │", "│  ▽  │", "└─────┘"].map(stdout_success);
+    writeln!(stdout)?;
+    for line in &face {
+        writeln!(stdout, "  {line}")?;
+    }
+    write!(stdout, "\x1b[3A")?;
+    stdout.flush()?;
+
+    let available = welcome_text_width();
+    let greeting = clamp_text("Welcome to Rust Doctor", available);
+    type_welcome_line(
+        &mut stdout,
+        &format!("  {}  ", face[1]),
+        &greeting,
+        stdout_bold,
+    )?;
+    std::thread::sleep(WELCOME_INTER_LINE_DELAY);
+    write!(stdout, "\x1b[1B")?;
+    let tagline = clamp_text(
+        "I diagnose your Rust code for bugs, security & performance.",
+        available,
+    );
+    type_welcome_line(
+        &mut stdout,
+        &format!("  {}  ", face[2]),
+        &tagline,
+        stdout_dim,
+    )?;
+    std::thread::sleep(WELCOME_HOLD_DELAY);
+    write!(stdout, "\x1b[3A\r\x1b[0J")?;
+    stdout.flush()
+}
+
+fn type_welcome_line(
+    stdout: &mut impl std::io::Write,
+    prefix: &str,
+    text: &str,
+    style: fn(&str) -> String,
+) -> std::io::Result<()> {
+    let characters: Vec<_> = text.chars().collect();
+    for length in 1..=characters.len() {
+        let fragment: String = characters[..length].iter().collect();
+        write!(stdout, "\r{prefix}{}\x1b[K", style(&fragment))?;
+        stdout.flush()?;
+        std::thread::sleep(WELCOME_TYPEWRITER_DELAY);
+    }
+    Ok(())
+}
+
+fn welcome_text_width() -> usize {
+    const PREFIX_WIDTH: usize = 11;
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map_or(usize::MAX, |columns| {
+            columns.saturating_sub(PREFIX_WIDTH + 1)
+        })
+}
+
+fn clamp_text(text: &str, max_width: usize) -> String {
+    if text.width() <= max_width {
+        return text.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    if max_width == 1 {
+        return "…".to_string();
+    }
+    let mut result = take_width(text, max_width - 1).trim_end().to_string();
+    result.push('…');
+    result
+}
 
 /// Render full scan results to stdout/stderr.
 pub fn render_terminal(
@@ -21,20 +132,183 @@ pub fn render_terminal(
     verbose: bool,
     show_warnings: bool,
 ) {
-    render_terminal_for_categories(result, pass_timings, verbose, show_warnings, &[]);
+    render_terminal_for_categories(
+        result,
+        pass_timings,
+        verbose,
+        show_warnings,
+        &[],
+        true,
+        false,
+        false,
+    );
 }
 
-/// Render full scan results with a category-scoped score card.
-pub fn render_terminal_for_categories(
+/// Render full scan results using the React Doctor terminal contract.
+///
+/// Finding detail remains on stderr and the score/footer remain on stdout,
+/// preserving Rust Doctor's piping contract.
+#[allow(
+    clippy::fn_params_excessive_bools,
+    clippy::redundant_pub_crate,
+    clippy::too_many_arguments,
+    reason = "the existing renderer seam receives resolved CLI policy without changing its crate-private visibility"
+)]
+pub(crate) fn render_terminal_for_categories(
     result: &ReportV1,
     pass_timings: &[(String, std::time::Duration)],
     verbose: bool,
     show_warnings: bool,
     selected_categories: &[ScanCategory],
+    show_default_share: bool,
+    render_static_scan_summary: bool,
+    show_agent_guidance: bool,
 ) {
+    let rendered = build_terminal_output(
+        result,
+        RenderOptions {
+            verbose,
+            show_warnings,
+            selected_categories,
+            show_default_share,
+            render_static_scan_summary,
+            show_agent_guidance,
+        },
+    );
+
+    if !rendered.stderr.is_empty() {
+        eprint!("{}", rendered.stderr);
+        let _ = std::io::stderr().flush();
+    }
+    if !rendered.stdout.is_empty() {
+        print!("{}", rendered.stdout);
+        let _ = std::io::stdout().flush();
+    }
+    if verbose && !pass_timings.is_empty() {
+        print_pass_timings(pass_timings);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RenderOptions<'a> {
+    verbose: bool,
+    show_warnings: bool,
+    selected_categories: &'a [ScanCategory],
+    show_default_share: bool,
+    render_static_scan_summary: bool,
+    show_agent_guidance: bool,
+}
+
+#[derive(Default)]
+struct TerminalOutput {
+    stderr: String,
+    stdout: String,
+}
+
+fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> TerminalOutput {
+    let mut output = TerminalOutput::default();
+    render_operational_context(result, &mut output.stderr);
+
+    if options.render_static_scan_summary && result.source_file_count > 0 {
+        let _ = writeln!(
+            output.stderr,
+            "{} Scanned {} in {:.1}s",
+            stderr_success("✔"),
+            file_count_label(result.source_file_count),
+            result.elapsed,
+        );
+    }
+
+    let diagnostics: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .visible_on
+                .iter()
+                .any(|surface| surface == "terminal")
+                && (options.show_warnings || diagnostic.severity != Severity::Warning)
+        })
+        .collect();
+
+    if diagnostics.is_empty() {
+        if result.source_file_count == 0 {
+            let _ = writeln!(
+                output.stderr,
+                "\n  {}",
+                stderr_warn("No Rust source files found.")
+            );
+        } else if matches!(
+            result.outcome,
+            ReportOutcome::Partial | ReportOutcome::Failed
+        ) {
+            let incomplete_checks = result.completeness.skipped_checks
+                + result.completeness.failed_checks
+                + result.completeness.timed_out_checks
+                + result.completeness.cancelled_checks;
+            let noun = if incomplete_checks == 1 {
+                "check"
+            } else {
+                "checks"
+            };
+            let _ = writeln!(
+                output.stderr,
+                "\n  {}",
+                stderr_warn(&format!(
+                    "No issues detected, but {incomplete_checks} {noun} failed: results are incomplete."
+                ))
+            );
+        } else if result.outcome == ReportOutcome::Clean || !options.show_warnings {
+            let _ = writeln!(output.stdout, "  {}\n", stdout_success("No issues found!"));
+        }
+    } else {
+        output.stderr.push('\n');
+        render_diagnostics(
+            &mut output.stderr,
+            &diagnostics,
+            options.verbose,
+            result.resolved_root.as_deref(),
+            options.show_agent_guidance,
+            should_render_hyperlinks(options.show_agent_guidance),
+        );
+    }
+
+    if options.show_agent_guidance && !diagnostics.is_empty() {
+        render_agent_guidance(&mut output.stdout);
+    }
+
+    if options.verbose && !result.audit.suppressed_security.is_empty() {
+        let _ = writeln!(
+            output.stderr,
+            "  Security audit: {} finding(s) suppressed by project configuration",
+            result.audit.suppressed_security.len()
+        );
+        for diagnostic in &result.audit.suppressed_security {
+            let _ = writeln!(
+                output.stderr,
+                "    {}: {}",
+                diagnostic.rule, diagnostic.message
+            );
+        }
+        output.stderr.push('\n');
+    }
+
+    render_summary(
+        &mut output.stdout,
+        result,
+        &diagnostics,
+        options.selected_categories,
+    );
+    render_project_summary(&mut output.stdout, result);
+    render_footer(&mut output.stdout, result, options.show_default_share);
+    output
+}
+
+fn render_operational_context(result: &ReportV1, output: &mut String) {
     if let Some(baseline) = &result.baseline {
         if baseline.baseline_degraded {
-            eprintln!(
+            let _ = writeln!(
+                output,
                 "Baseline degraded to files scope: {}",
                 baseline
                     .degraded_reason
@@ -42,7 +316,8 @@ pub fn render_terminal_for_categories(
                     .unwrap_or("unknown reason")
             );
         } else {
-            eprintln!(
+            let _ = writeln!(
+                output,
                 "Baseline {}: {} introduced, {} fixed, {} cross-file match(es)",
                 baseline.base_commit,
                 baseline.new_count,
@@ -51,402 +326,1207 @@ pub fn render_terminal_for_categories(
             );
         }
     }
-    if result.score.is_some() && !result.summary.score_authoritative {
-        eprintln!("Score is non-authoritative because required analysis is incomplete");
+}
+
+struct DiagnosticGroup<'a> {
+    rule: &'a str,
+    severity: Severity,
+    category: &'a Category,
+    title: &'a str,
+    diagnostics: Vec<&'a CanonicalDiagnostic>,
+}
+
+fn diagnostic_groups<'a>(diagnostics: &[&'a CanonicalDiagnostic]) -> Vec<DiagnosticGroup<'a>> {
+    let mut groups: Vec<DiagnosticGroup<'a>> = Vec::new();
+    for &diagnostic in diagnostics {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|group| group.rule == diagnostic.rule && group.severity == diagnostic.severity)
+        {
+            group.diagnostics.push(diagnostic);
+            continue;
+        }
+        groups.push(DiagnosticGroup {
+            rule: &diagnostic.rule,
+            severity: diagnostic.severity,
+            category: &diagnostic.category,
+            title: if diagnostic.title.is_empty() {
+                &diagnostic.rule
+            } else {
+                &diagnostic.title
+            },
+            diagnostics: vec![diagnostic],
+        });
+    }
+    groups
+}
+
+fn render_agent_guidance(output: &mut String) {
+    const LINES: [&str; 13] = [
+        "Treat Rust Doctor diagnostics as starting hypotheses. Read the relevant code before confirming or suppressing each finding.",
+        "For each group, decide true positive, false positive, or needs-human-review, then assign high/medium/low confidence.",
+        "Do not suppress a finding without evidence from the file in question. Confidence requires code context.",
+        "Understand the root cause before editing. Fix the underlying code instead of changing rust-doctor config or suppressing rules unless explicitly asked.",
+        "Investigate deeply where relevant: race conditions, security-sensitive flows, state propagation, multi-file refactors, and downstream dependency chains.",
+        "Ignore pure style preferences, theoretical issues without real impact, missing features, and unrelated pre-existing code.",
+        "Start with high-confidence fixes that preserve behavior. Leave low-confidence or product-dependent changes as notes.",
+        "Run `npx rust-doctor@latest --verbose --scope changed` before and after changes, plus relevant tests after each focused batch.",
+        "When available, spawn subagents or isolated worktrees for independent rule families, then review and merge only the best safe fixes.",
+        "Split unrelated, broad, or behavior-changing work into separate PRs or branches instead of one large cleanup.",
+        "When one rule spans dozens of files, fix a representative sample first, confirm the recipe holds, and get the code owner's sign-off before changing the rest.",
+        "For confirmed issues that cannot be fixed now, create GitHub issues with the rule, file and line, confidence, impact, and proposed fix.",
+        "If a fix needs an API, UX, or architecture decision, stop and ask before editing.",
+    ];
+    let _ = writeln!(output, "\n{}", stdout_bold("Agent guidance"));
+    for line in LINES {
+        let _ = writeln!(output, "{}", stdout_dim(&format!("  - {line}")));
+    }
+    output.push('\n');
+}
+
+fn render_diagnostics(
+    output: &mut String,
+    diagnostics: &[&CanonicalDiagnostic],
+    verbose: bool,
+    root: Option<&str>,
+    agent_environment: bool,
+    hyperlinks: bool,
+) {
+    let groups = diagnostic_groups(diagnostics);
+    let error_groups: Vec<_> = groups
+        .iter()
+        .filter(|group| group.severity == Severity::Error)
+        .take(TOP_ERRORS_DISPLAY_COUNT)
+        .collect();
+
+    if verbose {
+        for group in &groups {
+            render_diagnostic_group(output, group, true, root, agent_environment, hyperlinks);
+        }
+    } else if !error_groups.is_empty() {
+        let noun = if error_groups.len() == 1 {
+            "error"
+        } else {
+            "errors"
+        };
+        let _ = writeln!(
+            output,
+            "  {}\n",
+            stderr_bold(&format!("Top {} {noun} you should fix", error_groups.len()))
+        );
+        for group in &error_groups {
+            render_diagnostic_group(output, group, false, root, agent_environment, hyperlinks);
+        }
     }
 
-    // Handle zero files — still show diagnostics (e.g., audit/machete findings)
-    if result.source_file_count == 0 && result.diagnostics.is_empty() {
-        eprintln!(
-            "{}",
-            "No Rust source files found".if_supports_color(Stream::Stderr, |t| t.yellow())
+    if !error_groups.is_empty() || verbose {
+        let _ = writeln!(output, "\n{}\n", stderr_dim(&section_divider()));
+    }
+
+    let total = diagnostics.len();
+    let issue_noun = if total == 1 { "issue" } else { "issues" };
+    let _ = writeln!(
+        output,
+        "  {}\n",
+        stderr_bold(&format!("All {total} {issue_noun}"))
+    );
+    render_category_tallies(output, diagnostics);
+
+    let shown_error_rules = error_groups.len();
+    if !verbose && total > shown_error_rules {
+        let _ = writeln!(
+            output,
+            "\n  {} {} {}",
+            stderr_dim("Run"),
+            stderr_info(&stderr_bold(VERBOSE_COMMAND)),
+            stderr_dim("to list every error and warning")
         );
+    }
+
+    render_migration_advisory(output, &groups);
+    output.push('\n');
+}
+
+fn render_diagnostic_group(
+    output: &mut String,
+    group: &DiagnosticGroup<'_>,
+    render_every_site: bool,
+    root: Option<&str>,
+    agent_environment: bool,
+    hyperlinks: bool,
+) {
+    let icon = match group.severity {
+        Severity::Error => stderr_error("✖"),
+        Severity::Warning => stderr_warn("⚠"),
+        Severity::Info => stderr_info("ℹ"),
+    };
+    let headline = format!("{}: {}", display_category(group.category), group.title);
+    let colored_headline = colorize_stderr_by_severity(&headline, group.severity);
+    let badge = if group.diagnostics.len() > 1 {
+        stderr_dim(&format!(" ×{}", group.diagnostics.len()))
+    } else {
+        String::new()
+    };
+    let _ = writeln!(output, "  {icon} {colored_headline}{badge}");
+
+    let representative = representative_diagnostic(&group.diagnostics);
+    if render_every_site && !agent_environment && !representative.url.is_empty() {
+        let _ = writeln!(
+            output,
+            "    {}",
+            stderr_info(&format!("Learn more: {}", representative.url))
+        );
+    }
+
+    for line in wrap_text(&representative.message, OUTPUT_MEASURE_WIDTH) {
+        let _ = writeln!(output, "    {line}");
+    }
+    if let Some(help) = representative
+        .help
+        .as_deref()
+        .filter(|help| !help.is_empty())
+    {
+        for line in wrap_text(&format!("→ {help}"), OUTPUT_MEASURE_WIDTH) {
+            let _ = writeln!(output, "{}", stderr_dim(&format!("    {line}")));
+        }
+    }
+    if let Some(shared_count) = shared_fix_count(&group.diagnostics) {
+        let _ = writeln!(
+            output,
+            "{}",
+            stderr_dim(&format!(
+                "    ↳ One fix clears all {shared_count} findings."
+            ))
+        );
+    }
+    if render_every_site && agent_environment && !representative.url.is_empty() {
+        let directive = format!(
+            "Curl with no cache & follow the canonical fix and false positive check recipe before fixing: {}",
+            representative.url
+        );
+        for line in wrap_text(&directive, OUTPUT_MEASURE_WIDTH) {
+            let _ = writeln!(output, "{}", stderr_dim(&format!("    {line}")));
+        }
+    }
+
+    let sites = if render_every_site {
+        group.diagnostics.clone()
+    } else {
+        vec![representative]
+    };
+    for cluster in cluster_diagnostics(&sites) {
+        render_cluster(
+            output,
+            &cluster,
+            root,
+            group.severity == Severity::Error,
+            hyperlinks,
+        );
+    }
+    output.push('\n');
+}
+
+fn representative_diagnostic<'a>(
+    diagnostics: &[&'a CanonicalDiagnostic],
+) -> &'a CanonicalDiagnostic {
+    diagnostics
+        .iter()
+        .copied()
+        .find(|diagnostic| matches!(diagnostic.location, DiagnosticLocation::Source { .. }))
+        .unwrap_or(diagnostics[0])
+}
+
+fn shared_fix_count(diagnostics: &[&CanonicalDiagnostic]) -> Option<usize> {
+    let mut group_ids = HashSet::new();
+    for diagnostic in diagnostics {
+        for fix in &diagnostic.fixes {
+            if let Some(group_id) = &fix.group_id {
+                group_ids.insert(group_id.as_str());
+            }
+        }
+    }
+    (diagnostics.len() > 1 && group_ids.len() == 1).then_some(diagnostics.len())
+}
+
+#[derive(Clone)]
+struct DiagnosticSite {
+    start_line: u32,
+    end_line: u32,
+    column: u32,
+}
+
+struct DiagnosticCluster<'a> {
+    sites: Vec<DiagnosticSite>,
+    path: &'a str,
+    start_line: u32,
+    end_line: u32,
+}
+
+fn cluster_diagnostics<'a>(diagnostics: &[&'a CanonicalDiagnostic]) -> Vec<DiagnosticCluster<'a>> {
+    let mut sites_by_path: Vec<(&str, Vec<DiagnosticSite>)> = Vec::new();
+    for &diagnostic in diagnostics {
+        let DiagnosticLocation::Source { path, range } = &diagnostic.location else {
+            sites_by_path.push((
+                "<project>",
+                vec![DiagnosticSite {
+                    start_line: 0,
+                    end_line: 0,
+                    column: 0,
+                }],
+            ));
+            continue;
+        };
+        let site = DiagnosticSite {
+            start_line: range.start.line,
+            end_line: range.end.line.max(range.start.line),
+            column: range.start.column,
+        };
+        if let Some((_, sites)) = sites_by_path
+            .iter_mut()
+            .find(|(candidate, _)| *candidate == path)
+        {
+            sites.push(site);
+        } else {
+            sites_by_path.push((path, vec![site]));
+        }
+    }
+
+    let mut clusters = Vec::new();
+    for (path, mut sites) in sites_by_path {
+        sites.sort_by_key(|site| (site.start_line, site.column));
+        let mut current: Vec<DiagnosticSite> = Vec::new();
+        for site in sites {
+            let breaks = current.last().is_some_and(|previous| {
+                site.start_line.saturating_sub(previous.end_line) > CODE_FRAME_CLUSTER_REACH
+                    || site.end_line.saturating_sub(current[0].start_line) > CODE_FRAME_MAX_SPAN
+            });
+            if breaks {
+                push_cluster(&mut clusters, path, std::mem::take(&mut current));
+            }
+            current.push(site);
+        }
+        push_cluster(&mut clusters, path, current);
+    }
+    clusters
+}
+
+fn push_cluster<'a>(
+    clusters: &mut Vec<DiagnosticCluster<'a>>,
+    path: &'a str,
+    sites: Vec<DiagnosticSite>,
+) {
+    let Some(first) = sites.first() else {
+        return;
+    };
+    let start_line = first.start_line;
+    let end_line = sites
+        .iter()
+        .map(|site| site.end_line)
+        .max()
+        .unwrap_or(start_line);
+    clusters.push(DiagnosticCluster {
+        sites,
+        path,
+        start_line,
+        end_line,
+    });
+}
+
+fn render_cluster(
+    output: &mut String,
+    cluster: &DiagnosticCluster<'_>,
+    root: Option<&str>,
+    render_code_frame: bool,
+    hyperlinks: bool,
+) {
+    output.push('\n');
+    let location = if cluster.start_line == 0 {
+        cluster.path.to_string()
+    } else if cluster.end_line > cluster.start_line {
+        format!(
+            "{}:{}-{}",
+            cluster.path, cluster.start_line, cluster.end_line
+        )
+    } else {
+        format!("{}:{}", cluster.path, cluster.start_line)
+    };
+    let location = format_location(&location, cluster.path, root, hyperlinks);
+    let _ = writeln!(output, "{}", stderr_dim(&format!("    {location}")));
+
+    if !render_code_frame || cluster.start_line == 0 {
         return;
     }
-
-    // Print diagnostics grouped by severity
-    let diagnostics: Vec<&CanonicalDiagnostic> = result
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            (show_warnings || diagnostic.severity != Severity::Warning)
-                && diagnostic
-                    .visible_on
-                    .iter()
-                    .any(|value| value == "terminal")
-        })
-        .collect();
-    if !diagnostics.is_empty() {
-        print_diagnostics(&diagnostics, verbose);
-        eprintln!();
-    }
-    if verbose && !result.audit.suppressed_security.is_empty() {
-        eprintln!(
-            "Security audit: {} finding(s) suppressed by project configuration",
-            result.audit.suppressed_security.len()
-        );
-        for diagnostic in &result.audit.suppressed_security {
-            eprintln!("  {}: {}", diagnostic.rule, diagnostic.message);
-        }
-        eprintln!();
-    }
-
-    // Print score box
-    print_score_box(result, selected_categories);
-
-    // Print pass timings in verbose mode
-    if verbose && !pass_timings.is_empty() {
-        print_pass_timings(pass_timings);
+    let Some(root) = root else {
+        return;
+    };
+    let Some(frame) = build_code_frame(root, cluster) else {
+        return;
+    };
+    for line in frame {
+        let _ = writeln!(output, "    {line}");
     }
 }
 
-// ── Box layout helpers ───────────────────────────────────────────────────
-
-fn dim(s: &str) -> String {
-    format!("{}", s.if_supports_color(Stream::Stdout, |t| t.dimmed()))
-}
-
-fn pad_line(inner_width: usize, content: &str, plain_len: usize) -> String {
-    let padding = inner_width.saturating_sub(plain_len + 2);
+fn format_location(location: &str, relative: &str, root: Option<&str>, hyperlinks: bool) -> String {
+    if !hyperlinks {
+        return location.to_string();
+    }
+    let Some(source) = root.and_then(|root| safe_source_path(Path::new(root), relative)) else {
+        return location.to_string();
+    };
     format!(
-        "  {} {} {}{}",
-        dim("│"),
-        content,
-        " ".repeat(padding),
-        dim("│")
+        "\x1b]8;;{}\x1b\\{location}\x1b]8;;\x1b\\",
+        path_to_file_url(&source)
     )
 }
 
-fn empty_line(inner_width: usize) -> String {
-    format!("  {} {}{}", dim("│"), " ".repeat(inner_width - 2), dim("│"))
+fn path_to_file_url(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let mut url = String::from("file://");
+    if !normalized.starts_with('/') {
+        url.push('/');
+    }
+    for byte in normalized.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'-' | b'.' | b'_' | b'~') {
+            url.push(char::from(byte));
+        } else {
+            let _ = write!(url, "%{byte:02X}");
+        }
+    }
+    url
 }
 
-// ── Score box section renderers ──────────────────────────────────────────
+fn should_render_hyperlinks(agent_environment: bool) -> bool {
+    if agent_environment {
+        return false;
+    }
+    if let Some(forced) = std::env::var_os("FORCE_HYPERLINK")
+        && !forced.is_empty()
+    {
+        let forced = forced.to_string_lossy();
+        return forced != "0" && !forced.eq_ignore_ascii_case("false");
+    }
+    if !std::io::stdout().is_terminal()
+        || std::env::var_os("TERM").is_some_and(|value| value == "dumb")
+        || is_ci_environment()
+    {
+        return false;
+    }
+    if std::env::var_os("WT_SESSION").is_some()
+        || std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var_os("TERM").is_some_and(|value| value == "xterm-kitty")
+        || std::env::var("VTE_VERSION")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .is_some_and(|version| version >= 5_000)
+    {
+        return true;
+    }
+    std::env::var("TERM_PROGRAM").is_ok_and(|program| {
+        matches!(
+            program.as_str(),
+            "iTerm.app" | "WezTerm" | "vscode" | "Hyper" | "ghostty" | "Tabby" | "rio"
+        )
+    })
+}
 
-/// Render the doctor face and brand header.
-fn render_header(inner_width: usize, score: u32, category_text: Option<&str>) {
-    let (eyes, mouth) = if score >= SCORE_GOOD_THRESHOLD {
+fn is_ci_environment() -> bool {
+    ["GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        || std::env::var("CI")
+            .is_ok_and(|value| !matches!(value.to_ascii_lowercase().as_str(), "" | "0" | "false"))
+}
+
+struct FrameLine {
+    plain: String,
+    styled: String,
+}
+
+fn build_code_frame(root: &str, cluster: &DiagnosticCluster<'_>) -> Option<Vec<String>> {
+    let source_path = safe_source_path(Path::new(root), cluster.path)?;
+    let source = std::fs::read_to_string(source_path).ok()?;
+    let source_lines: Vec<_> = source.lines().collect();
+    if source_lines.is_empty() {
+        return None;
+    }
+    let first = cluster.start_line.max(1) as usize;
+    let last = (cluster.end_line.max(cluster.start_line) as usize).min(source_lines.len());
+    if first > source_lines.len()
+        || source_lines[first - 1..last]
+            .iter()
+            .any(|line| line.chars().count() > CODE_FRAME_MAX_LINE_LENGTH)
+    {
+        return None;
+    }
+
+    let context_start = cluster
+        .start_line
+        .saturating_sub(CODE_FRAME_LINES_ABOVE)
+        .max(1);
+    let context_end = cluster
+        .end_line
+        .saturating_add(CODE_FRAME_LINES_BELOW)
+        .min(source_lines.len() as u32);
+    let line_number_width = context_end.to_string().len();
+    let mut lines = Vec::new();
+
+    for line_number in context_start..=context_end {
+        let is_selected = line_number >= cluster.start_line
+            && line_number <= cluster.end_line.max(cluster.start_line);
+        let marker = if is_selected { ">" } else { " " };
+        let prefix_width = line_number_width + 5;
+        let available_source_width = OUTPUT_MEASURE_WIDTH.saturating_sub(prefix_width);
+        let raw_source = source_lines
+            .get(line_number.saturating_sub(1) as usize)
+            .copied()
+            .unwrap_or("");
+        let clipped_source = clip_with_ellipsis(raw_source, available_source_width);
+        let plain = format!("{marker} {line_number:>line_number_width$} | {clipped_source}");
+        let styled_marker = if is_selected {
+            stderr_error(marker)
+        } else {
+            marker.to_string()
+        };
+        let styled = format!(
+            "{styled_marker} {} {} {}",
+            stderr_dim(&format!("{line_number:>line_number_width$}")),
+            stderr_dim("|"),
+            highlight_rust_source(&clipped_source)
+        );
+        lines.push(FrameLine { plain, styled });
+
+        if cluster.sites.len() == 1 && line_number == cluster.start_line {
+            let column = cluster.sites[0].column.max(1) as usize;
+            let caret_room = OUTPUT_MEASURE_WIDTH.saturating_sub(line_number_width + 6);
+            let caret_offset = column.saturating_sub(1).min(caret_room);
+            let prefix = format!("{}| ", " ".repeat(line_number_width + 3));
+            lines.push(FrameLine {
+                plain: format!("{prefix}{}^", " ".repeat(caret_offset)),
+                styled: format!(
+                    "{}{}{}",
+                    stderr_dim(&prefix),
+                    " ".repeat(caret_offset),
+                    stderr_error("^")
+                ),
+            });
+        }
+    }
+
+    Some(box_frame(lines, OUTPUT_MEASURE_WIDTH))
+}
+
+fn safe_source_path(root: &Path, relative: &str) -> Option<PathBuf> {
+    let relative = Path::new(relative);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let canonical_root = root.canonicalize().ok()?;
+    let canonical_source = canonical_root.join(relative).canonicalize().ok()?;
+    canonical_source
+        .starts_with(&canonical_root)
+        .then_some(canonical_source)
+}
+
+fn box_frame(lines: Vec<FrameLine>, inner_width: usize) -> Vec<String> {
+    let horizontal = stderr_dim(&"─".repeat(inner_width + 2));
+    let mut framed = vec![format!(
+        "{}{horizontal}{}",
+        stderr_dim("┌"),
+        stderr_dim("┐")
+    )];
+    for line in lines {
+        let padding = inner_width.saturating_sub(line.plain.width());
+        framed.push(format!(
+            "{} {}{} {}",
+            stderr_dim("│"),
+            line.styled,
+            " ".repeat(padding),
+            stderr_dim("│")
+        ));
+    }
+    framed.push(format!(
+        "{}{horizontal}{}",
+        stderr_dim("└"),
+        stderr_dim("┘")
+    ));
+    framed
+}
+
+fn highlight_rust_source(source: &str) -> String {
+    const KEYWORDS: [&str; 29] = [
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+        "mut", "pub", "ref", "return", "self", "struct", "trait",
+    ];
+    let characters: Vec<_> = source.chars().collect();
+    let mut output = String::new();
+    let mut index = 0;
+    while index < characters.len() {
+        if characters[index] == '/' && characters.get(index + 1).copied() == Some('/') {
+            let rest: String = characters[index..].iter().collect();
+            output.push_str(&stderr_dim(&rest));
+            break;
+        }
+        if matches!(characters[index], '"' | '\'') {
+            let quote = characters[index];
+            let start = index;
+            index += 1;
+            while index < characters.len() {
+                if characters[index] == '\\' {
+                    index = (index + 2).min(characters.len());
+                    continue;
+                }
+                let closes = characters[index] == quote;
+                index += 1;
+                if closes {
+                    break;
+                }
+            }
+            let token: String = characters[start..index].iter().collect();
+            output.push_str(&stderr_success(&token));
+            continue;
+        }
+        if characters[index].is_alphabetic() || characters[index] == '_' {
+            let start = index;
+            index += 1;
+            while index < characters.len()
+                && (characters[index].is_alphanumeric() || characters[index] == '_')
+            {
+                index += 1;
+            }
+            let token: String = characters[start..index].iter().collect();
+            if KEYWORDS.contains(&token.as_str()) || token == "where" || token == "use" {
+                output.push_str(&stderr_info(&token));
+            } else {
+                output.push_str(&token);
+            }
+            continue;
+        }
+        if characters[index].is_ascii_digit() {
+            let start = index;
+            index += 1;
+            while index < characters.len()
+                && (characters[index].is_ascii_digit() || characters[index] == '_')
+            {
+                index += 1;
+            }
+            let token: String = characters[start..index].iter().collect();
+            output.push_str(&stderr_warn(&token));
+            continue;
+        }
+        output.push(characters[index]);
+        index += 1;
+    }
+    output
+}
+
+#[derive(Clone, Copy, Default)]
+struct CategoryTally {
+    errors: usize,
+    warnings: usize,
+    infos: usize,
+}
+
+fn render_category_tallies(output: &mut String, diagnostics: &[&CanonicalDiagnostic]) {
+    let mut tallies = [CategoryTally::default(); DISPLAY_CATEGORIES.len()];
+    for diagnostic in diagnostics {
+        let tally = &mut tallies[category_rank(&diagnostic.category)];
+        match diagnostic.severity {
+            Severity::Error => tally.errors += 1,
+            Severity::Warning => tally.warnings += 1,
+            Severity::Info => tally.infos += 1,
+        }
+    }
+    for (index, tally) in tallies.into_iter().enumerate() {
+        if tally.errors + tally.warnings + tally.infos == 0 {
+            continue;
+        }
+        let mut parts = Vec::new();
+        if tally.errors > 0 {
+            parts.push(stderr_error(&count_label(tally.errors, "error")));
+        }
+        if tally.warnings > 0 {
+            parts.push(stderr_warn(&stderr_dim(&count_label(
+                tally.warnings,
+                "warning",
+            ))));
+        }
+        if tally.infos > 0 {
+            parts.push(stderr_info(&stderr_dim(&count_label(tally.infos, "info"))));
+        }
+        let _ = writeln!(
+            output,
+            "  {} {} {}",
+            stderr_bold(DISPLAY_CATEGORIES[index]),
+            stderr_dim("›"),
+            parts.join(&stderr_dim(", "))
+        );
+    }
+}
+
+fn render_migration_advisory(output: &mut String, groups: &[DiagnosticGroup<'_>]) {
+    let migration_groups: Vec<_> = groups
+        .iter()
+        .filter_map(|group| {
+            let files: HashSet<_> = group
+                .diagnostics
+                .iter()
+                .filter_map(|diagnostic| match &diagnostic.location {
+                    DiagnosticLocation::Source { path, .. } => Some(path.as_str()),
+                    DiagnosticLocation::Project => None,
+                })
+                .collect();
+            (files.len() >= 40).then_some((group, files.len()))
+        })
+        .take(TOP_ERRORS_DISPLAY_COUNT)
+        .collect();
+    if migration_groups.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        output,
+        "\n  {} {}",
+        stderr_warn("⚠"),
+        stderr_bold("Migration-scale change: sample before you sweep")
+    );
+    for (group, file_count) in migration_groups {
+        let _ = writeln!(
+            output,
+            "    {} {}",
+            group.title,
+            stderr_dim(&format!(
+                "×{} across {file_count} files",
+                group.diagnostics.len()
+            ))
+        );
+    }
+    for line in wrap_text(
+        "Fix a representative few first and confirm the recipe holds. Then get the code owner's sign-off before changing the rest.",
+        OUTPUT_MEASURE_WIDTH,
+    ) {
+        let _ = writeln!(output, "{}", stderr_dim(&format!("    {line}")));
+    }
+    let _ = writeln!(
+        output,
+        "    {} {}",
+        stderr_dim("Scope it down one area at a time:"),
+        stderr_info("npx rust-doctor@latest <path>")
+    );
+}
+
+fn render_summary(
+    output: &mut String,
+    result: &ReportV1,
+    diagnostics: &[&CanonicalDiagnostic],
+    selected_categories: &[ScanCategory],
+) {
+    let score = result.score.filter(|_| result.summary.score_authoritative);
+    let Some(score) = score else {
+        let _ = writeln!(output, "  {}", branding_line());
+        let message = if result.source_file_count == 0 {
+            "Score unavailable because no Rust source files were analyzed."
+        } else if matches!(
+            result.outcome,
+            ReportOutcome::Partial | ReportOutcome::Failed
+        ) {
+            "Score not shown: some checks could not complete."
+        } else {
+            "Score unavailable because required analysis did not complete."
+        };
+        let _ = writeln!(output, "  {}\n", stdout_dim(message));
+        return;
+    };
+    let Some(label) = result.score_label else {
+        return;
+    };
+
+    let top_rules: HashSet<_> = diagnostic_groups(diagnostics)
+        .into_iter()
+        .filter(|group| group.severity == Severity::Error)
+        .take(TOP_ERRORS_DISPLAY_COUNT)
+        .map(|group| group.rule.to_string())
+        .collect();
+    let potential_score = projected_score(result, &top_rules, selected_categories)
+        .filter(|potential| *potential > score);
+
+    let face = doctor_face(score);
+    let score_line = format!(
+        "{} {} {}",
+        stdout_score(&score.to_string(), score),
+        stdout_dim("/ 100"),
+        stdout_score(&label.to_string(), score)
+    );
+    let score_bar = score_bar(score, potential_score, score_bar_width_from_environment());
+    let face_lines = [
+        "┌─────┐".to_string(),
+        format!("│ {} │", face.0),
+        format!("│ {} │", face.1),
+        "└─────┘".to_string(),
+    ];
+    let right_lines = [score_line, score_bar, branding_line(), String::new()];
+    for (face_line, right_line) in face_lines.iter().zip(right_lines) {
+        let colored_face = stdout_score(face_line, score);
+        if right_line.is_empty() {
+            let _ = writeln!(output, "  {colored_face}");
+        } else {
+            let _ = writeln!(output, "  {colored_face}  {right_line}");
+        }
+    }
+    output.push('\n');
+
+    if let Some(potential) = potential_score {
+        let improvement = potential - score;
+        let _ = writeln!(
+            output,
+            "{}{}{}",
+            stdout_dim("  You could improve "),
+            stdout_score(&format!("+{improvement}%"), potential),
+            stdout_dim(&format!(
+                " by fixing the top {TOP_ERRORS_DISPLAY_COUNT} issues"
+            ))
+        );
+    }
+    if !selected_categories.is_empty() {
+        let mut names = Vec::new();
+        for category in selected_categories {
+            let name = display_category(&scan_category_to_category(*category));
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let _ = writeln!(
+            output,
+            "{}",
+            stdout_dim(&format!("  Categories: {}", names.join(", ")))
+        );
+    }
+}
+
+fn projected_score(
+    result: &ReportV1,
+    excluded_rules: &HashSet<String>,
+    selected_categories: &[ScanCategory],
+) -> Option<u32> {
+    if excluded_rules.is_empty() {
+        return None;
+    }
+    let categories: Vec<_> = selected_categories
+        .iter()
+        .copied()
+        .map(scan_category_to_category)
+        .collect();
+    let diagnostics = result.diagnostics.iter().filter(|diagnostic| {
+        diagnostic
+            .visible_on
+            .iter()
+            .any(|surface| surface == "score")
+            && !excluded_rules.contains(&diagnostic.rule)
+    });
+    Some(calculate_score_for_canonical(diagnostics, &categories).0)
+}
+
+fn score_bar(score: u32, potential_score: Option<u32>, width: usize) -> String {
+    let current_fill = ((f64::from(score) / 100.0) * width as f64).round() as usize;
+    let potential_fill = potential_score.map_or(current_fill, |potential| {
+        ((f64::from(potential) / 100.0) * width as f64).round() as usize
+    });
+    let potential_fill = potential_fill.clamp(current_fill, width);
+    let gain = potential_fill - current_fill;
+    let empty = width - potential_fill;
+    format!(
+        "{}{}{}",
+        stdout_score(&"█".repeat(current_fill), score),
+        stdout_dim(&stdout_score(&"▓".repeat(gain), score)),
+        stdout_dim(&"░".repeat(empty))
+    )
+}
+
+fn score_bar_width_from_environment() -> usize {
+    score_bar_width(
+        std::env::var("COLUMNS")
+            .ok()
+            .and_then(|value| value.parse().ok()),
+    )
+}
+
+fn score_bar_width(columns: Option<usize>) -> usize {
+    const RIGHT_COLUMN_OFFSET: usize = 11;
+    const RIGHT_EDGE_SAFETY_COLUMNS: usize = 1;
+    const MINIMUM_WIDTH: usize = 10;
+    columns.map_or(SCORE_BAR_WIDTH, |columns| {
+        columns
+            .saturating_sub(RIGHT_COLUMN_OFFSET + RIGHT_EDGE_SAFETY_COLUMNS)
+            .clamp(MINIMUM_WIDTH, SCORE_BAR_WIDTH)
+    })
+}
+
+fn render_project_summary(output: &mut String, result: &ReportV1) {
+    if result.projects.len() <= 1 {
+        return;
+    }
+    let entries: Vec<_> = result
+        .projects
+        .iter()
+        .map(|project| {
+            let errors = project
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                .count();
+            let warnings = project
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+                .count();
+            let infos = project
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == Severity::Info)
+                .count();
+            (
+                project_name(project),
+                project.score,
+                errors,
+                warnings,
+                infos,
+            )
+        })
+        .collect();
+    let longest_name = entries
+        .iter()
+        .map(|(name, ..)| name.width())
+        .max()
+        .unwrap_or(0);
+    output.push('\n');
+    for (name, score, errors, warnings, infos) in entries {
+        let padded_name = format!("{name:<longest_name$}");
+        let Some(score) = score else {
+            let total = errors + warnings + infos;
+            let _ = writeln!(
+                output,
+                "  {}  {}  {}",
+                stdout_dim(&padded_name),
+                stdout_dim("no score"),
+                stdout_dim(&count_label(total, "issue"))
+            );
+            continue;
+        };
+        let mut issue_parts = Vec::new();
+        if errors > 0 {
+            issue_parts.push(stdout_error(&count_label(errors, "error")));
+        }
+        if warnings > 0 {
+            issue_parts.push(stdout_warn(&count_label(warnings, "warning")));
+        }
+        if infos > 0 {
+            issue_parts.push(stdout_info(&count_label(infos, "info")));
+        }
+        let _ = writeln!(
+            output,
+            "  {}  {}  {}  {}",
+            stdout_score(&padded_name, score),
+            stdout_score(&format!("{score:>3}"), score),
+            stdout_score(score_band_label(score), score),
+            issue_parts.join(&stdout_dim(", "))
+        );
+    }
+}
+
+fn project_name(project: &crate::diagnostics::ProjectReport) -> String {
+    let package_id_tail = project
+        .cargo_package_id
+        .rsplit('#')
+        .next()
+        .unwrap_or(&project.cargo_package_id);
+    let candidate = package_id_tail
+        .split('@')
+        .next()
+        .and_then(|value| value.split_whitespace().next())
+        .filter(|value| !value.is_empty());
+    candidate.map_or_else(
+        || {
+            Path::new(&project.package_root)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("project")
+                .to_string()
+        },
+        str::to_string,
+    )
+}
+
+fn render_footer(output: &mut String, result: &ReportV1, show_default_share: bool) {
+    let _ = writeln!(output, "\n{}\n", stdout_dim(&section_divider()));
+    if show_default_share && let Ok(url) = crate::share::build_url(result) {
+        let _ = writeln!(output, "  {} {}", stdout_bold("Share:"), stdout_info(&url));
+        render_footer_description(output, "Tell others how you did on socials");
+        output.push('\n');
+    }
+    let _ = writeln!(
+        output,
+        "  {} {}",
+        stdout_bold("Docs:"),
+        stdout_info(DOCS_URL)
+    );
+    render_footer_description(
+        output,
+        "Learn more about fixing issues, setting up CI/CD, and configuring rules with a config file",
+    );
+    output.push('\n');
+    let _ = writeln!(
+        output,
+        "  {} {}",
+        stdout_bold("GitHub:"),
+        stdout_info(GITHUB_URL)
+    );
+    render_footer_description(output, "Report issues and star the repository!");
+}
+
+fn render_footer_description(output: &mut String, description: &str) {
+    for line in wrap_text(description, OUTPUT_MEASURE_WIDTH) {
+        let _ = writeln!(output, "{}", stdout_dim(&format!("  {line}")));
+    }
+}
+
+fn branding_line() -> String {
+    format!("Rust Doctor {}", stdout_dim(&format!("({BRAND_URL})")))
+}
+
+const fn doctor_face(score: u32) -> (&'static str, &'static str) {
+    if score >= SCORE_GOOD_THRESHOLD {
         ("◠ ◠", " ▽ ")
     } else if score >= SCORE_OK_THRESHOLD {
         ("• •", " ─ ")
     } else {
-        ("x x", " △ ")
-    };
-
-    println!("{}", pad_line(inner_width, "┌─────┐", 7));
-    println!(
-        "{}",
-        pad_line(
-            inner_width,
-            &format!("│ {} │", colorize_by_score(eyes, score)),
-            7
-        )
-    );
-    println!(
-        "{}",
-        pad_line(
-            inner_width,
-            &format!("│ {} │", colorize_by_score(mouth, score)),
-            7
-        )
-    );
-    println!("{}", pad_line(inner_width, "└─────┘", 7));
-    println!(
-        "{}",
-        pad_line(
-            inner_width,
-            &format!(
-                "{}",
-                "rust-doctor".if_supports_color(Stream::Stdout, |t| t.bold())
-            ),
-            11,
-        )
-    );
-    if let Some(text) = category_text {
-        println!(
-            "{}",
-            pad_line(
-                inner_width,
-                &format!("{}", text.if_supports_color(Stream::Stdout, |t| t.cyan())),
-                text.width(),
-            )
-        );
+        ("x x", " ▽ ")
     }
-    println!("{}", empty_line(inner_width));
 }
 
-/// Render the dimension score bars.
-fn render_dimension_bars(inner_width: usize, dimensions: &[(&str, u32)], dim_text: &str) {
-    let colored_dim = dimensions
-        .iter()
-        .map(|(name, score)| {
-            format!(
-                "{}: {}",
-                name.if_supports_color(Stream::Stdout, |t| t.dimmed()),
-                colorize_by_score(&score.to_string(), *score)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("  ");
-    println!("{}", pad_line(inner_width, &colored_dim, dim_text.width()));
-    println!("{}", empty_line(inner_width));
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DisplayDimension {
-    Security,
-    Reliability,
-    Maintainability,
-    Performance,
-    Dependencies,
-}
-
-const fn category_dimension(category: ScanCategory) -> DisplayDimension {
+const fn category_rank(category: &Category) -> usize {
     match category {
-        ScanCategory::Security => DisplayDimension::Security,
-        ScanCategory::Correctness
-        | ScanCategory::ErrorHandling
-        | ScanCategory::Async
-        | ScanCategory::Framework => DisplayDimension::Reliability,
-        ScanCategory::Architecture | ScanCategory::Style => DisplayDimension::Maintainability,
-        ScanCategory::Performance => DisplayDimension::Performance,
-        ScanCategory::Dependencies | ScanCategory::Cargo => DisplayDimension::Dependencies,
+        Category::Security => 0,
+        Category::Correctness | Category::ErrorHandling | Category::Async | Category::Framework => {
+            1
+        }
+        Category::Performance => 2,
+        Category::Dependencies | Category::Cargo => 3,
+        Category::Architecture | Category::Style => 4,
     }
 }
 
-const fn category_name(category: ScanCategory) -> &'static str {
+const fn display_category(category: &Category) -> &'static str {
+    DISPLAY_CATEGORIES[category_rank(category)]
+}
+
+const fn scan_category_to_category(category: ScanCategory) -> Category {
     match category {
-        ScanCategory::ErrorHandling => "Error Handling",
-        ScanCategory::Performance => "Performance",
-        ScanCategory::Security => "Security",
-        ScanCategory::Correctness => "Correctness",
-        ScanCategory::Architecture => "Architecture",
-        ScanCategory::Dependencies => "Dependencies",
-        ScanCategory::Async => "Async",
-        ScanCategory::Framework => "Framework",
-        ScanCategory::Cargo => "Cargo",
-        ScanCategory::Style => "Style",
+        ScanCategory::ErrorHandling => Category::ErrorHandling,
+        ScanCategory::Performance => Category::Performance,
+        ScanCategory::Security => Category::Security,
+        ScanCategory::Correctness => Category::Correctness,
+        ScanCategory::Architecture => Category::Architecture,
+        ScanCategory::Dependencies => Category::Dependencies,
+        ScanCategory::Async => Category::Async,
+        ScanCategory::Framework => Category::Framework,
+        ScanCategory::Cargo => Category::Cargo,
+        ScanCategory::Style => Category::Style,
     }
 }
 
-fn category_scope_text(selected_categories: &[ScanCategory]) -> Option<String> {
-    if selected_categories.is_empty() {
-        return None;
-    }
-    let mut names = Vec::new();
-    for category in selected_categories {
-        let name = category_name(*category);
-        if !names.contains(&name) {
-            names.push(name);
+fn section_divider() -> String {
+    format!("  {}", "─".repeat(OUTPUT_MEASURE_WIDTH))
+}
+
+fn file_count_label(count: usize) -> String {
+    count_label(count, "file")
+}
+
+fn count_label(count: usize, noun: &str) -> String {
+    let suffix = if count == 1 { "" } else { "s" };
+    format!("{count} {noun}{suffix}")
+}
+
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for paragraph in text.lines() {
+        if paragraph.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            let next_width = if line.is_empty() {
+                word.width()
+            } else {
+                line.width() + 1 + word.width()
+            };
+            if !line.is_empty() && next_width > width {
+                result.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        if !line.is_empty() {
+            result.push(line);
         }
     }
-    Some(format!("Category scan: {}", names.join(", ")))
+    result
 }
 
-fn selected_dimension_scores(
-    scores: &DimensionScores,
-    selected_categories: &[ScanCategory],
-) -> Vec<(&'static str, u32)> {
-    let selected = |dimension| {
-        selected_categories.is_empty()
-            || selected_categories
-                .iter()
-                .any(|category| category_dimension(*category) == dimension)
-    };
-    let mut dimensions = Vec::new();
-    if selected(DisplayDimension::Security) {
-        dimensions.push(("Security", scores.security));
-    }
-    if selected(DisplayDimension::Reliability) {
-        dimensions.push(("Reliability", scores.reliability));
-    }
-    if selected(DisplayDimension::Maintainability) {
-        dimensions.push(("Maintainability", scores.maintainability));
-    }
-    if selected(DisplayDimension::Performance) {
-        dimensions.push(("Performance", scores.performance));
-    }
-    if selected(DisplayDimension::Dependencies) {
-        dimensions.push(("Dependencies", scores.dependencies));
-    }
-    dimensions
+fn take_width(text: &str, width: usize) -> String {
+    let mut used = 0;
+    text.chars()
+        .take_while(|character| {
+            let character_width = character.width().unwrap_or(0);
+            if used + character_width > width {
+                return false;
+            }
+            used += character_width;
+            true
+        })
+        .collect()
 }
 
-/// Render the stats footer (error/warning counts, skipped passes).
-fn render_stats_footer(
-    inner_width: usize,
-    result: &ReportV1,
-    stats: &str,
-    skipped_text: Option<&str>,
-) {
-    let colored_info_part = if result.info_count > 0 {
-        format!(
-            "  {} {} info(s)",
-            "ℹ".if_supports_color(Stream::Stdout, |t| t.cyan()),
-            result.info_count
-        )
-    } else {
-        String::new()
-    };
-    let colored_stats = format!(
-        "{} {} error(s)  {} {} warning(s){colored_info_part}  {} files  {:.1}s",
-        colorize_by_score(
-            if result.error_count > 0 { "✗" } else { "✓" },
-            if result.error_count > 0 { 0 } else { 100 }
-        ),
-        result.error_count,
-        colorize_by_score(
-            if result.warning_count > 0 {
-                "⚠"
-            } else {
-                "✓"
-            },
-            if result.warning_count > 0 { 49 } else { 100 }
-        ),
-        result.warning_count,
-        result.source_file_count,
-        result.elapsed,
-    );
-    println!("{}", pad_line(inner_width, &colored_stats, stats.width()));
-
-    if let Some(text) = skipped_text {
-        println!("{}", empty_line(inner_width));
-        let colored_skip = format!(
-            "{} {} pass(es) skipped — run: {}",
-            "⊘".if_supports_color(Stream::Stdout, |t| t.yellow()),
-            result.skipped_passes.len(),
-            "rust-doctor --install-deps".if_supports_color(Stream::Stdout, |t| t.bold()),
-        );
-        println!("{}", pad_line(inner_width, &colored_skip, text.width()));
+fn clip_with_ellipsis(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.to_string();
     }
-}
-
-// ── Main score box ───────────────────────────────────────────────────────
-
-/// Print the ASCII doctor box with score.
-fn print_score_box(result: &ReportV1, selected_categories: &[ScanCategory]) {
-    let (Some(score), Some(label), Some(ds)) = (
-        result.score,
-        result.score_label,
-        result.dimension_scores.as_ref(),
-    ) else {
-        return;
-    };
-
-    // Build content lines for width calculation
-    let score_text = format!("{score} / 100  {label}");
-    let bar = build_score_bar(score);
-    let dimensions = selected_dimension_scores(ds, selected_categories);
-    let dim_text = dimensions
-        .iter()
-        .map(|(name, score)| format!("{name}: {score}"))
-        .collect::<Vec<_>>()
-        .join("  ");
-    let category_text = category_scope_text(selected_categories);
-    let info_part = if result.info_count > 0 {
-        format!("  ℹ {} info(s)", result.info_count)
-    } else {
-        String::new()
-    };
-    let stats = format!(
-        "{} {} error(s)  {} {} warning(s){info_part}  {} files  {:.1}s",
-        if result.error_count > 0 { "✗" } else { "✓" },
-        result.error_count,
-        if result.warning_count > 0 {
-            "⚠"
-        } else {
-            "✓"
-        },
-        result.warning_count,
-        result.source_file_count,
-        result.elapsed,
-    );
-    let skipped_text = if result.skipped_passes.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "⊘ {} pass(es) skipped — run: rust-doctor --install-deps",
-            result.skipped_passes.len()
-        ))
-    };
-
-    // Calculate box width
-    let mut widths = vec![
-        7_usize,
-        score_text.width(),
-        COMPASS_CAPTION.width(),
-        bar.plain.width(),
-        dim_text.width(),
-        stats.width(),
-    ];
-    if let Some(ref text) = skipped_text {
-        widths.push(text.width());
+    if width == 0 {
+        return String::new();
     }
-    if let Some(ref text) = category_text {
-        widths.push(text.width());
+    if width == 1 {
+        return "…".to_string();
     }
-    let max_width = widths.into_iter().max().unwrap_or(40).max(40);
-    let iw = max_width + 2;
-
-    // Render box
-    println!("  {}{}{}", dim("┌"), dim(&"─".repeat(iw)), dim("┐"));
-
-    render_header(iw, score, category_text.as_deref());
-
-    // Score + compass caption + bar
-    let colored_score = colorize_by_score(&score_text, score);
-    println!("{}", pad_line(iw, &colored_score, score_text.width()));
-    println!(
-        "{}",
-        pad_line(iw, &dim(COMPASS_CAPTION), COMPASS_CAPTION.width())
-    );
-    println!("{}", empty_line(iw));
-    println!("{}", pad_line(iw, &bar.colored, bar.plain.width()));
-    println!("{}", empty_line(iw));
-
-    render_dimension_bars(iw, &dimensions, &dim_text);
-    render_stats_footer(iw, result, &stats, skipped_text.as_deref());
-
-    println!("  {}{}{}", dim("└"), dim(&"─".repeat(iw)), dim("┘"));
+    let mut clipped = take_width(text, width - 1);
+    clipped.push('…');
+    clipped
 }
 
-struct ScoreBar {
-    plain: String,
-    colored: String,
-}
-
-fn build_score_bar(score: u32) -> ScoreBar {
-    let filled = ((f64::from(score) / 100.0) * SCORE_BAR_WIDTH as f64).round() as usize;
-    let empty = SCORE_BAR_WIDTH - filled;
-
-    let filled_str = "█".repeat(filled);
-    let empty_str = "░".repeat(empty);
-
-    let plain = format!("{filled_str}{empty_str}");
-    let dimmed_empty = empty_str.if_supports_color(Stream::Stdout, |t| t.dimmed());
-    let colored = format!("{}{}", colorize_by_score(&filled_str, score), dimmed_empty);
-
-    ScoreBar { plain, colored }
-}
-
-fn colorize_by_score(text: &str, score: u32) -> String {
+const fn score_band_label(score: u32) -> &'static str {
     if score >= SCORE_GOOD_THRESHOLD {
-        format!("{}", text.if_supports_color(Stream::Stdout, |t| t.green()))
+        "Great"
     } else if score >= SCORE_OK_THRESHOLD {
-        format!("{}", text.if_supports_color(Stream::Stdout, |t| t.yellow()))
+        "Needs work"
     } else {
-        format!("{}", text.if_supports_color(Stream::Stdout, |t| t.red()))
+        "Critical"
     }
 }
 
-/// Print per-pass timing table to stderr (verbose mode only).
+fn stdout_score(text: &str, score: u32) -> String {
+    if score >= SCORE_GOOD_THRESHOLD {
+        stdout_success(text)
+    } else if score >= SCORE_OK_THRESHOLD {
+        stdout_warn(text)
+    } else {
+        stdout_error(text)
+    }
+}
+
+fn colorize_stderr_by_severity(text: &str, severity: Severity) -> String {
+    match severity {
+        Severity::Error => stderr_error(text),
+        Severity::Warning => stderr_warn(text),
+        Severity::Info => stderr_info(text),
+    }
+}
+
+fn stdout_error(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.red())
+    )
+}
+
+fn stdout_warn(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.yellow())
+    )
+}
+
+fn stdout_info(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.cyan())
+    )
+}
+
+fn stdout_success(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.green())
+    )
+}
+
+fn stdout_dim(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.dimmed())
+    )
+}
+
+fn stdout_bold(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stdout, |value| value.bold())
+    )
+}
+
+fn stderr_error(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.red())
+    )
+}
+
+fn stderr_warn(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.yellow())
+    )
+}
+
+fn stderr_info(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.cyan())
+    )
+}
+
+fn stderr_success(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.green())
+    )
+}
+
+fn stderr_dim(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.dimmed())
+    )
+}
+
+fn stderr_bold(text: &str) -> String {
+    format!(
+        "{}",
+        text.if_supports_color(Stream::Stderr, |value| value.bold())
+    )
+}
+
 fn print_pass_timings(timings: &[(String, std::time::Duration)]) {
     eprintln!();
     eprintln!(
         "{}",
-        "Pass timings:".if_supports_color(Stream::Stderr, |t| t.dimmed())
+        "Pass timings:".if_supports_color(Stream::Stderr, |value| value.dimmed())
     );
-    // Find the longest pass name for alignment
     let max_name_len = timings
         .iter()
         .map(|(name, _)| name.len())
@@ -455,123 +1535,10 @@ fn print_pass_timings(timings: &[(String, std::time::Duration)]) {
     for (name, duration) in timings {
         eprintln!(
             "  {:<width$}  {:.1}s",
-            name.if_supports_color(Stream::Stderr, |t| t.dimmed()),
+            name.if_supports_color(Stream::Stderr, |value| value.dimmed()),
             duration.as_secs_f64(),
             width = max_name_len,
         );
-    }
-}
-
-/// A grouped diagnostic: a rule with its occurrence count and representative info.
-struct DiagGroup<'a> {
-    rule: &'a str,
-    severity: Severity,
-    message: &'a str,
-    help: Option<&'a str>,
-    count: usize,
-    occurrences: Vec<DiagOccurrence<'a>>,
-}
-
-struct DiagOccurrence<'a> {
-    file_path: std::borrow::Cow<'a, str>,
-    line: Option<u32>,
-    column: Option<u32>,
-}
-
-/// Print diagnostics grouped by rule, errors first.
-#[allow(clippy::too_many_lines)]
-fn print_diagnostics(diagnostics: &[&CanonicalDiagnostic], verbose: bool) {
-    // Group by rule — borrow from diagnostics to avoid cloning strings
-    let mut groups: HashMap<&str, DiagGroup<'_>> = HashMap::new();
-    for &d in diagnostics {
-        let entry = groups.entry(&d.rule).or_insert_with(|| DiagGroup {
-            rule: &d.rule,
-            severity: d.severity,
-            message: &d.message,
-            help: d.help.as_deref(),
-            count: 0,
-            occurrences: vec![],
-        });
-        entry.count += 1;
-        let (file_path, line, column) = match &d.location {
-            DiagnosticLocation::Source { path, range } => (
-                std::borrow::Cow::Borrowed(path.as_str()),
-                Some(range.start.line),
-                Some(range.start.column),
-            ),
-            DiagnosticLocation::Project => (std::borrow::Cow::Borrowed("<project>"), None, None),
-        };
-        entry.occurrences.push(DiagOccurrence {
-            file_path,
-            line,
-            column,
-        });
-    }
-
-    // Sort: errors first, then warnings, then info
-    let mut sorted: Vec<_> = groups.into_values().collect();
-    sorted.sort_by(|a, b| {
-        let severity_ord = |s: &Severity| match s {
-            Severity::Error => 0,
-            Severity::Warning => 1,
-            Severity::Info => 2,
-        };
-        severity_ord(&a.severity)
-            .cmp(&severity_ord(&b.severity))
-            .then(a.rule.cmp(b.rule))
-    });
-
-    for group in &sorted {
-        let symbol = match group.severity {
-            Severity::Error => format!("{}", "✗".if_supports_color(Stream::Stderr, |t| t.red())),
-            Severity::Warning => {
-                format!("{}", "⚠".if_supports_color(Stream::Stderr, |t| t.yellow()))
-            }
-            Severity::Info => {
-                format!("{}", "ℹ".if_supports_color(Stream::Stderr, |t| t.cyan()))
-            }
-        };
-
-        eprint!("  {symbol} {}", group.message);
-        if group.count > 1 {
-            eprint!(
-                " {}",
-                format!("({})", group.count).if_supports_color(Stream::Stderr, |t| t.dimmed())
-            );
-        }
-        // Mark syn-only heuristic findings so the user calibrates confidence (US-013).
-        if diagnostics.iter().any(|diagnostic| {
-            diagnostic.rule == group.rule && diagnostic.tags.iter().any(|tag| tag == "heuristic")
-        }) {
-            eprint!(
-                " {}",
-                "~heuristic".if_supports_color(Stream::Stderr, |t| t.dimmed())
-            );
-        }
-        eprintln!();
-
-        if let Some(ref help) = group.help {
-            eprintln!(
-                "    {}",
-                help.if_supports_color(Stream::Stderr, |t| t.dimmed())
-            );
-        }
-
-        if verbose {
-            for occ in &group.occurrences {
-                let location: std::borrow::Cow<'_, str> = match (occ.line, occ.column) {
-                    (Some(l), Some(c)) => format!("{}:{}:{}", occ.file_path, l, c).into(),
-                    (Some(l), None) => format!("{}:{}", occ.file_path, l).into(),
-                    _ => std::borrow::Cow::Borrowed(occ.file_path.as_ref()),
-                };
-                eprintln!(
-                    "    {}",
-                    location.if_supports_color(Stream::Stderr, |t| t.dimmed())
-                );
-            }
-        }
-
-        eprintln!();
     }
 }
 
@@ -579,21 +1546,31 @@ fn print_diagnostics(diagnostics: &[&CanonicalDiagnostic], verbose: bool) {
 mod tests {
     use super::*;
     use crate::diagnostics::{
-        AuditMetadata, CanonicalDiagnostic, CompletenessState, DiagnosticLocation, DimensionScores,
-        ReportCompleteness, ReportOutcome, ReportSummary, ScanMode, ScoreLabel, SourcePosition,
-        SourceRange,
+        AuditMetadata, CanonicalDiagnostic, CompletenessState, DiagnosticOwnership,
+        DimensionScores, ReportCompleteness, ReportSummary, ScanMode, ScoreLabel, SourcePosition,
+        SourceRange, SourceSurface,
     };
-    use std::path::Path;
 
-    fn make_result(
-        score: u32,
-        diagnostics: Vec<CanonicalDiagnostic>,
-        errors: usize,
-        warnings: usize,
-        infos: usize,
-    ) -> ReportV1 {
-        let mut report = ReportV1::failure(Path::new("."), ScanMode::Full, "test", "");
-        report.outcome = ReportOutcome::Findings;
+    fn make_result(root: &Path, score: u32, diagnostics: Vec<CanonicalDiagnostic>) -> ReportV1 {
+        let errors = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .count();
+        let warnings = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+            .count();
+        let infos = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Info)
+            .count();
+        let mut report = ReportV1::failure(root, ScanMode::Full, "test", "");
+        report.outcome = if diagnostics.is_empty() {
+            ReportOutcome::Clean
+        } else {
+            ReportOutcome::Findings
+        };
+        report.resolved_root = Some(root.to_string_lossy().into_owned());
         report.completeness = ReportCompleteness {
             state: CompletenessState::Complete,
             planned_files: 10,
@@ -610,7 +1587,7 @@ mod tests {
         report.diagnostics = diagnostics;
         report.summary = ReportSummary {
             score: Some(score),
-            score_label: Some(ScoreLabel::Great),
+            score_label: Some(ScoreLabel::NeedsWork),
             error_count: errors,
             warning_count: warnings,
             info_count: infos,
@@ -619,7 +1596,7 @@ mod tests {
         };
         report.audit = AuditMetadata::default();
         report.score = Some(score);
-        report.score_label = Some(ScoreLabel::Great);
+        report.score_label = Some(ScoreLabel::NeedsWork);
         report.dimension_scores = Some(DimensionScores {
             security: score,
             reliability: score,
@@ -628,7 +1605,8 @@ mod tests {
             dependencies: score,
         });
         report.source_file_count = 10;
-        report.elapsed = 0.5;
+        report.elapsed = 0.7;
+        report.elapsed_ms = 700;
         report.error_count = errors;
         report.warning_count = warnings;
         report.info_count = infos;
@@ -636,34 +1614,39 @@ mod tests {
         report
     }
 
-    fn make_diagnostic(rule: &str, severity: Severity) -> CanonicalDiagnostic {
+    fn make_diagnostic(
+        rule: &str,
+        severity: Severity,
+        category: Category,
+        line: u32,
+    ) -> CanonicalDiagnostic {
         CanonicalDiagnostic {
             provider: "rust-doctor".to_string(),
             rule: rule.to_string(),
-            title: rule.to_string(),
-            category: crate::diagnostics::Category::ErrorHandling,
+            title: format!("{rule} title"),
+            category,
             severity,
-            message: format!("test message for {rule}"),
-            help: Some(format!("fix {rule}")),
-            url: String::new(),
+            message: format!("test impact message for {rule}"),
+            help: Some(format!("fix {rule} before shipping")),
+            url: format!("{BRAND_URL}/rules/{rule}"),
             tags: vec!["heuristic".to_string()],
             analysis_kind: "synast".to_string(),
             confidence: "medium".to_string(),
             original_level: severity.to_string(),
-            ownership: crate::diagnostics::DiagnosticOwnership::Package {
+            ownership: DiagnosticOwnership::Package {
                 package_id: "fixture".to_string(),
             },
-            source_surface: crate::diagnostics::SourceSurface::Library,
+            source_surface: SourceSurface::Library,
             location: DiagnosticLocation::Source {
                 path: "src/lib.rs".to_string(),
                 range: SourceRange {
                     start: SourcePosition {
-                        line: 10,
+                        line,
                         column: 5,
                         byte_offset: None,
                     },
                     end: SourcePosition {
-                        line: 10,
+                        line,
                         column: 5,
                         byte_offset: None,
                     },
@@ -672,142 +1655,242 @@ mod tests {
             related_locations: vec![],
             macro_expansion: None,
             fixes: vec![],
-            visible_on: vec!["terminal".to_string()],
-            site_id: rule.to_string(),
-            baseline_key: rule.to_string(),
+            visible_on: vec!["terminal".to_string(), "score".to_string()],
+            site_id: format!("{rule}:{line}"),
+            baseline_key: format!("{rule}:{line}"),
             namespace_fallback: false,
         }
     }
 
-    // --- build_score_bar ---
-
-    #[test]
-    fn test_score_bar_full() {
-        let bar = build_score_bar(100);
-        assert_eq!(bar.plain.chars().count(), SCORE_BAR_WIDTH);
-        assert!(!bar.plain.contains('░'));
+    fn render(result: &ReportV1, verbose: bool) -> TerminalOutput {
+        build_terminal_output(
+            result,
+            RenderOptions {
+                verbose,
+                show_warnings: true,
+                selected_categories: &[],
+                show_default_share: false,
+                render_static_scan_summary: true,
+                show_agent_guidance: false,
+            },
+        )
     }
 
     #[test]
-    fn test_score_bar_empty() {
-        let bar = build_score_bar(0);
-        assert_eq!(bar.plain.chars().count(), SCORE_BAR_WIDTH);
-        assert!(!bar.plain.contains('█'));
-    }
-
-    #[test]
-    fn test_score_bar_half() {
-        let bar = build_score_bar(50);
-        let filled = bar.plain.chars().filter(|&c| c == '█').count();
-        let empty = bar.plain.chars().filter(|&c| c == '░').count();
-        assert_eq!(filled + empty, SCORE_BAR_WIDTH);
-        assert_eq!(filled, 20);
-    }
-
-    // --- colorize_by_score ---
-
-    #[test]
-    fn test_colorize_high_score_contains_text() {
-        // NO_COLOR may suppress ANSI codes; just verify the text is present
-        let result = colorize_by_score("test", 90);
-        assert!(result.contains("test"));
-    }
-
-    #[test]
-    fn test_colorize_low_score_contains_text() {
-        let result = colorize_by_score("test", 20);
-        assert!(result.contains("test"));
-    }
-
-    // --- render_terminal (integration) ---
-
-    #[test]
-    fn test_render_terminal_with_diagnostics() {
-        let diags = vec![
-            make_diagnostic("rule-a", Severity::Error),
-            make_diagnostic("rule-b", Severity::Warning),
+    fn default_render_matches_react_doctor_structure() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        std::fs::write(
+            directory.path().join("src/lib.rs"),
+            "pub fn before() {}\npub async fn risky() {}\npub fn after() {}\n",
+        )
+        .unwrap();
+        let diagnostics = vec![
+            make_diagnostic(
+                "unauthenticated-server-action",
+                Severity::Error,
+                Category::Security,
+                2,
+            ),
+            make_diagnostic(
+                "excessive-clone",
+                Severity::Warning,
+                Category::Performance,
+                3,
+            ),
         ];
-        let result = make_result(70, diags, 1, 1, 0);
-        // Should not panic — output goes to stdout/stderr
-        render_terminal(&result, &[], false, true);
-    }
+        let output = render(&make_result(directory.path(), 68, diagnostics), false);
 
-    #[test]
-    fn test_render_terminal_zero_diagnostics() {
-        let result = make_result(100, vec![], 0, 0, 0);
-        render_terminal(&result, &[], false, true);
-    }
-
-    #[test]
-    fn test_render_terminal_verbose() {
-        let diags = vec![make_diagnostic("rule-a", Severity::Warning)];
-        let result = make_result(80, diags, 0, 1, 0);
-        render_terminal(&result, &[], true, true);
-    }
-
-    #[test]
-    fn test_render_terminal_with_skipped_passes() {
-        let mut result = make_result(90, vec![], 0, 0, 0);
-        result.skipped_passes = vec!["cargo-audit".to_string(), "cargo-deny".to_string()];
-        render_terminal(&result, &[], false, true);
-    }
-
-    #[test]
-    fn test_render_terminal_zero_files_no_diagnostics() {
-        let mut result = make_result(100, vec![], 0, 0, 0);
-        result.source_file_count = 0;
-        // Should print "No Rust source files found" and return early
-        render_terminal(&result, &[], false, true);
-    }
-
-    #[test]
-    fn category_card_lists_categories_and_only_their_dimensions() {
-        let result = make_result(80, vec![], 0, 0, 0);
-        let scores = result.dimension_scores.as_ref().unwrap();
-        let dimensions =
-            selected_dimension_scores(scores, &[ScanCategory::Security, ScanCategory::Performance]);
-        assert_eq!(dimensions, vec![("Security", 80), ("Performance", 80)]);
-        assert_eq!(
-            category_scope_text(&[
-                ScanCategory::Security,
-                ScanCategory::Performance,
-                ScanCategory::Security,
-            ])
-            .as_deref(),
-            Some("Category scan: Security, Performance")
+        assert!(output.stderr.contains("✔ Scanned 10 files in 0.7s"));
+        assert!(output.stderr.contains("Top 1 error you should fix"));
+        assert!(
+            output
+                .stderr
+                .contains("Security: unauthenticated-server-action title")
         );
-        render_terminal_for_categories(
+        assert!(output.stderr.contains("src/lib.rs:2"));
+        assert!(output.stderr.contains("pub async fn risky()"));
+        assert!(output.stderr.contains("All 2 issues"));
+        assert!(output.stderr.contains("Security › 1 error"));
+        assert!(output.stderr.contains("Performance › 1 warning"));
+        assert!(output.stderr.contains(VERBOSE_COMMAND));
+
+        assert!(output.stdout.contains("68 / 100 Needs work"));
+        assert!(
+            output
+                .stdout
+                .contains("Rust Doctor (https://rust-doctor.vercel.app)")
+        );
+        assert!(output.stdout.contains("Docs:"));
+        assert!(output.stdout.contains("GitHub:"));
+        insta::assert_snapshot!("terminal_default_stderr", &output.stderr);
+        insta::assert_snapshot!("terminal_default_stdout", &output.stdout);
+    }
+
+    #[test]
+    fn verbose_render_lists_warning_details_without_a_code_frame() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        std::fs::write(directory.path().join("src/lib.rs"), "fn warning() {}\n").unwrap();
+        let diagnostic =
+            make_diagnostic("warning-rule", Severity::Warning, Category::Architecture, 1);
+        let output = render(&make_result(directory.path(), 90, vec![diagnostic]), true);
+        assert!(
+            output
+                .stderr
+                .contains("⚠ Maintainability: warning-rule title")
+        );
+        assert!(output.stderr.contains("src/lib.rs:1"));
+        assert!(!output.stderr.contains("┌"));
+    }
+
+    #[test]
+    fn clean_render_prints_success_and_score() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut result = make_result(directory.path(), 100, vec![]);
+        result.score_label = Some(ScoreLabel::Great);
+        result.summary.score_label = Some(ScoreLabel::Great);
+        let output = render(&result, false);
+        assert!(output.stdout.contains("No issues found!"));
+        assert!(output.stdout.contains("100 / 100 Great"));
+        assert!(!output.stderr.contains("All 0 issues"));
+    }
+
+    #[test]
+    fn hidden_warnings_are_not_counted_as_displayed_issues() {
+        let directory = tempfile::tempdir().unwrap();
+        let diagnostic =
+            make_diagnostic("warning-rule", Severity::Warning, Category::Architecture, 1);
+        let result = make_result(directory.path(), 99, vec![diagnostic]);
+        let output = build_terminal_output(
             &result,
-            &[],
-            false,
-            true,
-            &[ScanCategory::Security, ScanCategory::Performance],
+            RenderOptions {
+                verbose: false,
+                show_warnings: false,
+                selected_categories: &[],
+                show_default_share: false,
+                render_static_scan_summary: false,
+                show_agent_guidance: false,
+            },
+        );
+        assert!(output.stdout.contains("No issues found!"));
+        assert!(!output.stderr.contains("warning-rule"));
+    }
+
+    #[test]
+    fn score_bar_keeps_the_reference_width() {
+        let bar = score_bar(50, Some(75), SCORE_BAR_WIDTH);
+        let plain = strip_ansi(&bar);
+        assert_eq!(plain.width(), SCORE_BAR_WIDTH);
+        assert_eq!(
+            plain.chars().filter(|character| *character == '█').count(),
+            25
+        );
+        assert_eq!(
+            plain.chars().filter(|character| *character == '▓').count(),
+            13
         );
     }
 
-    // --- print_diagnostics grouping ---
-
     #[test]
-    fn test_print_diagnostics_groups_by_rule() {
-        let diags = [
-            make_diagnostic("same-rule", Severity::Warning),
-            make_diagnostic("same-rule", Severity::Warning),
-            make_diagnostic("other-rule", Severity::Error),
-        ];
-        // Should not panic; diagnostics are grouped by rule
-        let refs: Vec<_> = diags.iter().collect();
-        print_diagnostics(&refs, false);
+    fn score_bar_width_is_clamped_to_the_terminal() {
+        assert_eq!(score_bar_width(None), 50);
+        assert_eq!(score_bar_width(Some(200)), 50);
+        assert_eq!(score_bar_width(Some(40)), 28);
+        assert_eq!(score_bar_width(Some(10)), 10);
     }
 
     #[test]
-    fn test_print_diagnostics_sorts_errors_first() {
-        let diags = [
-            make_diagnostic("warn-rule", Severity::Warning),
-            make_diagnostic("info-rule", Severity::Info),
-            make_diagnostic("err-rule", Severity::Error),
-        ];
-        // Should print errors, then warnings, then info
-        let refs: Vec<_> = diags.iter().collect();
-        print_diagnostics(&refs, true);
+    fn osc8_file_urls_encode_paths_without_changing_the_visible_location() {
+        let path = Path::new("/tmp/rust doctor/é.rs");
+        assert_eq!(
+            path_to_file_url(path),
+            "file:///tmp/rust%20doctor/%C3%A9.rs"
+        );
+        let linked = format!(
+            "\x1b]8;;{}\x1b\\src/lib.rs:2\x1b]8;;\x1b\\",
+            path_to_file_url(Path::new("/tmp/src/lib.rs"))
+        );
+        assert!(linked.contains("src/lib.rs:2"));
+        assert!(linked.starts_with("\x1b]8;;file:///tmp/src/lib.rs"));
+    }
+
+    #[test]
+    fn incomplete_empty_render_never_claims_the_project_is_clean() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut result = make_result(directory.path(), 100, vec![]);
+        result.outcome = ReportOutcome::Partial;
+        result.summary.score_authoritative = false;
+        result.completeness.state = CompletenessState::Incomplete;
+        result.completeness.failed_checks = 1;
+        let output = render(&result, false);
+        assert!(output.stderr.contains("results are incomplete"));
+        assert!(!output.stdout.contains("No issues found!"));
+        assert!(
+            output
+                .stdout
+                .contains("Score not shown: some checks could not complete.")
+        );
+    }
+
+    #[test]
+    fn non_interactive_render_includes_agent_guidance() {
+        let directory = tempfile::tempdir().unwrap();
+        let diagnostic =
+            make_diagnostic("warning-rule", Severity::Warning, Category::Architecture, 1);
+        let result = make_result(directory.path(), 90, vec![diagnostic]);
+        let output = build_terminal_output(
+            &result,
+            RenderOptions {
+                verbose: false,
+                show_warnings: true,
+                selected_categories: &[],
+                show_default_share: false,
+                render_static_scan_summary: true,
+                show_agent_guidance: true,
+            },
+        );
+        assert!(output.stdout.contains("Agent guidance"));
+        assert!(
+            output
+                .stdout
+                .contains("Treat Rust Doctor diagnostics as starting hypotheses")
+        );
+
+        let verbose = build_terminal_output(
+            &result,
+            RenderOptions {
+                verbose: true,
+                show_warnings: true,
+                selected_categories: &[],
+                show_default_share: false,
+                render_static_scan_summary: true,
+                show_agent_guidance: true,
+            },
+        );
+        assert!(
+            verbose
+                .stderr
+                .contains("Curl with no cache & follow the canonical fix")
+        );
+        assert!(!verbose.stderr.contains("Learn more:"));
+    }
+
+    fn strip_ansi(value: &str) -> String {
+        let mut output = String::new();
+        let mut characters = value.chars().peekable();
+        while let Some(character) = characters.next() {
+            if character == '\u{1b}' && characters.peek() == Some(&'[') {
+                let _ = characters.next();
+                for next in characters.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                output.push(character);
+            }
+        }
+        output
     }
 }

@@ -11,12 +11,12 @@ pub(crate) struct Consent {
 }
 
 pub(crate) fn load() -> Result<Option<Consent>, TelemetryError> {
-    load_from(&config_root()?)
+    load_from(&super::config_root()?)
 }
 
 pub(crate) fn store(endpoint: &str) -> Result<(), TelemetryError> {
     store_at(
-        &config_root()?,
+        &super::config_root()?,
         &Consent {
             schema_version: "1.1".to_string(),
             enabled: true,
@@ -26,25 +26,12 @@ pub(crate) fn store(endpoint: &str) -> Result<(), TelemetryError> {
 }
 
 pub(crate) fn remove() -> Result<(), TelemetryError> {
-    let path = consent_path(&config_root()?);
+    let path = consent_path(&super::config_root()?);
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(source) => Err(TelemetryError::Io { path, source }),
     }
-}
-
-fn config_root() -> Result<PathBuf, TelemetryError> {
-    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
-        return Ok(PathBuf::from(path).join("rust-doctor"));
-    }
-    if let Some(path) = std::env::var_os("APPDATA") {
-        return Ok(PathBuf::from(path).join("rust-doctor"));
-    }
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".config/rust-doctor"))
-        .ok_or(TelemetryError::ConfigHome)
 }
 
 fn consent_path(root: &Path) -> PathBuf {

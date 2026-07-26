@@ -224,8 +224,4 @@ runs:
     - name: Enforce scan outcome
       if: always() && steps.scan.outputs.exit-code != '0'
       shell: bash
-      env:
-        EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
-      run: |
-        [[ "$EXIT_CODE" =~ ^[1-4]$ ]] || EXIT_CODE=2
-        exit "$EXIT_CODE"
+      run: exit 1

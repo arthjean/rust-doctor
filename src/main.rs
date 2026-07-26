@@ -2,9 +2,11 @@
 #![allow(clippy::multiple_crate_versions)]
 
 use clap::Parser;
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 use rust_doctor::cli::Cli;
 use rust_doctor::{config, run};
 use std::any::Any;
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -21,13 +23,31 @@ fn main() -> ExitCode {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI lifecycle remains visible in one dependency-ordered function"
+)]
 fn run() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
 
-    let cli = Cli::parse();
+    let cli = match try_parse_react_compatible(std::env::args_os()) {
+        Ok(cli) => cli,
+        Err(error) => {
+            let code = if matches!(
+                error.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(run::EXIT_SCAN_ERROR)
+            };
+            let _ = error.print();
+            return code;
+        }
+    };
 
     if let Err(error) = cli.validate_contract() {
         let _ = error.print();
@@ -51,6 +71,13 @@ fn run() -> ExitCode {
     }
     if let Some(code) = run::handle_mcp_flag(&cli) {
         return code;
+    }
+    if let Err(error) = run::render_scan_welcome(&cli) {
+        if error.kind() == std::io::ErrorKind::BrokenPipe {
+            return ExitCode::SUCCESS;
+        }
+        eprintln!("Error: failed to render terminal header: {error}");
+        return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
 
     // Bootstrap: resolve directory, discover project, load file config
@@ -101,14 +128,17 @@ fn run() -> ExitCode {
             return ExitCode::from(run::EXIT_SCAN_ERROR);
         }
     };
-    if let Err(error) = run::emit_handoff(&cli, &report) {
-        eprintln!("Warning: diagnostic handoff failed: {error}");
-    }
-    run::emit_scan_telemetry(&cli, &report);
     if let Err(error) = run::emit_share_if_requested(&cli, &report) {
         eprintln!("Error: share URL was not created: {error}");
         return ExitCode::from(run::EXIT_SCAN_ERROR);
     }
+    if let Err(error) = run::offer_ci_setup(&cli, &report, &project_info) {
+        eprintln!("Warning: GitHub Actions setup was not completed: {error}");
+    }
+    if let Err(error) = run::emit_handoff(&cli, &report) {
+        eprintln!("Warning: diagnostic handoff failed: {error}");
+    }
+    run::emit_scan_telemetry(&cli, &report);
 
     run::emit_plan_if_requested(&cli, &scan_result);
 
@@ -119,13 +149,42 @@ fn run() -> ExitCode {
     if let Some(code) = run::check_score_gate(&scan_result, resolved.score_fail_below) {
         return code;
     }
-    if let Some(code) =
-        run::check_fail_on_gate_for_config(&scan_result, &resolved, resolved.fail_on)
+    if !cli.score
+        && let Some(code) =
+            run::check_fail_on_gate_for_config(&scan_result, &resolved, resolved.fail_on)
     {
         return code;
     }
 
     ExitCode::SUCCESS
+}
+
+fn try_parse_react_compatible(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<Cli, clap::Error> {
+    let mut arguments: Vec<_> = arguments.into_iter().collect();
+    loop {
+        match Cli::try_parse_from(&arguments) {
+            Ok(cli) => return Ok(cli),
+            Err(error) if error.kind() == ErrorKind::UnknownArgument => {
+                let Some(ContextValue::String(argument)) = error.get(ContextKind::InvalidArg)
+                else {
+                    return Err(error);
+                };
+                if !argument.starts_with('-') {
+                    return Err(error);
+                }
+                let Some(index) = arguments
+                    .iter()
+                    .position(|candidate| candidate == argument.as_str())
+                else {
+                    return Err(error);
+                };
+                arguments.remove(index);
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn is_closed_pipe_panic(payload: &(dyn Any + Send)) -> bool {

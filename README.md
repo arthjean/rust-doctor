@@ -211,7 +211,7 @@ Terminal diagnostics are written to stderr and the score box is written to stdou
 
 `--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
 
-`--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. `--share` works only with terminal output and prints a sanitized stateless URL after the local report.
+`--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. Online terminal runs include a sanitized stateless sharing URL by default. `--share` requests the same local URL explicitly when the default footer is suppressed.
 
 ### Scan scopes and completeness
 
@@ -226,7 +226,7 @@ Terminal diagnostics are written to stderr and the score box is written to stdou
 
 Scope is both an execution input and a reporting contract. File-local AST rules read only selected files. Clippy and package/workspace analyzers may still execute at package scope, then report only diagnostics allowed by the requested scope.
 
-Every Report V1 instance accounts for planned and analyzed files plus completed, skipped, failed, timed-out, and cancelled checks. `--max-duration` applies one wall-clock budget to the complete scan. `--require-complete` returns exit code `4` when required work is incomplete.
+Every Report V1 instance accounts for planned and analyzed files plus completed, skipped, failed, timed-out, and cancelled checks. `--max-duration` applies one wall-clock budget to the complete scan. `--require-complete` returns exit code `1` when required work is incomplete.
 
 ### Category scans
 
@@ -248,43 +248,28 @@ preserved and unselected dimensions are excluded from the average.
 
 ## Exit Codes
 
-rust-doctor returns distinct exit codes so CI pipelines can tell a quality-gate
-failure apart from a crash:
+rust-doctor follows React Doctor's compact CLI contract:
 
 | Code | Meaning |
 |------|---------|
-| `0` | A valid report exists, incomplete analysis is either absent or allowed, and all quality gates passed |
-| `1` | Setup error: MCP server, installer, or `--install-deps` failed |
-| `2` | No valid report is available: invalid arguments, discovery, scan, or output failure |
-| `3` | A valid report exists, completeness is satisfied or allowed, and the configured quality gate blocked |
-| `4` | Required analysis is incomplete while `--require-complete` is active, regardless of the finding gate |
+| `0` | The command succeeded and no effective gate blocked |
+| `1` | Invalid input, setup/scan/output failure, incomplete required analysis, or a blocking finding |
+| `130` | The process received `SIGINT` on a POSIX shell |
 
-For scan commands, precedence is normative across every output mode:
+Errors block by default. `--blocking none` makes findings advisory. `--score`
+prints the bare score and does not fail only because findings exist.
 
 | Report | Completeness policy | Finding/score gate | Exit |
 |---|---|---|---|
-| Unavailable | Any | Any | `2` |
-| Available but incomplete | Required | Any | `4` |
-| Available | Complete or incompleteness allowed | Blocked | `3` |
+| Unavailable | Any | Any | `1` |
+| Available but incomplete | Required | Any | `1` |
+| Available | Complete or incompleteness allowed | Blocked | `1` |
 | Available | Complete or incompleteness allowed | Passed | `0` |
 
-Gate the build on a quality failure without masking a crash:
+Gate the build on errors:
 
 ```bash
-if rust-doctor --blocking error; then
-  :
-else
-  status=$?
-  case "$status" in
-    3)
-      echo "Quality gate failed"
-      exit 1
-      ;;
-    *)
-      exit "$status"
-      ;;
-  esac
-fi
+rust-doctor --blocking error
 ```
 
 ## AI Agent Setup (recommended)

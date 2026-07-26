@@ -74,7 +74,7 @@ set +e
 rust-doctor "${ARGS[@]}"
 EXIT_CODE=$?
 set -e
-[[ "$EXIT_CODE" =~ ^[0-4]$ ]] || EXIT_CODE=2
+[[ "$EXIT_CODE" =~ ^[01]$ ]] || EXIT_CODE=1
 
 if [[ ! -s "$REPORT_FILE" ]] || ! rust-doctor validate-report "$REPORT_FILE" >/dev/null 2>&1; then
   echo "::error::rust-doctor did not produce a valid Report V1"
@@ -85,7 +85,7 @@ if [[ ! -s "$REPORT_FILE" ]] || ! rust-doctor validate-report "$REPORT_FILE" >/d
   write_output outcome failed
   write_output completeness incomplete
   write_output report-file ""
-  write_output exit-code 2
+  write_output exit-code 1
   exit 0
 fi
 if [[ "$SKIP_SCAN" == true ]] && ! jq -e '.outcome == "nothing_to_scan"' "$REPORT_FILE" >/dev/null; then
@@ -96,7 +96,7 @@ if [[ "$SKIP_SCAN" == true ]] && ! jq -e '.outcome == "nothing_to_scan"' "$REPOR
   write_output outcome failed
   write_output completeness incomplete
   write_output report-file "$REPORT_FILE"
-  write_output exit-code 2
+  write_output exit-code 1
   exit 0
 fi
 

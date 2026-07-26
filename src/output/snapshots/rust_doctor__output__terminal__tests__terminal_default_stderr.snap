@@ -1,0 +1,29 @@
+---
+source: src/output/terminal.rs
+expression: "&output.stderr"
+---
+✔ Scanned 10 files in 0.7s
+
+  Top 1 error you should fix
+
+  ✖ Security: unauthenticated-server-action title
+    test impact message for unauthenticated-server-action
+    → fix unauthenticated-server-action before shipping
+
+    src/lib.rs:2
+    ┌──────────────────────────────────────────────────────────────┐
+    │   1 | pub fn before() {}                                     │
+    │ > 2 | pub async fn risky() {}                                │
+    │     |     ^                                                  │
+    │   3 | pub fn after() {}                                      │
+    └──────────────────────────────────────────────────────────────┘
+
+
+  ────────────────────────────────────────────────────────────
+
+  All 2 issues
+
+  Security › 1 error
+  Performance › 1 warning
+
+  Run npx rust-doctor@latest --verbose to list every error and warning
