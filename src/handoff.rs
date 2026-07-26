@@ -1,20 +1,24 @@
 //! Bounded, deterministic diagnostic dumps and optional local agent handoffs.
 
+mod launch;
+
 use crate::cli::HandoffTarget;
 use crate::diagnostics::{CanonicalDiagnostic, DiagnosticLocation, ReportV1, Severity};
 use dialoguer::Select;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 const MAX_DIAGNOSTICS: usize = 1_000;
 const MAX_MESSAGE_CHARS: usize = 500;
 const MAX_INLINE_GROUPS: usize = 3;
 const MAX_INLINE_FINDINGS: usize = 5;
+const MIGRATION_SCALE_FILE_COUNT: usize = 40;
+const COPY_PROMPT_LABEL: &str = "Copy prompt to clipboard";
+const SKIP_LABEL: &str = "Skip";
 
 #[derive(Debug)]
 pub struct HandoffRequest {
@@ -45,8 +49,6 @@ pub enum HandoffError {
     Serialize(#[from] serde_json::Error),
     #[error("handoff target selection failed: {0}")]
     Prompt(#[from] dialoguer::Error),
-    #[error("clipboard delivery failed: {0}")]
-    Clipboard(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -62,11 +64,20 @@ struct DiagnosticDump {
 struct DumpDiagnostic {
     site_id: String,
     rule: String,
+    title: String,
     severity: Severity,
     category: crate::diagnostics::Category,
     location: DiagnosticLocation,
     message: String,
     help: Option<String>,
+    url: String,
+    fix_group_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TargetSelection {
+    Chosen(HandoffTarget),
+    Cancelled,
 }
 
 pub fn execute(
@@ -82,26 +93,35 @@ pub fn execute(
         return Ok(None);
     }
 
+    let prompted = request.target.is_none() && request.interactive;
+    let selection = select_target(request)?;
+    let TargetSelection::Chosen(target) = selection else {
+        return Ok(None);
+    };
+    if request.remember_target {
+        store_preference(target)?;
+    } else if prompted {
+        let _ = store_preference(target);
+    }
+    if target == HandoffTarget::None && request.output_dir.is_none() {
+        return Ok(None);
+    }
+
     let directory = output_directory(request.output_dir.as_deref())?;
     let dump = bounded_dump(&report.diagnostics);
-    let target = match select_target(request) {
-        Ok(target) => target,
-        Err(error) => {
-            write_dump(&directory, &dump, &render_handoff(&dump, None))?;
-            return Err(error);
-        }
-    };
-    let handoff = render_handoff(&dump, target);
+    let working_directory = handoff_working_directory(report);
+    let project_name = project_name(&working_directory);
+    let handoff = render_handoff(&dump, &project_name, &directory);
     write_dump(&directory, &dump, &handoff)?;
-    if request.remember_target
-        && let Some(target) = target
-    {
-        store_preference(target)?;
+    match target {
+        HandoffTarget::Clipboard => deliver_to_clipboard(&handoff),
+        HandoffTarget::None => {}
+        _ => deliver_to_agent(target, &handoff, &working_directory),
     }
-    if target == Some(HandoffTarget::Clipboard) {
-        copy_to_clipboard(&handoff)?;
-    }
-    Ok(Some(HandoffOutcome { directory, target }))
+    Ok(Some(HandoffOutcome {
+        directory,
+        target: (target != HandoffTarget::None).then_some(target),
+    }))
 }
 
 fn bounded_dump(diagnostics: &[CanonicalDiagnostic]) -> DiagnosticDump {
@@ -110,13 +130,24 @@ fn bounded_dump(diagnostics: &[CanonicalDiagnostic]) -> DiagnosticDump {
         .map(|diagnostic| DumpDiagnostic {
             site_id: diagnostic.site_id.clone(),
             rule: diagnostic.rule.clone(),
+            title: diagnostic.title.clone(),
             severity: diagnostic.severity,
             category: diagnostic.category.clone(),
             location: diagnostic.location.clone(),
             message: redact_and_bound(&diagnostic.message),
             help: diagnostic.help.as_deref().map(redact_and_bound),
+            url: diagnostic.url.clone(),
+            fix_group_ids: diagnostic
+                .fixes
+                .iter()
+                .filter_map(|fix| fix.group_id.clone())
+                .collect(),
         })
         .collect();
+    for diagnostic in &mut diagnostics {
+        diagnostic.fix_group_ids.sort();
+        diagnostic.fix_group_ids.dedup();
+    }
     diagnostics.sort_by(|left, right| {
         severity_rank(right.severity)
             .cmp(&severity_rank(left.severity))
@@ -212,8 +243,15 @@ fn write_dump(directory: &Path, dump: &DiagnosticDump, handoff: &str) -> Result<
                 "- [{}] {}: {}",
                 diagnostic.severity,
                 display_location(&diagnostic.location),
-                diagnostic.message
+                diagnostic.title
             );
+            let _ = writeln!(content, "  {}", diagnostic.message);
+            if let Some(help) = &diagnostic.help {
+                let _ = writeln!(content, "  Suggested fix: {help}");
+            }
+            if !diagnostic.url.is_empty() {
+                let _ = writeln!(content, "  Learn more: {}", diagnostic.url);
+            }
         }
         atomic_write(
             &canonical_rules.join(format!("{}.txt", group_filename(&rule))),
@@ -223,30 +261,117 @@ fn write_dump(directory: &Path, dump: &DiagnosticDump, handoff: &str) -> Result<
     Ok(())
 }
 
-fn render_handoff(dump: &DiagnosticDump, target: Option<HandoffTarget>) -> String {
+fn render_handoff(dump: &DiagnosticDump, project_name: &str, directory: &Path) -> String {
     let groups = priority_groups(&dump.diagnostics);
-    let mut output = String::from("# Rust Doctor diagnostic handoff\n\n");
-    let _ = writeln!(
-        output,
-        "Target: {}\nDiagnostics: {} included of {}\nComplete dump: diagnostics.json\n",
-        target.map_or_else(|| "none".to_string(), |value| value.to_string()),
-        dump.included_diagnostics,
-        dump.total_diagnostics
+    let shown_group_count = groups.len().min(MAX_INLINE_GROUPS);
+    let issue_label = if shown_group_count == 1 {
+        "issue"
+    } else {
+        "issues"
+    };
+    let mut output = format!(
+        "Fix the top {shown_group_count} Rust Doctor {issue_label} in {project_name} on this pass. Leave the rest for a follow-up.\n\n"
     );
-    for (rule, diagnostics) in groups.into_iter().take(MAX_INLINE_GROUPS) {
-        let _ = writeln!(output, "## {rule}\n");
-        for diagnostic in diagnostics.into_iter().take(MAX_INLINE_FINDINGS) {
+    for (index, (rule, diagnostics)) in groups.iter().take(MAX_INLINE_GROUPS).enumerate() {
+        let Some(representative) = diagnostics.first() else {
+            continue;
+        };
+        let count_badge = shared_fix_site_count(diagnostics).map_or_else(
+            || format!("x{}", diagnostics.len()),
+            |site_count| format!("one fix, {site_count} sites"),
+        );
+        let _ = writeln!(
+            output,
+            "{}. {} {}: {} ({rule}, {count_badge})",
+            index + 1,
+            severity_label(representative.severity),
+            representative.category,
+            representative.title
+        );
+        let _ = writeln!(output, "   {}", representative.message);
+        if let Some(help) = &representative.help {
+            let _ = writeln!(output, "   Suggested fix: {help}");
+        }
+        if !representative.url.is_empty() {
+            let _ = writeln!(output, "   Learn more: {}", representative.url);
+        }
+        let mut locations = BTreeSet::new();
+        for diagnostic in diagnostics {
+            locations.insert(display_location(&diagnostic.location));
+        }
+        for location in locations.iter().take(MAX_INLINE_FINDINGS) {
+            let _ = writeln!(output, "   - {location}");
+        }
+        let remaining_locations = locations.len().saturating_sub(MAX_INLINE_FINDINGS);
+        if remaining_locations > 0 {
+            let _ = writeln!(output, "   - +{remaining_locations} more sites");
+        }
+        let migration_file_count = migration_file_count(diagnostics);
+        if migration_file_count >= MIGRATION_SCALE_FILE_COUNT {
             let _ = writeln!(
                 output,
-                "- [{}] {}: {}",
-                diagnostic.severity,
-                display_location(&diagnostic.location),
-                diagnostic.message
+                "   Migration-scale ({migration_file_count} files): fix a representative sample, confirm the recipe holds, and get the code owner's sign-off before changing the rest in one pass."
             );
         }
         output.push('\n');
     }
+
+    let included_label = if dump.truncated {
+        format!(
+            "{} included of {} total diagnostics",
+            dump.included_diagnostics, dump.total_diagnostics
+        )
+    } else {
+        format!("all {} diagnostics", dump.total_diagnostics)
+    };
+    let _ = writeln!(
+        output,
+        "Full results for {included_label} (diagnostics.json plus one file per rule): {}",
+        directory.display()
+    );
+    output.push_str(
+        "\nRead each file and fix the root cause. Do not suppress, disable, or silence the rule.\n",
+    );
+    if dump
+        .diagnostics
+        .iter()
+        .any(|diagnostic| !diagnostic.fix_group_ids.is_empty())
+    {
+        output.push_str(
+            "\nFindings that share a fix_group_id in diagnostics.json are one root cause. Treat them as one task, not one task per site.\n",
+        );
+    }
+    output.push_str(
+        "\nVerify against the real tool: re-run `rust-doctor . --verbose` and confirm each issue is gone before moving on.\n",
+    );
+    output.push_str(
+        "\nFor every issue you touch, explain plainly what was wrong, its real-world impact, and why the fix addresses the root cause.\n",
+    );
+    append_deferred_group_guidance(&mut output, &groups);
     output
+}
+
+fn append_deferred_group_guidance(output: &mut String, groups: &[(String, Vec<&DumpDiagnostic>)]) {
+    if groups.len() <= MAX_INLINE_GROUPS {
+        return;
+    }
+    let migration_count = groups
+        .iter()
+        .skip(MAX_INLINE_GROUPS)
+        .filter(|(_, diagnostics)| migration_file_count(diagnostics) >= MIGRATION_SCALE_FILE_COUNT)
+        .count();
+    if migration_count > 0 {
+        let group_label = if migration_count == 1 {
+            "group"
+        } else {
+            "groups"
+        };
+        let _ = writeln!(
+            output,
+            "\nThe remaining results include {migration_count} migration-scale {group_label}. For each one, fix a representative sample, confirm the recipe holds, and get the code owner's sign-off before changing the rest in one pass."
+        );
+    }
+    output.push_str("\nThen work through the rest from the full results above.\n");
 }
 
 fn priority_groups(diagnostics: &[DumpDiagnostic]) -> Vec<(String, Vec<&DumpDiagnostic>)> {
@@ -323,48 +448,171 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), HandoffError> {
     Ok(())
 }
 
-fn select_target(request: &HandoffRequest) -> Result<Option<HandoffTarget>, HandoffError> {
+fn select_target(request: &HandoffRequest) -> Result<TargetSelection, HandoffError> {
     if let Some(target) = request.target {
-        return Ok((target != HandoffTarget::None).then_some(target));
+        return Ok(TargetSelection::Chosen(target));
     }
     if !request.interactive {
-        return Ok(None);
-    }
-    if home_directory().is_some()
-        && let Some(preference) = load_preference()?
-    {
-        return Ok((preference != HandoffTarget::None).then_some(preference));
+        return Ok(TargetSelection::Chosen(HandoffTarget::None));
     }
 
-    let detected = home_directory()
-        .as_deref()
-        .map(crate::setup::detect_agents_in)
-        .unwrap_or_default();
-    let mut targets: Vec<_> = detected
-        .iter()
-        .map(|agent| (agent.name.to_string(), setup_target(agent.id)))
-        .collect();
-    targets.push(("Clipboard".to_string(), HandoffTarget::Clipboard));
-    targets.push(("No handoff".to_string(), HandoffTarget::None));
+    let mut targets = launch::launchable_targets();
+    targets.push((COPY_PROMPT_LABEL.to_string(), HandoffTarget::Clipboard));
+    targets.push((SKIP_LABEL.to_string(), HandoffTarget::None));
     let labels: Vec<_> = targets.iter().map(|(label, _)| label.as_str()).collect();
+    let remembered = if home_directory().is_some() {
+        load_preference().unwrap_or(None)
+    } else {
+        None
+    };
+    let initial = remembered_choice_index(&targets, remembered);
     let selection = Select::new()
-        .with_prompt("Diagnostic handoff target")
+        .with_prompt("What would you like to do next?")
         .items(&labels)
-        .default(labels.len().saturating_sub(1))
-        .interact_on(&dialoguer::console::Term::stdout())?;
-    Ok(targets
-        .get(selection)
-        .map(|(_, target)| *target)
-        .filter(|target| *target != HandoffTarget::None))
+        .default(initial)
+        .interact_on_opt(&dialoguer::console::Term::stdout())?;
+    Ok(selection.map_or(TargetSelection::Cancelled, |selection| {
+        TargetSelection::Chosen(
+            targets
+                .get(selection)
+                .map_or(HandoffTarget::None, |(_, target)| *target),
+        )
+    }))
 }
 
-const fn setup_target(agent: crate::setup::AgentId) -> HandoffTarget {
-    match agent {
-        crate::setup::AgentId::Claude => HandoffTarget::ClaudeCode,
-        crate::setup::AgentId::Cursor => HandoffTarget::Cursor,
-        crate::setup::AgentId::Codex => HandoffTarget::Codex,
-        crate::setup::AgentId::OpenCode => HandoffTarget::OpenCode,
-        crate::setup::AgentId::Windsurf => HandoffTarget::Windsurf,
+fn remembered_choice_index(
+    targets: &[(String, HandoffTarget)],
+    remembered: Option<HandoffTarget>,
+) -> usize {
+    remembered
+        .and_then(|target| {
+            targets
+                .iter()
+                .position(|(_, candidate)| *candidate == target)
+        })
+        .unwrap_or_default()
+}
+
+fn handoff_working_directory(report: &ReportV1) -> PathBuf {
+    for candidate in [
+        report.resolved_root.as_deref(),
+        Some(report.requested_root.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Ok(path) = Path::new(candidate).canonicalize()
+            && path.is_dir()
+        {
+            return path;
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn project_name(working_directory: &Path) -> String {
+    working_directory
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("this Rust project")
+        .to_string()
+}
+
+fn deliver_to_clipboard(handoff: &str) {
+    match launch::copy_to_clipboard(handoff) {
+        Ok(()) => eprintln!("Copied the prompt to your clipboard."),
+        Err(error) => {
+            eprintln!("Warning: could not copy the prompt to the clipboard: {error}");
+            print_prompt(handoff);
+        }
+    }
+}
+
+fn deliver_to_agent(target: HandoffTarget, handoff: &str, working_directory: &Path) {
+    install_skill_best_effort(target, working_directory);
+    let binary = launch::binary_name(target).unwrap_or("selected agent");
+    eprintln!("Handing off to {target}...");
+    match launch::launch_agent(target, handoff, working_directory) {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!("{binary} exited with status {status}. Here is the prompt instead:");
+            print_prompt(handoff);
+        }
+        Err(error) => {
+            eprintln!("Could not launch {binary}: {error}. Here is the prompt instead:");
+            print_prompt(handoff);
+        }
+    }
+}
+
+fn install_skill_best_effort(target: HandoffTarget, working_directory: &Path) {
+    let Some(agent) = setup_agent(target) else {
+        return;
+    };
+    let Some(home) = home_directory() else {
+        return;
+    };
+    let mut request = crate::setup::SetupRequest::install(home, working_directory.to_path_buf());
+    request.yes = true;
+    request.agents = vec![agent];
+    request.skill = true;
+    request.mcp = false;
+    if crate::setup::execute(&request).is_ok_and(|report| report.changed()) {
+        eprintln!("Installed the Rust Doctor skill for {target}.");
+    }
+}
+
+const fn setup_agent(target: HandoffTarget) -> Option<crate::setup::AgentId> {
+    match target {
+        HandoffTarget::ClaudeCode => Some(crate::setup::AgentId::Claude),
+        HandoffTarget::Cursor => Some(crate::setup::AgentId::Cursor),
+        HandoffTarget::Codex => Some(crate::setup::AgentId::Codex),
+        HandoffTarget::OpenCode
+        | HandoffTarget::Windsurf
+        | HandoffTarget::Clipboard
+        | HandoffTarget::None => None,
+    }
+}
+
+fn print_prompt(handoff: &str) {
+    eprintln!("──── Agent prompt ────");
+    eprintln!("{handoff}");
+    eprintln!("──────────────────────");
+}
+
+fn shared_fix_site_count(diagnostics: &[&DumpDiagnostic]) -> Option<usize> {
+    if diagnostics.len() < 2 {
+        return None;
+    }
+    let first = diagnostics.first()?;
+    first
+        .fix_group_ids
+        .iter()
+        .find(|group_id| {
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix_group_ids.contains(group_id))
+        })
+        .map(|_| diagnostics.len())
+}
+
+fn migration_file_count(diagnostics: &[&DumpDiagnostic]) -> usize {
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| match &diagnostic.location {
+            DiagnosticLocation::Source { path, .. } => Some(path.as_str()),
+            DiagnosticLocation::Project => None,
+        })
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+const fn severity_label(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "ERROR",
+        Severity::Warning => "WARN",
+        Severity::Info => "INFO",
     }
 }
 
@@ -423,43 +671,6 @@ fn parse_target(value: &str) -> Option<HandoffTarget> {
         "none" => Some(HandoffTarget::None),
         _ => None,
     }
-}
-
-fn copy_to_clipboard(content: &str) -> Result<(), HandoffError> {
-    let commands: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
-        &[("pbcopy", &[])]
-    } else if cfg!(target_os = "windows") {
-        &[("clip", &[])]
-    } else {
-        &[("wl-copy", &[])]
-    };
-    let mut failures = Vec::new();
-    for (program, arguments) in commands {
-        let mut child = match Command::new(program)
-            .args(*arguments)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(error) => {
-                failures.push(format!("{program}: {error}"));
-                continue;
-            }
-        };
-        let write_result = child
-            .stdin
-            .take()
-            .ok_or_else(|| HandoffError::Clipboard(format!("{program}: stdin unavailable")))?
-            .write_all(content.as_bytes());
-        let status = child.wait();
-        if write_result.is_ok() && status.is_ok_and(|status| status.success()) {
-            return Ok(());
-        }
-        failures.push(format!("{program}: delivery failed"));
-    }
-    Err(HandoffError::Clipboard(failures.join("; ")))
 }
 
 fn redact_and_bound(value: &str) -> String {
@@ -555,6 +766,148 @@ mod tests {
     fn remembered_target_value_contains_no_project_identity() {
         assert_eq!(parse_target("codex"), Some(HandoffTarget::Codex));
         assert!(parse_target("/project/codex").is_none());
+    }
+
+    #[test]
+    fn interactive_picker_matches_react_doctor_labels() {
+        let targets = [
+            ("Claude Code".to_string(), HandoffTarget::ClaudeCode),
+            ("Codex".to_string(), HandoffTarget::Codex),
+            ("Cursor".to_string(), HandoffTarget::Cursor),
+        ];
+        assert_eq!(
+            targets
+                .iter()
+                .map(|(label, _)| label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Claude Code", "Codex", "Cursor"]
+        );
+        assert_eq!(COPY_PROMPT_LABEL, "Copy prompt to clipboard");
+        assert_eq!(SKIP_LABEL, "Skip");
+    }
+
+    #[test]
+    fn remembered_choice_only_changes_the_initial_focus_when_still_available() {
+        let targets = vec![
+            ("Claude Code".to_string(), HandoffTarget::ClaudeCode),
+            (COPY_PROMPT_LABEL.to_string(), HandoffTarget::Clipboard),
+            (SKIP_LABEL.to_string(), HandoffTarget::None),
+        ];
+        assert_eq!(
+            remembered_choice_index(&targets, Some(HandoffTarget::None)),
+            2
+        );
+        assert_eq!(
+            remembered_choice_index(&targets, Some(HandoffTarget::OpenCode)),
+            0
+        );
+        assert_eq!(remembered_choice_index(&targets, None), 0);
+    }
+
+    #[test]
+    fn agent_prompt_is_actionable_and_points_to_the_complete_dump() {
+        let diagnostics = vec![
+            DumpDiagnostic {
+                site_id: "site-1".to_string(),
+                rule: "unwrap-in-production".to_string(),
+                title: "Production unwrap".to_string(),
+                severity: Severity::Error,
+                category: crate::diagnostics::Category::ErrorHandling,
+                location: serde_json::from_value(serde_json::json!({
+                    "kind": "source",
+                    "path": "src/lib.rs",
+                    "range": {
+                        "start": {"line": 12, "column": 4},
+                        "end": {"line": 12, "column": 10}
+                    }
+                }))
+                .unwrap(),
+                message: "This can panic.".to_string(),
+                help: Some("Return a typed error.".to_string()),
+                url: "https://rust-doctor.vercel.app/docs/rules/unwrap-in-production".to_string(),
+                fix_group_ids: vec!["shared-fix".to_string()],
+            },
+            DumpDiagnostic {
+                site_id: "site-2".to_string(),
+                rule: "unwrap-in-production".to_string(),
+                title: "Production unwrap".to_string(),
+                severity: Severity::Error,
+                category: crate::diagnostics::Category::ErrorHandling,
+                location: serde_json::from_value(serde_json::json!({
+                    "kind": "source",
+                    "path": "src/main.rs",
+                    "range": {
+                        "start": {"line": 20, "column": 2},
+                        "end": {"line": 20, "column": 8}
+                    }
+                }))
+                .unwrap(),
+                message: "This can panic.".to_string(),
+                help: Some("Return a typed error.".to_string()),
+                url: String::new(),
+                fix_group_ids: vec!["shared-fix".to_string()],
+            },
+        ];
+        let dump = DiagnosticDump {
+            schema_version: "1.0",
+            total_diagnostics: diagnostics.len(),
+            included_diagnostics: diagnostics.len(),
+            truncated: false,
+            diagnostics,
+        };
+        assert_eq!(shared_fix_site_count(&[&dump.diagnostics[0]]), None);
+        let prompt = render_handoff(&dump, "demo", Path::new("/tmp/rust-doctor-demo"));
+        assert!(prompt.contains("Fix the top 1 Rust Doctor issue in demo"));
+        assert!(prompt.contains("one fix, 2 sites"));
+        assert!(prompt.contains("Suggested fix: Return a typed error."));
+        assert!(prompt.contains("/tmp/rust-doctor-demo"));
+        assert!(prompt.contains("Do not suppress, disable, or silence the rule."));
+        assert!(prompt.contains("rust-doctor . --verbose"));
+    }
+
+    #[test]
+    fn deferred_migration_groups_keep_the_safety_instruction() {
+        let diagnostic = |rule: &str, path: String| DumpDiagnostic {
+            site_id: format!("{rule}:{path}"),
+            rule: rule.to_string(),
+            title: "Migration finding".to_string(),
+            severity: Severity::Warning,
+            category: crate::diagnostics::Category::Architecture,
+            location: serde_json::from_value(serde_json::json!({
+                "kind": "source",
+                "path": path,
+                "range": {
+                    "start": {"line": 1, "column": 1},
+                    "end": {"line": 1, "column": 2}
+                }
+            }))
+            .unwrap(),
+            message: "Update this site.".to_string(),
+            help: None,
+            url: String::new(),
+            fix_group_ids: Vec::new(),
+        };
+        let mut diagnostics = ["a-first", "b-second", "c-third"]
+            .into_iter()
+            .map(|rule| diagnostic(rule, format!("src/{rule}.rs")))
+            .collect::<Vec<_>>();
+        diagnostics.extend(
+            (0..MIGRATION_SCALE_FILE_COUNT)
+                .map(|index| diagnostic("z-deferred-migration", format!("src/file_{index}.rs"))),
+        );
+        let dump = DiagnosticDump {
+            schema_version: "1.0",
+            total_diagnostics: diagnostics.len(),
+            included_diagnostics: diagnostics.len(),
+            truncated: false,
+            diagnostics,
+        };
+
+        let prompt = render_handoff(&dump, "demo", Path::new("/tmp/rust-doctor-demo"));
+
+        assert!(prompt.contains("remaining results include 1 migration-scale group"));
+        assert!(prompt.contains("fix a representative sample"));
+        assert!(prompt.contains("code owner's sign-off"));
     }
 
     #[test]
