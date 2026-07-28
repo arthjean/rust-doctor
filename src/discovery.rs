@@ -220,12 +220,18 @@ pub(crate) fn discover_project_for_scan(
         .map_err(|source| DiscoveryError::CargoMetadata { source })?;
 
     let workspace_root = PathBuf::from(metadata.workspace_root.as_std_path());
-    let members = metadata.workspace_packages();
+    let all_members = metadata.workspace_packages();
+    let is_workspace = metadata.root_package().is_none() || all_members.len() > 1;
+    let members: Vec<_> = all_members
+        .into_iter()
+        .filter(|package| !evaluation_profile || package_has_primary_target(package))
+        .collect();
     let member_count = members.len();
-    let is_workspace = metadata.root_package().is_none() || member_count > 1;
+    let member_ids: BTreeSet<_> = members.iter().map(|package| &package.id).collect();
     let default_member_ids: Vec<String> = metadata
         .workspace_default_members
         .iter()
+        .filter(|package_id| member_ids.contains(package_id))
         .map(|package_id| package_id.repr.clone())
         .collect();
 
@@ -507,6 +513,15 @@ fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
         .collect();
     targets.sort();
     targets
+}
+
+fn package_has_primary_target(package: &cargo_metadata::Package) -> bool {
+    package.targets.iter().any(|target| {
+        matches!(
+            source_surface_for_target(&target.kind),
+            SourceSurface::Library | SourceSurface::Binary
+        )
+    })
 }
 
 /// Features Cargo resolved as enabled for one package, or the declared default
@@ -1158,6 +1173,51 @@ mod tests {
             ),
             SourceSurface::Library
         );
+    }
+
+    #[test]
+    fn evaluation_discovery_excludes_packages_without_primary_targets() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("Cargo.toml"),
+            "[workspace]\nresolver=\"3\"\nmembers=[\"library\", \"compile-tests\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join("library/src")).unwrap();
+        std::fs::write(
+            root.path().join("library/Cargo.toml"),
+            "[package]\nname=\"library\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.path().join("library/src/lib.rs"), "").unwrap();
+        std::fs::create_dir_all(root.path().join("compile-tests/tests")).unwrap();
+        std::fs::write(
+            root.path().join("compile-tests/Cargo.toml"),
+            concat!(
+                "[package]\n",
+                "name=\"compile-tests\"\n",
+                "version=\"0.1.0\"\n",
+                "edition=\"2024\"\n",
+                "autolib=false\n",
+                "autobins=false\n",
+                "autotests=false\n",
+                "[[test]]\n",
+                "name=\"ui\"\n",
+                "path=\"tests/ui.rs\"\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("compile-tests/tests/ui.rs"), "").unwrap();
+
+        let ordinary =
+            discover_project_for_scan(&root.path().join("Cargo.toml"), true, false).unwrap();
+        let evaluation =
+            discover_project_for_scan(&root.path().join("Cargo.toml"), true, true).unwrap();
+
+        assert_eq!(ordinary.workspace_members.len(), 2);
+        assert_eq!(evaluation.workspace_members.len(), 1);
+        assert_eq!(evaluation.workspace_members[0].name, "library");
+        assert_eq!(evaluation.member_count, 1);
     }
 
     #[test]

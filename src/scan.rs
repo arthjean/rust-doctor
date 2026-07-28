@@ -496,7 +496,7 @@ fn build_passes(
                 member,
                 framework_capabilities,
             ))
-            .skip_fully_abstained_files(resolved.evaluation_profile);
+            .with_evaluation_profile(resolved.evaluation_profile);
             if let Some(files) = selected_files {
                 rule_pass = rule_pass.with_selected_files(files);
             }
