@@ -166,9 +166,9 @@ pub trait CustomRule: Send + Sync {
 }
 
 /// Source surfaces a rule is excluded from before traversal when its catalog
-/// contract does not list them. `Unknown` is deliberately absent: an unclassified
-/// file is handled by the explicit [`ContextRequirement::SourceSurface`]
-/// declaration, not by silent exclusion.
+/// contract does not list them. `Unknown` is handled separately as missing
+/// evidence: a bounded catalog contract cannot prove that an unclassified file
+/// belongs to one of its supported surfaces.
 const EXCLUDABLE_SURFACES: &[SourceSurface] = &[
     SourceSurface::Test,
     SourceSurface::Bench,
@@ -217,6 +217,9 @@ impl RuleGate {
             return context
                 .first_missing(self.required_context)
                 .map(|missing| format!("missing-context:{missing}"));
+        }
+        if context.source_surface == SourceSurface::Unknown {
+            return Some("missing-context:source-surface".to_string());
         }
         if context.origin != SourceOrigin::Authored
             && !self.supported_contexts.contains(&context.source_surface)
@@ -299,6 +302,7 @@ impl RuleEngine {
             enable_rules,
             &[],
             &context::UNRESOLVED_PACKAGE,
+            false,
             None,
         )
     }
@@ -320,6 +324,7 @@ impl RuleEngine {
         enable_rules: &[String],
         cargo_targets: &[CargoTargetContext],
         package: &PackageContext,
+        skip_fully_abstained_files: bool,
         on_file_progress: Option<&scanner::FileProgressCallback>,
     ) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
@@ -394,6 +399,9 @@ impl RuleEngine {
                 package.frameworks.join(","),
                 package.metadata_complete
             )))
+            .chain(std::iter::once(format!(
+                "skip-fully-abstained-files:{skip_fully_abstained_files}"
+            )))
             .collect();
         let config_hash = cache::compute_config_hash(
             project_root,
@@ -405,10 +413,12 @@ impl RuleEngine {
         let mut scan_cache = ScanCache::load(project_root, &config_hash)
             .unwrap_or_else(|| ScanCache::new(config_hash.clone()));
 
-        // Read all files into memory, retaining explicit failure receipts for
-        // every selected file that cannot be analyzed safely.
+        // Resolve applicability before touching file contents. A peripheral
+        // fixture may be invalid Rust or non-UTF-8 by design; if every rule
+        // abstains on its source surface, it is not required analysis.
         let control = crate::process::current_scan_control();
         let mut all_diagnostics = Vec::new();
+        let mut abstention_events = Vec::new();
         let file_contents: Vec<(std::path::PathBuf, String)> = files
             .into_iter()
             .filter_map(|file_path| {
@@ -419,6 +429,18 @@ impl RuleEngine {
                 if let Ok(ref set) = ignore_set
                     && set.is_match(rel_path)
                 {
+                    return None;
+                }
+                let source_context = RuleContext::for_path(&file_path, cargo_targets, package);
+                let mut applicable = false;
+                for (rule, gate) in self.rules.iter().zip(&gates) {
+                    if let Some(reason) = gate.abstention_reason(source_context) {
+                        abstention_events.push((rule.name().to_string(), reason));
+                    } else {
+                        applicable = true;
+                    }
+                }
+                if !applicable && skip_fully_abstained_files {
                     return None;
                 }
                 match std::fs::metadata(&file_path) {
@@ -449,24 +471,11 @@ impl RuleEngine {
                 }
             })
             .collect();
-        let total_file_count = file_contents.len();
-        let worker_count = rayon::current_num_threads();
-
-        // Applicability is decided from path and package context alone, so it is
-        // computed for every analyzed file — including cache hits, which never
-        // re-enter the traversal loop below.
-        let mut abstention_events = Vec::new();
-        for (file_path, _) in &file_contents {
-            let context = RuleContext::for_path(file_path, cargo_targets, package);
-            for (rule, gate) in self.rules.iter().zip(&gates) {
-                if let Some(reason) = gate.abstention_reason(context) {
-                    abstention_events.push((rule.name().to_string(), reason));
-                }
-            }
-        }
         if let Ok(mut recorded) = self.abstentions.lock() {
             recorded.extend(abstention_events);
         }
+        let total_file_count = file_contents.len();
+        let worker_count = rayon::current_num_threads();
 
         // Partition into fresh (cache hit) and stale (need scanning) files,
         // keeping the pre-computed hash for stale files to avoid double hashing.
@@ -769,6 +778,7 @@ pub struct RuleEnginePass {
     selected_files: Option<Vec<PathBuf>>,
     cargo_targets: Vec<CargoTargetContext>,
     package: PackageContext,
+    skip_fully_abstained_files: bool,
 }
 
 impl RuleEnginePass {
@@ -787,6 +797,7 @@ impl RuleEnginePass {
             selected_files: None,
             cargo_targets: Vec::new(),
             package: PackageContext::unresolved(),
+            skip_fully_abstained_files: false,
         }
     }
 
@@ -806,6 +817,13 @@ impl RuleEnginePass {
         self
     }
 
+    /// In corpus evaluation, files outside every rule's declared surfaces are
+    /// evidence of abstention rather than required parser inputs.
+    pub const fn skip_fully_abstained_files(mut self, enabled: bool) -> Self {
+        self.skip_fully_abstained_files = enabled;
+        self
+    }
+
     fn run_engine(
         &self,
         project_root: &Path,
@@ -819,6 +837,7 @@ impl RuleEnginePass {
             &self.enable_rules,
             &self.cargo_targets,
             &self.package,
+            self.skip_fully_abstained_files,
             on_file_progress,
         )
     }
@@ -1867,6 +1886,42 @@ mod tests {
                 .iter()
                 .all(|receipt| receipt.rule == "panic-in-library")
         );
+    }
+
+    #[test]
+    fn unknown_and_test_fixtures_abstain_before_file_parsing() {
+        let dir = probe_project();
+        let unknown = dir.path().join("fixtures/broken.rs");
+        let test = dir.path().join("tests/integration.rs");
+        std::fs::create_dir_all(unknown.parent().unwrap()).unwrap();
+        std::fs::write(&unknown, b"\xff\xfe not UTF-8").unwrap();
+        std::fs::write(&test, "this is deliberately invalid Rust {{{").unwrap();
+        let pass = RuleEnginePass::with_config(
+            vec![Box::new(ContextProbeRule::new(&[]))],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_cargo_targets(probe_targets(dir.path()))
+        .with_package_context(resolved_package())
+        .skip_fully_abstained_files(true);
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].file_path.ends_with("lib.rs"));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != scanner::ANALYSIS_FAILURE_RULE)
+        );
+
+        let receipts = pass.take_abstentions();
+        assert!(receipts.iter().any(|receipt| {
+            receipt.reason == "missing-context:source-surface" && receipt.count == 1
+        }));
+        assert!(receipts.iter().any(|receipt| {
+            receipt.reason == "unsupported-source-surface:test" && receipt.count == 1
+        }));
     }
 
     #[test]
