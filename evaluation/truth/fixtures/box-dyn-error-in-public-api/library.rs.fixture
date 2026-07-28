@@ -1,0 +1,134 @@
+//! rust-doctor truth fixture
+//! rule: box-dyn-error-in-public-api
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+use std::error::Error;
+
+#[derive(Debug)]
+pub struct StoreError;
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("store error")
+    }
+}
+
+impl Error for StoreError {}
+
+pub fn connect(url: &str) -> Result<(), Box<dyn Error>> { //~ pos
+    let _ = url;
+    Ok(())
+}
+
+pub fn connect_typed(url: &str) -> Result<(), StoreError> { //~ neg
+    let _ = url;
+    Ok(())
+}
+
+pub fn migrate() -> Result<u32, Box<dyn std::error::Error>> { //~ pos
+    Ok(1)
+}
+
+pub fn migrate_typed() -> Result<u32, StoreError> { //~ neg
+    Ok(1)
+}
+
+pub fn load(key: &str) -> Result<String, Box<dyn Error + Send + Sync>> { //~ pos
+    Ok(key.to_string())
+}
+
+pub fn load_typed(key: &str) -> Result<String, StoreError> { //~ neg
+    Ok(key.to_string())
+}
+
+pub fn boxed_only() -> Box<dyn Error> { //~ pos
+    Box::new(StoreError)
+}
+
+pub fn typed_only() -> StoreError { //~ neg
+    StoreError
+}
+
+fn private_boxed() -> Result<(), Box<dyn Error>> { //~ neg
+    Ok(())
+}
+
+pub(crate) fn crate_boxed() -> Result<(), Box<dyn Error>> { //~ neg
+    Ok(())
+}
+
+pub fn flush() -> Result<(), Box<dyn Error>> { //~ pos
+    Ok(())
+}
+
+pub fn flush_typed() -> Result<(), StoreError> { //~ neg
+    Ok(())
+}
+
+pub fn compact() -> Result<usize, Box<dyn Error>> { //~ pos
+    Ok(0)
+}
+
+pub fn compact_option() -> Option<usize> { //~ neg
+    Some(0)
+}
+
+pub fn snapshot() -> Result<Vec<u8>, Box<dyn Error>> { //~ pos
+    Ok(Vec::new())
+}
+
+pub fn snapshot_typed() -> Result<Vec<u8>, StoreError> { //~ neg
+    Ok(Vec::new())
+}
+
+pub fn restore(_bytes: &[u8]) -> Result<(), Box<dyn Error>> { //~ pos
+    Ok(())
+}
+
+pub fn restore_typed(_bytes: &[u8]) -> Result<(), StoreError> { //~ neg
+    Ok(())
+}
+
+pub struct Store;
+
+impl Store {
+    pub fn open(path: &str) -> Result<Self, Box<dyn Error>> { //~ pos
+        let _ = path;
+        Ok(Self)
+    }
+
+    pub fn open_typed(path: &str) -> Result<Self, StoreError> { //~ neg
+        let _ = path;
+        Ok(Self)
+    }
+
+    pub fn get(&self, key: &str) -> Result<String, Box<dyn Error>> { //~ pos
+        Ok(key.to_string())
+    }
+
+    pub fn get_typed(&self, key: &str) -> Result<String, StoreError> { //~ neg
+        Ok(key.to_string())
+    }
+
+    pub fn put(&self, key: &str, value: &str) -> Result<(), Box<dyn Error>> { //~ pos
+        let _ = (key, value);
+        Ok(())
+    }
+
+    pub fn put_typed(&self, key: &str, value: &str) -> Result<(), StoreError> { //~ neg
+        let _ = (key, value);
+        Ok(())
+    }
+
+    fn private_put(&self) -> Result<(), Box<dyn Error>> { //~ neg
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize { //~ neg
+        0
+    }
+}

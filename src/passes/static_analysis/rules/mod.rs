@@ -1,5 +1,6 @@
 pub mod async_rules;
 pub mod complexity;
+pub mod context;
 pub mod error_handling;
 pub mod framework;
 pub mod framework_packs;
@@ -7,6 +8,11 @@ pub mod performance;
 pub mod reliability;
 pub mod security;
 pub mod tranche;
+
+pub use context::{
+    AbstentionReceipt, ContextRequirement, CrateRole, PackageContext, PackageIdentity, RuleContext,
+    SourceOrigin,
+};
 
 use crate::cache::{self, ScanCache};
 use crate::catalog::{Confidence, NumericRange};
@@ -17,6 +23,7 @@ use globset::GlobSet;
 use rayon::prelude::*;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_RS_FILE_SIZE: u64 = 10 * 1024 * 1024;
@@ -105,6 +112,22 @@ pub trait CustomRule: Send + Sync {
     /// Apply a validated threshold before analysis starts.
     fn set_threshold(&mut self, _threshold: u32) {}
 
+    /// Context this rule cannot decide without.
+    ///
+    /// The engine checks every requirement before traversal. An unavailable or
+    /// ambiguous requirement produces an abstention receipt instead of a
+    /// diagnostic, so a rule never emits on evidence it does not have (US-006).
+    fn required_context(&self) -> &'static [ContextRequirement] {
+        &[]
+    }
+
+    /// Crate roles this rule declares unsupported. Proc-macro crates compile to
+    /// a compiler plugin and classify as libraries on the wire, so a rule that
+    /// does not hold there declares it here.
+    fn unsupported_crate_roles(&self) -> &'static [CrateRole] {
+        &[]
+    }
+
     /// Check a parsed Rust file and return diagnostics.
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic>;
 
@@ -114,7 +137,7 @@ pub trait CustomRule: Send + Sync {
         &self,
         syntax: &syn::File,
         path: &Path,
-        _context: RuleContext,
+        _context: RuleContext<'_>,
     ) -> Vec<Diagnostic> {
         self.check_file(syntax, path)
     }
@@ -142,32 +165,115 @@ pub trait CustomRule: Send + Sync {
     }
 }
 
-/// Exact source context resolved from Cargo target paths before a rule runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuleContext {
-    pub source_surface: SourceSurface,
+/// Source surfaces a rule is excluded from before traversal when its catalog
+/// contract does not list them. `Unknown` is deliberately absent: an unclassified
+/// file is handled by the explicit [`ContextRequirement::SourceSurface`]
+/// declaration, not by silent exclusion.
+const EXCLUDABLE_SURFACES: &[SourceSurface] = &[
+    SourceSurface::Test,
+    SourceSurface::Bench,
+    SourceSurface::Example,
+    SourceSurface::BuildScript,
+    SourceSurface::Generated,
+    SourceSurface::MacroExpansion,
+];
+
+/// Applicability contract for one rule, resolved once per scan.
+struct RuleGate {
+    /// Source surfaces the catalog declares supported. Empty means unrestricted.
+    supported_contexts: Vec<SourceSurface>,
+    required_context: &'static [ContextRequirement],
+    unsupported_crate_roles: &'static [CrateRole],
 }
 
-impl RuleContext {
-    fn for_path(path: &Path, cargo_targets: &[CargoTargetContext]) -> Self {
-        let source_surface = if cargo_targets.is_empty() {
-            crate::config::classify_source_surface(&path.to_string_lossy(), false)
-        } else {
-            crate::discovery::source_surface_for_path(path, cargo_targets)
-        };
-        Self { source_surface }
+impl RuleGate {
+    fn for_rule(rule: &dyn CustomRule) -> Self {
+        let supported_contexts = crate::catalog::built_in_catalog()
+            .ok()
+            .and_then(|catalog| catalog.exact(rule.name()))
+            .map(|descriptor| descriptor.trust.supported_contexts.clone())
+            .unwrap_or_default();
+        Self {
+            supported_contexts,
+            required_context: rule.required_context(),
+            unsupported_crate_roles: rule.unsupported_crate_roles(),
+        }
+    }
+
+    /// Stable abstention reason when this rule must not decide on `context`.
+    fn abstention_reason(&self, context: RuleContext<'_>) -> Option<String> {
+        if self
+            .unsupported_crate_roles
+            .contains(&context.package.crate_role)
+        {
+            return Some(format!(
+                "unsupported-crate-role:{}",
+                context.package.crate_role.as_str()
+            ));
+        }
+        // A rule with no declared context contract is unrestricted: only a rule
+        // that says where it holds can be excluded from anywhere.
+        if self.supported_contexts.is_empty() {
+            return context
+                .first_missing(self.required_context)
+                .map(|missing| format!("missing-context:{missing}"));
+        }
+        if context.origin != SourceOrigin::Authored
+            && !self.supported_contexts.contains(&context.source_surface)
+        {
+            return Some(format!("unsupported-origin:{}", context.origin.as_str()));
+        }
+        if EXCLUDABLE_SURFACES.contains(&context.source_surface)
+            && !self.supported_contexts.contains(&context.source_surface)
+        {
+            return Some(format!(
+                "unsupported-source-surface:{}",
+                surface_name(context.source_surface)
+            ));
+        }
+        context
+            .first_missing(self.required_context)
+            .map(|missing| format!("missing-context:{missing}"))
+    }
+}
+
+const fn surface_name(surface: SourceSurface) -> &'static str {
+    match surface {
+        SourceSurface::Library => "library",
+        SourceSurface::Binary => "binary",
+        SourceSurface::Test => "test",
+        SourceSurface::Bench => "bench",
+        SourceSurface::Example => "example",
+        SourceSurface::BuildScript => "build-script",
+        SourceSurface::Generated => "generated",
+        SourceSurface::MacroExpansion => "macro-expansion",
+        SourceSurface::Unknown => "unknown",
     }
 }
 
 /// The rule engine: runs custom rules against all `.rs` files in parallel.
 pub struct RuleEngine {
     rules: Vec<Box<dyn CustomRule>>,
+    /// Per-scan abstention events, aggregated into receipts by the pass.
+    abstentions: Mutex<Vec<(String, String)>>,
 }
 
 impl RuleEngine {
     /// Create a new rule engine with the given rules.
     pub fn new(rules: Vec<Box<dyn CustomRule>>) -> Self {
-        Self { rules }
+        Self {
+            rules,
+            abstentions: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Drain the abstention receipts recorded by the last scan.
+    fn take_abstentions(&self) -> Vec<AbstentionReceipt> {
+        let events = self
+            .abstentions
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut events| std::mem::take(&mut *events));
+        context::aggregate_abstentions(events)
     }
 
     /// Scan with full config context for cache key computation.
@@ -192,6 +298,7 @@ impl RuleEngine {
             ignore_rules,
             enable_rules,
             &[],
+            &context::UNRESOLVED_PACKAGE,
             None,
         )
     }
@@ -212,11 +319,17 @@ impl RuleEngine {
         ignore_rules: &[String],
         enable_rules: &[String],
         cargo_targets: &[CargoTargetContext],
+        package: &PackageContext,
         on_file_progress: Option<&scanner::FileProgressCallback>,
     ) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
             return vec![];
         }
+        let gates: Vec<RuleGate> = self
+            .rules
+            .iter()
+            .map(|rule| RuleGate::for_rule(rule.as_ref()))
+            .collect();
 
         let mut files = selected_files.map_or_else(
             || scanner::collect_rs_files(project_root),
@@ -261,12 +374,26 @@ impl RuleEngine {
             })
             .chain(cargo_targets.iter().map(|target| {
                 format!(
-                    "cargo-target:{}:{}:{:?}",
+                    "cargo-target:{}:{}:{:?}:{}",
                     target.name,
                     target.src_path.display(),
-                    target.source_surface
+                    target.source_surface,
+                    target.is_proc_macro
                 )
             }))
+            // Package context selects which rules run, so it belongs in the
+            // cache key: two members with different features or editions must
+            // not share cached diagnostics.
+            .chain(std::iter::once(format!(
+                "package:{}:{}:{}:{}:{}:{}:{}",
+                package.package_id,
+                package.crate_role.as_str(),
+                package.edition.as_deref().unwrap_or("-"),
+                package.declared_msrv.as_deref().unwrap_or("-"),
+                package.enabled_features.join(","),
+                package.frameworks.join(","),
+                package.metadata_complete
+            )))
             .collect();
         let config_hash = cache::compute_config_hash(
             project_root,
@@ -325,6 +452,22 @@ impl RuleEngine {
         let total_file_count = file_contents.len();
         let worker_count = rayon::current_num_threads();
 
+        // Applicability is decided from path and package context alone, so it is
+        // computed for every analyzed file — including cache hits, which never
+        // re-enter the traversal loop below.
+        let mut abstention_events = Vec::new();
+        for (file_path, _) in &file_contents {
+            let context = RuleContext::for_path(file_path, cargo_targets, package);
+            for (rule, gate) in self.rules.iter().zip(&gates) {
+                if let Some(reason) = gate.abstention_reason(context) {
+                    abstention_events.push((rule.name().to_string(), reason));
+                }
+            }
+        }
+        if let Ok(mut recorded) = self.abstentions.lock() {
+            recorded.extend(abstention_events);
+        }
+
         // Partition into fresh (cache hit) and stale (need scanning) files,
         // keeping the pre-computed hash for stale files to avoid double hashing.
         let mut fresh_files = Vec::new();
@@ -382,8 +525,14 @@ impl RuleEngine {
                     Ok(syntax) => {
                         let mut diagnostics = Vec::new();
                         let mut cacheable = true;
-                        let context = RuleContext::for_path(file_path, cargo_targets);
-                        for rule in &self.rules {
+                        let context = RuleContext::for_path(file_path, cargo_targets, package);
+                        for (rule, gate) in self.rules.iter().zip(&gates) {
+                            // Excluded before traversal: an abstaining rule never
+                            // walks the AST, so it cannot emit on evidence it
+                            // declared it does not have.
+                            if gate.abstention_reason(context).is_some() {
+                                continue;
+                            }
                             let (mut findings, failure) = run_rule_safely_with_status(
                                 rule.as_ref(),
                                 &syntax,
@@ -444,7 +593,7 @@ fn run_rule_safely(
     rule: &dyn CustomRule,
     syntax: &syn::File,
     path: &Path,
-    context: RuleContext,
+    context: RuleContext<'_>,
 ) -> Vec<Diagnostic> {
     run_rule_safely_with_status(rule, syntax, path, context).0
 }
@@ -453,7 +602,7 @@ fn run_rule_safely_with_status(
     rule: &dyn CustomRule,
     syntax: &syn::File,
     path: &Path,
-    context: RuleContext,
+    context: RuleContext<'_>,
 ) -> (Vec<Diagnostic>, Option<String>) {
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         rule.check_file_with_context(syntax, path, context)
@@ -547,7 +696,7 @@ pub fn analyze_editor_source(
     use std::sync::atomic::Ordering;
 
     let syntax = syn::parse_file(source)?;
-    let context = RuleContext::for_path(path, cargo_targets);
+    let context = RuleContext::for_path(path, cargo_targets, &context::UNRESOLVED_PACKAGE);
     let catalog = crate::catalog::built_in_catalog().ok();
     let mut diagnostics = Vec::new();
     for mut rule in all_custom_rules() {
@@ -559,6 +708,12 @@ pub fn analyze_editor_source(
         };
         if !descriptor.applicable_frameworks.is_empty()
             && framework_packs::capability_decision(rule.as_ref(), capabilities).is_err()
+        {
+            continue;
+        }
+        if RuleGate::for_rule(rule.as_ref())
+            .abstention_reason(context)
+            .is_some()
         {
             continue;
         }
@@ -613,6 +768,7 @@ pub struct RuleEnginePass {
     enable_rules: Vec<String>,
     selected_files: Option<Vec<PathBuf>>,
     cargo_targets: Vec<CargoTargetContext>,
+    package: PackageContext,
 }
 
 impl RuleEnginePass {
@@ -630,6 +786,7 @@ impl RuleEnginePass {
             enable_rules,
             selected_files: None,
             cargo_targets: Vec::new(),
+            package: PackageContext::unresolved(),
         }
     }
 
@@ -640,6 +797,12 @@ impl RuleEnginePass {
 
     pub fn with_cargo_targets(mut self, cargo_targets: Vec<CargoTargetContext>) -> Self {
         self.cargo_targets = cargo_targets;
+        self
+    }
+
+    /// Attach the Cargo-resolved context of the package this pass analyzes.
+    pub fn with_package_context(mut self, package: PackageContext) -> Self {
+        self.package = package;
         self
     }
 
@@ -655,6 +818,7 @@ impl RuleEnginePass {
             &self.ignore_rules,
             &self.enable_rules,
             &self.cargo_targets,
+            &self.package,
             on_file_progress,
         )
     }
@@ -675,6 +839,10 @@ impl AnalysisPass for RuleEnginePass {
         on_file_progress: &scanner::FileProgressCallback,
     ) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         Ok(self.run_engine(project_root, Some(on_file_progress)))
+    }
+
+    fn take_abstentions(&self) -> Vec<AbstentionReceipt> {
+        self.engine.take_abstentions()
     }
 }
 
@@ -1541,17 +1709,284 @@ mod tests {
                         name: "api".to_string(),
                         src_path: library,
                         source_surface: SourceSurface::Library,
+                        is_proc_macro: false,
                     },
                     CargoTargetContext {
                         name: "daemon".to_string(),
                         src_path: binary,
                         source_surface: SourceSurface::Binary,
+                        is_proc_macro: false,
                     },
                 ]);
 
         let diagnostics = pass.run(dir.path()).unwrap();
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "library");
+    }
+
+    // --- US-006: context, exclusion, and abstention ---
+
+    /// A rule that declares a context contract and records every context it was
+    /// actually handed, so the tests can assert on member-specific evidence.
+    struct ContextProbeRule {
+        seen: std::sync::Mutex<Vec<(String, String, bool)>>,
+        required: &'static [ContextRequirement],
+    }
+
+    impl ContextProbeRule {
+        fn new(required: &'static [ContextRequirement]) -> Self {
+            Self {
+                seen: std::sync::Mutex::new(Vec::new()),
+                required,
+            }
+        }
+    }
+
+    impl CustomRule for ContextProbeRule {
+        fn name(&self) -> &'static str {
+            // Borrow a real catalog identity so the gate resolves a real
+            // supported-context contract (library and binary only).
+            "panic-in-library"
+        }
+        fn category(&self) -> Category {
+            Category::ErrorHandling
+        }
+        fn severity(&self) -> Severity {
+            Severity::Warning
+        }
+        fn description(&self) -> &'static str {
+            "context probe"
+        }
+        fn fix_hint(&self) -> &'static str {
+            "none"
+        }
+        fn required_context(&self) -> &'static [ContextRequirement] {
+            self.required
+        }
+        fn check_file(&self, _: &syn::File, _: &Path) -> Vec<Diagnostic> {
+            Vec::new()
+        }
+        fn check_file_with_context(
+            &self,
+            _: &syn::File,
+            path: &Path,
+            context: RuleContext<'_>,
+        ) -> Vec<Diagnostic> {
+            if let Ok(mut seen) = self.seen.lock() {
+                seen.push((
+                    context.package.package_id.clone(),
+                    context.package.crate_role.as_str().to_string(),
+                    context.package.metadata_complete,
+                ));
+            }
+            vec![self.diagnostic(path, "probed".to_string(), None, None, None)]
+        }
+    }
+
+    fn probe_project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for path in ["src/lib.rs", "tests/integration.rs", "benches/health.rs"] {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "fn surface() {}\n").unwrap();
+        }
+        dir
+    }
+
+    fn probe_targets(root: &Path) -> Vec<CargoTargetContext> {
+        vec![
+            CargoTargetContext {
+                name: "probe".to_string(),
+                src_path: root.join("src/lib.rs"),
+                source_surface: SourceSurface::Library,
+                is_proc_macro: false,
+            },
+            CargoTargetContext {
+                name: "integration".to_string(),
+                src_path: root.join("tests/integration.rs"),
+                source_surface: SourceSurface::Test,
+                is_proc_macro: false,
+            },
+            CargoTargetContext {
+                name: "health".to_string(),
+                src_path: root.join("benches/health.rs"),
+                source_surface: SourceSurface::Bench,
+                is_proc_macro: false,
+            },
+        ]
+    }
+
+    fn resolved_package() -> PackageContext {
+        PackageContext::new(
+            PackageIdentity {
+                package_id: "probe 0.1.0".to_string(),
+                edition: Some("2024".to_string()),
+                declared_msrv: Some("1.97".to_string()),
+                enabled_features: vec!["default".to_string()],
+                frameworks: vec!["tokio".to_string()],
+                dependency_capabilities: vec!["tokio@1.40.0".to_string()],
+                cfg_profile: Some("x86_64-unknown-linux-gnu".to_string()),
+            },
+            &[CargoTargetContext {
+                name: "probe".to_string(),
+                src_path: PathBuf::from("src/lib.rs"),
+                source_surface: SourceSurface::Library,
+                is_proc_macro: false,
+            }],
+        )
+    }
+
+    #[test]
+    fn unsupported_source_surfaces_are_excluded_before_traversal() {
+        let dir = probe_project();
+        let targets = probe_targets(dir.path());
+        let pass = RuleEnginePass::with_config(
+            vec![Box::new(ContextProbeRule::new(&[]))],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_cargo_targets(targets)
+        .with_package_context(resolved_package());
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        // Only the library file survives: the catalog contract for
+        // `panic-in-library` lists library, never test or bench.
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].file_path.ends_with("lib.rs"));
+
+        let receipts = pass.take_abstentions();
+        let reasons: HashSet<_> = receipts
+            .iter()
+            .map(|receipt| receipt.reason.as_str())
+            .collect();
+        assert!(reasons.contains("unsupported-source-surface:test"));
+        assert!(reasons.contains("unsupported-source-surface:bench"));
+        assert!(
+            receipts
+                .iter()
+                .all(|receipt| receipt.rule == "panic-in-library")
+        );
+    }
+
+    #[test]
+    fn missing_required_context_abstains_instead_of_emitting() {
+        let dir = make_temp_project(&[("lib.rs", "fn thing() {}")]);
+        let pass = RuleEnginePass::with_config(
+            vec![Box::new(ContextProbeRule::new(&[
+                ContextRequirement::PackageMetadata,
+                ContextRequirement::DeclaredMsrv,
+            ]))],
+            vec![],
+            vec![],
+            vec![],
+        );
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        assert!(
+            diagnostics.is_empty(),
+            "a rule without its required context must not emit"
+        );
+        let receipts = pass.take_abstentions();
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].reason, "missing-context:package-metadata");
+        assert_eq!(receipts[0].count, 1);
+    }
+
+    #[test]
+    fn each_workspace_member_receives_its_own_context() {
+        let first = make_temp_project(&[("lib.rs", "fn a() {}")]);
+        let second = make_temp_project(&[("lib.rs", "fn b() {}")]);
+
+        let run = |dir: &tempfile::TempDir, package_id: &str, features: Vec<String>| {
+            let probe = std::sync::Arc::new(ContextProbeRule::new(&[]));
+            struct Shared(std::sync::Arc<ContextProbeRule>);
+            impl CustomRule for Shared {
+                fn name(&self) -> &'static str {
+                    self.0.name()
+                }
+                fn category(&self) -> Category {
+                    self.0.category()
+                }
+                fn severity(&self) -> Severity {
+                    self.0.severity()
+                }
+                fn description(&self) -> &'static str {
+                    self.0.description()
+                }
+                fn fix_hint(&self) -> &'static str {
+                    self.0.fix_hint()
+                }
+                fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
+                    self.0.check_file(syntax, path)
+                }
+                fn check_file_with_context(
+                    &self,
+                    syntax: &syn::File,
+                    path: &Path,
+                    context: RuleContext<'_>,
+                ) -> Vec<Diagnostic> {
+                    self.0.check_file_with_context(syntax, path, context)
+                }
+            }
+            let pass = RuleEnginePass::with_config(
+                vec![Box::new(Shared(std::sync::Arc::clone(&probe)))],
+                vec![],
+                vec![],
+                vec![],
+            )
+            .with_package_context(PackageContext::new(
+                PackageIdentity {
+                    package_id: package_id.to_string(),
+                    edition: Some("2024".to_string()),
+                    declared_msrv: Some("1.97".to_string()),
+                    enabled_features: features,
+                    frameworks: Vec::new(),
+                    dependency_capabilities: Vec::new(),
+                    cfg_profile: Some("x86_64-unknown-linux-gnu".to_string()),
+                },
+                &[CargoTargetContext {
+                    name: "member".to_string(),
+                    src_path: dir.path().join("src/lib.rs"),
+                    source_surface: SourceSurface::Library,
+                    is_proc_macro: false,
+                }],
+            ));
+            let _ = pass.run(dir.path()).unwrap();
+            probe.seen.lock().unwrap().clone()
+        };
+
+        let alpha = run(&first, "alpha 0.1.0", vec!["serde".to_string()]);
+        let beta = run(&second, "beta 0.2.0", vec!["tokio".to_string()]);
+        assert_eq!(alpha.len(), 1);
+        assert_eq!(beta.len(), 1);
+        assert_eq!(alpha[0].0, "alpha 0.1.0");
+        assert_eq!(beta[0].0, "beta 0.2.0");
+        assert!(alpha[0].2 && beta[0].2);
+    }
+
+    #[test]
+    fn a_panicking_rule_stays_isolated_with_the_expanded_context() {
+        let dir = make_temp_project(&[("main.rs", "fn main() {}")]);
+        let pass = RuleEnginePass::with_config(
+            vec![Box::new(PanickingRule), Box::new(AlwaysWarnsRule)],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_package_context(resolved_package());
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.rule == "always-warns")
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.rule == scanner::ANALYSIS_FAILURE_RULE)
+        );
     }
 
     #[test]

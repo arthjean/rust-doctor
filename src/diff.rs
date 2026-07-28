@@ -926,10 +926,17 @@ fn canonical_policy_bytes(content: &[u8]) -> impl Iterator<Item = u8> + '_ {
 }
 
 /// Stable fingerprint for the policy and Cargo inputs used by one snapshot.
+///
+/// The score-model identifier is part of the fingerprint: two snapshots taken
+/// under different model series describe different numbers, so a baseline
+/// recorded before Score Core V2 must read as a different policy rather than
+/// being compared as if it were the same one (US-017 AC-6).
 pub fn policy_fingerprint(root: &Path) -> Result<String, String> {
     let files = collect_policy_files(root)?;
     let mut hasher = Sha256::new();
     hasher.update(b"rust-doctor-policy-v1\0");
+    hasher.update(crate::output::score_model_version().as_bytes());
+    hasher.update(b"\0");
     for (path, content) in files {
         let normalized = path.to_string_lossy().replace('\\', "/");
         let path_len = u64::try_from(normalized.len())

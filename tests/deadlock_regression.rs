@@ -42,7 +42,13 @@ fn fast_config() -> ResolvedConfig {
         score_fail_below: None,
         respect_inline_disables: true,
         max_parallelism: None,
-        adapter_policy: rust_doctor::config::AdapterPolicy::default(),
+        adapter_policy: rust_doctor::config::AdapterPolicy {
+            compiler_lint: false,
+            custom_ast: true,
+            supply_chain: false,
+            quality: false,
+            network: false,
+        },
         evaluation_profile: false,
     }
 }
@@ -138,4 +144,73 @@ fn test_workspace_scan_no_deadlock_members_exceed_cores() {
         "expected rule-engine diagnostics from the workspace members",
     );
     handle.join().unwrap();
+}
+
+#[test]
+#[ignore = "release certification repeats the 200-member, 100,000-diagnostic scale fixture"]
+fn release_scale_workspace_is_deterministic_without_deadlock() {
+    const MEMBERS: usize = 200;
+    const FINDINGS_PER_MEMBER: usize = 500;
+    const TRIALS: usize = 20;
+
+    let fixture = TempDir::new().unwrap();
+    let root = fixture.path();
+    let member_list = (0..MEMBERS)
+        .map(|index| format!("\"m{index:03}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fs::write(
+        root.join("Cargo.toml"),
+        format!("[workspace]\nresolver = \"3\"\nmembers = [{member_list}]\n"),
+    )
+    .unwrap();
+    let body = (0..FINDINGS_PER_MEMBER)
+        .map(|index| format!("    let _value_{index} = Some({index}usize).unwrap();"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = format!("pub fn findings() {{\n{body}\n}}\n");
+    for index in 0..MEMBERS {
+        let member = root.join(format!("m{index:03}"));
+        fs::create_dir_all(member.join("src")).unwrap();
+        fs::write(
+            member.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"m{index:03}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n"
+            ),
+        )
+        .unwrap();
+        fs::write(member.join("src/lib.rs"), &source).unwrap();
+    }
+
+    let project = discover_project(&root.join("Cargo.toml"), true).unwrap();
+    assert_eq!(project.member_count, MEMBERS);
+    let config = fast_config();
+    let mut expected_order = None;
+    for trial in 0..TRIALS {
+        let scan = scan_project(&project, &config, true, &[], true).unwrap();
+        assert!(
+            scan.diagnostics.len() >= MEMBERS * FINDINGS_PER_MEMBER,
+            "trial {trial} emitted {} diagnostics, expected at least {}",
+            scan.diagnostics.len(),
+            MEMBERS * FINDINGS_PER_MEMBER
+        );
+        assert_eq!(scan.execution.packages.len(), MEMBERS);
+        let order: Vec<_> = scan
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.rule.clone(),
+                    diagnostic.file_path.clone(),
+                    diagnostic.line,
+                    diagnostic.column,
+                )
+            })
+            .collect();
+        if let Some(expected) = &expected_order {
+            assert_eq!(&order, expected, "trial {trial} changed diagnostic order");
+        } else {
+            expected_order = Some(order);
+        }
+    }
 }

@@ -213,6 +213,8 @@ mod tests {
             frameworks: vec![],
             framework_capabilities: vec![],
             rust_version: Some("1.97".to_string()),
+            edition: "2024".to_string(),
+            enabled_features: Vec::new(),
         }
     }
 

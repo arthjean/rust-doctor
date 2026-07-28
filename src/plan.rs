@@ -4,7 +4,7 @@
 //! The plan groups findings by priority (P0–P3), provides effort estimates,
 //! and includes actionable fix descriptions for each item.
 
-use crate::diagnostics::{Diagnostic, ScanResult, Severity};
+use crate::diagnostics::{CanonicalDiagnostic, Diagnostic, ReportV1, ScanResult, Severity};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -57,7 +57,7 @@ pub fn generate_plan(result: &ScanResult) -> Vec<RemediationItem> {
         .filter(|(rule, _)| *rule != "skipped-pass") // Skip informational pass notices
         .filter_map(|(rule, diags)| {
             let first = diags.first()?;
-            let priority = classify_priority(first.severity, &first.category);
+            let priority = classify_priority(rule, first.severity, &first.category);
             let file_set: std::collections::HashSet<String> = diags
                 .iter()
                 .map(|d| d.file_path.to_string_lossy().into_owned())
@@ -79,12 +79,102 @@ pub fn generate_plan(result: &ScanResult) -> Vec<RemediationItem> {
         })
         .collect();
 
-    items.sort_by(|a, b| a.priority.cmp(&b.priority).then(b.count.cmp(&a.count)));
+    // Priority, then root-cause impact, then a stable rule tie-break: the same
+    // ordering terms the canonical comparator applies.
+    items.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then(b.count.cmp(&a.count))
+            .then(a.rule.cmp(&b.rule))
+    });
     items
 }
 
+/// Generate the shipping plan from the immutable canonical report.
+///
+/// The report already carries catalog surface decisions and canonical order.
+/// Preserving first appearance avoids the reduced priority/count comparator
+/// that previously let plans disagree with terminal and machine output.
+pub(crate) fn generate_report_plan(report: &ReportV1) -> Vec<RemediationItem> {
+    let mut grouped: Vec<(String, RemediationItem)> = Vec::new();
+    for diagnostic in report.diagnostics.iter().filter(|diagnostic| {
+        diagnostic
+            .visible_on
+            .iter()
+            .any(|surface| matches!(surface.as_str(), "score" | "ci-failure" | "pr-comment"))
+    }) {
+        let key = diagnostic
+            .root_cause_key
+            .clone()
+            .unwrap_or_else(|| format!("site:{}", diagnostic.site_id));
+        if let Some((_, item)) = grouped.iter_mut().find(|(existing, _)| *existing == key) {
+            item.count += 1;
+            if let crate::diagnostics::DiagnosticLocation::Source { path, .. } =
+                &diagnostic.location
+                && !item.files.contains(path)
+            {
+                item.files.push(path.clone());
+            }
+            continue;
+        }
+        grouped.push((key, report_plan_item(diagnostic)));
+    }
+    grouped.into_iter().map(|(_, item)| item).collect()
+}
+
+fn report_plan_item(diagnostic: &CanonicalDiagnostic) -> RemediationItem {
+    let files = match &diagnostic.location {
+        crate::diagnostics::DiagnosticLocation::Source { path, .. } => vec![path.clone()],
+        crate::diagnostics::DiagnosticLocation::Project => Vec::new(),
+    };
+    RemediationItem {
+        priority: match diagnostic.priority.as_deref() {
+            Some("p0") => Priority::P0,
+            Some("p1") => Priority::P1,
+            Some("p2") => Priority::P2,
+            _ => Priority::P3,
+        },
+        rule: diagnostic.rule.clone(),
+        count: 1,
+        severity: diagnostic.severity,
+        description: diagnostic.message.clone(),
+        fix_action: diagnostic
+            .help
+            .clone()
+            .unwrap_or_else(|| "Review and fix manually".to_string()),
+        files,
+    }
+}
+
 /// Classify a finding into a priority level.
-const fn classify_priority(
+///
+/// The catalog's canonical priority wins whenever the rule declares one, so the
+/// plan orders work exactly like the terminal, JSON, SARIF, MCP, and handoff
+/// surfaces (US-015 AC-1). Only an unranked rule falls back to the severity and
+/// category heuristic, and it lands last the way the canonical comparator sorts
+/// unranked findings.
+fn classify_priority(
+    rule: &str,
+    severity: Severity,
+    category: &crate::diagnostics::Category,
+) -> Priority {
+    if let Some(priority) = crate::catalog::built_in_catalog()
+        .ok()
+        .and_then(|catalog| catalog.exact(rule))
+        .and_then(|descriptor| descriptor.trust.priority)
+    {
+        return match priority {
+            crate::trust::Priority::P0 => Priority::P0,
+            crate::trust::Priority::P1 => Priority::P1,
+            crate::trust::Priority::P2 => Priority::P2,
+            crate::trust::Priority::P3 => Priority::P3,
+        };
+    }
+    classify_unranked_priority(severity, category)
+}
+
+/// Fallback for rules with no canonical priority.
+const fn classify_unranked_priority(
     severity: Severity,
     category: &crate::diagnostics::Category,
 ) -> Priority {
@@ -110,18 +200,25 @@ const fn classify_priority(
 /// Format the plan as a human-readable markdown string.
 pub fn format_plan_markdown(items: &[RemediationItem], result: &ScanResult) -> String {
     let mut out = String::new();
+    let decision = crate::completeness::score_decision(result);
+    let score = decision.published_score().map_or_else(
+        || format!("unavailable ({})", decision.primary_reason()),
+        |value| {
+            format!(
+                "{value}/100 ({})",
+                decision
+                    .published_label()
+                    .map_or_else(|| "unlabeled".to_string(), |label| label.to_string())
+            )
+        },
+    );
 
     let _ = writeln!(out, "# Remediation Plan");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "**Score: {}/100 ({})** | {} errors, {} warnings, {} info | {} files scanned",
-        result.score,
-        result.score_label,
-        result.error_count,
-        result.warning_count,
-        result.info_count,
-        result.source_file_count
+        "**Score: {score}** | {} errors, {} warnings, {} info | {} files scanned",
+        result.error_count, result.warning_count, result.info_count, result.source_file_count
     );
     let _ = writeln!(
         out,
@@ -237,11 +334,15 @@ pub fn format_plan_terminal(items: &[RemediationItem]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::{Category, DimensionScores, ScoreLabel};
+    use crate::diagnostics::{
+        Category, DiagnosticLocation, DiagnosticOwnership, DimensionScores, ScanMode, ScoreImpact,
+        ScoreLabel, SourcePosition, SourceRange, SourceSurface,
+    };
     use std::path::PathBuf;
     use std::time::Duration;
 
     fn make_result(diagnostics: Vec<Diagnostic>) -> ScanResult {
+        let source = PathBuf::from("src/lib.rs");
         let error_count = diagnostics
             .iter()
             .filter(|d| d.severity == Severity::Error)
@@ -271,10 +372,13 @@ mod tests {
             error_count,
             warning_count,
             info_count,
-            pass_timings: vec![],
+            pass_timings: vec![
+                ("custom rules".to_string(), Duration::from_millis(1)),
+                ("msrv".to_string(), Duration::from_millis(1)),
+            ],
             suppressed_security: vec![],
-            planned_files: vec![],
-            analyzed_files: vec![],
+            planned_files: vec![source.clone()],
+            analyzed_files: vec![source],
             compiler_evidence: vec![],
             execution: crate::diagnostics::ScanExecution::default(),
         }
@@ -291,6 +395,65 @@ mod tests {
             line: Some(1),
             column: None,
             fix: None,
+        }
+    }
+
+    fn canonical(rule: &str, priority: &str, surfaces: &[&str]) -> CanonicalDiagnostic {
+        CanonicalDiagnostic {
+            provider: "rust-doctor".to_string(),
+            rule: rule.to_string(),
+            title: rule.to_string(),
+            category: Category::Correctness,
+            severity: Severity::Warning,
+            message: format!("{rule} fired"),
+            help: Some(format!("Fix {rule}")),
+            url: String::new(),
+            tags: Vec::new(),
+            analysis_kind: "syn_ast".to_string(),
+            confidence: "medium".to_string(),
+            original_level: "warning".to_string(),
+            ownership: DiagnosticOwnership::Workspace,
+            source_surface: SourceSurface::Library,
+            location: DiagnosticLocation::Source {
+                path: format!("src/{rule}.rs"),
+                range: SourceRange {
+                    start: SourcePosition {
+                        line: 1,
+                        column: 1,
+                        byte_offset: None,
+                    },
+                    end: SourcePosition {
+                        line: 1,
+                        column: 1,
+                        byte_offset: None,
+                    },
+                },
+            },
+            related_locations: Vec::new(),
+            macro_expansion: None,
+            fixes: Vec::new(),
+            visible_on: surfaces
+                .iter()
+                .map(|surface| (*surface).to_string())
+                .collect(),
+            site_id: format!("site:{rule}"),
+            baseline_key: format!("baseline:{rule}"),
+            namespace_fallback: false,
+            advisory: !surfaces.contains(&"score"),
+            priority: Some(priority.to_string()),
+            trust_tier: "calibrated-heuristic".to_string(),
+            score_eligible: surfaces.contains(&"score"),
+            score_impact: if surfaces.contains(&"score") {
+                ScoreImpact::Scored
+            } else {
+                ScoreImpact::Advisory
+            },
+            aggregation_policy: "bounded-occurrence".to_string(),
+            root_cause_key: Some(format!("rule:{rule}")),
+            evidence_summary: String::new(),
+            limitations: Vec::new(),
+            fix_recipe: None,
+            suppressed: false,
         }
     }
 
@@ -336,6 +499,34 @@ mod tests {
     }
 
     #[test]
+    fn shipping_plan_preserves_canonical_order_and_surface_exclusions() {
+        let mut report =
+            ReportV1::failure(std::path::Path::new("/project"), ScanMode::Full, "test", "");
+        report.diagnostics = vec![
+            canonical(
+                "z-canonical-first",
+                "p0",
+                &["terminal", "score", "ci-failure", "pr-comment"],
+            ),
+            canonical(
+                "a-canonical-second",
+                "p2",
+                &["terminal", "score", "ci-failure", "pr-comment"],
+            ),
+            canonical("advisory-only", "p0", &["terminal", "sarif", "mcp"]),
+        ];
+
+        let items = generate_report_plan(&report);
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.rule.as_str())
+                .collect::<Vec<_>>(),
+            vec!["z-canonical-first", "a-canonical-second"]
+        );
+    }
+
+    #[test]
     fn test_skipped_pass_excluded_from_plan() {
         let result = make_result(vec![make_diag(
             "skipped-pass",
@@ -367,7 +558,9 @@ mod tests {
         let items = generate_plan(&result);
         let md = format_plan_markdown(&items, &result);
         assert!(md.contains("unwrap-in-production"));
-        assert!(md.contains("P1 High"));
+        // The catalog ranks this rule P2. The plan reports that priority rather
+        // than deriving one from the warning severity.
+        assert!(md.contains("P2 Medium"));
         assert!(md.contains("src/scanner.rs"));
     }
 }

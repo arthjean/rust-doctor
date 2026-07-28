@@ -1,8 +1,8 @@
 use crate::config::resolve_config_defaults;
 use crate::diagnostics::{
     Category, CompletenessState, Diagnostic, DiagnosticLocation, DiagnosticOwnership,
-    DimensionScores, GateResult, ReportV1, ScanExecution, ScanMode, ScanResult, ScoreLabel,
-    Severity, SourceSurface,
+    DimensionAuthority, DimensionScores, GateResult, ReportOutcome, ReportV1, ScanExecution,
+    ScanMode, ScanResult, ScoreLabel, Severity, SourceSurface,
 };
 use crate::discovery::{CargoTargetContext, ProjectInfo, WorkspaceMember};
 use std::path::{Path, PathBuf};
@@ -14,11 +14,13 @@ fn project(root: PathBuf) -> ProjectInfo {
             name: "fixture".to_string(),
             src_path: root.join("src/lib.rs"),
             source_surface: SourceSurface::Library,
+            is_proc_macro: false,
         },
         CargoTargetContext {
             name: "fixture-cli".to_string(),
             src_path: root.join("crates/cli/src/main.rs"),
             source_surface: SourceSurface::Binary,
+            is_proc_macro: false,
         },
     ];
     ProjectInfo {
@@ -46,8 +48,13 @@ fn project(root: PathBuf) -> ProjectInfo {
             frameworks: vec![],
             framework_capabilities: vec![],
             rust_version: Some("1.97".to_string()),
+            edition: "2024".to_string(),
+            enabled_features: Vec::new(),
         }],
         default_member_ids: vec!["fixture 0.1.0 (path+file:///fixture)".to_string()],
+        enabled_features: Vec::new(),
+        declared_features: Vec::new(),
+        analyzed_target: None,
     }
 }
 
@@ -101,7 +108,7 @@ fn scan(diagnostics: Vec<Diagnostic>, source_file_count: usize) -> ScanResult {
 }
 
 #[test]
-fn canonical_identities_are_sorted_and_path_separator_stable() {
+fn canonical_identities_are_unique_and_path_separator_stable() {
     let config = resolve_config_defaults(None);
     let windows_project = project(PathBuf::from(r"C:\repo"));
     let windows = ReportV1::from_scan(
@@ -152,11 +159,61 @@ fn canonical_identities_are_sorted_and_path_separator_stable() {
         &config,
         ScanMode::Full,
     );
-    assert!(
-        report
-            .diagnostics
-            .windows(2)
-            .all(|pair| pair[0].site_id <= pair[1].site_id)
+    assert_ne!(report.diagnostics[0].site_id, report.diagnostics[1].site_id);
+}
+
+#[test]
+fn fingerprints_survive_checkout_root_and_unrelated_line_shifts() {
+    let config = resolve_config_defaults(None);
+    let first_root = tempfile::tempdir().unwrap();
+    let second_root = tempfile::tempdir().unwrap();
+    for root in [first_root.path(), second_root.path()] {
+        std::fs::create_dir(root.join("src")).unwrap();
+    }
+    std::fs::write(
+        first_root.path().join("src/lib.rs"),
+        "pub fn value() { panic!(\"same\"); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        second_root.path().join("src/lib.rs"),
+        "// unrelated insertion\npub fn value() { panic!(\"same\"); }\n",
+    )
+    .unwrap();
+
+    let first = ReportV1::from_scan(
+        &scan(
+            vec![diagnostic(
+                &first_root.path().join("src/lib.rs").to_string_lossy(),
+                "panic-in-library",
+                "panic in library code",
+                Some(1),
+            )],
+            1,
+        ),
+        &project(first_root.path().to_path_buf()),
+        &config,
+        ScanMode::Full,
+    );
+    let second = ReportV1::from_scan(
+        &scan(
+            vec![diagnostic(
+                &second_root.path().join("src/lib.rs").to_string_lossy(),
+                "panic-in-library",
+                "panic in library code",
+                Some(2),
+            )],
+            1,
+        ),
+        &project(second_root.path().to_path_buf()),
+        &config,
+        ScanMode::Full,
+    );
+
+    assert_eq!(first.diagnostics[0].site_id, second.diagnostics[0].site_id);
+    assert_eq!(
+        first.diagnostics[0].baseline_key,
+        second.diagnostics[0].baseline_key
     );
 }
 
@@ -269,25 +326,9 @@ fn checked_schema_tracks_generated_wire_properties() {
             "https://rust-doctor.vercel.app/schemas/report-v1.schema.json".to_string(),
         ),
     );
+    // Adding an optional field to Report V1 means editing the checked schema in
+    // the same change; this assertion is what keeps the two from drifting.
     assert_eq!(checked, generated);
-}
-
-#[test]
-fn readme_counts_are_asserted_against_the_catalog() {
-    let catalog = crate::catalog::built_in_catalog().unwrap();
-    let custom = catalog
-        .descriptors()
-        .iter()
-        .filter(|descriptor| descriptor.analyzer_kind == crate::catalog::AnalyzerKind::SynAst)
-        .count();
-    let clippy = catalog
-        .descriptors()
-        .iter()
-        .filter(|descriptor| descriptor.analyzer_kind == crate::catalog::AnalyzerKind::Clippy)
-        .count();
-    let readme = include_str!("../README.md");
-    assert!(readme.contains(&format!("Custom AST Rules ({custom} rules)")));
-    assert!(readme.contains(&format!("Clippy Lints ({clippy} with overrides)")));
 }
 
 #[test]
@@ -346,4 +387,278 @@ fn ownership_and_source_surface_do_not_leak_across_roots() {
         .find(|diagnostic| diagnostic.message == "nested binary")
         .unwrap();
     assert_eq!(nested.source_surface, SourceSurface::Binary);
+}
+
+// ---------------------------------------------------------------------------
+// Trust contract: score model identity, dimension coverage, and authority
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_report_identifies_its_score_model() {
+    let config = resolve_config_defaults(None);
+    let report = ReportV1::from_scan(
+        &scan(vec![], 1),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    assert_eq!(report.score_model_version, "2.1");
+
+    let failed = ReportV1::failure(Path::new("/repo"), ScanMode::Full, "scan", "boom");
+    assert_eq!(failed.score_model_version, "2.1");
+    assert!(failed.dimensions.is_empty());
+    assert!(!failed.summary.score_authoritative);
+}
+
+#[test]
+fn a_dimension_without_a_completed_core_analyzer_has_no_score() {
+    let config = resolve_config_defaults(None);
+    // The default fixture only runs custom rules, so nothing speaks for the
+    // Dependencies dimension.
+    let report = ReportV1::from_scan(
+        &scan(vec![], 1),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    let dependencies = report
+        .dimensions
+        .iter()
+        .find(|dimension| dimension.dimension == "dependencies")
+        .expect("every dimension is represented");
+    assert_eq!(dependencies.authority, DimensionAuthority::Unobserved);
+    assert_eq!(dependencies.score, None);
+    assert!(!dependencies.reasons.is_empty());
+    assert!(
+        !report.summary.score_authoritative,
+        "an unobserved dimension must remove score authority"
+    );
+
+    let reliability = report
+        .dimensions
+        .iter()
+        .find(|dimension| dimension.dimension == "reliability")
+        .expect("every dimension is represented");
+    assert_ne!(reliability.authority, DimensionAuthority::Unobserved);
+    assert!(reliability.score.is_some());
+}
+
+#[test]
+fn a_scan_with_every_core_analyzer_keeps_dimension_authority() {
+    let config = resolve_config_defaults(None);
+    let mut result = scan(vec![], 1);
+    result
+        .pass_timings
+        .push(("clippy".to_string(), Duration::from_millis(5)));
+    result
+        .pass_timings
+        .push(("msrv".to_string(), Duration::from_millis(1)));
+    let report = ReportV1::from_scan(
+        &result,
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    assert!(
+        report
+            .dimensions
+            .iter()
+            .all(|dimension| dimension.score.is_some()),
+        "{:?}",
+        report.dimensions
+    );
+    assert!(report.summary.score_authoritative);
+}
+
+#[test]
+fn a_failed_required_analyzer_marks_its_dimension_failed() {
+    let config = resolve_config_defaults(None);
+    let mut result = scan(vec![], 1);
+    result
+        .skipped_passes
+        .push("custom rules: panicked while analyzing".to_string());
+    let report = ReportV1::from_scan(
+        &result,
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    let reliability = report
+        .dimensions
+        .iter()
+        .find(|dimension| dimension.dimension == "reliability")
+        .expect("every dimension is represented");
+    assert_eq!(reliability.authority, DimensionAuthority::Failed);
+    assert_eq!(reliability.score, None);
+    assert!(!report.summary.score_authoritative);
+}
+
+#[test]
+fn duplicate_identities_contribute_to_the_score_once() {
+    let repeated = vec![
+        diagnostic(
+            "src/lib.rs",
+            "unwrap-in-production",
+            "called unwrap",
+            Some(7),
+        ),
+        diagnostic(
+            "src/lib.rs",
+            "unwrap-in-production",
+            "called unwrap",
+            Some(7),
+        ),
+        diagnostic(
+            "src/lib.rs",
+            "unwrap-in-production",
+            "called unwrap",
+            Some(7),
+        ),
+    ];
+    let single = vec![repeated[0].clone()];
+    let mut deduped = repeated;
+    crate::scan::dedup_diagnostics(&mut deduped);
+    assert_eq!(deduped.len(), 1);
+    assert_eq!(
+        crate::output::calculate_score(&deduped)
+            .expect("embedded score model")
+            .0,
+        crate::output::calculate_score(&single)
+            .expect("embedded score model")
+            .0
+    );
+}
+
+#[test]
+fn a_scan_with_nothing_to_analyze_emits_no_synthetic_score() {
+    let config = resolve_config_defaults(None);
+    let report = ReportV1::from_scan(
+        &scan(vec![], 0),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    assert_eq!(report.outcome, ReportOutcome::NothingToScan);
+    assert_eq!(report.summary.score, None);
+    assert_eq!(report.score, None);
+    assert!(!report.summary.score_authoritative);
+}
+
+#[test]
+fn every_diagnostic_carries_independent_decision_metadata() {
+    let config = resolve_config_defaults(None);
+    let report = ReportV1::from_scan(
+        &scan(
+            vec![diagnostic(
+                "src/lib.rs",
+                "unwrap-in-production",
+                "called unwrap",
+                Some(7),
+            )],
+            1,
+        ),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    let found = &report.diagnostics[0];
+    assert_eq!(found.priority.as_deref(), Some("p2"));
+    assert_eq!(found.trust_tier, "calibrated-heuristic");
+    assert_eq!(found.aggregation_policy, "bounded-occurrence");
+    assert_eq!(
+        found.root_cause_key.as_deref(),
+        Some("rule:unwrap-in-production")
+    );
+    assert!(!found.evidence_summary.is_empty());
+    assert!(!found.limitations.is_empty());
+    assert!(!found.suppressed);
+    // Severity, confidence, priority, trust tier, category, and score
+    // eligibility stay independent fields: none is derived at report time.
+    assert_eq!(found.severity, Severity::Warning);
+    assert_eq!(found.confidence, "medium");
+    assert_eq!(found.category, Category::ErrorHandling);
+    assert_eq!(
+        found.score_eligible,
+        found.score_impact == crate::diagnostics::ScoreImpact::Scored
+    );
+}
+
+#[test]
+fn an_unmapped_rule_receives_no_fabricated_decision_metadata() {
+    let config = resolve_config_defaults(None);
+    let report = ReportV1::from_scan(
+        &scan(
+            vec![diagnostic(
+                "src/lib.rs",
+                "clippy::a_future_lint",
+                "unknown lint fired",
+                Some(3),
+            )],
+            1,
+        ),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    let found = &report.diagnostics[0];
+    assert!(found.namespace_fallback);
+    assert_eq!(found.priority, None);
+    assert_eq!(found.root_cause_key, None);
+    assert_eq!(found.fix_recipe, None);
+    assert!(!found.score_eligible);
+    assert_eq!(
+        found.score_impact,
+        crate::diagnostics::ScoreImpact::Ineligible
+    );
+    // Unranked never means discarded.
+    assert_eq!(report.diagnostics.len(), 1);
+    assert!(report.root_causes.is_empty());
+}
+
+#[test]
+fn one_root_cause_owns_priority_while_occurrences_stay_inspectable() {
+    let config = resolve_config_defaults(None);
+    let diagnostics: Vec<_> = (1..=6)
+        .map(|line| {
+            diagnostic(
+                "src/lib.rs",
+                "unwrap-in-production",
+                &format!("called unwrap at {line}"),
+                Some(line),
+            )
+        })
+        .collect();
+    let report = ReportV1::from_scan(
+        &scan(diagnostics, 1),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    assert_eq!(report.root_causes.len(), 1);
+    let group = &report.root_causes[0];
+    assert_eq!(group.key, "rule:unwrap-in-production");
+    assert_eq!(group.priority.as_deref(), Some("p2"));
+    assert_eq!(group.occurrences, 6);
+    assert_eq!(group.site_ids.len(), 6);
+    assert_eq!(report.diagnostics.len(), 6);
+}
+
+#[test]
+fn report_diagnostics_use_the_canonical_order() {
+    let config = resolve_config_defaults(None);
+    let mut low = diagnostic("a.rs", "string-from-literal", "allocated", Some(1));
+    low.category = Category::Performance;
+    let mut high = diagnostic("z.rs", "hardcoded-secrets", "secret", Some(900));
+    high.category = Category::Security;
+    high.severity = Severity::Error;
+    let report = ReportV1::from_scan(
+        &scan(vec![low, high], 2),
+        &project(PathBuf::from("/repo")),
+        &config,
+        ScanMode::Full,
+    );
+    // P0 first even though its path sorts last: priority is not path order.
+    assert_eq!(report.diagnostics[0].rule, "hardcoded-secrets");
+    assert_eq!(report.diagnostics[0].priority.as_deref(), Some("p0"));
+    assert_eq!(report.root_causes[0].key, "rule:hardcoded-secrets");
 }

@@ -15,7 +15,7 @@ fn project() -> tempfile::TempDir {
     .unwrap();
     fs::write(
         directory.path().join("rust-doctor.toml"),
-        "dependencies = false\n[rules.unwrap-in-production]\nseverity = 'error'\n",
+        "dependencies = false\n[rules.unwrap-in-production]\nseverity = 'error'\nsurfaces = ['terminal', 'ci-failure', 'sarif', 'mcp']\n",
     )
     .unwrap();
     fs::write(

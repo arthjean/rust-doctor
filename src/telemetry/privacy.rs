@@ -100,9 +100,148 @@ fn store_at(root: &Path, consent: &Consent) -> Result<(), TelemetryError> {
     Ok(())
 }
 
+/// Payload content the schema must never carry.
+///
+/// This is the deny-list side of the contract: the event type only models
+/// aggregates, and this check proves that no aggregate smuggled a path, a
+/// message, a package name, or an exact timestamp through (US-013 AC-3).
+pub(crate) fn violations(payload: &serde_json::Value) -> Vec<String> {
+    let mut found = Vec::new();
+    walk(payload, &mut Vec::new(), &mut found);
+    found.sort();
+    found.dedup();
+    found
+}
+
+fn walk(value: &serde_json::Value, path: &mut Vec<String>, found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                // A prohibited name only leaks when it carries content. An
+                // aggregate count named `path` is a number of path-scoped
+                // suppressions, not a path.
+                let carries_content = !matches!(
+                    child,
+                    serde_json::Value::Number(_)
+                        | serde_json::Value::Bool(_)
+                        | serde_json::Value::Null
+                );
+                if carries_content && is_prohibited_key(key) {
+                    found.push(format!("prohibited field '{key}'"));
+                }
+                path.push(key.clone());
+                walk(child, path, found);
+                path.pop();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                walk(item, path, found);
+            }
+        }
+        serde_json::Value::String(text) => {
+            // Rule identities are the one string population allowed to be
+            // free-form, and they are already bounded to the catalog.
+            let in_rule_map = path.iter().any(|segment| segment == "rule_counts");
+            if !in_rule_map && let Some(reason) = prohibited_text(text) {
+                found.push(format!(
+                    "{reason} in '{}'",
+                    path.last().map_or("<root>", String::as_str)
+                ));
+            }
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
+}
+
+fn is_prohibited_key(key: &str) -> bool {
+    const PROHIBITED: &[&str] = &[
+        "path",
+        "file",
+        "file_path",
+        "source",
+        "source_text",
+        "message",
+        "diagnostic_message",
+        "package",
+        "package_name",
+        "crate",
+        "repository",
+        "git_remote",
+        "remote",
+        "command",
+        "command_line",
+        "argv",
+        "environment",
+        "env",
+        "timestamp",
+        "user",
+        "hostname",
+        "machine_id",
+        "installation_id",
+        "persistent_id",
+    ];
+    PROHIBITED.contains(&key)
+}
+
+fn prohibited_text(text: &str) -> Option<&'static str> {
+    if text.contains('/') || text.contains('\\') {
+        // Documented exception: the cohort and version banners never contain
+        // separators, so any separator here is a path.
+        return Some("path separator");
+    }
+    if text.contains("://") {
+        return Some("URL");
+    }
+    if text.contains('@') {
+        return Some("address-like token");
+    }
+    // Not a filesystem lookup: this is a deny-list over payload text, so a
+    // case-insensitive suffix match on the raw string is exactly the check.
+    let lowered = text.to_ascii_lowercase();
+    if [".rs", ".toml"]
+        .iter()
+        .any(|suffix| lowered.as_str().ends_with(suffix))
+    {
+        return Some("file name");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_deny_list_rejects_paths_messages_and_identifiers() {
+        let leaky = serde_json::json!({
+            "schema_version": "1.2",
+            "file_path": "/home/user/project/src/lib.rs",
+        });
+        let found = violations(&leaky);
+        assert!(
+            found.iter().any(|entry| entry.contains("file_path")),
+            "{found:?}"
+        );
+        assert!(
+            found.iter().any(|entry| entry.contains("path separator")),
+            "{found:?}"
+        );
+
+        assert!(
+            violations(&serde_json::json!({ "note": "src/lib.rs" }))
+                .iter()
+                .any(|entry| entry.contains("path separator"))
+        );
+        assert!(
+            violations(&serde_json::json!({ "remote": "origin" }))
+                .iter()
+                .any(|entry| entry.contains("remote"))
+        );
+        // An aggregate count that happens to be named `path` carries no path.
+        assert!(violations(&serde_json::json!({ "suppression_counts": { "path": 3 } })).is_empty());
+        assert!(violations(&serde_json::json!({ "ok": "complete" })).is_empty());
+    }
 
     #[test]
     fn consent_round_trip_is_versioned_without_event_storage() {

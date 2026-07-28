@@ -14,10 +14,11 @@ use tower_lsp_server::jsonrpc::{Error as LspError, Result as LspResult};
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CodeActionResponse, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, MarkupContent, MarkupKind, MessageType, Position, PositionEncodingKind,
-    Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    ExecuteCommandOptions, ExecuteCommandParams, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, LSPAny,
+    MarkupContent, MarkupKind, MessageType, Position, PositionEncodingKind, Range,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri, WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
@@ -353,9 +354,14 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["rust-doctor.projectDecision".to_string()],
+                    ..ExecuteCommandOptions::default()
+                }),
                 experimental: Some(serde_json::json!({
                     "rustDoctorProtocolVersion": PROTOCOL_MAJOR,
-                    "lspCompatibility": "3.18"
+                    "lspCompatibility": "3.18",
+                    "projectDecisionCommand": "rust-doctor.projectDecision"
                 })),
                 ..ServerCapabilities::default()
             },
@@ -504,6 +510,51 @@ impl LanguageServer for Backend {
             }));
         }
         Ok((!actions.is_empty()).then_some(actions))
+    }
+
+    async fn execute_command(&self, params: ExecuteCommandParams) -> LspResult<Option<LSPAny>> {
+        if params.command != "rust-doctor.projectDecision" {
+            return Err(LspError::method_not_found());
+        }
+        if !params.arguments.is_empty() {
+            return Err(LspError::invalid_params(
+                "rust-doctor.projectDecision takes no arguments",
+            ));
+        }
+        let (project, budget) = {
+            let state = self.state.read().await;
+            let project = state.project.clone().ok_or_else(|| {
+                LspError::invalid_params("project decision requires an initialized Cargo project")
+            })?;
+            (
+                project,
+                Duration::from_millis(state.settings.project_budget_ms),
+            )
+        };
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let scan_cancel = Arc::clone(&cancellation);
+        let task = tokio::task::spawn_blocking(move || {
+            let result = crate::scan::scan_project_cancellable(
+                &project.info,
+                &project.config,
+                true,
+                &[],
+                true,
+                &scan_cancel,
+            )?;
+            Ok::<_, crate::error::ScanError>(crate::diagnostics::ReportV1::from_scan(
+                &result,
+                &project.info,
+                &project.config,
+                crate::diagnostics::ScanMode::Full,
+            ))
+        });
+        let Some(Ok(Ok(report))) = wait_for_project_task(task, &cancellation, budget).await else {
+            return Err(LspError::internal_error());
+        };
+        serde_json::to_value(report)
+            .map(Some)
+            .map_err(|_| LspError::internal_error())
     }
 }
 

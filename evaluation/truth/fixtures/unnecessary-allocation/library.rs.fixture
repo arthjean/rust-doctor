@@ -1,0 +1,199 @@
+//! rust-doctor truth fixture
+//! rule: unnecessary-allocation
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+pub fn group_rows(rows: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let mut output = Vec::new(); //~ neg
+    for row in rows {
+        let mut buffer = Vec::new(); //~ pos
+        buffer.extend_from_slice(row);
+        output.push(buffer);
+    }
+    output
+}
+
+pub fn group_rows_reused(rows: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let mut output = Vec::with_capacity(rows.len()); //~ neg
+    let mut buffer = Vec::new(); //~ neg
+    for row in rows {
+        buffer.clear();
+        buffer.extend_from_slice(row);
+        output.push(buffer.clone());
+    }
+    output
+}
+
+pub fn render_lines(count: usize) -> Vec<String> {
+    let mut lines = Vec::new(); //~ neg
+    for index in 0..count {
+        let mut line = String::new(); //~ pos
+        line.push_str(&index.to_string());
+        lines.push(line);
+    }
+    lines
+}
+
+pub fn render_lines_capacity(count: usize) -> Vec<String> {
+    let mut lines = Vec::new(); //~ neg
+    for index in 0..count {
+        let line = String::with_capacity(16); //~ neg
+        lines.push(line + &index.to_string());
+    }
+    lines
+}
+
+pub fn accumulate(limit: usize) -> Vec<u8> {
+    let mut total = Vec::new(); //~ neg
+    let mut index = 0;
+    while index < limit {
+        let scratch = Vec::new(); //~ pos
+        total.extend(scratch);
+        index += 1;
+    }
+    total
+}
+
+pub fn accumulate_hoisted(limit: usize) -> Vec<u8> {
+    let mut total = Vec::new(); //~ neg
+    let scratch = Vec::new(); //~ neg
+    let mut index = 0;
+    while index < limit {
+        total.extend(scratch.iter().copied());
+        index += 1;
+    }
+    total
+}
+
+pub fn spin(limit: usize) -> usize {
+    let mut seen = 0;
+    loop {
+        let scratch = String::new(); //~ pos
+        seen += scratch.len() + 1;
+        if seen >= limit {
+            break;
+        }
+    }
+    seen
+}
+
+pub fn spin_hoisted(limit: usize) -> usize {
+    let scratch = String::new(); //~ neg
+    let mut seen = 0;
+    loop {
+        seen += scratch.len() + 1;
+        if seen >= limit {
+            break;
+        }
+    }
+    seen
+}
+
+pub fn nested(rows: &[Vec<u8>]) -> usize {
+    let mut total = 0;
+    for row in rows {
+        for byte in row {
+            let scratch = Vec::new(); //~ pos
+            total += scratch.len() + usize::from(*byte);
+        }
+    }
+    total
+}
+
+pub fn nested_maps(rows: &[Vec<u8>]) -> usize {
+    let mut total = 0;
+    for row in rows {
+        let scratch = std::collections::HashMap::<u8, u8>::new(); //~ pos
+        total += scratch.len() + row.len();
+    }
+    total
+}
+
+pub fn collect_names(count: usize) -> Vec<String> {
+    (0..count).map(|index| index.to_string()).collect() //~ neg
+}
+
+pub fn build_labels(count: usize) -> Vec<String> {
+    let mut labels = Vec::new(); //~ neg
+    for index in 0..count {
+        let mut label = String::new(); //~ pos
+        label.push('#');
+        label.push_str(&index.to_string());
+        labels.push(label);
+    }
+    labels
+}
+
+pub fn build_buffers(count: usize) -> Vec<Vec<u8>> {
+    let mut buffers = Vec::new(); //~ neg
+    for _ in 0..count {
+        let buffer = Vec::new(); //~ pos
+        buffers.push(buffer);
+    }
+    buffers
+}
+
+pub fn build_buffers_capacity(count: usize) -> Vec<Vec<u8>> {
+    let mut buffers = Vec::new(); //~ neg
+    for _ in 0..count {
+        let buffer = Vec::with_capacity(64); //~ neg
+        buffers.push(buffer);
+    }
+    buffers
+}
+
+pub fn tokenize(inputs: &[String]) -> Vec<Vec<String>> {
+    let mut output = Vec::new(); //~ neg
+    for input in inputs {
+        let mut tokens = Vec::new(); //~ pos
+        for part in input.split(' ') {
+            let mut token = String::new(); //~ pos
+            token.push_str(part);
+            tokens.push(token);
+        }
+        output.push(tokens);
+    }
+    output
+}
+
+pub fn tokenize_direct(inputs: &[String]) -> Vec<Vec<String>> {
+    inputs //~ neg
+        .iter()
+        .map(|input| input.split(' ').map(str::to_string).collect())
+        .collect()
+}
+
+pub fn checksum_pages(pages: usize) -> Vec<u8> {
+    let mut digest = Vec::new(); //~ neg
+    for page in 0..pages {
+        let scratch = Vec::new(); //~ pos
+        digest.extend(scratch);
+        digest.push(u8::try_from(page % 251).unwrap_or(0));
+    }
+    digest
+}
+
+pub fn checksum_pages_hoisted(pages: usize) -> Vec<u8> {
+    let mut digest = Vec::with_capacity(pages); //~ neg
+    for page in 0..pages {
+        digest.push(u8::try_from(page % 251).unwrap_or(0)); //~ neg
+    }
+    digest
+}
+
+pub fn labels_per_shard(shards: usize, per_shard: usize) -> Vec<Vec<String>> {
+    let mut output = Vec::new(); //~ neg
+    for _ in 0..shards {
+        let mut shard = Vec::new(); //~ pos
+        for index in 0..per_shard {
+            let mut label = String::new(); //~ pos
+            label.push_str(&index.to_string());
+            shard.push(label);
+        }
+        output.push(shard);
+    }
+    output
+}

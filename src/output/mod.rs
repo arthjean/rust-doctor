@@ -1,8 +1,24 @@
+mod prompt_theme;
 mod score;
+mod score_model;
 mod terminal;
 
-pub use score::calculate_score;
-pub(crate) use score::calculate_score_for_categories;
+pub(crate) use prompt_theme::PromptTheme;
+pub(crate) use score::Dimension;
+#[cfg(test)]
+pub(crate) use score::canonical_penalties;
+pub(crate) use score::group_score_contribution;
+pub use score::{calculate_score, calculate_score_for_categories};
+pub(crate) use score_model::require_score_model;
+
+/// Score Core identifier carried by reports, caches, and baselines.
+///
+/// Legacy values were produced by an unversioned model and are not comparable
+/// with Score Core V2 output.
+#[must_use]
+pub fn score_model_version() -> &'static str {
+    score_model::model_version()
+}
 pub use terminal::render_terminal;
 pub(crate) use terminal::{render_terminal_for_categories, render_welcome};
 
@@ -39,33 +55,34 @@ fn animation_sleep(duration: Duration) {
 
 /// Render `--score` mode: bare integer to stdout.
 pub fn render_score(result: &ScanResult) {
-    if result.source_file_count == 0 {
+    let decision = crate::completeness::score_decision(result);
+    if decision.visibility == crate::completeness::ScoreVisibility::Absent {
         eprintln!(
             "{}",
             "No Rust source files found".if_supports_color(Stream::Stderr, |t| t.yellow())
         );
-    } else if !crate::completeness::score_is_reportable(result) {
+    } else if decision.published_score().is_none() {
         eprintln!(
             "{}",
-            "Score not shown: some checks could not complete."
+            format!("Score not shown: {}.", decision.primary_reason())
                 .if_supports_color(Stream::Stderr, |t| t.dimmed())
         );
     }
-    if !result.skipped_passes.is_empty() {
+    if !result.skipped_passes.is_empty() && decision.published_score().is_some() {
         eprintln!(
-            "Warning: {} pass(es) skipped (missing tools) — score may be incomplete. \
+            "Warning: {} optional pass(es) skipped; the authoritative Core Score excludes them. \
              Run: rust-doctor --install-deps",
             result.skipped_passes.len()
         );
     }
-    if score_for_output(result).is_some() {
-        println!("{}", result.score);
+    if let Some(score) = decision.published_score() {
+        println!("{score}");
     }
 }
 
+#[cfg(test)]
 fn score_for_output(result: &ScanResult) -> Option<u32> {
-    (result.source_file_count > 0 && crate::completeness::score_is_reportable(result))
-        .then_some(result.score)
+    crate::completeness::score_decision(result).published_score()
 }
 
 /// Render the immutable Report V1 value to stdout or atomically to a file.
@@ -156,10 +173,6 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
-    fn make_diag(rule: &str, severity: Severity) -> Diagnostic {
-        make_diag_with_category(rule, severity, Category::ErrorHandling)
-    }
-
     fn make_diag_with_category(rule: &str, severity: Severity, category: Category) -> Diagnostic {
         Diagnostic {
             file_path: PathBuf::from("src/main.rs"),
@@ -178,12 +191,14 @@ mod tests {
         let path = PathBuf::from("src/main.rs");
         let mut execution = ScanExecution::default();
         if authoritative {
-            execution.checks.push(CheckState {
-                name: "custom rules".to_string(),
-                required: true,
-                status: CheckStatus::Completed,
-                reason: None,
-            });
+            execution
+                .checks
+                .extend(["custom rules", "msrv"].into_iter().map(|name| CheckState {
+                    name: name.to_string(),
+                    required: true,
+                    status: CheckStatus::Completed,
+                    reason: None,
+                }));
         }
         ScanResult {
             diagnostics: Vec::new(),
@@ -215,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_perfect_score() {
-        let (score, label, dims) = calculate_score(&[]);
+        let (score, label, dims) = calculate_score(&[]).expect("embedded score model");
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -225,152 +240,110 @@ mod tests {
         assert_eq!(dims.dependencies, 100);
     }
 
+    // --- Score Core V2 dimension mapping ---
+    //
+    // Every case below uses a real catalog rule: under Score Core V2 an unknown
+    // identifier is score-ineligible by contract, so a fabricated rule name
+    // would silently assert nothing.
+
     #[test]
-    fn test_score_with_errors_in_reliability() {
+    fn security_rules_only_degrade_the_security_dimension() {
+        let diags = vec![make_diag_with_category(
+            "clippy::transmute_ptr_to_ref",
+            Severity::Error,
+            Category::Security,
+        )];
+        let (_, _, dims) = calculate_score(&diags).expect("embedded score model");
+        assert!(dims.security < 100);
+        assert_eq!(dims.reliability, 100);
+        assert_eq!(dims.maintainability, 100);
+        assert_eq!(dims.performance, 100);
+        assert_eq!(dims.dependencies, 100);
+    }
+
+    #[test]
+    fn cargo_and_dependency_categories_share_the_dependencies_dimension() {
         let diags = vec![
-            make_diag("rule1", Severity::Error),
-            make_diag("rule2", Severity::Error),
+            make_diag_with_category("missing-msrv", Severity::Warning, Category::Cargo),
+            make_diag_with_category("msrv-outdated", Severity::Warning, Category::Dependencies),
         ];
-        let (score, label, dims) = calculate_score(&diags);
-        assert_eq!(dims.reliability, 97);
+        let (_, _, dims) = calculate_score(&diags).expect("embedded score model");
+        assert!(dims.dependencies < 100);
         assert_eq!(dims.security, 100);
-        assert_eq!(score, 99);
-        assert_eq!(label, ScoreLabel::Great);
     }
 
     #[test]
-    fn test_score_with_warnings_in_reliability() {
-        let diags = vec![
-            make_diag("w1", Severity::Warning),
-            make_diag("w2", Severity::Warning),
-            make_diag("w3", Severity::Warning),
-            make_diag("w4", Severity::Warning),
-        ];
-        let (score, label, dims) = calculate_score(&diags);
-        assert_eq!(dims.reliability, 97);
-        assert_eq!(score, 99);
-        assert_eq!(label, ScoreLabel::Great);
+    fn repeated_occurrences_of_one_rule_stay_bounded() {
+        let single = vec![make_diag_with_category(
+            "missing-msrv",
+            Severity::Warning,
+            Category::Cargo,
+        )];
+        let many: Vec<_> = (0..50)
+            .map(|_| make_diag_with_category("missing-msrv", Severity::Warning, Category::Cargo))
+            .collect();
+        let (_, _, single_dims) = calculate_score(&single).expect("embedded score model");
+        let (_, _, many_dims) = calculate_score(&many).expect("embedded score model");
+        let single_penalty = 100 - single_dims.dependencies;
+        let many_penalty = 100 - many_dims.dependencies;
+        assert!(many_penalty >= single_penalty);
+        assert!(many_penalty <= single_penalty * 2);
     }
 
     #[test]
-    fn test_score_duplicate_rules_counted_once() {
-        let diags = vec![
-            make_diag("rule1", Severity::Error),
-            make_diag("rule1", Severity::Error),
-            make_diag("rule1", Severity::Error),
-            make_diag("rule1", Severity::Error),
-            make_diag("rule1", Severity::Error),
-        ];
-        let (score, _, dims) = calculate_score(&diags);
-        assert_eq!(dims.reliability, 99);
-        assert_eq!(score, 100);
-    }
-
-    #[test]
-    fn test_score_mixed_single_dimension() {
-        let mut diags = Vec::new();
-        for i in 0..10 {
-            diags.push(make_diag(&format!("err{i}"), Severity::Error));
-        }
-        for i in 0..20 {
-            diags.push(make_diag(&format!("warn{i}"), Severity::Warning));
-        }
-        let (score, label, dims) = calculate_score(&diags);
-        assert_eq!(dims.reliability, 70);
-        assert_eq!(score, 93);
-        assert_eq!(label, ScoreLabel::Great);
-    }
-
-    #[test]
-    fn test_dimension_clamped_to_zero() {
-        let mut diags = Vec::new();
-        for i in 0..100 {
-            diags.push(make_diag(&format!("err{i}"), Severity::Error));
-        }
-        let (score, label, dims) = calculate_score(&diags);
-        assert_eq!(dims.reliability, 0);
-        assert_eq!(score, 77);
-        assert_eq!(label, ScoreLabel::Great);
-    }
-
-    #[test]
-    fn test_all_dimensions_severely_degraded() {
-        let mut diags = Vec::new();
-        for i in 0..100 {
-            diags.push(make_diag_with_category(
-                &format!("sec{i}"),
-                Severity::Error,
-                Category::Security,
-            ));
-            diags.push(make_diag_with_category(
-                &format!("err{i}"),
-                Severity::Error,
-                Category::ErrorHandling,
-            ));
-            diags.push(make_diag_with_category(
-                &format!("arch{i}"),
-                Severity::Error,
-                Category::Architecture,
-            ));
-            diags.push(make_diag_with_category(
-                &format!("perf{i}"),
-                Severity::Error,
-                Category::Performance,
-            ));
-            diags.push(make_diag_with_category(
-                &format!("dep{i}"),
-                Severity::Error,
-                Category::Dependencies,
-            ));
-        }
-        let (score, label, dims) = calculate_score(&diags);
-        assert_eq!(dims.security, 0);
-        assert_eq!(dims.reliability, 0);
-        assert_eq!(dims.maintainability, 0);
-        assert_eq!(dims.performance, 0);
-        assert_eq!(dims.dependencies, 0);
-        assert_eq!(score, 0);
+    fn a_p0_finding_caps_the_overall_label() {
+        let diags = vec![make_diag_with_category(
+            "compiler-error",
+            Severity::Error,
+            Category::Security,
+        )];
+        let (score, label, _) = calculate_score(&diags).expect("embedded score model");
+        assert!(score <= 49);
         assert_eq!(label, ScoreLabel::Critical);
+    }
+
+    #[test]
+    fn category_selection_is_not_diluted_by_unselected_dimensions() {
+        let diags = vec![make_diag_with_category(
+            "clippy::transmute_ptr_to_ref",
+            Severity::Error,
+            Category::Security,
+        )];
+        let (scoped, _, dims) = calculate_score_for_categories(&diags, &[Category::Security])
+            .expect("embedded score model");
+        assert_eq!(scoped, dims.security.min(49));
+    }
+
+    #[test]
+    fn category_selection_ignores_sibling_categories_in_one_dimension() {
+        let diags = vec![
+            make_diag_with_category(
+                "clippy::unwrap_used",
+                Severity::Warning,
+                Category::ErrorHandling,
+            ),
+            make_diag_with_category("compiler-error", Severity::Error, Category::Correctness),
+        ];
+        let (scoped, _, _) = calculate_score_for_categories(&diags, &[Category::ErrorHandling])
+            .expect("embedded score model");
+        let (full, _, _) = calculate_score(&diags).expect("embedded score model");
+        assert!(scoped > full);
     }
 
     #[test]
     fn test_score_label_thresholds() {
         use score::score_label;
         assert_eq!(score_label(100), ScoreLabel::Great);
-        assert_eq!(score_label(75), ScoreLabel::Great);
-        assert_eq!(score_label(74), ScoreLabel::NeedsWork);
+        assert_eq!(score_label(95), ScoreLabel::Great);
+        assert_eq!(score_label(94), ScoreLabel::NeedsWork);
         assert_eq!(score_label(50), ScoreLabel::NeedsWork);
         assert_eq!(score_label(49), ScoreLabel::Critical);
         assert_eq!(score_label(0), ScoreLabel::Critical);
     }
 
     #[test]
-    fn test_security_category_only_affects_security_dimension() {
-        let diags = vec![
-            make_diag_with_category("sec1", Severity::Error, Category::Security),
-            make_diag_with_category("sec2", Severity::Error, Category::Security),
-        ];
-        let (_, _, dims) = calculate_score(&diags);
-        assert_eq!(dims.security, 97);
-        assert_eq!(dims.reliability, 100);
-        assert_eq!(dims.maintainability, 100);
-        assert_eq!(dims.performance, 100);
-        assert_eq!(dims.dependencies, 100);
-    }
-
-    #[test]
-    fn test_overall_is_weighted_average() {
-        let diags = vec![
-            make_diag_with_category("sec1", Severity::Error, Category::Security),
-            make_diag_with_category("sec2", Severity::Error, Category::Security),
-        ];
-        let (score, _, _) = calculate_score(&diags);
-        assert_eq!(score, 99);
-    }
-
-    #[test]
     fn test_empty_diagnostics_all_dimensions_100() {
-        let (score, label, dims) = calculate_score(&[]);
+        let (score, label, dims) = calculate_score(&[]).expect("embedded score model");
         assert_eq!(score, 100);
         assert_eq!(label, ScoreLabel::Great);
         assert_eq!(dims.security, 100);
@@ -417,67 +390,7 @@ mod tests {
                 score: None,
             },
         ];
-        assert_eq!(score_for_output(&partial_workspace), Some(93));
-    }
-
-    #[test]
-    fn test_multiple_dimensions_affected() {
-        let diags = vec![
-            make_diag_with_category("sec1", Severity::Error, Category::Security),
-            make_diag_with_category("perf1", Severity::Warning, Category::Performance),
-            make_diag_with_category("style1", Severity::Info, Category::Style),
-        ];
-        let (_, _, dims) = calculate_score(&diags);
-        assert_eq!(dims.security, 99);
-        assert_eq!(dims.performance, 99);
-        assert_eq!(dims.maintainability, 100);
-        assert_eq!(dims.reliability, 100);
-        assert_eq!(dims.dependencies, 100);
-    }
-
-    #[test]
-    fn test_dependencies_category_maps_to_dependencies_dimension() {
-        let diags = vec![
-            make_diag_with_category("dep1", Severity::Warning, Category::Dependencies),
-            make_diag_with_category("cargo1", Severity::Warning, Category::Cargo),
-        ];
-        let (_, _, dims) = calculate_score(&diags);
-        assert_eq!(dims.dependencies, 99);
-        assert_eq!(dims.security, 100);
-    }
-
-    #[test]
-    fn category_score_is_not_diluted_by_unselected_dimensions() {
-        let diags = vec![
-            make_diag_with_category("sec1", Severity::Error, Category::Security),
-            make_diag_with_category("sec2", Severity::Error, Category::Security),
-        ];
-        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::Security]);
-        assert_eq!(score, 97);
-        assert_eq!(dims.security, 97);
-    }
-
-    #[test]
-    fn category_score_ignores_unselected_categories_in_the_same_dimension() {
-        let diags = vec![
-            make_diag_with_category("errors", Severity::Error, Category::ErrorHandling),
-            make_diag_with_category("correctness", Severity::Error, Category::Correctness),
-        ];
-        let (score, _, dims) = calculate_score_for_categories(&diags, &[Category::ErrorHandling]);
-        assert_eq!(score, 99);
-        assert_eq!(dims.reliability, 99);
-    }
-
-    #[test]
-    fn category_score_preserves_weights_across_selected_dimensions() {
-        let diags = vec![
-            make_diag_with_category("sec1", Severity::Error, Category::Security),
-            make_diag_with_category("sec2", Severity::Error, Category::Security),
-            make_diag_with_category("perf1", Severity::Error, Category::Performance),
-        ];
-        let (score, _, _) =
-            calculate_score_for_categories(&diags, &[Category::Security, Category::Performance]);
-        assert_eq!(score, 98);
+        assert_eq!(score_for_output(&partial_workspace), None);
     }
 
     #[test]

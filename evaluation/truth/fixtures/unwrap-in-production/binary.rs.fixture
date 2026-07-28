@@ -1,0 +1,71 @@
+//! rust-doctor truth fixture
+//! rule: unwrap-in-production
+//! crate-role: binary
+//! source-surface: binary
+//! target-path: src/main.rs
+//! edition: 2024
+//! msrv: 1.97
+
+use std::io::Read;
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let command = args.get(1).unwrap(); //~ pos
+    match command.as_str() {
+        "serve" => serve(),
+        "check" => check(),
+        _ => usage(),
+    }
+}
+
+fn serve() {
+    let raw = std::env::var("PORT").unwrap(); //~ pos
+    let port: u16 = raw.parse().unwrap(); //~ pos
+    println!("serving on {port}");
+}
+
+fn serve_checked() {
+    let port = std::env::var("PORT") //~ neg
+        .ok()
+        .and_then(|raw| raw.parse::<u16>().ok())
+        .unwrap_or(8080);
+    println!("serving on {port}");
+}
+
+fn check() {
+    let mut buffer = String::new();
+    std::io::stdin().read_to_string(&mut buffer).unwrap(); //~ pos
+    let first_line = buffer.lines().next().expect("input has one line"); //~ pos
+    println!("{first_line}");
+}
+
+fn check_checked() -> std::io::Result<()> {
+    let mut buffer = String::new();
+    std::io::stdin().read_to_string(&mut buffer)?; //~ neg
+    let first_line = buffer.lines().next().unwrap_or_default(); //~ neg
+    println!("{first_line}");
+    Ok(())
+}
+
+fn usage() {
+    let name = std::env::current_exe().unwrap(); //~ pos
+    let name = name.file_name().unwrap(); //~ pos
+    println!("usage: {} <serve|check>", name.to_string_lossy());
+}
+
+fn usage_checked() {
+    let name = std::env::current_exe() //~ neg
+        .ok()
+        .and_then(|path| path.file_name().map(std::ffi::OsStr::to_os_string))
+        .unwrap_or_default();
+    println!("usage: {} <serve|check>", name.to_string_lossy());
+}
+
+fn load_profile(raw: &str) -> String {
+    let parsed: Vec<&str> = raw.split('=').collect();
+    parsed.get(1).unwrap().to_string() //~ pos
+}
+
+fn load_profile_checked(raw: &str) -> String {
+    raw.split_once('=').map_or_else(String::new, |(_, value)| value.to_string()) //~ neg
+}

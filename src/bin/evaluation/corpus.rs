@@ -31,6 +31,7 @@ struct RunContext<'a> {
     binary: &'a Path,
     cargo_home: &'a Path,
     tool_revision: &'a str,
+    binary_sha256: &'a str,
     evaluation_profile_sha256: &'a str,
     catalog_sha256: &'a str,
     catalog: &'a BTreeMap<String, EvaluationRule>,
@@ -198,6 +199,7 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
             "tool revision cannot be empty".to_string(),
         ));
     }
+    let binary_sha256 = sha256_file(&binary)?;
     let evaluation_profile_sha256 = evaluation_profile_sha256(&manifest.evaluation_profile)?;
     let catalog = read_evaluation_catalog(
         &binary,
@@ -215,6 +217,7 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
         binary: &binary,
         cargo_home: &cargo_home,
         tool_revision: &tool_revision,
+        binary_sha256: &binary_sha256,
         evaluation_profile_sha256: &evaluation_profile_sha256,
         catalog_sha256: &catalog_sha256,
         catalog: &catalog,
@@ -1442,6 +1445,7 @@ fn record_from_scans(
         reported_roots,
         root_states,
         tool_revision: context.tool_revision.to_string(),
+        binary_sha256: context.binary_sha256.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
         catalog: context.catalog.clone(),
@@ -1482,6 +1486,7 @@ fn failed_record(
         reported_roots: Vec::new(),
         root_states,
         tool_revision: context.tool_revision.to_string(),
+        binary_sha256: context.binary_sha256.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
         catalog: context.catalog.clone(),

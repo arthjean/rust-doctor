@@ -154,6 +154,12 @@ pub struct DiagnosticGroup {
     pub help: Option<String>,
     /// Example locations (up to 3).
     pub examples: Vec<DiagnosticExample>,
+    /// Product urgency (`p0`-`p3`). Absent when the rule is unranked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
+    /// Stable identity of the shared defect, when the rule declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_cause_key: Option<String>,
 }
 
 /// Structured output for the score tool.

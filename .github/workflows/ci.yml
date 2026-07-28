@@ -47,6 +47,26 @@ jobs:
       - name: Publish dry-run
         run: cargo publish --dry-run
 
+  cargo-deny-conformance:
+    name: cargo-deny ${{ matrix.cargo-deny }} conformance
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cargo-deny: ["0.18.3", "0.19.8"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+
+      - name: Install qualified cargo-deny
+        run: cargo install cargo-deny --version "${{ matrix.cargo-deny }}" --locked
+
+      - name: Verify real-binary evidence contract
+        run: cargo test --lib --all-features real_binary_smoke_uses_qualified_contract -- --ignored
+
   artifact-smoke:
     name: Built artifact smoke
     runs-on: ubuntu-latest
@@ -66,6 +86,7 @@ jobs:
         run: |
           cargo build --release --bin rust-doctor --bin rust-doctor-eval
           cargo build --release --no-default-features --bin rust-doctor --target-dir target/no-default
+          cargo build --release --features lsp --bin rust-doctor --target-dir target/lsp
           cargo package --locked
           mkdir -p artifacts
           bash scripts/release/package-native.sh \
@@ -86,12 +107,14 @@ jobs:
           target/release/rust-doctor-eval smoke \
             --binary target/release/rust-doctor \
             --no-default-binary target/no-default/release/rust-doctor \
+            --lsp-binary target/lsp/release/rust-doctor \
             --schema schemas/report-v1.schema.json \
             --npm-platform-package "artifacts/rust-doctor-npm-linux-x64-${version}.tgz" \
             --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
             --bun "$(command -v bun)" \
             --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
-            --crate-package "$crate_package"
+            --crate-package "$crate_package" \
+            --action action.yml
 
   editor-adapters:
     name: Packaged editor adapters

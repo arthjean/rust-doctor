@@ -165,7 +165,7 @@ fn run() -> ExitCode {
     }
 
     // Apply fixes, emit output, show plan
-    run::apply_fixes_if_requested(&cli, &scan_result);
+    run::apply_fixes_if_requested(&cli, &scan_result, &resolved, &project_info);
 
     let report = match run::emit_output(&cli, &scan_result, &resolved, &project_info) {
         Ok(report) => report,
@@ -213,7 +213,7 @@ fn run() -> ExitCode {
     run::emit_agent_install_hint(&cli, &report, &project_info);
     run::emit_scan_telemetry(&cli, &report);
 
-    run::emit_plan_if_requested(&cli, &scan_result);
+    run::emit_report_plan_if_requested(&cli, &report, &scan_result);
 
     gate_exit.unwrap_or(ExitCode::SUCCESS)
 }
@@ -225,6 +225,7 @@ fn quality_gate_exit(
 ) -> Option<ExitCode> {
     run::check_hard_analysis_failure(scan_result, resolved.fail_on)
         .or_else(|| run::check_completeness_gate(scan_result, cli.require_complete))
+        .or_else(|| run::check_score_authority(scan_result, cli.score))
         .or_else(|| run::check_score_gate(scan_result, resolved.score_fail_below))
         .or_else(|| {
             if cli.score {

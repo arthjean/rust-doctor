@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rust-doctor.vercel.app/schemas/decision-quality-v1.schema.json",
+  "title": "Rust Doctor Decision Quality Reviews V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_version",
+    "source_corpus_sha256",
+    "review_method",
+    "reviewed_at",
+    "projects"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "dataset_version": { "const": "decision-quality-v1" },
+    "source_corpus_sha256": { "$ref": "#/$defs/Sha256" },
+    "review_method": { "const": "independent-project-review-v1" },
+    "reviewed_at": { "type": "string", "format": "date" },
+    "projects": {
+      "type": "array",
+      "minItems": 66,
+      "maxItems": 66,
+      "items": { "$ref": "#/$defs/Project" }
+    }
+  },
+  "$defs": {
+    "Sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "category", "priority", "aggregation", "occurrences"],
+      "properties": {
+        "rule": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "priority": { "enum": ["p0", "p1", "p2", "p3"] },
+        "aggregation": {
+          "enum": ["unique-rule", "bounded-occurrence", "root-cause", "audit-only"]
+        },
+        "occurrences": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "repository_cluster",
+        "repository_root",
+        "language_context",
+        "framework_context",
+        "fixture_provenance",
+        "author",
+        "independent_reviewer",
+        "disposition",
+        "holdout",
+        "reviewed_health_band",
+        "top_remediations",
+        "groups"
+      ],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/Sha256" },
+        "repository_cluster": { "$ref": "#/$defs/Sha256" },
+        "repository_root": { "$ref": "#/$defs/Sha256" },
+        "language_context": { "const": "rust" },
+        "framework_context": { "type": "string", "minLength": 1 },
+        "fixture_provenance": {
+          "enum": ["protected-public-corpus", "reviewed-contract-fixture"]
+        },
+        "author": { "type": "string", "minLength": 1 },
+        "independent_reviewer": { "type": "string", "minLength": 1 },
+        "disposition": { "const": "accepted" },
+        "holdout": { "type": "boolean" },
+        "reviewed_health_band": { "enum": ["great", "needs-work", "critical"] },
+        "top_remediations": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Group" }
+        }
+      }
+    }
+  }
+}

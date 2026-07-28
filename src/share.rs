@@ -102,6 +102,18 @@ mod tests {
                         reason: None,
                     },
                     CheckState {
+                        name: "custom rules".to_string(),
+                        required: true,
+                        status: CheckStatus::Completed,
+                        reason: None,
+                    },
+                    CheckState {
+                        name: "msrv".to_string(),
+                        required: true,
+                        status: CheckStatus::Completed,
+                        reason: None,
+                    },
+                    CheckState {
                         name: "dependencies (cargo-audit)".to_string(),
                         required: false,
                         status: CheckStatus::Skipped,
@@ -141,6 +153,9 @@ mod tests {
             package_metadata: serde_json::Value::Null,
             workspace_members: Vec::new(),
             default_member_ids: vec!["private 0.1.0".to_string()],
+            enabled_features: Vec::new(),
+            declared_features: Vec::new(),
+            analyzed_target: None,
         };
         ReportV1::from_scan(
             &scan_result(),

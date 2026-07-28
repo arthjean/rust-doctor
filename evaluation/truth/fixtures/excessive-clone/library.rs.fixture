@@ -1,0 +1,139 @@
+//! rust-doctor truth fixture
+//! rule: excessive-clone
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+use std::collections::HashMap;
+
+#[derive(Clone, Debug, Default)]
+pub struct Record {
+    pub id: String,
+    pub tags: Vec<String>,
+}
+
+pub fn duplicate_records(records: &[Record]) -> Vec<Record> {
+    let mut output = Vec::new();
+    for record in records {
+        output.push(record.clone()); //~ pos
+    }
+    output
+}
+
+pub fn duplicate_records_borrowed(records: &[Record]) -> Vec<&Record> {
+    records.iter().collect() //~ neg
+}
+
+pub fn index_by_id(records: &[Record]) -> HashMap<String, Record> {
+    let mut index = HashMap::new();
+    for record in records {
+        index.insert(record.id.clone(), record.clone()); //~ pos
+    }
+    index
+}
+
+pub fn merge(left: &Record, right: &Record) -> Record {
+    let mut merged = left.clone(); //~ pos
+    merged.tags = right.tags.clone(); //~ pos
+    merged
+}
+
+pub fn merge_borrowed<'a>(left: &'a Record, right: &'a Record) -> (&'a str, &'a [String]) {
+    (left.id.as_str(), right.tags.as_slice()) //~ neg
+}
+
+pub fn expand(record: &Record, times: usize) -> Vec<String> {
+    let mut output = Vec::new();
+    for _ in 0..times {
+        output.push(record.id.clone()); //~ pos
+    }
+    output
+}
+
+pub fn expand_borrowed(record: &Record, times: usize) -> Vec<&str> {
+    let mut output = Vec::new();
+    for _ in 0..times {
+        output.push(record.id.as_str()); //~ neg
+    }
+    output
+}
+
+pub fn normalize_tags(record: &Record) -> Vec<String> {
+    let mut tags = record.tags.clone(); //~ pos
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+pub fn tag_count(record: &Record) -> usize {
+    record.tags.len() //~ neg
+}
+
+pub fn rename(record: &Record, id: &str) -> Record {
+    let mut renamed = record.clone(); //~ pos
+    renamed.id = id.to_owned(); //~ neg
+    renamed
+}
+
+pub fn fanout(records: &[Record], shards: usize) -> Vec<Vec<Record>> {
+    let mut output = vec![Vec::new(); shards];
+    for (index, record) in records.iter().enumerate() {
+        let shard = index % shards;
+        output[shard].push(record.clone()); //~ pos
+    }
+    output
+}
+
+pub fn first_tag(record: &Record) -> Option<&String> {
+    record.tags.first() //~ neg
+}
+
+pub fn snapshot(records: &[Record]) -> Vec<Record> {
+    records.to_vec() //~ neg
+}
+
+pub fn retag(record: &Record, extra: &str) -> Record {
+    let mut copy = record.clone(); //~ pos
+    copy.tags.push(extra.to_owned()); //~ neg
+    copy
+}
+
+pub fn archive(records: &[Record]) -> Vec<String> {
+    let mut output = Vec::new();
+    for record in records {
+        let id = record.id.clone(); //~ pos
+        let tags = record.tags.clone(); //~ pos
+        output.push(format!("{id}:{}", tags.len()));
+    }
+    output
+}
+
+pub fn archive_borrowed(records: &[Record]) -> Vec<String> {
+    records //~ neg
+        .iter()
+        .map(|record| format!("{}:{}", record.id, record.tags.len()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_records_copies_every_entry() {
+        let record = Record::default();
+        let a = record.clone(); //~ neg
+        let b = record.clone(); //~ neg
+        let c = record.clone(); //~ neg
+        assert_eq!(duplicate_records(&[a, b, c]).len(), 3);
+    }
+
+    #[test]
+    fn merge_keeps_the_left_identity() {
+        let left = Record::default();
+        let right = left.clone(); //~ neg
+        assert_eq!(merge(&left, &right).id, left.id);
+    }
+}

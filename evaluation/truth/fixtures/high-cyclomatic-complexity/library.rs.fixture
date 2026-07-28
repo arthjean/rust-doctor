@@ -1,0 +1,251 @@
+//! rust-doctor truth fixture
+//! rule: high-cyclomatic-complexity
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+pub fn classify_status_1(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_1(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_status_2(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_2(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_status_3(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_3(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_status_4(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_4(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_status_5(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_5(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_status_6(code: u32) -> &'static str { //~ pos
+    match code {
+        0 => "state0", 1 => "state1", 2 => "state2", 3 => "state3", 4 => "state4", 5 => "state5",
+        6 => "state6", 7 => "state7", 8 => "state8", 9 => "state9", 10 => "state10", 11 => "state11",
+        12 => "state12", 13 => "state13", 14 => "state14", 15 => "state15", 16 => "state16", 17 => "state17",
+        _ => "unknown",
+    }
+}
+
+pub fn classify_kind_6(code: u32) -> &'static str { //~ neg
+    match code {
+        0 => "kind0",
+        1 => "kind1",
+        2 => "kind2",
+        3 => "kind3",
+        _ => "unknown",
+    }
+}
+
+pub fn accumulate_1(input: u32) -> u32 { //~ pos
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    if input == 4 { total += 4; }
+    if input == 5 { total += 5; }
+    if input == 6 { total += 6; }
+    if input == 7 { total += 7; }
+    if input == 8 { total += 8; }
+    if input == 9 { total += 9; }
+    if input == 10 { total += 10; }
+    if input == 11 { total += 11; }
+    if input == 12 { total += 12; }
+    if input == 13 { total += 13; }
+    if input == 14 { total += 14; }
+    if input == 15 { total += 15; }
+    total
+}
+
+pub fn accumulate_small_1(input: u32) -> u32 { //~ neg
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    total
+}
+
+pub fn accumulate_2(input: u32) -> u32 { //~ pos
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    if input == 4 { total += 4; }
+    if input == 5 { total += 5; }
+    if input == 6 { total += 6; }
+    if input == 7 { total += 7; }
+    if input == 8 { total += 8; }
+    if input == 9 { total += 9; }
+    if input == 10 { total += 10; }
+    if input == 11 { total += 11; }
+    if input == 12 { total += 12; }
+    if input == 13 { total += 13; }
+    if input == 14 { total += 14; }
+    if input == 15 { total += 15; }
+    total
+}
+
+pub fn accumulate_small_2(input: u32) -> u32 { //~ neg
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    total
+}
+
+pub fn accumulate_3(input: u32) -> u32 { //~ pos
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    if input == 4 { total += 4; }
+    if input == 5 { total += 5; }
+    if input == 6 { total += 6; }
+    if input == 7 { total += 7; }
+    if input == 8 { total += 8; }
+    if input == 9 { total += 9; }
+    if input == 10 { total += 10; }
+    if input == 11 { total += 11; }
+    if input == 12 { total += 12; }
+    if input == 13 { total += 13; }
+    if input == 14 { total += 14; }
+    if input == 15 { total += 15; }
+    total
+}
+
+pub fn accumulate_small_3(input: u32) -> u32 { //~ neg
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    total
+}
+
+pub fn accumulate_4(input: u32) -> u32 { //~ pos
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    if input == 4 { total += 4; }
+    if input == 5 { total += 5; }
+    if input == 6 { total += 6; }
+    if input == 7 { total += 7; }
+    if input == 8 { total += 8; }
+    if input == 9 { total += 9; }
+    if input == 10 { total += 10; }
+    if input == 11 { total += 11; }
+    if input == 12 { total += 12; }
+    if input == 13 { total += 13; }
+    if input == 14 { total += 14; }
+    if input == 15 { total += 15; }
+    total
+}
+
+pub fn accumulate_small_4(input: u32) -> u32 { //~ neg
+    let mut total = 0;
+    if input == 0 { total += 0; }
+    if input == 1 { total += 1; }
+    if input == 2 { total += 2; }
+    if input == 3 { total += 3; }
+    total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_status_covers_known_codes() { //~ neg
+        assert_eq!(classify_status_1(0), "state0");
+    }
+}

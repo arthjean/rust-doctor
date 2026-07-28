@@ -1,0 +1,22 @@
+[advisories]
+db-path = "$RUST_DOCTOR_DENY_DB_ROOT"
+ignore = []
+
+[licenses]
+allow = ["MIT"]
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

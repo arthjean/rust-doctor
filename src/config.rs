@@ -144,6 +144,42 @@ pub struct RuleConfig {
     pub threshold: Option<u32>,
     /// Surfaces allowed to render this rule. An empty list hides but does not disable it.
     pub surfaces: Option<BTreeSet<VisibilitySurface>>,
+    /// Demote the catalog trust tier. Configuration can restate the catalog
+    /// value or lower it to `audit-only`; it can never fabricate authority.
+    pub trust_tier: Option<ConfiguredTrust>,
+    /// Demote the catalog aggregation policy under the same rule.
+    pub aggregation: Option<ConfiguredTrust>,
+}
+
+/// Trust vocabulary accepted in project configuration.
+///
+/// The canonical catalog remains the source of default trust metadata: a
+/// project may restate the value it already has or demote the rule to
+/// `audit-only`, which removes score impact without hiding the finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfiguredTrust {
+    CompilerProven,
+    CalibratedHeuristic,
+    AdvisoryBacked,
+    AuditOnly,
+    RootCause,
+    BoundedOccurrence,
+    UniqueRule,
+}
+
+impl ConfiguredTrust {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilerProven => "compiler-proven",
+            Self::CalibratedHeuristic => "calibrated-heuristic",
+            Self::AdvisoryBacked => "advisory-backed",
+            Self::AuditOnly => "audit-only",
+            Self::RootCause => "root-cause",
+            Self::BoundedOccurrence => "bounded-occurrence",
+            Self::UniqueRule => "unique-rule",
+        }
+    }
 }
 
 /// Category, tag, or path policy value.
@@ -428,6 +464,31 @@ pub fn resolve_config_defaults(file_config: Option<&FileConfig>) -> ResolvedConf
 }
 
 impl ResolvedConfig {
+    /// Trust contract actually in force for one rule.
+    ///
+    /// The canonical catalog owns default trust metadata. Configuration only
+    /// demotes: an `audit-only` override removes score impact and priority
+    /// without inventing calibration evidence (US-002 AC-5).
+    pub(crate) fn effective_trust(&self, descriptor: &RuleDescriptor) -> crate::catalog::RuleTrust {
+        let mut trust = descriptor.trust.clone();
+        if self.demotes_to_audit_only(&descriptor.canonical_id) {
+            trust.tier = crate::trust::TrustTier::AuditOnly;
+            trust.aggregation = crate::trust::AggregationPolicy::AuditOnly;
+            trust.score_eligible = false;
+            trust.priority = None;
+        }
+        trust
+    }
+
+    /// Allocation-free predicate for the scoring hot path. A project demotes a
+    /// rule by setting either trust field to `audit-only`.
+    pub(crate) fn demotes_to_audit_only(&self, rule: &str) -> bool {
+        self.rules_config.get(rule).is_some_and(|policy| {
+            policy.trust_tier == Some(ConfiguredTrust::AuditOnly)
+                || policy.aggregation == Some(ConfiguredTrust::AuditOnly)
+        })
+    }
+
     /// Resolve policy in ascending precedence: catalog default, tag, category,
     /// exact rule, then the last matching path override.
     pub(crate) fn rule_policy(
@@ -448,7 +509,7 @@ impl ResolvedConfig {
             RuleLevel::Off
         };
         let mut threshold = descriptor.supported_threshold.map(|range| range.default);
-        let mut surfaces: BTreeSet<_> = VisibilitySurface::ALL.into_iter().collect();
+        let mut surfaces = catalog_default_surfaces(descriptor);
 
         if let Some(path) = path {
             apply_source_surface_defaults(
@@ -494,6 +555,11 @@ impl ResolvedConfig {
                     apply_path_policy(path_override, &mut level, &mut surfaces);
                 }
             }
+        }
+        if self.demotes_to_audit_only(&descriptor.canonical_id) {
+            surfaces.remove(&VisibilitySurface::Score);
+            surfaces.remove(&VisibilitySurface::CiFailure);
+            surfaces.remove(&VisibilitySurface::PrComment);
         }
 
         ResolvedRulePolicy {
@@ -631,6 +697,21 @@ impl ResolvedConfig {
         }
         trace
     }
+}
+
+fn catalog_default_surfaces(descriptor: &RuleDescriptor) -> BTreeSet<VisibilitySurface> {
+    let policy = &descriptor.surface_policy;
+    [
+        (VisibilitySurface::Terminal, policy.local),
+        (VisibilitySurface::Score, policy.score),
+        (VisibilitySurface::CiFailure, policy.ci),
+        (VisibilitySurface::PrComment, policy.pull_request),
+        (VisibilitySurface::Sarif, policy.sarif),
+        (VisibilitySurface::Mcp, policy.mcp),
+    ]
+    .into_iter()
+    .filter_map(|(surface, visible)| visible.then_some(surface))
+    .collect()
 }
 
 fn trace_rule_selector(
@@ -909,6 +990,40 @@ pub(crate) fn validate_file_config(
 ///
 /// This keeps programmatic callers and legacy constructors fail-closed on the
 /// same catalog, threshold, policy-count, and glob invariants as TOML loading.
+/// Configuration may restate the catalog trust contract or demote a rule to
+/// `audit-only`. Any other value would fabricate calibration or authority
+/// evidence the project has not measured, so it is rejected instead of being
+/// silently coerced (US-002 AC-6).
+fn validate_configured_trust(
+    rule: &str,
+    descriptor: &RuleDescriptor,
+    policy: &RuleConfig,
+) -> Result<(), String> {
+    if let Some(tier) = policy.trust_tier
+        && tier != ConfiguredTrust::AuditOnly
+        && tier.as_str() != descriptor.trust.tier.as_str()
+    {
+        return Err(format!(
+            "rule '{rule}' declares trust_tier '{}' but the catalog measured '{}'; \
+             configuration may only restate it or demote it to 'audit-only'",
+            tier.as_str(),
+            descriptor.trust.tier.as_str()
+        ));
+    }
+    if let Some(aggregation) = policy.aggregation
+        && aggregation != ConfiguredTrust::AuditOnly
+        && aggregation.as_str() != descriptor.trust.aggregation.as_str()
+    {
+        return Err(format!(
+            "rule '{rule}' declares aggregation '{}' but the catalog declares '{}'; \
+             configuration may only restate it or demote it to 'audit-only'",
+            aggregation.as_str(),
+            descriptor.trust.aggregation.as_str()
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_resolved_config(config: &ResolvedConfig) -> Result<(), String> {
     let catalog = built_in_catalog().map_err(|error| error.to_string())?;
     let policy_entries = config.rules_config.len()
@@ -938,6 +1053,9 @@ pub(crate) fn validate_resolved_config(config: &ResolvedConfig) -> Result<(), St
         let descriptor = catalog
             .exact(rule)
             .ok_or_else(|| format!("unknown rule '{rule}'"))?;
+        if let Some(policy) = config.rules_config.get(rule) {
+            validate_configured_trust(rule, descriptor, policy)?;
+        }
         if let Some(threshold) = config
             .rules_config
             .get(rule)
@@ -1197,6 +1315,35 @@ mod tests {
                 ..AdapterPolicy::none()
             }
         );
+    }
+
+    #[test]
+    fn catalog_surface_defaults_demote_noise_but_existing_overrides_remain_explicit() {
+        let catalog = built_in_catalog().unwrap();
+        let descriptor = catalog.exact("excessive-clone").unwrap();
+        let defaults = resolve_config_defaults(None);
+        let policy = defaults.rule_policy(descriptor, Some(Path::new("src/lib.rs")));
+        assert!(policy.visible_on(VisibilitySurface::Terminal));
+        assert!(policy.visible_on(VisibilitySurface::Sarif));
+        assert!(policy.visible_on(VisibilitySurface::Mcp));
+        assert!(!policy.visible_on(VisibilitySurface::Score));
+        assert!(!policy.visible_on(VisibilitySurface::CiFailure));
+        assert!(!policy.visible_on(VisibilitySurface::PrComment));
+
+        let configured: FileConfig = toml::from_str(
+            r#"
+            [rules.excessive-clone]
+            surfaces = ["terminal", "ci-failure"]
+            "#,
+        )
+        .unwrap();
+        let resolved = resolve_config_defaults(Some(&configured));
+        let policy = resolved.rule_policy(descriptor, Some(Path::new("src/lib.rs")));
+        assert!(policy.visible_on(VisibilitySurface::Terminal));
+        assert!(policy.visible_on(VisibilitySurface::CiFailure));
+        assert!(!policy.visible_on(VisibilitySurface::Score));
+        // Visibility promotion does not fabricate trust or score authority.
+        assert!(!resolved.effective_trust(descriptor).score_eligible);
     }
 
     #[test]
@@ -1699,5 +1846,75 @@ mod tests {
         let mut invalid_resolved = resolve_config_defaults(None);
         invalid_resolved.ignore_files = vec!["[".to_string()];
         assert!(validate_resolved_config(&invalid_resolved).is_err());
+    }
+
+    // --- Trust overrides ---
+
+    #[test]
+    fn an_unknown_trust_value_is_a_typed_parse_error() {
+        let error = toml::from_str::<FileConfig>(
+            "[rules.\"unwrap-in-production\"]\ntrust_tier = \"totally-proven\"\n",
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("totally-proven")
+                || error.to_string().contains("unknown variant"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn configuration_cannot_promote_a_rule_above_its_measured_trust() {
+        let mut resolved = resolve_config_defaults(None);
+        resolved.rules_config.insert(
+            "unwrap-in-production".to_string(),
+            RuleConfig {
+                trust_tier: Some(ConfiguredTrust::CompilerProven),
+                ..RuleConfig::default()
+            },
+        );
+        let error = validate_resolved_config(&resolved).unwrap_err();
+        assert!(error.contains("compiler-proven"), "{error}");
+    }
+
+    #[test]
+    fn configuration_may_demote_a_rule_to_audit_only() {
+        let catalog = built_in_catalog().unwrap();
+        let descriptor = catalog.exact("unwrap-in-production").unwrap();
+        let mut resolved = resolve_config_defaults(None);
+        resolved.rules_config.insert(
+            "unwrap-in-production".to_string(),
+            RuleConfig {
+                trust_tier: Some(ConfiguredTrust::AuditOnly),
+                ..RuleConfig::default()
+            },
+        );
+        assert!(validate_resolved_config(&resolved).is_ok());
+        let effective = resolved.effective_trust(descriptor);
+        assert!(!effective.score_eligible);
+        assert!(effective.priority.is_none());
+        assert_eq!(
+            effective.aggregation,
+            crate::trust::AggregationPolicy::AuditOnly
+        );
+        let policy = resolved.rule_policy(descriptor, Some(Path::new("src/lib.rs")));
+        assert!(policy.visible_on(VisibilitySurface::Terminal));
+        assert!(!policy.visible_on(VisibilitySurface::Score));
+        assert!(!policy.visible_on(VisibilitySurface::CiFailure));
+        assert!(!policy.visible_on(VisibilitySurface::PrComment));
+    }
+
+    #[test]
+    fn restating_the_catalog_contract_is_accepted() {
+        let mut resolved = resolve_config_defaults(None);
+        resolved.rules_config.insert(
+            "unwrap-in-production".to_string(),
+            RuleConfig {
+                trust_tier: Some(ConfiguredTrust::CalibratedHeuristic),
+                aggregation: Some(ConfiguredTrust::BoundedOccurrence),
+                ..RuleConfig::default()
+            },
+        );
+        assert!(validate_resolved_config(&resolved).is_ok());
     }
 }

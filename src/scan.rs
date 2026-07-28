@@ -1,4 +1,5 @@
 use crate::catalog::built_in_catalog;
+use crate::completeness::AnalyzerReceipt;
 use crate::config::{ResolvedConfig, VisibilitySurface};
 use crate::diagnostics::{
     Category, CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic, PackageExecution,
@@ -142,12 +143,7 @@ pub(crate) fn scan_project_scoped_for_categories(
     log_project_info(project_info, resolved);
 
     if scope.has_selected_files() && !scope.has_applicable_work() {
-        return Ok(empty_scoped_result(
-            project_info,
-            scope,
-            resolved,
-            selected_categories,
-        ));
+        return empty_scoped_result(project_info, scope, resolved, selected_categories);
     }
 
     // Step 4: Run all analysis passes
@@ -208,13 +204,16 @@ pub(crate) fn scan_project_scoped_for_categories(
         passes_output.analyzed_files,
         passes_output.compiler_evidence,
         passes_output.checks,
+        passes_output.analyzer_receipts,
         passes_output.package_executions,
         &project_info.root_dir,
         scope,
         resolved,
         selected_categories,
-    );
+    )?;
     result.execution.analysis_failures = passes_output.analysis_failures;
+    result.execution.abstentions = passes_output.abstentions;
+    result.execution.lint_policy = passes_output.lint_policy;
     if let Some(candidates) = line_score_candidates {
         let (mut configured, _, _) = apply_rule_configuration(candidates, resolved);
         dedup_diagnostics(&mut configured);
@@ -230,7 +229,7 @@ pub(crate) fn scan_project_scoped_for_categories(
             &score_diagnostics,
             &project_info.root_dir,
             selected_categories,
-        );
+        )?;
         result.score = health_score;
         result.score_label = label;
         result.dimension_scores = dimensions;
@@ -250,7 +249,8 @@ pub(crate) fn scan_project_scoped_for_categories(
 // ---------------------------------------------------------------------------
 
 fn validate_config(resolved: &ResolvedConfig) -> Result<(), crate::error::ScanError> {
-    config::validate_resolved_config(resolved).map_err(crate::error::ScanError::InvalidPolicy)
+    config::validate_resolved_config(resolved).map_err(crate::error::ScanError::InvalidPolicy)?;
+    output::require_score_model().map_err(crate::error::ScanError::ScoreModel)
 }
 
 fn resolve_scan_roots(
@@ -326,6 +326,68 @@ fn log_project_info(project_info: &ProjectInfo, resolved: &ResolvedConfig) {
 /// deterministic corpus profile runs only Rust Doctor's custom rules.
 /// Package dependency passes run per affected member. Workspace-global passes
 /// run once after required package analysis.
+/// Resolve the Cargo evidence one member's rules receive.
+///
+/// Each member gets its own context: two members with different features,
+/// editions, or dependency graphs must never share one, or a rule would decide
+/// on another package's evidence (US-006 AC-5). When Cargo could not resolve a
+/// member, the unresolved context makes rules with required context abstain
+/// instead of inheriting the workspace primary (AC-6).
+fn package_context(
+    project_info: &ProjectInfo,
+    member: Option<&crate::discovery::WorkspaceMember>,
+    framework_capabilities: &[crate::discovery::FrameworkCapability],
+) -> rules::PackageContext {
+    let dependency_capabilities: Vec<String> = framework_capabilities
+        .iter()
+        .filter(|capability| capability.active)
+        .map(|capability| {
+            format!(
+                "{}@{}",
+                capability.framework,
+                capability.version.as_deref().unwrap_or("unknown")
+            )
+        })
+        .collect();
+    let (package_id, targets, edition, msrv, features, frameworks) = member.map_or_else(
+        || {
+            (
+                project_info.package_id.clone(),
+                project_info.cargo_targets.as_slice(),
+                project_info.edition.clone(),
+                project_info.rust_version.clone(),
+                project_info.enabled_features.clone(),
+                project_info.frameworks.as_slice(),
+            )
+        },
+        |member| {
+            (
+                member.package_id.clone(),
+                member.cargo_targets.as_slice(),
+                member.edition.clone(),
+                member.rust_version.clone(),
+                member.enabled_features.clone(),
+                member.frameworks.as_slice(),
+            )
+        },
+    );
+    rules::PackageContext::new(
+        rules::PackageIdentity {
+            package_id,
+            edition: (!edition.is_empty()).then_some(edition),
+            declared_msrv: msrv,
+            enabled_features: features,
+            frameworks: frameworks
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+            dependency_capabilities,
+            cfg_profile: project_info.analyzed_target.clone(),
+        },
+        targets,
+    )
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "pass construction keeps category, framework, policy, and tool applicability decisions at one planning boundary"
@@ -428,7 +490,12 @@ fn build_passes(
                 resolved.ignore_rules.clone(),
                 cache_policy,
             )
-            .with_cargo_targets(cargo_targets.to_vec());
+            .with_cargo_targets(cargo_targets.to_vec())
+            .with_package_context(package_context(
+                project_info,
+                member,
+                framework_capabilities,
+            ));
             if let Some(files) = selected_files {
                 rule_pass = rule_pass.with_selected_files(files);
             }
@@ -483,6 +550,10 @@ impl<T: scanner::AnalysisPass> scanner::AnalysisPass for OptionalPass<T> {
     fn take_compiler_evidence(&self) -> Vec<CompilerDiagnosticEvidence> {
         self.0.take_compiler_evidence()
     }
+
+    fn completion_reason(&self) -> Option<String> {
+        self.0.completion_reason()
+    }
 }
 
 fn optional_pass<T: scanner::AnalysisPass + 'static>(pass: T) -> Box<dyn scanner::AnalysisPass> {
@@ -518,8 +589,11 @@ struct PassesOutput {
     analyzed_files: Vec<PathBuf>,
     compiler_evidence: Vec<CompilerDiagnosticEvidence>,
     checks: Vec<CheckState>,
+    analyzer_receipts: Vec<AnalyzerReceipt>,
     package_executions: Vec<PackageExecution>,
     analysis_failures: Vec<crate::diagnostics::AnalysisFailureReceipt>,
+    abstentions: Vec<crate::rules::AbstentionReceipt>,
+    lint_policy: Vec<crate::clippy::LintPolicyEntry>,
 }
 
 #[expect(
@@ -547,8 +621,11 @@ fn run_passes(
     let mut all_pass_timings = Vec::new();
     let mut all_compiler_evidence = Vec::new();
     let mut all_checks = Vec::new();
+    let mut all_analyzer_receipts = Vec::new();
     let mut package_executions = Vec::new();
     let mut all_analysis_failures = Vec::new();
+    let mut all_abstentions = Vec::new();
+    let mut all_lint_policy: Vec<crate::clippy::LintPolicyEntry> = Vec::new();
     let ignore_set = scanner::build_glob_set(&resolved.ignore_files).ok();
     let scan_work: Vec<(PathBuf, Vec<PathBuf>)> = scan_roots
         .iter()
@@ -697,6 +774,9 @@ fn run_passes(
             };
             analyzed_files.extend(root_analyzed_files.iter().cloned());
             let package_id = package_id_for_root(project_info, scan_root);
+            all_analyzer_receipts.extend(pass_result.checks.iter().map(|check| {
+                AnalyzerReceipt::root(check).for_package(package_id.clone(), scan_roots.len() > 1)
+            }));
             let mut global_checks = pass_result.checks.clone();
             if scan_roots.len() > 1 {
                 for check in &mut global_checks {
@@ -719,6 +799,8 @@ fn run_passes(
             all_pass_timings.extend(pass_result.pass_timings);
             all_compiler_evidence.extend(pass_result.compiler_evidence);
             all_analysis_failures.extend(pass_result.analysis_failures);
+            all_abstentions.extend(pass_result.abstentions);
+            all_lint_policy.extend(pass_result.lint_policy);
         }
         total_elapsed += batch_elapsed;
     }
@@ -748,6 +830,9 @@ fn run_passes(
                 reason: Some(reason.clone()),
             };
             let package_id = package_id_for_root(project_info, root);
+            all_analyzer_receipts.push(
+                AnalyzerReceipt::root(&check).for_package(package_id.clone(), scan_roots.len() > 1),
+            );
             let mut global_check = check.clone();
             global_check.name = format!("{package_id}:package scan");
             all_checks.push(global_check);
@@ -805,6 +890,13 @@ fn run_passes(
                 control,
             )
         };
+        all_analyzer_receipts.extend(
+            workspace_result
+                .checks
+                .iter()
+                .map(AnalyzerReceipt::root)
+                .map(AnalyzerReceipt::for_workspace),
+        );
         let mut workspace_checks = workspace_result.checks.clone();
         for check in &mut workspace_checks {
             check.name = format!("workspace:{}", check.name);
@@ -819,6 +911,8 @@ fn run_passes(
         all_pass_timings.extend(workspace_result.pass_timings);
         all_compiler_evidence.extend(workspace_result.compiler_evidence);
         all_analysis_failures.extend(workspace_result.analysis_failures);
+        all_abstentions.extend(workspace_result.abstentions);
+        all_lint_policy.extend(workspace_result.lint_policy);
     }
 
     all_checks.sort_by(|left, right| left.name.cmp(&right.name));
@@ -833,8 +927,26 @@ fn run_passes(
         analyzed_files,
         compiler_evidence: all_compiler_evidence,
         checks: all_checks,
+        analyzer_receipts: all_analyzer_receipts,
         package_executions,
         analysis_failures: all_analysis_failures,
+        lint_policy: {
+            all_lint_policy.sort_by(|left, right| {
+                left.lint
+                    .cmp(&right.lint)
+                    .then(left.declared_level.cmp(&right.declared_level))
+            });
+            all_lint_policy.dedup();
+            all_lint_policy
+        },
+        abstentions: crate::rules::context::aggregate_abstentions(
+            all_abstentions
+                .into_iter()
+                .flat_map(|receipt: crate::rules::AbstentionReceipt| {
+                    std::iter::repeat_n((receipt.rule, receipt.reason), receipt.count)
+                })
+                .collect(),
+        ),
     }
 }
 
@@ -936,7 +1048,7 @@ fn rebase_path(path: &Path, package_root: &Path, workspace_root: &Path) -> PathB
 }
 
 /// Deduplicate diagnostics from overlapping workspace scans.
-fn dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
+pub(crate) fn dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
     diagnostics.sort_by(|a, b| {
         a.file_path
             .cmp(&b.file_path)
@@ -958,6 +1070,69 @@ fn dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
             && a.message
                 .split_whitespace()
                 .eq(b.message.split_whitespace())
+    });
+    dedup_advisory_root_causes(diagnostics);
+}
+
+/// Collapse one RustSec advisory reported by several analyzers into one root
+/// cause.
+///
+/// cargo-audit names the advisory as its rule ID; cargo-deny reports the same
+/// advisory under `deny-advisory` with the identifier inside its message. They
+/// describe one upstream defect and must be fixed once, so the advisory
+/// identity owns the root cause while every analyzer that saw it keeps its
+/// provenance (US-009 AC-1, AC-7).
+fn dedup_advisory_root_causes(diagnostics: &mut Vec<Diagnostic>) {
+    use std::collections::BTreeMap;
+
+    let mut owners: BTreeMap<String, usize> = BTreeMap::new();
+    let mut dropped = vec![false; diagnostics.len()];
+
+    for index in 0..diagnostics.len() {
+        let Some(advisory) = crate::passes::adapter::advisory_identity(&diagnostics[index].rule)
+            .or_else(|| crate::passes::adapter::advisory_identity(&diagnostics[index].message))
+        else {
+            continue;
+        };
+        match owners.get(&advisory).copied() {
+            None => {
+                owners.insert(advisory, index);
+            }
+            Some(owner) => {
+                // The analyzer that names the advisory as its rule identity is
+                // the better owner: a stable rule ID survives into SARIF,
+                // baselines, and fingerprints.
+                let (keep, drop) = if diagnostics[index].rule.starts_with("RUSTSEC-")
+                    && !diagnostics[owner].rule.starts_with("RUSTSEC-")
+                {
+                    owners.insert(advisory, index);
+                    (index, owner)
+                } else {
+                    (owner, index)
+                };
+                dropped[drop] = true;
+                let evidence = format!(
+                    "Also reported as `{}`: {}",
+                    diagnostics[drop].rule,
+                    diagnostics[drop]
+                        .help
+                        .as_deref()
+                        .unwrap_or(&diagnostics[drop].message)
+                );
+                let help = diagnostics[keep].help.take();
+                diagnostics[keep].help = Some(match help {
+                    Some(existing) => format!("{existing}\n  {evidence}"),
+                    None => evidence,
+                });
+            }
+        }
+    }
+
+    let mut index = 0;
+    diagnostics.retain(|_| {
+        let keep = !dropped[index];
+        index += 1;
+        keep
     });
 }
 
@@ -1089,9 +1264,13 @@ fn score_visible_diagnostics(
                         &diagnostic.category,
                         diagnostic.severity,
                     );
-                    resolved
-                        .rule_policy(descriptor.as_descriptor(), Some(&diagnostic.file_path))
-                        .visible_on(VisibilitySurface::Score)
+                    let descriptor = descriptor.as_descriptor();
+                    // A project may demote a rule to audit-only. That removes
+                    // score impact without hiding the finding anywhere else.
+                    !resolved.demotes_to_audit_only(&descriptor.canonical_id)
+                        && resolved
+                            .rule_policy(descriptor, Some(&diagnostic.file_path))
+                            .visible_on(VisibilitySurface::Score)
                 })
                 .cloned()
                 .collect()
@@ -1104,32 +1283,53 @@ pub(crate) fn recalculate_package_scores_and_select_headline(
     diagnostics: &[Diagnostic],
     workspace_root: &Path,
     selected_categories: &[Category],
-) -> (
-    u32,
-    crate::diagnostics::ScoreLabel,
-    crate::diagnostics::DimensionScores,
-) {
-    let aggregate_score = output::calculate_score_for_categories(diagnostics, selected_categories);
+) -> Result<
+    (
+        u32,
+        crate::diagnostics::ScoreLabel,
+        crate::diagnostics::DimensionScores,
+    ),
+    crate::error::ScanError,
+> {
+    let aggregate_score = output::calculate_score_for_categories(diagnostics, selected_categories)
+        .ok_or_else(|| {
+            crate::error::ScanError::ScoreModel(
+                "checked score model did not produce a value".to_string(),
+            )
+        })?;
     let owners = diagnostic_package_owners(diagnostics, packages, workspace_root);
-    assign_package_scores_with_owners(packages, diagnostics, &owners, selected_categories);
+    assign_package_scores_with_owners(packages, diagnostics, &owners, selected_categories)?;
     if packages.len() <= 1 {
-        return aggregate_score;
+        return Ok(aggregate_score);
     }
 
+    // The headline is the lowest *authoritative* package score. A package whose
+    // required analysis did not complete cannot lend its number to the
+    // workspace, and it cannot be hidden by healthy siblings either: the
+    // report marks workspace authority false through completeness.
     let mut worst_package = None;
     for (index, package) in packages.iter().enumerate() {
         let Some(score) = package.score else {
             continue;
         };
+        if !crate::completeness::package_score_is_authoritative(package) {
+            continue;
+        }
         if worst_package.is_none_or(|(_, worst_score)| score < worst_score) {
             worst_package = Some((index, score));
         }
     }
     let Some((worst_index, _)) = worst_package else {
-        return aggregate_score;
+        return Ok(aggregate_score);
     };
     let worst_diagnostics = diagnostics_for_package(diagnostics, &owners, worst_index);
-    output::calculate_score_for_categories(&worst_diagnostics, selected_categories)
+    output::calculate_score_for_categories(&worst_diagnostics, selected_categories).ok_or_else(
+        || {
+            crate::error::ScanError::ScoreModel(
+                "checked score model did not produce a workspace value".to_string(),
+            )
+        },
+    )
 }
 
 #[expect(
@@ -1148,12 +1348,13 @@ fn build_result(
     analyzed_files: Vec<PathBuf>,
     compiler_evidence: Vec<CompilerDiagnosticEvidence>,
     mut checks: Vec<CheckState>,
+    mut analyzer_receipts: Vec<AnalyzerReceipt>,
     mut package_executions: Vec<PackageExecution>,
     workspace_root: &Path,
     scope: &diff::ScopePlan,
     resolved: &ResolvedConfig,
     selected_categories: &[Category],
-) -> ScanResult {
+) -> Result<ScanResult, crate::error::ScanError> {
     let error_count = diagnostics
         .iter()
         .filter(|d| d.severity == Severity::Error)
@@ -1173,7 +1374,7 @@ fn build_result(
             &score_diagnostics,
             workspace_root,
             selected_categories,
-        );
+        )?;
 
     if let Some(reason) = &scope.degradation_reason {
         let check = CheckState {
@@ -1183,6 +1384,7 @@ fn build_result(
             reason: Some(reason.clone()),
         };
         checks.push(check.clone());
+        analyzer_receipts.push(AnalyzerReceipt::global(&check));
         for package in &mut package_executions {
             package.checks.push(check.clone());
             package
@@ -1195,7 +1397,7 @@ fn build_result(
     skipped_passes.dedup();
     checks.sort_by(|left, right| left.name.cmp(&right.name));
 
-    ScanResult {
+    Ok(ScanResult {
         diagnostics,
         score: health_score,
         score_label,
@@ -1212,15 +1414,18 @@ fn build_result(
         analyzed_files,
         compiler_evidence,
         execution: ScanExecution {
+            abstentions: Vec::new(),
+            lint_policy: Vec::new(),
             execution_scope: execution_scope_name(scope).to_string(),
             reporting_scope: scope.reporting_scope.name().to_string(),
             checks,
+            analyzer_receipts,
             packages: package_executions,
             baseline: None,
             suppression_counts,
             analysis_failures: Vec::new(),
         },
-    }
+    })
 }
 
 fn diagnostic_package_owners(
@@ -1239,7 +1444,7 @@ fn assign_package_scores_with_owners(
     diagnostics: &[Diagnostic],
     owners: &[Option<usize>],
     selected_categories: &[Category],
-) {
+) -> Result<(), crate::error::ScanError> {
     for (package_index, package) in packages.iter_mut().enumerate() {
         if !crate::completeness::package_score_is_authoritative(package) {
             package.score = None;
@@ -1247,9 +1452,16 @@ fn assign_package_scores_with_owners(
         }
         let package_diagnostics = diagnostics_for_package(diagnostics, owners, package_index);
         package.score = Some(
-            output::calculate_score_for_categories(&package_diagnostics, selected_categories).0,
+            output::calculate_score_for_categories(&package_diagnostics, selected_categories)
+                .ok_or_else(|| {
+                    crate::error::ScanError::ScoreModel(
+                        "checked score model did not produce a package value".to_string(),
+                    )
+                })?
+                .0,
         );
     }
+    Ok(())
 }
 
 fn diagnostics_for_package(
@@ -1311,7 +1523,7 @@ fn empty_scoped_result(
     scope: &diff::ScopePlan,
     resolved: &ResolvedConfig,
     selected_categories: &[Category],
-) -> ScanResult {
+) -> Result<ScanResult, crate::error::ScanError> {
     tracing::info!(project = %project_info.name, "scope contains no eligible Rust files");
     build_result(
         Vec::new(),
@@ -1321,6 +1533,7 @@ fn empty_scoped_result(
         Vec::new(),
         Vec::new(),
         SuppressionCounts::default(),
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -1339,6 +1552,71 @@ mod tests {
     use crate::diagnostics::Category;
     use crate::discovery::WorkspaceMember;
     use std::path::PathBuf;
+
+    // --- US-009: external analyzer normalization ---
+
+    #[test]
+    fn one_advisory_reported_by_two_analyzers_is_one_root_cause() {
+        let mut diagnostics = vec![
+            Diagnostic {
+                file_path: PathBuf::from("Cargo.toml"),
+                rule: "deny-advisory".to_string(),
+                category: Category::Dependencies,
+                severity: Severity::Error,
+                message: "crate `rsa` has a vulnerability: RUSTSEC-2023-0071 Marvin Attack"
+                    .to_string(),
+                help: Some("via cargo-deny 0.16.0".to_string()),
+                line: None,
+                column: None,
+                fix: None,
+            },
+            Diagnostic {
+                file_path: PathBuf::from("Cargo.lock"),
+                rule: "RUSTSEC-2023-0071".to_string(),
+                category: Category::Dependencies,
+                severity: Severity::Error,
+                message: "RUSTSEC-2023-0071: rsa v0.9.6 — Marvin Attack".to_string(),
+                help: Some("Upgrade rsa to >=0.10.0\n  via cargo-audit 0.21.0".to_string()),
+                line: None,
+                column: None,
+                fix: None,
+            },
+        ];
+
+        dedup_diagnostics(&mut diagnostics);
+
+        assert_eq!(diagnostics.len(), 1, "one advisory is one root cause");
+        // The analyzer that names the advisory as its rule identity owns it, so
+        // the stable ID survives into baselines and SARIF fingerprints.
+        assert_eq!(diagnostics[0].rule, "RUSTSEC-2023-0071");
+        let help = diagnostics[0].help.as_deref().unwrap();
+        // Both analyzers keep their provenance.
+        assert!(help.contains("cargo-audit 0.21.0"));
+        assert!(help.contains("cargo-deny 0.16.0"));
+        assert!(help.contains("Also reported as `deny-advisory`"));
+    }
+
+    #[test]
+    fn distinct_advisories_and_plain_findings_are_never_merged() {
+        let advisory = |id: &str| Diagnostic {
+            file_path: PathBuf::from("Cargo.lock"),
+            rule: id.to_string(),
+            category: Category::Dependencies,
+            severity: Severity::Error,
+            message: format!("{id}: some crate"),
+            help: None,
+            line: None,
+            column: None,
+            fix: None,
+        };
+        let mut diagnostics = vec![
+            advisory("RUSTSEC-2023-0071"),
+            advisory("RUSTSEC-2024-0001"),
+            make_diagnostic("unwrap-in-production", Severity::Warning, Some(4)),
+        ];
+        dedup_diagnostics(&mut diagnostics);
+        assert_eq!(diagnostics.len(), 3);
+    }
 
     fn make_diagnostic(rule: &str, severity: Severity, line: Option<u32>) -> Diagnostic {
         Diagnostic {
@@ -1422,11 +1700,13 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            vec![],
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
             &[],
-        );
+        )
+        .expect("embedded score model");
         assert_eq!(result.error_count, 2);
         assert_eq!(result.warning_count, 1);
         assert_eq!(result.info_count, 1);
@@ -1454,11 +1734,13 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            vec![],
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
             &[],
-        );
+        )
+        .expect("embedded score model");
         assert_eq!(result.skipped_passes.len(), 2);
         assert_eq!(result.skipped_passes[0], "cargo-audit"); // sorted
         assert_eq!(result.skipped_passes[1], "cargo-deny");
@@ -1480,11 +1762,13 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            vec![],
             Path::new("/workspace"),
             &diff::ScopePlan::full(),
             &config,
             &[],
-        );
+        )
+        .expect("embedded score model");
         assert_eq!(result.score, 100);
         assert_eq!(result.error_count, 0);
         assert_eq!(result.warning_count, 0);
@@ -1539,42 +1823,39 @@ mod tests {
                 score: None,
             },
         ];
+        // Score Core V2 only counts catalog rules, so each package needs real
+        // score-eligible identifiers with different priorities.
         let mut diagnostics = Vec::new();
         for index in 0..4 {
-            let mut diagnostic = make_diagnostic(
-                &format!("first-performance-{index}"),
-                Severity::Error,
-                Some(index + 1),
-            );
+            let mut diagnostic =
+                make_diagnostic("collect-then-iterate", Severity::Warning, Some(index + 1));
             diagnostic.file_path = PathBuf::from("first/src/lib.rs");
             diagnostic.category = Category::Performance;
             diagnostics.push(diagnostic);
         }
         let mut worst_diagnostics = Vec::new();
         for index in 0..8 {
-            let mut diagnostic = make_diagnostic(
-                &format!("worst-reliability-{index}"),
-                Severity::Error,
-                Some(index + 1),
-            );
+            let mut diagnostic =
+                make_diagnostic("panic-in-library", Severity::Error, Some(index + 1));
             diagnostic.file_path = PathBuf::from("worst/src/lib.rs");
+            diagnostic.category = Category::ErrorHandling;
             worst_diagnostics.push(diagnostic.clone());
             diagnostics.push(diagnostic);
         }
         let mut incomplete_diagnostics = Vec::new();
         for index in 0..20 {
-            let mut diagnostic = make_diagnostic(
-                &format!("incomplete-reliability-{index}"),
-                Severity::Error,
-                Some(index + 1),
-            );
+            let mut diagnostic =
+                make_diagnostic("compiler-error", Severity::Error, Some(index + 1));
             diagnostic.file_path = PathBuf::from("incomplete/src/lib.rs");
             incomplete_diagnostics.push(diagnostic.clone());
             diagnostics.push(diagnostic);
         }
-        let expected = output::calculate_score_for_categories(&worst_diagnostics, &[]);
-        let incomplete_raw = output::calculate_score_for_categories(&incomplete_diagnostics, &[]);
-        let combined = output::calculate_score_for_categories(&diagnostics, &[]);
+        let expected = output::calculate_score_for_categories(&worst_diagnostics, &[])
+            .expect("embedded score model");
+        let incomplete_raw = output::calculate_score_for_categories(&incomplete_diagnostics, &[])
+            .expect("embedded score model");
+        let combined = output::calculate_score_for_categories(&diagnostics, &[])
+            .expect("embedded score model");
         assert_ne!(combined.0, expected.0);
         assert!(incomplete_raw.0 < expected.0);
 
@@ -1591,24 +1872,26 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             packages,
             workspace_root,
             &diff::ScopePlan::full(),
             &config,
             &[],
-        );
+        )
+        .expect("embedded score model");
 
         assert_eq!(result.score, expected.0);
         assert_eq!(result.score_label, expected.1);
         assert_eq!(result.dimension_scores.reliability, expected.2.reliability);
         assert_eq!(result.dimension_scores.performance, expected.2.performance);
-        assert_eq!(result.execution.packages[0].score, Some(99));
+        assert_eq!(result.execution.packages[0].score, Some(100));
         assert_eq!(result.execution.packages[1].score, Some(expected.0));
         assert_eq!(result.execution.packages[2].score, None);
         assert!(!crate::completeness::package_score_is_authoritative(
             &result.execution.packages[2]
         ));
-        assert!(crate::completeness::score_is_reportable(&result));
+        assert!(!crate::completeness::score_is_reportable(&result));
     }
 
     #[test]
@@ -1628,6 +1911,8 @@ mod tests {
                 frameworks: Vec::new(),
                 framework_capabilities: Vec::new(),
                 rust_version: None,
+                edition: "2024".to_string(),
+                enabled_features: Vec::new(),
             },
             WorkspaceMember {
                 name: "second".to_string(),
@@ -1638,6 +1923,8 @@ mod tests {
                 frameworks: Vec::new(),
                 framework_capabilities: Vec::new(),
                 rust_version: None,
+                edition: "2024".to_string(),
+                enabled_features: Vec::new(),
             },
         ];
         let project = ProjectInfo {
@@ -1658,6 +1945,9 @@ mod tests {
             package_metadata: serde_json::json!({}),
             workspace_members: members,
             default_member_ids: Vec::new(),
+            enabled_features: Vec::new(),
+            declared_features: Vec::new(),
+            analyzed_target: None,
         };
         let mut resolved = config::resolve_config_defaults(None);
         resolved.adapter_policy = config::AdapterPolicy::none();

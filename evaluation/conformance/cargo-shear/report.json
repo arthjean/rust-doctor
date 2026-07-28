@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "code": "shear/unused_dependency",
+      "message": "unused dependency `once_cell`",
+      "file": "crates/api/Cargo.toml",
+      "help": "remove it from [dependencies]"
+    },
+    {
+      "code": "shear/some_future_code",
+      "message": "an unmodelled shear finding",
+      "file": "crates/api/Cargo.toml",
+      "help": null
+    }
+  ]
+}

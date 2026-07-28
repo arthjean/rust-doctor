@@ -17,6 +17,9 @@ pub enum ScanError {
 
     #[error("invalid resolved rule policy: {0}")]
     InvalidPolicy(String),
+
+    #[error("score model is unavailable: {0}")]
+    ScoreModel(String),
 }
 
 /// Errors from workspace member resolution.

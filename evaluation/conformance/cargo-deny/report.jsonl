@@ -1,0 +1,4 @@
+{"type":"diagnostic","fields":{"severity":"error","code":"A001","message":"crate `rsa` has a vulnerability: RUSTSEC-2023-0071 Marvin Attack","labels":[{"message":"security vulnerability detected","span":"rsa 0.9.6"}]}}
+{"type":"diagnostic","fields":{"severity":"warning","code":"L002","message":"crate `chrono` uses a license not explicitly allowed","labels":[{"message":"license `MIT OR Apache-2.0` is not in the allow list"}]}}
+{"type":"diagnostic","fields":{"severity":"note","code":"A100","message":"advisory database fetched","labels":[]}}
+{"type":"summary","fields":{"advisories":{"errors":1}}}

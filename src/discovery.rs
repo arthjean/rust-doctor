@@ -49,6 +49,10 @@ pub(crate) struct CargoTargetContext {
     pub(crate) name: String,
     pub(crate) src_path: PathBuf,
     pub(crate) source_surface: SourceSurface,
+    /// Proc-macro targets compile to a compiler plugin. They classify as
+    /// `Library` on the wire, so the crate role keeps the distinction a rule
+    /// needs to declare the context unsupported (US-006).
+    pub(crate) is_proc_macro: bool,
 }
 
 #[derive(Debug)]
@@ -138,6 +142,12 @@ pub struct ProjectInfo {
     pub workspace_members: Vec<WorkspaceMember>,
     /// Cargo package IDs selected by workspace `default-members` semantics.
     pub default_member_ids: Vec<String>,
+    /// Features Cargo resolved as enabled for the primary package.
+    pub enabled_features: Vec<String>,
+    /// Every feature the primary package declares, resolved or not.
+    pub declared_features: Vec<String>,
+    /// Target triple the scan analyzed, `None` when target discovery failed.
+    pub analyzed_target: Option<String>,
 }
 
 /// A workspace member package.
@@ -159,6 +169,10 @@ pub struct WorkspaceMember {
     pub(crate) framework_capabilities: Vec<FrameworkCapability>,
     /// The member's declared minimum supported Rust version.
     pub rust_version: Option<String>,
+    /// The member's Rust edition.
+    pub edition: String,
+    /// Features Cargo resolved as enabled for this member.
+    pub enabled_features: Vec<String>,
 }
 
 /// Run cargo metadata and discover project characteristics.
@@ -260,6 +274,8 @@ pub(crate) fn discover_project_for_scan(
                     .rust_version
                     .as_ref()
                     .map(std::string::ToString::to_string),
+                edition: pkg.edition.as_str().to_string(),
+                enabled_features: resolved_features(pkg, &metadata),
             }
         })
         .collect();
@@ -293,6 +309,13 @@ pub(crate) fn discover_project_for_scan(
         rust_version,
         is_no_std,
         package_metadata,
+        enabled_features: resolved_features(primary, &metadata),
+        declared_features: {
+            let mut declared: Vec<String> = primary.features.keys().cloned().collect();
+            declared.sort();
+            declared
+        },
+        analyzed_target: analyzed_target.triple,
         workspace_members: workspace_members_info,
         default_member_ids,
     })
@@ -486,6 +509,25 @@ fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
     targets
 }
 
+/// Features Cargo resolved as enabled for one package, or the declared default
+/// feature set when the resolve graph is unavailable.
+fn resolved_features(
+    package: &cargo_metadata::Package,
+    metadata: &cargo_metadata::Metadata,
+) -> Vec<String> {
+    let mut features = metadata
+        .resolve
+        .as_ref()
+        .and_then(|resolve| resolve.nodes.iter().find(|node| node.id == package.id))
+        .map_or_else(
+            || package.features.get("default").cloned().unwrap_or_default(),
+            |node| node.features.clone(),
+        );
+    features.sort();
+    features.dedup();
+    features
+}
+
 fn package_target_contexts(package: &cargo_metadata::Package) -> Vec<CargoTargetContext> {
     let mut contexts: Vec<_> = package
         .targets
@@ -494,6 +536,7 @@ fn package_target_contexts(package: &cargo_metadata::Package) -> Vec<CargoTarget
             name: target.name.clone(),
             src_path: PathBuf::from(target.src_path.as_std_path()),
             source_surface: source_surface_for_target(&target.kind),
+            is_proc_macro: target.kind.contains(&TargetKind::ProcMacro),
         })
         .collect();
     contexts.sort_by(|left, right| {
@@ -1063,11 +1106,13 @@ mod tests {
                 name: "api".to_string(),
                 src_path: custom_library.clone(),
                 source_surface: SourceSurface::Library,
+                is_proc_macro: false,
             },
             CargoTargetContext {
                 name: "daemon".to_string(),
                 src_path: custom_binary.clone(),
                 source_surface: SourceSurface::Binary,
+                is_proc_macro: false,
             },
         ];
 

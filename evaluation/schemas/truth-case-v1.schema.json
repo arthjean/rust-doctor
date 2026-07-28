@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rust-doctor.vercel.app/schemas/truth-case-v1.schema.json",
+  "title": "Rust Doctor Truth Dataset V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dataset_version", "msrv", "rules", "fixtures", "cases"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "dataset_version": { "type": "string", "minLength": 1 },
+    "msrv": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$" },
+    "rules": {
+      "type": "array",
+      "minItems": 10,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Fixture" }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Case" }
+    }
+  },
+  "$defs": {
+    "Fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "rule",
+        "crate_role",
+        "source_surface",
+        "target_path",
+        "edition",
+        "msrv",
+        "sha256"
+      ],
+      "properties": {
+        "path": { "type": "string", "pattern": "^evaluation/truth/fixtures/" },
+        "rule": { "type": "string", "minLength": 1 },
+        "crate_role": { "enum": ["library", "binary"] },
+        "source_surface": {
+          "enum": ["library", "binary", "test", "bench", "example", "build_script"]
+        },
+        "target_path": { "type": "string", "pattern": "^src/" },
+        "edition": { "type": "string" },
+        "msrv": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "Case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "rule",
+        "fixture",
+        "location",
+        "kind",
+        "expected_applicability",
+        "expected_emission",
+        "expected_priority",
+        "context",
+        "label_provenance",
+        "reviewer_state",
+        "repository_cluster",
+        "repository_root",
+        "language_context",
+        "framework_context",
+        "author",
+        "independent_reviewer",
+        "disposition",
+        "holdout"
+      ],
+      "properties": {
+        "case_id": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "fixture": { "type": "string", "minLength": 1 },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["line"],
+          "properties": { "line": { "type": "integer", "minimum": 1 } }
+        },
+        "kind": { "enum": ["positive-opportunity", "negative-context"] },
+        "expected_applicability": { "enum": ["applicable", "not-applicable"] },
+        "expected_emission": { "type": "boolean" },
+        "expected_priority": {
+          "anyOf": [{ "enum": ["p0", "p1", "p2", "p3"] }, { "type": "null" }]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["crate_role", "source_surface", "target_path", "edition", "msrv"],
+          "properties": {
+            "crate_role": { "type": "string" },
+            "source_surface": { "type": "string" },
+            "target_path": { "type": "string" },
+            "edition": { "type": "string" },
+            "msrv": { "type": "string" }
+          }
+        },
+        "label_provenance": { "enum": ["authored-fixture", "corpus-review", "upstream-report"] },
+        "reviewer_state": {
+          "enum": ["reviewed", "unreviewed", "disputed", "stale", "unknown"]
+        },
+        "repository_cluster": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "repository_root": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "language_context": { "type": "string", "minLength": 1 },
+        "framework_context": {
+          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+        },
+        "author": { "type": "string", "minLength": 1 },
+        "independent_reviewer": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["accepted", "rejected", "unavailable"] },
+        "holdout": { "type": "boolean" }
+      }
+    }
+  }
+}

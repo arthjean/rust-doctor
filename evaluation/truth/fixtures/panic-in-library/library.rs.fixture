@@ -1,0 +1,171 @@
+//! rust-doctor truth fixture
+//! rule: panic-in-library
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+use std::fmt;
+
+#[derive(Debug)]
+pub enum ConfigError {
+    Missing(String),
+    Invalid { field: String },
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing(name) => write!(formatter, "missing {name}"), //~ neg
+            Self::Invalid { field } => write!(formatter, "invalid {field}"), //~ neg
+        }
+    }
+}
+
+pub fn require(name: &str, value: Option<&str>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => panic!("missing configuration key {name}"), //~ pos
+    }
+}
+
+pub fn require_checked(name: &str, value: Option<&str>) -> Result<String, ConfigError> {
+    value.map(str::to_string).ok_or_else(|| ConfigError::Missing(name.to_string())) //~ neg
+}
+
+pub fn parse_level(raw: &str) -> u8 {
+    match raw {
+        "off" => 0,
+        "info" => 1,
+        "warn" => 2,
+        "error" => 3,
+        other => panic!("unknown level {other}"), //~ pos
+    }
+}
+
+pub fn parse_level_checked(raw: &str) -> Option<u8> {
+    match raw { //~ neg
+        "off" => Some(0),
+        "info" => Some(1),
+        "warn" => Some(2),
+        "error" => Some(3),
+        _ => None,
+    }
+}
+
+pub fn render(_template: &str) -> String {
+    todo!("templating is not implemented yet") //~ pos
+}
+
+pub fn render_checked(_template: &str) -> Result<String, ConfigError> {
+    Err(ConfigError::Invalid { field: "template".to_string() }) //~ neg
+}
+
+pub trait Backend {
+    fn store(&self, key: &str, value: &str) -> Result<(), ConfigError>;
+    fn load(&self, key: &str) -> Result<String, ConfigError>;
+}
+
+pub struct MemoryBackend;
+
+impl Backend for MemoryBackend {
+    fn store(&self, _key: &str, _value: &str) -> Result<(), ConfigError> {
+        unimplemented!("MemoryBackend is read-only") //~ pos
+    }
+
+    fn load(&self, key: &str) -> Result<String, ConfigError> {
+        Err(ConfigError::Missing(key.to_string())) //~ neg
+    }
+}
+
+pub fn checked_index(values: &[u8], index: usize) -> u8 {
+    if index >= values.len() {
+        panic!("index {index} out of bounds"); //~ pos
+    }
+    values[index]
+}
+
+pub fn checked_index_safe(values: &[u8], index: usize) -> Option<u8> {
+    values.get(index).copied() //~ neg
+}
+
+pub fn assert_invariant(total: usize, seen: usize) {
+    debug_assert!(seen <= total, "seen exceeded total"); //~ neg
+    assert!(total < usize::MAX, "total overflowed"); //~ neg
+}
+
+pub fn migrate(version: u32) -> u32 {
+    if version == 0 {
+        panic!("version 0 cannot be migrated"); //~ pos
+    }
+    version + 1
+}
+
+pub fn migrate_checked(version: u32) -> Result<u32, ConfigError> {
+    if version == 0 {
+        return Err(ConfigError::Invalid { field: "version".to_string() }); //~ neg
+    }
+    Ok(version + 1)
+}
+
+pub fn decode_frame(bytes: &[u8]) -> u32 {
+    if bytes.len() < 4 {
+        panic!("frame too short"); //~ pos
+    }
+    u32::from(bytes[0])
+}
+
+pub fn decode_frame_checked(bytes: &[u8]) -> Option<u32> {
+    bytes.first().copied().map(u32::from) //~ neg
+}
+
+pub fn feature_gate(enabled: bool) {
+    if !enabled {
+        unimplemented!("feature is compiled out"); //~ pos
+    }
+}
+
+pub fn feature_gate_checked(enabled: bool) -> Result<(), ConfigError> {
+    if enabled { Ok(()) } else { Err(ConfigError::Invalid { field: "feature".to_string() }) } //~ neg
+}
+
+pub fn next_state(current: u8) -> u8 {
+    match current {
+        0 => 1,
+        1 => 2,
+        2 => 0,
+        _ => unreachable!("state machine has three states"), //~ neg
+    }
+}
+
+pub fn finalize(pending: usize) {
+    if pending > 0 {
+        todo!("drain {pending} pending items"); //~ pos
+    }
+}
+
+pub fn finalize_checked(pending: usize) -> Result<(), ConfigError> {
+    if pending > 0 {
+        return Err(ConfigError::Invalid { field: "pending".to_string() }); //~ neg
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn require_panics_on_missing_key() {
+        let result = std::panic::catch_unwind(|| require("key", None));
+        assert!(result.is_err());
+        panic!("intentional test panic"); //~ neg
+    }
+
+    #[test]
+    fn parse_level_maps_known_values() {
+        assert_eq!(parse_level("info"), 1);
+        todo!("cover the remaining levels"); //~ neg
+    }
+}

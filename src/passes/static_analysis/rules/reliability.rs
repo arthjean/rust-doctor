@@ -25,7 +25,12 @@ impl ReliabilityRule {
         Self { kind }
     }
 
-    fn analyze(&self, syntax: &syn::File, path: &Path, context: RuleContext) -> Vec<Diagnostic> {
+    fn analyze(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        context: RuleContext<'_>,
+    ) -> Vec<Diagnostic> {
         if matches!(
             context.source_surface,
             SourceSurface::Test | SourceSurface::Bench | SourceSurface::Example
@@ -144,23 +149,14 @@ impl CustomRule for ReliabilityRule {
     }
 
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-        self.analyze(
-            syntax,
-            path,
-            RuleContext {
-                source_surface: crate::config::classify_source_surface(
-                    &path.to_string_lossy(),
-                    false,
-                ),
-            },
-        )
+        self.analyze(syntax, path, RuleContext::unresolved_for_path(path))
     }
 
     fn check_file_with_context(
         &self,
         syntax: &syn::File,
         path: &Path,
-        context: RuleContext,
+        context: RuleContext<'_>,
     ) -> Vec<Diagnostic> {
         self.analyze(syntax, path, context)
     }
