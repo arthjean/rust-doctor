@@ -23,6 +23,12 @@ use crate::diagnostics::{
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+const LOOKUP_CACHE_SLOTS: usize = 4_096;
+const FINGERPRINT_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FINGERPRINT_PRIME: u64 = 0x0000_0100_0000_01b3;
+const FINGERPRINT_MIX_1: u64 = 0xff51_afd7_ed55_8ccd;
+const FINGERPRINT_MIX_2: u64 = 0xc4ce_b9fe_1a85_ec53;
+
 /// Findings needed before output switches to migration grouping.
 pub(crate) const MIGRATION_FINDING_THRESHOLD: usize = 50;
 /// Distinct files needed alongside the finding threshold.
@@ -116,6 +122,14 @@ const fn severity_rank(severity: Severity) -> u8 {
 #[derive(Debug, Default, Clone)]
 pub(crate) struct RootCauseImpact {
     occurrences: HashMap<String, usize>,
+    cache: Vec<Option<ImpactCacheEntry>>,
+}
+
+#[derive(Debug, Clone)]
+struct ImpactCacheEntry {
+    fingerprint: u64,
+    key: String,
+    weight: usize,
 }
 
 impl RootCauseImpact {
@@ -132,16 +146,56 @@ impl RootCauseImpact {
                 }
             }
         }
-        Self { occurrences }
+        let mut cache = vec![None; LOOKUP_CACHE_SLOTS];
+        for (key, weight) in &occurrences {
+            let fingerprint = fast_fingerprint(&[key]);
+            cache[fingerprint as usize % LOOKUP_CACHE_SLOTS] = Some(ImpactCacheEntry {
+                fingerprint,
+                key: key.clone(),
+                weight: *weight,
+            });
+        }
+        Self { occurrences, cache }
     }
 
     fn weight(&self, diagnostic: &CanonicalDiagnostic) -> usize {
-        diagnostic
-            .root_cause_key
-            .as_ref()
-            .and_then(|key| self.occurrences.get(key).copied())
-            .unwrap_or_default()
+        let Some(key) = diagnostic.root_cause_key.as_ref() else {
+            return 0;
+        };
+        let fingerprint = fast_fingerprint(&[key]);
+        self.cache
+            .get(fingerprint as usize % LOOKUP_CACHE_SLOTS)
+            .and_then(Option::as_ref)
+            .filter(|entry| entry.fingerprint == fingerprint && entry.key == *key)
+            .map_or_else(
+                || self.occurrences.get(key).copied().unwrap_or_default(),
+                |entry| entry.weight,
+            )
     }
+}
+
+fn fast_fingerprint(values: &[&str]) -> u64 {
+    let mut fingerprint = FINGERPRINT_OFFSET;
+    for value in values {
+        let bytes = value.as_bytes();
+        let edge_len = bytes.len().min(8);
+        let mut prefix = [0; 8];
+        prefix[..edge_len].copy_from_slice(&bytes[..edge_len]);
+        let mut suffix = [0; 8];
+        suffix[..edge_len].copy_from_slice(&bytes[bytes.len() - edge_len..]);
+        fingerprint ^= u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        fingerprint = fingerprint.wrapping_mul(FINGERPRINT_PRIME);
+        fingerprint ^= u64::from_le_bytes(prefix);
+        fingerprint = fingerprint.wrapping_mul(FINGERPRINT_PRIME);
+        fingerprint ^= u64::from_le_bytes(suffix);
+        fingerprint = fingerprint.wrapping_mul(FINGERPRINT_PRIME);
+    }
+    fingerprint ^= fingerprint >> 33;
+    fingerprint = fingerprint.wrapping_mul(FINGERPRINT_MIX_1);
+    fingerprint ^= fingerprint >> 33;
+    fingerprint = fingerprint.wrapping_mul(FINGERPRINT_MIX_2);
+    fingerprint ^= fingerprint >> 33;
+    fingerprint
 }
 
 /// The canonical comparator.
@@ -217,6 +271,147 @@ impl<'a> DiagnosticSortKey<'a> {
     }
 }
 
+struct OwnedDiagnosticSortKey<'a> {
+    decision_rank: u128,
+    rule_rank: usize,
+    package_rank: usize,
+    path_rank: usize,
+    line: u32,
+    column: u32,
+    severity: u8,
+    message_rank: usize,
+    site_id: &'a str,
+}
+
+impl<'a> OwnedDiagnosticSortKey<'a> {
+    fn new(
+        diagnostic: &'a CanonicalDiagnostic,
+        root_cause_impact: usize,
+        lexical_id: usize,
+    ) -> Self {
+        let (_, line, column) = location_key(&diagnostic.location);
+        Self {
+            decision_rank: decision_rank(diagnostic, root_cause_impact),
+            rule_rank: lexical_id,
+            package_rank: 0,
+            path_rank: 0,
+            line,
+            column,
+            severity: severity_rank(diagnostic.severity),
+            message_rank: 0,
+            site_id: &diagnostic.site_id,
+        }
+    }
+
+    fn compare(&self, other: &Self) -> Ordering {
+        self.decision_rank
+            .cmp(&other.decision_rank)
+            .then_with(|| self.rule_rank.cmp(&other.rule_rank))
+            .then_with(|| self.package_rank.cmp(&other.package_rank))
+            .then_with(|| self.path_rank.cmp(&other.path_rank))
+            .then_with(|| self.line.cmp(&other.line))
+            .then_with(|| self.column.cmp(&other.column))
+            .then_with(|| self.severity.cmp(&other.severity))
+            .then_with(|| self.message_rank.cmp(&other.message_rank))
+            .then_with(|| self.site_id.cmp(other.site_id))
+    }
+}
+
+fn decision_rank(diagnostic: &CanonicalDiagnostic, root_cause_impact: usize) -> u128 {
+    let mut rank = u128::from(priority_rank(diagnostic.priority.as_deref()));
+    rank = (rank << 2) | u128::from(authority_rank(diagnostic.score_impact));
+    rank = (rank << 3) | u128::from(trust_rank(&diagnostic.trust_tier));
+    rank = (rank << usize::BITS) | (usize::MAX.saturating_sub(root_cause_impact) as u128);
+    (rank << 4) | u128::from(category_rank(&diagnostic.category))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct LexicalValues<'a> {
+    rule: &'a str,
+    package: &'a str,
+    path: &'a str,
+    message: &'a str,
+}
+
+fn lexical_field_ranks<'a>(
+    values: &[LexicalValues<'a>],
+    field: impl Fn(LexicalValues<'a>) -> &'a str,
+) -> Vec<usize> {
+    let mut order: Vec<_> = (0..values.len()).collect();
+    order.sort_unstable_by(|left, right| field(values[*left]).cmp(field(values[*right])));
+
+    let mut ranks = vec![0; values.len()];
+    let mut rank = 0;
+    let mut previous = None;
+    for index in order {
+        let value = field(values[index]);
+        if previous.is_some_and(|previous| previous != value) {
+            rank += 1;
+        }
+        ranks[index] = rank;
+        previous = Some(value);
+    }
+    ranks
+}
+
+fn owned_sort_keys<'a>(
+    diagnostics: &'a [CanonicalDiagnostic],
+    impact: &RootCauseImpact,
+) -> Vec<OwnedDiagnosticSortKey<'a>> {
+    let mut lexical_ids = HashMap::new();
+    let mut lexical_values = Vec::new();
+    let mut cache = vec![None; LOOKUP_CACHE_SLOTS];
+    let mut keys = Vec::with_capacity(diagnostics.len());
+    for diagnostic in diagnostics {
+        let (path, _, _) = location_key(&diagnostic.location);
+        let values = LexicalValues {
+            rule: &diagnostic.rule,
+            package: package_key(&diagnostic.ownership),
+            path,
+            message: &diagnostic.message,
+        };
+        let fingerprint =
+            fast_fingerprint(&[values.rule, values.package, values.path, values.message]);
+        let slot = fingerprint as usize % LOOKUP_CACHE_SLOTS;
+        let lexical_id = if let Some((cached_fingerprint, cached_values, cached_id)) = cache[slot]
+            && cached_fingerprint == fingerprint
+            && cached_values == values
+        {
+            cached_id
+        } else {
+            let id = match lexical_ids.entry(values) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let id = lexical_values.len();
+                    lexical_values.push(values);
+                    entry.insert(id);
+                    id
+                }
+            };
+            cache[slot] = Some((fingerprint, values, id));
+            id
+        };
+        keys.push(OwnedDiagnosticSortKey::new(
+            diagnostic,
+            impact.weight(diagnostic),
+            lexical_id,
+        ));
+    }
+
+    let rule_ranks = lexical_field_ranks(&lexical_values, |values| values.rule);
+    let package_ranks = lexical_field_ranks(&lexical_values, |values| values.package);
+    let path_ranks = lexical_field_ranks(&lexical_values, |values| values.path);
+    let message_ranks = lexical_field_ranks(&lexical_values, |values| values.message);
+    for key in &mut keys {
+        let lexical_id = key.rule_rank;
+        key.rule_rank = rule_ranks[lexical_id];
+        key.package_rank = package_ranks[lexical_id];
+        key.path_rank = path_ranks[lexical_id];
+        key.message_rank = message_ranks[lexical_id];
+    }
+    keys
+}
+
 /// Sort borrowed diagnostics through the canonical comparator.
 pub(crate) fn sort_refs(diagnostics: &mut [&CanonicalDiagnostic], impact: &RootCauseImpact) {
     diagnostics.sort_unstable_by(|left, right| compare(left, right, impact));
@@ -224,13 +419,16 @@ pub(crate) fn sort_refs(diagnostics: &mut [&CanonicalDiagnostic], impact: &RootC
 
 /// Sort owned diagnostics through the canonical comparator.
 pub(crate) fn sort_owned(diagnostics: &mut [CanonicalDiagnostic], impact: &RootCauseImpact) {
-    let keys: Vec<_> = diagnostics
-        .iter()
-        .map(|diagnostic| DiagnosticSortKey::new(diagnostic, impact.weight(diagnostic)))
-        .collect();
+    #[cfg(test)]
+    let started = std::time::Instant::now();
+    let keys = owned_sort_keys(diagnostics, impact);
+    #[cfg(test)]
+    let keys_elapsed = started.elapsed();
     let mut order: Vec<_> = (0..diagnostics.len()).collect();
     order.sort_unstable_by(|left, right| keys[*left].compare(&keys[*right]));
     drop(keys);
+    #[cfg(test)]
+    let order_elapsed = started.elapsed().saturating_sub(keys_elapsed);
 
     // `order[new] = old`; invert it so each swap carries the destination
     // alongside the diagnostic it moves.
@@ -245,6 +443,14 @@ pub(crate) fn sort_owned(diagnostics: &mut [CanonicalDiagnostic], impact: &RootC
             destinations.swap(current, target);
         }
     }
+    #[cfg(test)]
+    eprintln!(
+        "canonical sort phases: keys {keys_elapsed:?}, order {order_elapsed:?}, permutation {:?}",
+        started
+            .elapsed()
+            .saturating_sub(keys_elapsed)
+            .saturating_sub(order_elapsed)
+    );
 }
 
 /// Build the canonical root-cause groups behind a set of diagnostics.
@@ -255,20 +461,31 @@ pub(crate) fn sort_owned(diagnostics: &mut [CanonicalDiagnostic], impact: &RootC
 pub(crate) fn root_cause_groups<'a>(
     diagnostics: impl IntoIterator<Item = &'a CanonicalDiagnostic>,
 ) -> Vec<RootCauseGroup> {
-    let mut accumulator: HashMap<&str, RootCauseAccumulator<'_>> = HashMap::new();
+    let mut indices = HashMap::new();
+    let mut accumulators = Vec::new();
+    let mut last = None;
     for diagnostic in diagnostics {
         let Some(key) = diagnostic.root_cause_key.as_deref() else {
             // Unmapped rules have no root cause to own; they remain visible in
             // `diagnostics` and are never invented into a group.
             continue;
         };
-        let entry = accumulator
-            .entry(key)
-            .or_insert_with(|| RootCauseAccumulator::new(diagnostic));
-        entry.push(diagnostic);
+        let index = if let Some((last_key, index)) = last
+            && last_key == key
+        {
+            index
+        } else {
+            *indices.entry(key).or_insert_with(|| {
+                let index = accumulators.len();
+                accumulators.push((key, RootCauseAccumulator::new(diagnostic)));
+                index
+            })
+        };
+        accumulators[index].1.push(diagnostic);
+        last = Some((key, index));
     }
 
-    let mut groups: Vec<RootCauseGroup> = accumulator
+    let mut groups: Vec<RootCauseGroup> = accumulators
         .into_iter()
         .map(|(key, entry)| entry.finish(key))
         .collect();
@@ -585,6 +802,45 @@ mod tests {
     }
 
     #[test]
+    fn owned_sort_matches_the_canonical_comparator_across_cache_collisions() {
+        let mut items = vec![
+            diagnostic("same-rule", Some("p2"), "aaaaaaaaXbbbbbbbb", 2),
+            diagnostic("same-rule", Some("p2"), "aaaaaaaaYbbbbbbbb", 1),
+            diagnostic("security-rule", Some("p0"), "z.rs", 90),
+            diagnostic("unranked-rule", None, "a.rs", 1),
+            diagnostic("same-rule", Some("p2"), "aaaaaaaaXbbbbbbbb", 1),
+        ];
+        items[0].site_id = "site-z".to_string();
+        items[1].site_id = "site-a".to_string();
+        items[2].category = Category::Security;
+        items[2].trust_tier = "compiler-proven".to_string();
+        items[3].ownership = DiagnosticOwnership::Unowned;
+        items[4].message = "different tie-breaker".to_string();
+
+        assert_eq!(
+            fast_fingerprint(&["same-rule", "", "aaaaaaaaXbbbbbbbb", "same-rule fired"]),
+            fast_fingerprint(&["same-rule", "", "aaaaaaaaYbbbbbbbb", "same-rule fired"]),
+            "the fixture must exercise the secure collision fallback"
+        );
+
+        let impact = RootCauseImpact::measure(&items);
+        let mut borrowed: Vec<_> = items.iter().collect();
+        sort_refs(&mut borrowed, &impact);
+        let expected: Vec<_> = borrowed
+            .iter()
+            .map(|diagnostic| diagnostic.site_id.clone())
+            .collect();
+
+        let mut owned = items.clone();
+        sort_owned(&mut owned, &impact);
+        let actual: Vec<_> = owned
+            .iter()
+            .map(|diagnostic| diagnostic.site_id.clone())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn missing_locations_still_produce_a_total_order() {
         let mut project_level = diagnostic("compiler-error", Some("p0"), "", 0);
         project_level.location = DiagnosticLocation::Project;
@@ -781,9 +1037,18 @@ mod tests {
             let resident_before = resident_bytes();
             let started = std::time::Instant::now();
             let impact = RootCauseImpact::measure(&diagnostics);
+            let impact_elapsed = started.elapsed();
             sort_owned(&mut diagnostics, &impact);
+            let sort_elapsed = started.elapsed().saturating_sub(impact_elapsed);
             let groups = root_cause_groups(&diagnostics);
-            elapsed_samples.push(started.elapsed());
+            let elapsed = started.elapsed();
+            let grouping_elapsed = elapsed
+                .saturating_sub(impact_elapsed)
+                .saturating_sub(sort_elapsed);
+            eprintln!(
+                "canonical decision phases: impact {impact_elapsed:?}, sort {sort_elapsed:?}, grouping {grouping_elapsed:?}, total {elapsed:?}"
+            );
+            elapsed_samples.push(elapsed);
             max_added_resident =
                 max_added_resident.max(resident_bytes().saturating_sub(resident_before));
 
