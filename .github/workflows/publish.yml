@@ -1,0 +1,281 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Validate Cargo, npm, and Action versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            expected_tag="$RELEASE_TAG"
+          else
+            expected_tag="v${version}"
+          fi
+          bun scripts/release/packages.ts validate "$expected_tag"
+          action_version="$(awk '
+            /^  version:$/ { in_version = 1; next }
+            in_version && /^    default:/ { print $2; exit }
+          ' action.yml)"
+          test "$action_version" = "$version"
+
+  build:
+    name: Build and smoke ${{ matrix.target }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux-x64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            platform: linux-arm64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            platform: darwin-x64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: aarch64-apple-darwin
+            os: macos-14
+            platform: darwin-arm64
+            archive: tar.gz
+            binary: rust-doctor
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform: win32-x64
+            archive: zip
+            binary: rust-doctor.exe
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: "1.97"
+          targets: ${{ matrix.target }}
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build release surfaces
+        shell: bash
+        run: |
+          cargo build --locked --release --features lsp --target "${{ matrix.target }}" --bin rust-doctor --bin rust-doctor-eval
+          cargo build --locked --release --no-default-features --target "${{ matrix.target }}" --target-dir target/no-default --bin rust-doctor
+          cargo package --locked
+          mkdir -p artifacts
+          bash scripts/release/package-native.sh \
+            "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            "${{ matrix.target }}" \
+            "${{ matrix.archive }}" \
+            artifacts
+          bun scripts/release/packages.ts pack \
+            "${{ matrix.platform }}" \
+            "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            artifacts
+
+      - name: Checksum native archive
+        shell: bash
+        run: |
+          archive="artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+          fi
+
+      - name: Exercise built and packaged surfaces
+        shell: bash
+        run: |
+          version="$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
+          crate_package="$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)"
+          test -n "$crate_package"
+          target/${{ matrix.target }}/release/rust-doctor-eval smoke \
+            --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --schema schemas/report-v1.schema.json \
+            --npm-platform-package "artifacts/rust-doctor-npm-${{ matrix.platform }}-${version}.tgz" \
+            --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
+            --bun "$(command -v bun)" \
+            --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
+            --crate-package "$crate_package"
+          if [ "${{ matrix.platform }}" != linux-x64 ]; then
+            rm "artifacts/rust-doctor-npm-${version}.tgz"
+          fi
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-doctor-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub release
+    needs: build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksum manifest
+        run: bun scripts/release/packages.ts checksums artifacts
+
+      - name: Verify existing assets and stage missing assets
+        id: stage-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-upload existing-assets
+          existing_names="$(mktemp)"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > "$existing_names"
+          fi
+          while IFS= read -r -d '' candidate; do
+            name="$(basename "$candidate")"
+            if grep -Fxq -- "$name" "$existing_names"; then
+              gh release download "$GITHUB_REF_NAME" --pattern "$name" --dir existing-assets
+              if ! cmp --silent "$candidate" "existing-assets/$name"; then
+                echo "::error::GitHub release asset $name already exists with different content"
+                exit 1
+              fi
+            else
+              cp "$candidate" release-upload/
+            fi
+          done < <(find artifacts -maxdepth 1 -type f -print0)
+          if find release-upload -maxdepth 1 -type f -print -quit | grep -q .; then
+            echo "has-files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish missing assets
+        if: ${{ steps.stage-assets.outputs.has-files == 'true' }}
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-upload/*
+
+  crates-io:
+    name: Publish crates.io package
+    needs: github-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: "1.97"
+
+      - name: Verify registry state
+        id: crate-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
+          cargo package --locked
+          package="target/package/rust-doctor-${version}.crate"
+          local_checksum="$(sha256sum "$package" | cut -d' ' -f1)"
+          metadata="$(mktemp)"
+          status="$(curl --silent --show-error --output "$metadata" --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/rust-doctor/$version")"
+          case "$status" in
+            200)
+              registry_checksum="$(jq -r '.version.checksum' "$metadata")"
+              test "$registry_checksum" = "$local_checksum"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::crates.io returned HTTP $status"
+              exit 1
+              ;;
+          esac
+
+      - name: Publish immutable crate
+        if: ${{ steps.crate-state.outputs.publish == 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
+  npm:
+    name: Publish npm packages
+    needs: [github-release, crates-io]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify or publish immutable packages
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun scripts/release/packages.ts publish artifacts
