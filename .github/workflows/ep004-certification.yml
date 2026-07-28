@@ -232,11 +232,13 @@ jobs:
 
       - name: Generate and validate certification manifest
         run: |
+          cp "$RUNNER_TEMP/approved/corpus/corpus-baseline.ndjson" \
+            evidence/corpus-baseline.ndjson
           generated_at=$(git show -s --format=%ct HEAD)
           target/release/rust-doctor-eval certify \
             --binary target/release/rust-doctor \
             --corpus evidence/corpus-candidate.ndjson \
-            --corpus-baseline "$RUNNER_TEMP/approved/corpus/corpus-baseline.ndjson" \
+            --corpus-baseline evidence/corpus-baseline.ndjson \
             --tool-revision "${{ steps.source.outputs.revision }}" \
             --generated-at-utc "$generated_at" \
             --output evaluation/certifications/decision-quality-v1.json
