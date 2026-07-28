@@ -1,7 +1,7 @@
 use crate::cli::ScanCategory;
 use crate::diagnostics::{
-    CanonicalDiagnostic, Category, CheckStatus, CompletenessState, DiagnosticLocation,
-    ReportOutcome, ReportV1, ScoreImpact, Severity,
+    CanonicalDiagnostic, Category, CheckStatus, DiagnosticLocation, ReportOutcome, ReportV1,
+    Severity,
 };
 use owo_colors::{OwoColorize, Stream};
 use std::collections::HashSet;
@@ -12,8 +12,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::score::{calculate_score_for_canonical, score_label};
+use super::score::{SCORE_GOOD_THRESHOLD, SCORE_OK_THRESHOLD, calculate_score_for_canonical};
 
+const TOP_ERRORS_DISPLAY_COUNT: usize = 3;
 const SCORE_BAR_WIDTH: usize = 50;
 const OUTPUT_MEASURE_WIDTH: usize = 60;
 const CODE_FRAME_LINES_ABOVE: u32 = 1;
@@ -224,13 +225,13 @@ pub(crate) fn render_terminal_for_categories(
             &mut super::animation_sleep,
         );
     } else {
-        if !rendered.stdout.is_empty() {
-            print!("{}", rendered.stdout);
-            let _ = std::io::stdout().flush();
-        }
         if !rendered.stderr.is_empty() {
             eprint!("{}", rendered.stderr);
             let _ = std::io::stderr().flush();
+        }
+        if !rendered.stdout.is_empty() {
+            print!("{}", rendered.stdout);
+            let _ = std::io::stdout().flush();
         }
     }
     if verbose && !pass_timings.is_empty() {
@@ -328,16 +329,8 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
         })
         .collect();
     sort_terminal_diagnostics(&mut diagnostics);
-    let root_causes = crate::ordering::root_cause_groups(diagnostics.iter().copied());
     let groups = diagnostic_groups(&diagnostics);
-    output.animation.summary_start = output.stdout.len();
-    output.animation.score = render_summary(
-        &mut output.stdout,
-        result,
-        &root_causes,
-        options.selected_categories,
-        options.verbose,
-    );
+    let recommended_error_groups = select_top_error_groups(&groups);
     output.animation.has_findings = !diagnostics.is_empty();
     let stderr_reveal_start = output.stderr.len();
 
@@ -391,8 +384,7 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
             &mut output.stderr,
             &diagnostics,
             &groups,
-            &root_causes,
-            result,
+            &recommended_error_groups,
             options.verbose,
             result.resolved_root.as_deref(),
             options.show_agent_guidance,
@@ -425,13 +417,30 @@ fn build_terminal_output(result: &ReportV1, options: RenderOptions<'_>) -> Termi
         output.stderr.push('\n');
     }
 
-    render_project_summary(
+    output.animation.summary_start = output.stdout.len();
+    output.animation.score = render_summary(
         &mut output.stdout,
         result,
-        options.show_warnings,
-        options.verbose,
+        &recommended_error_groups,
+        options.selected_categories,
     );
-    if options.verbose && (!diagnostics.is_empty() || result.projects.len() > 1) {
+    if !diagnostics.is_empty()
+        && matches!(
+            result.outcome,
+            ReportOutcome::Partial | ReportOutcome::Failed
+        )
+    {
+        let _ = writeln!(
+            output.stdout,
+            "\n  {}",
+            stdout_warn(&format!(
+                "Note: {} failed: results are incomplete.",
+                incomplete_checks_phrase(result)
+            ))
+        );
+    }
+    render_project_summary(&mut output.stdout, result, options.show_warnings);
+    if !diagnostics.is_empty() || result.projects.len() > 1 {
         output.animation.footer_start = Some(output.stdout.len());
         render_footer(&mut output.stdout, result, options.show_default_share);
     }
@@ -446,11 +455,11 @@ fn write_animated_terminal_output(
     animate_stdout_details: bool,
     sleep: &mut impl FnMut(Duration),
 ) -> std::io::Result<()> {
-    write_animated_stdout(rendered, stdout, animate_stdout_details, sleep)?;
+    write_animated_stderr(rendered, stderr, animate_stderr_details, sleep)?;
     if super::animation_cancelled() {
         return Ok(());
     }
-    write_animated_stderr(rendered, stderr, animate_stderr_details, sleep)
+    write_animated_stdout(rendered, stdout, animate_stdout_details, sleep)
 }
 
 fn write_animated_stderr(
@@ -854,14 +863,51 @@ fn diagnostic_groups<'a>(diagnostics: &[&'a CanonicalDiagnostic]) -> Vec<Diagnos
     groups
 }
 
-/// Order the terminal through the canonical comparator.
-///
-/// The terminal has no private ranking: it renders exactly the order JSON,
-/// SARIF, MCP, plans, and handoffs use, so the product gives one answer about
-/// what to fix first (US-015 AC-1).
 fn sort_terminal_diagnostics(diagnostics: &mut [&CanonicalDiagnostic]) {
-    let impact = crate::ordering::RootCauseImpact::measure(diagnostics.iter().copied());
-    crate::ordering::sort_refs(diagnostics, &impact);
+    // React Doctor applies score-API rule priority, then preserves canonical
+    // scan order for ties. ReportV1 exposes no per-rule priority, so every
+    // group is unranked and this semantic order is the stable fallback.
+    // `site_id` is intentionally absent because its hash carries no importance.
+    diagnostics.sort_by(|left, right| {
+        let (left_path, left_line, left_column) = diagnostic_start(left);
+        let (right_path, right_line, right_column) = diagnostic_start(right);
+        left_path
+            .cmp(right_path)
+            .then(left_line.cmp(&right_line))
+            .then(left_column.cmp(&right_column))
+            .then(left.provider.cmp(&right.provider))
+            .then(left.rule.cmp(&right.rule))
+            .then(severity_sort_rank(left.severity).cmp(&severity_sort_rank(right.severity)))
+            .then(left.message.cmp(&right.message))
+    });
+}
+
+const fn diagnostic_start(diagnostic: &CanonicalDiagnostic) -> (&str, u32, u32) {
+    match &diagnostic.location {
+        DiagnosticLocation::Source { path, range } => {
+            (path.as_str(), range.start.line, range.start.column)
+        }
+        DiagnosticLocation::Project => ("", 0, 0),
+    }
+}
+
+const fn severity_sort_rank(severity: Severity) -> u8 {
+    // Matches the lexical order of React Doctor's serialized severity field.
+    match severity {
+        Severity::Error => 0,
+        Severity::Info => 1,
+        Severity::Warning => 2,
+    }
+}
+
+fn select_top_error_groups<'group, 'diagnostic>(
+    groups: &'group [DiagnosticGroup<'diagnostic>],
+) -> Vec<&'group DiagnosticGroup<'diagnostic>> {
+    groups
+        .iter()
+        .filter(|group| group.severity == Severity::Error)
+        .take(TOP_ERRORS_DISPLAY_COUNT)
+        .collect()
 }
 
 fn render_agent_guidance(output: &mut String) {
@@ -895,8 +941,7 @@ fn render_diagnostics(
     output: &mut String,
     diagnostics: &[&CanonicalDiagnostic],
     groups: &[DiagnosticGroup<'_>],
-    root_causes: &[crate::diagnostics::RootCauseGroup],
-    result: &ReportV1,
+    error_groups: &[&DiagnosticGroup<'_>],
     verbose: bool,
     root: Option<&str>,
     agent_environment: bool,
@@ -908,146 +953,56 @@ fn render_diagnostics(
         for group in groups {
             render_diagnostic_group(output, group, true, root, agent_environment, hyperlinks);
         }
-        let _ = writeln!(output, "\n{}\n", stderr_dim(&section_divider()));
-    } else {
-        render_migration_advisory(output, root_causes);
-        render_fix_first(output, root_causes);
-        render_incomplete_evidence(output, result);
+    } else if !error_groups.is_empty() {
+        let noun = if error_groups.len() == 1 {
+            "error"
+        } else {
+            "errors"
+        };
+        let _ = writeln!(
+            output,
+            "  {}\n",
+            stderr_bold(&format!("Top {} {noun} you should fix", error_groups.len()))
+        );
+        for group in error_groups {
+            animation.top_error_block_starts.push(output.len());
+            render_diagnostic_group(output, group, false, root, agent_environment, hyperlinks);
+        }
     }
 
-    let scored_issues = diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.score_impact == ScoreImpact::Scored)
-        .count();
-    let audit_observations = diagnostics
-        .iter()
-        .filter(|diagnostic| is_audit_observation(diagnostic))
-        .count();
-    let advisory_findings = diagnostics
-        .len()
-        .saturating_sub(scored_issues + audit_observations);
-    if verbose {
+    if !error_groups.is_empty() || verbose {
+        let _ = writeln!(output, "\n{}\n", stderr_dim(&section_divider()));
+    }
+
+    let total = diagnostics.len();
+    let issue_noun = if total == 1 { "issue" } else { "issues" };
+    let _ = writeln!(
+        output,
+        "  {}\n",
+        stderr_bold(&format!("All {total} {issue_noun}"))
+    );
+    let tallies = category_tallies(diagnostics);
+    let category_start = output.len();
+    render_category_tallies(output, &tallies);
+    animation.category = Some(CategoryAnimation {
+        range: category_start..output.len(),
+        tallies,
+    });
+
+    let shown_error_rules = error_groups.len();
+    if !verbose && total > shown_error_rules {
         let _ = writeln!(
             output,
-            "  {}\n  {}\n  {}\n",
-            stderr_bold(&count_label(scored_issues, "scored issue")),
-            stderr_bold(&count_label(advisory_findings, "advisory finding")),
-            stderr_bold(&count_label(audit_observations, "audit observation")),
-        );
-        let actionable_and_advisory: Vec<_> = diagnostics
-            .iter()
-            .copied()
-            .filter(|diagnostic| !is_audit_observation(diagnostic))
-            .collect();
-        let tallies = category_tallies(&actionable_and_advisory);
-        let category_start = output.len();
-        render_category_tallies(output, &tallies);
-        animation.category = Some(CategoryAnimation {
-            range: category_start..output.len(),
-            tallies,
-        });
-    } else if !diagnostics.is_empty() {
-        let _ = writeln!(
-            output,
-            "  {} errors · {} warnings · {} info",
-            result.summary.error_count, result.summary.warning_count, result.summary.info_count,
-        );
-        let _ = writeln!(
-            output,
-            "  {} · {} · {}",
-            stderr_bold(&format!("{scored_issues} scored")),
-            stderr_bold(&format!("{advisory_findings} advisory")),
-            stderr_bold(&format!("{audit_observations} audit")),
-        );
-        let _ = writeln!(
-            output,
-            "  {} {} {}",
+            "\n  {} {} {}",
             stderr_dim("Run"),
             stderr_info(&stderr_bold(VERBOSE_COMMAND)),
-            stderr_dim("for details")
+            stderr_dim("to list every error and warning")
         );
     }
 
-    if verbose {
-        render_migration_advisory(output, root_causes);
-        output.push('\n');
-    }
+    render_migration_advisory(output, groups);
+    output.push('\n');
     animation
-}
-
-fn render_fix_first(output: &mut String, root_causes: &[crate::diagnostics::RootCauseGroup]) {
-    let actionable: Vec<_> = root_causes
-        .iter()
-        .filter(|group| group.score_impact == ScoreImpact::Scored)
-        .take(crate::ordering::PROTECTED_ROOT_CAUSE_GROUPS)
-        .collect();
-    if actionable.is_empty() {
-        return;
-    }
-    let _ = writeln!(output, "  {}", stderr_bold("Fix first"));
-    for group in actionable {
-        let priority = group.priority.as_deref().unwrap_or("unranked");
-        let contribution = group.current_penalty.map_or_else(
-            || "no score impact".to_string(),
-            |value| {
-                let dimension = group.score_dimension.as_deref().unwrap_or("score");
-                format!("-{value:.2} {dimension} pts")
-            },
-        );
-        let summary = format!(
-            "{} [{priority}] · {} sites · {} files · {contribution}",
-            group.title, group.occurrences, group.file_count
-        );
-        let _ = writeln!(
-            output,
-            "  {}",
-            clip_with_ellipsis(&summary, OUTPUT_MEASURE_WIDTH.saturating_sub(2))
-        );
-        let action = group
-            .remediation_title
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .unwrap_or("Inspect one representative site and fix the shared cause.");
-        let _ = writeln!(
-            output,
-            "    Next: {}",
-            clip_with_ellipsis(action, OUTPUT_MEASURE_WIDTH.saturating_sub(10))
-        );
-    }
-}
-
-fn render_incomplete_evidence(output: &mut String, result: &ReportV1) {
-    let mut reasons = Vec::new();
-    for check in result.projects.iter().flat_map(|project| &project.checks) {
-        if check.status == CheckStatus::Completed {
-            continue;
-        }
-        let reason = format!(
-            "{}: {}",
-            check.name,
-            check
-                .reason
-                .as_deref()
-                .unwrap_or("analysis did not complete")
-        );
-        if !reasons.contains(&reason) {
-            reasons.push(reason);
-        }
-    }
-    if reasons.is_empty() {
-        return;
-    }
-    let _ = writeln!(output, "  {}", stderr_bold("Evidence incomplete"));
-    for reason in reasons.iter().take(3) {
-        let _ = writeln!(
-            output,
-            "    {}",
-            clip_with_ellipsis(reason, OUTPUT_MEASURE_WIDTH.saturating_sub(4))
-        );
-    }
-    if reasons.len() > 3 {
-        let _ = writeln!(output, "    +{} more", reasons.len() - 3);
-    }
 }
 
 fn render_diagnostic_group(
@@ -1070,20 +1025,7 @@ fn render_diagnostic_group(
     } else {
         String::new()
     };
-    // An advisory rule runs by default but contributes exactly zero. Marking it
-    // here keeps its presence from reading as a score penalty (US-007 AC-6).
-    let advisory = if group
-        .diagnostics
-        .iter()
-        .all(|value| is_audit_observation(value))
-    {
-        stderr_dim(" [audit observation · no score or CI impact]")
-    } else if group.diagnostics.iter().all(|value| value.advisory) {
-        stderr_dim(" [advisory · no score impact]")
-    } else {
-        String::new()
-    };
-    let _ = writeln!(output, "  {icon} {colored_headline}{badge}{advisory}");
+    let _ = writeln!(output, "  {icon} {colored_headline}{badge}");
 
     let representative = representative_diagnostic(&group.diagnostics);
     if render_every_site && !agent_environment && !representative.url.is_empty() {
@@ -1140,10 +1082,6 @@ fn render_diagnostic_group(
         );
     }
     output.push('\n');
-}
-
-fn is_audit_observation(diagnostic: &CanonicalDiagnostic) -> bool {
-    diagnostic.trust_tier == "audit-only" || diagnostic.aggregation_policy == "audit-only"
 }
 
 fn representative_diagnostic<'a>(
@@ -1634,55 +1572,81 @@ fn render_category_tallies(output: &mut String, tallies: &[CategoryTally]) {
     ));
 }
 
-/// Migration grouping: highest-impact root causes before individual
-/// occurrences, using the shared threshold so the terminal and the handoff
-/// switch at the same point (US-015 AC-3, AC-4).
-fn render_migration_advisory(
-    output: &mut String,
-    root_causes: &[crate::diagnostics::RootCauseGroup],
-) {
-    let eligible_groups: Vec<_> = root_causes
+fn render_migration_advisory(output: &mut String, groups: &[DiagnosticGroup<'_>]) {
+    let migration_groups: Vec<_> = groups
         .iter()
-        .filter(|group| {
-            group.trust_tier != "audit-only" && group.aggregation_policy != "audit-only"
+        .filter_map(|group| {
+            let files: HashSet<_> = group
+                .diagnostics
+                .iter()
+                .filter_map(|diagnostic| match &diagnostic.location {
+                    DiagnosticLocation::Source { path, .. } => Some(path.as_str()),
+                    DiagnosticLocation::Project => None,
+                })
+                .collect();
+            (files.len() >= 40).then_some((group, files.len()))
         })
-        .cloned()
+        .take(TOP_ERRORS_DISPLAY_COUNT)
         .collect();
-    let eligible_count = eligible_groups.iter().map(|group| group.occurrences).sum();
-    if !crate::ordering::use_migration_grouping(eligible_count, &eligible_groups) {
-        return;
-    }
-    if eligible_groups.is_empty() {
+    if migration_groups.is_empty() {
         return;
     }
     let _ = writeln!(
         output,
-        "  {} {}",
+        "\n  {} {}",
         stderr_warn("⚠"),
-        stderr_bold("Migration-scale: sample before any sweep")
+        stderr_bold("Migration-scale change: sample before you sweep")
     );
+    for (group, file_count) in migration_groups {
+        let _ = writeln!(
+            output,
+            "    {} {}",
+            group.title,
+            stderr_dim(&format!(
+                "×{} across {file_count} files",
+                group.diagnostics.len()
+            ))
+        );
+    }
+    for line in wrap_text(
+        "Fix a representative few first and confirm the recipe holds. Then get the code owner's sign-off before changing the rest.",
+        OUTPUT_MEASURE_WIDTH,
+    ) {
+        let _ = writeln!(output, "{}", stderr_dim(&format!("    {line}")));
+    }
     let _ = writeln!(
         output,
-        "{}",
-        stderr_dim("    Validate one Fix first sample, then get owner sign-off.")
+        "    {} {}",
+        stderr_dim("Scope it down one area at a time:"),
+        stderr_info("npx rust-doctor@latest <path>")
     );
 }
 
 fn render_summary(
     output: &mut String,
     result: &ReportV1,
-    root_causes: &[crate::diagnostics::RootCauseGroup],
+    recommended_error_groups: &[&DiagnosticGroup<'_>],
     selected_categories: &[ScanCategory],
-    verbose: bool,
 ) -> Option<ScoreAnimation> {
     let headline_project = multi_project_headline_project(result);
-    let score = if result.projects.len() > 1 && result.summary.score_authoritative {
+    let score = if result.projects.len() > 1 {
         headline_project.and_then(|project| project.score)
     } else {
         result.score.filter(|_| result.summary.score_authoritative)
     };
     let Some(score) = score else {
-        render_unavailable_score(output, result);
+        let _ = writeln!(output, "  {}", branding_line());
+        let message = if result.source_file_count == 0 {
+            "Score unavailable because no Rust source files were analyzed."
+        } else if matches!(
+            result.outcome,
+            ReportOutcome::Partial | ReportOutcome::Failed
+        ) {
+            "Score not shown: some checks could not complete."
+        } else {
+            "Score unavailable because required analysis did not complete."
+        };
+        let _ = writeln!(output, "  {}\n", stdout_dim(message));
         return None;
     };
     let label = headline_project.map_or_else(
@@ -1694,35 +1658,13 @@ fn render_summary(
         || result.diagnostics.iter().collect(),
         |project| project.diagnostics.iter().collect(),
     );
-    let top_root_causes: HashSet<_> = root_causes
+    let top_rules: HashSet<_> = recommended_error_groups
         .iter()
-        .filter(|group| group.score_impact == ScoreImpact::Scored)
-        .take(crate::ordering::PROTECTED_ROOT_CAUSE_GROUPS)
-        .map(|group| group.key.clone())
+        .map(|group| group.rule.to_string())
         .collect();
-    let potential_score = projected_score(
-        &projection_diagnostics,
-        &top_root_causes,
-        selected_categories,
-    )
-    .filter(|potential| *potential > score);
-    let authority = if result.completeness.state == CompletenessState::Complete {
-        "Core complete"
-    } else {
-        "Core partial"
-    };
-    render_score_lead(
-        output,
-        score,
-        label,
-        authority,
-        potential_score,
-        selected_categories,
-        verbose,
-    );
-    if !verbose {
-        return None;
-    }
+    let potential_score = projected_score(&projection_diagnostics, &top_rules, selected_categories)
+        .filter(|potential| *potential > score);
+
     let bar_width = score_bar_width_from_environment();
     let header_start = output.len();
     output.push_str(&score_header(
@@ -1740,10 +1682,10 @@ fn render_summary(
         let _ = writeln!(
             output,
             "{}{}{}",
-            stdout_dim("  Projected score "),
-            stdout_score(&potential.to_string(), potential),
+            stdout_dim("  You could improve "),
+            stdout_score(&format!("+{improvement}%"), potential),
             stdout_dim(&format!(
-                " (+{improvement}) after resolving the selected root causes"
+                " by fixing the top {TOP_ERRORS_DISPLAY_COUNT} issues"
             ))
         );
         output.len()
@@ -1766,74 +1708,6 @@ fn render_summary(
     })
 }
 
-fn render_unavailable_score(output: &mut String, result: &ReportV1) {
-    let message = result.summary.score_reasons.first().map_or_else(
-        || {
-            if result.source_file_count == 0 {
-                "Score unavailable because no Rust source files were analyzed.".to_string()
-            } else if matches!(
-                result.outcome,
-                ReportOutcome::Partial | ReportOutcome::Failed
-            ) {
-                "Score not shown: some checks could not complete.".to_string()
-            } else {
-                "Score unavailable because required analysis did not complete.".to_string()
-            }
-        },
-        Clone::clone,
-    );
-    let prefix = "  Score unavailable · ";
-    let detail = clip_with_ellipsis(
-        &format!("{message}. Next: rerun with --verbose"),
-        OUTPUT_MEASURE_WIDTH.saturating_sub(prefix.width()),
-    );
-    let _ = writeln!(
-        output,
-        "  {} · {}",
-        stdout_error("Score unavailable"),
-        stdout_dim(&detail)
-    );
-}
-
-fn render_score_lead(
-    output: &mut String,
-    score: u32,
-    label: crate::diagnostics::ScoreLabel,
-    authority: &str,
-    potential_score: Option<u32>,
-    selected_categories: &[ScanCategory],
-    verbose: bool,
-) {
-    let _ = writeln!(
-        output,
-        "  {} · {}",
-        stdout_score(&format!("{score} / 100 {label}"), score),
-        stdout_dim(authority)
-    );
-    if verbose {
-        output.push('\n');
-        return;
-    }
-    if let Some(potential) = potential_score {
-        let improvement = potential - score;
-        let _ = writeln!(
-            output,
-            "{}",
-            stdout_dim(&format!(
-                "  Projected {potential} (+{improvement}) after the first root causes"
-            ))
-        );
-    }
-    if !selected_categories.is_empty() {
-        let names = selected_category_names(selected_categories);
-        let categories = clip_with_ellipsis(
-            &format!("  Categories: {}", names.join(", ")),
-            OUTPUT_MEASURE_WIDTH,
-        );
-        let _ = writeln!(output, "{}", stdout_dim(&categories));
-    }
-}
-
 fn multi_project_headline_project(result: &ReportV1) -> Option<&crate::diagnostics::ProjectReport> {
     if result.projects.len() <= 1 {
         return None;
@@ -1852,10 +1726,10 @@ fn multi_project_headline_project(result: &ReportV1) -> Option<&crate::diagnosti
 
 fn projected_score(
     diagnostics: &[&CanonicalDiagnostic],
-    excluded_root_causes: &HashSet<String>,
+    excluded_rules: &HashSet<String>,
     selected_categories: &[ScanCategory],
 ) -> Option<u32> {
-    if excluded_root_causes.is_empty() {
+    if excluded_rules.is_empty() {
         return None;
     }
     let categories: Vec<_> = selected_categories
@@ -1868,12 +1742,9 @@ fn projected_score(
             .visible_on
             .iter()
             .any(|surface| surface == "score")
-            && diagnostic
-                .root_cause_key
-                .as_ref()
-                .is_none_or(|key| !excluded_root_causes.contains(key))
+            && !excluded_rules.contains(&diagnostic.rule)
     });
-    calculate_score_for_canonical(diagnostics, &categories).map(|value| value.0)
+    Some(calculate_score_for_canonical(diagnostics, &categories).0)
 }
 
 #[cfg(test)]
@@ -2135,119 +2006,75 @@ fn score_bar_width(columns: Option<usize>) -> usize {
     })
 }
 
-fn render_project_summary(
-    output: &mut String,
-    result: &ReportV1,
-    show_warnings: bool,
-    verbose: bool,
-) {
+fn render_project_summary(output: &mut String, result: &ReportV1, show_warnings: bool) {
     if result.projects.len() <= 1 {
         return;
     }
     let entries: Vec<_> = result
         .projects
         .iter()
-        .map(|project| project_summary_entry(project, show_warnings))
+        .map(|project| {
+            let errors = project
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.severity == Severity::Error
+                        && diagnostic
+                            .visible_on
+                            .iter()
+                            .any(|surface| surface == "terminal")
+                })
+                .count();
+            let warnings = project
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    show_warnings
+                        && diagnostic.severity == Severity::Warning
+                        && diagnostic
+                            .visible_on
+                            .iter()
+                            .any(|surface| surface == "terminal")
+                })
+                .count();
+            (project_name(project), project.score, errors, warnings)
+        })
         .collect();
     let longest_name = entries
         .iter()
         .map(|(name, ..)| name.width())
         .max()
         .unwrap_or(0);
-    let name_width = if verbose {
-        longest_name
-    } else {
-        longest_name.min(14)
-    };
     output.push('\n');
-    let entry_count = entries.len();
-    let displayed = if verbose {
-        entry_count
-    } else {
-        entry_count.min(3)
-    };
-    for (name, score, errors, warnings) in entries.into_iter().take(displayed) {
-        let name = if verbose {
-            name
-        } else {
-            clip_with_ellipsis(&name, name_width)
-        };
-        let padded_name = format!("{name:<name_width$}");
+    for (name, score, errors, warnings) in entries {
+        let padded_name = format!("{name:<longest_name$}");
         let Some(score) = score else {
             let total = errors + warnings;
-            let line = format!("  {padded_name}  no score  {}", count_label(total, "issue"));
             let _ = writeln!(
                 output,
-                "{}",
-                stdout_dim(&clip_with_ellipsis(&line, OUTPUT_MEASURE_WIDTH))
+                "  {}  {}  {}",
+                stdout_dim(&padded_name),
+                stdout_dim("no score"),
+                stdout_dim(&count_label(total, "issue"))
             );
             continue;
         };
         let mut issue_parts = Vec::new();
-        let mut plain_issue_parts = Vec::new();
         if errors > 0 {
             issue_parts.push(stdout_error(&count_label(errors, "error")));
-            plain_issue_parts.push(count_label(errors, "error"));
         }
         if warnings > 0 {
             issue_parts.push(stdout_warn(&count_label(warnings, "warning")));
-            plain_issue_parts.push(count_label(warnings, "warning"));
         }
-        if verbose {
-            let _ = writeln!(
-                output,
-                "  {}  {}  {}  {}",
-                stdout_score(&padded_name, score),
-                stdout_score(&format!("{score:>3}"), score),
-                stdout_score(score_band_label(score), score),
-                issue_parts.join(&stdout_dim(", "))
-            );
-        } else {
-            let line = format!(
-                "  {padded_name}  {score:>3}  {}  {}",
-                score_band_label(score),
-                plain_issue_parts.join(", ")
-            );
-            let _ = writeln!(
-                output,
-                "{}",
-                stdout_score(&clip_with_ellipsis(&line, OUTPUT_MEASURE_WIDTH), score)
-            );
-        }
-    }
-    if entry_count > displayed {
         let _ = writeln!(
             output,
-            "  {}",
-            stdout_dim(&format!("+{} more projects", entry_count - displayed))
+            "  {}  {}  {}  {}",
+            stdout_score(&padded_name, score),
+            stdout_score(&format!("{score:>3}"), score),
+            stdout_score(score_band_label(score), score),
+            issue_parts.join(&stdout_dim(", "))
         );
     }
-}
-
-fn project_summary_entry(
-    project: &crate::diagnostics::ProjectReport,
-    show_warnings: bool,
-) -> (String, Option<u32>, usize, usize) {
-    let visible = |diagnostic: &&CanonicalDiagnostic| {
-        !is_audit_observation(diagnostic)
-            && diagnostic
-                .visible_on
-                .iter()
-                .any(|surface| surface == "terminal")
-    };
-    let errors = project
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.severity == Severity::Error && visible(diagnostic))
-        .count();
-    let warnings = project
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            show_warnings && diagnostic.severity == Severity::Warning && visible(diagnostic)
-        })
-        .count();
-    (project_name(project), project.score, errors, warnings)
 }
 
 fn project_name(project: &crate::diagnostics::ProjectReport) -> String {
@@ -2319,11 +2146,13 @@ fn branding_line() -> String {
     format!("Rust Doctor {}", stdout_dim(&format!("({BRAND_URL})")))
 }
 
-fn doctor_face(score: u32) -> (&'static str, &'static str) {
-    match score_label(score) {
-        crate::diagnostics::ScoreLabel::Great => ("◠ ◠", " ▽ "),
-        crate::diagnostics::ScoreLabel::NeedsWork => ("• •", " ─ "),
-        crate::diagnostics::ScoreLabel::Critical => ("x x", " ▽ "),
+const fn doctor_face(score: u32) -> (&'static str, &'static str) {
+    if score >= SCORE_GOOD_THRESHOLD {
+        ("◠ ◠", " ▽ ")
+    } else if score >= SCORE_OK_THRESHOLD {
+        ("• •", " ─ ")
+    } else {
+        ("x x", " ▽ ")
     }
 }
 
@@ -2392,6 +2221,15 @@ fn join_check_names(names: &[String]) -> String {
     }
 }
 
+fn incomplete_checks_phrase(result: &ReportV1) -> String {
+    let count = result.completeness.skipped_checks
+        + result.completeness.failed_checks
+        + result.completeness.timed_out_checks
+        + result.completeness.cancelled_checks;
+    let noun = if count == 1 { "check" } else { "checks" };
+    incomplete_checks_phrase_with_fallback(result, count, noun)
+}
+
 fn incomplete_checks_phrase_with_fallback(
     result: &ReportV1,
     count: usize,
@@ -2434,7 +2272,7 @@ fn count_label(count: usize, noun: &str) -> String {
     format!("{count} {noun}{suffix}")
 }
 
-pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut result = Vec::new();
     for paragraph in text.lines() {
         if paragraph.is_empty() {
@@ -2492,7 +2330,7 @@ fn clip_with_ellipsis(text: &str, width: usize) -> String {
     clipped
 }
 
-fn score_band_label(score: u32) -> &'static str {
+const fn score_band_label(score: u32) -> &'static str {
     match score_label_for_score(score) {
         crate::diagnostics::ScoreLabel::Great => "Great",
         crate::diagnostics::ScoreLabel::NeedsWork => "Needs work",
@@ -2500,15 +2338,23 @@ fn score_band_label(score: u32) -> &'static str {
     }
 }
 
-fn score_label_for_score(score: u32) -> crate::diagnostics::ScoreLabel {
-    score_label(score)
+const fn score_label_for_score(score: u32) -> crate::diagnostics::ScoreLabel {
+    if score >= SCORE_GOOD_THRESHOLD {
+        crate::diagnostics::ScoreLabel::Great
+    } else if score >= SCORE_OK_THRESHOLD {
+        crate::diagnostics::ScoreLabel::NeedsWork
+    } else {
+        crate::diagnostics::ScoreLabel::Critical
+    }
 }
 
 fn stdout_score(text: &str, score: u32) -> String {
-    match score_label(score) {
-        crate::diagnostics::ScoreLabel::Great => stdout_success(text),
-        crate::diagnostics::ScoreLabel::NeedsWork => stdout_warn(text),
-        crate::diagnostics::ScoreLabel::Critical => stdout_error(text),
+    if score >= SCORE_GOOD_THRESHOLD {
+        stdout_success(text)
+    } else if score >= SCORE_OK_THRESHOLD {
+        stdout_warn(text)
+    } else {
+        stdout_error(text)
     }
 }
 
@@ -2666,7 +2512,6 @@ mod tests {
             required_checks: 1,
             required_completed_checks: 1,
             score_authoritative: true,
-            abstentions: 0,
         };
         report.diagnostics = diagnostics;
         report.summary = ReportSummary {
@@ -2677,7 +2522,6 @@ mod tests {
             info_count: infos,
             diagnostic_count: errors + warnings + infos,
             score_authoritative: true,
-            score_reasons: Vec::new(),
         };
         report.audit = AuditMetadata::default();
         report.score = Some(score);
@@ -2706,7 +2550,6 @@ mod tests {
         line: u32,
     ) -> CanonicalDiagnostic {
         CanonicalDiagnostic {
-            advisory: false,
             provider: "rust-doctor".to_string(),
             rule: rule.to_string(),
             title: format!("{rule} title"),
@@ -2745,16 +2588,6 @@ mod tests {
             site_id: format!("{rule}:{line}"),
             baseline_key: format!("{rule}:{line}"),
             namespace_fallback: false,
-            priority: Some("p2".to_string()),
-            trust_tier: "calibrated-heuristic".to_string(),
-            score_eligible: true,
-            score_impact: crate::diagnostics::ScoreImpact::Scored,
-            aggregation_policy: "bounded-occurrence".to_string(),
-            root_cause_key: Some(format!("rule:{rule}")),
-            evidence_summary: "Syntactic Rust AST evidence.".to_string(),
-            limitations: Vec::new(),
-            fix_recipe: None,
-            suppressed: false,
         }
     }
 
@@ -2780,7 +2613,6 @@ mod tests {
             completeness,
             score,
             score_authoritative,
-            dimensions: Vec::new(),
             elapsed_ms: 700,
             diagnostics,
         }
@@ -2826,143 +2658,29 @@ mod tests {
         let output = render(&make_result(directory.path(), 68, diagnostics), false);
 
         assert!(output.stderr.contains("✔ Scanned 10 files in 0.7s"));
-        assert!(output.stderr.contains("Fix first"));
+        assert!(output.stderr.contains("Top 1 error you should fix"));
         assert!(
             output
                 .stderr
-                .contains("unauthenticated-server-action title"),
-            "{}",
-            output.stderr
+                .contains("Security: unauthenticated-server-action title")
         );
-        assert!(output.stderr.contains("Next:"));
-        assert!(!output.stderr.contains("Top 1 error you should fix"));
-        assert!(!output.stderr.contains("src/lib.rs:2"));
-        assert!(output.stderr.contains("2 scored"));
-        assert!(output.stderr.contains("0 advisory"));
-        assert!(output.stderr.contains("0 audit"));
-        assert!(!output.stderr.contains("Security › 1 error"));
+        assert!(output.stderr.contains("src/lib.rs:2"));
+        assert!(output.stderr.contains("pub async fn risky()"));
+        assert!(output.stderr.contains("All 2 issues"));
+        assert!(output.stderr.contains("Security › 1 error"));
+        assert!(output.stderr.contains("Performance › 1 warning"));
         assert!(output.stderr.contains(VERBOSE_COMMAND));
 
         assert!(output.stdout.contains("68 / 100 Needs work"));
-        assert!(output.stdout.contains("Core complete"));
-        let plain_stdout = strip_ansi(&output.stdout);
-        let first_line = plain_stdout
-            .lines()
-            .find(|line| !line.trim().is_empty())
-            .unwrap();
-        assert!(first_line.contains("68 / 100 Needs work"));
-        assert!(
-            output.stdout.lines().count() + output.stderr.lines().count() <= 30,
-            "default output exceeded 30 lines:\nstdout:\n{}\nstderr:\n{}",
-            output.stdout,
-            output.stderr
-        );
-        assert!(!output.stdout.contains("Rust Doctor ("));
-        assert!(!output.stdout.contains("Docs:"));
-        assert!(!output.stdout.contains("GitHub:"));
-        insta::assert_snapshot!("terminal_default_stderr", &output.stderr);
-        insta::assert_snapshot!("terminal_default_stdout", &output.stdout);
-    }
-
-    #[test]
-    fn default_fix_first_and_incomplete_evidence_are_bounded() {
-        let directory = tempfile::tempdir().unwrap();
-        let diagnostics = (0..60)
-            .map(|index| {
-                make_diagnostic(
-                    &format!("scored-rule-{}", index % 5),
-                    Severity::Error,
-                    Category::Correctness,
-                    index + 1,
-                )
-            })
-            .collect();
-        let mut result = make_result(directory.path(), 68, diagnostics);
-        let checks: Vec<_> = (0..5)
-            .map(|index| crate::diagnostics::CheckState {
-                name: format!("analyzer-{index}"),
-                required: index == 0,
-                status: CheckStatus::Failed,
-                reason: Some(format!("failure-{index}-{}", "context".repeat(20))),
-            })
-            .collect();
-        result.projects = (0..5)
-            .map(|index| {
-                let mut project = make_project_report(
-                    &result,
-                    &format!("fixture-{index}-{}", "project".repeat(20)),
-                    Some(68),
-                    true,
-                    vec![],
-                );
-                project.checks.clone_from(&checks);
-                project
-            })
-            .collect();
-        result.completeness.state = CompletenessState::Partial;
-
-        let output = render(&result, false);
-        assert_eq!(output.stderr.matches("    Next:").count(), 3);
-        assert_eq!(output.stderr.matches("    analyzer-").count(), 3);
-        assert!(output.stderr.contains("+2 more"));
-        assert!(output.stdout.contains("+2 more projects"));
-        assert!(
-            output.stderr.find("Migration-scale").unwrap()
-                < output.stderr.find("Fix first").unwrap()
-        );
-        assert!(
-            output.stdout.lines().count() + output.stderr.lines().count() <= 30,
-            "worst-case default output exceeded 30 lines:\nstdout:\n{}\nstderr:\n{}",
-            output.stdout,
-            output.stderr
-        );
-        assert!(
-            output
-                .stderr
-                .lines()
-                .all(|line| strip_ansi(line).width() <= OUTPUT_MEASURE_WIDTH),
-            "{}",
-            output.stderr
-        );
         assert!(
             output
                 .stdout
-                .lines()
-                .all(|line| strip_ansi(line).width() <= OUTPUT_MEASURE_WIDTH),
-            "{}",
-            output.stdout
+                .contains("Rust Doctor (https://rust-doctor.vercel.app)")
         );
-    }
-
-    #[test]
-    fn interactive_render_opens_on_the_blank_line_that_separates_it_from_the_spinner() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::create_dir(directory.path().join("src")).unwrap();
-        std::fs::write(directory.path().join("src/lib.rs"), "pub fn risky() {}\n").unwrap();
-        let diagnostics = vec![make_diagnostic(
-            "unauthenticated-server-action",
-            Severity::Error,
-            Category::Security,
-            1,
-        )];
-        // Interactive runs get the scan summary from the live spinner instead of
-        // the report, so the report itself owns the blank line React Doctor
-        // prints between the summary and the findings.
-        let output = build_terminal_output(
-            &make_result(directory.path(), 68, diagnostics),
-            RenderOptions {
-                verbose: false,
-                show_warnings: true,
-                selected_categories: &[],
-                show_default_share: false,
-                render_static_scan_summary: false,
-                show_agent_guidance: false,
-            },
-        );
-
-        assert!(output.stderr.starts_with('\n'));
-        assert!(!output.stderr.starts_with("\n\n"));
-        assert!(output.stderr.contains("Fix first"));
+        assert!(output.stdout.contains("Docs:"));
+        assert!(output.stdout.contains("GitHub:"));
+        insta::assert_snapshot!("terminal_default_stderr", &output.stderr);
+        insta::assert_snapshot!("terminal_default_stdout", &output.stdout);
     }
 
     #[test]
@@ -3043,127 +2761,6 @@ mod tests {
     }
 
     #[test]
-    fn terminal_separates_scored_advisory_and_audit_inventories() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::create_dir(directory.path().join("src")).unwrap();
-        std::fs::write(directory.path().join("src/lib.rs"), "fn inventory() {}\n").unwrap();
-
-        let scored = make_diagnostic(
-            "hardcoded-secrets",
-            Severity::Warning,
-            Category::Security,
-            1,
-        );
-        let mut advisory = make_diagnostic(
-            "excessive-clone",
-            Severity::Warning,
-            Category::Performance,
-            2,
-        );
-        advisory.advisory = true;
-        advisory.score_eligible = false;
-        advisory.score_impact = ScoreImpact::Advisory;
-        advisory.visible_on = vec![
-            "terminal".to_string(),
-            "sarif".to_string(),
-            "mcp".to_string(),
-        ];
-
-        let mut unsafe_block = make_diagnostic(
-            "unsafe-block-audit",
-            Severity::Warning,
-            Category::Security,
-            3,
-        );
-        unsafe_block.advisory = true;
-        unsafe_block.priority = Some("p3".to_string());
-        unsafe_block.trust_tier = "audit-only".to_string();
-        unsafe_block.score_eligible = false;
-        unsafe_block.score_impact = ScoreImpact::Ineligible;
-        unsafe_block.aggregation_policy = "audit-only".to_string();
-        unsafe_block.visible_on = vec![
-            "terminal".to_string(),
-            "sarif".to_string(),
-            "mcp".to_string(),
-        ];
-
-        let mut unsafe_dependency = unsafe_block.clone();
-        unsafe_dependency.rule = "unsafe-dependency".to_string();
-        unsafe_dependency.title = "Unsafe dependency exposure".to_string();
-        unsafe_dependency.site_id = "unsafe-dependency:4".to_string();
-
-        let report = make_result(
-            directory.path(),
-            90,
-            vec![scored, advisory, unsafe_block, unsafe_dependency],
-        );
-        let output = render(&report, true);
-
-        assert!(output.stderr.contains("1 scored issue"));
-        assert!(output.stderr.contains("1 advisory finding"));
-        assert!(output.stderr.contains("2 audit observations"));
-        assert!(output.stderr.contains("Security › 1 warning"));
-        assert!(
-            output
-                .stderr
-                .contains("[audit observation · no score or CI impact]")
-        );
-        assert!(!output.stderr.contains("Security › 3 warnings"));
-    }
-
-    #[test]
-    fn confirmed_rustsec_advisory_is_not_an_audit_observation() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut advisory = make_diagnostic(
-            "RUSTSEC-2026-0001",
-            Severity::Error,
-            Category::Dependencies,
-            1,
-        );
-        advisory.provider = "rustsec".to_string();
-        advisory.trust_tier = "unknown".to_string();
-        advisory.score_eligible = false;
-        advisory.score_impact = ScoreImpact::Ineligible;
-        advisory.aggregation_policy = "unmapped".to_string();
-        advisory.visible_on.push("ci-failure".to_string());
-        advisory.visible_on.push("pr-comment".to_string());
-        let output = render(&make_result(directory.path(), 90, vec![advisory]), true);
-
-        assert!(output.stderr.contains("1 advisory finding"));
-        assert!(output.stderr.contains("0 audit observations"));
-        assert!(output.stderr.contains("Dependencies › 1 error"));
-    }
-
-    #[test]
-    fn audit_only_volume_never_triggers_remediation_migration_advice() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut diagnostics = Vec::new();
-        for group in 0..5 {
-            for occurrence in 0..10 {
-                let mut diagnostic = make_diagnostic(
-                    &format!("audit-rule-{group}"),
-                    Severity::Warning,
-                    Category::Security,
-                    group * 10 + occurrence + 1,
-                );
-                diagnostic.advisory = true;
-                diagnostic.trust_tier = "audit-only".to_string();
-                diagnostic.score_eligible = false;
-                diagnostic.score_impact = ScoreImpact::Ineligible;
-                diagnostic.aggregation_policy = "audit-only".to_string();
-                diagnostics.push(diagnostic);
-            }
-        }
-        let output = render(&make_result(directory.path(), 100, diagnostics), false);
-        assert!(output.stderr.contains("50 audit"));
-        assert!(
-            !output
-                .stderr
-                .contains("Migration-scale: sample before any sweep")
-        );
-    }
-
-    #[test]
     fn clean_render_prints_success_and_score() {
         let directory = tempfile::tempdir().unwrap();
         let mut result = make_result(directory.path(), 100, vec![]);
@@ -3174,7 +2771,7 @@ mod tests {
         assert!(output.stdout.contains("100 / 100 Great"));
         assert!(!output.stdout.contains("Docs:"));
         assert!(!output.stdout.contains("GitHub:"));
-        assert!(!output.stderr.contains("0 scored issues"));
+        assert!(!output.stderr.contains("All 0 issues"));
     }
 
     #[test]
@@ -3265,8 +2862,27 @@ mod tests {
         ];
         let output = render(&make_result(directory.path(), 68, diagnostics), false);
 
-        assert!(output.animation.category.is_none());
-        assert!(output.animation.score.is_none());
+        let category = output.animation.category.as_ref().unwrap();
+        assert_eq!(
+            &output.stderr[category.range.clone()],
+            category_tally_text(
+                &category.tallies,
+                category_unit_count(&category.tallies),
+                "\n"
+            )
+        );
+        let score = output.animation.score.as_ref().unwrap();
+        assert_eq!(
+            &output.stdout[score.range.clone()],
+            score_header(
+                score.score,
+                score.score,
+                score.label,
+                score.potential_score,
+                score.bar_width,
+                0
+            )
+        );
     }
 
     #[test]
@@ -3299,16 +2915,35 @@ mod tests {
         let stderr = String::from_utf8(stderr).unwrap();
         let stdout = String::from_utf8(stdout).unwrap();
 
-        assert!(stderr.contains("2 scored"));
-        assert!(stderr.contains("Fix first"));
+        assert!(stderr.contains("All 2 issues"));
+        assert!(stderr.contains("Security"));
         assert!(!stderr.contains("/ 100"));
         assert!(stdout.contains("/ 100"));
-        assert!(!stdout.contains("Rust Doctor"));
-        assert!(!stdout.contains("2 scored"));
-        assert!(!delays.contains(&SCORE_HEADER_ANIMATION_FRAME_DELAY));
-        assert!(!delays.contains(&CATEGORY_COUNTUP_FRAME_DELAY));
-        assert!(!stderr.contains("\x1b[2A"));
-        assert!(!stdout.contains("\x1b[5A"));
+        assert!(stdout.contains("Rust Doctor"));
+        assert!(!stdout.contains("All 2 issues"));
+        assert_eq!(
+            delays
+                .iter()
+                .filter(|delay| **delay == CATEGORY_COUNTUP_FRAME_DELAY)
+                .count(),
+            2
+        );
+        assert_eq!(
+            delays
+                .iter()
+                .filter(|delay| **delay == SCORE_HEADER_ANIMATION_FRAME_DELAY)
+                .count(),
+            SCORE_HEADER_ANIMATION_FRAME_COUNT as usize
+        );
+        assert_eq!(
+            delays
+                .iter()
+                .filter(|delay| **delay == CATEGORY_COUNTUP_SETTLE_HOLD)
+                .count(),
+            1
+        );
+        assert!(stderr.contains("\x1b[2A"));
+        assert!(stdout.contains("\x1b[5A"));
     }
 
     #[test]
@@ -3346,9 +2981,29 @@ mod tests {
             assert!(!stderr.contains(&format!("\x1b[{rows}A")));
             assert!(!stderr.contains(&format!("\x1b[{rows}B")));
         }
-        assert!(!stdout.contains("\x1b[2A"));
-        assert!(!delays.contains(&SCORE_HEADER_ANIMATION_FRAME_DELAY));
-        assert!(!delays.contains(&CATEGORY_COUNTUP_FRAME_DELAY));
+        assert_eq!(
+            stdout.matches("\x1b[2A").count(),
+            SCORE_HEADER_ANIMATION_FRAME_COUNT as usize
+        );
+        assert_eq!(
+            stdout
+                .matches(&format!("\x1b[{SCORE_PROJECTION_BAR_ROWS_ABOVE_CURSOR}A"))
+                .count(),
+            SCORE_PROJECTION_FRAME_COUNT as usize + 1
+        );
+        assert_eq!(
+            stdout
+                .matches(&format!("\x1b[{SCORE_PROJECTION_BAR_ROWS_ABOVE_CURSOR}B"))
+                .count(),
+            SCORE_PROJECTION_FRAME_COUNT as usize
+        );
+        assert_eq!(
+            delays
+                .iter()
+                .filter(|delay| **delay == CATEGORY_COUNTUP_FRAME_DELAY)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -3414,7 +3069,7 @@ mod tests {
         let mut result = make_result(directory.path(), 100, vec![]);
         result.score_label = Some(ScoreLabel::Great);
         result.summary.score_label = Some(ScoreLabel::Great);
-        let output = render(&result, true);
+        let output = render(&result, false);
         let mut stderr = Vec::new();
         let mut stdout = Vec::new();
         let mut delays = Vec::new();
@@ -3459,7 +3114,7 @@ mod tests {
             let mut result = make_result(directory.path(), 100, vec![]);
             result.score_label = Some(ScoreLabel::Great);
             result.summary.score_label = Some(ScoreLabel::Great);
-            let output = render(&result, true);
+            let output = render(&result, false);
 
             assert!(output.stdout.contains("100 / 100 Great"));
             assert!(output.stdout.contains(&"█".repeat(SCORE_BAR_WIDTH)));
@@ -3510,13 +3165,10 @@ mod tests {
         let output = render(&result, false);
         assert!(output.stderr.contains("results are incomplete"));
         assert!(!output.stdout.contains("No issues found!"));
-        assert!(!output.stdout.contains("100 / 100"));
-        assert!(output.stdout.contains("Score not shown:"));
         assert!(
             output
                 .stdout
-                .lines()
-                .all(|line| strip_ansi(line).width() <= OUTPUT_MEASURE_WIDTH)
+                .contains("Score not shown: some checks could not complete.")
         );
     }
 
@@ -3542,7 +3194,6 @@ mod tests {
             completeness: result.completeness.clone(),
             score: Some(80),
             score_authoritative: true,
-            dimensions: Vec::new(),
             elapsed_ms: 700,
             diagnostics,
         };
@@ -3552,7 +3203,7 @@ mod tests {
         result.projects = vec![project, second];
 
         let mut warnings_hidden = String::new();
-        render_project_summary(&mut warnings_hidden, &result, false, false);
+        render_project_summary(&mut warnings_hidden, &result, false);
         assert!(warnings_hidden.contains("first"));
         assert!(warnings_hidden.contains("second"));
         assert!(warnings_hidden.contains("1 error"));
@@ -3560,14 +3211,14 @@ mod tests {
         assert!(!warnings_hidden.contains("info"));
 
         let mut warnings_shown = String::new();
-        render_project_summary(&mut warnings_shown, &result, true, false);
+        render_project_summary(&mut warnings_shown, &result, true);
         assert!(warnings_shown.contains("1 error"));
         assert!(warnings_shown.contains("1 warning"));
         assert!(!warnings_shown.contains("info"));
     }
 
     #[test]
-    fn multi_project_headline_is_hidden_when_another_required_project_failed() {
+    fn multi_project_headline_keeps_the_worst_valid_score_when_another_project_failed() {
         let directory = tempfile::tempdir().unwrap();
         let mut result = make_result(directory.path(), 90, vec![]);
         result.outcome = ReportOutcome::Partial;
@@ -3587,9 +3238,8 @@ mod tests {
             multi_project_headline_project(&result).map(project_name),
             Some("worst".to_string())
         );
-        assert!(!output.stdout.contains("/ 100"));
-        assert!(output.stdout.contains("Score unavailable"));
-        assert!(output.stdout.contains("Score not shown"));
+        assert!(output.stdout.contains("68 / 100 Needs work"));
+        assert!(!output.stdout.contains("Score not shown"));
         assert!(output.stdout.contains("failed"));
         assert!(output.stdout.contains("no score"));
     }
@@ -3597,40 +3247,28 @@ mod tests {
     #[test]
     fn multi_project_projection_uses_displayed_rules_to_rescore_the_headline_project() {
         let directory = tempfile::tempdir().unwrap();
-        // Score Core V2 only counts catalog rules, so the projection needs real
-        // score-eligible identifiers rather than synthetic names.
-        const OTHER_RULES: [&str; 2] = ["missing-msrv", "msrv-outdated"];
-        const WORST_RULES: [&str; 3] = [
-            "clippy::almost_swapped",
-            "clippy::await_holding_lock",
-            "clippy::eq_op",
-        ];
-        let other_diagnostics: Vec<_> = OTHER_RULES
-            .iter()
-            .enumerate()
-            .map(|(index, rule)| {
+        let other_diagnostics: Vec<_> = (0..6)
+            .map(|index| {
                 make_diagnostic(
-                    rule,
+                    &format!("other-security-{index}"),
                     Severity::Error,
                     Category::Security,
-                    u32::try_from(index).unwrap() + 1,
+                    index + 1,
                 )
             })
             .collect();
-        let mut worst_diagnostics: Vec<_> = WORST_RULES
-            .iter()
-            .enumerate()
-            .map(|(index, rule)| {
+        let mut worst_diagnostics: Vec<_> = (0..10)
+            .map(|index| {
                 make_diagnostic(
-                    rule,
+                    &format!("worst-security-{index}"),
                     Severity::Error,
                     Category::Security,
-                    u32::try_from(index).unwrap() + 1,
+                    index + 1,
                 )
             })
             .collect();
         let mut global = make_diagnostic(
-            "clippy::invalid_regex",
+            "workspace-global-security",
             Severity::Error,
             Category::Security,
             20,
@@ -3658,25 +3296,27 @@ mod tests {
         let scoped: Vec<_> = headline.diagnostics.iter().collect();
         let mut all: Vec<_> = result.diagnostics.iter().collect();
         sort_terminal_diagnostics(&mut all);
-        let root_causes = crate::ordering::root_cause_groups(all.iter().copied());
-        let top_root_causes: Vec<_> = root_causes
+        let groups = diagnostic_groups(&all);
+        let top_rule_order: Vec<_> = select_top_error_groups(&groups)
             .into_iter()
-            .filter(|group| group.score_impact == ScoreImpact::Scored)
-            .take(crate::ordering::PROTECTED_ROOT_CAUSE_GROUPS)
+            .map(|group| group.rule)
             .collect();
-        assert_eq!(top_root_causes.len(), 3);
-        let all_top_keys: HashSet<_> = top_root_causes
+        assert_eq!(
+            top_rule_order,
+            ["other-security-0", "worst-security-0", "other-security-1"]
+        );
+        let all_top_rules: HashSet<_> = top_rule_order
             .iter()
-            .map(|group| group.key.clone())
+            .map(|rule| (*rule).to_string())
             .collect();
-        let expected_projection = projected_score(&scoped, &all_top_keys, &[]).unwrap();
-        let workspace_union_projection = projected_score(&all, &all_top_keys, &[]).unwrap();
+        let expected_projection = projected_score(&scoped, &all_top_rules, &[]).unwrap();
+        let workspace_union_projection = projected_score(&all, &all_top_rules, &[]).unwrap();
         assert_ne!(expected_projection, workspace_union_projection);
 
         let output = render(&result, false);
-        let displayed_positions: Vec<_> = top_root_causes
+        let displayed_positions: Vec<_> = top_rule_order
             .iter()
-            .map(|group| output.stderr.find(&group.title).unwrap())
+            .map(|rule| output.stderr.find(&format!("{rule} title")).unwrap())
             .collect();
         assert!(
             displayed_positions
@@ -3686,12 +3326,12 @@ mod tests {
         assert!(
             output
                 .stdout
-                .contains(&format!("(+{})", expected_projection - 68))
+                .contains(&format!("+{}%", expected_projection - 68))
         );
         assert!(
             !output
                 .stdout
-                .contains(&format!("(+{})", workspace_union_projection - 68))
+                .contains(&format!("+{}%", workspace_union_projection - 68))
         );
     }
 
@@ -3712,7 +3352,6 @@ mod tests {
             completeness: result.completeness,
             score: Some(100),
             score_authoritative: true,
-            dimensions: Vec::new(),
             elapsed_ms: 0,
             diagnostics: vec![],
         };

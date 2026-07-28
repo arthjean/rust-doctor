@@ -1,29 +1,13 @@
-#![expect(
-    clippy::redundant_pub_crate,
-    reason = "adapter parsers and contracts are consumed by the sibling conformance module through this private crate module"
-)]
-
 //! cargo-geiger integration — unsafe code budget across the dependency tree.
 
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::passes::adapter::{self, AdapterContract, EvidenceSource};
 use crate::process;
 use crate::scanner::AnalysisPass;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const GEIGER_TIMEOUT_SECS: u64 = 120;
 const MAX_OUTPUT_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
-
-/// cargo-geiger has no stable machine format, so its tree output is parsed as
-/// text. That parser is pinned by the fixtures in this module's tests
-/// (US-009 AC-4).
-pub(crate) const CONTRACT: AdapterContract = AdapterContract {
-    pass: "unsafe audit (cargo-geiger)",
-    subcommand: "geiger",
-    parser_contract_version: "geiger-tree-v1",
-    evidence_source: EvidenceSource::TextFixtureBacked,
-};
 
 /// cargo-geiger analysis pass — audits unsafe code usage across the dependency tree.
 pub struct GeigerPass;
@@ -35,11 +19,17 @@ impl AnalysisPass for GeigerPass {
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_geiger_available() {
-            return Err(CONTRACT.skipped(
-                "unsafe dependency auditing disabled. Install with: cargo install cargo-geiger",
-            ));
+            return Err(crate::error::PassError::Skipped {
+                pass: self.name().to_string(),
+                reason: "cargo-geiger is not installed — unsafe dependency auditing disabled. \
+                         Install with: cargo install cargo-geiger"
+                    .to_string(),
+            });
         }
-        run_geiger(project_root)
+        run_geiger(project_root).map_err(|message| crate::error::PassError::Failed {
+            pass: "unsafe audit (cargo-geiger)".to_string(),
+            message,
+        })
     }
 }
 
@@ -47,7 +37,7 @@ fn is_geiger_available() -> bool {
     process::is_cargo_subcommand_available("geiger")
 }
 
-fn run_geiger(project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+fn run_geiger(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
     let child = process::spawn_in_group(
         Command::new("cargo")
             .args(["geiger"])
@@ -56,48 +46,17 @@ fn run_geiger(project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::Pass
             .stdout(Stdio::piped())
             .stderr(Stdio::null()),
     )
-    .map_err(|error| CONTRACT.failed(format!("failed to spawn cargo geiger: {error}")))?;
+    .map_err(|e| format!("failed to spawn cargo geiger: {e}"))?;
 
-    let output = process::run_with_timeout(child, GEIGER_TIMEOUT_SECS, MAX_OUTPUT_BYTES)
-        .map_err(|error| CONTRACT.failed(error))?;
-    CONTRACT.require_complete_run(&output, &[0, 1])?;
+    let output = process::run_with_timeout(child, GEIGER_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
 
-    Ok(parse_geiger_ascii(
-        &output.stdout,
-        &CONTRACT.provenance(&CONTRACT.tool_version()),
-    ))
-}
-
-/// How a dependency's unsafe code reaches the scanned crate.
-///
-/// cargo-geiger draws the dependency tree with box characters; the root's
-/// direct dependencies sit at depth one. The distinction matters because direct
-/// exposure is the project's own choice while transitive exposure is inherited
-/// (US-009 AC-2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UnsafeExposure {
-    Direct,
-    Transitive,
-}
-
-impl UnsafeExposure {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Direct => "direct",
-            Self::Transitive => "transitive",
-        }
+    if output.timed_out {
+        return Err(format!(
+            "cargo geiger timed out after {GEIGER_TIMEOUT_SECS}s"
+        ));
     }
-}
 
-/// Cargo's tree renderer indents four columns per level: a continuation
-/// (`│   ` or four spaces) for each ancestor, then `└── ` or `├── ` for the
-/// crate itself. One level of indentation means a direct dependency.
-fn exposure_for(tree_prefix: &str) -> UnsafeExposure {
-    if tree_prefix.chars().count() <= 4 {
-        UnsafeExposure::Direct
-    } else {
-        UnsafeExposure::Transitive
-    }
+    Ok(parse_geiger_ascii(&output.stdout))
 }
 
 /// Parse cargo-geiger ASCII output.
@@ -107,7 +66,7 @@ fn exposure_for(tree_prefix: &str) -> UnsafeExposure {
 ///
 /// The columns are: Functions, Expressions, Impls, Traits, Methods.
 /// Format per column: `unsafe_used/total`. The `!` means unsafe detected.
-pub(crate) fn parse_geiger_ascii(output: &str, provenance: &str) -> Vec<Diagnostic> {
+fn parse_geiger_ascii(output: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for line in output.lines() {
@@ -129,15 +88,17 @@ pub(crate) fn parse_geiger_ascii(output: &str, provenance: &str) -> Vec<Diagnost
         }
 
         // Extract the crate name+version after tree-drawing characters
-        let after_marker = trimmed.split('!').nth(1).unwrap_or("").trim();
-        let crate_part = after_marker
+        let crate_part = trimmed
+            .split('!')
+            .nth(1)
+            .unwrap_or("")
+            .trim()
             .trim_start_matches(|c: char| "│├└─ ".contains(c))
             .trim();
 
         if crate_part.is_empty() {
             continue;
         }
-        let exposure = exposure_for(&after_marker[..after_marker.len() - crate_part.len()]);
 
         // Extract unsafe function count (first column: "N/M")
         let columns: Vec<&str> = trimmed.split_whitespace().collect();
@@ -163,21 +124,21 @@ pub(crate) fn parse_geiger_ascii(output: &str, provenance: &str) -> Vec<Diagnost
             Severity::Info
         };
 
-        diagnostics.push(adapter::project_diagnostic(
-            "unsafe-dependency",
-            Category::Security,
+        diagnostics.push(Diagnostic {
+            file_path: PathBuf::from("Cargo.toml"),
+            rule: "unsafe-dependency".to_string(),
+            category: Category::Security,
             severity,
-            &format!(
-                "{} unsafe exposure: `{crate_part}` uses {unsafe_fns} unsafe functions and \
-                 {unsafe_exprs} unsafe expressions",
-                exposure.as_str()
+            message: format!(
+                "Dependency `{crate_part}` uses unsafe: {unsafe_fns} functions, {unsafe_exprs} expressions"
             ),
-            Some(&format!(
-                "Unsafe usage is an exposure measurement, not a confirmed vulnerability. \
-                 Review `{crate_part}` or consider alternatives.\n  via {provenance}"
+            help: Some(format!(
+                "Review unsafe usage in `{crate_part}` or consider alternatives"
             )),
-            "Cargo.toml",
-        ));
+            line: None,
+            column: None,
+            fix: None,
+        });
     }
 
     diagnostics
@@ -197,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_parse_empty_output() {
-        let diags = parse_geiger_ascii("", "cargo-geiger test");
+        let diags = parse_geiger_ascii("");
         assert!(diags.is_empty());
     }
 
@@ -205,38 +166,18 @@ mod tests {
     fn test_parse_ascii_with_unsafe_dependency() {
         let output = "Functions  Expressions  Impls  Traits  Methods  Dependency\n\
                        3/10       20/100       0/0    0/0     0/0      !  └── some-crate 1.0.0\n";
-        let diags = parse_geiger_ascii(output, "cargo-geiger test");
+        let diags = parse_geiger_ascii(output);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("some-crate 1.0.0"));
-        assert!(diags[0].message.contains("3 unsafe functions"));
-        assert!(diags[0].message.contains("20 unsafe expressions"));
-        assert!(diags[0].message.starts_with("direct unsafe exposure"));
-    }
-
-    #[test]
-    fn unsafe_exposure_is_classified_and_never_called_a_vulnerability() {
-        let output = "Functions  Expressions  Impls  Traits  Methods  Dependency\n\
-                       3/10  20/100  0/0  0/0  0/0  !  ├── direct-crate 1.0.0\n\
-                       1/4   5/9     0/0  0/0  0/0  !  │   └── nested-crate 0.3.0\n";
-        let diags = parse_geiger_ascii(output, "cargo-geiger 0.11.7 (parser geiger-tree-v1)");
-        assert_eq!(diags.len(), 2);
-        assert!(diags[0].message.starts_with("direct unsafe exposure"));
-        assert!(diags[1].message.starts_with("transitive unsafe exposure"));
-        for diagnostic in &diags {
-            // cargo-geiger measures exposure, never a confirmed defect.
-            assert_eq!(diagnostic.rule, "unsafe-dependency");
-            assert!(!diagnostic.message.to_lowercase().contains("vulnerab"));
-            let help = diagnostic.help.as_deref().unwrap();
-            assert!(help.contains("not a confirmed vulnerability"));
-            assert!(help.contains("geiger-tree-v1"));
-        }
+        assert!(diags[0].message.contains("3 functions"));
+        assert!(diags[0].message.contains("20 expressions"));
     }
 
     #[test]
     fn test_parse_ascii_safe_crate_no_diagnostic() {
         let output = "Functions  Expressions  Impls  Traits  Methods  Dependency\n\
                        0/50       0/200        0/0    0/0     0/0      :) └── safe-crate 0.1.0\n";
-        let diags = parse_geiger_ascii(output, "cargo-geiger test");
+        let diags = parse_geiger_ascii(output);
         assert!(diags.is_empty());
     }
 
@@ -244,7 +185,7 @@ mod tests {
     fn test_high_unsafe_count_is_warning() {
         let output = "Functions  Expressions  Impls  Traits  Methods  Dependency\n\
                        30/35      25/30        0/0    0/0     0/0      !  └── risky-crate 2.0.0\n";
-        let diags = parse_geiger_ascii(output, "cargo-geiger test");
+        let diags = parse_geiger_ascii(output);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].severity, Severity::Warning);
     }

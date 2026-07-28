@@ -110,14 +110,12 @@ pub(crate) mod completeness;
 pub(crate) mod diff;
 pub(crate) mod handoff;
 pub(crate) mod onboarding;
-pub(crate) mod ordering;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
 pub(crate) mod share;
 pub(crate) mod suppression;
 pub(crate) mod telemetry;
-pub(crate) mod trust;
 pub(crate) mod workflows;
 pub(crate) mod workspace;
 
@@ -132,7 +130,5 @@ pub(crate) use passes::security::geiger;
 pub(crate) use passes::static_analysis::clippy;
 pub(crate) use passes::static_analysis::rules;
 
-#[cfg(test)]
-mod authority_matrix_tests;
 #[cfg(test)]
 mod report_contract_tests;

@@ -1,0 +1,128 @@
+name: Action Version Bump
+
+# Rust Doctor's composite action ships with the product release. Unlike React
+# Doctor, it does not have an independent tag namespace. This workflow points
+# out action-surface changes and whether the PR already moves the product
+# version that action.yml installs by default.
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-version-bump-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  recommend:
+    name: Check release version on PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Detect action changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+          action_files="$(printf '%s\n' "$changed_files" | awk '
+            $0 == "action.yml" || $0 ~ /^scripts\/action\// { print }
+          ')"
+
+          if [ -n "$action_files" ]; then
+            action_changed=true
+          else
+            action_changed=false
+          fi
+
+          current_version="$(awk -F '"' '/^version = "/ { print $2; exit }' Cargo.toml)"
+          base_version="$(git show "${BASE_SHA}:Cargo.toml" | awk -F '"' '/^version = "/ { print $2; exit }')"
+          bun scripts/release/packages.ts validate "v${current_version}"
+
+          {
+            echo "changed=${action_changed}"
+            echo "current-version=${current_version}"
+            echo "base-version=${base_version}"
+            echo "files<<ACTION_FILES"
+            printf '%s\n' "$action_files"
+            echo "ACTION_FILES"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upsert recommendation comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          ACTION_CHANGED: ${{ steps.detect.outputs.changed }}
+          ACTION_FILES: ${{ steps.detect.outputs.files }}
+          BASE_VERSION: ${{ steps.detect.outputs.base-version }}
+          CURRENT_VERSION: ${{ steps.detect.outputs.current-version }}
+        with:
+          script: |
+            const marker = "<!-- rust-doctor:action-version -->";
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issueNumber,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            const changed = process.env.ACTION_CHANGED === "true";
+
+            try {
+              if (!changed) {
+                if (existing) {
+                  await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+                }
+                return;
+              }
+
+              const files = process.env.ACTION_FILES
+                .split("\n")
+                .filter(Boolean)
+                .map((file) => `- \`${file}\``)
+                .join("\n");
+              const versionChanged = process.env.BASE_VERSION !== process.env.CURRENT_VERSION;
+              const releaseNote = versionChanged
+                ? `The product version moves from \`${process.env.BASE_VERSION}\` to \`${process.env.CURRENT_VERSION}\`; the action release is aligned.`
+                : `The product remains at \`${process.env.CURRENT_VERSION}\`. Bump the release version before tagging if these action changes must ship immediately.`;
+              const body = [
+                marker,
+                "",
+                "### GitHub Action release check",
+                "",
+                "This PR changes the Rust Doctor Action release surface:",
+                "",
+                files,
+                "",
+                releaseNote,
+                "",
+                "Rust Doctor's Action ships with the product release and uses the same `vX.Y.Z` tag.",
+              ].join("\n");
+
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+              }
+            } catch (error) {
+              core.warning(`Could not update the action-version comment: ${error.message}`);
+            }

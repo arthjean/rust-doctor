@@ -2,5 +2,18 @@
 source: src/output/terminal.rs
 expression: "&output.stdout"
 ---
-  68 / 100 Needs work · Core complete
-  Projected 100 (+32) after the first root causes
+  ┌─────┐  68 / 100 Needs work
+  │ • • │  ██████████████████████████████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  │  ─  │  Rust Doctor (https://rust-doctor.vercel.app)
+  └─────┘
+
+  You could improve +32% by fixing the top 3 issues
+
+  ────────────────────────────────────────────────────────────
+
+  Docs: https://rust-doctor.vercel.app/docs
+  Learn more about fixing issues, setting up CI/CD, and
+  configuring rules with a config file
+
+  GitHub: https://github.com/arthjean/rust-doctor
+  Report issues and star the repository!

@@ -46,10 +46,6 @@ struct FileEntry {
 pub struct ScanCache {
     version: u32,
     config_hash: String,
-    /// Score Core version that produced the cached run. A pre-V2 cache is
-    /// invalidated rather than reinterpreted under the new model.
-    #[serde(default)]
-    score_model_version: String,
     #[serde(default)]
     access_clock: u64,
     #[serde(skip, default = "default_cache_max_bytes")]
@@ -62,7 +58,6 @@ impl ScanCache {
         Self {
             version: CACHE_VERSION,
             config_hash,
-            score_model_version: crate::output::score_model_version().to_string(),
             access_clock: 0,
             max_bytes: DEFAULT_CACHE_MAX_BYTES,
             files: HashMap::new(),
@@ -89,10 +84,6 @@ impl ScanCache {
         }
         if cache.config_hash != config_hash {
             tracing::debug!("cache miss: analyzer fingerprint changed");
-            return None;
-        }
-        if cache.score_model_version != crate::output::score_model_version() {
-            tracing::debug!("cache miss: score model version changed");
             return None;
         }
         cache.max_bytes = DEFAULT_CACHE_MAX_BYTES;
@@ -299,7 +290,6 @@ pub fn compute_config_hash(
     let mut digest = Sha256::new();
     update_digest(&mut digest, &CACHE_VERSION.to_le_bytes());
     update_digest(&mut digest, REPORT_SCHEMA_VERSION.as_bytes());
-    update_digest(&mut digest, crate::output::score_model_version().as_bytes());
     update_digest(&mut digest, env!("CARGO_PKG_VERSION").as_bytes());
     for source in RULE_IMPLEMENTATION_SOURCES {
         update_digest(&mut digest, source.as_bytes());

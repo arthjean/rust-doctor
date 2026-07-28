@@ -160,8 +160,6 @@ pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGro
                 message: first.message.clone(),
                 help: diags.iter().find_map(|d| d.help.as_ref()).cloned(),
                 examples,
-                priority: None,
-                root_cause_key: None,
             })
         })
         .collect();
@@ -190,19 +188,13 @@ pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]
     use std::fmt::Write;
 
     let mut s = String::with_capacity(8192);
-    let decision = crate::completeness::score_decision(result);
-    let score = decision
-        .published_score()
-        .map_or_else(|| "n/a".to_string(), |value| value.to_string());
-    let label = decision.published_label().map_or_else(
-        || decision.primary_reason().to_string(),
-        |value| value.to_string(),
-    );
 
     // Header
     let _ = writeln!(
         s,
-        "## {score}/100 ({label}) — {} files in {:.1}s",
+        "## {}/100 ({}) — {} files in {:.1}s",
+        result.score,
+        result.score_label,
         result.source_file_count,
         result.elapsed.as_secs_f64()
     );
@@ -291,35 +283,18 @@ pub(super) fn format_scan_report(result: &ScanResult, groups: &[DiagnosticGroup]
 }
 
 /// Group the canonical MCP-visible diagnostics without reinterpreting metadata.
-///
-/// Grouping and order come from the shared contract: an agent reading MCP sees
-/// the same first issue a human sees in the terminal (US-015 AC-1).
-pub fn group_report_diagnostics(diagnostics: &[CanonicalDiagnostic]) -> Vec<DiagnosticGroup> {
-    let mut visible: Vec<&CanonicalDiagnostic> = diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.visible_on.iter().any(|value| value == "mcp"))
-        .collect();
-    let impact = crate::ordering::RootCauseImpact::measure(visible.iter().copied());
-    crate::ordering::sort_refs(&mut visible, &impact);
-
-    // Canonical order decides group order: first appearance wins.
-    let mut order: Vec<String> = Vec::new();
-    let mut grouped: HashMap<String, Vec<&CanonicalDiagnostic>> = HashMap::new();
-    for diagnostic in visible {
-        let key = diagnostic
-            .root_cause_key
-            .clone()
-            .unwrap_or_else(|| diagnostic.rule.clone());
-        if !grouped.contains_key(&key) {
-            order.push(key.clone());
+pub(super) fn group_report_diagnostics(
+    diagnostics: &[CanonicalDiagnostic],
+) -> Vec<DiagnosticGroup> {
+    let mut groups: HashMap<&str, Vec<&CanonicalDiagnostic>> = HashMap::new();
+    for diagnostic in diagnostics {
+        if diagnostic.visible_on.iter().any(|value| value == "mcp") {
+            groups.entry(&diagnostic.rule).or_default().push(diagnostic);
         }
-        grouped.entry(key).or_default().push(diagnostic);
     }
-
-    order
+    let mut result: Vec<DiagnosticGroup> = groups
         .into_iter()
-        .filter_map(|key| {
-            let diagnostics = grouped.remove(&key)?;
+        .filter_map(|(rule, diagnostics)| {
             let first = diagnostics.first()?;
             let examples = diagnostics
                 .iter()
@@ -338,7 +313,7 @@ pub fn group_report_diagnostics(diagnostics: &[CanonicalDiagnostic]) -> Vec<Diag
                 })
                 .collect();
             Some(DiagnosticGroup {
-                rule: first.rule.clone(),
+                rule: rule.to_string(),
                 severity: first.severity.to_string(),
                 category: first.category.to_string(),
                 count: diagnostics.len(),
@@ -348,15 +323,24 @@ pub fn group_report_diagnostics(diagnostics: &[CanonicalDiagnostic]) -> Vec<Diag
                     .find_map(|diagnostic| diagnostic.help.as_ref())
                     .cloned(),
                 examples,
-                priority: first.priority.clone(),
-                root_cause_key: first.root_cause_key.clone(),
             })
         })
-        .collect()
+        .collect();
+    result.sort_by(|left, right| {
+        let severity = |value: &str| match value {
+            "error" => 0,
+            "warning" => 1,
+            _ => 2,
+        };
+        severity(&left.severity)
+            .cmp(&severity(&right.severity))
+            .then(right.count.cmp(&left.count))
+    });
+    result
 }
 
 /// Render the MCP narrative from the same immutable Report V1 used by JSON.
-pub fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> String {
+pub(super) fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> String {
     use std::fmt::Write;
     let mut output = String::with_capacity(8192);
     let score = report
@@ -370,15 +354,6 @@ pub fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> Stri
         "## {score}/100 ({label}) - {} files in {:.1}s",
         report.source_file_count, report.elapsed
     );
-    if report.summary.score_reasons.is_empty() {
-        let _ = writeln!(output, "Authority: authoritative");
-    } else {
-        let _ = writeln!(
-            output,
-            "Authority reasons: {}",
-            report.summary.score_reasons.join(", ")
-        );
-    }
     let _ = writeln!(
         output,
         "{} errors | {} warnings | {} info | {} rules triggered\n",
@@ -387,40 +362,7 @@ pub fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> Stri
         report.info_count,
         groups.len()
     );
-    let scored = report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.score_impact == crate::diagnostics::ScoreImpact::Scored)
-        .count();
-    let advisory = report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            diagnostic.score_impact != crate::diagnostics::ScoreImpact::Scored
-                && diagnostic.trust_tier != "audit-only"
-        })
-        .count();
-    let audit = report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.trust_tier == "audit-only")
-        .count();
-    let _ = writeln!(
-        output,
-        "{scored} scored | {advisory} advisory | {audit} audit\n"
-    );
     let _ = writeln!(output, "Scope: {}\n", report.reporting_scope);
-    if !report.root_causes.is_empty() {
-        let _ = writeln!(output, "### Top remediations");
-        for group in report.root_causes.iter().take(3) {
-            let _ = writeln!(
-                output,
-                "- `{}` [{}]: {}",
-                group.rule, group.key, group.title
-            );
-        }
-        let _ = writeln!(output);
-    }
     for group in groups {
         let _ = writeln!(
             output,
@@ -453,45 +395,8 @@ pub fn format_report_scan(report: &ReportV1, groups: &[DiagnosticGroup]) -> Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{group_report_diagnostics, is_within_scope, pick_scope_root};
-    use crate::diagnostics::CanonicalDiagnostic;
+    use super::{is_within_scope, pick_scope_root};
     use std::path::Path;
-
-    fn canonical(rule: &str, priority: &str, surfaces: &[&str]) -> CanonicalDiagnostic {
-        serde_json::from_value(serde_json::json!({
-            "provider": "rust-doctor",
-            "rule": rule,
-            "title": rule,
-            "category": "correctness",
-            "severity": "warning",
-            "message": format!("{rule} fired"),
-            "url": "",
-            "tags": [],
-            "analysis_kind": "syn_ast",
-            "confidence": "medium",
-            "original_level": "warning",
-            "ownership": {"kind": "workspace"},
-            "source_surface": "library",
-            "location": {"kind": "project"},
-            "related_locations": [],
-            "fixes": [],
-            "visible_on": surfaces,
-            "site_id": format!("site:{rule}"),
-            "baseline_key": format!("baseline:{rule}"),
-            "namespace_fallback": false,
-            "advisory": false,
-            "priority": priority,
-            "trust_tier": "compiler-proven",
-            "score_eligible": true,
-            "score_impact": "scored",
-            "aggregation_policy": "bounded-occurrence",
-            "root_cause_key": format!("rule:{rule}"),
-            "evidence_summary": "",
-            "limitations": [],
-            "suppressed": false
-        }))
-        .unwrap()
-    }
 
     // --- US-006: directory scope precedence (RUST_DOCTOR_MCP_ROOT > $HOME) ---
 
@@ -543,22 +448,5 @@ mod tests {
             Path::new("/home/userother"),
             Path::new("/home/user/")
         ));
-    }
-
-    #[test]
-    fn mcp_uses_canonical_order_and_its_catalog_surface() {
-        let diagnostics = vec![
-            canonical("later", "p2", &["mcp"]),
-            canonical("hidden", "p0", &["terminal"]),
-            canonical("first", "p0", &["mcp"]),
-        ];
-        let groups = group_report_diagnostics(&diagnostics);
-        assert_eq!(
-            groups
-                .iter()
-                .map(|group| group.rule.as_str())
-                .collect::<Vec<_>>(),
-            vec!["first", "later"]
-        );
     }
 }

@@ -6,7 +6,7 @@
 
 use crate::catalog::{
     AnalyzerKind, Confidence, FixCapability, FrameworkRequirement, NumericRange, RuleCatalog,
-    RuleDescriptor, RuleTrust, built_in_catalog, evidence_model, rule_limitations,
+    RuleDescriptor, built_in_catalog,
 };
 use crate::config::{FileConfig, PolicyConfig, ResolvedConfig, RuleConfig, VisibilitySurface};
 use crate::diagnostics::{Category, Severity};
@@ -65,20 +65,6 @@ struct EffectiveRulePolicy {
     provenance: Vec<PolicyProvenance>,
 }
 
-/// Catalog-owned product decision, separate from user visibility overrides.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct SurfaceDecision {
-    local: bool,
-    score: bool,
-    ci: bool,
-    pull_request: bool,
-    sarif: bool,
-    mcp: bool,
-    migration: String,
-    audit_only: bool,
-    reason_code: String,
-}
-
 /// One deterministic row returned by `rules list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct RuleListEntry {
@@ -98,135 +84,7 @@ pub(super) struct RuleListEntry {
     fix_capability: String,
     fix_guidance: String,
     documentation_url: String,
-    trust: RuleTrustEntry,
-    surface_decision: SurfaceDecision,
-    gate: RuleGateEntry,
     effective_policy: EffectiveRulePolicy,
-}
-
-impl From<&crate::catalog::DiagnosticSurfacePolicy> for SurfaceDecision {
-    fn from(policy: &crate::catalog::DiagnosticSurfacePolicy) -> Self {
-        Self {
-            local: policy.local,
-            score: policy.score,
-            ci: policy.ci,
-            pull_request: policy.pull_request,
-            sarif: policy.sarif,
-            mcp: policy.mcp,
-            migration: match policy.migration {
-                crate::catalog::MigrationDisposition::Actionable => "actionable",
-                crate::catalog::MigrationDisposition::Advisory => "advisory",
-                crate::catalog::MigrationDisposition::Audit => "audit",
-            }
-            .to_string(),
-            audit_only: policy.audit_only,
-            reason_code: policy.reason_code.to_string(),
-        }
-    }
-}
-
-/// Trust contract projected for machine consumers. Severity, confidence,
-/// category, priority, trust tier, and score eligibility stay distinct fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(super) struct RuleTrustEntry {
-    tier: String,
-    priority: Option<String>,
-    score_eligible: bool,
-    contributes_to_core_score: bool,
-    aggregation: String,
-    required_evidence: Vec<String>,
-    calibration_version: Option<String>,
-    analyzer_availability: String,
-    supported_contexts: Vec<String>,
-}
-
-impl From<&RuleTrust> for RuleTrustEntry {
-    fn from(trust: &RuleTrust) -> Self {
-        Self {
-            tier: trust.tier.as_str().to_string(),
-            priority: trust.priority.map(|priority| priority.as_str().to_string()),
-            score_eligible: trust.score_eligible,
-            contributes_to_core_score: trust.contributes_to_core_score(),
-            aggregation: trust.aggregation.as_str().to_string(),
-            required_evidence: trust
-                .required_evidence
-                .iter()
-                .map(|evidence| evidence.as_str().to_string())
-                .collect(),
-            calibration_version: trust.calibration_version.clone(),
-            analyzer_availability: trust.availability.as_str().to_string(),
-            supported_contexts: trust
-                .supported_contexts
-                .iter()
-                .map(|surface| format!("{surface:?}").to_lowercase())
-                .collect(),
-        }
-    }
-}
-
-/// Promotion-gate state for one rule.
-///
-/// Every default or score-eligible rule is requalified against its trust tier
-/// on every listing, historical rules included. A failing rule names the reason
-/// with a stable code so a consumer can act on it without parsing prose
-/// (US-012).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(super) struct RuleGateEntry {
-    /// `not-gated`, `passing`, `exempt`, `failing`, or `demotion-proposed`.
-    status: &'static str,
-    /// Which authority lets the rule ship, when it passes.
-    authority: Option<&'static str>,
-    /// Stable failure code, when it does not.
-    reason_code: Option<&'static str>,
-    detail: Option<String>,
-    /// Owner of the approved exception, when one applies.
-    exception_owner: Option<String>,
-    exception_expires_at: Option<String>,
-}
-
-impl RuleGateEntry {
-    fn for_descriptor(descriptor: &RuleDescriptor) -> Self {
-        let today = crate::trust::today_utc();
-        match crate::trust::evaluate_gate(&descriptor.gate_subject(), &today) {
-            crate::trust::GateVerdict::NotGated => Self::plain("not-gated"),
-            crate::trust::GateVerdict::Passing(authority) => Self {
-                authority: Some(match authority {
-                    crate::trust::GateAuthority::Calibration => "calibration",
-                    crate::trust::GateAuthority::CompilerConformance => "compiler-conformance",
-                    crate::trust::GateAuthority::Advisory => "advisory",
-                    crate::trust::GateAuthority::AuditOnly => "audit-only",
-                }),
-                ..Self::plain("passing")
-            },
-            crate::trust::GateVerdict::Exempt(exception) => Self {
-                exception_owner: Some(exception.owner),
-                exception_expires_at: Some(exception.expires_at),
-                detail: Some(exception.reason),
-                ..Self::plain("exempt")
-            },
-            crate::trust::GateVerdict::Failing(failure) => Self {
-                reason_code: Some(failure.code),
-                detail: Some(failure.detail),
-                ..Self::plain("failing")
-            },
-            crate::trust::GateVerdict::DemotionProposed(failure) => Self {
-                reason_code: Some(failure.code),
-                detail: Some(failure.detail),
-                ..Self::plain("demotion-proposed")
-            },
-        }
-    }
-
-    const fn plain(status: &'static str) -> Self {
-        Self {
-            status,
-            authority: None,
-            reason_code: None,
-            detail: None,
-            exception_owner: None,
-            exception_expires_at: None,
-        }
-    }
 }
 
 /// Serializable threshold contract used by rule explanations.
@@ -269,8 +127,6 @@ pub(super) struct RuleExplanation {
     limitations: Vec<String>,
     fix_guidance: String,
     official_documentation: Vec<String>,
-    trust: RuleTrustEntry,
-    surface_decision: SurfaceDecision,
     effective_policy: EffectiveRulePolicy,
     namespace_fallback: bool,
 }
@@ -451,13 +307,10 @@ pub(super) fn list_rules(
             framework_requirements: descriptor.framework_requirements.clone(),
             description: descriptor.description.clone(),
             limitation_ids: descriptor.limitation_ids.clone(),
-            limitations: rule_limitations(descriptor, false),
+            limitations: limitations(descriptor, false),
             fix_capability: fix_capability_key(descriptor.fix_capability).to_string(),
             fix_guidance: descriptor.fix_guidance.clone(),
             documentation_url: descriptor.documentation_url.clone(),
-            trust: RuleTrustEntry::from(&resolved.effective_trust(descriptor)),
-            surface_decision: SurfaceDecision::from(&descriptor.surface_policy),
-            gate: RuleGateEntry::for_descriptor(descriptor),
             effective_policy: effective_policy(resolved, descriptor),
         })
         .collect())
@@ -617,11 +470,9 @@ fn explanation_for(
         rationale: descriptor.description.clone(),
         evidence_model: evidence_model(descriptor.analyzer_kind).to_string(),
         limitation_ids: descriptor.limitation_ids.clone(),
-        limitations: rule_limitations(descriptor, namespace_fallback),
+        limitations: limitations(descriptor, namespace_fallback),
         fix_guidance: descriptor.fix_guidance.clone(),
         official_documentation: vec![descriptor.documentation_url.clone()],
-        trust: RuleTrustEntry::from(&resolved.effective_trust(descriptor)),
-        surface_decision: SurfaceDecision::from(&descriptor.surface_policy),
         effective_policy: effective_policy(resolved, descriptor),
         namespace_fallback,
     }
@@ -904,9 +755,6 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             fix_guidance: "Apply the rustc suggestion when its applicability permits it."
                 .to_string(),
             limitation_ids: Vec::new(),
-            advisory: !RuleTrust::resolve(rule, AnalyzerKind::Clippy).score_eligible,
-            surface_policy: crate::catalog::fallback_surface_policy(rule),
-            trust: RuleTrust::resolve(rule, AnalyzerKind::Clippy),
         });
     }
     if is_rustsec_id(rule) {
@@ -930,9 +778,6 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
                 "Review the advisory and upgrade, replace, or isolate the affected dependency."
                     .to_string(),
             limitation_ids: Vec::new(),
-            advisory: !RuleTrust::resolve(rule, AnalyzerKind::Dependency).score_eligible,
-            surface_policy: crate::catalog::fallback_surface_policy(rule),
-            trust: RuleTrust::resolve(rule, AnalyzerKind::Dependency),
         });
     }
     if rule.strip_prefix("deny::").is_some_and(|code| {
@@ -961,9 +806,6 @@ fn namespace_descriptor(rule: &str) -> Option<RuleDescriptor> {
             fix_guidance: "Follow the cargo-deny check guidance and update the dependency policy."
                 .to_string(),
             limitation_ids: Vec::new(),
-            advisory: !RuleTrust::resolve(rule, AnalyzerKind::Dependency).score_eligible,
-            surface_policy: crate::catalog::fallback_surface_policy(rule),
-            trust: RuleTrust::resolve(rule, AnalyzerKind::Dependency),
         });
     }
     None
@@ -981,6 +823,59 @@ fn is_rustsec_id(rule: &str) -> bool {
         && sequence.len() == 4
         && year.bytes().all(|byte| byte.is_ascii_digit())
         && sequence.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn limitations(descriptor: &RuleDescriptor, namespace_fallback: bool) -> Vec<String> {
+    let specific = match descriptor.canonical_id.as_str() {
+        "unwrap-in-production" => Some(
+            "Syntactic matching cannot distinguish a provably infallible unwrap from a risky one.",
+        ),
+        "large-enum-variant" => Some(
+            "The rule counts fields rather than calculating each variant's concrete byte layout.",
+        ),
+        "blocking-in-async" => Some(
+            "The rule recognizes known call names but does not follow aliases or interprocedural calls.",
+        ),
+        "sql-injection-risk" => Some(
+            "String-built queries are heuristic evidence; the rule cannot prove that interpolated data is untrusted.",
+        ),
+        _ => None,
+    };
+    let mut values = specific.into_iter().map(str::to_string).collect::<Vec<_>>();
+    values.extend(
+        descriptor
+            .limitation_ids
+            .iter()
+            .map(|id| format!("Conformance limitation: {id}")),
+    );
+    if specific.is_none() && descriptor.analyzer_kind == AnalyzerKind::SynAst {
+        values.push(
+            "Syntactic analysis does not have rustc name resolution or inferred type information."
+                .to_string(),
+        );
+    }
+    if values.is_empty() {
+        values.push(match descriptor.analyzer_kind {
+            AnalyzerKind::Clippy => {
+                "Compiler-aware evidence is unavailable when the package cannot complete Clippy analysis."
+            }
+            AnalyzerKind::Dependency | AnalyzerKind::External => {
+                "Evidence depends on the originating external analyzer and its local data being available."
+            }
+            AnalyzerKind::Project => {
+                "Project-level evidence does not identify a precise source span."
+            }
+            AnalyzerKind::SynAst => unreachable!("syn rules receive the generic syntax limitation"),
+        }
+        .to_string());
+    }
+    if namespace_fallback {
+        values.push(
+            "This rule family has no explicit descriptor in this Rust Doctor build, so category and severity use namespace defaults."
+                .to_string(),
+        );
+    }
+    values
 }
 
 const fn analyzer_key(analyzer: AnalyzerKind) -> &'static str {
@@ -1007,6 +902,20 @@ const fn fix_capability_key(capability: FixCapability) -> &'static str {
         FixCapability::Guidance => "guidance",
         FixCapability::RustcSuggestion => "rustc-suggestion",
         FixCapability::MachineApplicable => "machine-applicable",
+    }
+}
+
+const fn evidence_model(analyzer: AnalyzerKind) -> &'static str {
+    match analyzer {
+        AnalyzerKind::SynAst => "Syntactic Rust AST evidence without name or type resolution.",
+        AnalyzerKind::Clippy => {
+            "Type-aware rustc and Clippy evidence with compiler spans and suggestions."
+        }
+        AnalyzerKind::Dependency => {
+            "Dependency graph, advisory, or policy evidence from the named analyzer."
+        }
+        AnalyzerKind::Project => "Cargo metadata or aggregate project-level evidence.",
+        AnalyzerKind::External => "Analyzer-provided evidence retained under its namespace.",
     }
 }
 
@@ -2076,39 +1985,6 @@ mod tests {
         );
         let json = render_rule_list_json(&entries).unwrap();
         assert_eq!(json, render_rule_list_json(&entries).unwrap());
-        assert!(json.contains("\"surface_decision\""));
-        assert!(json.contains("\"reason_code\""));
-    }
-
-    #[test]
-    fn machine_inventory_covers_every_catalog_rule_in_stable_order() {
-        let resolved = resolve_config_defaults(None);
-        let entries = list_rules(&resolved, &RuleListFilter::default()).unwrap();
-        let catalog = built_in_catalog().unwrap();
-        assert_eq!(entries.len(), catalog.descriptors().len());
-        assert!(
-            entries
-                .windows(2)
-                .all(|pair| pair[0].canonical_id < pair[1].canonical_id)
-        );
-        assert!(entries.iter().all(|entry| {
-            !entry.surface_decision.reason_code.is_empty()
-                && entry.surface_decision.score == entry.trust.score_eligible
-        }));
-
-        let clone = entries
-            .iter()
-            .find(|entry| entry.canonical_id == "excessive-clone")
-            .expect("high-volume rule");
-        assert_eq!(
-            clone.surface_decision.reason_code,
-            "unqualified-high-volume"
-        );
-        assert_eq!(clone.surface_decision.migration, "advisory");
-        assert_eq!(
-            clone.effective_policy.surfaces,
-            vec!["terminal", "sarif", "mcp"]
-        );
     }
 
     #[test]
@@ -2143,12 +2019,6 @@ mod tests {
         let rustsec = explain_rule(&resolved, "RUSTSEC-2026-0001").unwrap();
         assert_eq!(rustsec.provider, "rustsec");
         assert!(rustsec.namespace_fallback);
-        assert_eq!(
-            rustsec.surface_decision.reason_code,
-            "confirmed-rustsec-advisory"
-        );
-        assert!(rustsec.surface_decision.ci);
-        assert!(rustsec.surface_decision.pull_request);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
@@ -81,73 +81,42 @@ pub enum ProcessStop {
     Cancelled,
 }
 
-const PROBE_TIMEOUT_SECS: u64 = 5;
-const PROBE_MAX_OUTPUT_BYTES: u64 = 64 * 1024;
-
-/// Read a cargo subcommand version through the same bounded, cancellable
-/// process primitive used for analyzer execution.
-pub fn cargo_subcommand_version(name: &str) -> Option<String> {
-    static CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
+/// Check if a cargo subcommand (e.g. "audit", "deny", "clippy") is installed.
+/// Results are cached for the process lifetime.
+pub fn is_cargo_subcommand_available(name: &str) -> bool {
+    static CACHE: LazyLock<Mutex<HashMap<String, bool>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
     let cache = CACHE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(result) = cache.get(name) {
-        return result.clone();
+    if let Some(&result) = cache.get(name) {
+        return result;
     }
     drop(cache);
 
-    let observed = spawn_in_group(
-        Command::new("cargo")
-            .args([name, "--version"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
-    )
-    .ok()
-    .and_then(|child| run_with_timeout(child, PROBE_TIMEOUT_SECS, PROBE_MAX_OUTPUT_BYTES).ok())
-    .filter(|output| {
-        !output.timed_out && !output.cancelled && !output.truncated && output.exit_code == Some(0)
-    })
-    .and_then(|output| {
-        output
-            .stdout
-            .lines()
-            .chain(output.stderr.lines())
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(ToString::to_string)
-    });
+    let available = Command::new("cargo")
+        .args([name, "--version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
 
     CACHE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(name.to_string(), observed.clone());
-    observed
-}
-
-/// Check if a cargo subcommand (e.g. "audit", "deny", "clippy") is installed.
-/// Results are cached for the process lifetime.
-pub fn is_cargo_subcommand_available(name: &str) -> bool {
-    cargo_subcommand_version(name).is_some()
+        .insert(name.to_string(), available);
+    available
 }
 
 /// Outcome of a subprocess run with a timeout watchdog.
 pub struct ProcessOutput {
-    /// Raw stdout content. Stdout and stderr share `max_output_bytes`.
+    /// Raw stdout content (capped at `max_output_bytes`).
     pub stdout: String,
-    /// Raw stderr content. Stdout and stderr share `max_output_bytes`.
-    pub stderr: String,
     /// Whether the process was killed due to timeout.
     pub timed_out: bool,
-    /// Whether the scan was cancelled while the process was running.
-    pub cancelled: bool,
     /// Exit status code, if the process completed.
     pub exit_code: Option<i32>,
-    /// True when the combined streams reached `max_output_bytes` or a stream
-    /// could not be read completely. A truncated document can never be parsed
-    /// as a complete clean result.
-    pub truncated: bool,
 }
 
 /// Spawn a command as a new process-group leader so its descendants can be
@@ -189,7 +158,7 @@ pub fn kill_process_tree(child: &mut Child) {
 
 /// Spawn a command with a cancellable timeout watchdog.
 ///
-/// Captures stdout and stderr concurrently under one combined byte limit.
+/// Reads stdout up to `max_output_bytes` (stderr is suppressed).
 /// If the process exceeds `timeout_secs`, its whole process group is killed
 /// (US-008) and `timed_out` is set.
 pub fn run_with_timeout(
@@ -206,7 +175,14 @@ pub fn run_with_timeout(
         .stdout
         .take()
         .ok_or("failed to capture subprocess stdout")?;
-    let stderr = child.stderr.take();
+
+    // Drain stderr in background to prevent pipe deadlock if caller piped it
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let _ = std::io::copy(&mut stderr.take(1024 * 1024), &mut std::io::sink());
+        });
+    }
 
     let child = Arc::new(Mutex::new(child));
     let watchdog = ProcessWatchdog::start(
@@ -215,29 +191,12 @@ pub fn run_with_timeout(
         current_scan_control(),
     );
 
-    let remaining = Arc::new(AtomicU64::new(max_output_bytes));
-    let truncated = Arc::new(AtomicBool::new(false));
-    let stdout_remaining = Arc::clone(&remaining);
-    let stdout_truncated = Arc::clone(&truncated);
-    let stdout_reader =
-        thread::spawn(move || capture_bounded(stdout, &stdout_remaining, &stdout_truncated));
-    let stderr_reader = stderr.map(|stderr| {
-        let remaining = Arc::clone(&remaining);
-        let truncated = Arc::clone(&truncated);
-        thread::spawn(move || capture_bounded(stderr, &remaining, &truncated))
-    });
-
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| "failed to capture subprocess stdout".to_string())?;
-    let stderr = stderr_reader
-        .map(|reader| {
-            reader
-                .join()
-                .map_err(|_| "failed to capture subprocess stderr".to_string())
-        })
-        .transpose()?
-        .unwrap_or_default();
+    // Read stdout with a cap to prevent OOM
+    let mut output = String::new();
+    {
+        use std::io::Read;
+        let _ = stdout.take(max_output_bytes).read_to_string(&mut output);
+    }
 
     // Cancel watchdog and reap child
     let stop = watchdog.finish();
@@ -262,56 +221,10 @@ pub fn run_with_timeout(
     );
 
     Ok(ProcessOutput {
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        stdout: output,
         timed_out: did_timeout,
-        cancelled: was_cancelled,
         exit_code,
-        truncated: truncated.load(Ordering::Relaxed),
     })
-}
-
-fn capture_bounded(
-    mut reader: impl std::io::Read,
-    remaining: &AtomicU64,
-    truncated: &AtomicBool,
-) -> Vec<u8> {
-    let mut captured = Vec::new();
-    let mut buffer = [0_u8; 8 * 1024];
-    loop {
-        let count = match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => count,
-            Err(_) => {
-                truncated.store(true, Ordering::Relaxed);
-                break;
-            }
-        };
-        let keep = reserve_capture_bytes(remaining, count);
-        captured.extend_from_slice(&buffer[..keep]);
-        if keep != count {
-            truncated.store(true, Ordering::Relaxed);
-        }
-    }
-    captured
-}
-
-fn reserve_capture_bytes(remaining: &AtomicU64, requested: usize) -> usize {
-    loop {
-        let available = remaining.load(Ordering::Relaxed);
-        let keep = available.min(requested as u64);
-        if remaining
-            .compare_exchange_weak(
-                available,
-                available - keep,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            )
-            .is_ok()
-        {
-            return keep as usize;
-        }
-    }
 }
 
 /// Watch a process that streams its output in the caller, such as Clippy.
@@ -357,28 +270,13 @@ impl ProcessWatchdog {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{
-        ProcessStop, ProcessWatchdog, ScanControl, capture_bounded, kill_process_tree,
-        spawn_in_group,
-    };
-    use std::io::Cursor;
+    use super::{ProcessStop, ProcessWatchdog, ScanControl, kill_process_tree, spawn_in_group};
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     // --- US-008: process-group spawn + tree kill ---
-
-    #[test]
-    fn stdout_and_stderr_share_one_capture_limit() {
-        let remaining = AtomicU64::new(10);
-        let truncated = AtomicBool::new(false);
-        let stdout = capture_bounded(Cursor::new(vec![b'a'; 7]), &remaining, &truncated);
-        let stderr = capture_bounded(Cursor::new(vec![b'b'; 7]), &remaining, &truncated);
-        assert_eq!(stdout.len() + stderr.len(), 10);
-        assert_eq!(remaining.load(Ordering::Relaxed), 0);
-        assert!(truncated.load(Ordering::Relaxed));
-    }
 
     #[test]
     fn test_spawn_in_group_leads_own_group() {

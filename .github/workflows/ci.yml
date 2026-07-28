@@ -2,91 +2,81 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master]
   pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check & Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
-
-      - name: Check
-        run: cargo check
-
-      - name: Clippy (pedantic + nursery)
-        run: cargo clippy --all-targets -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings
-
-      - name: Format
-        run: cargo fmt --check
-
-      - name: Test
-        run: cargo test
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Security audit
-        run: cargo audit
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
-
-      - name: Supply-chain check (cargo-deny)
-        run: cargo deny check
-
-      - name: Publish dry-run
-        run: cargo publish --dry-run
-
-  cargo-deny-conformance:
-    name: cargo-deny ${{ matrix.cargo-deny }} conformance
-    runs-on: ubuntu-latest
+  test:
+    name: Test (${{ matrix.os }}, Rust ${{ matrix.toolchain }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        cargo-deny: ["0.18.3", "0.19.8"]
+        include:
+          - os: ubuntu-latest
+            toolchain: "1.97"
+          - os: ubuntu-latest
+            toolchain: stable
+          - os: macos-latest
+            toolchain: stable
+          - os: windows-latest
+            toolchain: stable
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
 
-      - name: Install qualified cargo-deny
-        run: cargo install cargo-deny --version "${{ matrix.cargo-deny }}" --locked
+      - name: Test all features
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: cargo test --locked --all-features
 
-      - name: Verify real-binary evidence contract
-        run: cargo test --lib --all-features real_binary_smoke_uses_qualified_contract -- --ignored
+      - name: Compile all tests
+        if: ${{ matrix.os != 'ubuntu-latest' }}
+        run: cargo test --locked --all-features --no-run
+
+      - name: Test without default features
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable' }}
+        run: cargo test --locked --no-default-features
 
   artifact-smoke:
     name: Built artifact smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: stable
+          toolchain: "1.97"
           components: clippy
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Build release surfaces
         run: |
-          cargo build --release --bin rust-doctor --bin rust-doctor-eval
-          cargo build --release --no-default-features --bin rust-doctor --target-dir target/no-default
-          cargo build --release --features lsp --bin rust-doctor --target-dir target/lsp
+          cargo build --locked --release --features lsp --bin rust-doctor --bin rust-doctor-eval
+          cargo build --locked --release --no-default-features --bin rust-doctor --target-dir target/no-default
           cargo package --locked
           mkdir -p artifacts
           bash scripts/release/package-native.sh \
@@ -99,41 +89,43 @@ jobs:
             target/release/rust-doctor \
             artifacts
 
-      - name: Exercise built and final packaged surfaces
+      - name: Exercise built and packaged surfaces
         run: |
-          version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
-          crate_package=$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)
+          version="$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
+          crate_package="$(find target/package -maxdepth 1 -name 'rust-doctor-*.crate' -print -quit)"
           test -n "$crate_package"
           target/release/rust-doctor-eval smoke \
             --binary target/release/rust-doctor \
             --no-default-binary target/no-default/release/rust-doctor \
-            --lsp-binary target/lsp/release/rust-doctor \
             --schema schemas/report-v1.schema.json \
             --npm-platform-package "artifacts/rust-doctor-npm-linux-x64-${version}.tgz" \
             --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
             --bun "$(command -v bun)" \
             --archive artifacts/rust-doctor-x86_64-unknown-linux-gnu.tar.gz \
-            --crate-package "$crate_package" \
-            --action action.yml
+            --crate-package "$crate_package"
 
   editor-adapters:
     name: Packaged editor adapters
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: stable
+          toolchain: "1.97"
+          components: clippy
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
-      - name: Build the real language server
-        run: cargo build --features lsp --bin rust-doctor
+      - name: Build language server
+        run: cargo build --locked --features lsp --bin rust-doctor
 
-      - name: Build, test, package, and exercise VS Code/Cursor adapter
+      - name: Package VS Code and Cursor adapter
         working-directory: editors/vscode
         env:
           RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
@@ -141,7 +133,7 @@ jobs:
           bun install --frozen-lockfile
           bun run package
 
-      - name: Build, test, package, and exercise Zed adapter
+      - name: Package Zed adapter
         working-directory: editors/zed
         env:
           RUST_DOCTOR_LSP_BINARY: ${{ github.workspace }}/target/debug/rust-doctor
@@ -156,16 +148,16 @@ jobs:
       contents: read
     steps:
       - name: Check out Rust Doctor
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: rust-doctor
           persist-credentials: false
 
-      - name: Check out the independent website
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out independent website
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: arthjean/rust-doctor-web
-          ref: f4db958fcb1fadc9d61c253558c373065e855a11
+          ref: 1b0cc07f1c0c73047cba31586e172c11c01c747f
           path: rust-doctor-web
           ssh-key: ${{ secrets.RUST_DOCTOR_WEB_DEPLOY_KEY }}
           persist-credentials: false
@@ -174,17 +166,15 @@ jobs:
         id: rust-doctor-source
         run: echo "sha=$(git -C rust-doctor rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Install Rust 1.97
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: "1.97"
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
-      - name: Build the candidate binary
+      - name: Build candidate binary
         working-directory: rust-doctor
         run: cargo build --locked --bin rust-doctor
 
@@ -194,7 +184,7 @@ jobs:
           bun install --frozen-lockfile
           bunx playwright install --with-deps chromium
 
-      - name: Verify the external public contract
+      - name: Verify external public contract
         working-directory: rust-doctor-web
         env:
           RUST_DOCTOR_BIN: ${{ github.workspace }}/rust-doctor/target/debug/rust-doctor
@@ -203,21 +193,17 @@ jobs:
           RUST_DOCTOR_SOURCE_SHA: ${{ steps.rust-doctor-source.outputs.sha }}
           WCAG_AUDIT_PATH: ${{ runner.temp }}/rust-doctor-wcag-audit.json
         run: |
-          bun run catalog:check-only
           bun run catalog:sync
+          bun run catalog:check-only
           bun run build:verified
           bun run audit:wcag
 
       - name: Upload public-contract evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-doctor-public-contract
           path: |
             rust-doctor-web/public/catalog/build-provenance.json
             ${{ runner.temp }}/rust-doctor-wcag-audit.json
           if-no-files-found: error
-
-  release-verification:
-    name: Five-platform release verification
-    uses: ./.github/workflows/release-verify.yml

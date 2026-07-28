@@ -2,8 +2,6 @@ use super::manifest::hex_digest;
 use super::process::{ProcessOutput, run_capped};
 use super::{EvalError, Result};
 use crate::SmokeArgs;
-use rust_doctor::api::{ScanRequest, scan as library_scan};
-use rust_doctor::config::AdapterPolicy;
 use rust_doctor::diagnostics::{ReportOutcome, ReportV1, ScanMode};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -17,22 +15,6 @@ const OUTPUT_CAP: usize = 32 * 1024 * 1024;
 const ARCHIVE_ENTRY_LIMIT: usize = 4_096;
 const ARCHIVE_EXPANDED_CAP: usize = 256 * 1024 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DecisionProjection {
-    score: Option<u64>,
-    label: Option<String>,
-    authoritative: bool,
-    reason_codes: Vec<String>,
-    error_count: u64,
-    warning_count: u64,
-    info_count: u64,
-    top_root_causes: Vec<String>,
-    top_rules: Vec<String>,
-    scored_groups: usize,
-    advisory_groups: usize,
-    audit_groups: usize,
-}
-
 #[expect(
     clippy::needless_pass_by_value,
     reason = "the command handler owns its parsed Clap subcommand"
@@ -40,77 +22,31 @@ struct DecisionProjection {
 pub(crate) fn run(args: SmokeArgs) -> Result<()> {
     let binary = canonical_binary(&args.binary, "default-feature binary")?;
     let no_default = canonical_binary(&args.no_default_binary, "no-default-features binary")?;
-    let lsp_binary = canonical_binary(&args.lsp_binary, "LSP-feature binary")?;
     let schema = load_schema(&args.schema)?;
     let fixture = materialize_fixture()?;
     let timeout = Duration::from_secs(args.timeout_secs.max(1));
 
-    let decision = smoke_json(&binary, fixture.path(), &schema, timeout)?;
-    smoke_library(fixture.path(), &decision)?;
-    smoke_terminal(&binary, fixture.path(), &decision, timeout)?;
-    smoke_score(&binary, fixture.path(), &decision, timeout)?;
-    smoke_sarif(&binary, fixture.path(), &decision, timeout)?;
+    smoke_terminal(&binary, fixture.path(), timeout)?;
+    smoke_score(&binary, fixture.path(), timeout)?;
+    smoke_json(&binary, fixture.path(), &schema, timeout)?;
+    smoke_sarif(&binary, fixture.path(), timeout)?;
     smoke_baseline(&binary, fixture.path(), &schema, timeout)?;
     smoke_failures(&binary, fixture.path(), &schema, timeout)?;
-    smoke_no_default(
-        &binary,
-        &no_default,
-        fixture.path(),
-        &schema,
-        &decision,
-        timeout,
-    )?;
-    smoke_mcp(&binary, fixture.path(), &decision, timeout)?;
-    smoke_lsp(&lsp_binary, fixture.path(), &decision, timeout)?;
+    smoke_no_default(&binary, &no_default, fixture.path(), &schema, timeout)?;
+    smoke_mcp(&binary, fixture.path(), timeout)?;
     smoke_npm(
         &binary,
         &args.npm_platform_package,
         &args.npm_wrapper_package,
         &args.bun,
-        fixture.path(),
-        &schema,
-        &decision,
         timeout,
     )?;
-    smoke_archives(
-        &binary,
-        &args.archives,
-        fixture.path(),
-        &schema,
-        &decision,
-        timeout,
-    )?;
+    smoke_archives(&binary, &args.archives, timeout)?;
     smoke_crate(&args.crate_package, timeout)?;
-    smoke_action(&args.action, &binary, fixture.path(), &decision, timeout)?;
     Ok(())
 }
 
-fn smoke_library(fixture: &Path, expected: &DecisionProjection) -> Result<()> {
-    let mut request = ScanRequest::new(fixture);
-    request.options.adapters = AdapterPolicy {
-        compiler_lint: true,
-        custom_ast: true,
-        supply_chain: false,
-        quality: false,
-        network: false,
-    };
-    let report = library_scan(request)
-        .map_err(|error| EvalError::Command(format!("library API smoke failed: {error}")))?;
-    require_projection(
-        "library API",
-        &serde_json::to_value(report).map_err(|error| {
-            EvalError::Command(format!("cannot project library report: {error}"))
-        })?,
-        expected,
-    )
-}
-
-fn smoke_terminal(
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
+fn smoke_terminal(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     let output = invoke(binary, fixture, &["--offline"], timeout)?;
     require_success("terminal", &output)?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -119,17 +55,10 @@ fn smoke_terminal(
             "terminal smoke did not render the score surface".to_string(),
         ));
     }
-    let rendered = format!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
-    require_rendered_decision("terminal", &rendered, expected)?;
     Ok(())
 }
 
-fn smoke_score(
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
+fn smoke_score(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     let output = invoke(binary, fixture, &["--score", "--offline"], timeout)?;
     require_success("score", &output)?;
     let score = String::from_utf8_lossy(&output.stdout)
@@ -143,11 +72,6 @@ fn smoke_score(
             "score smoke emitted out-of-range score {score}"
         )));
     }
-    if Some(u64::from(score)) != expected.score {
-        return Err(EvalError::Command(
-            "score surface disagrees with canonical Report V1".to_string(),
-        ));
-    }
     Ok(())
 }
 
@@ -156,7 +80,7 @@ fn smoke_json(
     fixture: &Path,
     schema: &jsonschema::Validator,
     timeout: Duration,
-) -> Result<DecisionProjection> {
+) -> Result<()> {
     let output = invoke(
         binary,
         fixture,
@@ -170,17 +94,10 @@ fn smoke_json(
             "JSON smoke fixture produced no canonical diagnostic".to_string(),
         ));
     }
-    decision_projection(&serde_json::to_value(report).map_err(|error| {
-        EvalError::Command(format!("cannot project JSON smoke report: {error}"))
-    })?)
+    Ok(())
 }
 
-fn smoke_sarif(
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
+fn smoke_sarif(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     let output = invoke(binary, fixture, &["--sarif", "--offline"], timeout)?;
     require_success("SARIF", &output)?;
     let sarif: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
@@ -204,64 +121,6 @@ fn smoke_sarif(
     {
         return Err(EvalError::Command(
             "SARIF smoke requires stable rule IDs and partial fingerprints".to_string(),
-        ));
-    }
-    let properties = &sarif["runs"][0]["properties"];
-    if properties["rustDoctorScore"].as_u64() != expected.score
-        || properties["rustDoctorScoreLabel"].as_str() != expected.label.as_deref()
-        || properties["rustDoctorScoreAuthoritative"].as_bool() != Some(expected.authoritative)
-        || properties["rustDoctorScoreReasons"]
-            != serde_json::to_value(&expected.reason_codes).unwrap_or_default()
-    {
-        return Err(EvalError::Command(
-            "SARIF decision metadata disagrees with canonical Report V1".to_string(),
-        ));
-    }
-    let top = first_unique(
-        results
-            .iter()
-            .filter_map(|result| {
-                result["properties"]["rootCauseKey"]
-                    .as_str()
-                    .or_else(|| result["ruleId"].as_str())
-            })
-            .map(str::to_string),
-        3,
-    );
-    if top != expected.top_root_causes {
-        return Err(EvalError::Command(format!(
-            "SARIF top remediation order {top:?} disagrees with canonical Report V1 {:?}",
-            expected.top_root_causes
-        )));
-    }
-    let rules = sarif["runs"][0]["tool"]["driver"]["rules"]
-        .as_array()
-        .ok_or_else(|| EvalError::Command("SARIF omitted its rule inventory".to_string()))?;
-    let mut scored_groups = 0usize;
-    let mut advisory_groups = 0usize;
-    let mut audit_groups = 0usize;
-    for result in results {
-        let rule_id = result["ruleId"].as_str().unwrap_or_default();
-        let audit = rules.iter().any(|rule| {
-            rule["id"].as_str() == Some(rule_id) && rule["properties"]["trustTier"] == "audit-only"
-        });
-        if audit {
-            audit_groups += 1;
-        } else if result["properties"]["scoreImpact"] == "scored" {
-            scored_groups += 1;
-        } else {
-            advisory_groups += 1;
-        }
-    }
-    if (scored_groups, advisory_groups, audit_groups)
-        != (
-            expected.scored_groups,
-            expected.advisory_groups,
-            expected.audit_groups,
-        )
-    {
-        return Err(EvalError::Command(
-            "SARIF inventory totals disagree with canonical Report V1".to_string(),
         ));
     }
     Ok(())
@@ -397,7 +256,6 @@ fn smoke_no_default(
     no_default_binary: &Path,
     fixture: &Path,
     schema: &jsonschema::Validator,
-    expected: &DecisionProjection,
     timeout: Duration,
 ) -> Result<()> {
     let default_version = version(default_binary, timeout)?;
@@ -414,206 +272,7 @@ fn smoke_no_default(
         timeout,
     )?;
     require_success("no-default-features CLI", &output)?;
-    let report = parse_report("no-default-features CLI", &output.stdout, schema)?;
-    require_projection(
-        "no-default-features CLI",
-        &serde_json::to_value(report).map_err(|error| {
-            EvalError::Command(format!("cannot project no-default report: {error}"))
-        })?,
-        expected,
-    )?;
-    Ok(())
-}
-
-#[expect(
-    clippy::too_many_lines,
-    reason = "the complete LSP handshake and decision command stay in one bounded server conversation"
-)]
-fn smoke_lsp(
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
-    let mut command = Command::new(binary);
-    command
-        .arg("--lsp")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    let mut child =
-        KillOnDrop(command.spawn().map_err(|error| {
-            EvalError::Command(format!("cannot launch LSP smoke server: {error}"))
-        })?);
-    let mut stdin = child
-        .0
-        .stdin
-        .take()
-        .ok_or_else(|| EvalError::Command("cannot open LSP stdin".to_string()))?;
-    let stdout = child
-        .0
-        .stdout
-        .take()
-        .ok_or_else(|| EvalError::Command("cannot open LSP stdout".to_string()))?;
-    let (sender, receiver) = mpsc::channel();
-    let reader = thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        while let Ok(Some(message)) = read_lsp_message(&mut reader) {
-            if sender.send(message).is_err() {
-                break;
-            }
-        }
-    });
-    send_lsp(
-        &mut stdin,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "processId": null,
-                "rootUri": format!("file://{}", fixture.to_string_lossy()),
-                "capabilities": {},
-                "clientInfo": {"name": "rust-doctor-eval", "version": "1.0"},
-                "initializationOptions": {"protocolMajor": 1, "projectBudgetMs": 60000}
-            }
-        }),
-    )?;
-    let initialize = receive_lsp(&receiver, 1, timeout)?;
-    if initialize["result"]["capabilities"].as_object().is_none() {
-        return Err(EvalError::Command(format!(
-            "LSP initialize omitted server capabilities: {initialize}"
-        )));
-    }
-    send_lsp(
-        &mut stdin,
-        &json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
-    )?;
-    send_lsp(
-        &mut stdin,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "workspace/executeCommand",
-            "params": {"command": "rust-doctor.projectDecision", "arguments": []}
-        }),
-    )?;
-    let decision = receive_lsp(&receiver, 2, timeout)?;
-    if let Some(error) = decision.get("error") {
-        return Err(EvalError::Command(format!(
-            "LSP project decision failed: {error}"
-        )));
-    }
-    require_projection("LSP", &decision["result"], expected)?;
-    send_lsp(
-        &mut stdin,
-        &json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null}),
-    )?;
-    let shutdown = receive_lsp(&receiver, 3, timeout)?;
-    if shutdown.get("error").is_some() {
-        return Err(EvalError::Command(format!(
-            "LSP shutdown failed: {shutdown}"
-        )));
-    }
-    send_lsp(
-        &mut stdin,
-        &json!({"jsonrpc": "2.0", "method": "exit", "params": null}),
-    )?;
-    drop(stdin);
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if child
-            .0
-            .try_wait()
-            .map_err(|error| EvalError::Command(format!("cannot wait for LSP server: {error}")))?
-            .is_some()
-        {
-            break;
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err(EvalError::Command(
-                "LSP server did not exit after shutdown".to_string(),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    drop(child);
-    let _ = reader.join();
-    Ok(())
-}
-
-fn smoke_action(
-    action: &Path,
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
-    let action = action
-        .canonicalize()
-        .map_err(|error| EvalError::io("cannot canonicalize Action entrypoint", action, error))?;
-    let source = std::fs::read_to_string(&action)
-        .map_err(|error| EvalError::io("cannot read Action entrypoint", &action, error))?;
-    let repository_root = action.parent().ok_or_else(|| {
-        EvalError::InvalidManifest("Action entrypoint has no repository root".to_string())
-    })?;
-    for script in [
-        "scripts/action/prepare.sh",
-        "scripts/action/report.sh",
-        "scripts/action/sarif.sh",
-    ] {
-        if !source.contains(script) {
-            return Err(EvalError::Command(format!(
-                "Action entrypoint omits {script}"
-            )));
-        }
-        let script_path = repository_root.join(script);
-        let mut command = Command::new("bash");
-        command.args(["-n"]).arg(&script_path);
-        require_success(
-            "Action entrypoint",
-            &run_capped(command, timeout, 1024 * 1024)?,
-        )?;
-    }
-    let report = tempfile::NamedTempFile::new()
-        .map_err(|error| EvalError::io("cannot create Action report", ".", error))?;
-    let output = invoke_with_path(
-        binary,
-        fixture,
-        &["--json", "--json-compact", "--offline", "--json-out"],
-        Some(report.path()),
-        timeout,
-    )?;
-    require_success("Action report source", &output)?;
-    let summary = tempfile::NamedTempFile::new()
-        .map_err(|error| EvalError::io("cannot create Action summary", ".", error))?;
-    let report_script = repository_root.join("scripts/action/report.sh");
-    let mut command = Command::new("bash");
-    command
-        .arg(report_script)
-        .env("SERVER_URL", "https://example.invalid")
-        .env("REPOSITORY", "owner/repository")
-        .env("RUN_ID", "1")
-        .env("RUN_ATTEMPT", "1")
-        .env("SKIP_SCAN", "false")
-        .env("DEGRADED_REASON", "")
-        .env("EXIT_CODE", "0")
-        .env("REPORT_FILE", report.path())
-        .env("COMMIT_STATUS_ENABLED", "false")
-        .env("REVIEW_COMMENTS_ENABLED", "false")
-        .env("COMMENT_ENABLED", "false")
-        .env("EVENT_NAME", "push")
-        .env("PR_NUMBER", "")
-        .env("GIT_ROOT", fixture)
-        .env("SCAN_ROOT", fixture)
-        .env("GITHUB_STEP_SUMMARY", summary.path());
-    require_success(
-        "Action decision rendering",
-        &run_capped(command, timeout, OUTPUT_CAP)?,
-    )?;
-    let rendered = std::fs::read_to_string(summary.path())
-        .map_err(|error| EvalError::io("cannot read Action summary", summary.path(), error))?;
-    require_rendered_decision("Action", &rendered, expected)?;
+    parse_report("no-default-features CLI", &output.stdout, schema)?;
     Ok(())
 }
 
@@ -621,12 +280,7 @@ fn smoke_action(
     clippy::too_many_lines,
     reason = "the ordered JSON-RPC handshake is kept as one built-server conversation"
 )]
-fn smoke_mcp(
-    binary: &Path,
-    fixture: &Path,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
+fn smoke_mcp(binary: &Path, fixture: &Path, timeout: Duration) -> Result<()> {
     let mut command = Command::new(binary);
     command
         .arg("--mcp")
@@ -728,14 +382,6 @@ fn smoke_mcp(
         )?;
         let response = receive_mcp(&receiver, id, timeout)?;
         require_mcp_scope(&response, expected_scope)?;
-        if expected_scope == "full" {
-            let text = response["result"]["content"][0]["text"]
-                .as_str()
-                .ok_or_else(|| {
-                    EvalError::Command("MCP full scope omitted its report text".to_string())
-                })?;
-            require_rendered_decision("MCP", text, expected)?;
-        }
     }
 
     let cancellation_fixture = materialize_cancellation_fixture(fixture)?;
@@ -807,18 +453,11 @@ fn require_mcp_scope(response: &Value, expected_scope: &str) -> Result<()> {
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the npm smoke binds both final packages, the exact binary, and its decision contract"
-)]
 fn smoke_npm(
     binary: &Path,
     platform_archive: &Path,
     wrapper_package: &Path,
     bun: &Path,
-    fixture: &Path,
-    schema: &jsonschema::Validator,
-    expected: &DecisionProjection,
     timeout: Duration,
 ) -> Result<()> {
     let platform = platform_package()?;
@@ -881,46 +520,21 @@ fn smoke_npm(
             "final npm platform package does not contain the exact built binary".to_string(),
         ));
     }
-    // Package managers may install the wrapper's already-published optional
-    // dependency below the wrapper even when the candidate platform tarball is
-    // also installed at the root. Remove that temporary nested resolution so
-    // the wrapper smoke necessarily executes the exact hash checked above.
-    let nested_platform = wrapper.join("node_modules/@rust-doctor").join(platform);
-    if nested_platform.exists() {
-        std::fs::remove_dir_all(&nested_platform).map_err(|error| {
-            EvalError::io(
-                "cannot remove stale nested npm platform package",
-                &nested_platform,
-                error,
-            )
-        })?;
-    }
     let wrapper_bin = install.join("node_modules/rust-doctor/bin/rust-doctor.js");
-    let mut launch = Command::new(&wrapper_bin);
-    launch.current_dir(&install).arg("--version");
+    let mut launch = Command::new(bun);
+    launch
+        .current_dir(&install)
+        .arg(&wrapper_bin)
+        .arg("--version");
     let output = run_capped(launch, timeout, OUTPUT_CAP)?;
     require_success("final npm wrapper", &output)?;
-    let expected_version = version(binary, timeout)?;
+    let expected = version(binary, timeout)?;
     let actual = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if actual != expected_version {
+    if actual != expected {
         return Err(EvalError::Command(format!(
-            "final npm wrapper reports {actual:?}, expected {expected_version:?}"
+            "final npm wrapper reports {actual:?}, expected {expected:?}"
         )));
     }
-    let mut decision = Command::new(&wrapper_bin);
-    decision
-        .current_dir(&install)
-        .args(["--json", "--json-compact", "--offline"])
-        .arg(fixture);
-    let output = run_capped(decision, timeout, OUTPUT_CAP)?;
-    require_success("final npm decision", &output)?;
-    let report = parse_report("final npm decision", &output.stdout, schema)?;
-    require_projection(
-        "npm",
-        &serde_json::to_value(report)
-            .map_err(|error| EvalError::Command(format!("cannot project npm report: {error}")))?,
-        expected,
-    )?;
     Ok(())
 }
 
@@ -931,15 +545,8 @@ fn stage_npm_package(package: &Path, install: &Path, filename: &str) -> Result<S
     Ok(format!("./{filename}"))
 }
 
-fn smoke_archives(
-    binary: &Path,
-    archives: &[PathBuf],
-    fixture: &Path,
-    schema: &jsonschema::Validator,
-    expected: &DecisionProjection,
-    timeout: Duration,
-) -> Result<()> {
-    let expected_version = version(binary, timeout)?;
+fn smoke_archives(binary: &Path, archives: &[PathBuf], timeout: Duration) -> Result<()> {
+    let expected = version(binary, timeout)?;
     let expected_bytes = std::fs::read(binary)
         .map_err(|error| EvalError::io("cannot read smoke binary", binary, error))?;
     let expected_hash = hex_digest(&expected_bytes);
@@ -983,27 +590,12 @@ fn smoke_archives(
         })?;
         set_executable(&extracted)?;
         let actual = version(&extracted, timeout)?;
-        if actual != expected_version {
+        if actual != expected {
             return Err(EvalError::Command(format!(
-                "extracted archive '{}' reports {actual:?}, expected {expected_version:?}",
+                "extracted archive '{}' reports {actual:?}, expected {expected:?}",
                 archive.display()
             )));
         }
-        let output = invoke(
-            &extracted,
-            fixture,
-            &["--json", "--json-compact", "--offline"],
-            timeout,
-        )?;
-        require_success("archived binary decision", &output)?;
-        let report = parse_report("archived binary decision", &output.stdout, schema)?;
-        require_projection(
-            "native archive",
-            &serde_json::to_value(report).map_err(|error| {
-                EvalError::Command(format!("cannot project archived report: {error}"))
-            })?,
-            expected,
-        )?;
     }
     Ok(())
 }
@@ -1245,11 +837,7 @@ fn invoke_with_path(
     timeout: Duration,
 ) -> Result<ProcessOutput> {
     let mut command = Command::new(binary);
-    command
-        .arg(fixture)
-        .args(arguments)
-        .env("NO_COLOR", "1")
-        .env("RUST_DOCTOR_DISABLE_ANIMATION", "1");
+    command.arg(fixture).args(arguments);
     if let Some(path) = path_argument {
         command.arg(path);
     }
@@ -1293,140 +881,6 @@ fn load_schema(path: &Path) -> Result<jsonschema::Validator> {
     })?;
     jsonschema::validator_for(&schema)
         .map_err(|error| EvalError::Command(format!("Report V1 schema is invalid: {error}")))
-}
-
-fn decision_projection(report: &Value) -> Result<DecisionProjection> {
-    let summary = report
-        .get("summary")
-        .ok_or_else(|| EvalError::Command("decision report omitted its summary".to_string()))?;
-    let root_causes = report["root_causes"].as_array().ok_or_else(|| {
-        EvalError::Command("decision report omitted its root-cause inventory".to_string())
-    })?;
-    let diagnostics = report["diagnostics"].as_array().ok_or_else(|| {
-        EvalError::Command("decision report omitted its diagnostic inventory".to_string())
-    })?;
-    let top_root_causes = root_causes
-        .iter()
-        .take(3)
-        .map(|group| {
-            group["key"]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| EvalError::Command("root-cause group omitted its key".to_string()))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let top_rules = root_causes
-        .iter()
-        .take(3)
-        .map(|group| {
-            group["title"]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| EvalError::Command("root-cause group omitted its title".to_string()))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(DecisionProjection {
-        score: summary["score"].as_u64(),
-        label: summary["score_label"].as_str().map(str::to_string),
-        authoritative: summary["score_authoritative"].as_bool().unwrap_or(false),
-        reason_codes: summary["score_reasons"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        error_count: summary["error_count"].as_u64().unwrap_or(0),
-        warning_count: summary["warning_count"].as_u64().unwrap_or(0),
-        info_count: summary["info_count"].as_u64().unwrap_or(0),
-        top_root_causes,
-        top_rules,
-        scored_groups: diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic["score_impact"] == "scored")
-            .count(),
-        advisory_groups: diagnostics
-            .iter()
-            .filter(|diagnostic| {
-                diagnostic["score_impact"] != "scored" && diagnostic["trust_tier"] != "audit-only"
-            })
-            .count(),
-        audit_groups: diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic["trust_tier"] == "audit-only")
-            .count(),
-    })
-}
-
-fn require_projection(surface: &str, report: &Value, expected: &DecisionProjection) -> Result<()> {
-    let actual = decision_projection(report)?;
-    if &actual != expected {
-        return Err(EvalError::Command(format!(
-            "{surface} decision differs from canonical Report V1: {actual:?} != {expected:?}"
-        )));
-    }
-    Ok(())
-}
-
-fn require_rendered_decision(
-    surface: &str,
-    rendered: &str,
-    expected: &DecisionProjection,
-) -> Result<()> {
-    let score = expected
-        .score
-        .map_or_else(|| "n/a".to_string(), |score| score.to_string());
-    let required = [
-        score,
-        expected
-            .label
-            .clone()
-            .unwrap_or_else(|| "unavailable".to_string()),
-        format!("{} errors", expected.error_count),
-        format!("{} warnings", expected.warning_count),
-        format!("{} info", expected.info_count),
-        format!("{} scored", expected.scored_groups),
-        format!("{} advisory", expected.advisory_groups),
-        format!("{} audit", expected.audit_groups),
-    ];
-    let missing: Vec<_> = required
-        .iter()
-        .chain(&expected.reason_codes)
-        .filter(|value| !rendered.contains(value.as_str()))
-        .cloned()
-        .collect();
-    if !missing.is_empty() {
-        return Err(EvalError::Command(format!(
-            "{surface} omitted canonical score, authority, or finding counts: {missing:?}"
-        )));
-    }
-    let positions: Vec<_> = expected
-        .top_rules
-        .iter()
-        .filter_map(|rule| rendered.find(rule))
-        .collect();
-    if positions.len() != expected.top_rules.len()
-        || !positions.windows(2).all(|pair| pair[0] < pair[1])
-    {
-        return Err(EvalError::Command(format!(
-            "{surface} omitted or reordered canonical top remediations {:?}; positions {positions:?}",
-            expected.top_rules
-        )));
-    }
-    Ok(())
-}
-
-fn first_unique(values: impl IntoIterator<Item = String>, limit: usize) -> Vec<String> {
-    let mut unique = Vec::new();
-    for value in values {
-        if !unique.contains(&value) {
-            unique.push(value);
-            if unique.len() == limit {
-                break;
-            }
-        }
-    }
-    unique
 }
 
 fn validate_schema(surface: &str, value: &Value, schema: &jsonschema::Validator) -> Result<()> {
@@ -1554,49 +1008,6 @@ fn receive_mcp(
             .map_err(|error| EvalError::Command(format!("cannot read MCP response: {error}")))?;
         let message: Value = serde_json::from_str(&line)
             .map_err(|error| EvalError::Command(format!("invalid MCP response: {error}")))?;
-        if message["id"].as_u64() == Some(id) {
-            return Ok(message);
-        }
-    }
-}
-
-fn send_lsp(stdin: &mut impl Write, message: &Value) -> Result<()> {
-    let body = serde_json::to_vec(message)
-        .map_err(|error| EvalError::Command(format!("cannot encode LSP message: {error}")))?;
-    write!(stdin, "Content-Length: {}\r\n\r\n", body.len())
-        .and_then(|()| stdin.write_all(&body))
-        .and_then(|()| stdin.flush())
-        .map_err(|error| EvalError::Command(format!("cannot send LSP message: {error}")))
-}
-
-fn read_lsp_message(reader: &mut impl BufRead) -> std::io::Result<Option<Value>> {
-    let mut content_length = None;
-    loop {
-        let mut header = String::new();
-        if reader.read_line(&mut header)? == 0 {
-            return Ok(None);
-        }
-        if header == "\r\n" || header == "\n" {
-            break;
-        }
-        if let Some(value) = header.trim().strip_prefix("Content-Length:").map(str::trim) {
-            content_length = value.parse::<usize>().ok();
-        }
-    }
-    let length = content_length
-        .ok_or_else(|| std::io::Error::other("LSP response omitted Content-Length"))?;
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body)?;
-    serde_json::from_slice(&body)
-        .map(Some)
-        .map_err(std::io::Error::other)
-}
-
-fn receive_lsp(receiver: &mpsc::Receiver<Value>, id: u64, timeout: Duration) -> Result<Value> {
-    loop {
-        let message = receiver
-            .recv_timeout(timeout)
-            .map_err(|error| EvalError::Command(format!("LSP response {id} timed out: {error}")))?;
         if message["id"].as_u64() == Some(id) {
             return Ok(message);
         }

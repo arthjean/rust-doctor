@@ -1,90 +1,15 @@
 {
   "$defs": {
-    "AbstentionReceipt": {
-      "description": "Aggregate record of one rule declining to decide.\n\nAbstentions are analyzer receipts, not user-facing diagnostics: they degrade\ncompleteness and feed rule metrics without inventing a finding.",
-      "properties": {
-        "count": {
-          "description": "How many analyzed files the rule declined to decide on.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "reason": {
-          "description": "Stable machine-readable reason: a missing context requirement or an\nunsupported source surface.",
-          "type": "string"
-        },
-        "rule": {
-          "description": "Canonical rule identity that abstained.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "rule",
-        "reason",
-        "count"
-      ],
-      "type": "object"
-    },
-    "AnalysisFailureReceipt": {
-      "description": "Structured failed analysis work retained after panic containment.",
-      "properties": {
-        "check": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        },
-        "rule": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "check",
-        "kind",
-        "path",
-        "reason"
-      ],
-      "type": "object"
-    },
     "AuditMetadata": {
       "description": "Verbose policy audit data that never re-enables suppressed findings.",
       "properties": {
-        "abstentions": {
-          "default": [],
-          "description": "Rules that declined to decide, aggregated per rule and reason. An\nabstention is an analyzer receipt, never a finding (US-006).",
-          "items": {
-            "$ref": "#/$defs/AbstentionReceipt"
-          },
-          "type": "array"
-        },
         "analysis_failures": {
           "default": [],
-          "items": {
-            "$ref": "#/$defs/AnalysisFailureReceipt"
-          },
-          "type": "array"
-        },
-        "lint_policy": {
-          "default": [],
-          "description": "Effective Cargo `[lints]` policy resolved per package, kept next to\nRust Doctor's own severity mapping (US-008).",
-          "items": {
-            "$ref": "#/$defs/LintPolicyEntry"
-          },
+          "items": { "$ref": "#/$defs/AnalysisFailureReceipt" },
           "type": "array"
         },
         "suppressed_security": {
-          "items": {
-            "$ref": "#/$defs/CanonicalDiagnostic"
-          },
+          "items": { "$ref": "#/$defs/CanonicalDiagnostic" },
           "type": "array"
         },
         "suppression_counts": {
@@ -97,374 +22,131 @@
             "security_policy": 0,
             "tag": 0
           }
-        },
-        "trust_exceptions": {
-          "default": [],
-          "description": "Approved threshold exceptions currently in force. Empty in a normal\nbuild: a rule shipping on an exception is visible here rather than\nbypassing its gate invisibly (US-012 AC-7).",
-          "items": {
-            "$ref": "#/$defs/TrustExceptionRecord"
-          },
-          "type": "array"
         }
       },
-      "required": [
-        "suppressed_security"
-      ],
+      "required": ["suppressed_security"],
+      "type": "object"
+    },
+    "AnalysisFailureReceipt": {
+      "description": "Structured failed analysis work retained after panic containment.",
+      "properties": {
+        "check": { "type": "string" },
+        "kind": { "type": "string" },
+        "path": { "type": "string" },
+        "reason": { "type": "string" },
+        "rule": { "type": ["string", "null"] }
+      },
+      "required": ["check", "kind", "path", "reason"],
       "type": "object"
     },
     "BaselineReport": {
       "description": "Head/base comparison metadata for baseline mode.",
       "properties": {
-        "base_commit": {
-          "type": "string"
-        },
-        "base_config_fingerprint": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "base_total": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "baseline_degraded": {
-          "type": "boolean"
-        },
-        "cross_file_match_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "degraded_reason": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "fixed_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "head_config_fingerprint": {
-          "type": "string"
-        },
-        "new_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "requested_base": {
-          "type": "string"
-        },
-        "resolved_base": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "base_commit": { "type": "string" },
+        "base_config_fingerprint": { "type": ["string", "null"] },
+        "base_total": { "format": "uint", "minimum": 0, "type": "integer" },
+        "baseline_degraded": { "type": "boolean" },
+        "cross_file_match_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "degraded_reason": { "type": ["string", "null"] },
+        "fixed_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "head_config_fingerprint": { "type": "string" },
+        "new_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "requested_base": { "type": "string" },
+        "resolved_base": { "type": ["string", "null"] }
       },
       "required": [
-        "requested_base",
-        "base_commit",
-        "head_config_fingerprint",
-        "new_count",
-        "fixed_count",
-        "base_total",
-        "cross_file_match_count",
-        "baseline_degraded"
+        "requested_base", "base_commit", "head_config_fingerprint",
+        "new_count", "fixed_count", "base_total",
+        "cross_file_match_count", "baseline_degraded"
       ],
       "type": "object"
     },
     "CanonicalDiagnostic": {
       "description": "Canonical diagnostic consumed by JSON, SARIF, MCP, CI, and editors.",
       "properties": {
-        "advisory": {
-          "default": false,
-          "description": "True when the owning rule runs by default but contributes exactly zero\nto the score. Consumers label it advisory rather than implying that its\npresence lowered the number (US-007).",
-          "type": "boolean"
-        },
-        "aggregation_policy": {
-          "default": "",
-          "description": "How repeated findings from this rule aggregate for ranking and score.",
-          "type": "string"
-        },
-        "analysis_kind": {
-          "type": "string"
-        },
-        "baseline_key": {
-          "type": "string"
-        },
-        "category": {
-          "$ref": "#/$defs/Category"
-        },
-        "confidence": {
-          "type": "string"
-        },
-        "evidence_summary": {
-          "default": "",
-          "description": "What evidence the analyzer used to reach this conclusion.",
-          "type": "string"
-        },
-        "fix_recipe": {
-          "description": "Identifier of a validated fix recipe. Absent when remediation is\nguidance only, so output never claims machine applicability it lacks.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
+        "analysis_kind": { "type": "string" },
+        "baseline_key": { "type": "string" },
+        "category": { "$ref": "#/$defs/Category" },
+        "confidence": { "type": "string" },
         "fixes": {
-          "items": {
-            "$ref": "#/$defs/CanonicalFix"
-          },
+          "items": { "$ref": "#/$defs/CanonicalFix" },
           "type": "array"
         },
-        "help": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "limitations": {
-          "default": [],
-          "description": "Known boundaries where this rule can be wrong.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "location": {
-          "$ref": "#/$defs/DiagnosticLocation"
-        },
+        "help": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
         "macro_expansion": {
           "anyOf": [
-            {
-              "$ref": "#/$defs/MacroExpansion"
-            },
-            {
-              "type": "null"
-            }
+            { "$ref": "#/$defs/MacroExpansion" },
+            { "type": "null" }
           ]
         },
-        "message": {
-          "type": "string"
-        },
-        "namespace_fallback": {
-          "type": "boolean"
-        },
-        "original_level": {
-          "type": "string"
-        },
-        "ownership": {
-          "$ref": "#/$defs/DiagnosticOwnership"
-        },
-        "priority": {
-          "description": "Product urgency (`p0`–`p3`), independent from presentation severity.\nAbsent when the rule is unranked: an unknown or dynamically discovered\nrule never receives a fabricated priority.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "provider": {
-          "type": "string"
-        },
+        "message": { "type": "string" },
+        "namespace_fallback": { "type": "boolean" },
+        "original_level": { "type": "string" },
+        "ownership": { "$ref": "#/$defs/DiagnosticOwnership" },
+        "provider": { "type": "string" },
         "related_locations": {
-          "items": {
-            "$ref": "#/$defs/RelatedLocation"
-          },
+          "items": { "$ref": "#/$defs/RelatedLocation" },
           "type": "array"
         },
-        "root_cause_key": {
-          "description": "Stable identity of the underlying defect, shared by every occurrence.\nAbsent for unmapped rules rather than hashed from message text.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "rule": {
-          "type": "string"
-        },
-        "score_eligible": {
-          "default": false,
-          "description": "Whether the owning rule satisfies its trust-tier evidence contract.",
-          "type": "boolean"
-        },
-        "score_impact": {
-          "$ref": "#/$defs/ScoreImpact",
-          "default": "ineligible",
-          "description": "What this occurrence actually did to the Core Score."
-        },
-        "severity": {
-          "$ref": "#/$defs/Severity"
-        },
-        "site_id": {
-          "type": "string"
-        },
-        "source_surface": {
-          "$ref": "#/$defs/SourceSurface"
-        },
-        "suppressed": {
-          "default": false,
-          "description": "True when policy suppressed this finding. Suppressed records may appear\nin exports that permit them, always with zero score impact.",
-          "type": "boolean"
-        },
-        "tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "title": {
-          "type": "string"
-        },
-        "trust_tier": {
-          "default": "",
-          "description": "Provenance class of the evidence behind this finding.",
-          "type": "string"
-        },
-        "url": {
-          "type": "string"
-        },
-        "visible_on": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
+        "rule": { "type": "string" },
+        "severity": { "$ref": "#/$defs/Severity" },
+        "site_id": { "type": "string" },
+        "source_surface": { "$ref": "#/$defs/SourceSurface" },
+        "tags": { "items": { "type": "string" }, "type": "array" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "visible_on": { "items": { "type": "string" }, "type": "array" }
       },
       "required": [
-        "provider",
-        "rule",
-        "title",
-        "category",
-        "severity",
-        "message",
-        "url",
-        "tags",
-        "analysis_kind",
-        "confidence",
-        "original_level",
-        "ownership",
-        "source_surface",
-        "location",
-        "related_locations",
-        "fixes",
-        "visible_on",
-        "site_id",
-        "baseline_key",
-        "namespace_fallback"
+        "provider", "rule", "title", "category", "severity", "message",
+        "url", "tags", "analysis_kind", "confidence", "original_level",
+        "ownership", "source_surface", "location", "related_locations", "fixes", "visible_on", "site_id",
+        "baseline_key", "namespace_fallback"
       ],
       "type": "object"
     },
     "CanonicalFix": {
       "description": "One stable edit group. A group may resolve multiple findings.",
       "properties": {
-        "applicability": {
-          "$ref": "#/$defs/FixApplicability"
-        },
-        "eligibility": {
-          "$ref": "#/$defs/FixEligibility",
-          "default": "guidance-only",
-          "description": "Whether this edit may be applied automatically."
-        },
-        "group_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "ineligible_reason": {
-          "description": "Why the edit is guidance only, when it is.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "location": {
-          "$ref": "#/$defs/DiagnosticLocation"
-        },
-        "precondition_hash": {
-          "description": "SHA-256 of the target file as analyzed. Applying against a different\nhash means the source moved since the scan and the fix is stale.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "replacement": {
-          "type": "string"
-        }
+        "applicability": { "$ref": "#/$defs/FixApplicability" },
+        "group_id": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
+        "replacement": { "type": "string" }
       },
-      "required": [
-        "applicability",
-        "replacement",
-        "location"
-      ],
+      "required": ["applicability", "replacement", "location"],
       "type": "object"
     },
     "Category": {
       "description": "Category of a diagnostic rule.",
       "enum": [
-        "error-handling",
-        "performance",
-        "security",
-        "correctness",
-        "architecture",
-        "dependencies",
-        "async",
-        "framework",
-        "cargo",
-        "style"
+        "error-handling", "performance", "security", "correctness",
+        "architecture", "dependencies", "async", "framework", "cargo", "style"
       ],
       "type": "string"
     },
     "CheckState": {
       "description": "One planned analysis check and its final state.",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "reason": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "required": {
-          "default": false,
-          "type": "boolean"
-        },
-        "status": {
-          "$ref": "#/$defs/CheckStatus"
-        }
+        "name": { "type": "string" },
+        "reason": { "type": ["string", "null"] },
+        "required": { "default": false, "type": "boolean" },
+        "status": { "$ref": "#/$defs/CheckStatus" }
       },
-      "required": [
-        "name",
-        "status"
-      ],
+      "required": ["name", "status"],
       "type": "object"
     },
     "CheckStatus": {
       "description": "Check execution state retained in machine output.",
       "enum": [
-        "planned",
-        "running",
-        "completed",
-        "skipped",
-        "failed",
-        "timed_out",
-        "cancelled"
+        "planned", "running", "completed", "skipped", "failed",
+        "timed_out", "cancelled"
       ],
       "type": "string"
     },
     "CompletenessState": {
       "description": "Completeness of planned analysis work.",
-      "enum": [
-        "complete",
-        "partial",
-        "incomplete"
-      ],
+      "enum": ["complete", "partial", "incomplete"],
       "type": "string"
     },
     "DiagnosticLocation": {
@@ -472,34 +154,16 @@
       "oneOf": [
         {
           "properties": {
-            "kind": {
-              "const": "source",
-              "type": "string"
-            },
-            "path": {
-              "type": "string"
-            },
-            "range": {
-              "$ref": "#/$defs/SourceRange"
-            }
+            "kind": { "const": "source", "type": "string" },
+            "path": { "type": "string" },
+            "range": { "$ref": "#/$defs/SourceRange" }
           },
-          "required": [
-            "kind",
-            "path",
-            "range"
-          ],
+          "required": ["kind", "path", "range"],
           "type": "object"
         },
         {
-          "properties": {
-            "kind": {
-              "const": "project",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
+          "properties": { "kind": { "const": "project", "type": "string" } },
+          "required": ["kind"],
           "type": "object"
         }
       ]
@@ -509,1037 +173,217 @@
       "oneOf": [
         {
           "properties": {
-            "kind": {
-              "const": "package",
-              "type": "string"
-            },
-            "package_id": {
-              "type": "string"
-            }
+            "kind": { "const": "package", "type": "string" },
+            "package_id": { "type": "string" }
           },
-          "required": [
-            "kind",
-            "package_id"
-          ],
+          "required": ["kind", "package_id"],
           "type": "object"
         },
         {
-          "properties": {
-            "kind": {
-              "const": "workspace",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
+          "properties": { "kind": { "const": "workspace", "type": "string" } },
+          "required": ["kind"],
           "type": "object"
         },
         {
-          "properties": {
-            "kind": {
-              "const": "unowned",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
+          "properties": { "kind": { "const": "unowned", "type": "string" } },
+          "required": ["kind"],
           "type": "object"
         }
       ]
-    },
-    "DimensionAuthority": {
-      "description": "Whether a health dimension was actually observed by an analyzer able to\nspeak for it. `Unobserved` and `Failed` never mean healthy.",
-      "oneOf": [
-        {
-          "const": "authoritative",
-          "description": "Every required analyzer for this dimension completed.",
-          "type": "string"
-        },
-        {
-          "const": "partial",
-          "description": "At least one analyzer completed while others were skipped.",
-          "type": "string"
-        },
-        {
-          "const": "unobserved",
-          "description": "No analyzer able to speak for this dimension completed.",
-          "type": "string"
-        },
-        {
-          "const": "failed",
-          "description": "A required analyzer failed, timed out, or was cancelled.",
-          "type": "string"
-        }
-      ]
-    },
-    "DimensionCoverage": {
-      "description": "Planned, scheduled, and completed evidence for one health dimension.\n\nConsumers read coverage from this record instead of recomputing it: an\nunobserved dimension carries `score: None`, never a synthetic 100.",
-      "properties": {
-        "authority": {
-          "$ref": "#/$defs/DimensionAuthority"
-        },
-        "completed_analyzers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "covered_scope": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "dimension": {
-          "type": "string"
-        },
-        "failed_analyzers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "planned_analyzers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "reasons": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "scheduled_analyzers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "skipped_analyzers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "uncovered_scope": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "dimension",
-        "planned_analyzers",
-        "scheduled_analyzers",
-        "completed_analyzers",
-        "skipped_analyzers",
-        "failed_analyzers",
-        "covered_scope",
-        "uncovered_scope",
-        "authority",
-        "reasons"
-      ],
-      "type": "object"
     },
     "DimensionScores": {
       "description": "Per-dimension health scores.",
       "properties": {
-        "dependencies": {
-          "description": "Dependencies dimension score (0–100). Covers Cargo and Dependencies categories.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "maintainability": {
-          "description": "Maintainability dimension score (0–100). Covers Architecture and Style categories.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "performance": {
-          "description": "Performance dimension score (0–100). Covers Performance category.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "reliability": {
-          "description": "Reliability dimension score (0–100). Covers Correctness and ErrorHandling categories.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "security": {
-          "description": "Security dimension score (0–100). Covers Security and Dependencies (advisory) categories.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
+        "dependencies": { "description": "Dependencies dimension score (0–100). Covers Cargo and Dependencies categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "maintainability": { "description": "Maintainability dimension score (0–100). Covers Architecture and Style categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "performance": { "description": "Performance dimension score (0–100). Covers Performance category.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "reliability": { "description": "Reliability dimension score (0–100). Covers Correctness and ErrorHandling categories.", "format": "uint32", "minimum": 0, "type": "integer" },
+        "security": { "description": "Security dimension score (0–100). Covers Security and Dependencies (advisory) categories.", "format": "uint32", "minimum": 0, "type": "integer" }
       },
-      "required": [
-        "security",
-        "reliability",
-        "maintainability",
-        "performance",
-        "dependencies"
-      ],
+      "required": ["security", "reliability", "maintainability", "performance", "dependencies"],
       "type": "object"
     },
     "FixApplicability": {
       "description": "rustc-compatible applicability vocabulary.",
-      "enum": [
-        "machine_applicable",
-        "maybe_incorrect",
-        "has_placeholders",
-        "unspecified"
-      ],
+      "enum": ["machine_applicable", "maybe_incorrect", "has_placeholders", "unspecified"],
       "type": "string"
-    },
-    "FixEligibility": {
-      "description": "Whether Rust Doctor may apply an edit without human review.\n\nGuidance is always safe to show. Applying an edit is not, so eligibility is\nan explicit decision with a recorded reason rather than a consequence of a\nsuggestion merely existing (US-016).",
-      "oneOf": [
-        {
-          "const": "machine-applicable",
-          "description": "Exact span, verified replacement, and a precondition hash: applying it\nis a mechanical edit inside one span.",
-          "type": "string"
-        },
-        {
-          "const": "guidance-only",
-          "description": "Shown as advice only. The default, so an unproven fix is never applied.",
-          "type": "string"
-        }
-      ]
     },
     "FrameworkCapabilityReport": {
       "description": "Version, feature, and analyzed-target evidence for one framework gate.",
       "properties": {
-        "active": {
-          "type": "boolean"
-        },
-        "analyzed_target": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "enabled_features": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "framework": {
-          "type": "string"
-        },
-        "gate_reason": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "rule_gates": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/FrameworkRuleGateReport"
-          },
-          "type": "array"
-        },
-        "target_contexts": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "active": { "type": "boolean" },
+        "analyzed_target": { "type": ["string", "null"] },
+        "enabled_features": { "items": { "type": "string" }, "type": "array" },
+        "framework": { "type": "string" },
+        "gate_reason": { "type": ["string", "null"] },
+        "rule_gates": { "default": [], "items": { "$ref": "#/$defs/FrameworkRuleGateReport" }, "type": "array" },
+        "target_contexts": { "items": { "type": "string" }, "type": "array" },
+        "version": { "type": ["string", "null"] }
       },
-      "required": [
-        "framework",
-        "enabled_features",
-        "target_contexts",
-        "active"
-      ],
+      "required": ["framework", "enabled_features", "target_contexts", "active"],
       "type": "object"
     },
     "FrameworkRuleGateReport": {
       "description": "Exact activation receipt for one framework-aware custom rule.",
       "properties": {
-        "active": {
-          "type": "boolean"
-        },
-        "gate_reason": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "rule": {
-          "type": "string"
-        }
+        "active": { "type": "boolean" },
+        "gate_reason": { "type": ["string", "null"] },
+        "rule": { "type": "string" }
       },
-      "required": [
-        "rule",
-        "active"
-      ],
+      "required": ["rule", "active"],
       "type": "object"
     },
     "GateResult": {
       "description": "Quality-gate decision carried independently from scan outcome.",
-      "enum": [
-        "passed",
-        "failed",
-        "not_evaluated"
-      ],
+      "enum": ["passed", "failed", "not_evaluated"],
       "type": "string"
-    },
-    "LintPolicyEntry": {
-      "description": "One lint's effective Cargo level next to Rust Doctor's own mapping.\n\nBoth are preserved: the declared level explains why a lint is or is not\nforced on, and the Rust Doctor severity explains how a finding is presented\nonce it exists (US-008).",
-      "properties": {
-        "declared_level": {
-          "type": "string"
-        },
-        "lint": {
-          "type": "string"
-        },
-        "rust_doctor_severity": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Severity"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Rust Doctor's curated severity, when the lint is in the registry."
-        },
-        "source": {
-          "$ref": "#/$defs/LintPolicySource"
-        }
-      },
-      "required": [
-        "lint",
-        "declared_level",
-        "source"
-      ],
-      "type": "object"
-    },
-    "LintPolicySource": {
-      "description": "Where a declared Cargo lint level came from.",
-      "oneOf": [
-        {
-          "const": "package",
-          "description": "`[lints]` in the owning package manifest.",
-          "type": "string"
-        },
-        {
-          "const": "workspace-inherited",
-          "description": "`[workspace.lints]`, reached through `[lints] workspace = true`.",
-          "type": "string"
-        }
-      ]
     },
     "MacroExpansion": {
       "description": "Macro expansion call-site context, when supplied by rustc.",
       "properties": {
-        "call_site": {
-          "$ref": "#/$defs/DiagnosticLocation"
-        },
-        "macro_name": {
-          "type": "string"
-        }
+        "call_site": { "$ref": "#/$defs/DiagnosticLocation" },
+        "macro_name": { "type": "string" }
       },
-      "required": [
-        "macro_name",
-        "call_site"
-      ],
-      "type": "object"
-    },
-    "PackageScore": {
-      "description": "One package's contribution to the workspace distribution.",
-      "properties": {
-        "authoritative": {
-          "type": "boolean"
-        },
-        "cargo_package_id": {
-          "type": "string"
-        },
-        "score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "cargo_package_id",
-        "authoritative"
-      ],
+      "required": ["macro_name", "call_site"],
       "type": "object"
     },
     "ProjectReport": {
       "description": "Per-package Report V1 payload.",
       "properties": {
-        "analyzed_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "cargo_package_id": {
-          "type": "string"
-        },
-        "checks": {
-          "items": {
-            "$ref": "#/$defs/CheckState"
-          },
-          "type": "array"
-        },
-        "completeness": {
-          "$ref": "#/$defs/ReportCompleteness"
-        },
-        "diagnostics": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/CanonicalDiagnostic"
-          },
-          "type": "array"
-        },
-        "dimensions": {
-          "default": [],
-          "description": "Planned, completed, skipped, and failed evidence per health dimension.",
-          "items": {
-            "$ref": "#/$defs/DimensionCoverage"
-          },
-          "type": "array"
-        },
-        "elapsed_ms": {
-          "default": 0,
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "framework_capabilities": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "framework_gates": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/FrameworkCapabilityReport"
-          },
-          "type": "array"
-        },
-        "package_root": {
-          "type": "string"
-        },
-        "planned_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "score_authoritative": {
-          "default": false,
-          "type": "boolean"
-        },
-        "skipped_reasons": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "targets": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
+        "analyzed_files": { "items": { "type": "string" }, "type": "array" },
+        "cargo_package_id": { "type": "string" },
+        "checks": { "items": { "$ref": "#/$defs/CheckState" }, "type": "array" },
+        "completeness": { "$ref": "#/$defs/ReportCompleteness" },
+        "framework_capabilities": { "items": { "type": "string" }, "type": "array" },
+        "framework_gates": { "default": [], "items": { "$ref": "#/$defs/FrameworkCapabilityReport" }, "type": "array" },
+        "diagnostics": { "default": [], "items": { "$ref": "#/$defs/CanonicalDiagnostic" }, "type": "array" },
+        "elapsed_ms": { "default": 0, "format": "uint64", "minimum": 0, "type": "integer" },
+        "package_root": { "type": "string" },
+        "planned_files": { "items": { "type": "string" }, "type": "array" },
+        "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "skipped_reasons": { "items": { "type": "string" }, "type": "array" },
+        "targets": { "items": { "type": "string" }, "type": "array" }
       },
       "required": [
-        "cargo_package_id",
-        "package_root",
-        "targets",
-        "framework_capabilities",
-        "planned_files",
-        "analyzed_files",
-        "checks",
-        "skipped_reasons",
-        "completeness"
+        "cargo_package_id", "package_root", "targets", "framework_capabilities",
+        "planned_files", "analyzed_files", "checks", "skipped_reasons", "completeness"
       ],
       "type": "object"
     },
     "RelatedLocation": {
       "description": "Related source evidence retained by adapters that expose it.",
       "properties": {
-        "location": {
-          "$ref": "#/$defs/DiagnosticLocation"
-        },
-        "message": {
-          "type": "string"
-        }
+        "location": { "$ref": "#/$defs/DiagnosticLocation" },
+        "message": { "type": "string" }
       },
-      "required": [
-        "message",
-        "location"
-      ],
+      "required": ["message", "location"],
       "type": "object"
     },
     "ReportCompleteness": {
       "description": "Aggregate execution-accounting contract.",
       "properties": {
-        "abstentions": {
-          "default": 0,
-          "description": "Total rule-file decisions declined for missing or unsupported context.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "analyzed_files": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "cancelled_checks": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "completed_checks": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "failed_checks": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "planned_files": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "required_checks": {
-          "default": 0,
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "required_completed_checks": {
-          "default": 0,
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "score_authoritative": {
-          "default": false,
-          "type": "boolean"
-        },
-        "skipped_checks": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "state": {
-          "$ref": "#/$defs/CompletenessState"
-        },
-        "timed_out_checks": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
+        "analyzed_files": { "format": "uint", "minimum": 0, "type": "integer" },
+        "cancelled_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "completed_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "failed_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "planned_files": { "format": "uint", "minimum": 0, "type": "integer" },
+        "required_checks": { "default": 0, "format": "uint", "minimum": 0, "type": "integer" },
+        "required_completed_checks": { "default": 0, "format": "uint", "minimum": 0, "type": "integer" },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "skipped_checks": { "format": "uint", "minimum": 0, "type": "integer" },
+        "state": { "$ref": "#/$defs/CompletenessState" },
+        "timed_out_checks": { "format": "uint", "minimum": 0, "type": "integer" }
       },
       "required": [
-        "state",
-        "planned_files",
-        "analyzed_files",
-        "completed_checks",
-        "skipped_checks",
-        "failed_checks",
-        "timed_out_checks",
-        "cancelled_checks"
+        "state", "planned_files", "analyzed_files", "completed_checks",
+        "skipped_checks", "failed_checks", "timed_out_checks", "cancelled_checks"
       ],
       "type": "object"
     },
     "ReportError": {
       "description": "Structured failure retained even when discovery or scanning fails.",
       "properties": {
-        "causes": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "exit_classification": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string"
-        },
-        "message": {
-          "type": "string"
-        }
+        "causes": { "items": { "type": "string" }, "type": "array" },
+        "exit_classification": { "type": "string" },
+        "kind": { "type": "string" },
+        "message": { "type": "string" }
       },
-      "required": [
-        "kind",
-        "message",
-        "causes",
-        "exit_classification"
-      ],
+      "required": ["kind", "message", "causes", "exit_classification"],
       "type": "object"
     },
     "ReportOutcome": {
       "description": "High-level outcome. `Partial` and `Failed` never mean clean.",
-      "enum": [
-        "clean",
-        "findings",
-        "partial",
-        "failed",
-        "nothing_to_scan"
-      ],
+      "enum": ["clean", "findings", "partial", "failed", "nothing_to_scan"],
       "type": "string"
     },
     "ReportSummary": {
       "description": "Machine-readable summary independent of terminal presentation.",
       "properties": {
-        "diagnostic_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "error_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "info_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "score_authoritative": {
-          "default": false,
-          "type": "boolean"
-        },
-        "score_label": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ScoreLabel"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "score_reasons": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "warning_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
+        "diagnostic_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "error_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "info_count": { "format": "uint", "minimum": 0, "type": "integer" },
+        "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "score_authoritative": { "default": false, "type": "boolean" },
+        "score_label": { "anyOf": [{ "$ref": "#/$defs/ScoreLabel" }, { "type": "null" }] },
+        "warning_count": { "format": "uint", "minimum": 0, "type": "integer" }
       },
-      "required": [
-        "error_count",
-        "warning_count",
-        "info_count",
-        "diagnostic_count"
-      ],
-      "type": "object"
-    },
-    "RootCauseGroup": {
-      "description": "One canonical root cause.\n\nThe group owns priority and bounded score impact while every occurrence\nstays inspectable through `site_ids` (US-014 AC-3).",
-      "properties": {
-        "aggregation_policy": {
-          "type": "string"
-        },
-        "category": {
-          "$ref": "#/$defs/Category"
-        },
-        "current_penalty": {
-          "description": "Exact pre-rounding contribution of this group to its dimension.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "file_count": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "key": {
-          "type": "string"
-        },
-        "maximum_penalty": {
-          "description": "Declared upper bound under the active aggregation policy.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "occurrences": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "priority": {
-          "description": "`None` when the owning rule is unranked.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "remediation_title": {
-          "description": "One bounded action title shared by terminal, plan, and handoff output.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "rule": {
-          "type": "string"
-        },
-        "score_dimension": {
-          "description": "Score dimension affected by this group. Absent for advisory and audit\ngroups.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "score_impact": {
-          "$ref": "#/$defs/ScoreImpact"
-        },
-        "site_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "title": {
-          "type": "string"
-        },
-        "trust_tier": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "key",
-        "title",
-        "rule",
-        "category",
-        "trust_tier",
-        "aggregation_policy",
-        "score_impact",
-        "occurrences",
-        "file_count",
-        "site_ids"
-      ],
+      "required": ["error_count", "warning_count", "info_count", "diagnostic_count"],
       "type": "object"
     },
     "ScanMode": {
       "description": "Stable machine-output mode vocabulary for Report V1.",
-      "enum": [
-        "full",
-        "files",
-        "lines",
-        "staged",
-        "baseline"
-      ],
+      "enum": ["full", "files", "lines", "staged", "baseline"],
       "type": "string"
-    },
-    "ScoreImpact": {
-      "description": "Whether a diagnostic moved the Core Score, and why not when it did not.\n\nKept separate from severity, confidence, and priority: a loud finding can be\nworth exactly zero points, and consumers must be able to say so rather than\nimplying that every reported issue lowered the number (US-014).",
-      "oneOf": [
-        {
-          "const": "scored",
-          "description": "Score-eligible, owned by a core analyzer, counted by Score Core V2.",
-          "type": "string"
-        },
-        {
-          "const": "advisory",
-          "description": "Runs by default and is reported for review, but contributes zero.",
-          "type": "string"
-        },
-        {
-          "const": "ineligible",
-          "description": "Not score-eligible: uncalibrated, audit-only, optional-external, or\nunmapped. The default, so an unknown rule never claims impact.",
-          "type": "string"
-        },
-        {
-          "const": "suppressed",
-          "description": "Suppressed by policy: observable where exports permit it, never scored.",
-          "type": "string"
-        }
-      ]
     },
     "ScoreLabel": {
       "description": "Human-readable health assessment label.",
-      "enum": [
-        "Great",
-        "Needs work",
-        "Critical"
-      ],
+      "enum": ["Great", "Needs work", "Critical"],
       "type": "string"
     },
     "Severity": {
       "description": "Severity of a diagnostic finding.",
-      "enum": [
-        "error",
-        "warning",
-        "info"
-      ],
+      "enum": ["error", "warning", "info"],
       "type": "string"
     },
     "SourcePosition": {
       "description": "Source position with optional byte offset when the adapter provides it.",
       "properties": {
-        "byte_offset": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "column": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "line": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
+        "byte_offset": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+        "column": { "format": "uint32", "minimum": 0, "type": "integer" },
+        "line": { "format": "uint32", "minimum": 0, "type": "integer" }
       },
-      "required": [
-        "line",
-        "column"
-      ],
+      "required": ["line", "column"],
       "type": "object"
     },
     "SourceRange": {
       "description": "Inclusive diagnostic range in a normalized project-relative file.",
       "properties": {
-        "end": {
-          "$ref": "#/$defs/SourcePosition"
-        },
-        "start": {
-          "$ref": "#/$defs/SourcePosition"
-        }
+        "end": { "$ref": "#/$defs/SourcePosition" },
+        "start": { "$ref": "#/$defs/SourcePosition" }
       },
-      "required": [
-        "start",
-        "end"
-      ],
+      "required": ["start", "end"],
       "type": "object"
     },
     "SourceSurface": {
       "description": "Rust-native source context shared by policy and machine consumers.",
       "enum": [
-        "library",
-        "binary",
-        "test",
-        "bench",
-        "example",
-        "build_script",
-        "generated",
-        "macro_expansion",
-        "unknown"
+        "library", "binary", "test", "bench", "example", "build_script",
+        "generated", "macro_expansion", "unknown"
       ],
       "type": "string"
     },
     "SuppressionCounts": {
       "description": "Suppression provenance retained for privacy-safe aggregate reporting.",
       "properties": {
-        "category": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "inline": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "path": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "rule": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "security_policy": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "tag": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
+        "category": { "format": "uint", "minimum": 0, "type": "integer" },
+        "inline": { "format": "uint", "minimum": 0, "type": "integer" },
+        "path": { "format": "uint", "minimum": 0, "type": "integer" },
+        "rule": { "format": "uint", "minimum": 0, "type": "integer" },
+        "security_policy": { "format": "uint", "minimum": 0, "type": "integer" },
+        "tag": { "format": "uint", "minimum": 0, "type": "integer" }
       },
-      "required": [
-        "inline",
-        "rule",
-        "category",
-        "tag",
-        "path",
-        "security_policy"
-      ],
-      "type": "object"
-    },
-    "TrustExceptionRecord": {
-      "description": "One deliberate, time-bounded trust-gate exception, as reported.",
-      "properties": {
-        "evidence": {
-          "description": "Link or identifier for the evidence behind the decision.",
-          "type": "string"
-        },
-        "expires_at": {
-          "description": "ISO-8601 date the exception stops applying.",
-          "type": "string"
-        },
-        "granted_at": {
-          "description": "ISO-8601 date the exception was approved.",
-          "type": "string"
-        },
-        "owner": {
-          "description": "Accountable owner of the decision.",
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        },
-        "rule": {
-          "description": "The single rule this exception covers.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "rule",
-        "owner",
-        "granted_at",
-        "expires_at",
-        "reason",
-        "evidence"
-      ],
-      "type": "object"
-    },
-    "WorkspaceHealth": {
-      "description": "Per-package score distribution for a workspace headline.\n\nThe headline is the lowest authoritative package score. Aggregate health is\ndescriptive portfolio data and never replaces the headline.",
-      "properties": {
-        "authoritative": {
-          "type": "boolean"
-        },
-        "authoritative_packages": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "headline_package_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "headline_score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "maximum_score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "median_score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "minimum_score": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "non_authoritative_packages": {
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "package_scores": {
-          "items": {
-            "$ref": "#/$defs/PackageScore"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "authoritative",
-        "authoritative_packages",
-        "non_authoritative_packages",
-        "package_scores"
-      ],
+      "required": ["inline", "rule", "category", "tag", "path", "security_policy"],
       "type": "object"
     }
   },
@@ -1547,207 +391,43 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Versioned Report V1. Legacy top-level score/count fields remain during the\nv0.2 migration release, while `summary` is the canonical replacement.",
   "properties": {
-    "audit": {
-      "$ref": "#/$defs/AuditMetadata"
-    },
-    "baseline": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/BaselineReport"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "completeness": {
-      "$ref": "#/$defs/ReportCompleteness"
-    },
-    "diagnostics": {
-      "items": {
-        "$ref": "#/$defs/CanonicalDiagnostic"
-      },
-      "type": "array"
-    },
-    "dimension_scores": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/DimensionScores"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "dimensions": {
-      "default": [],
-      "description": "Analyzer authority and coverage per health dimension.",
-      "items": {
-        "$ref": "#/$defs/DimensionCoverage"
-      },
-      "type": "array"
-    },
-    "elapsed": {
-      "format": "double",
-      "type": "number"
-    },
-    "elapsed_ms": {
-      "format": "uint64",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "error": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ReportError"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "error_count": {
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "execution_scope": {
-      "default": "",
-      "type": "string"
-    },
-    "gate_result": {
-      "$ref": "#/$defs/GateResult"
-    },
-    "info_count": {
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "mode": {
-      "$ref": "#/$defs/ScanMode"
-    },
-    "outcome": {
-      "$ref": "#/$defs/ReportOutcome"
-    },
+    "audit": { "$ref": "#/$defs/AuditMetadata" },
+    "baseline": { "anyOf": [{ "$ref": "#/$defs/BaselineReport" }, { "type": "null" }] },
+    "completeness": { "$ref": "#/$defs/ReportCompleteness" },
+    "diagnostics": { "items": { "$ref": "#/$defs/CanonicalDiagnostic" }, "type": "array" },
+    "dimension_scores": { "anyOf": [{ "$ref": "#/$defs/DimensionScores" }, { "type": "null" }] },
+    "elapsed": { "format": "double", "type": "number" },
+    "elapsed_ms": { "format": "uint64", "minimum": 0, "type": "integer" },
+    "error": { "anyOf": [{ "$ref": "#/$defs/ReportError" }, { "type": "null" }] },
+    "error_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "execution_scope": { "default": "", "type": "string" },
+    "gate_result": { "$ref": "#/$defs/GateResult" },
+    "info_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "mode": { "$ref": "#/$defs/ScanMode" },
+    "outcome": { "$ref": "#/$defs/ReportOutcome" },
     "pass_timings_ms": {
-      "additionalProperties": {
-        "format": "uint64",
-        "minimum": 0,
-        "type": "integer"
-      },
+      "additionalProperties": { "format": "uint64", "minimum": 0, "type": "integer" },
       "default": {},
       "type": "object"
     },
-    "projects": {
-      "items": {
-        "$ref": "#/$defs/ProjectReport"
-      },
-      "type": "array"
-    },
-    "report_constructed": {
-      "type": "boolean"
-    },
-    "reporting_scope": {
-      "default": "",
-      "type": "string"
-    },
-    "requested_root": {
-      "type": "string"
-    },
-    "resolved_root": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "root_causes": {
-      "default": [],
-      "description": "Canonical root causes behind the diagnostics, highest impact first.\nEach group owns the priority and bounded score impact of its\noccurrences, which stay individually inspectable in `diagnostics`.",
-      "items": {
-        "$ref": "#/$defs/RootCauseGroup"
-      },
-      "type": "array"
-    },
-    "schema_version": {
-      "type": "string"
-    },
-    "score": {
-      "format": "uint32",
-      "minimum": 0,
-      "type": [
-        "integer",
-        "null"
-      ]
-    },
-    "score_label": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ScoreLabel"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "score_model_version": {
-      "default": "",
-      "description": "Score Core version that produced every score in this report. Legacy\nvalues came from an unversioned model and are not comparable.",
-      "type": "string"
-    },
-    "skipped_passes": {
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "source_file_count": {
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "summary": {
-      "$ref": "#/$defs/ReportSummary"
-    },
-    "tool_version": {
-      "type": "string"
-    },
-    "warning_count": {
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "workspace_health": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/WorkspaceHealth"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Workspace distribution behind the headline score."
-    }
+    "projects": { "items": { "$ref": "#/$defs/ProjectReport" }, "type": "array" },
+    "report_constructed": { "type": "boolean" },
+    "requested_root": { "type": "string" },
+    "resolved_root": { "type": ["string", "null"] },
+    "reporting_scope": { "default": "", "type": "string" },
+    "schema_version": { "type": "string" },
+    "score": { "format": "uint32", "minimum": 0, "type": ["integer", "null"] },
+    "score_label": { "anyOf": [{ "$ref": "#/$defs/ScoreLabel" }, { "type": "null" }] },
+    "skipped_passes": { "items": { "type": "string" }, "type": "array" },
+    "source_file_count": { "format": "uint", "minimum": 0, "type": "integer" },
+    "summary": { "$ref": "#/$defs/ReportSummary" },
+    "tool_version": { "type": "string" },
+    "warning_count": { "format": "uint", "minimum": 0, "type": "integer" }
   },
   "required": [
-    "schema_version",
-    "tool_version",
-    "report_constructed",
-    "outcome",
-    "requested_root",
-    "mode",
-    "gate_result",
-    "completeness",
-    "projects",
-    "diagnostics",
-    "summary",
-    "elapsed_ms",
-    "audit",
-    "source_file_count",
-    "elapsed",
-    "skipped_passes",
-    "error_count",
-    "warning_count",
-    "info_count"
+    "schema_version", "tool_version", "report_constructed", "outcome", "requested_root", "mode", "gate_result",
+    "completeness", "projects", "diagnostics", "summary", "elapsed_ms", "audit",
+    "source_file_count", "elapsed", "skipped_passes", "error_count", "warning_count", "info_count"
   ],
   "title": "ReportV1",
   "type": "object"

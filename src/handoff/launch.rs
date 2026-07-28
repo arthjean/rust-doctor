@@ -347,9 +347,10 @@ mod tests {
 
         assert!(status.success());
         let captured = std::fs::read_to_string(capture).unwrap();
+        let canonical_directory = directory.path().canonicalize().unwrap();
         assert_eq!(
             captured,
-            format!("1\nFix the issue.\n{}\n", directory.path().display())
+            format!("1\nFix the issue.\n{}\n", canonical_directory.display())
         );
     }
 }
