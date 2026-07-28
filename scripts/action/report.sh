@@ -69,7 +69,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" && -s "${REPORT_FILE:-}" ]]; then
     ([.diagnostics[] | select(.score_impact != "scored" and .trust_tier != "audit-only")] | length | tostring) + " advisory | " +
     ([.diagnostics[] | select(.trust_tier == "audit-only")] | length | tostring) + " audit\n\n" +
     "### Top remediations\n" +
-    ([.root_causes[:3][] | "- `" + .rule + "` [" + .key + "]: " + .title] | join("\n"))
+    ([((.root_causes // [])[:3])[] | "- `" + .rule + "` [" + .key + "]: " + .title] | join("\n"))
   ' "$REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
 fi
 
