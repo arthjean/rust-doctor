@@ -193,8 +193,8 @@ jobs:
           RUST_DOCTOR_SOURCE_SHA: ${{ steps.rust-doctor-source.outputs.sha }}
           WCAG_AUDIT_PATH: ${{ runner.temp }}/rust-doctor-wcag-audit.json
         run: |
-          bun run catalog:check-only
           bun run catalog:sync
+          bun run catalog:check-only
           bun run build:verified
           bun run audit:wcag
 
