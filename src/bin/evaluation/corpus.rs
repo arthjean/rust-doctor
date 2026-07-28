@@ -861,6 +861,9 @@ fn cargo_workspace_roots(
         if !members.contains(id) {
             continue;
         }
+        if !package_has_primary_target(package, id)? {
+            continue;
+        }
         let manifest_path = package["manifest_path"].as_str().ok_or_else(|| {
             EvalError::Command(format!("Cargo metadata package {id} has no manifest path"))
         })?;
@@ -882,6 +885,30 @@ fn cargo_workspace_roots(
     roots.sort();
     roots.dedup();
     Ok(Some(roots))
+}
+
+fn package_has_primary_target(package: &serde_json::Value, id: &str) -> Result<bool> {
+    let targets = package["targets"]
+        .as_array()
+        .ok_or_else(|| EvalError::Command(format!("Cargo metadata package {id} has no targets")))?;
+    for target in targets {
+        let kinds = target["kind"].as_array().ok_or_else(|| {
+            EvalError::Command(format!("Cargo metadata target in package {id} has no kind"))
+        })?;
+        if kinds
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .any(|kind| {
+                matches!(
+                    kind,
+                    "bin" | "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+                )
+            })
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn binary_revision(
@@ -1633,6 +1660,47 @@ mod tests {
             discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
                 .unwrap(),
             ["member", "standalone"]
+        );
+    }
+
+    #[test]
+    fn project_root_discovery_excludes_packages_without_primary_targets() {
+        let directory = tempfile::tempdir().unwrap();
+        let cargo_home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"library\", \"compile-tests\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(directory.path().join("library/src")).unwrap();
+        std::fs::write(
+            directory.path().join("library/Cargo.toml"),
+            "[package]\nname=\"library\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("library/src/lib.rs"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("compile-tests/tests")).unwrap();
+        std::fs::write(
+            directory.path().join("compile-tests/Cargo.toml"),
+            concat!(
+                "[package]\n",
+                "name=\"compile-tests\"\n",
+                "version=\"0.1.0\"\n",
+                "autolib=false\n",
+                "autobins=false\n",
+                "autotests=false\n",
+                "[[test]]\n",
+                "name=\"ui\"\n",
+                "path=\"tests/ui.rs\"\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("compile-tests/tests/ui.rs"), "").unwrap();
+
+        assert_eq!(
+            discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
+                .unwrap(),
+            ["library"]
         );
     }
 
