@@ -25,7 +25,7 @@ Wait+Screen /Select projects/
 Sleep 1s
 Space
 Enter
-Wait+Screen /Add Rust Doctor to GitHub Actions/
+Wait+Screen /GitHub:/
 Sleep 3s
 Escape
 Sleep 1s
