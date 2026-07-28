@@ -1,0 +1,96 @@
+name: Delta Audit
+
+# The pinned truth fixtures are Rust Doctor's cheapest deterministic regression
+# corpus. Run them outside PR CI and compare analyzer outcomes to the reviewed
+# baseline without regenerating calibration decisions.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  truth-delta:
+    name: Truth dataset delta
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: "1.97"
+
+      - name: Build evaluator and candidate
+        run: cargo build --locked --release --bin rust-doctor --bin rust-doctor-eval
+
+      - name: Measure candidate truth evidence
+        run: |
+          target/release/rust-doctor-eval truth \
+            --binary target/release/rust-doctor \
+            --dataset evaluation/truth-dataset-v1.json \
+            --output candidate-truth-baseline.json \
+            --tool-revision "$GITHUB_SHA"
+
+      - name: Compare with reviewed baseline
+        shell: bash
+        run: |
+          {
+            echo "## Truth delta audit"
+            echo
+            echo "| Rule | TP | FP | FN | Context |"
+            echo "|---|---:|---:|---:|---:|"
+            jq -r --slurpfile baseline evaluation/truth-baseline-v1.json '
+              ($baseline[0].rules | map({key: .rule, value: .}) | from_entries) as $base
+              | .rules[]
+              | . as $candidate
+              | ($base[$candidate.rule] // {
+                  true_positives: 0,
+                  false_positives: 0,
+                  false_negatives: 0,
+                  context_coverage: 0
+                }) as $previous
+              | select(
+                  $candidate.true_positives != $previous.true_positives
+                  or $candidate.false_positives != $previous.false_positives
+                  or $candidate.false_negatives != $previous.false_negatives
+                  or $candidate.context_coverage != $previous.context_coverage
+                )
+              | "| \($candidate.rule) | \($previous.true_positives) -> \($candidate.true_positives) | \($previous.false_positives) -> \($candidate.false_positives) | \($previous.false_negatives) -> \($candidate.false_negatives) | \($previous.context_coverage) -> \($candidate.context_coverage) |"
+            ' candidate-truth-baseline.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          jq -e --slurpfile baseline evaluation/truth-baseline-v1.json '
+            ($baseline[0].rules | map({key: .rule, value: .}) | from_entries) as $base
+            | (.rules | map({key: .rule, value: .}) | from_entries) as $candidate
+            | .schema_version == $baseline[0].schema_version
+              and .dataset_version == $baseline[0].dataset_version
+              and .dataset_sha256 == $baseline[0].dataset_sha256
+              and .thresholds == $baseline[0].thresholds
+              and all($baseline[0].rules[]; $candidate[.rule] != null)
+              and all(.rules[];
+                .scan_complete
+                and if $base[.rule] == null then
+                  .false_positives == 0 and .false_negatives == 0
+                else
+                  .true_positives >= $base[.rule].true_positives
+                  and .false_positives <= $base[.rule].false_positives
+                  and .false_negatives <= $base[.rule].false_negatives
+                  and .context_coverage >= $base[.rule].context_coverage
+                end
+              )
+          ' candidate-truth-baseline.json
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-doctor-truth-delta-${{ github.run_id }}
+          path: candidate-truth-baseline.json
+          if-no-files-found: error
+          retention-days: 14
