@@ -44,7 +44,12 @@ jobs:
           components: clippy
 
       - name: Test all features
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: cargo test --locked --all-features
+
+      - name: Compile all tests
+        if: ${{ matrix.os != 'ubuntu-latest' }}
+        run: cargo test --locked --all-features --no-run
 
       - name: Test without default features
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable' }}
