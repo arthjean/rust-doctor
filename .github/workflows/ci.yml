@@ -157,7 +157,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: arthjean/rust-doctor-web
-          ref: 8190d3eac96294c27b950b0a338922db1d894129
+          ref: 1b0cc07f1c0c73047cba31586e172c11c01c747f
           path: rust-doctor-web
           ssh-key: ${{ secrets.RUST_DOCTOR_WEB_DEPLOY_KEY }}
           persist-credentials: false
@@ -196,7 +196,6 @@ jobs:
           bun run catalog:sync
           bun run catalog:check-only
           bun run build:verified
-          git restore public/catalog/rules.json
           bun run audit:wcag
 
       - name: Upload public-contract evidence
