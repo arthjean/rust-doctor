@@ -888,6 +888,13 @@ fn cargo_workspace_roots(
 }
 
 fn package_has_primary_target(package: &serde_json::Value, id: &str) -> Result<bool> {
+    let manifest_path = package["manifest_path"].as_str().ok_or_else(|| {
+        EvalError::Command(format!("Cargo metadata package {id} has no manifest path"))
+    })?;
+    let package_root = Path::new(manifest_path)
+        .parent()
+        .ok_or_else(|| EvalError::Command(format!("package {id} has no root")))?;
+    let canonical_package_root = package_root.canonicalize().ok();
     let targets = package["targets"]
         .as_array()
         .ok_or_else(|| EvalError::Command(format!("Cargo metadata package {id} has no targets")))?;
@@ -895,7 +902,7 @@ fn package_has_primary_target(package: &serde_json::Value, id: &str) -> Result<b
         let kinds = target["kind"].as_array().ok_or_else(|| {
             EvalError::Command(format!("Cargo metadata target in package {id} has no kind"))
         })?;
-        if kinds
+        let primary = kinds
             .iter()
             .filter_map(serde_json::Value::as_str)
             .any(|kind| {
@@ -903,8 +910,13 @@ fn package_has_primary_target(package: &serde_json::Value, id: &str) -> Result<b
                     kind,
                     "bin" | "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
                 )
-            })
-        {
+            });
+        let local = target["src_path"]
+            .as_str()
+            .and_then(|path| Path::new(path).canonicalize().ok())
+            .zip(canonical_package_root.as_ref())
+            .is_some_and(|(path, root)| path.starts_with(root));
+        if primary && local {
             return Ok(true);
         }
     }
@@ -1669,7 +1681,7 @@ mod tests {
         let cargo_home = tempfile::tempdir().unwrap();
         std::fs::write(
             directory.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"library\", \"compile-tests\"]\n",
+            "[workspace]\nmembers = [\"library\", \"compile-tests\", \"external-bin\"]\n",
         )
         .unwrap();
         std::fs::create_dir_all(directory.path().join("library/src")).unwrap();
@@ -1696,6 +1708,21 @@ mod tests {
         )
         .unwrap();
         std::fs::write(directory.path().join("compile-tests/tests/ui.rs"), "").unwrap();
+        std::fs::create_dir_all(directory.path().join("external-bin")).unwrap();
+        std::fs::write(
+            directory.path().join("external-bin/Cargo.toml"),
+            concat!(
+                "[package]\n",
+                "name=\"external-bin\"\n",
+                "version=\"0.1.0\"\n",
+                "autobins=false\n",
+                "[[bin]]\n",
+                "name=\"external-bin\"\n",
+                "path=\"../external-main.rs\"\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("external-main.rs"), "fn main() {}\n").unwrap();
 
         assert_eq!(
             discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
