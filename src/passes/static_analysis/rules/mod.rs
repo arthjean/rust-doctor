@@ -261,6 +261,14 @@ pub struct RuleEngine {
     abstentions: Mutex<Vec<(String, String)>>,
 }
 
+struct StaleFileResult {
+    rel_path: PathBuf,
+    hash: String,
+    diagnostics: Vec<Diagnostic>,
+    cacheable: bool,
+    abstentions: Vec<(String, String)>,
+}
+
 impl RuleEngine {
     /// Create a new rule engine with the given rules.
     pub fn new(rules: Vec<Box<dyn CustomRule>>) -> Self {
@@ -324,7 +332,7 @@ impl RuleEngine {
         enable_rules: &[String],
         cargo_targets: &[CargoTargetContext],
         package: &PackageContext,
-        skip_fully_abstained_files: bool,
+        evaluation_profile: bool,
         on_file_progress: Option<&scanner::FileProgressCallback>,
     ) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
@@ -400,7 +408,7 @@ impl RuleEngine {
                 package.metadata_complete
             )))
             .chain(std::iter::once(format!(
-                "skip-fully-abstained-files:{skip_fully_abstained_files}"
+                "evaluation-profile:{evaluation_profile}"
             )))
             .collect();
         let config_hash = cache::compute_config_hash(
@@ -440,7 +448,7 @@ impl RuleEngine {
                         applicable = true;
                     }
                 }
-                if !applicable && skip_fully_abstained_files {
+                if !applicable && evaluation_profile {
                     return None;
                 }
                 match std::fs::metadata(&file_path) {
@@ -462,6 +470,24 @@ impl RuleEngine {
                 }
                 match std::fs::read_to_string(&file_path) {
                     Ok(content) => Some((file_path, content)),
+                    Err(error)
+                        if evaluation_profile
+                            && error.kind() == std::io::ErrorKind::InvalidData =>
+                    {
+                        for (rule, gate) in self.rules.iter().zip(&gates) {
+                            if gate.abstention_reason(source_context).is_none() {
+                                abstention_events.push((
+                                    rule.name().to_string(),
+                                    "unparseable-source".to_string(),
+                                ));
+                            }
+                        }
+                        eprintln!(
+                            "Warning: could not parse non-UTF-8 source '{}': {error}",
+                            file_path.display()
+                        );
+                        None
+                    }
                     Err(error) => {
                         eprintln!("Warning: could not read '{}': {error}", file_path.display());
                         all_diagnostics
@@ -513,7 +539,7 @@ impl RuleEngine {
         }
 
         // Process stale files in parallel with rayon
-        let stale_results: Vec<(std::path::PathBuf, String, Vec<Diagnostic>, bool)> = stale_files
+        let stale_results: Vec<StaleFileResult> = stale_files
             .par_iter()
             .filter_map(|&(file_path, content, ref hash)| {
                 if control.is_stopped() {
@@ -530,7 +556,7 @@ impl RuleEngine {
                     });
                 }
 
-                let (diagnostics, cacheable) = match syn::parse_file(content) {
+                let (diagnostics, cacheable, abstentions) = match syn::parse_file(content) {
                     Ok(syntax) => {
                         let mut diagnostics = Vec::new();
                         let mut cacheable = true;
@@ -557,14 +583,29 @@ impl RuleEngine {
                                 cacheable = false;
                             }
                         }
-                        (diagnostics, cacheable)
+                        (diagnostics, cacheable, Vec::new())
                     }
                     Err(error) => {
                         eprintln!("Warning: parse error in '{}': {error}", rel_path.display());
-                        (
-                            vec![analysis_failure(rel_path, format!("parse_failed:{error}"))],
-                            false,
-                        )
+                        if evaluation_profile {
+                            let context = RuleContext::for_path(file_path, cargo_targets, package);
+                            let abstentions = self
+                                .rules
+                                .iter()
+                                .zip(&gates)
+                                .filter(|(_, gate)| gate.abstention_reason(context).is_none())
+                                .map(|(rule, _)| {
+                                    (rule.name().to_string(), "unparseable-source".to_string())
+                                })
+                                .collect();
+                            (Vec::new(), false, abstentions)
+                        } else {
+                            (
+                                vec![analysis_failure(rel_path, format!("parse_failed:{error}"))],
+                                false,
+                                Vec::new(),
+                            )
+                        }
                     }
                 };
 
@@ -577,16 +618,27 @@ impl RuleEngine {
                         workers: worker_count,
                     });
                 }
-                Some((rel_path.to_path_buf(), hash.clone(), diagnostics, cacheable))
+                Some(StaleFileResult {
+                    rel_path: rel_path.to_path_buf(),
+                    hash: hash.clone(),
+                    diagnostics,
+                    cacheable,
+                    abstentions,
+                })
             })
             .collect();
 
         // Update the cache with newly scanned results using pre-computed hashes
-        for (rel_path, hash, diagnostics, cacheable) in stale_results {
-            all_diagnostics.extend_from_slice(&diagnostics);
-            if cacheable {
-                scan_cache.update_with_hash(&rel_path, hash, diagnostics);
+        let mut parse_abstentions = Vec::new();
+        for result in stale_results {
+            all_diagnostics.extend_from_slice(&result.diagnostics);
+            parse_abstentions.extend(result.abstentions);
+            if result.cacheable {
+                scan_cache.update_with_hash(&result.rel_path, result.hash, result.diagnostics);
             }
+        }
+        if let Ok(mut recorded) = self.abstentions.lock() {
+            recorded.extend(parse_abstentions);
         }
 
         // Persist the updated cache (best-effort)
@@ -778,7 +830,7 @@ pub struct RuleEnginePass {
     selected_files: Option<Vec<PathBuf>>,
     cargo_targets: Vec<CargoTargetContext>,
     package: PackageContext,
-    skip_fully_abstained_files: bool,
+    evaluation_profile: bool,
 }
 
 impl RuleEnginePass {
@@ -797,7 +849,7 @@ impl RuleEnginePass {
             selected_files: None,
             cargo_targets: Vec::new(),
             package: PackageContext::unresolved(),
-            skip_fully_abstained_files: false,
+            evaluation_profile: false,
         }
     }
 
@@ -819,8 +871,8 @@ impl RuleEnginePass {
 
     /// In corpus evaluation, files outside every rule's declared surfaces are
     /// evidence of abstention rather than required parser inputs.
-    pub const fn skip_fully_abstained_files(mut self, enabled: bool) -> Self {
-        self.skip_fully_abstained_files = enabled;
+    pub const fn with_evaluation_profile(mut self, enabled: bool) -> Self {
+        self.evaluation_profile = enabled;
         self
     }
 
@@ -837,7 +889,7 @@ impl RuleEnginePass {
             &self.enable_rules,
             &self.cargo_targets,
             &self.package,
-            self.skip_fully_abstained_files,
+            self.evaluation_profile,
             on_file_progress,
         )
     }
@@ -1904,7 +1956,7 @@ mod tests {
         )
         .with_cargo_targets(probe_targets(dir.path()))
         .with_package_context(resolved_package())
-        .skip_fully_abstained_files(true);
+        .with_evaluation_profile(true);
 
         let diagnostics = pass.run(dir.path()).unwrap();
         assert_eq!(diagnostics.len(), 1);
@@ -1922,6 +1974,37 @@ mod tests {
         assert!(receipts.iter().any(|receipt| {
             receipt.reason == "unsupported-source-surface:test" && receipt.count == 1
         }));
+    }
+
+    #[test]
+    fn evaluation_profile_abstains_on_unparseable_applicable_sources() {
+        let dir = probe_project();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "this is deliberately invalid Rust {{{",
+        )
+        .unwrap();
+        let pass = RuleEnginePass::with_config(
+            vec![Box::new(ContextProbeRule::new(&[]))],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .with_cargo_targets(probe_targets(dir.path()))
+        .with_package_context(resolved_package())
+        .with_evaluation_profile(true);
+
+        let diagnostics = pass.run(dir.path()).unwrap();
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != scanner::ANALYSIS_FAILURE_RULE)
+        );
+        assert!(
+            pass.take_abstentions()
+                .iter()
+                .any(|receipt| { receipt.reason == "unparseable-source" && receipt.count == 1 })
+        );
     }
 
     #[test]
