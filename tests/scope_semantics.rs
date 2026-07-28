@@ -159,7 +159,10 @@ fn staged_scope_scans_index_content_instead_of_the_worktree() {
     let worktree = "pub fn working(value: Option<u8>) -> u8 { value.unwrap_or_default() }\n";
     write(&repository.path().join("src/lib.rs"), worktree);
 
-    let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--staged", "--scope", "files"],
+    );
     assert_success(&output);
     let report = parse_report(&output);
     assert_eq!(report["mode"], "staged");
@@ -178,6 +181,61 @@ fn staged_scope_scans_index_content_instead_of_the_worktree() {
         fs::read_to_string(repository.path().join("src/lib.rs")).unwrap(),
         worktree
     );
+}
+
+#[test]
+fn staged_lines_filter_with_cached_index_ranges() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "dependencies = false\n",
+    );
+    let worktree_source = "pub fn existing(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n\npub fn staged(input: Option<u8>) -> u8 {\n    input.unwrap_or_default()\n}\n";
+    write(&repository.path().join("src/lib.rs"), worktree_source);
+    init_repository(repository.path());
+
+    let staged_source = "pub fn existing(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n\npub fn staged(input: Option<u8>) -> u8 {\n    input.unwrap()\n}\n";
+    write(&repository.path().join("src/lib.rs"), staged_source);
+    git(repository.path(), &["add", "src/lib.rs"]);
+    write(&repository.path().join("src/lib.rs"), worktree_source);
+
+    let output = scan(
+        repository.path(),
+        &["--json", "--offline", "--staged", "--scope", "lines"],
+    );
+    assert_success(&output);
+    let report = parse_report(&output);
+    assert_eq!(report["mode"], "staged");
+    assert_eq!(report["reporting_scope"], "staged");
+    let unwraps: Vec<_> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|finding| finding["rule"] == "unwrap-in-production")
+        .collect();
+    assert_eq!(unwraps.len(), 1, "unexpected staged report: {report:#}");
+    assert_eq!(unwraps[0]["location"]["path"], "src/lib.rs");
+    assert_eq!(unwraps[0]["location"]["range"]["start"]["line"], 6);
+    assert_eq!(
+        fs::read_to_string(repository.path().join("src/lib.rs")).unwrap(),
+        worktree_source
+    );
+}
+
+#[test]
+fn unavailable_score_keeps_stdout_empty() {
+    let repository = tempfile::tempdir().unwrap();
+    write_package(repository.path(), "fixture");
+    write(
+        &repository.path().join("rust-doctor.toml"),
+        "lint = false\ndependencies = false\n[ignore]\nfiles = [\"src/**\"]\n",
+    );
+
+    let output = scan(repository.path(), &["--score", "--offline"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No Rust source files found"));
 }
 
 #[test]
@@ -222,7 +280,7 @@ fn staged_scope_refuses_worktree_policy_drift() {
     );
 
     let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(1));
     let report = parse_report(&output);
     assert_eq!(report["outcome"], "failed");
     assert!(
@@ -234,7 +292,7 @@ fn staged_scope_refuses_worktree_policy_drift() {
 }
 
 #[test]
-fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
+fn noninteractive_workspace_selects_all_and_changed_ownership_follows_cargo_metadata() {
     let repository = tempfile::tempdir().unwrap();
     write(
         &repository.path().join("Cargo.toml"),
@@ -248,8 +306,9 @@ fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
     let default = scan(repository.path(), &["--json", "--offline"]);
     assert_success(&default);
     let default = parse_report(&default);
-    assert_eq!(default["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(default["projects"].as_array().unwrap().len(), 2);
     assert_eq!(default["projects"][0]["package_root"], "crates/a");
+    assert_eq!(default["projects"][1]["package_root"], "crates/b");
 
     let all = scan(
         repository.path(),
@@ -284,7 +343,7 @@ fn workspace_defaults_star_and_changed_ownership_follow_cargo_metadata() {
         repository.path(),
         &["--json", "--offline", "--project", "missing"],
     );
-    assert_eq!(unknown.status.code(), Some(2));
+    assert_eq!(unknown.status.code(), Some(1));
     let unknown = parse_report(&unknown);
     assert_eq!(unknown["outcome"], "failed");
     assert!(
@@ -359,8 +418,10 @@ fn root_packages_exclusions_and_nested_path_members_follow_cargo_metadata() {
     let default = scan(repository.path(), &["--json", "--offline"]);
     assert_success(&default);
     let default = parse_report(&default);
-    assert_eq!(default["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(default["projects"].as_array().unwrap().len(), 3);
     assert_eq!(default["projects"][0]["package_root"], ".");
+    assert_eq!(default["projects"][1]["package_root"], "crates/a");
+    assert_eq!(default["projects"][2]["package_root"], "shared");
 
     let all = scan(
         repository.path(),
@@ -470,9 +531,11 @@ fn baseline_renames_are_isolated_and_shallow_history_fails_complete_gate() {
             "--require-complete",
         ],
     );
-    assert_eq!(degraded.status.code(), Some(4));
+    assert_eq!(degraded.status.code(), Some(1));
     let degraded = parse_report(&degraded);
     assert_eq!(degraded["baseline"]["baseline_degraded"], true);
+    assert_eq!(degraded["mode"], "files");
+    assert_eq!(degraded["reporting_scope"], "changed");
     assert_eq!(degraded["summary"]["score_authoritative"], false);
 }
 
@@ -486,7 +549,7 @@ fn invalid_baseline_ref_fails_closed_without_degradation() {
         repository.path(),
         &["--json", "--offline", "--baseline", "--base", "HEAD..main"],
     );
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(1));
     let report = parse_report(&output);
     assert_eq!(report["outcome"], "failed");
     assert!(report["baseline"].is_null());
@@ -515,7 +578,7 @@ fn parse_failure_is_failed_required_work_and_never_authoritative() {
         repository.path(),
         &["--json", "--offline", "--require-complete"],
     );
-    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(output.status.code(), Some(1));
     let report = parse_report(&output);
     assert_eq!(report["completeness"]["state"], "incomplete");
     assert_eq!(report["summary"]["score_authoritative"], false);
@@ -579,7 +642,7 @@ fn staged_scope_rejects_an_unresolved_index() {
     assert!(!merge.status.success());
 
     let output = scan(repository.path(), &["--json", "--offline", "--staged"]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(1));
     let report = parse_report(&output);
     assert_eq!(report["outcome"], "failed");
     assert!(
@@ -638,6 +701,7 @@ fn scan(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg(root)
         .args(arguments)
+        .args(["--fail-on", "none"])
         .output()
         .unwrap()
 }

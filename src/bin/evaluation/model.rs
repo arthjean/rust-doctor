@@ -103,6 +103,8 @@ pub(crate) struct CorpusRecord {
     pub(crate) reported_roots: Vec<String>,
     pub(crate) root_states: BTreeMap<String, RootState>,
     pub(crate) tool_revision: String,
+    #[serde(default)]
+    pub(crate) binary_sha256: String,
     pub(crate) evaluation_profile_sha256: String,
     pub(crate) catalog_sha256: String,
     pub(crate) catalog: BTreeMap<String, EvaluationRule>,

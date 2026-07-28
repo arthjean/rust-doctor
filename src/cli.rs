@@ -4,8 +4,7 @@ use std::path::PathBuf;
 
 /// Exit-code reference shown after `--help` (clap `after_help`).
 ///
-/// Mirrors the exit constants in `run.rs` and the README so CI authors can
-/// distinguish setup, scan, quality-gate, and incomplete-analysis failures.
+/// Mirrors the React Doctor-compatible exit constants in `run.rs` and the README.
 const EXIT_CODES_HELP: &str = "\
 Examples:
   rust-doctor . --scope changed --base main --blocking warning
@@ -15,28 +14,27 @@ Examples:
 
 Output contract:
   Terminal diagnostics use stderr; the score box uses stdout.
-  --score writes one integer to stdout.
-  --json, --json-compact, and --sarif write machine output to stdout.
-  --json-out writes JSON atomically to PATH instead of stdout.
+  --score writes one bare integer when available; otherwise stdout stays empty.
+  --json and --sarif write machine output to stdout.
+  --json-compact and --json-out modify --json only; otherwise they have no effect.
+  With --json, --json-out writes JSON atomically to PATH instead of stdout.
   --output-dir writes bounded diagnostic handoff files without changing stdout.
-  --score, --sarif, --json, and --json-compact are mutually exclusive.
-  --json-out may pair with --json or --json-compact, but not --score or --sarif.
-  --share prints one stateless public URL after the terminal report.
+  --score, --sarif, and --json are mutually exclusive.
+  --json-compact and --json-out may pair with --json.
+  Online terminal reports include a stateless sharing URL; --share requests it explicitly.
   --color and --no-color affect terminal output only and conflict when explicit.
 
 Exit codes:
-  0  Success: scan completed and all quality gates passed
-  1  Setup error: installer, MCP server, or --install-deps failed
-  2  Scan error: project discovery, analysis, or output failed
-  3  Quality gate failed: score or --blocking threshold reached
-  4  Required analysis incomplete when --require-complete is active
+  0    Success: scan completed, no blocking finding, or --blocking none
+  1    Invalid input, scan/setup failure, incomplete analysis, or blocking finding
+  130  Interrupted by SIGINT/SIGTERM
 
 Normative exit truth table (all output modes):
-  Report unavailable or invalid arguments                         2
-  Report incomplete and --require-complete                        4
-  Report complete, or incompleteness allowed, but gate blocks     3
+  Report unavailable, invalid, or required analysis incomplete    1
+  Report complete, but the effective finding/score gate blocks    1
   Report complete, or incompleteness allowed, and gate passes     0
-  Installer, MCP startup, or dependency-installation failure      1";
+  Installer, MCP startup, or dependency-installation failure      1
+  SIGINT/SIGTERM interruption                                    130";
 
 /// Diagnose your Rust project's health with a single command.
 ///
@@ -58,6 +56,10 @@ pub struct Cli {
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
     pub directory: PathBuf,
+
+    /// Accept defaults and skip interactive prompts
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 
     /// Show detailed file:line information per diagnostic
     #[arg(long, short = 'v')]
@@ -84,27 +86,27 @@ pub struct Cli {
     pub disable_adapter: Vec<AdapterGroup>,
 
     /// Print only the bare integer score (for CI piping)
-    #[arg(long, conflicts_with_all = ["json", "json_compact", "json_out", "sarif"])]
+    #[arg(long, conflicts_with_all = ["json", "sarif"])]
     pub score: bool,
 
     /// Output full scan results as JSON
-    #[arg(long, conflicts_with_all = ["score", "sarif", "json_compact"])]
+    #[arg(long, conflicts_with_all = ["score", "sarif"])]
     pub json: bool,
 
-    /// Output Report V1 as compact JSON
-    #[arg(long, conflicts_with_all = ["score", "sarif", "json"])]
+    /// With --json, output Report V1 as compact JSON
+    #[arg(long)]
     pub json_compact: bool,
 
-    /// Write Report V1 atomically to a file instead of stdout
-    #[arg(long, value_name = "PATH", conflicts_with_all = ["score", "sarif"])]
+    /// With --json, write Report V1 atomically to a file instead of stdout
+    #[arg(long, value_name = "PATH")]
     pub json_out: Option<PathBuf>,
 
     /// Output results in SARIF 2.1.0 format (for GitHub Code Scanning, GitLab SAST)
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out"])]
+    #[arg(long, conflicts_with_all = ["score", "json"])]
     pub sarif: bool,
 
     /// Print a stateless public summary URL without uploading report data
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif"])]
     pub share: bool,
 
     /// Write diagnostics.json, per-rule groups, and an agent handoff to DIR
@@ -128,7 +130,12 @@ pub struct Cli {
     pub diff: Option<String>,
 
     /// Reporting scope for the scan
-    #[arg(long, value_enum, default_value_t = Scope::Full)]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Scope::Full,
+        default_value_if("staged", "true", Some("files"))
+    )]
     pub scope: Scope,
 
     /// Explicit files for --scope files (repeat or comma-separate)
@@ -159,7 +166,7 @@ pub struct Cli {
     #[arg(long)]
     pub require_complete: bool,
 
-    /// Fail the quality gate (exit code 3) when this severity is reached
+    /// Fail the quality gate (exit code 1) when this severity is reached
     #[arg(long, value_enum, conflicts_with = "fail_on")]
     pub blocking: Option<FailOn>,
 
@@ -192,11 +199,11 @@ pub struct Cli {
     pub no_telemetry: bool,
 
     /// Run as an MCP (Model Context Protocol) stdio server for AI tool integration
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif", "lsp"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif", "lsp"])]
     pub mcp: bool,
 
     /// Run the feature-gated language server over stdio
-    #[arg(long, conflicts_with_all = ["score", "json", "json_compact", "json_out", "sarif", "mcp"])]
+    #[arg(long, conflicts_with_all = ["score", "json", "sarif", "mcp"])]
     pub lsp: bool,
 
     /// Ignore the project's rust-doctor.toml config file
@@ -222,7 +229,7 @@ pub struct Cli {
 
 impl Cli {
     pub const fn wants_json(&self) -> bool {
-        self.json || self.json_compact || self.json_out.is_some()
+        self.json
     }
 
     /// Validate value-dependent conflicts before project discovery starts.
@@ -243,10 +250,13 @@ impl Cli {
                 "--diff cannot be combined with --scope, --base, --staged, --baseline, --include-untracked, or --files",
             ));
         }
-        if (self.staged || self.baseline) && self.scope != Scope::Full {
+        if self.staged && matches!(self.scope, Scope::Full | Scope::Changed) {
             return Err(usage_error(
-                "--staged and --baseline cannot be combined with --scope",
+                "--staged supports only --scope files or --scope lines",
             ));
+        }
+        if self.baseline && self.scope != Scope::Full {
+            return Err(usage_error("--baseline cannot be combined with --scope"));
         }
         if self.base.is_some()
             && !self.baseline
@@ -256,15 +266,23 @@ impl Cli {
                 "--base requires --scope changed, --scope lines, or --baseline",
             ));
         }
+        if self.staged && self.include_untracked {
+            return Err(usage_error(
+                "--include-untracked cannot be combined with --staged",
+            ));
+        }
         if self.include_untracked && !matches!(self.scope, Scope::Changed | Scope::Lines) {
             return Err(usage_error(
                 "--include-untracked requires --scope changed or --scope lines",
             ));
         }
+        if self.staged && !self.files.is_empty() {
+            return Err(usage_error("--files cannot be combined with --staged"));
+        }
         if !self.files.is_empty() && self.scope != Scope::Files {
             return Err(usage_error("--files requires --scope files"));
         }
-        if self.scope == Scope::Files && self.files.is_empty() {
+        if self.scope == Scope::Files && self.files.is_empty() && !self.staged {
             return Err(usage_error(
                 "--scope files requires at least one --files path",
             ));
@@ -326,8 +344,8 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
     }
 }
 
-/// File-reporting scope. Staged and baseline are separate flags because they
-/// select an alternate source snapshot in addition to a reporting scope.
+/// File-reporting scope. Staged is a source modifier that composes with files
+/// or lines; baseline remains a separate comparison mode.
 #[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Scope {
     #[default]
@@ -425,11 +443,11 @@ pub enum ColorMode {
 /// When to exit with a non-zero status code
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailOn {
-    /// Exit 3 if any errors found
+    /// Exit 1 if any errors are found
     Error,
-    /// Exit 3 if any errors or warnings found
+    /// Exit 1 if any errors or warnings are found
     Warning,
-    /// Exit 3 if any errors, warnings, or info findings found
+    /// Exit 1 if any errors, warnings, or info findings are found
     Info,
     /// Always exit 0 (unless rust-doctor itself crashes)
     None,
@@ -853,21 +871,26 @@ mod tests {
 
     #[test]
     fn test_help_documents_exit_codes() {
-        // US-010: `--help` must carry the exit-code reference so CI authors can
-        // tell a quality-gate failure (3) from a crash (2) or setup error (1).
         let help = Cli::command().render_long_help().to_string();
         assert!(
             help.contains("Exit codes:"),
             "help is missing the exit-code section:\n{help}"
         );
-        assert!(help.contains("Quality gate failed"));
+        assert!(help.contains("blocking finding"));
         assert!(help.contains("Examples:"));
-        for code in ["  0 ", "  1 ", "  2 ", "  3 ", "  4 "] {
+        for code in ["  0 ", "  1 ", "  130 "] {
             assert!(
                 help.contains(code),
                 "help is missing exit code line `{code}`"
             );
         }
+        for removed_code in ["  2 ", "  3 ", "  4 "] {
+            assert!(!help.contains(removed_code));
+        }
+        assert!(help.contains(
+            "--score writes one bare integer when available; otherwise stdout stays empty."
+        ));
+        assert!(help.contains("Interrupted by SIGINT/SIGTERM"));
     }
 
     #[test]
@@ -891,13 +914,24 @@ mod tests {
     #[test]
     fn test_json_contract_flags() {
         let compact = Cli::try_parse_from(["rust-doctor", "--json-compact"]).unwrap();
-        assert!(compact.wants_json());
+        assert!(compact.json_compact);
+        assert!(!compact.wants_json());
 
         let file = Cli::try_parse_from(["rust-doctor", "--json-out", "report.json"]).unwrap();
         assert_eq!(file.json_out, Some(PathBuf::from("report.json")));
-        assert!(file.wants_json());
+        assert!(!file.wants_json());
 
-        assert!(Cli::try_parse_from(["rust-doctor", "--json", "--json-compact"]).is_err());
+        let combined = Cli::try_parse_from([
+            "rust-doctor",
+            "--json",
+            "--json-compact",
+            "--json-out",
+            "report.json",
+        ])
+        .unwrap();
+        assert!(combined.wants_json());
+        assert!(combined.json_compact);
+        assert_eq!(combined.json_out, Some(PathBuf::from("report.json")));
     }
 
     #[test]
@@ -910,6 +944,14 @@ mod tests {
     fn test_verbose_flag() {
         let cli = Cli::try_parse_from(["rust-doctor", "--verbose"]).unwrap();
         assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_yes_flag() {
+        let cli = Cli::try_parse_from(["rust-doctor", "--yes"]).unwrap();
+        assert!(cli.yes);
+        let short = Cli::try_parse_from(["rust-doctor", "-y"]).unwrap();
+        assert!(short.yes);
     }
 
     #[test]
@@ -1001,6 +1043,30 @@ mod tests {
         assert_eq!(files.files.len(), 2);
 
         assert!(Cli::try_parse_from(["rust-doctor", "--staged", "--baseline"]).is_err());
+
+        let staged = Cli::try_parse_from(["rust-doctor", "--staged"]).unwrap();
+        assert_eq!(staged.scope, Scope::Files);
+        assert!(staged.validate_contract().is_ok());
+
+        for scope in ["files", "lines"] {
+            let staged =
+                Cli::try_parse_from(["rust-doctor", "--staged", "--scope", scope]).unwrap();
+            assert!(staged.validate_contract().is_ok());
+        }
+        for scope in ["full", "changed"] {
+            let staged =
+                Cli::try_parse_from(["rust-doctor", "--staged", "--scope", scope]).unwrap();
+            assert!(staged.validate_contract().is_err());
+        }
+        let untracked = Cli::try_parse_from([
+            "rust-doctor",
+            "--staged",
+            "--scope",
+            "lines",
+            "--include-untracked",
+        ])
+        .unwrap();
+        assert!(untracked.validate_contract().is_err());
     }
 
     #[test]
@@ -1188,8 +1254,13 @@ mod tests {
 
     #[test]
     fn test_output_modes_have_stable_conflicts() {
-        assert!(Cli::try_parse_from(["rust-doctor", "--sarif", "--json-out", "x"]).is_err());
-        assert!(Cli::try_parse_from(["rust-doctor", "--score", "--json-compact"]).is_err());
+        let sarif =
+            Cli::try_parse_from(["rust-doctor", "--sarif", "--json-out", "unused.json"]).unwrap();
+        assert!(sarif.sarif);
+        assert!(!sarif.wants_json());
+        let score = Cli::try_parse_from(["rust-doctor", "--score", "--json-compact"]).unwrap();
+        assert!(score.score);
+        assert!(!score.wants_json());
         assert!(Cli::try_parse_from(["rust-doctor", "--share", "--json"]).is_err());
         assert!(
             Cli::try_parse_from(["rust-doctor", "--blocking", "error", "--fail-on", "warning"])

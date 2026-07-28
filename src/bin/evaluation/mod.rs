@@ -5,13 +5,16 @@
 
 pub(crate) mod backlog;
 pub(crate) mod benchmark;
+pub(crate) mod certify;
 pub(crate) mod corpus;
+pub(crate) mod decision_quality;
 pub(crate) mod delta;
 pub(crate) mod manifest;
 pub(crate) mod model;
 pub(crate) mod process;
 pub(crate) mod sandbox;
 pub(crate) mod smoke;
+pub(crate) mod truth;
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +39,8 @@ pub(crate) enum EvalError {
     Command(String),
     #[error("evaluation gate failed: {0}")]
     GateFailed(String),
+    #[error("release certification failed: {0}")]
+    CertificationFailed(String),
     #[error("unsupported evaluation environment: {0}")]
     Unsupported(String),
 }
@@ -51,6 +56,7 @@ impl EvalError {
 
     pub(crate) const fn exit_code(&self) -> u8 {
         match self {
+            Self::CertificationFailed(_) => 1,
             Self::GateFailed(_) => 3,
             Self::Io { .. }
             | Self::Json { .. }

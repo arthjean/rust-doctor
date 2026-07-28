@@ -36,7 +36,7 @@ fn explicit_telemetry_uses_the_aggregate_allowlist_and_overrides_make_zero_reque
     let request = capture.join().unwrap();
     let body = request.split_once("\r\n\r\n").unwrap().1;
     let event: Value = serde_json::from_str(body).unwrap();
-    assert_eq!(event["schema_version"], "1.1");
+    assert_eq!(event["schema_version"], "1.2");
     assert_eq!(event["event_kind"], "scan");
     assert!(matches!(
         event["completeness"].as_str(),
@@ -53,10 +53,22 @@ fn explicit_telemetry_uses_the_aggregate_allowlist_and_overrides_make_zero_reque
             "security_policy": 0
         })
     );
+    // Aggregate rule counts are part of the payload by contract (US-013 AC-2):
+    // catalog rule identities are product vocabulary, not user data. Everything
+    // that identifies the repository, its code, or its environment stays out.
+    assert!(event["rule_counts"].is_object());
+    assert_eq!(
+        event["score_model_version"],
+        rust_doctor::output::score_model_version()
+    );
+    assert!(
+        event["installation_cohort"]
+            .as_str()
+            .is_some_and(|cohort| cohort.starts_with("cohort-"))
+    );
     for prohibited in [
         "product-loop",
         "src/lib.rs",
-        "unwrap-in-production",
         "repository",
         "source_text",
         "diagnostic_message",
@@ -239,7 +251,7 @@ fn assert_server_makes_zero_requests(listener: &TcpListener, mut command: Comman
 }
 
 #[test]
-fn explicit_share_is_stateless_percent_encoded_and_source_free() {
+fn explicit_share_is_short_stateless_and_source_free() {
     let project = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
     write_project(project.path());
@@ -254,85 +266,49 @@ fn explicit_share_is_stateless_percent_encoded_and_source_free() {
         .lines()
         .find_map(|line| line.strip_prefix("Share: "))
         .expect("share URL");
-    assert!(url.len() <= 8 * 1024);
-    assert!(
-        url.contains("category=error-handling%3A1"),
-        "category tuple must be percent encoded: {url}"
-    );
+    assert!(url.len() <= 80, "share URL is no longer short: {url}");
     for prohibited in [
         "product-loop",
         "src%2Flib.rs",
         "unwrap-in-production",
         "private-source-marker",
+        "category",
+        "check",
     ] {
         assert!(!url.contains(prohibited), "share URL leaked {prohibited}");
     }
 
     let parsed = reqwest::Url::parse(url).unwrap();
+    assert_eq!(parsed.path(), "/share");
     let pairs: std::collections::BTreeMap<_, _> = parsed.query_pairs().into_owned().collect();
-    assert_eq!(pairs.get("v").map(String::as_str), Some("1"));
-    assert_eq!(
-        pairs.get("completeness").map(String::as_str),
-        Some("complete")
+    assert!(
+        pairs
+            .keys()
+            .all(|key| matches!(key.as_str(), "s" | "e" | "w" | "i" | "f"))
     );
-    assert_eq!(pairs.get("authoritative").map(String::as_str), Some("true"));
+    assert!(pairs.contains_key("s"));
+    assert_eq!(pairs.get("f").map(String::as_str), Some("1"));
+    let severities: usize = ["e", "w", "i"]
+        .iter()
+        .filter_map(|key| pairs.get(*key))
+        .map(|value| value.parse::<usize>().unwrap())
+        .sum();
+    assert_eq!(severities, 1, "the single seeded finding must be counted");
 }
 
 #[test]
-fn real_cli_share_covers_maximum_cardinalities_and_percent_encoding() {
-    let project = tempfile::tempdir().unwrap();
-    let config = tempfile::tempdir().unwrap();
-    let fixture = tempfile::NamedTempFile::new().unwrap();
-    write_project(project.path());
-
-    let (category_count, unavailable_check_count) =
-        write_cardinality_fixture(config.path(), project.path(), fixture.path());
-
-    let output = scan_command(config.path(), project.path())
-        .arg("--share")
-        .env("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE", fixture.path())
-        .output()
-        .unwrap();
-    assert_success(&output);
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let url = stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("Share: "))
-        .expect("share URL");
-    assert!(url.len() <= 8 * 1024);
-    assert!(url.contains("category=error-handling%3A1"));
-    assert!(url.contains("check=cancelled%3Abaseline"));
-
-    let parsed = reqwest::Url::parse(url).unwrap();
-    let pairs: Vec<_> = parsed.query_pairs().into_owned().collect();
-    assert_eq!(
-        pairs.iter().filter(|(key, _)| key == "category").count(),
-        category_count
-    );
-    assert_eq!(pairs.iter().filter(|(key, _)| key == "check").count(), 32);
-    assert!(pairs.iter().any(|(key, value)| {
-        key == "checks_omitted" && value == &(unavailable_check_count - 32).to_string()
-    }));
-    for prohibited in [
-        "product-loop",
-        "src%2Flib.rs",
-        "unwrap-in-production",
-        "private-source-marker",
-        "bounded+public+fixture",
-    ] {
-        assert!(!url.contains(prohibited), "share URL leaked {prohibited}");
-    }
-}
-
-#[test]
-fn real_cli_oversized_share_preserves_local_output_without_partial_url() {
+fn real_cli_share_carries_bounded_aggregate_counts() {
     let project = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
     let fixture = tempfile::NamedTempFile::new().unwrap();
     write_project(project.path());
 
     let mut report = cli_report(config.path(), project.path());
-    report["tool_version"] = Value::String("x".repeat(8 * 1024));
+    report["summary"]["error_count"] = serde_json::json!(8);
+    report["summary"]["warning_count"] = serde_json::json!(723);
+    report["summary"]["info_count"] = serde_json::json!(2);
+    report["completeness"]["analyzed_files"] = serde_json::json!(108);
+    report["completeness"]["planned_files"] = serde_json::json!(108);
     write_json(fixture.path(), &report);
 
     let output = scan_command(config.path(), project.path())
@@ -340,7 +316,38 @@ fn real_cli_oversized_share_preserves_local_output_without_partial_url() {
         .env("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE", fixture.path())
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let url = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Share: "))
+        .expect("share URL");
+
+    let parsed = reqwest::Url::parse(url).unwrap();
+    let pairs: std::collections::BTreeMap<_, _> = parsed.query_pairs().into_owned().collect();
+    assert_eq!(pairs.get("e").map(String::as_str), Some("8"));
+    assert_eq!(pairs.get("w").map(String::as_str), Some("723"));
+    assert_eq!(pairs.get("i").map(String::as_str), Some("2"));
+    assert_eq!(pairs.get("f").map(String::as_str), Some("108"));
+}
+
+#[test]
+fn real_cli_unshareable_report_preserves_local_output_without_partial_url() {
+    let project = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let fixture = tempfile::NamedTempFile::new().unwrap();
+    write_project(project.path());
+
+    let mut report = cli_report(config.path(), project.path());
+    report["score"] = Value::Null;
+    write_json(fixture.path(), &report);
+
+    let output = scan_command(config.path(), project.path())
+        .arg("--share")
+        .env("RUST_DOCTOR_INTERNAL_SHARE_REPORT_FIXTURE", fixture.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
@@ -348,86 +355,10 @@ fn real_cli_oversized_share_preserves_local_output_without_partial_url() {
         "local scan result disappeared: {stdout}"
     );
     assert!(!stdout.contains("Share: "));
-    assert!(!stdout.contains("https://rust-doctor.vercel.app/share/"));
-    assert!(!stderr.contains("https://rust-doctor.vercel.app/share/"));
+    assert!(!stdout.contains("https://rust-doctor.vercel.app/share"));
+    assert!(!stderr.contains("https://rust-doctor.vercel.app/share"));
     assert!(stderr.contains("share URL was not created"));
-    assert!(stderr.contains("the maximum is 8192"));
-}
-
-fn write_cardinality_fixture(config_root: &Path, project: &Path, fixture: &Path) -> (usize, usize) {
-    let mut report = cli_report(config_root, project);
-    let template = report["diagnostics"][0].clone();
-    let categories = [
-        "error-handling",
-        "performance",
-        "security",
-        "correctness",
-        "architecture",
-        "dependencies",
-        "async",
-        "framework",
-        "cargo",
-        "style",
-    ];
-    report["diagnostics"] = Value::Array(
-        categories
-            .iter()
-            .map(|category| {
-                let mut diagnostic = template.clone();
-                diagnostic["category"] = Value::String((*category).to_string());
-                diagnostic["severity"] = Value::String("warning".to_string());
-                diagnostic
-            })
-            .collect(),
-    );
-    report["summary"]["error_count"] = serde_json::json!(0);
-    report["summary"]["warning_count"] = serde_json::json!(categories.len());
-    report["summary"]["info_count"] = serde_json::json!(0);
-    report["summary"]["diagnostic_count"] = serde_json::json!(categories.len());
-    report["error_count"] = serde_json::json!(0);
-    report["warning_count"] = serde_json::json!(categories.len());
-    report["info_count"] = serde_json::json!(0);
-
-    let check_names = [
-        "clippy",
-        "custom rules",
-        "dependencies (cargo-audit)",
-        "dependencies (cargo-deny)",
-        "dependencies (cargo-machete)",
-        "unsafe audit (cargo-geiger)",
-        "coverage",
-        "msrv",
-        "semver (cargo-semver-checks)",
-        "baseline",
-        "staged snapshot",
-        "package scan",
-        "scope:lines",
-    ];
-    let statuses = [
-        "planned",
-        "running",
-        "skipped",
-        "failed",
-        "timed_out",
-        "cancelled",
-    ];
-    report["projects"][0]["checks"] = Value::Array(
-        statuses
-            .iter()
-            .flat_map(|status| {
-                check_names.iter().map(move |name| {
-                    serde_json::json!({
-                        "name": name,
-                        "required": false,
-                        "status": status,
-                        "reason": "bounded public fixture"
-                    })
-                })
-            })
-            .collect(),
-    );
-    write_json(fixture, &report);
-    (categories.len(), statuses.len() * check_names.len())
+    assert!(stderr.contains("shareable score payload"));
 }
 
 fn cli_report(config_root: &Path, project: &Path) -> Value {

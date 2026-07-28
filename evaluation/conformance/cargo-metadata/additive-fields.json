@@ -1,0 +1,51 @@
+{
+  "packages": [
+    {
+      "name": "conformance-fixture",
+      "version": "0.1.0",
+      "id": "path+file:///tmp/conformance#conformance-fixture@0.1.0",
+      "license": null,
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": ["lib"],
+          "crate_types": ["lib"],
+          "name": "conformance-fixture",
+          "src_path": "/tmp/conformance/src/lib.rs",
+          "edition": "2024",
+          "doc": true,
+          "doctest": true,
+          "test": true,
+          "future_target_field": "ignored"
+        }
+      ],
+      "features": {},
+      "manifest_path": "/tmp/conformance/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2024",
+      "links": null,
+      "default_run": null,
+      "rust_version": "1.97",
+      "future_package_field": { "added": "by a newer cargo" }
+    }
+  ],
+  "workspace_members": ["path+file:///tmp/conformance#conformance-fixture@0.1.0"],
+  "workspace_default_members": ["path+file:///tmp/conformance#conformance-fixture@0.1.0"],
+  "resolve": null,
+  "target_directory": "/tmp/conformance/target",
+  "version": 1,
+  "workspace_root": "/tmp/conformance",
+  "metadata": null,
+  "future_top_level_field": ["added", "by", "a", "newer", "cargo"]
+}

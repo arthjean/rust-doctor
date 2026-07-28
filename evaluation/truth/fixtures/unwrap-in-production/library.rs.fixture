@@ -1,0 +1,169 @@
+//! rust-doctor truth fixture
+//! rule: unwrap-in-production
+//! crate-role: library
+//! source-surface: library
+//! target-path: src/lib.rs
+//! edition: 2024
+//! msrv: 1.97
+
+use std::collections::HashMap;
+use std::num::ParseIntError;
+
+pub struct Registry {
+    entries: HashMap<String, String>,
+}
+
+impl Registry {
+    pub fn lookup(&self, key: &str) -> String {
+        self.entries.get(key).unwrap().clone() //~ pos
+    }
+
+    pub fn first_entry(&self) -> String {
+        let mut keys: Vec<_> = self.entries.keys().collect();
+        keys.sort();
+        keys.first().expect("registry is never empty").to_string() //~ pos
+    }
+
+    pub fn lookup_or_default(&self, key: &str) -> String {
+        self.entries.get(key).cloned().unwrap_or_default() //~ neg
+    }
+
+    pub fn lookup_or(&self, key: &str, fallback: &str) -> String {
+        self.entries //~ neg
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| fallback.to_string())
+    }
+}
+
+pub fn parse_port(raw: &str) -> u16 {
+    raw.parse::<u16>().unwrap() //~ pos
+}
+
+pub fn parse_port_checked(raw: &str) -> Result<u16, ParseIntError> {
+    raw.parse::<u16>() //~ neg
+}
+
+pub fn parse_port_propagated(raw: &str) -> Result<u16, ParseIntError> {
+    let port = raw.parse::<u16>()?; //~ neg
+    Ok(port)
+}
+
+pub fn read_config(path: &str) -> String {
+    std::fs::read_to_string(path).expect("config file must exist") //~ pos
+}
+
+pub fn read_config_fallible(path: &str) -> std::io::Result<String> {
+    std::fs::read_to_string(path) //~ neg
+}
+
+pub fn head(values: &[u32]) -> u32 {
+    *values.first().unwrap() //~ pos
+}
+
+pub fn head_checked(values: &[u32]) -> Option<u32> {
+    values.first().copied() //~ neg
+}
+
+pub fn decode(payload: &str) -> String {
+    let trimmed = payload.strip_prefix("v1:").unwrap(); //~ pos
+    trimmed.to_string()
+}
+
+pub fn decode_checked(payload: &str) -> Option<String> {
+    let Some(trimmed) = payload.strip_prefix("v1:") else { //~ neg
+        return None;
+    };
+    Some(trimmed.to_string())
+}
+
+pub fn last_segment(path: &str) -> &str {
+    path.rsplit('/').next().unwrap() //~ pos
+}
+
+pub fn last_segment_checked(path: &str) -> &str {
+    match path.rsplit('/').next() { //~ neg
+        Some(segment) => segment,
+        None => path,
+    }
+}
+
+pub fn env_flag(name: &str) -> String {
+    std::env::var(name).unwrap() //~ pos
+}
+
+pub fn env_flag_checked(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| String::new()) //~ neg
+}
+
+pub fn width(value: Option<u32>) -> u32 {
+    value.expect("width was validated upstream") //~ pos
+}
+
+pub fn width_mapped(value: Option<u32>) -> u32 {
+    value.map_or(0, |inner| inner) //~ neg
+}
+
+pub fn ratio(numerator: u32, denominator: u32) -> f64 {
+    let checked = numerator.checked_div(denominator).unwrap(); //~ pos
+    f64::from(checked)
+}
+
+pub fn ratio_checked(numerator: u32, denominator: u32) -> Option<f64> {
+    numerator.checked_div(denominator).map(f64::from) //~ neg
+}
+
+pub fn joined(values: &[String]) -> String {
+    let first = values.first().unwrap(); //~ pos
+    first.clone()
+}
+
+pub fn joined_checked(values: &[String]) -> String {
+    values.first().cloned().unwrap_or_default() //~ neg
+}
+
+pub fn timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap() //~ pos
+        .as_secs()
+}
+
+pub fn timestamp_checked() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs()) //~ neg
+}
+
+pub fn normalize(name: &str) -> String {
+    let mut chars = name.chars();
+    let first = chars.next().unwrap(); //~ pos
+    first.to_uppercase().collect::<String>() + chars.as_str()
+}
+
+pub fn normalize_checked(name: &str) -> String {
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| { //~ neg
+        first.to_uppercase().collect::<String>() + chars.as_str()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookup_returns_the_entry() {
+        let registry = Registry { entries: HashMap::new() };
+        assert!(registry.entries.is_empty());
+        let parsed = "8080".parse::<u16>().unwrap(); //~ neg
+        assert_eq!(parsed, 8080);
+    }
+
+    #[test]
+    fn parse_port_accepts_valid_input() {
+        assert_eq!(parse_port("443"), 443);
+        let value: Option<u32> = Some(3);
+        assert_eq!(value.expect("present"), 3); //~ neg
+    }
+}

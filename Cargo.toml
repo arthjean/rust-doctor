@@ -17,6 +17,7 @@ exclude = ["npm/", "editors/", "scripts/", ".github/", ".claude-plugin/", ".clau
 cargo-platform = "0.1.9"
 cargo_metadata = "0.19"
 clap = { version = "4.6", features = ["derive"] }
+ctrlc = { version = "3.5.2", features = ["termination"] }
 dialoguer = "0.11"
 globset = "0.4"
 jsonschema = { version = "0.48.5", default-features = false }

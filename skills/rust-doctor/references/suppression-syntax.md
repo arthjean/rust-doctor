@@ -30,7 +30,7 @@ Enable or disable entire analysis categories:
 
 ```toml
 lint = true            # enable/disable clippy + custom rules pass (default: true)
-dependencies = true    # enable/disable audit/deny/machete/geiger passes (default: true)
+dependencies = true    # enable/disable audit/deny/shear/geiger passes (default: true)
 ```
 
 ## Configuration-Level Suppression

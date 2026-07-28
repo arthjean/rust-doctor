@@ -12,7 +12,7 @@
 
 **The one-command health check for your Rust project.** rust-doctor scans for security, performance, correctness, architecture, and dependency issues, then folds everything into a single 0–100 score with diagnostics you can act on.
 
-It combines 34 custom AST rules with Clippy and optional Cargo analyzers behind one canonical diagnostic contract. CLI, API, MCP, and Action scans emit versioned Report V1; SARIF and editor integrations project the same rule and source identities. Supply-chain analysis prefers `cargo-deny` and falls back to `cargo-audit` when `cargo-deny` is unavailable.
+It combines a generated custom-rule catalog with Clippy and optional Cargo analyzers behind one canonical diagnostic contract. CLI, API, MCP, and Action scans emit versioned Report V1; SARIF and editor integrations project the same rule and source identities. Supply-chain analysis prefers `cargo-deny` and falls back to `cargo-audit` when `cargo-deny` is unavailable.
 
 ## Quickstart
 
@@ -36,15 +36,15 @@ Rust already has excellent point tools. rust-doctor runs them together, adds rul
 
 | You're using | It gives you | rust-doctor adds |
 |---|---|---|
-| `cargo clippy` | 700+ built-in lints | Category + severity mapping, 34 custom AST rules (security, async, framework, architecture), and a single 0–100 score |
-| `cargo audit` / `cargo deny` | CVE and supply-chain checks | `cargo-deny` as the primary adapter, `cargo-audit` as its fallback, plus geiger and machete |
+| `cargo clippy` | Compiler-backed lint diagnostics | Product policy, custom AST analysis, and one authoritative 0–100 Core Score |
+| `cargo audit` / `cargo deny` | CVE and supply-chain checks | `cargo-deny` as the primary adapter, `cargo-audit` as its fallback, plus geiger and cargo-shear |
 | Separate CI steps | Each tool's own output | Report V1, `--sarif`, scoped and baseline scans, completeness gates, and stable PR reporting |
 | Coding agents and editors | Code generation and inline diagnostics | MCP, skills, and handoffs for agents; one LSP contract for VS Code, Cursor, and Zed |
 
 ## Features
 
-- **700+ Clippy lints**, including 74 with explicit severity overrides and category mapping
-- **34 custom AST rules** via [syn](https://crates.io/crates/syn): error handling, performance, security, async, architecture, and framework anti-patterns
+- **Clippy integration** with explicit category, trust, score, and surface policy
+- **Custom AST rules** via [syn](https://crates.io/crates/syn): error handling, performance, security, async, architecture, and framework anti-patterns
 - **Async anti-pattern detection**: blocking calls and `block_on` inside an async context
 - **Framework-aware rules**: dependency-gated tokio, axum, and actix-web checks plus capability packs gated by Cargo version, features, and target
 - **Supply-chain auditing**: advisories, licenses, bans, unsafe usage, and unused dependencies through optional Cargo adapters
@@ -129,8 +129,8 @@ rust-doctor --score
 
 # Report V1 JSON (pretty, compact, or atomic file)
 rust-doctor --json
-rust-doctor --json-compact
-rust-doctor --json-out report.json
+rust-doctor --json --json-compact
+rust-doctor --json --json-out report.json
 
 # SARIF for code-scanning consumers
 rust-doctor --sarif
@@ -203,15 +203,15 @@ rust-doctor version
 
 ### Output contract
 
-`--json`, `--json-compact`, and `--json-out` emit the same Report V1 data. Report construction, scan outcome, completeness, score authority, and quality-gate result are independent fields: an empty diagnostic list is not evidence of a complete or authoritative scan. Expected discovery, configuration, and scan failures remain schema-valid when JSON output is available.
+`--json` emits Report V1 data. `--json-compact` selects compact serialization and `--json-out` selects an atomic file destination when combined with `--json`. Report construction, scan outcome, completeness, score authority, and quality-gate result are independent fields: an empty diagnostic list is not evidence of a complete or authoritative scan. Expected discovery, configuration, and scan failures remain schema-valid when JSON output is available.
 
 The checked [Draft 2020-12 schema](schemas/report-v1.schema.json) is the machine contract. [Report V1 migration rules](docs/report-v1-migration.md) define additive compatibility and when a new schema version is required.
 
-Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer to stdout. `--json`, `--json-compact`, and `--sarif` write machine output to stdout; `--json-out` atomically writes JSON to the selected file instead.
+Terminal diagnostics are written to stderr and the score box is written to stdout. `--score` writes one bare integer when an authoritative score is available; otherwise stdout stays empty and stderr explains why. `--json` and `--sarif` write machine output to stdout; `--json --json-compact` removes indentation, and `--json --json-out <path>` atomically writes JSON to the selected file instead.
 
-`--score`, `--sarif`, `--json`, and `--json-compact` are mutually exclusive. `--json-out` may be combined with `--json` or `--json-compact`, but conflicts with `--score` and `--sarif`. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
+`--score`, `--sarif`, and `--json` are mutually exclusive output modes. `--json-compact` and `--json-out` only take effect with `--json`; otherwise they are accepted and ignored, matching React Doctor. `--color` and `--no-color` affect terminal rendering only and conflict when both are explicit.
 
-`--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. `--share` works only with terminal output and prints a sanitized stateless URL after the local report.
+`--output-dir` and `--handoff` do not alter the computed report, stdout/stderr routing, or gate result. Online terminal runs include a sanitized stateless sharing URL by default. `--share` requests the same local URL explicitly when the default footer is suppressed.
 
 ### Scan scopes and completeness
 
@@ -221,12 +221,12 @@ Terminal diagnostics are written to stderr and the score box is written to stdou
 | Files | `--scope files --files src/lib.rs` | Report explicit project-relative paths |
 | Changed | `--scope changed [--base main]` | Report affected files; uncommitted work has no historical snapshot |
 | Lines | `--scope lines [--base main]` | Report findings intersecting changed lines; degrade visibly to files when ranges are unavailable |
-| Staged | `--staged` | Analyze the exact Git index snapshot, including indexed manifests and policy |
+| Staged | `--staged [--scope files\|lines]` | Analyze the exact Git index snapshot; `lines` reports only diagnostics intersecting indexed hunks |
 | Baseline | `--baseline [--base main]` | Compare head and merge-base findings, reporting introduced, fixed, and degraded states |
 
 Scope is both an execution input and a reporting contract. File-local AST rules read only selected files. Clippy and package/workspace analyzers may still execute at package scope, then report only diagnostics allowed by the requested scope.
 
-Every Report V1 instance accounts for planned and analyzed files plus completed, skipped, failed, timed-out, and cancelled checks. `--max-duration` applies one wall-clock budget to the complete scan. `--require-complete` returns exit code `4` when required work is incomplete.
+Every Report V1 instance accounts for planned and analyzed files plus completed, skipped, failed, timed-out, and cancelled checks. `--max-duration` applies one wall-clock budget to the complete scan. `--require-complete` returns exit code `1` when required work is incomplete.
 
 ### Category scans
 
@@ -248,43 +248,31 @@ preserved and unselected dimensions are excluded from the average.
 
 ## Exit Codes
 
-rust-doctor returns distinct exit codes so CI pipelines can tell a quality-gate
-failure apart from a crash:
+rust-doctor follows React Doctor's compact CLI contract:
 
 | Code | Meaning |
 |------|---------|
-| `0` | A valid report exists, incomplete analysis is either absent or allowed, and all quality gates passed |
-| `1` | Setup error: MCP server, installer, or `--install-deps` failed |
-| `2` | No valid report is available: invalid arguments, discovery, scan, or output failure |
-| `3` | A valid report exists, completeness is satisfied or allowed, and the configured quality gate blocked |
-| `4` | Required analysis is incomplete while `--require-complete` is active, regardless of the finding gate |
+| `0` | The command succeeded and no effective gate blocked |
+| `1` | Invalid input, setup/scan/output failure, incomplete required analysis, or a blocking finding |
+| `130` | The process received `SIGINT` or `SIGTERM` |
 
-For scan commands, precedence is normative across every output mode:
+Errors block by default. `--blocking none` makes findings advisory. When a
+reliable score exists, `--score` prints it bare and does not fail only because
+findings exist.
 
 | Report | Completeness policy | Finding/score gate | Exit |
 |---|---|---|---|
-| Unavailable | Any | Any | `2` |
-| Available but incomplete | Required | Any | `4` |
-| Available | Complete or incompleteness allowed | Blocked | `3` |
-| Available | Complete or incompleteness allowed | Passed | `0` |
+| Authoritative clean | Required work complete | Passed | `0` |
+| Authoritative blocking finding | Required work complete | Blocked | `1` |
+| Optional evidence unavailable | Core work complete, optional reason retained | Passed unless findings block | `0` or `1` |
+| Required analysis incomplete | Required work failed, timed out, or was cancelled | Score hidden | `1` |
+| Score unavailable | No authoritative Core decision | Score gate fails | `1` |
+| Interrupted | `SIGINT` or `SIGTERM` | Analyzer process groups terminated | `130` |
 
-Gate the build on a quality failure without masking a crash:
+Gate the build on errors:
 
 ```bash
-if rust-doctor --blocking error; then
-  :
-else
-  status=$?
-  case "$status" in
-    3)
-      echo "Quality gate failed"
-      exit 1
-      ;;
-    *)
-      exit "$status"
-      ;;
-  esac
-fi
+rust-doctor --blocking error
 ```
 
 ## AI Agent Setup (recommended)
@@ -558,7 +546,7 @@ rust-doctor telemetry enable --endpoint https://telemetry.example.com --yes
 rust-doctor telemetry disable
 ```
 
-`--no-telemetry`, `RUST_DOCTOR_TELEMETRY=0`, and `--offline` override stored consent. `--share` constructs a versioned URL locally from a bounded aggregate summary. It uploads no report or diagnostic data and includes no repository identity.
+`--no-telemetry`, `RUST_DOCTOR_TELEMETRY=0`, and `--offline` override stored consent. `--share` constructs a short URL locally from five bounded aggregates: the score (`s`), the error, warning, and info counts (`e`, `w`, `i`), and the analyzed file count (`f`). It uploads no report or diagnostic data and includes no repository identity.
 
 ## Inline Suppression
 
@@ -571,14 +559,13 @@ let x = risky_call(); // rust-doctor-disable-line
 
 ## Rules
 
-### Custom AST Rules (34 rules) - heuristic
+### Custom AST Rules - heuristic
 
 These rules analyze the syntax tree only (via `syn`): no type resolution, no
 macro expansion. They run fast and offline, but emit a **heuristic** signal, not
-a type-checked verdict. The canonical catalog is built directly from the 34 rule
+a type-checked verdict. The canonical catalog is built directly from the rule
 implementations and the Clippy registry. MCP `list_rules` and `explain_rule`
-render that catalog, and tests assert these counts, so adding a rule does not
-require maintaining a second documentation table.
+render that catalog, so generated catalog output remains the count source.
 
 #### Known heuristic limitations
 
@@ -590,9 +577,9 @@ worth surfacing, but a finding is a prompt to look, not a confirmed defect:
 - `blocking-in-async`: flags known blocking calls by name inside async fns; cannot follow calls into other functions or resolve aliased imports.
 - `sql-injection-risk`: flags string-built queries heuristically; cannot confirm the interpolated value is actually untrusted input.
 
-### Clippy Lints (74 with overrides) - type-aware
+### Clippy Lints - type-aware
 
-rust-doctor runs `cargo clippy` with pedantic, nursery, and cargo lint groups. Exactly 74 lints have explicit category and severity overrides across: Error Handling, Performance, Security, Correctness, Architecture, Cargo, Async, Style. Unlike the custom rules above, Clippy resolves types against the compiler, so its findings are more authoritative.
+rust-doctor runs a curated Clippy policy and records explicit category, surface, and score decisions in the generated catalog. Unlike the custom rules above, Clippy resolves types against the compiler. Compiler provenance establishes detection authority; it does not automatically make a lint score-eligible or CI-blocking.
 
 ### External Tools (optional, auto-detected)
 
@@ -600,11 +587,11 @@ These tools are optional: rust-doctor records unavailable adapters as explicit s
 
 | Tool | Install | What it does |
 |------|---------|-------------|
-| clippy | `rustup component add clippy` | 700+ lint checks |
+| clippy | `rustup component add clippy` | Compiler-backed lint checks |
 | cargo-deny | `cargo install cargo-deny` | Primary supply-chain adapter (advisories, licenses, bans) |
 | cargo-audit | `cargo install cargo-audit` | Advisory fallback when cargo-deny is unavailable |
 | cargo-geiger | `cargo install cargo-geiger` | Unsafe code auditing across dependency tree |
-| cargo-machete | `cargo install cargo-machete` | Unused dependency detection |
+| cargo-shear | `cargo install cargo-shear` | Unused dependency detection |
 | cargo-semver-checks | `cargo install cargo-semver-checks` | Semver violation detection |
 
 ## Library Usage
@@ -636,14 +623,13 @@ if let Some(score) = report
 
 ## Score Calculation
 
-**Read the 0–100 score as a compass, not a thermometer.** It points you toward
-the weakest dimension; it isn't a precision measurement. The per-dimension
-scores (shown in the terminal box and in `--json`) carry the real signal:
-they tell you *where* to act.
+**Read the 0–100 Core Score as a versioned decision, not a finding counter.**
+Report V1 carries `score_model_version`; values from different model versions
+are not directly comparable.
 
 ### How it's computed
 
-The score is a weighted average across 5 dimensions:
+Score Core 2.1 is a weighted average across five dimensions:
 
 | Dimension | Weight | Covers |
 |-----------|--------|--------|
@@ -651,54 +637,43 @@ The score is a weighted average across 5 dimensions:
 | Reliability | ×1.5 | Correctness, error handling, async, framework |
 | Maintainability | ×1.0 | Architecture, style |
 | Performance | ×1.0 | Performance |
-| Dependencies | ×1.0 | Cargo, dependencies, advisory findings (RUSTSEC / cargo-deny) |
+| Dependencies | ×1.0 | Cargo and dependency decisions |
 
-Each dimension starts at 100 and loses points per **unique rule** violated,
-weighted by severity:
+Only catalog rules that are score-eligible and owned by a Core analyzer
+contribute. Presentation severity does not set impact. Each canonical root
+cause uses its catalog priority (`p0`–`p3`) and aggregation policy. Under the
+bounded-occurrence policy, repeated sites saturate at twice the first-site
+penalty, so raw volume cannot dominate the score. One confirmed P0 caps the
+overall score below the Needs Work threshold.
 
-`dimension = 100 − (unique_error_rules × 1.5) − (unique_warning_rules × 0.75) − (unique_info_rules × 0.25)`
-
-The dimension is clamped to `[0, 100]`, and the overall score is the weighted
-average of the five, also clamped to `[0, 100]`.
-
-With `--category`, only dimensions represented by the selected categories enter
-the weighted average. Selecting multiple categories from the same dimension,
-such as `correctness` and `error-handling`, combines their unique violated rules
-inside that dimension.
-
-The score counts unique rules, not occurrences: fixing one `.unwrap()` won't
-move it, but removing the last `.unwrap()` drops the penalty entirely.
+The canonical catalog independently controls local visibility, score
+eligibility, CI blocking, advisory status, and audit-only status. Unknown rules
+default to local advisory visibility with zero score and zero CI impact.
 
 | Score | Label | Doctor |
 |-------|-------|--------|
-| 75–100 | Great | ◠ ◠ |
-| 50–74 | Needs work | • • |
+| 95–100 | Great | ◠ ◠ |
+| 50–94 | Needs work | • • |
 | 0–49 | Critical | x x |
 
-### Known limits
+`evaluation/score-model-v2.json` is the single source for weights, priority
+penalties, the occurrence cap, the P0 ceiling, and label thresholds. The
+evaluator rejects a candidate that changes the approved weights or misses the
+held-out decision-quality gates.
 
-- **Dimension saturation.** Penalties are linear and the floor is 0, so once a
-  dimension accumulates ~67 distinct Error-severity rules (`100 ÷ 1.5`), it sits
-  at 0 and further distinct rules in that dimension stop moving the number. It is
-  directional past that point, not proportional.
-- **Heuristic inputs.** The custom AST rules are `syn`-only (no types, no macro
-  expansion), so part of what feeds the score is a heuristic signal; see
-  [Rules](#rules). Clippy is type-aware. External adapters instead inspect
-  manifests, lockfiles, dependency graphs, or tool-specific compiler metadata.
-  The score does not currently weight these evidence models differently.
-- **Surface policy.** Only diagnostics visible on the canonical `score` surface
-  enter the calculation. Test, benchmark, example, and generated-source findings
-  are excluded from score and CI failure by default unless policy includes them.
-- **Partial analysis.** A report may retain a score after a timeout, cancellation,
-  or required-check failure, but `summary.score_authoritative` is false. Never gate
-  on the integer without checking completeness or using `--require-complete`.
-- **Hand-tuned weights.** The dimension weights and severity penalties are
-  deliberate but not empirically calibrated; treat cross-project score
-  comparisons with caution.
-- **Nothing to scan.** When discovery and scope planning find no applicable
-  source, manifest, lockfile, package, or workspace work, Report V1 returns
-  `nothing_to_scan`, a null score, and a non-authoritative summary. A manifest-only
-  scope may still schedule dependency or package checks.
+### Authority
+
+The score is visible only when every required planned analysis completed and
+every scored dimension is observed for the requested scope. A required failure,
+timeout, cancellation, unsupported adapter contract, or incomplete workspace
+package hides the headline from terminal, bare `--score`, gates, JSON aliases,
+SARIF metadata, MCP, plans, handoffs, and the Action. Those consumers share the
+same sorted reason codes and never substitute `0`, `100`, or a sibling score.
+
+Optional external analyzers may add diagnostics and an explicit partial-evidence
+reason, but their installation changes Core Score by zero. Category and diff
+scans remain honest scoped decisions and do not claim full-repository
+authority. `nothing_to_scan` has a null score and a non-authoritative summary.
 
 ## Contributing
 

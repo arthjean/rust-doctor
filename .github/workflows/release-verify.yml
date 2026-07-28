@@ -108,12 +108,14 @@ jobs:
           target/${{ matrix.target }}/release/rust-doctor-eval smoke \
             --binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
             --no-default-binary target/no-default/${{ matrix.target }}/release/${{ matrix.binary }} \
+            --lsp-binary target/${{ matrix.target }}/release/${{ matrix.binary }} \
             --schema schemas/report-v1.schema.json \
             --npm-platform-package "artifacts/rust-doctor-npm-${{ matrix.platform }}-${version}.tgz" \
             --npm-wrapper-package "artifacts/rust-doctor-npm-${version}.tgz" \
             --bun "$(command -v bun)" \
             --archive "artifacts/rust-doctor-${{ matrix.target }}.${{ matrix.archive }}" \
-            --crate-package "$crate_package"
+            --crate-package "$crate_package" \
+            --action action.yml
           if [[ "${{ matrix.platform }}" != "linux-x64" ]]; then
             rm "artifacts/rust-doctor-npm-${version}.tgz"
           fi

@@ -1,0 +1,5 @@
+warning: build script wrote plain text to the message stream
+{"reason":"compiler-message","package_id":"path+file:///tmp/conformance#conformance-fixture@0.1.0","manifest_path":"/tmp/conformance/Cargo.toml","target":{"name":"conformance-fixture","kind":["lib"],"crate_types":["lib"],"required-features":[],"src_path":"/tmp/conformance/src/lib.rs","edition":"2024","doctest":true,"test":true,"doc":true},"message":{"rendered":"warning: used `unwrap()` on a `Result` value\n","code":{"code":"clippy::unwrap_used","explanation":null},"level":"warning","message":"used `unwrap()` on a `Result` value","spans":[{"file_name":"src/lib.rs","byte_start":52,"byte_end":72,"line_start":4,"line_end":4,"column_start":5,"column_end":25,"is_primary":true,"text":[],"label":null,"suggested_replacement":null,"suggestion_applicability":null,"expansion":null}],"children":[],"$message_type":"diagnostic"}}
+{"reason":"future-cargo-event","payload":{"unmodelled":true}}
+cargo:rerun-if-changed=build.rs
+{"reason":"build-finished","success":false}

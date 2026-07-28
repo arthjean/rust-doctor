@@ -1,0 +1,22 @@
+[advisories]
+db-path = "$RUST_DOCTOR_DENY_DB_ROOT"
+ignore = []
+
+[licenses]
+allow = []
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow = []
+deny = [{ crate = "rsa" }]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = []
+allow-git = []

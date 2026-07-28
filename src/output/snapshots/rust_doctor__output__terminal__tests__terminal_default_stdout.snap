@@ -1,0 +1,6 @@
+---
+source: src/output/terminal.rs
+expression: "&output.stdout"
+---
+  68 / 100 Needs work · Core complete
+  Projected 100 (+32) after the first root causes

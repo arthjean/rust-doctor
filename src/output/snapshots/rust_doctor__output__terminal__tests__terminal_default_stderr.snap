@@ -1,0 +1,14 @@
+---
+source: src/output/terminal.rs
+expression: "&output.stderr"
+---
+✔ Scanned 10 files in 0.7s
+
+  Fix first
+  unauthenticated-server-action title [p2] · 1 sites · 1 fi…
+    Next: Inspect one representative site and fix the share…
+  excessive-clone title [p2] · 1 sites · 1 files · no score…
+    Next: Inspect one representative site and fix the share…
+  1 errors · 1 warnings · 0 info
+  2 scored · 0 advisory · 0 audit
+  Run npx rust-doctor@latest --verbose for details

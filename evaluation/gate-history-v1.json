@@ -1,0 +1,350 @@
+{
+  "schema_version": "1.0",
+  "_comment": "Per-rule gate outcome on every approved corpus revision, oldest first. truth-v1.1 applies independent-review and exact 95% false-positive bounds; incomplete evidence is a failure, never a pass.",
+  "revisions": [
+    "truth-v1",
+    "truth-v1.1"
+  ],
+  "rules": {
+    "actix-blocking-handler": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "actix-web-data-lock": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "await-holding-refcell-ref": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "axum-extension-request-state": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "axum-handler-not-async": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "block-on-in-async": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "blocking-in-async": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "blocking-lock-in-async": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "box-dyn-error-in-public-api": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "catch-unwind-discarded": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "collect-then-iterate": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "command-shell-interpolation": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "excessive-clone": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "ffi-cstring-lifetime": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "hardcoded-secrets": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "high-cyclomatic-complexity": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "insecure-http-client": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "large-enum-variant": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "mem-forget-resource": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "panic-in-library": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "process-exit-in-library": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "regex-created-in-loop": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "result-unit-error": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "spawn-in-drop": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "sql-injection-risk": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "string-from-literal": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "temporary-cstring-pointer": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "tokio-main-missing": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "tokio-spawn-without-move": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "tokio-unbounded-channel": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "unbounded-collect": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "unnecessary-allocation": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "unsafe-block-audit": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ],
+    "unwrap-in-production": [
+      {
+        "revision": "truth-v1",
+        "passed": true
+      },
+      {
+        "revision": "truth-v1.1",
+        "passed": false
+      }
+    ]
+  }
+}

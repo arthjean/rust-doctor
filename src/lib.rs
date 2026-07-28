@@ -103,30 +103,36 @@ pub mod setup;
 pub mod run;
 
 // Internal implementation modules
+pub(crate) mod agent_hint;
 pub(crate) mod cache;
 pub(crate) mod catalog;
 pub(crate) mod completeness;
 pub(crate) mod diff;
 pub(crate) mod handoff;
+pub(crate) mod onboarding;
+pub(crate) mod ordering;
 pub(crate) mod passes;
 pub(crate) mod process;
 pub(crate) mod scanner;
 pub(crate) mod share;
 pub(crate) mod suppression;
 pub(crate) mod telemetry;
+pub(crate) mod trust;
 pub(crate) mod workflows;
 pub(crate) mod workspace;
 
 // Re-export pass modules at crate root so existing `use crate::audit` etc. still work.
 pub(crate) use passes::quality::coverage;
-pub(crate) use passes::quality::machete;
 pub(crate) use passes::quality::msrv;
 pub(crate) use passes::quality::semver_checks;
+pub(crate) use passes::quality::shear;
 pub(crate) use passes::security::audit;
 pub(crate) use passes::security::deny;
 pub(crate) use passes::security::geiger;
 pub(crate) use passes::static_analysis::clippy;
 pub(crate) use passes::static_analysis::rules;
 
+#[cfg(test)]
+mod authority_matrix_tests;
 #[cfg(test)]
 mod report_contract_tests;

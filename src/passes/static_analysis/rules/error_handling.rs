@@ -1,5 +1,5 @@
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::rules::{CustomRule, has_cfg_test, has_test_attr, is_test_context};
+use crate::rules::{ContextRequirement, CustomRule, has_cfg_test, has_test_attr, is_test_context};
 use std::path::Path;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -101,6 +101,13 @@ impl CustomRule for PanicInLibrary {
     fn severity(&self) -> Severity {
         Severity::Error
     }
+    /// A library-only rule cannot decide when Cargo could not classify the
+    /// source surface: an unclassified file abstains instead of being treated
+    /// as library code (US-006).
+    fn required_context(&self) -> &'static [ContextRequirement] {
+        &[ContextRequirement::SourceSurface]
+    }
+
     fn description(&self) -> &'static str {
         "Flags `panic!()`, `todo!()`, and `unimplemented!()` macros in library code. Libraries should return errors rather than panicking, since callers cannot recover from a panic across crate boundaries."
     }
@@ -186,6 +193,13 @@ impl CustomRule for BoxDynErrorInPublicApi {
     fn severity(&self) -> Severity {
         Severity::Warning
     }
+    /// A library-only rule cannot decide when Cargo could not classify the
+    /// source surface: an unclassified file abstains instead of being treated
+    /// as library code (US-006).
+    fn required_context(&self) -> &'static [ContextRequirement] {
+        &[ContextRequirement::SourceSurface]
+    }
+
     fn description(&self) -> &'static str {
         "Flags `pub fn` returning `Result<_, Box<dyn Error>>`. This erases error type information, making it impossible for callers to match on specific error variants."
     }
@@ -339,6 +353,13 @@ impl CustomRule for ResultUnitError {
     fn severity(&self) -> Severity {
         Severity::Warning
     }
+    /// A library-only rule cannot decide when Cargo could not classify the
+    /// source surface: an unclassified file abstains instead of being treated
+    /// as library code (US-006).
+    fn required_context(&self) -> &'static [ContextRequirement] {
+        &[ContextRequirement::SourceSurface]
+    }
+
     fn description(&self) -> &'static str {
         "Flags `pub fn` returning `Result<_, ()>`. A unit error carries no information about what went wrong."
     }

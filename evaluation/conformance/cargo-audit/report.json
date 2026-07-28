@@ -1,0 +1,34 @@
+{
+  "database": { "advisory-count": 782, "last-commit": "conformance-fixture" },
+  "lockfile": { "dependency-count": 3 },
+  "vulnerabilities": {
+    "found": true,
+    "count": 1,
+    "list": [
+      {
+        "advisory": {
+          "id": "RUSTSEC-2023-0071",
+          "title": "Marvin Attack: potential key recovery through timing sidechannels",
+          "url": "https://rustsec.org/advisories/RUSTSEC-2023-0071",
+          "severity": "high",
+          "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        },
+        "versions": { "patched": [], "unaffected": [] },
+        "package": { "name": "rsa", "version": "0.9.6" }
+      }
+    ]
+  },
+  "warnings": {
+    "unmaintained": [
+      {
+        "kind": "unmaintained",
+        "package": { "name": "ansi_term", "version": "0.12.1" },
+        "advisory": {
+          "id": "RUSTSEC-2021-0139",
+          "title": "ansi_term is unmaintained",
+          "url": "https://rustsec.org/advisories/RUSTSEC-2021-0139"
+        }
+      }
+    ]
+  }
+}

@@ -9,7 +9,7 @@ mod transaction;
 pub use detect::{AgentId, DetectedAgent, detect_agents_in};
 
 use crate::error::SetupError;
-use dialoguer::theme::ColorfulTheme;
+use crate::output::PromptTheme;
 use dialoguer::{Confirm, MultiSelect, Select};
 use owo_colors::{OwoColorize, Stream};
 use std::collections::BTreeSet;
@@ -323,7 +323,7 @@ pub fn run_setup() -> Result<(), SetupError> {
         return Ok(());
     }
     let component_labels = ["Agent skill", "MCP configuration", "Staged pre-commit hook"];
-    let components = MultiSelect::with_theme(&ColorfulTheme::default())
+    let components = MultiSelect::with_theme(&PromptTheme)
         .with_prompt("  Integrations to install")
         .items(&component_labels)
         .defaults(&[true, true, false])
@@ -340,7 +340,7 @@ pub fn run_setup() -> Result<(), SetupError> {
         None
     };
 
-    if !Confirm::with_theme(&ColorfulTheme::default())
+    if !Confirm::with_theme(&PromptTheme)
         .with_prompt("  Apply this installation?")
         .default(true)
         .interact()?
@@ -779,7 +779,7 @@ fn prompt_agents(agents: &[DetectedAgent]) -> Result<Vec<AgentId>, dialoguer::Er
         .iter()
         .map(|agent| format!("{} - {}", agent.name, agent.description))
         .collect();
-    let selected = MultiSelect::with_theme(&ColorfulTheme::default())
+    let selected = MultiSelect::with_theme(&PromptTheme)
         .with_prompt("  Agents to configure")
         .items(&labels)
         .defaults(&vec![true; labels.len()])
@@ -792,7 +792,7 @@ fn prompt_agents(agents: &[DetectedAgent]) -> Result<Vec<AgentId>, dialoguer::Er
 
 fn prompt_blocking_level() -> Result<BlockingLevel, dialoguer::Error> {
     let labels = ["warning", "error", "none"];
-    let selected = Select::with_theme(&ColorfulTheme::default())
+    let selected = Select::with_theme(&PromptTheme)
         .with_prompt("  Hook blocking level")
         .items(&labels)
         .default(0)

@@ -1,0 +1,563 @@
+{
+  "schema_version": "1.0",
+  "review_dataset_version": "decision-quality-v1",
+  "review_dataset_sha256": "cd77b6227b117b1d03d4014eae177f0b80c24d5cea3ba24787ef8fd7b1289a28",
+  "source_corpus_sha256": "15471b591c005a51431b821feed4fa1761b4c08ab3b26fe69deb8f82bbc306f5",
+  "selected_model_version": "2.1",
+  "candidates": [
+    {
+      "model_version": "2.0",
+      "projects": 66,
+      "holdout_projects": 15,
+      "band_agreement": 0.8666666666666667,
+      "top_three_remediation_overlap": 1.0,
+      "monotonic": true,
+      "optional_tool_invariant": true,
+      "duplicate_stable": true,
+      "reviewer_label_safe": false
+    },
+    {
+      "model_version": "2.1",
+      "projects": 66,
+      "holdout_projects": 15,
+      "band_agreement": 1.0,
+      "top_three_remediation_overlap": 1.0,
+      "monotonic": true,
+      "optional_tool_invariant": true,
+      "duplicate_stable": true,
+      "reviewer_label_safe": true
+    }
+  ],
+  "migration": [
+    {
+      "project_id": "dd10abe4379e2e6760dcc145aa778e4d5229e94709aefbb1060c1b13d57d7b88",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "0aeef1020e0ce8fd37cbb621e75ae135b4eb4a3290b6deef3ce99238b866aebc",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "c102b87c7bc7d0e214558251cbc34afb47347dca7cfd354819ecf0ea63e4baae",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "22787a9c15fa5c8fabf5546d70a83a0ae44b85e3a7c02a42b602ff47f7cf0942",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "f4b049bbedddd750dcd7fc55dcb24fe9540a610c735e274da30d6e74eb1865ae",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "99a8a4b60abe643af2c3879b8e142139808b1b4531a160fbfeacfe60066aed46",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "765ae0f1b66fdb3c174bd94bf69119186d981e0c8e8d91ed4305174de81d6831",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "2f2849518b8b6797568cc079bc046a80dc69a6d53425afebba984022709ed5f6",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "d7b0fbe59cef983569986c4df78d2c5f33258d64ea1e9b16aa8ae8e33c808e08",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "703770ca908bd766d7d8df405894cf2e50971cc991e1fe10d9ac0721037263ff",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "2330b4437435a4b1379da1c605533caf4763108d84859297042d879b1fd25b2e",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "56e3e31d9522eb3914f7315701cdf6c0d61704b466b4fe6f5db39c53fbc99d56",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "8d2cc5ab7ec321b9cb0eca1103dce63458385707d8c237c9729e67df959d4e47",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "961a3018290ae4856668a20b7747b0f8356aa65413b43fd51879571d0c9b2311",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "9c383edbe5def4736c054abc66e401addf66f1bba6556fb706febe9b80653f88",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "a59ebf55d9995288757e33cebf299f6c6512d6aeeeac90bd874b70220c7ac730",
+      "holdout": true,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "a032960049f8d90f91055c016af592bc2f728d94335c9a540df73e7f1897e9ee",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "0413f0f778edf33839f3a2cd70c6a01758db34592a2eef767339b0db3e3b123b",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "6c654553655009239979939afa7ea042ef310a0e8c31ee2ff020ef88e3de4312",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "c72ff03c68ca5f03d06994efc03ae1649464d5768f1b71472b7c2ab7f7ae402c",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "61142bec3c0b6f2d68ec51152e55aa8cfa39f27e2f3a11c708b911e5e523b95f",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "3e3f840e3dca1497b2243f6c9a3c9b2fe4698a786d6c4d397695a59bd5240122",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "0c4bc99395ae05de7ece292ace0d0f29e0ea1c62b2ca34f3c5d0eacde08a64c6",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "2ed678bf97ac1aa396f4e6e130401154ffcc35da259373e505f1ad864108725e",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "b348646ac3c99d5262e19c83e105d946f07f1e12f5c80b536b6803fbe3d1e583",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "3f440c1aeff30eccb678b78b5a736d216eaf08053a37cba12797050a7ae54738",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "1fdfa2dfb6df24247b5d4cc6a332b00dda452ffa7bf15ba91d1914aa4876162c",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "24daa6917b08d0348e5f83dbad7d3c48ddc27d4a71b7d997eb57daa3746a53cb",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "742e3af0f41234a816c01af4402466b35d5308825bdd95ca32e9b155000e7dc0",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "324df7e8f23ce335c7d1d5ace3dd5ebb2142b3d8c4575c2c13cd0d7c8ac0c6db",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "da922896e2dbcff502a118520a157a8025d03444427a2f8e996f806b753aa8cc",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "ebc609e1e5e39f98ec950bb40f2199456ec5f94b3b413cb9cfaaa7f2c4b26ba5",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "8e040c99af293f9a03be771e2896ad17d118e1d5b688c7e10280d66aced4d986",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "8ed99491d90b7fa57a09215240966a659401d05eb7c5c325b48174b5eeaca64d",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "0e457e76342daee90ab3157d0f73c5f5a717821b6a57619e024ca0fc7da39e83",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "733c1a29c0d07d57236c20cca872a987b73c09c76cafddeac1b95dffc53cd6e2",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "a477bfb57e38473246fed9dfa01240fbb51c3e68626d15dd7dfc9130db0bfbd5",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "e82e418308339900974bf2929cb655f2a5193cc533d151be19c85dd829644a46",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "d627fa0bb961fbab2447b6c18379b09ee41c2b9934847c54bf237da44403851d",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "bae41dea963b77e6b59025c7db1610a082fadd9e8198db59194c8766cb3043de",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "c4637fd73da5bccf89afc85a0cbb1ffc8681debabb6d06ab7057e33b915e950a",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "460762fb83196c722975e6abe5d7dc4b1302ee4db4db0e6b053c3bdf7d3c5e3f",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "9e484d7d282261f451412c072cdf7119fec376efee6f5f6288e25d04311833a8",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "cd8b12c64ba9bdd900d6d1bd19da9897ae18d4e34f751dc34d5fdb5277294027",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "c85fe1648cdd2a8e8bcfeab73332fcdb08cc3072917474954879e8331765436b",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "61fb8ad1fa62605ed85ad5cfed88f09442691bc24e251c13491a9a2a15adef21",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "3c402392ed309e26e18bda91b8fa7cf9391c9300f4553186b0ae7f33633102a8",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "386988d8efac90ab4894fb54015ce6328eac890b1ab799a7c99ba66b347a927e",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "cb23b8c9147b83d1a7dd03f03788a827ed1b117427012e1050435b3aca95ef4e",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "a568b0525191bd6cf889c59489874324c1d060775ccd8bfc62ad2385de630d13",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "442dbd99a2f0c1bdd0770a7d9a8a71c97e04392ea778dde403581d72426f174e",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "4964f6ae1785014cd4a4975b75d6eb25afb5a3cf95151471039993788bb8ada7",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "73dd5768ef5a66a10f152a8226e510dc7af301378ba76e3d330d328ca9cad17f",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "6dd82e6287983ed0d0afb0e1b7d65aba69d28ad7a7b75b54a2d30ef91f53d7ee",
+      "holdout": false,
+      "previous_score": 98,
+      "selected_score": 98,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "268b163c1ce0fa9fa7da883e9b4b1a9cf31bf4edf2d0fa3221715d19faa086a8",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "7fb05f00c62fde7b3d78ca777ad42dd84a6f368da80b31eea5df8269e5ae5762",
+      "holdout": true,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "48bddf584725485267326541fbb795a296c047ad41f9147c2a0dd88d705638e5",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "cfcfae3ec9703f1a4e3dd95449d7b6005caa1714fd66dbfb81ef823479d4da10",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "8e2c2eed185e8f4a805ecc809e7e9d5e2482ba06503a2d0a26bef66a5433824e",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "ca448ffe1ce12ad4be3af78c3a3a2034a54f129cf4b17178a666b92f177aa5c1",
+      "holdout": false,
+      "previous_score": 99,
+      "selected_score": 99,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "1221e1c81038e44cfe314f4a786691822dc6312f6f077f2d23beb1476af5b70c",
+      "holdout": false,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "f7afaeb4e805daa5d55f24a82c87094cb7d20718738266f15f3d6ef40d119ae1",
+      "holdout": true,
+      "previous_score": 100,
+      "selected_score": 100,
+      "previous_band": "great",
+      "selected_band": "great"
+    },
+    {
+      "project_id": "943997e8d70b048351da9673a4e4accd24cb55d0e9294c49f408c775e08e5f81",
+      "holdout": false,
+      "previous_score": 94,
+      "selected_score": 94,
+      "previous_band": "great",
+      "selected_band": "needs-work"
+    },
+    {
+      "project_id": "af0a72ffd8910d27983b86e5c5b21791f747d4853aef3b387da2329b8d61c5f9",
+      "holdout": true,
+      "previous_score": 94,
+      "selected_score": 94,
+      "previous_band": "great",
+      "selected_band": "needs-work"
+    },
+    {
+      "project_id": "757b5164468eb532b4fce2d6617cb94c465427e4704563652e479baf13b53542",
+      "holdout": false,
+      "previous_score": 74,
+      "selected_score": 49,
+      "previous_band": "needs-work",
+      "selected_band": "critical"
+    },
+    {
+      "project_id": "6b51f3d09f4b08dec951621c70d5f6073b956bc577d4ab8c9ef8d75ab7385f53",
+      "holdout": true,
+      "previous_score": 74,
+      "selected_score": 49,
+      "previous_band": "needs-work",
+      "selected_band": "critical"
+    }
+  ],
+  "passed": true,
+  "reasons": []
+}

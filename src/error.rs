@@ -17,6 +17,9 @@ pub enum ScanError {
 
     #[error("invalid resolved rule policy: {0}")]
     InvalidPolicy(String),
+
+    #[error("score model is unavailable: {0}")]
+    ScoreModel(String),
 }
 
 /// Errors from workspace member resolution.
@@ -125,6 +128,26 @@ pub enum SetupError {
     Install {
         path: Option<PathBuf>,
         message: String,
+    },
+}
+
+/// Errors from the post-scan GitHub Actions onboarding prompt.
+#[derive(thiserror::Error, Debug)]
+pub enum CiSetupPromptError {
+    #[error("Rust Doctor state directory is unavailable")]
+    StateDirectoryUnavailable,
+
+    #[error("GitHub Actions prompt failed: {0}")]
+    Prompt(#[from] dialoguer::Error),
+
+    #[error("GitHub Actions installation failed: {0}")]
+    Install(String),
+
+    #[error("failed to access CI prompt state '{}': {source}", path.display())]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
     },
 }
 

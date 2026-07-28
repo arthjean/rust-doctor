@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "model_version": "2.0",
+  "description": "Score Core V2. Impact is driven by explicit rule priority and a bounded aggregation policy, never by raw occurrence count. Dimension weights are fixed by the approved product contract and any candidate model that changes them is rejected.",
+  "label_thresholds": {
+    "great": 75,
+    "needs_work": 50
+  },
+  "priority_penalties": {
+    "p0": 34.0,
+    "p1": 12.0,
+    "p2": 5.0,
+    "p3": 1.5
+  },
+  "occurrence_multiplier_cap": 2.0,
+  "p0_score_ceiling": 74,
+  "dimension_weights": {
+    "security": 2.0,
+    "reliability": 1.5,
+    "maintainability": 1.0,
+    "performance": 1.0,
+    "dependencies": 1.0
+  },
+  "calibration": {
+    "dataset_version": "truth-v1",
+    "dataset": "evaluation/truth-dataset-v1.json",
+    "baseline": "evaluation/truth-baseline-v1.json",
+    "calibration_artifact": "evaluation/calibration-v1.json",
+    "evidence": "Penalties are ordered by product urgency rather than presentation severity: one confirmed P0 caps the overall score below the Great threshold, a P1 group costs roughly a quarter of that, and repeated occurrences of one bounded rule saturate at twice the first-occurrence penalty."
+  }
+}

@@ -1,8 +1,14 @@
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "adapter parsers and contracts are consumed by the sibling conformance module through this private crate module"
+)]
+
 use crate::diagnostics::{Category, Diagnostic, Severity};
+use crate::passes::adapter::{self, AdapterContract, EvidenceSource};
 use crate::process;
 use crate::scanner::AnalysisPass;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 fn is_cargo_audit_available() -> bool {
@@ -11,6 +17,14 @@ fn is_cargo_audit_available() -> bool {
 
 const AUDIT_TIMEOUT_SECS: u64 = 60;
 const MAX_OUTPUT_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// cargo-audit reports RustSec advisories from a stable JSON document.
+pub(crate) const CONTRACT: AdapterContract = AdapterContract {
+    pass: "dependencies (cargo-audit)",
+    subcommand: "audit",
+    parser_contract_version: "audit-json-v1",
+    evidence_source: EvidenceSource::StructuredJson,
+};
 
 /// cargo-audit analysis pass — checks dependencies for known CVEs.
 pub struct AuditPass {
@@ -24,21 +38,18 @@ impl AnalysisPass for AuditPass {
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_cargo_audit_available() {
-            return Err(crate::error::PassError::Skipped {
-                pass: self.name().to_string(),
-                reason: "cargo-audit is not installed — CVE scanning disabled. \
-                         Install with: cargo install cargo-audit"
-                    .to_string(),
-            });
+            return Err(
+                CONTRACT.skipped("CVE scanning disabled. Install with: cargo install cargo-audit")
+            );
         }
-        run_audit(project_root, self.offline).map_err(|message| crate::error::PassError::Failed {
-            pass: "dependencies (cargo-audit)".to_string(),
-            message,
-        })
+        run_audit(project_root, self.offline)
     }
 }
 
-fn run_audit(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, String> {
+fn run_audit(
+    project_root: &Path,
+    offline: bool,
+) -> Result<Vec<Diagnostic>, crate::error::PassError> {
     let mut args = vec!["audit", "--json"];
     if offline {
         args.push("--no-fetch");
@@ -50,30 +61,36 @@ fn run_audit(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, Stri
             .stdout(Stdio::piped())
             .stderr(Stdio::null()),
     )
-    .map_err(|e| format!("failed to spawn cargo audit: {e}"))?;
+    .map_err(|error| CONTRACT.failed(format!("failed to spawn cargo audit: {error}")))?;
 
-    let result = process::run_with_timeout(child, AUDIT_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
+    let result = process::run_with_timeout(child, AUDIT_TIMEOUT_SECS, MAX_OUTPUT_BYTES)
+        .map_err(|error| CONTRACT.failed(error))?;
 
-    if result.timed_out {
-        eprintln!("Warning: cargo-audit timed out after {AUDIT_TIMEOUT_SECS}s");
-        return Ok(vec![]);
-    }
+    // Exit 0 means no advisories, exit 1 means advisories were found. Exit 2 is
+    // an operational error (missing Cargo.lock, fetch failure) and every other
+    // outcome is a failed receipt rather than a clean result (US-009 AC-5).
+    CONTRACT.require_complete_run(&result, &[0, 1])?;
 
-    // Exit code 2 = operational error (no Cargo.lock, etc.)
-    if result.exit_code == Some(2) {
-        return Err(
-            "cargo-audit encountered an error (missing Cargo.lock or fetch failure)".into(),
-        );
-    }
+    let provenance = CONTRACT.provenance(&CONTRACT.tool_version());
+    parse_audit_report(&result.stdout, &provenance)
+}
 
-    // Parse JSON
-    let output = &result.stdout;
-    if output.is_empty() {
-        return Ok(vec![]);
+/// Normalize one cargo-audit JSON document.
+///
+/// Split out from process execution so the conformance matrix can replay
+/// recorded documents without a network fetch or an installed tool
+/// (US-011 AC-3, AC-7).
+pub(crate) fn parse_audit_report(
+    output: &str,
+    provenance: &str,
+) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+    if output.trim().is_empty() {
+        // A completed run that printed nothing is not a parseable document.
+        return Err(CONTRACT.failed("cargo-audit produced no JSON document"));
     }
 
     let report: AuditReport = serde_json::from_str(output)
-        .map_err(|e| format!("failed to parse cargo-audit JSON: {e}"))?;
+        .map_err(|error| CONTRACT.failed(format!("failed to parse cargo-audit JSON: {error}")))?;
 
     let mut diagnostics = Vec::new();
 
@@ -98,20 +115,17 @@ fn run_audit(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, Stri
                 .map(|u| format!("\n  {u}"))
                 .unwrap_or_default();
 
-            diagnostics.push(Diagnostic {
-                file_path: PathBuf::from("Cargo.lock"),
-                rule: advisory.id.clone(),
-                category: Category::Dependencies,
+            diagnostics.push(adapter::project_diagnostic(
+                &advisory.id,
+                Category::Dependencies,
                 severity,
-                message: format!(
+                &format!(
                     "{}: {} v{} — {}",
                     advisory.id, pkg.name, pkg.version, advisory.title
                 ),
-                help: Some(format!("{fix_hint}{url_hint}")),
-                line: None,
-                column: None,
-                fix: None,
-            });
+                Some(&format!("{fix_hint}{url_hint}\n  via {provenance}")),
+                "Cargo.lock",
+            ));
         }
     }
 
@@ -119,23 +133,20 @@ fn run_audit(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, Stri
     for (kind, warnings) in &report.warnings {
         for warn in warnings {
             if let Some(advisory) = &warn.advisory {
-                diagnostics.push(Diagnostic {
-                    file_path: PathBuf::from("Cargo.lock"),
-                    rule: advisory.id.clone(),
-                    category: Category::Dependencies,
-                    severity: Severity::Warning,
-                    message: format!(
+                diagnostics.push(adapter::project_diagnostic(
+                    &advisory.id,
+                    Category::Dependencies,
+                    Severity::Warning,
+                    &format!(
                         "{}: {} v{} — {} ({})",
                         advisory.id, warn.package.name, warn.package.version, advisory.title, kind
                     ),
-                    help: advisory
-                        .url
-                        .as_deref()
-                        .map(std::string::ToString::to_string),
-                    line: None,
-                    column: None,
-                    fix: None,
-                });
+                    Some(&advisory.url.as_deref().map_or_else(
+                        || format!("via {provenance}"),
+                        |url| format!("{url}\n  via {provenance}"),
+                    )),
+                    "Cargo.lock",
+                ));
             }
         }
     }

@@ -4,21 +4,30 @@
 //! output rendering, and quality gate checks.
 
 use std::borrow::Cow;
-use std::io::IsTerminal;
+use std::fmt::Write as _;
+use std::io::{IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use crate::cli::{Cli, ColorMode, FailOn, ScanCategory, Scope, WarningVisibility};
+use crate::output::PromptTheme;
+use dialoguer::{MultiSelect, Select};
+use indicatif::{ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
 
-/// Exit code for scan errors (project doesn't compile, discovery fails).
-pub const EXIT_SCAN_ERROR: u8 = 2;
-/// Exit code for quality gate failures (score below threshold, --fail-on).
-pub const EXIT_GATE_FAILURE: u8 = 3;
-/// Exit code for incomplete required analysis.
-pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 4;
+use crate::cli::{
+    CiInstallArgs, CiProvider, CiScope, Cli, ColorMode, FailOn, ScanCategory, Scope,
+    WarningVisibility,
+};
+
+/// Unified React Doctor-compatible failure code.
+pub const EXIT_SCAN_ERROR: u8 = 1;
+/// Unified React Doctor-compatible quality-gate code.
+pub const EXIT_GATE_FAILURE: u8 = 1;
+/// Unified React Doctor-compatible incomplete-analysis code.
+pub const EXIT_INCOMPLETE_ANALYSIS: u8 = 1;
 use crate::diagnostics::{
     BaselineReport, Category, CheckState, CheckStatus, CompletenessState, GateResult, ReportV1,
     ScanMode, ScanResult,
@@ -33,9 +42,135 @@ pub fn configure_color(cli: &Cli) {
         cli.color
     } {
         ColorMode::Auto => owo_colors::unset_override(),
-        ColorMode::Always => owo_colors::set_override(true),
-        ColorMode::Never => owo_colors::set_override(false),
+        ColorMode::Always => {
+            owo_colors::set_override(true);
+            dialoguer::console::set_colors_enabled(true);
+            dialoguer::console::set_colors_enabled_stderr(true);
+        }
+        ColorMode::Never => {
+            owo_colors::set_override(false);
+            dialoguer::console::set_colors_enabled(false);
+            dialoguer::console::set_colors_enabled_stderr(false);
+        }
     }
+}
+
+/// Render the normal scan header without contaminating machine-readable modes.
+pub fn render_scan_welcome(cli: &Cli) -> std::io::Result<()> {
+    if cli.score || cli.wants_json() || cli.sarif {
+        return Ok(());
+    }
+    let animate = can_animate_report(cli) && !cli.verbose;
+    let returning_user = !is_onboarding_forced() && crate::onboarding::has_completed();
+    output::render_welcome(animate, returning_user)
+}
+
+/// Strict terminal policy for prompts and spinners.
+pub fn is_interactive_terminal(cli: &Cli) -> bool {
+    std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && std::io::stderr().is_terminal()
+        && !cli.score
+        && !cli.wants_json()
+        && !cli.sarif
+        && std::env::var_os("TERM").is_none_or(|value| value != "dumb")
+        && !is_non_interactive_environment()
+}
+
+/// Width of the live stdout terminal.
+pub(crate) fn stdout_columns() -> Option<usize> {
+    terminal_columns(&dialoguer::console::Term::stdout())
+}
+
+fn stderr_columns() -> Option<usize> {
+    terminal_columns(&dialoguer::console::Term::stderr())
+}
+
+fn terminal_columns(terminal: &dialoguer::console::Term) -> Option<usize> {
+    terminal
+        .size_checked()
+        .and_then(|(_, columns)| (columns > 0).then_some(usize::from(columns)))
+}
+
+fn environment_flag(name: &str) -> bool {
+    std::env::var(name)
+        .is_ok_and(|value| !matches!(value.to_ascii_lowercase().as_str(), "" | "0" | "false"))
+}
+
+fn is_onboarding_forced() -> bool {
+    environment_flag("RUST_DOCTOR_FORCE_ONBOARDING")
+}
+
+fn is_ci_environment() -> bool {
+    ["GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        || environment_flag("CI")
+}
+
+/// React-compatible animation gate. Coding-agent shells are allowed when a
+/// human is watching a real stdout TTY; prompts remain disabled there.
+pub(crate) fn can_animate_report(cli: &Cli) -> bool {
+    let real_tty = std::io::stdout().is_terminal()
+        && stdout_columns().is_some()
+        && std::env::var_os("TERM").is_none_or(|value| value != "dumb")
+        && !cli.score
+        && !cli.wants_json()
+        && !cli.sarif;
+    real_tty
+        && (is_onboarding_forced()
+            || (!is_ci_environment()
+                && std::env::var_os("GIT_DIR").is_none_or(|value| value.is_empty())))
+}
+
+fn interactive_prompts_allowed(cli: &Cli) -> bool {
+    !cli.yes
+        && !cli.score
+        && !cli.wants_json()
+        && !cli.sarif
+        && std::io::stdin().is_terminal()
+        && !is_non_interactive_environment()
+}
+
+fn post_scan_prompts_allowed(cli: &Cli) -> bool {
+    interactive_prompts_allowed(cli) && std::io::stdout().is_terminal()
+}
+
+fn is_non_interactive_environment() -> bool {
+    const MARKERS: [&str; 27] = [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "JENKINS_URL",
+        "TF_BUILD",
+        "CODEBUILD_BUILD_ID",
+        "TEAMCITY_VERSION",
+        "BITBUCKET_BUILD_NUMBER",
+        "CIRCLECI",
+        "TRAVIS",
+        "DRONE",
+        "GIT_DIR",
+        "CLAUDECODE",
+        "CLAUDE_CODE",
+        "CURSOR_AGENT",
+        "CODEX_CI",
+        "CODEX_SANDBOX",
+        "CODEX_SANDBOX_NETWORK_DISABLED",
+        "OPENCODE",
+        "GOOSE_TERMINAL",
+        "AMP_THREAD_ID",
+        "CLINE_ACTIVE",
+        "AUGMENT_AGENT",
+        "TRAE_AI_SHELL_ID",
+        "AGENT_SESSION_ID",
+        "AGENT_THREAD_ID",
+    ];
+    MARKERS
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        || std::env::var("AGENT")
+            .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "amp" | "goose"))
 }
 
 /// Install an opt-in, privacy-scrubbed crash hook for the selected surface.
@@ -53,6 +188,11 @@ pub fn configure_telemetry(cli: &Cli) {
         surface,
         &cli.directory,
     );
+}
+
+/// Let terminal animations observe the process-wide cancellation flag.
+pub fn register_animation_cancellation(cancellation: &Arc<AtomicBool>) {
+    output::register_animation_cancellation(cancellation);
 }
 
 /// Record one aggregate server session when explicit consent is active.
@@ -173,13 +313,176 @@ pub fn bootstrap_project(
     )
 }
 
+/// Resolve the interactive project and scan-scope choices before scanning.
+///
+/// Returns `false` when the user cancels either prompt.
+pub fn prepare_interactive_scan(
+    cli: &mut Cli,
+    project_info: &discovery::ProjectInfo,
+    resolved: &config::ResolvedConfig,
+    scope_was_explicit: bool,
+) -> Result<bool, dialoguer::Error> {
+    let prompts_allowed = interactive_prompts_allowed(cli);
+    if cli.project.is_empty() && project_info.workspace_members.len() == 1 {
+        print_project_selection(cli, project_info);
+    }
+    if cli.project.is_empty() && project_info.workspace_members.len() > 1 && !prompts_allowed {
+        cli.project.push("*".to_string());
+        print_project_selection(cli, project_info);
+    }
+    if !prompts_allowed {
+        return Ok(true);
+    }
+    if cli.project.is_empty() && project_info.workspace_members.len() > 1 {
+        let terminal = dialoguer::console::Term::stdout();
+        let ordered_members = workspace_members_in_display_order(
+            &project_info.root_dir,
+            &project_info.workspace_members,
+        );
+        let labels: Vec<_> = ordered_members
+            .iter()
+            .map(|member| {
+                let relative = member
+                    .root_dir
+                    .strip_prefix(&project_info.root_dir)
+                    .unwrap_or(&member.root_dir);
+                format!("{}\n  {}", member.name, relative.display())
+            })
+            .collect();
+        loop {
+            let Some(selected) = MultiSelect::with_theme(&PromptTheme)
+                .with_prompt("Select projects")
+                .items(&labels)
+                .interact_on_opt(&terminal)?
+            else {
+                return Ok(false);
+            };
+            if selected.is_empty() {
+                eprintln!("Select at least one project.");
+                continue;
+            }
+            cli.project = selected
+                .into_iter()
+                .filter_map(|index| ordered_members.get(index).map(|member| member.name.clone()))
+                .collect();
+            break;
+        }
+    }
+
+    if scope_was_explicit || resolved.diff.is_some() {
+        return Ok(true);
+    }
+    let request = diff::ScopeRequest {
+        reporting_scope: diff::ReportingScope::Changed,
+        base: None,
+        files: Vec::new(),
+        include_untracked: false,
+    };
+    let Ok(candidate) =
+        diff::resolve_scope(&project_info.root_dir, &request, &resolved.ignore_files)
+    else {
+        return Ok(true);
+    };
+    let context = diff::scope_prompt_context(&project_info.root_dir, &candidate);
+    if context.changed_rust_source_count == 0 {
+        return Ok(true);
+    }
+    let changed_title = if context.is_current_changes {
+        format!(
+            "Uncommitted changes ({})",
+            context.changed_rust_source_count
+        )
+    } else {
+        format!(
+            "Changed files on {} ({})",
+            context.current_branch.as_deref().unwrap_or("this branch"),
+            context.changed_rust_source_count
+        )
+    };
+    let changed_description = if context.is_current_changes {
+        "Compare working tree changes against HEAD".to_string()
+    } else {
+        format!(
+            "Compare against {} from the branch merge-base",
+            context.base_branch.as_deref().unwrap_or("the base branch")
+        )
+    };
+    let choices = [
+        "Full codebase\n  Scan every Rust source file".to_string(),
+        format!("{changed_title}\n  {changed_description}"),
+    ];
+    let Some(selection) = Select::with_theme(&PromptTheme)
+        .with_prompt("Choose what to scan")
+        .items(&choices)
+        .default(usize::from(!context.is_current_changes))
+        .interact_on_opt(&dialoguer::console::Term::stdout())?
+    else {
+        return Ok(false);
+    };
+    if selection == 1 {
+        cli.scope = Scope::Changed;
+    }
+    Ok(true)
+}
+
+fn print_project_selection(cli: &Cli, project_info: &discovery::ProjectInfo) {
+    if cli.score || cli.wants_json() || cli.sarif {
+        return;
+    }
+    let names =
+        workspace_members_in_display_order(&project_info.root_dir, &project_info.workspace_members)
+            .into_iter()
+            .map(|member| member.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+    if !names.is_empty() {
+        println!("✔ Select projects › {names}");
+    }
+}
+
+fn workspace_members_in_display_order<'a>(
+    workspace_root: &Path,
+    members: &'a [discovery::WorkspaceMember],
+) -> Vec<&'a discovery::WorkspaceMember> {
+    let mut ordered: Vec<_> = members.iter().collect();
+    ordered.sort_by(|left, right| {
+        left.root_dir
+            .strip_prefix(workspace_root)
+            .unwrap_or(&left.root_dir)
+            .cmp(
+                right
+                    .root_dir
+                    .strip_prefix(workspace_root)
+                    .unwrap_or(&right.root_dir),
+            )
+    });
+    ordered
+}
+
+/// Burn the first-run marker only after an interactive guided render completed.
+pub fn record_onboarding_completion(
+    cli: &Cli,
+    resolved: &config::ResolvedConfig,
+    report: &ReportV1,
+) {
+    if can_animate_report(cli)
+        && !resolved.verbose
+        && !is_onboarding_forced()
+        && !is_non_interactive_environment()
+        && report.source_file_count > 0
+        && report.error.is_none()
+    {
+        crate::onboarding::mark_completed();
+    }
+}
+
 /// Run the scan passes and return the result.
 pub fn run_scan(
     cli: &Cli,
     project_info: &discovery::ProjectInfo,
     resolved: &config::ResolvedConfig,
 ) -> Result<ScanResult, crate::error::ScanError> {
-    run_scan_cancellable(
+    run_scan_with_cancellation(
         cli,
         project_info,
         resolved,
@@ -188,6 +491,16 @@ pub fn run_scan(
 }
 
 /// Run the canonical scoped scan with a caller-owned cancellation flag.
+pub fn run_scan_with_cancellation(
+    cli: &Cli,
+    project_info: &discovery::ProjectInfo,
+    resolved: &config::ResolvedConfig,
+    cancel: &Arc<AtomicBool>,
+) -> Result<ScanResult, crate::error::ScanError> {
+    run_scan_cancellable(cli, project_info, resolved, cancel)
+}
+
+/// Internal implementation shared by CLI and cancellation tests.
 #[expect(
     clippy::too_many_lines,
     reason = "CLI scope dispatch keeps category selection aligned across full, changed, staged, and baseline scans"
@@ -198,7 +511,16 @@ pub(crate) fn run_scan_cancellable(
     resolved: &config::ResolvedConfig,
     cancel: &Arc<AtomicBool>,
 ) -> Result<ScanResult, crate::error::ScanError> {
-    let suppress_spinner = cli.score || cli.wants_json() || cli.sarif;
+    let suppress_spinner =
+        cli.score || cli.wants_json() || cli.sarif || !is_interactive_terminal(cli);
+    let project_count = selected_project_count(cli, project_info);
+    let multi_project = project_count > 1;
+    let suppress_pass_spinner = suppress_spinner || multi_project;
+    let mut batch_spinner = BatchSpinner::new(
+        project_count,
+        suppress_spinner,
+        !cli.no_color && cli.color != ColorMode::Never,
+    );
     if cli.fail_on.is_some() {
         eprintln!("Warning: --fail-on is deprecated; use --blocking");
     }
@@ -225,7 +547,7 @@ pub(crate) fn run_scan_cancellable(
                 cli,
                 project_info,
                 resolved,
-                suppress_spinner,
+                suppress_pass_spinner,
                 &baseline_scope,
                 &control,
                 &selected_categories,
@@ -251,7 +573,7 @@ pub(crate) fn run_scan_cancellable(
                 resolved,
                 &project_info.root_dir,
                 &selected_categories,
-            );
+            )?;
             result
         }
         Ok(scope) => match scope.reporting_scope {
@@ -259,7 +581,7 @@ pub(crate) fn run_scan_cancellable(
                 cli,
                 project_info,
                 resolved,
-                suppress_spinner,
+                suppress_pass_spinner,
                 &scope,
                 &control,
                 &selected_categories,
@@ -268,7 +590,7 @@ pub(crate) fn run_scan_cancellable(
                 cli,
                 project_info,
                 resolved,
-                suppress_spinner,
+                suppress_pass_spinner,
                 &scope,
                 &control,
                 &selected_categories,
@@ -278,7 +600,7 @@ pub(crate) fn run_scan_cancellable(
                 resolved,
                 effective_offline(cli, resolved),
                 &cli.project,
-                suppress_spinner,
+                suppress_pass_spinner,
                 &scope,
                 &control,
                 &selected_categories,
@@ -292,16 +614,100 @@ pub(crate) fn run_scan_cancellable(
                 cli,
                 project_info,
                 resolved,
-                suppress_spinner,
+                suppress_pass_spinner,
                 &control,
                 request.base.clone(),
                 error.to_string(),
                 &selected_categories,
             )?
         }
+        Err(error)
+            if matches!(
+                request.reporting_scope,
+                diff::ReportingScope::Changed | diff::ReportingScope::Lines
+            ) =>
+        {
+            eprintln!(
+                "Warning: changed-file scope is unavailable ({error}); scanning the full codebase."
+            );
+            scan::scan_project_scoped_for_categories(
+                project_info,
+                resolved,
+                effective_offline(cli, resolved),
+                &cli.project,
+                suppress_pass_spinner,
+                &diff::ScopePlan::full(),
+                &control,
+                &selected_categories,
+            )?
+        }
         Err(error) => return Err(error.into()),
     };
+    batch_spinner.complete();
     Ok(result)
+}
+
+fn selected_project_count(cli: &Cli, project_info: &discovery::ProjectInfo) -> usize {
+    if project_info.workspace_members.len() <= 1 {
+        return 1;
+    }
+    if cli
+        .project
+        .iter()
+        .any(|selector| matches!(selector.as_str(), "*" | "all"))
+    {
+        project_info.workspace_members.len()
+    } else {
+        cli.project.len().max(1)
+    }
+}
+
+struct BatchSpinner {
+    progress: Option<ProgressBar>,
+    project_count: usize,
+}
+
+impl BatchSpinner {
+    fn new(project_count: usize, suppress: bool, color: bool) -> Self {
+        let progress = (!suppress && project_count > 1).then(|| {
+            let progress = ProgressBar::new_spinner();
+            let template = if color {
+                "{spinner:.cyan} {msg}"
+            } else {
+                "{spinner} {msg}"
+            };
+            progress.set_style(
+                ProgressStyle::default_spinner()
+                    .template(template)
+                    .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+            );
+            progress.set_message(format!("Scanning {project_count} projects…"));
+            progress.enable_steady_tick(Duration::from_millis(100));
+            progress
+        });
+        Self {
+            progress,
+            project_count,
+        }
+    }
+
+    fn complete(&mut self) {
+        if let Some(progress) = self.progress.take() {
+            progress.set_message(format!(
+                "Scanning {} projects… ({}/{})",
+                self.project_count, self.project_count, self.project_count
+            ));
+            progress.finish_and_clear();
+        }
+    }
+}
+
+impl Drop for BatchSpinner {
+    fn drop(&mut self) {
+        if let Some(progress) = self.progress.take() {
+            progress.finish_and_clear();
+        }
+    }
 }
 
 const fn baseline_error_may_degrade(error: &crate::error::DiffError) -> bool {
@@ -370,9 +776,15 @@ fn scope_request(
         });
     }
 
-    if (cli.staged || cli.baseline) && cli.scope != Scope::Full {
+    if cli.staged && matches!(cli.scope, Scope::Full | Scope::Changed) {
         return Err(crate::error::DiffError::InvalidScope(
-            "--staged and --baseline cannot be combined with --scope".to_string(),
+            "--staged supports only --scope files or --scope lines".to_string(),
+        )
+        .into());
+    }
+    if cli.baseline && cli.scope != Scope::Full {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--baseline cannot be combined with --scope".to_string(),
         )
         .into());
     }
@@ -402,6 +814,12 @@ fn scope_request(
         )
         .into());
     }
+    if cli.staged && cli.include_untracked {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--include-untracked cannot be combined with --staged".to_string(),
+        )
+        .into());
+    }
     if cli.include_untracked
         && !matches!(
             reporting_scope,
@@ -410,6 +828,12 @@ fn scope_request(
     {
         return Err(crate::error::DiffError::InvalidScope(
             "--include-untracked requires changed or lines scope".to_string(),
+        )
+        .into());
+    }
+    if cli.staged && !cli.files.is_empty() {
+        return Err(crate::error::DiffError::InvalidScope(
+            "--files cannot be combined with --staged".to_string(),
         )
         .into());
     }
@@ -448,6 +872,20 @@ fn run_staged(
             selected_categories,
         );
     }
+    let mut staged_scope = scope.clone();
+    if cli.scope == Scope::Lines {
+        match diff::resolve_staged_line_ranges(&original_project.root_dir, scope) {
+            Ok(line_ranges) => {
+                staged_scope.reporting_scope = diff::ReportingScope::Lines;
+                staged_scope.line_ranges = line_ranges;
+            }
+            Err(error) => {
+                staged_scope.degradation_reason = Some(format!(
+                    "staged line ranges were unavailable; degraded to files scope: {error}"
+                ));
+            }
+        }
+    }
     let snapshot = diff::materialize_staged(&original_project.root_dir)?;
     diff::validate_staged_policy_snapshot(&original_project.root_dir, snapshot.root())?;
     let policy_fingerprint = diff::policy_fingerprint(snapshot.root()).map_err(|error| {
@@ -471,7 +909,7 @@ fn run_staged(
         effective_offline(cli, resolved),
         &cli.project,
         suppress_spinner,
-        scope,
+        &staged_scope,
         control,
         selected_categories,
     )?;
@@ -489,6 +927,12 @@ fn run_staged(
         reason: Some(format!("policy_fingerprint={policy_fingerprint}")),
     };
     result.execution.checks.push(provenance_check.clone());
+    result
+        .execution
+        .analyzer_receipts
+        .push(crate::completeness::AnalyzerReceipt::global(
+            &provenance_check,
+        ));
     result
         .execution
         .checks
@@ -604,7 +1048,7 @@ fn run_baseline(
         selected_categories,
     )?;
     if !required_analysis_complete(&head) {
-        return Ok(degrade_scanned_baseline(
+        return degrade_scanned_baseline(
             head,
             scope,
             resolved,
@@ -612,7 +1056,7 @@ fn run_baseline(
             false,
             "head scan did not complete successfully".to_string(),
             selected_categories,
-        ));
+        );
     }
     let base = scan::scan_project_scoped_for_categories(
         &base_project,
@@ -631,7 +1075,7 @@ fn run_baseline(
             .iter()
             .any(|diagnostic| matches!(diagnostic.rule.as_str(), "compiler-error" | "compiler-ice"))
     {
-        return Ok(degrade_scanned_baseline(
+        return degrade_scanned_baseline(
             head,
             scope,
             resolved,
@@ -639,7 +1083,7 @@ fn run_baseline(
             true,
             "base scan did not complete successfully".to_string(),
             selected_categories,
-        ));
+        );
     }
 
     let comparison = diff::compare_baseline(
@@ -682,8 +1126,13 @@ fn run_baseline(
     for package in &mut head.execution.packages {
         package.checks.push(baseline_check.clone());
     }
-    head.execution.checks.push(baseline_check);
-    recalculate_result(&mut head, resolved, &project.root_dir, selected_categories);
+    head.execution.checks.push(baseline_check.clone());
+    head.execution
+        .analyzer_receipts
+        .push(crate::completeness::AnalyzerReceipt::global(
+            &baseline_check,
+        ));
+    recalculate_result(&mut head, resolved, &project.root_dir, selected_categories)?;
     Ok(head)
 }
 
@@ -731,6 +1180,11 @@ fn merge_base_accounting(
             check.name = format!("base:{}", check.name);
             check
         }));
+    head.execution.analyzer_receipts.extend(
+        crate::completeness::effective_receipts(base)
+            .into_iter()
+            .map(crate::completeness::AnalyzerReceipt::for_baseline),
+    );
 }
 
 fn degrade_scanned_baseline(
@@ -741,7 +1195,7 @@ fn degrade_scanned_baseline(
     base_attempted: bool,
     reason: String,
     selected_categories: &[Category],
-) -> ScanResult {
+) -> Result<ScanResult, crate::error::ScanError> {
     let mut files_scope = scope.clone();
     files_scope.reporting_scope = diff::ReportingScope::Changed;
     result.diagnostics = diff::filter_diagnostics(
@@ -756,7 +1210,7 @@ fn degrade_scanned_baseline(
             .iter()
             .any(|diagnostic| evidence.matches(diagnostic))
     });
-    result.execution.reporting_scope = "baseline".to_string();
+    result.execution.reporting_scope = "changed".to_string();
     if base_attempted {
         result.execution.execution_scope = "full_packages+isolated_snapshot".to_string();
     }
@@ -769,7 +1223,13 @@ fn degrade_scanned_baseline(
     for package in &mut result.execution.packages {
         package.checks.push(baseline_check.clone());
     }
-    result.execution.checks.push(baseline_check);
+    result.execution.checks.push(baseline_check.clone());
+    result
+        .execution
+        .analyzer_receipts
+        .push(crate::completeness::AnalyzerReceipt::global(
+            &baseline_check,
+        ));
     result.execution.baseline = Some(BaselineReport {
         requested_base: scope
             .requested_base
@@ -790,8 +1250,8 @@ fn degrade_scanned_baseline(
         baseline_degraded: true,
         degraded_reason: Some(reason),
     });
-    recalculate_result(&mut result, resolved, workspace_root, selected_categories);
-    result
+    recalculate_result(&mut result, resolved, workspace_root, selected_categories)?;
+    Ok(result)
 }
 
 #[expect(
@@ -856,7 +1316,7 @@ fn degraded_baseline(
         control,
         selected_categories,
     )?;
-    result.execution.reporting_scope = "baseline".to_string();
+    result.execution.reporting_scope = "changed".to_string();
     let baseline_check = CheckState {
         name: "baseline".to_string(),
         required: true,
@@ -866,7 +1326,13 @@ fn degraded_baseline(
     for package in &mut result.execution.packages {
         package.checks.push(baseline_check.clone());
     }
-    result.execution.checks.push(baseline_check);
+    result.execution.checks.push(baseline_check.clone());
+    result
+        .execution
+        .analyzer_receipts
+        .push(crate::completeness::AnalyzerReceipt::global(
+            &baseline_check,
+        ));
     result.execution.baseline = Some(BaselineReport {
         requested_base: scope
             .requested_base
@@ -891,7 +1357,7 @@ fn degraded_baseline(
 }
 
 fn required_analysis_complete(result: &ScanResult) -> bool {
-    crate::completeness::score_is_authoritative(result)
+    crate::completeness::compute(result).score_authoritative
 }
 
 fn cli_network_disabled(cli: &Cli) -> bool {
@@ -933,7 +1399,7 @@ fn recalculate_result(
     resolved: &config::ResolvedConfig,
     workspace_root: &Path,
     selected_categories: &[Category],
-) {
+) -> Result<(), crate::error::ScanError> {
     result.skipped_passes.sort();
     result.skipped_passes.dedup();
     result
@@ -980,17 +1446,16 @@ fn recalculate_result(
                 .collect()
         },
     );
-    let (score, label, dimensions) =
-        output::calculate_score_for_categories(&score_diagnostics, selected_categories);
-    result.score = score;
-    result.score_label = label;
-    result.dimension_scores = dimensions;
-    scan::assign_package_scores(
+    let (score, label, dimensions) = scan::recalculate_package_scores_and_select_headline(
         &mut result.execution.packages,
         &score_diagnostics,
         workspace_root,
         selected_categories,
-    );
+    )?;
+    result.score = score;
+    result.score_label = label;
+    result.dimension_scores = dimensions;
+    Ok(())
 }
 
 /// Render the appropriate output format (score, JSON, SARIF, or terminal).
@@ -1018,12 +1483,23 @@ pub fn emit_output(
             sarif::render_report_sarif(&report).map_err(crate::error::OutputError::Serialize)?;
         println!("{sarif_json}");
     } else {
+        let interactive = is_interactive_terminal(cli);
+        let animate_report = can_animate_report(cli);
+        let animate_stderr_details = animate_report
+            && std::io::stderr().is_terminal()
+            && stderr_columns().is_some()
+            && !resolved.verbose;
         output::render_terminal_for_categories(
             &report,
             &scan_result.pass_timings,
             resolved.verbose,
-            cli.warnings != WarningVisibility::Hide,
+            terminal_warnings_are_visible(cli, resolved),
             &cli.category,
+            !cli.share && !is_ci_environment(),
+            !interactive || scan_result.execution.packages.len() > 1,
+            is_non_interactive_environment(),
+            animate_report,
+            animate_stderr_details,
         );
     }
     Ok(report)
@@ -1033,12 +1509,12 @@ pub fn emit_output(
 ///
 /// Failure is returned as a secondary warning so callers can preserve the
 /// already-computed report and quality-gate result.
-pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
-    let interactive = std::io::stdin().is_terminal()
-        && std::io::stderr().is_terminal()
-        && !cli.score
-        && !cli.wants_json()
-        && !cli.sarif;
+pub fn emit_handoff(
+    cli: &Cli,
+    report: &ReportV1,
+    resolved: &config::ResolvedConfig,
+) -> Result<(), String> {
+    let interactive = post_scan_prompts_allowed(cli);
     if cli.output_dir.is_none()
         && cli.handoff.is_none()
         && !cli.reset_handoff_target
@@ -1046,8 +1522,20 @@ pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
     {
         return Ok(());
     }
+    let visible_report = if cli.output_dir.is_some() || cli.handoff.is_some() {
+        Cow::Borrowed(report)
+    } else {
+        let mut filtered = report.clone();
+        filtered
+            .diagnostics
+            .retain(|diagnostic| terminal_diagnostic_is_visible(cli, resolved, diagnostic));
+        if filtered.diagnostics.is_empty() {
+            return Ok(());
+        }
+        Cow::Owned(filtered)
+    };
     let outcome = crate::handoff::execute(
-        report,
+        visible_report.as_ref(),
         &crate::handoff::HandoffRequest {
             output_dir: cli.output_dir.clone(),
             target: cli.handoff,
@@ -1066,20 +1554,192 @@ pub fn emit_handoff(cli: &Cli, report: &ReportV1) -> Result<(), String> {
     Ok(())
 }
 
+/// Emit the once-per-project setup hint in a supported coding-agent run.
+pub fn emit_agent_install_hint(
+    cli: &Cli,
+    report: &ReportV1,
+    project_info: &discovery::ProjectInfo,
+) {
+    crate::agent_hint::emit_if_eligible(cli, report, project_info);
+}
+
+/// Offer the same one-time post-scan GitHub Actions setup used by React Doctor.
+///
+/// The decision store contains only a SHA-256 project key and the answer. It
+/// never persists the repository name or path.
+pub fn offer_ci_setup(
+    cli: &Cli,
+    report: &ReportV1,
+    project_info: &discovery::ProjectInfo,
+    resolved: &config::ResolvedConfig,
+) -> Result<bool, crate::error::CiSetupPromptError> {
+    if cli.score
+        || !post_scan_prompts_allowed(cli)
+        || !report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| terminal_diagnostic_is_visible(cli, resolved, diagnostic))
+    {
+        return Ok(true);
+    }
+    let Some(root) = nearest_git_root(&project_info.root_dir) else {
+        return Ok(true);
+    };
+    if root.join(".github/workflows/rust-doctor.yml").is_file() || ci_prompt_was_handled(&root)? {
+        return Ok(true);
+    }
+
+    println!();
+    let terminal = dialoguer::console::Term::stdout();
+    loop {
+        let choices = ["Yes - Adds the workflow file", "Learn more", "No"];
+        let selection = Select::with_theme(&PromptTheme)
+            .with_prompt(
+                "Add Rust Doctor to GitHub Actions?\n  Scan every pull request to prevent new Rust issues while you fix the backlog.\n  Uses the managed, least-privilege Rust Doctor workflow.",
+            )
+            .items(&choices)
+            .default(0)
+            .interact_on_opt(&terminal)
+            ?;
+        match selection {
+            None => return Ok(false),
+            Some(0) => {
+                record_ci_prompt_decision(&root, "accepted")?;
+                let message = crate::workflows::ci::install(&CiInstallArgs {
+                    directory: root,
+                    provider: CiProvider::Github,
+                    scope: CiScope::Baseline,
+                    blocking: FailOn::None,
+                    comment: true,
+                    review_comments: false,
+                    commit_status: true,
+                    sarif: true,
+                    version: "v1".to_string(),
+                    dry_run: false,
+                    pr: false,
+                    issue: None,
+                })
+                .map_err(|error| crate::error::CiSetupPromptError::Install(error.to_string()))?;
+                eprintln!("{message}");
+                return Ok(true);
+            }
+            Some(1) => {
+                eprintln!("Visit https://rust-doctor.vercel.app to learn more.\n");
+            }
+            Some(_) => {
+                record_ci_prompt_decision(&root, "declined")?;
+                return Ok(true);
+            }
+        }
+    }
+}
+
+fn nearest_git_root(path: &Path) -> Option<PathBuf> {
+    let canonical = path.canonicalize().ok()?;
+    canonical
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+fn ci_prompt_was_handled(root: &Path) -> Result<bool, crate::error::CiSetupPromptError> {
+    let path = ci_prompt_decision_path(root)?;
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Ok(true),
+        Ok(_) => Err(crate::error::CiSetupPromptError::Io {
+            path,
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "path is not a regular file",
+            ),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(crate::error::CiSetupPromptError::Io { path, source }),
+    }
+}
+
+fn record_ci_prompt_decision(
+    root: &Path,
+    decision: &str,
+) -> Result<(), crate::error::CiSetupPromptError> {
+    let path = ci_prompt_decision_path(root)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "CI prompt state path has no parent",
+            ),
+        })?;
+    std::fs::create_dir_all(parent).map_err(|source| crate::error::CiSetupPromptError::Io {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|source| {
+        crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source,
+        }
+    })?;
+    writeln!(temporary, "{decision}")
+        .and_then(|()| temporary.as_file_mut().sync_all())
+        .map_err(|source| crate::error::CiSetupPromptError::Io {
+            path: path.clone(),
+            source,
+        })?;
+    temporary
+        .persist(&path)
+        .map_err(|error| crate::error::CiSetupPromptError::Io {
+            path,
+            source: error.error,
+        })?;
+    Ok(())
+}
+
+fn ci_prompt_decision_path(root: &Path) -> Result<PathBuf, crate::error::CiSetupPromptError> {
+    let config_root = crate::telemetry::config_root()
+        .map_err(|_| crate::error::CiSetupPromptError::StateDirectoryUnavailable)?;
+    Ok(config_root.join("ci-prompts").join(ci_prompt_key(root)))
+}
+
+fn ci_prompt_key(root: &Path) -> String {
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    let mut key = String::with_capacity(32);
+    for byte in digest.iter().take(16) {
+        let _ = write!(key, "{byte:02x}");
+    }
+    key
+}
+
 /// Emit a schema-valid failed Report V1 for expected bootstrap or scan errors.
 pub fn emit_failure_report(
     cli: &Cli,
     kind: &str,
     error: &(dyn std::error::Error + 'static),
 ) -> Result<(), crate::error::OutputError> {
-    if !cli.wants_json() {
-        return Ok(());
-    }
-    let mode = if cli.baseline {
+    emit_failure_report_for_mode(cli, scan_mode_for_request(cli, false), kind, error)
+}
+
+/// Return the report mode selected by CLI flags and resolved project config.
+#[must_use]
+pub fn requested_scan_mode(cli: &Cli, resolved: &config::ResolvedConfig) -> ScanMode {
+    scan_mode_for_request(cli, resolved.diff.is_some())
+}
+
+/// Return the effective mode after dynamic scope promotion or degradation.
+#[must_use]
+pub fn completed_scan_mode(scan_result: &ScanResult) -> ScanMode {
+    mode_from_reporting_scope(&scan_result.execution.reporting_scope)
+}
+
+fn scan_mode_for_request(cli: &Cli, config_diff: bool) -> ScanMode {
+    if cli.baseline {
         ScanMode::Baseline
     } else if cli.staged {
         ScanMode::Staged
-    } else if cli.diff.is_some() || cli.scope == Scope::Changed {
+    } else if cli.diff.is_some() || config_diff || cli.scope == Scope::Changed {
         ScanMode::Files
     } else if cli.scope == Scope::Lines {
         ScanMode::Lines
@@ -1087,7 +1747,19 @@ pub fn emit_failure_report(
         ScanMode::Files
     } else {
         ScanMode::Full
-    };
+    }
+}
+
+/// Emit a schema-valid failed report with an already-resolved scan mode.
+pub fn emit_failure_report_for_mode(
+    cli: &Cli,
+    mode: ScanMode,
+    kind: &str,
+    error: &(dyn std::error::Error + 'static),
+) -> Result<(), crate::error::OutputError> {
+    if !cli.wants_json() && !cli.sarif {
+        return Ok(());
+    }
     let mut causes = Vec::new();
     let mut source = error.source();
     while let Some(cause) = source {
@@ -1096,7 +1768,14 @@ pub fn emit_failure_report(
     }
     let message = error.to_string();
     let report = ReportV1::failure_with_causes(&cli.directory, mode, kind, &message, &causes);
-    output::render_json(&report, cli.json_compact, cli.json_out.as_deref())
+    if cli.sarif {
+        let rendered =
+            sarif::render_report_sarif(&report).map_err(crate::error::OutputError::Serialize)?;
+        println!("{rendered}");
+        Ok(())
+    } else {
+        output::render_json(&report, cli.json_compact, cli.json_out.as_deref())
+    }
 }
 
 fn mode_from_reporting_scope(reporting_scope: &str) -> ScanMode {
@@ -1137,40 +1816,108 @@ pub fn check_completeness_gate(
     Some(ExitCode::from(EXIT_INCOMPLETE_ANALYSIS))
 }
 
+fn terminal_warnings_are_visible(cli: &Cli, resolved: &config::ResolvedConfig) -> bool {
+    cli.warnings != WarningVisibility::Hide
+        || matches!(resolved.fail_on, FailOn::Warning | FailOn::Info)
+}
+
+fn terminal_diagnostic_is_visible(
+    cli: &Cli,
+    resolved: &config::ResolvedConfig,
+    diagnostic: &crate::diagnostics::CanonicalDiagnostic,
+) -> bool {
+    diagnostic
+        .visible_on
+        .iter()
+        .any(|surface| surface == "terminal")
+        && (terminal_warnings_are_visible(cli, resolved)
+            || diagnostic.severity != crate::diagnostics::Severity::Warning)
+        && {
+            let selected = diagnostic_categories(&cli.category);
+            selected.is_empty() || selected.contains(&diagnostic.category)
+        }
+}
+
+/// Fail when the primary lint engine produced no trustworthy result.
+///
+/// This applies in score mode too, matching React Doctor's hard lint-failure
+/// gate. `--blocking none` remains the explicit fail-open override.
+pub fn check_hard_analysis_failure(scan_result: &ScanResult, blocking: FailOn) -> Option<ExitCode> {
+    has_hard_analysis_failure(scan_result, blocking).then(|| ExitCode::from(EXIT_SCAN_ERROR))
+}
+
+fn has_hard_analysis_failure(scan_result: &ScanResult, blocking: FailOn) -> bool {
+    blocking != FailOn::None
+        && crate::completeness::effective_receipts(scan_result)
+            .iter()
+            .any(|receipt| {
+                receipt.required
+                    && receipt.status == CheckStatus::Failed
+                    && receipt.scope != crate::completeness::AnalyzerScope::Baseline
+                    && receipt.analyzer == crate::completeness::AnalyzerIdentity::Clippy
+            })
+}
+
 fn evaluate_gate_result(
     cli: &Cli,
     scan_result: &ScanResult,
     resolved: &config::ResolvedConfig,
 ) -> GateResult {
+    let hard_failed = has_hard_analysis_failure(scan_result, resolved.fail_on);
     let configured = cli.require_complete
         || resolved.score_fail_below.is_some()
-        || resolved.fail_on != FailOn::None;
+        || (!cli.score && resolved.fail_on != FailOn::None)
+        || hard_failed;
     if !configured {
         return GateResult::NotEvaluated;
     }
     let incomplete = cli.require_complete
         && crate::completeness::compute(scan_result).state != CompletenessState::Complete;
-    let score_failed = resolved
-        .score_fail_below
-        .is_some_and(|threshold| scan_result.score < threshold);
-    let findings_failed =
-        check_fail_on_gate_for_config(scan_result, resolved, resolved.fail_on).is_some();
-    if incomplete || score_failed || findings_failed {
+    let score_decision = crate::completeness::score_decision(scan_result);
+    let authority_failed = score_decision.published_score().is_none();
+    let score_failed = resolved.score_fail_below.is_some_and(|threshold| {
+        score_decision
+            .published_score()
+            .is_none_or(|score| score < threshold)
+    });
+    let findings_failed = !cli.score
+        && check_fail_on_gate_for_config(scan_result, resolved, resolved.fail_on).is_some();
+    if authority_failed || hard_failed || incomplete || score_failed || findings_failed {
         GateResult::Failed
     } else {
         GateResult::Passed
     }
 }
 
-/// Returns `Some(ExitCode)` with `EXIT_GATE_FAILURE` if the score is below the configured threshold.
+/// Fail a bare score request when the canonical score is unavailable.
+pub fn check_score_authority(scan_result: &ScanResult, required: bool) -> Option<ExitCode> {
+    if !required {
+        return None;
+    }
+    let decision = crate::completeness::score_decision(scan_result);
+    if decision.published_score().is_some() {
+        return None;
+    }
+    eprintln!(
+        "Authoritative score unavailable: {}",
+        decision.primary_reason()
+    );
+    Some(ExitCode::from(EXIT_SCAN_ERROR))
+}
+
+/// Fail a configured threshold when the canonical score is unavailable or low.
 pub fn check_score_gate(scan_result: &ScanResult, threshold: Option<u32>) -> Option<ExitCode> {
-    if let Some(threshold) = threshold
-        && scan_result.score < threshold
-    {
+    let threshold = threshold?;
+    let decision = crate::completeness::score_decision(scan_result);
+    let Some(score) = decision.published_score() else {
         eprintln!(
-            "Score {} is below the configured threshold of {}",
-            scan_result.score, threshold
+            "Score gate failed: authoritative score unavailable ({})",
+            decision.primary_reason()
         );
+        return Some(ExitCode::from(EXIT_GATE_FAILURE));
+    };
+    if score < threshold {
+        eprintln!("Score {score} is below the configured threshold of {threshold}");
         return Some(ExitCode::from(EXIT_GATE_FAILURE));
     }
     None
@@ -1188,14 +1935,54 @@ pub fn handle_install_deps() -> ExitCode {
 }
 
 /// Apply auto-fixes if `--fix` was requested.
-pub fn apply_fixes_if_requested(cli: &Cli, scan_result: &ScanResult) {
-    if cli.fix {
-        let applied = fixer::apply_fixes(&scan_result.diagnostics, &cli.directory);
+///
+/// Only edits Report V1 marked machine-applicable are applied, grouped by root
+/// cause and validated group by group. Everything else is reported as guidance
+/// with its reason, never silently attempted (US-016).
+pub fn apply_fixes_if_requested(
+    cli: &Cli,
+    scan_result: &ScanResult,
+    resolved: &config::ResolvedConfig,
+    project_info: &discovery::ProjectInfo,
+) {
+    if !cli.fix {
+        return;
+    }
+    let mode = mode_from_reporting_scope(&scan_result.execution.reporting_scope);
+    let report = ReportV1::from_scan(scan_result, project_info, resolved, mode);
+    let plan = fixer::plan_fixes(&report);
+    if plan.groups.is_empty() {
+        eprintln!("No machine-applicable fixes available.");
+    } else {
+        let outcome = fixer::apply_plan(&plan, &cli.directory);
+        let applied = outcome.applied();
         if applied > 0 {
-            eprintln!("Applied {applied} fix(es).");
-        } else {
-            eprintln!("No machine-applicable fixes available.");
+            eprintln!(
+                "Applied {applied} fix(es) across {} validated root-cause group(s).",
+                outcome
+                    .groups
+                    .iter()
+                    .filter(|(_, state)| matches!(state, fixer::GroupOutcome::Validated { .. }))
+                    .count()
+            );
         }
+        if let Some((group, reason)) = outcome.failure() {
+            let skipped = outcome
+                .groups
+                .iter()
+                .filter(|(_, state)| matches!(state, fixer::GroupOutcome::NotAttempted))
+                .count();
+            eprintln!("Fix group '{group}' failed validation: {reason}");
+            if skipped > 0 {
+                eprintln!("{skipped} later group(s) were not attempted and are not validated.");
+            }
+        }
+    }
+    let guidance = plan.guidance_only.len();
+    if guidance > 0 {
+        eprintln!(
+            "{guidance} finding(s) have guidance-only remediation; review them before editing."
+        );
     }
 }
 
@@ -1203,6 +1990,19 @@ pub fn apply_fixes_if_requested(cli: &Cli, scan_result: &ScanResult) {
 pub fn emit_plan_if_requested(cli: &Cli, scan_result: &ScanResult) {
     if cli.plan {
         let items = plan::generate_plan(scan_result);
+        let plan_text = plan::format_plan_markdown(&items, scan_result);
+        eprintln!("\n{plan_text}");
+    }
+}
+
+/// Render the shipping remediation plan from canonical Report V1 ordering.
+///
+/// The legacy `ScanResult` entry point remains available for library
+/// compatibility, while the CLI consumes the same policy and comparator as
+/// every other report surface.
+pub fn emit_report_plan_if_requested(cli: &Cli, report: &ReportV1, scan_result: &ScanResult) {
+    if cli.plan {
+        let items = plan::generate_report_plan(report);
         let plan_text = plan::format_plan_markdown(&items, scan_result);
         eprintln!("\n{plan_text}");
     }
@@ -1233,6 +2033,24 @@ pub fn check_fail_on_gate_for_config(
     resolved: &config::ResolvedConfig,
     fail_on: FailOn,
 ) -> Option<ExitCode> {
+    if fail_on != FailOn::None {
+        let decision = crate::completeness::score_decision(scan_result);
+        if decision.published_score().is_none() {
+            eprintln!(
+                "Finding gate failed: authoritative score unavailable ({})",
+                decision.primary_reason()
+            );
+            return Some(ExitCode::from(EXIT_GATE_FAILURE));
+        }
+    }
+    if scan_result
+        .execution
+        .baseline
+        .as_ref()
+        .is_some_and(|baseline| baseline.baseline_degraded)
+    {
+        return None;
+    }
     let Ok(catalog) = crate::catalog::built_in_catalog() else {
         return check_fail_on_gate(scan_result, fail_on);
     };
@@ -1240,6 +2058,9 @@ pub fn check_fail_on_gate_for_config(
     for diagnostic in &scan_result.diagnostics {
         let descriptor =
             catalog.resolve(&diagnostic.rule, &diagnostic.category, diagnostic.severity);
+        if resolved.demotes_to_audit_only(&descriptor.as_descriptor().canonical_id) {
+            continue;
+        }
         if !resolved
             .rule_policy(descriptor.as_descriptor(), Some(&diagnostic.file_path))
             .visible_on(config::VisibilitySurface::CiFailure)
@@ -1265,9 +2086,50 @@ pub fn check_fail_on_gate_for_config(
 mod tests {
     use super::*;
     use crate::diagnostics::{DimensionScores, ScoreLabel};
+    use clap::Parser;
     use std::time::Duration;
 
     fn make_scan_result(score: u32, errors: usize, warnings: usize, infos: usize) -> ScanResult {
+        let source = std::path::PathBuf::from("src/lib.rs");
+        let package_id = "fixture 0.1.0 (path+file:///fixture)".to_string();
+        let checks = vec![
+            CheckState {
+                name: "clippy".to_string(),
+                required: true,
+                status: CheckStatus::Completed,
+                reason: None,
+            },
+            CheckState {
+                name: "custom rules".to_string(),
+                required: true,
+                status: CheckStatus::Completed,
+                reason: None,
+            },
+            CheckState {
+                name: "msrv".to_string(),
+                required: true,
+                status: CheckStatus::Completed,
+                reason: None,
+            },
+        ];
+        let execution = crate::diagnostics::ScanExecution {
+            checks: checks.clone(),
+            analyzer_receipts: checks
+                .iter()
+                .map(crate::completeness::AnalyzerReceipt::root)
+                .map(|receipt| receipt.for_package(package_id.clone(), false))
+                .collect(),
+            packages: vec![crate::diagnostics::PackageExecution {
+                cargo_package_id: package_id,
+                package_root: std::path::PathBuf::from("."),
+                planned_files: vec![source.clone()],
+                analyzed_files: vec![source.clone()],
+                checks,
+                elapsed: Duration::ZERO,
+                score: Some(score),
+            }],
+            ..crate::diagnostics::ScanExecution::default()
+        };
         ScanResult {
             diagnostics: vec![],
             score,
@@ -1287,10 +2149,10 @@ mod tests {
             info_count: infos,
             pass_timings: vec![],
             suppressed_security: vec![],
-            planned_files: vec![],
-            analyzed_files: vec![],
+            planned_files: vec![source.clone()],
+            analyzed_files: vec![source],
             compiler_evidence: vec![],
-            execution: crate::diagnostics::ScanExecution::default(),
+            execution,
         }
     }
 
@@ -1318,6 +2180,13 @@ mod tests {
     fn test_score_gate_no_threshold_passes() {
         let result = make_scan_result(10, 0, 0, 0);
         assert!(check_score_gate(&result, None).is_none());
+    }
+
+    #[test]
+    fn incomplete_hidden_score_fails_threshold_gate() {
+        let mut result = make_scan_result(10, 0, 0, 0);
+        result.analyzed_files.clear();
+        assert!(check_score_gate(&result, Some(80)).is_some());
     }
 
     // --- check_fail_on_gate ---
@@ -1359,15 +2228,153 @@ mod tests {
     }
 
     #[test]
+    fn degraded_baseline_fails_a_configured_finding_gate() {
+        let mut result = make_scan_result(50, 1, 0, 0);
+        result.execution.baseline = Some(BaselineReport {
+            requested_base: "main".to_string(),
+            resolved_base: None,
+            base_commit: String::new(),
+            head_config_fingerprint: String::new(),
+            base_config_fingerprint: None,
+            new_count: 1,
+            fixed_count: 0,
+            base_total: 0,
+            cross_file_match_count: 0,
+            baseline_degraded: true,
+            degraded_reason: Some("base unavailable".to_string()),
+        });
+        let resolved = config::resolve_config_defaults(None);
+        assert!(check_fail_on_gate_for_config(&result, &resolved, FailOn::Error).is_some());
+    }
+
+    #[test]
+    fn required_non_clippy_failure_fails_a_configured_finding_gate() {
+        let mut result = make_scan_result(100, 0, 0, 0);
+        let receipt = result
+            .execution
+            .analyzer_receipts
+            .iter_mut()
+            .find(|receipt| receipt.analyzer == crate::completeness::AnalyzerIdentity::CustomRules)
+            .expect("custom-rules receipt");
+        receipt.status = CheckStatus::Failed;
+        receipt.reason = Some("custom-rules pass panicked".to_string());
+        let resolved = config::resolve_config_defaults(None);
+        assert!(check_fail_on_gate_for_config(&result, &resolved, FailOn::Error).is_some());
+    }
+
+    #[test]
     fn test_require_complete_fails_for_a_timed_out_required_check() {
         let mut result = make_scan_result(100, 0, 0, 0);
-        result.execution.checks.push(CheckState {
-            name: "clippy".to_string(),
-            required: true,
-            status: CheckStatus::TimedOut,
-            reason: Some("deadline".to_string()),
-        });
+        let receipt = result
+            .execution
+            .analyzer_receipts
+            .iter_mut()
+            .find(|receipt| receipt.analyzer == crate::completeness::AnalyzerIdentity::Clippy)
+            .expect("clippy receipt");
+        receipt.status = CheckStatus::TimedOut;
+        receipt.reason = Some("deadline".to_string());
         assert!(check_completeness_gate(&result, true).is_some());
         assert!(check_completeness_gate(&result, false).is_none());
+    }
+
+    #[test]
+    fn hard_clippy_failure_blocks_score_mode_unless_explicitly_disabled() {
+        let mut result = make_scan_result(100, 0, 0, 0);
+        let receipt = result
+            .execution
+            .analyzer_receipts
+            .iter_mut()
+            .find(|receipt| receipt.analyzer == crate::completeness::AnalyzerIdentity::Clippy)
+            .expect("clippy receipt");
+        receipt.status = CheckStatus::Failed;
+        receipt.reason = Some("compiler invocation failed".to_string());
+
+        assert!(check_hard_analysis_failure(&result, FailOn::Error).is_some());
+        assert!(check_hard_analysis_failure(&result, FailOn::None).is_none());
+    }
+
+    #[test]
+    fn degraded_baseline_does_not_promote_base_clippy_failure() {
+        let mut result = make_scan_result(100, 0, 0, 0);
+        let check = CheckState {
+            name: "base:package:path#crate@1.0.0:clippy".to_string(),
+            required: true,
+            status: CheckStatus::Failed,
+            reason: Some("base compiler invocation failed".to_string()),
+        };
+        result.execution.checks.push(check.clone());
+        result
+            .execution
+            .analyzer_receipts
+            .push(crate::completeness::AnalyzerReceipt::root(&check).for_baseline());
+        result.execution.baseline = Some(BaselineReport {
+            requested_base: "main".to_string(),
+            resolved_base: Some("abc123".to_string()),
+            base_commit: "abc123".to_string(),
+            head_config_fingerprint: "head".to_string(),
+            base_config_fingerprint: None,
+            new_count: 0,
+            fixed_count: 0,
+            base_total: 0,
+            cross_file_match_count: 0,
+            baseline_degraded: true,
+            degraded_reason: Some("base scan failed".to_string()),
+        });
+
+        assert!(check_hard_analysis_failure(&result, FailOn::Error).is_none());
+    }
+
+    #[test]
+    fn score_mode_never_allows_interactive_prompts() {
+        let cli = Cli::parse_from(["rust-doctor", "--score", "."]);
+        assert!(!interactive_prompts_allowed(&cli));
+        assert!(!post_scan_prompts_allowed(&cli));
+    }
+
+    #[test]
+    fn workspace_display_order_is_root_first_then_relative_path() {
+        let member = |name: &str, root: &str| discovery::WorkspaceMember {
+            name: name.to_string(),
+            root_dir: PathBuf::from(root),
+            package_id: name.to_string(),
+            targets: Vec::new(),
+            cargo_targets: Vec::new(),
+            frameworks: Vec::new(),
+            framework_capabilities: Vec::new(),
+            rust_version: None,
+            edition: "2024".to_string(),
+            enabled_features: Vec::new(),
+        };
+        let members = vec![
+            member("shared", "/workspace/shared"),
+            member("root", "/workspace"),
+            member("api", "/workspace/crates/api"),
+        ];
+
+        let names = workspace_members_in_display_order(Path::new("/workspace"), &members)
+            .into_iter()
+            .map(|member| member.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["root", "api", "shared"]);
+    }
+
+    #[test]
+    fn failure_report_mode_includes_configured_diff_scope() {
+        let cli = Cli::parse_from(["rust-doctor", "."]);
+        let mut resolved = config::resolve_config_defaults(None);
+        resolved.diff = Some("develop".to_string());
+
+        assert_eq!(requested_scan_mode(&cli, &resolved), ScanMode::Files);
+    }
+
+    #[test]
+    fn ci_prompt_key_is_stable_and_path_free() {
+        let root = Path::new("/private/project");
+        let key = ci_prompt_key(root);
+        assert_eq!(key.len(), 32);
+        assert!(key.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert!(!key.contains("private"));
+        assert_eq!(key, ci_prompt_key(root));
     }
 }

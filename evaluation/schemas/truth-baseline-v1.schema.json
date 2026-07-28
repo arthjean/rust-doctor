@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rust-doctor.vercel.app/schemas/truth-baseline-v1.schema.json",
+  "title": "Rust Doctor Truth Baseline V1",
+  "description": "Measured per-rule evidence produced by `rust-doctor-eval truth`. Labeled populations (positive opportunities, negative contexts) and observed populations (emitted, suppressed, abstained, uncovered) are represented independently so a rule that never fires cannot appear accurate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_version",
+    "dataset_sha256",
+    "msrv",
+    "toolchain",
+    "tool_version",
+    "tool_revision",
+    "configuration_sha256",
+    "catalog_sha256",
+    "score_model_version",
+    "thresholds",
+    "rules",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.1" },
+    "dataset_version": { "type": "string", "minLength": 1 },
+    "dataset_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "msrv": { "type": "string", "minLength": 1 },
+    "toolchain": { "type": "string", "minLength": 1 },
+    "tool_version": { "type": "string", "minLength": 1 },
+    "tool_revision": { "type": "string" },
+    "configuration_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "catalog_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "score_model_version": { "type": "string", "minLength": 1 },
+    "thresholds": { "$ref": "#/$defs/Thresholds" },
+    "rules": { "type": "array", "items": { "$ref": "#/$defs/RuleMetrics" } },
+    "fixtures": { "type": "array", "items": { "$ref": "#/$defs/FixtureRun" } }
+  },
+  "$defs": {
+    "Thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confidence_level",
+        "max_false_positive_rate",
+        "min_recall",
+        "min_positive_samples",
+        "min_negative_samples",
+        "min_context_coverage"
+      ],
+      "properties": {
+        "confidence_level": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "max_false_positive_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "min_recall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "min_positive_samples": { "type": "integer", "minimum": 0 },
+        "min_negative_samples": { "type": "integer", "minimum": 0 },
+        "min_context_coverage": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "Ratio": {
+      "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }],
+      "description": "Null means unavailable. An unavailable metric never satisfies a gate."
+    },
+    "RuleMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule",
+        "sample_size",
+        "complete_sample_size",
+        "incomplete_sample_size",
+        "positive_samples",
+        "negative_samples",
+        "excluded_labels",
+        "true_positives",
+        "false_positives",
+        "false_negatives",
+        "true_negatives",
+        "unknown_emissions",
+        "duplicate_emissions",
+        "suppressed_findings",
+        "abstentions",
+        "uncovered_contexts",
+        "precision",
+        "recall",
+        "false_positive_rate",
+        "false_positive_upper_bound",
+        "confidence_level",
+        "opportunity_coverage",
+        "context_coverage",
+        "abstention_rate",
+        "emitted_count",
+        "score_contribution",
+        "complete_fixtures",
+        "incomplete_fixtures",
+        "scan_complete",
+        "evidence_complete",
+        "decision"
+      ],
+      "properties": {
+        "rule": { "type": "string", "minLength": 1 },
+        "sample_size": { "type": "integer", "minimum": 0 },
+        "complete_sample_size": { "type": "integer", "minimum": 0 },
+        "incomplete_sample_size": { "type": "integer", "minimum": 0 },
+        "positive_samples": { "type": "integer", "minimum": 0 },
+        "negative_samples": { "type": "integer", "minimum": 0 },
+        "excluded_labels": { "type": "integer", "minimum": 0 },
+        "true_positives": { "type": "integer", "minimum": 0 },
+        "false_positives": { "type": "integer", "minimum": 0 },
+        "false_negatives": { "type": "integer", "minimum": 0 },
+        "true_negatives": { "type": "integer", "minimum": 0 },
+        "unknown_emissions": { "type": "integer", "minimum": 0 },
+        "duplicate_emissions": { "type": "integer", "minimum": 0 },
+        "suppressed_findings": { "type": "integer", "minimum": 0 },
+        "abstentions": { "type": "integer", "minimum": 0 },
+        "uncovered_contexts": { "type": "integer", "minimum": 0 },
+        "precision": { "$ref": "#/$defs/Ratio" },
+        "recall": { "$ref": "#/$defs/Ratio" },
+        "false_positive_rate": { "$ref": "#/$defs/Ratio" },
+        "false_positive_upper_bound": { "$ref": "#/$defs/Ratio" },
+        "confidence_level": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "opportunity_coverage": { "$ref": "#/$defs/Ratio" },
+        "context_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "abstention_rate": { "$ref": "#/$defs/Ratio" },
+        "emitted_count": { "type": "integer", "minimum": 0 },
+        "score_contribution": { "type": "number" },
+        "complete_fixtures": { "type": "integer", "minimum": 0 },
+        "incomplete_fixtures": { "type": "integer", "minimum": 0 },
+        "scan_complete": { "type": "boolean" },
+        "evidence_complete": { "type": "boolean" },
+        "decision": {
+          "enum": ["score-eligible-default", "non-scoring-default", "opt-in", "disabled", "evidence-incomplete"]
+        }
+      }
+    },
+    "FixtureRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture",
+        "rule",
+        "analyzed",
+        "completeness_state",
+        "score",
+        "emitted_for_rule",
+        "planned_files",
+        "suppressed",
+        "abstentions"
+      ],
+      "properties": {
+        "fixture": { "type": "string", "pattern": "^evaluation/truth/fixtures/" },
+        "rule": { "type": "string", "minLength": 1 },
+        "analyzed": { "type": "boolean" },
+        "completeness_state": { "enum": ["complete", "partial", "incomplete"] },
+        "score": { "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 100 }, { "type": "null" }] },
+        "emitted_for_rule": { "type": "integer", "minimum": 0 },
+        "planned_files": { "type": "integer", "minimum": 0 },
+        "suppressed": { "type": "integer", "minimum": 0 },
+        "abstentions": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

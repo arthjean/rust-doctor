@@ -1,5 +1,5 @@
 mod handler;
-mod helpers;
+pub(crate) mod helpers;
 mod prompts;
 mod rules;
 mod tools;

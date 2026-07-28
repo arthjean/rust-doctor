@@ -9,7 +9,7 @@ mod transport;
 
 use crate::diagnostics::ReportV1;
 use model::{AggregateEvent, InvocationSurface};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) use transport::validate_endpoint;
 
@@ -35,6 +35,19 @@ pub(crate) enum TelemetryError {
     InvalidEndpoint(String),
     #[error("telemetry consent prompt failed: {0}")]
     Prompt(#[source] dialoguer::Error),
+}
+
+pub(crate) fn config_root() -> Result<PathBuf, TelemetryError> {
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(path).join("rust-doctor"));
+    }
+    if let Some(path) = std::env::var_os("APPDATA") {
+        return Ok(PathBuf::from(path).join("rust-doctor"));
+    }
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| PathBuf::from(home).join(".config/rust-doctor"))
+        .ok_or(TelemetryError::ConfigHome)
 }
 
 pub(crate) fn enable(endpoint: &str) -> Result<(), TelemetryError> {
@@ -231,11 +244,199 @@ fn scrub_crash(message: &str, home: Option<&Path>, project_root: &Path) -> Strin
 mod tests {
     use super::*;
 
+    fn scan_report() -> ReportV1 {
+        let mut report: ReportV1 = serde_json::from_value(serde_json::json!({
+            "schema_version": "1",
+            "tool_version": "0.0.0",
+            "report_constructed": true,
+            "outcome": "clean",
+            "requested_root": ".",
+            "resolved_root": null,
+            "mode": "full",
+            "gate_result": "passed",
+            "completeness": {
+                "state": "complete",
+                "planned_files": 2,
+                "analyzed_files": 2,
+                "completed_checks": 1,
+                "skipped_checks": 0,
+                "failed_checks": 0,
+                "timed_out_checks": 0,
+                "cancelled_checks": 0
+            },
+            "projects": [],
+            "diagnostics": [],
+            "summary": {
+                "score": 100,
+                "score_label": "Great",
+                "diagnostic_count": 0,
+                "error_count": 0,
+                "warning_count": 0,
+                "info_count": 0
+            },
+            "elapsed_ms": 12,
+            "audit": {"suppressed_security": []},
+            "score": 100,
+            "score_label": "Great",
+            "dimension_scores": null,
+            "source_file_count": 2,
+            "elapsed": 0.012,
+            "skipped_passes": [],
+            "error_count": 0,
+            "warning_count": 0,
+            "info_count": 0
+        }))
+        .expect("report fixture parses");
+        report.audit.abstentions = vec![crate::diagnostics::AbstentionReceipt {
+            rule: "unwrap-in-production".to_string(),
+            reason: "unsupported-source-surface".to_string(),
+            count: 3,
+        }];
+        report
+    }
+
+    #[test]
+    fn a_disabled_telemetry_configuration_attempts_no_network_request() {
+        // The policy is the only thing standing between a scan and a request,
+        // so it is asserted directly for every reason it can deny (AC-1).
+        assert!(enabled_endpoint(true, false).is_none());
+        assert!(enabled_endpoint(false, true).is_none());
+    }
+
+    #[test]
+    fn a_scan_event_carries_the_score_model_and_an_anonymous_cohort() {
+        let event = AggregateEvent::scan(InvocationSurface::Cli, &scan_report());
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["schema_version"], model::SCHEMA_VERSION);
+        assert_eq!(
+            value["score_model_version"],
+            crate::output::score_model_version()
+        );
+        let cohort = value["installation_cohort"].as_str().expect("cohort");
+        assert!(cohort.starts_with("cohort-"), "{cohort}");
+        // Two events from the same build share a cohort: it identifies a
+        // population, never an installation.
+        let second = AggregateEvent::scan(InvocationSurface::Mcp, &scan_report());
+        assert_eq!(
+            serde_json::to_value(&second).unwrap()["installation_cohort"],
+            value["installation_cohort"]
+        );
+        assert_ne!(second.event_id, event.event_id);
+    }
+
+    #[test]
+    fn rule_populations_stay_distinct_and_bounded_to_the_catalog() {
+        let event = AggregateEvent::scan(InvocationSurface::Cli, &scan_report());
+        let counts = &event.rule_counts;
+        assert_eq!(counts.abstained.get("unwrap-in-production"), Some(&3));
+        assert!(
+            counts.fired.is_empty(),
+            "no diagnostic fired in the fixture"
+        );
+        assert!(counts.suppressed.is_empty());
+        assert!(counts.score_contributing.is_empty());
+        assert!(counts.disabled > 0, "the catalog ships opt-in rules");
+        let catalog = crate::catalog::built_in_catalog().expect("catalog");
+        for rule in counts
+            .fired
+            .keys()
+            .chain(counts.abstained.keys())
+            .chain(counts.suppressed.keys())
+            .chain(counts.score_contributing.keys())
+        {
+            assert!(
+                catalog.exact(rule).is_some(),
+                "{rule} is not a catalog rule"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_rule_is_bucketed_without_uploading_its_identifier() {
+        let mut report = scan_report();
+        report
+            .audit
+            .abstentions
+            .push(crate::diagnostics::AbstentionReceipt {
+                rule: "vendor::secret-internal-rule".to_string(),
+                reason: "missing-context".to_string(),
+                count: 2,
+            });
+        let event = AggregateEvent::scan(InvocationSurface::Cli, &report);
+        assert_eq!(event.rule_counts.unknown, 2);
+        let serialized = serde_json::to_string(&event).unwrap();
+        assert!(
+            !serialized.contains("secret-internal-rule"),
+            "an unknown identifier must not be uploaded"
+        );
+    }
+
+    #[test]
+    fn a_payload_over_the_ceiling_is_compacted_deterministically_then_dropped() {
+        let mut event = AggregateEvent::scan(InvocationSurface::Cli, &scan_report());
+        // A pathological rule map that cannot fit under the 64 KiB ceiling.
+        for index in 0..20_000 {
+            event
+                .rule_counts
+                .fired
+                .insert(format!("rule-{index:06}"), index);
+        }
+        let payload = event.to_bounded_payload().expect("compaction succeeds");
+        assert!(payload.len() <= 64 * 1024);
+        let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        // Compaction drops the per-rule maps first and keeps the aggregates.
+        assert!(
+            value["rule_counts"]["fired"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(value["completeness"], "complete");
+        assert!(value["pass_states"].is_object());
+
+        let compacted = event.to_bounded_payload().expect("deterministic");
+        assert_eq!(payload, compacted);
+    }
+
+    #[test]
+    fn every_delivered_payload_passes_privacy_validation() {
+        for event in [
+            AggregateEvent::scan(InvocationSurface::Cli, &scan_report()),
+            AggregateEvent::session(InvocationSurface::Action),
+            AggregateEvent::crash(InvocationSurface::Lsp, "panic payload redacted".to_string()),
+        ] {
+            let value = serde_json::to_value(&event).unwrap();
+            let violations = privacy::violations(&value);
+            assert!(violations.is_empty(), "{violations:?}");
+            assert!(event.to_bounded_payload().is_some());
+        }
+    }
+
+    #[test]
+    fn analyzer_state_is_always_serialized_so_absence_is_never_read_as_healthy() {
+        // AC-8: an older client omitting a field must be distinguishable from a
+        // client reporting a healthy analyzer, so nothing here is skipped.
+        let value = serde_json::to_value(AggregateEvent::session(InvocationSurface::Cli)).unwrap();
+        for required in [
+            "schema_version",
+            "score_model_version",
+            "completeness",
+            "pass_states",
+            "rule_counts",
+            "trust_tiers",
+            "aggregate_counts",
+            "suppression_counts",
+        ] {
+            assert!(value.get(required).is_some(), "{required} was skipped");
+        }
+        assert_eq!(value["completeness"], "not-applicable");
+    }
+
     #[test]
     fn event_schema_cannot_serialize_prohibited_fields() {
         let event = AggregateEvent::session(InvocationSurface::Cli);
         let value = serde_json::to_value(event).unwrap();
-        assert_eq!(value["schema_version"], "1.1");
+        assert_eq!(value["schema_version"], model::SCHEMA_VERSION);
         let serialized = value.to_string();
         for prohibited in [
             "repository",
@@ -290,7 +491,7 @@ mod tests {
             InvocationSurface::Lsp,
         ] {
             let event = serde_json::to_value(AggregateEvent::session(surface)).unwrap();
-            assert_eq!(event["schema_version"], "1.1");
+            assert_eq!(event["schema_version"], model::SCHEMA_VERSION);
         }
     }
 
@@ -299,7 +500,7 @@ mod tests {
         let event =
             AggregateEvent::crash(InvocationSurface::Cli, "panic payload redacted".to_string());
         let value = serde_json::to_value(event).unwrap();
-        assert_eq!(value["schema_version"], "1.1");
+        assert_eq!(value["schema_version"], model::SCHEMA_VERSION);
         assert_eq!(value["event_kind"], "crash");
         assert!(value["suppression_counts"].is_object());
     }

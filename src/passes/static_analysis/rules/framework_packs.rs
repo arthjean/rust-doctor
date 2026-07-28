@@ -1,4 +1,6 @@
-use super::{CustomRule, RuleContext, has_cfg_test, is_test_context};
+use super::{
+    ContextRequirement, CrateRole, CustomRule, RuleContext, has_cfg_test, is_test_context,
+};
 use crate::catalog::Confidence;
 use crate::diagnostics::{Category, Diagnostic, Severity, SourceSurface};
 use crate::discovery::{Framework, FrameworkCapability};
@@ -23,7 +25,12 @@ impl FrameworkPackRule {
         Self { kind }
     }
 
-    fn analyze(&self, syntax: &syn::File, path: &Path, context: RuleContext) -> Vec<Diagnostic> {
+    fn analyze(
+        &self,
+        syntax: &syn::File,
+        path: &Path,
+        context: RuleContext<'_>,
+    ) -> Vec<Diagnostic> {
         if matches!(
             context.source_surface,
             SourceSurface::Test | SourceSurface::Example | SourceSurface::Bench
@@ -90,6 +97,21 @@ impl CustomRule for FrameworkPackRule {
         false
     }
 
+    /// A framework pack asserts something about a dependency it cannot see in
+    /// the AST. Without resolved dependency capabilities it abstains rather
+    /// than matching on a name that may belong to an unrelated crate.
+    fn required_context(&self) -> &'static [ContextRequirement] {
+        &[
+            ContextRequirement::PackageMetadata,
+            ContextRequirement::DependencyCapabilities,
+        ]
+    }
+
+    /// A proc-macro crate has no runtime framework surface.
+    fn unsupported_crate_roles(&self) -> &'static [CrateRole] {
+        &[CrateRole::ProcMacro]
+    }
+
     fn confidence(&self) -> Confidence {
         Confidence::Medium
     }
@@ -118,23 +140,14 @@ impl CustomRule for FrameworkPackRule {
     }
 
     fn check_file(&self, syntax: &syn::File, path: &Path) -> Vec<Diagnostic> {
-        self.analyze(
-            syntax,
-            path,
-            RuleContext {
-                source_surface: crate::config::classify_source_surface(
-                    &path.to_string_lossy(),
-                    false,
-                ),
-            },
-        )
+        self.analyze(syntax, path, RuleContext::unresolved_for_path(path))
     }
 
     fn check_file_with_context(
         &self,
         syntax: &syn::File,
         path: &Path,
-        context: RuleContext,
+        context: RuleContext<'_>,
     ) -> Vec<Diagnostic> {
         self.analyze(syntax, path, context)
     }
