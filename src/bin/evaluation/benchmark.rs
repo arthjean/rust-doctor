@@ -177,8 +177,12 @@ pub(crate) fn run(args: BenchmarkArgs) -> Result<()> {
             ));
         }
         baseline_binary_sha256 = Some(baseline.binary_sha256.clone());
-        gate.reasons
-            .extend(compare_runtime(&baseline.records, &records));
+        gate.reasons.extend(compare_runtime(
+            &baseline.binary_sha256,
+            &binary_sha256,
+            &baseline.records,
+            &records,
+        ));
     }
     gate.blocked = !gate.reasons.is_empty();
     let report = BenchmarkReport {
@@ -625,8 +629,18 @@ fn fixture_fingerprint(spec: &FixtureSpec) -> String {
     hex_digest(&identity)
 }
 
-fn compare_runtime(baseline: &[BenchmarkRecord], candidate: &[BenchmarkRecord]) -> Vec<String> {
+fn compare_runtime(
+    baseline_binary_sha256: &str,
+    candidate_binary_sha256: &str,
+    baseline: &[BenchmarkRecord],
+    candidate: &[BenchmarkRecord],
+) -> Vec<String> {
     type Key = (String, String, String, String);
+
+    // Equal binaries cannot contain a performance regression; timing deltas are runner noise.
+    if baseline_binary_sha256 == candidate_binary_sha256 {
+        return Vec::new();
+    }
     let groups = |records: &[BenchmarkRecord]| -> HashMap<Key, Vec<u64>> {
         let mut grouped: HashMap<Key, Vec<u64>> = HashMap::new();
         for record in records {
@@ -859,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn median_or_p95_above_ten_percent_blocks() {
+    fn runtime_gate_ignores_identical_binary_noise_but_blocks_regressions() {
         let make = |wall_ms| BenchmarkRecord {
             fixture: "small".to_string(),
             fixture_fingerprint: "hash".to_string(),
@@ -876,7 +890,8 @@ mod tests {
         };
         let baseline = vec![make(100), make(100), make(100)];
         let candidate = vec![make(100), make(160), make(170)];
-        assert!(!compare_runtime(&baseline, &candidate).is_empty());
+        assert!(!compare_runtime("baseline", "candidate", &baseline, &candidate).is_empty());
+        assert!(compare_runtime("same", "same", &baseline, &candidate).is_empty());
     }
 
     #[test]

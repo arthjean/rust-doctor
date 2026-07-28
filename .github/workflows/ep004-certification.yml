@@ -94,7 +94,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ steps.approvals.outputs.corpus-name }}
-          path: approved/corpus
+          path: ${{ runner.temp }}/approved/corpus
           repository: ${{ github.repository }}
           run-id: ${{ steps.approvals.outputs.corpus-run }}
           github-token: ${{ github.token }}
@@ -104,7 +104,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ steps.approvals.outputs.performance-name }}
-          path: approved/performance
+          path: ${{ runner.temp }}/approved/performance
           repository: ${{ github.repository }}
           run-id: ${{ steps.approvals.outputs.performance-run }}
           github-token: ${{ github.token }}
@@ -115,7 +115,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ steps.source.outputs.candidate-name }}
-          path: approved/candidate
+          path: ${{ runner.temp }}/approved/candidate
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.candidate-run }}
           github-token: ${{ github.token }}
@@ -127,18 +127,18 @@ jobs:
         run: |
           scripts/evaluation/verify-approved-artifact.sh \
             evaluation/approvals/corpus-baseline.json \
-            approved/corpus/corpus-baseline.ndjson \
+            "$RUNNER_TEMP/approved/corpus/corpus-baseline.ndjson" \
             ep003-corpus-baseline \
             .github/workflows/ep003-baseline.yml
           scripts/evaluation/verify-approved-artifact.sh \
             evaluation/approvals/performance-baseline.json \
-            approved/performance/benchmark-baseline.json \
+            "$RUNNER_TEMP/approved/performance/benchmark-baseline.json" \
             ep003-performance-baseline \
             .github/workflows/ep003-baseline.yml
           if [[ "${{ steps.source.outputs.checked }}" == true ]]; then
             scripts/evaluation/verify-approved-artifact.sh \
               "${{ steps.source.outputs.expected }}/ep004-certification.json" \
-              approved/candidate/evidence/corpus-candidate.ndjson \
+              "$RUNNER_TEMP/approved/candidate/evidence/corpus-candidate.ndjson" \
               ep004-release-certification \
               .github/workflows/ep004-certification.yml
           fi
@@ -192,16 +192,16 @@ jobs:
         if: ${{ steps.source.outputs.checked == 'true' }}
         run: |
           mkdir -p evidence
-          cp approved/candidate/evidence/corpus-candidate.ndjson \
+          cp "$RUNNER_TEMP/approved/candidate/evidence/corpus-candidate.ndjson" \
             evidence/corpus-candidate.ndjson
 
       - name: Capture hash-bound release gates
         env:
           CERT_NO_DEFAULT_BINARY: target/no-default/release/rust-doctor
           CERT_LSP_BINARY: target/lsp/release/rust-doctor
-          CERT_CORPUS_BASELINE: approved/corpus/corpus-baseline.ndjson
+          CERT_CORPUS_BASELINE: ${{ runner.temp }}/approved/corpus/corpus-baseline.ndjson
           CERT_CORPUS_CANDIDATE: evidence/corpus-candidate.ndjson
-          CERT_PERFORMANCE_BASELINE: approved/performance/benchmark-baseline.json
+          CERT_PERFORMANCE_BASELINE: ${{ runner.temp }}/approved/performance/benchmark-baseline.json
         run: |
           version=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
           export CERT_NPM_PLATFORM_PACKAGE="artifacts/rust-doctor-npm-linux-x64-${version}.tgz"
@@ -234,7 +234,7 @@ jobs:
           target/release/rust-doctor-eval certify \
             --binary target/release/rust-doctor \
             --corpus evidence/corpus-candidate.ndjson \
-            --corpus-baseline approved/corpus/corpus-baseline.ndjson \
+            --corpus-baseline "$RUNNER_TEMP/approved/corpus/corpus-baseline.ndjson" \
             --tool-revision "${{ steps.source.outputs.revision }}" \
             --generated-at-utc "$generated_at" \
             --output evaluation/certifications/decision-quality-v1.json
