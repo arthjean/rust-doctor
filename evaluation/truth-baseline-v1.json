@@ -1,11 +1,11 @@
 {
   "schema_version": "1.1",
   "dataset_version": "truth-v1.1",
-  "dataset_sha256": "c652a2e0a0ee57d2577a05ffc8cd373e705e202a76b30586a652b47758c371d8",
+  "dataset_sha256": "49eadfb7bf99d618b35a6d1ecbd98644664b86da77b3bae81944a054228e6a68",
   "msrv": "1.97",
   "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
   "tool_version": "0.2.0",
-  "tool_revision": "55810a1587014a678b369e44618e33133e51f663",
+  "tool_revision": "9bcb000128ed21418a5527d430957ef6765c8c50",
   "configuration_sha256": "bc76ea81609572e33ea76f8568242e91d0e93d80213a27ccac31caf0e1f9650d",
   "catalog_sha256": "4a5f331153b9060105c588953b2e59d73b892cd267ae64c6f56414964021bac5",
   "score_model_version": "2.1",
