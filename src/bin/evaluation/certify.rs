@@ -1489,11 +1489,7 @@ fn shipped_catalog(binary: &Path) -> Result<Vec<CatalogEntry>> {
 
 /// Read the score-model identifier the binary stamps into every report.
 fn shipped_score_model(binary: &Path) -> Result<String> {
-    let directory = tempfile::tempdir().map_err(|source| EvalError::Io {
-        action: "create certification workspace",
-        path: PathBuf::from("<release-binary>"),
-        source,
-    })?;
+    let directory = materialize_score_model_probe()?;
     let mut command = Command::new(binary);
     command
         .arg(directory.path())
@@ -1511,6 +1507,33 @@ fn shipped_score_model(binary: &Path) -> Result<String> {
         .ok_or_else(|| {
             EvalError::Command("the probe report carries no score_model_version".to_string())
         })
+}
+
+fn materialize_score_model_probe() -> Result<tempfile::TempDir> {
+    let directory = tempfile::tempdir().map_err(|source| EvalError::Io {
+        action: "create certification workspace",
+        path: PathBuf::from("<release-binary>"),
+        source,
+    })?;
+    let source = directory.path().join("src");
+    std::fs::create_dir_all(&source)
+        .map_err(|error| EvalError::io("cannot create score-model probe source", &source, error))?;
+    let manifest = directory.path().join("Cargo.toml");
+    std::fs::write(
+        &manifest,
+        "[package]\nname = \"certification-probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.97\"\n",
+    )
+    .map_err(|error| {
+        EvalError::io(
+            "cannot write score-model probe manifest",
+            &manifest,
+            error,
+        )
+    })?;
+    let library = source.join("lib.rs");
+    std::fs::write(&library, "pub fn certification_probe() {}\n")
+        .map_err(|error| EvalError::io("cannot write score-model probe source", &library, error))?;
+    Ok(directory)
 }
 
 fn shipped_tool_version(binary: &Path) -> Result<String> {
@@ -1618,6 +1641,21 @@ mod tests {
     #[test]
     fn empty_corpus_evidence_is_rejected() {
         assert!(corpus_summary(&[]).is_err());
+    }
+
+    #[test]
+    fn score_model_probe_is_a_valid_rust_crate() {
+        let directory = materialize_score_model_probe().unwrap();
+        let output = Command::new("cargo")
+            .args(["metadata", "--no-deps", "--format-version=1"])
+            .current_dir(directory.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
