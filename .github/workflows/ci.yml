@@ -165,7 +165,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: arthjean/rust-doctor-web
-          ref: 8190d3eac96294c27b950b0a338922db1d894129
+          ref: bf0ad28f767faaf9a7767b3c8f242ec6916e212d
           path: rust-doctor-web
           ssh-key: ${{ secrets.RUST_DOCTOR_WEB_DEPLOY_KEY }}
           persist-credentials: false
