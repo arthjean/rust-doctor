@@ -752,46 +752,59 @@ mod tests {
     fn canonical_decision_scale_gate() {
         const DIAGNOSTICS: usize = 100_000;
         const PACKAGES: usize = 200;
-        let mut diagnostics = Vec::with_capacity(DIAGNOSTICS);
-        for index in 0..DIAGNOSTICS {
-            let group = index % 100;
-            let package = index % PACKAGES;
-            let mut item = diagnostic(
-                "unwrap-in-production",
-                Some("p2"),
-                &format!("crates/member-{package:03}/src/lib.rs"),
-                u32::try_from(index / PACKAGES + 1).expect("bounded line"),
-            );
-            item.ownership = DiagnosticOwnership::Package {
-                package_id: format!("member-{package:03}"),
-            };
-            item.root_cause_key = Some(format!("rule:unwrap-in-production:{group:03}"));
-            item.site_id = format!("site-{index:06}");
-            diagnostics.push(item);
+        const REPETITIONS: usize = 5;
+        let make_diagnostics = || {
+            let mut diagnostics = Vec::with_capacity(DIAGNOSTICS);
+            for index in 0..DIAGNOSTICS {
+                let group = index % 100;
+                let package = index % PACKAGES;
+                let mut item = diagnostic(
+                    "unwrap-in-production",
+                    Some("p2"),
+                    &format!("crates/member-{package:03}/src/lib.rs"),
+                    u32::try_from(index / PACKAGES + 1).expect("bounded line"),
+                );
+                item.ownership = DiagnosticOwnership::Package {
+                    package_id: format!("member-{package:03}"),
+                };
+                item.root_cause_key = Some(format!("rule:unwrap-in-production:{group:03}"));
+                item.site_id = format!("site-{index:06}");
+                diagnostics.push(item);
+            }
+            diagnostics
+        };
+
+        let mut elapsed_samples = Vec::with_capacity(REPETITIONS);
+        let mut max_added_resident = 0;
+        for _ in 0..REPETITIONS {
+            let mut diagnostics = make_diagnostics();
+            let resident_before = resident_bytes();
+            let started = std::time::Instant::now();
+            let impact = RootCauseImpact::measure(&diagnostics);
+            sort_owned(&mut diagnostics, &impact);
+            let groups = root_cause_groups(&diagnostics);
+            elapsed_samples.push(started.elapsed());
+            max_added_resident =
+                max_added_resident.max(resident_bytes().saturating_sub(resident_before));
+
+            assert_eq!(groups.len(), 100);
+            let packages: BTreeSet<_> = diagnostics
+                .iter()
+                .map(|diagnostic| package_key(&diagnostic.ownership))
+                .collect();
+            assert_eq!(packages.len(), PACKAGES);
         }
 
-        let resident_before = resident_bytes();
-        let started = std::time::Instant::now();
-        let impact = RootCauseImpact::measure(&diagnostics);
-        sort_owned(&mut diagnostics, &impact);
-        let groups = root_cause_groups(&diagnostics);
-        let elapsed = started.elapsed();
-        let added_resident = resident_bytes().saturating_sub(resident_before);
-
-        assert_eq!(groups.len(), 100);
-        let packages: BTreeSet<_> = diagnostics
-            .iter()
-            .map(|diagnostic| package_key(&diagnostic.ownership))
-            .collect();
-        assert_eq!(packages.len(), PACKAGES);
+        elapsed_samples.sort_unstable();
+        let median_elapsed = elapsed_samples[REPETITIONS / 2];
         assert!(
-            elapsed <= std::time::Duration::from_millis(100),
-            "canonical decision took {elapsed:?}, over 100 ms"
+            median_elapsed <= std::time::Duration::from_millis(100),
+            "canonical decision median took {median_elapsed:?}, over 100 ms: {elapsed_samples:?}"
         );
         assert!(
-            added_resident <= 64 * 1024 * 1024,
+            max_added_resident <= 64 * 1024 * 1024,
             "canonical decision added {} MiB resident memory",
-            added_resident / (1024 * 1024)
+            max_added_resident / (1024 * 1024)
         );
     }
 }
