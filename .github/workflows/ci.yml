@@ -196,6 +196,7 @@ jobs:
           bun run catalog:sync
           bun run catalog:check-only
           bun run build:verified
+          git restore public/catalog/rules.json
           bun run audit:wcag
 
       - name: Upload public-contract evidence
