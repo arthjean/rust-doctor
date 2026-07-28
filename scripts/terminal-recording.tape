@@ -25,7 +25,7 @@ Wait+Screen /Select projects/
 Sleep 1s
 Space
 Enter
-Wait+Screen /GitHub:/
-Sleep 3s
+Wait+Screen /Panic in library/
+Sleep 5s
 Escape
 Sleep 1s
