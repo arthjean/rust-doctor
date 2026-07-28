@@ -516,11 +516,22 @@ fn package_targets(package: &cargo_metadata::Package) -> Vec<String> {
 }
 
 fn package_has_primary_target(package: &cargo_metadata::Package) -> bool {
+    let package_root = package
+        .manifest_path
+        .parent()
+        .and_then(|root| root.as_std_path().canonicalize().ok());
     package.targets.iter().any(|target| {
-        matches!(
-            source_surface_for_target(&target.kind),
-            SourceSurface::Library | SourceSurface::Binary
-        )
+        target
+            .src_path
+            .as_std_path()
+            .canonicalize()
+            .ok()
+            .zip(package_root.as_ref())
+            .is_some_and(|(path, root)| path.starts_with(root))
+            && matches!(
+                source_surface_for_target(&target.kind),
+                SourceSurface::Library | SourceSurface::Binary
+            )
     })
 }
 
@@ -1180,7 +1191,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
             root.path().join("Cargo.toml"),
-            "[workspace]\nresolver=\"3\"\nmembers=[\"library\", \"compile-tests\"]\n",
+            concat!(
+                "[workspace]\n",
+                "resolver=\"3\"\n",
+                "members=[\"library\", \"compile-tests\", \"external-bin\"]\n",
+            ),
         )
         .unwrap();
         std::fs::create_dir_all(root.path().join("library/src")).unwrap();
@@ -1208,13 +1223,29 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.path().join("compile-tests/tests/ui.rs"), "").unwrap();
+        std::fs::create_dir_all(root.path().join("external-bin")).unwrap();
+        std::fs::write(
+            root.path().join("external-bin/Cargo.toml"),
+            concat!(
+                "[package]\n",
+                "name=\"external-bin\"\n",
+                "version=\"0.1.0\"\n",
+                "edition=\"2024\"\n",
+                "autobins=false\n",
+                "[[bin]]\n",
+                "name=\"external-bin\"\n",
+                "path=\"../external-main.rs\"\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("external-main.rs"), "fn main() {}\n").unwrap();
 
         let ordinary =
             discover_project_for_scan(&root.path().join("Cargo.toml"), true, false).unwrap();
         let evaluation =
             discover_project_for_scan(&root.path().join("Cargo.toml"), true, true).unwrap();
 
-        assert_eq!(ordinary.workspace_members.len(), 2);
+        assert_eq!(ordinary.workspace_members.len(), 3);
         assert_eq!(evaluation.workspace_members.len(), 1);
         assert_eq!(evaluation.workspace_members[0].name, "library");
         assert_eq!(evaluation.member_count, 1);
