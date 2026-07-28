@@ -1,6 +1,0 @@
-{"type":"diagnostic","fields":{"severity":"error","code":"source-not-allowed","message":"detected 'registry' source not explicitly allowed","labels":[{"message":"source"}]}}
-{"type":"diagnostic","fields":{"severity":"error","code":"rejected","message":"failed to satisfy license requirements","labels":[{"message":"license expression retrieved via Cargo.toml `license`"},{"message":"rejected: license is not explicitly allowed"},{"message":"rejected: license is not explicitly allowed"}]}}
-{"type":"diagnostic","fields":{"severity":"error","code":"banned","message":"crate 'rsa = 0.9.8' is explicitly banned","labels":[{"message":"banned here"}]}}
-{"type":"diagnostic","fields":{"severity":"warning","code":"duplicate","message":"found 2 duplicate entries for crate 'syn'","labels":[{"message":"lock entries"}]}}
-{"type":"diagnostic","fields":{"severity":"error","code":"vulnerability","message":"Marvin Attack: potential key recovery through timing sidechannels","labels":[{"message":"security vulnerability detected"}],"notes":["ID: RUSTSEC-2023-0071"]}}
-{"fields":{"advisories":{"errors":1,"helps":0,"notes":0,"warnings":0},"bans":{"errors":1,"helps":0,"notes":0,"warnings":1},"licenses":{"errors":40,"helps":0,"notes":0,"warnings":0},"sources":{"errors":39,"helps":0,"notes":0,"warnings":0}},"type":"summary"}

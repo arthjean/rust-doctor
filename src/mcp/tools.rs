@@ -269,23 +269,6 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
         let (result, project_info, resolved) =
             run_scan_with_timeout(project_info, resolved, cli, "scan", &request_context).await?;
-        let report = ReportV1::from_scan_with_context(
-            &result,
-            &project_info,
-            &resolved,
-            scan_mode(&result),
-            &requested_root,
-            crate::diagnostics::GateResult::NotEvaluated,
-        );
-        let score_status = report.summary.score.map_or_else(
-            || {
-                report.summary.score_reasons.first().map_or_else(
-                    || "authoritative score unavailable".to_string(),
-                    |reason| format!("authoritative score unavailable ({reason})"),
-                )
-            },
-            |score| format!("score {score}/100"),
-        );
 
         // Send completion progress
         if let Some(ref token) = progress_token {
@@ -295,7 +278,8 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
                     progress: 2.0,
                     total: Some(2.0),
                     message: Some(format!(
-                        "Scan complete: {score_status}, {} findings",
+                        "Scan complete: score {}/100, {} findings",
+                        result.score,
                         result.diagnostics.len()
                     )),
                 })
@@ -306,7 +290,9 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
                 level: LoggingLevel::Info,
                 logger: Some("rust-doctor".into()),
                 data: serde_json::Value::String(format!(
-                    "Scan complete: {score_status} — {} errors, {} warnings, {} info in {:.1}s",
+                    "Scan complete: {}/100 ({}) — {} errors, {} warnings, {} info in {:.1}s",
+                    result.score,
+                    result.score_label,
                     result.error_count,
                     result.warning_count,
                     result.info_count,
@@ -315,6 +301,14 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
             })
             .await;
 
+        let report = ReportV1::from_scan_with_context(
+            &result,
+            &project_info,
+            &resolved,
+            scan_mode(&result),
+            &requested_root,
+            crate::diagnostics::GateResult::NotEvaluated,
+        );
         let grouped = group_report_diagnostics(&report.diagnostics);
         let report = format_report_scan(&report, &grouped);
 
@@ -326,9 +320,9 @@ After scanning, use explain_rule on any rule ID to get fix guidance.",
         description = "Get just the health score of a Rust project (0-100 integer). \
 Use this tool for a quick pass/fail check without full diagnostics. \
 IMPORTANT: runs the same full analysis as scan internally, so takes the same 5-30 seconds. \
-Score thresholds: >=95 'Great', >=50 'Needs work', <50 'Critical'. \
-Scoring uses score-eligible rule priority and bounded root-cause aggregation; presentation severity never determines the penalty. \
-If you also need the diagnostics, use scan instead; it includes the score too.",
+Score thresholds: >=75 'Great', >=50 'Needs work', <50 'Critical'. \
+Scoring: each unique error-severity rule violated costs 1.5 points, each warning costs 0.75 points. \
+If you also need the diagnostics, use scan instead — it includes the score too.",
         annotations(
             title = "Score Project",
             read_only_hint = true,
@@ -371,21 +365,8 @@ If you also need the diagnostics, use scan instead; it includes the score too.",
         resolved.diff = None;
 
         // Run the CPU-bound scan on a blocking thread with a 5-minute absolute timeout
-        let (result, project_info, resolved) =
+        let (result, _project_info, _resolved) =
             run_scan_with_timeout(project_info, resolved, cli, "score", &request_context).await?;
-        let report = ReportV1::from_scan(&result, &project_info, &resolved, scan_mode(&result));
-        let score = report.summary.score.ok_or_else(|| {
-            McpError::internal_error(
-                format!(
-                    "authoritative score unavailable: {}",
-                    crate::completeness::score_decision(&result).primary_reason()
-                ),
-                None,
-            )
-        })?;
-        let score_label = report.summary.score_label.ok_or_else(|| {
-            McpError::internal_error("authoritative score label unavailable", None)
-        })?;
 
         if let Some(ref token) = progress_token {
             let _ = client
@@ -393,7 +374,10 @@ If you also need the diagnostics, use scan instead; it includes the score too.",
                     progress_token: token.clone(),
                     progress: 1.0,
                     total: Some(1.0),
-                    message: Some(format!("Score: {score}/100 ({score_label})")),
+                    message: Some(format!(
+                        "Score: {}/100 ({})",
+                        result.score, result.score_label
+                    )),
                 })
                 .await;
         }
@@ -401,11 +385,17 @@ If you also need the diagnostics, use scan instead; it includes the score too.",
             .notify_logging_message(LoggingMessageNotificationParam {
                 level: LoggingLevel::Info,
                 logger: Some("rust-doctor".into()),
-                data: serde_json::Value::String(format!("Score: {score}/100 ({score_label})")),
+                data: serde_json::Value::String(format!(
+                    "Score: {}/100 ({})",
+                    result.score, result.score_label
+                )),
             })
             .await;
 
-        Ok(Json(ScoreOutput { score, score_label }))
+        Ok(Json(ScoreOutput {
+            score: result.score,
+            score_label: result.score_label,
+        }))
     }
 
     #[tool(

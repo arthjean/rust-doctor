@@ -36,7 +36,7 @@ fn explicit_telemetry_uses_the_aggregate_allowlist_and_overrides_make_zero_reque
     let request = capture.join().unwrap();
     let body = request.split_once("\r\n\r\n").unwrap().1;
     let event: Value = serde_json::from_str(body).unwrap();
-    assert_eq!(event["schema_version"], "1.2");
+    assert_eq!(event["schema_version"], "1.1");
     assert_eq!(event["event_kind"], "scan");
     assert!(matches!(
         event["completeness"].as_str(),
@@ -53,22 +53,10 @@ fn explicit_telemetry_uses_the_aggregate_allowlist_and_overrides_make_zero_reque
             "security_policy": 0
         })
     );
-    // Aggregate rule counts are part of the payload by contract (US-013 AC-2):
-    // catalog rule identities are product vocabulary, not user data. Everything
-    // that identifies the repository, its code, or its environment stays out.
-    assert!(event["rule_counts"].is_object());
-    assert_eq!(
-        event["score_model_version"],
-        rust_doctor::output::score_model_version()
-    );
-    assert!(
-        event["installation_cohort"]
-            .as_str()
-            .is_some_and(|cohort| cohort.starts_with("cohort-"))
-    );
     for prohibited in [
         "product-loop",
         "src/lib.rs",
+        "unwrap-in-production",
         "repository",
         "source_text",
         "diagnostic_message",

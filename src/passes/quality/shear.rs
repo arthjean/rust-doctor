@@ -1,10 +1,4 @@
-#![expect(
-    clippy::redundant_pub_crate,
-    reason = "adapter parsers and contracts are consumed by the sibling conformance module through this private crate module"
-)]
-
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::passes::adapter::{self, AdapterContract, EvidenceSource};
 use crate::process;
 use crate::scanner::AnalysisPass;
 use serde::Deserialize;
@@ -13,14 +7,6 @@ use std::process::{Command, Stdio};
 
 const SHEAR_TIMEOUT_SECS: u64 = 30;
 const MAX_OUTPUT_BYTES: u64 = 10 * 1024 * 1024;
-
-/// cargo-shear reports unused dependencies from a structured JSON document.
-pub(crate) const CONTRACT: AdapterContract = AdapterContract {
-    pass: "dependencies (cargo-shear)",
-    subcommand: "shear",
-    parser_contract_version: "shear-json-v1",
-    evidence_source: EvidenceSource::StructuredJson,
-};
 
 /// cargo-shear analysis pass that detects unused dependencies.
 pub struct ShearPass {
@@ -34,20 +20,32 @@ impl AnalysisPass for ShearPass {
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_shear_available() {
-            return Err(CONTRACT.skipped(
-                "unused dependency detection disabled. Install with: cargo install cargo-shear",
-            ));
+            return Err(crate::error::PassError::Skipped {
+                pass: self.name().to_string(),
+                reason: "cargo-shear is not installed - unused dependency detection disabled. \
+                         Install with: cargo install cargo-shear"
+                    .to_string(),
+            });
         }
-        run_shear(project_root, self.offline)
+        run_shear(project_root, self.offline).map_err(|error| crate::error::PassError::Failed {
+            pass: self.name().to_string(),
+            message: error.to_string(),
+        })
     }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ShearError {
+enum ShearError {
     #[error("failed to spawn cargo shear: {0}")]
     Spawn(#[source] std::io::Error),
     #[error("cargo-shear process failed: {0}")]
     Process(String),
+    #[error("cargo-shear encountered an error during analysis")]
+    Analysis,
+    #[error("cargo-shear returned unexpected exit code {0}")]
+    UnexpectedExit(i32),
+    #[error("cargo-shear terminated without an exit code")]
+    MissingExit,
     #[error("cargo-shear returned invalid JSON: {0}")]
     InvalidOutput(#[from] serde_json::Error),
 }
@@ -77,10 +75,7 @@ fn shear_arguments(offline: bool) -> Vec<&'static str> {
     arguments
 }
 
-fn run_shear(
-    project_root: &Path,
-    offline: bool,
-) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+fn run_shear(project_root: &Path, offline: bool) -> Result<Vec<Diagnostic>, ShearError> {
     let child = process::spawn_in_group(
         Command::new("cargo")
             .args(shear_arguments(offline))
@@ -88,19 +83,22 @@ fn run_shear(
             .stdout(Stdio::piped())
             .stderr(Stdio::null()),
     )
-    .map_err(|error| CONTRACT.failed(ShearError::Spawn(error)))?;
+    .map_err(ShearError::Spawn)?;
 
     let result = process::run_with_timeout(child, SHEAR_TIMEOUT_SECS, MAX_OUTPUT_BYTES)
-        .map_err(|error| CONTRACT.failed(ShearError::Process(error)))?;
+        .map_err(ShearError::Process)?;
 
-    // Exit 1 means unused dependencies were found; exit 2 is an analysis error.
-    CONTRACT.require_complete_run(&result, &[0, 1])?;
+    if result.timed_out {
+        eprintln!("Warning: cargo-shear timed out after {SHEAR_TIMEOUT_SECS}s");
+        return Ok(vec![]);
+    }
 
-    parse_shear_output(
-        &result.stdout,
-        &CONTRACT.provenance(&CONTRACT.tool_version()),
-    )
-    .map_err(|error| CONTRACT.failed(error))
+    match result.exit_code {
+        Some(0 | 1) => parse_shear_output(&result.stdout),
+        Some(2) => Err(ShearError::Analysis),
+        Some(code) => Err(ShearError::UnexpectedExit(code)),
+        None => Err(ShearError::MissingExit),
+    }
 }
 
 fn is_unused_dependency(code: &str) -> bool {
@@ -113,34 +111,22 @@ fn is_unused_dependency(code: &str) -> bool {
     )
 }
 
-pub(crate) fn parse_shear_output(
-    output: &str,
-    provenance: &str,
-) -> Result<Vec<Diagnostic>, ShearError> {
+fn parse_shear_output(output: &str) -> Result<Vec<Diagnostic>, ShearError> {
     let output: ShearOutput = serde_json::from_str(output)?;
     Ok(output
         .findings
         .into_iter()
         .filter(|finding| is_unused_dependency(&finding.code))
-        .map(|finding| {
-            // The manifest that declares the dependency is the package scope
-            // this finding belongs to (US-009 AC-3).
-            let manifest = finding
-                .file
-                .unwrap_or_else(|| PathBuf::from("Cargo.toml"))
-                .to_string_lossy()
-                .into_owned();
-            adapter::project_diagnostic(
-                "unused-dependency",
-                Category::Dependencies,
-                Severity::Warning,
-                &finding.message,
-                Some(&finding.help.map_or_else(
-                    || format!("via {provenance}"),
-                    |help| format!("{help}\n  via {provenance}"),
-                )),
-                &manifest,
-            )
+        .map(|finding| Diagnostic {
+            file_path: finding.file.unwrap_or_else(|| PathBuf::from("Cargo.toml")),
+            rule: "unused-dependency".to_string(),
+            category: Category::Dependencies,
+            severity: Severity::Warning,
+            message: finding.message,
+            help: finding.help,
+            line: None,
+            column: None,
+            fix: None,
         })
         .collect())
 }
@@ -173,7 +159,7 @@ mod tests {
             }
           ]
         }"#;
-        let diagnostics = parse_shear_output(output, "cargo-shear test").unwrap();
+        let diagnostics = parse_shear_output(output).unwrap();
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].rule, "unused-dependency");
         assert_eq!(diagnostics[0].severity, Severity::Warning);
@@ -184,10 +170,11 @@ mod tests {
             diagnostics[1].file_path,
             PathBuf::from("crates/app/Cargo.toml")
         );
-        let help = diagnostics[0].help.as_deref().unwrap();
-        assert!(help.starts_with("remove this dependency"));
-        assert!(help.contains("cargo-shear test"));
-        assert_eq!(diagnostics[1].help.as_deref(), Some("via cargo-shear test"));
+        assert_eq!(
+            diagnostics[0].help.as_deref(),
+            Some("remove this dependency")
+        );
+        assert!(diagnostics[1].help.is_none());
     }
 
     #[test]
@@ -201,13 +188,13 @@ mod tests {
             "fixable": false
           }]
         }"#;
-        let diagnostics = parse_shear_output(output, "cargo-shear test").unwrap();
+        let diagnostics = parse_shear_output(output).unwrap();
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn rejects_non_json_output() {
-        assert!(parse_shear_output("cargo-shear failed", "cargo-shear test").is_err());
+        assert!(parse_shear_output("cargo-shear failed").is_err());
     }
 
     #[test]

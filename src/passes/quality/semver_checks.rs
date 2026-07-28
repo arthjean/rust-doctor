@@ -1,26 +1,11 @@
-#![expect(
-    clippy::redundant_pub_crate,
-    reason = "adapter parsers and contracts are consumed by the sibling conformance module through this private crate module"
-)]
-
 use crate::diagnostics::{Category, Diagnostic, Severity};
-use crate::passes::adapter::{self, AdapterContract, EvidenceSource};
 use crate::process;
 use crate::scanner::AnalysisPass;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const SEMVER_TIMEOUT_SECS: u64 = 120;
 const MAX_OUTPUT_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
-
-/// cargo-semver-checks has no stable machine format for `check-release`, so its
-/// failure lines are parsed as text and pinned by the fixtures in this module.
-pub(crate) const CONTRACT: AdapterContract = AdapterContract {
-    pass: "semver (cargo-semver-checks)",
-    subcommand: "semver-checks",
-    parser_contract_version: "semver-checks-text-v1",
-    evidence_source: EvidenceSource::TextFixtureBacked,
-};
 
 /// cargo-semver-checks analysis pass — detects semver violations.
 pub struct SemVerPass;
@@ -32,12 +17,18 @@ impl AnalysisPass for SemVerPass {
 
     fn run(&self, project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
         if !is_semver_checks_available() {
-            return Err(CONTRACT.skipped(
-                "semver violation detection disabled. \
-                 Install with: cargo install cargo-semver-checks",
-            ));
+            return Err(crate::error::PassError::Skipped {
+                pass: self.name().to_string(),
+                reason:
+                    "cargo-semver-checks is not installed — semver violation detection disabled. \
+                         Install with: cargo install cargo-semver-checks"
+                        .to_string(),
+            });
         }
-        run_semver_checks(project_root)
+        run_semver_checks(project_root).map_err(|message| crate::error::PassError::Failed {
+            pass: "semver (cargo-semver-checks)".to_string(),
+            message,
+        })
     }
 }
 
@@ -45,7 +36,7 @@ fn is_semver_checks_available() -> bool {
     process::is_cargo_subcommand_available("semver-checks")
 }
 
-fn run_semver_checks(project_root: &Path) -> Result<Vec<Diagnostic>, crate::error::PassError> {
+fn run_semver_checks(project_root: &Path) -> Result<Vec<Diagnostic>, String> {
     let child = process::spawn_in_group(
         Command::new("cargo")
             .args(["semver-checks", "check-release"])
@@ -54,19 +45,17 @@ fn run_semver_checks(project_root: &Path) -> Result<Vec<Diagnostic>, crate::erro
             .stdout(Stdio::piped())
             .stderr(Stdio::null()),
     )
-    .map_err(|error| CONTRACT.failed(format!("failed to spawn cargo semver-checks: {error}")))?;
+    .map_err(|e| format!("failed to spawn cargo semver-checks: {e}"))?;
 
-    let result = process::run_with_timeout(child, SEMVER_TIMEOUT_SECS, MAX_OUTPUT_BYTES)
-        .map_err(|error| CONTRACT.failed(error))?;
+    let result = process::run_with_timeout(child, SEMVER_TIMEOUT_SECS, MAX_OUTPUT_BYTES)?;
 
-    // A detected violation makes the tool exit non-zero; that is a finding, not
-    // a failure. Every other outcome is a failed receipt (US-009 AC-5).
-    CONTRACT.require_complete_run(&result, &[0, 1])?;
+    if result.timed_out {
+        eprintln!("Warning: cargo-semver-checks timed out after {SEMVER_TIMEOUT_SECS}s");
+        return Ok(vec![]);
+    }
 
-    Ok(parse_semver_output(
-        &result.stdout,
-        &CONTRACT.provenance(&CONTRACT.tool_version()),
-    ))
+    // Parse the combined output for violations
+    Ok(parse_semver_output(&result.stdout))
 }
 
 /// Parse cargo-semver-checks output into diagnostics.
@@ -76,7 +65,7 @@ fn run_semver_checks(project_root: &Path) -> Result<Vec<Diagnostic>, crate::erro
 /// --- failure[name]: description
 /// ```
 /// Each such line is a semver violation.
-pub(crate) fn parse_semver_output(output: &str, provenance: &str) -> Vec<Diagnostic> {
+fn parse_semver_output(output: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for line in output.lines() {
@@ -89,17 +78,20 @@ pub(crate) fn parse_semver_output(output: &str, provenance: &str) -> Vec<Diagnos
             let violation_name = &rest[..bracket_end];
             let description = rest[bracket_end + 2..].trim();
 
-            diagnostics.push(adapter::project_diagnostic(
-                "semver-violation",
-                Category::Cargo,
-                Severity::Warning,
-                &format!("{violation_name}: {description}"),
-                Some(&format!(
+            diagnostics.push(Diagnostic {
+                file_path: PathBuf::from("Cargo.toml"),
+                rule: "semver-violation".to_string(),
+                category: Category::Cargo,
+                severity: Severity::Warning,
+                message: format!("{violation_name}: {description}"),
+                help: Some(format!(
                     "This is a semver-incompatible change ({violation_name}). \
-                     Bump the major version or revert the breaking change.\n  via {provenance}"
+                         Bump the major version or revert the breaking change."
                 )),
-                "Cargo.toml",
-            ));
+                line: None,
+                column: None,
+                fix: None,
+            });
         }
     }
 
@@ -109,13 +101,12 @@ pub(crate) fn parse_semver_output(output: &str, provenance: &str) -> Vec<Diagnos
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_parse_single_violation() {
         let output = r"--- failure[function_missing]: function `foo` was removed
 ";
-        let diags = parse_semver_output(output, "cargo-semver-checks test");
+        let diags = parse_semver_output(output);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule, "semver-violation");
         assert_eq!(diags[0].category, Category::Cargo);
@@ -134,7 +125,7 @@ mod tests {
 
 Summary: 3 semver violations found
 ";
-        let diags = parse_semver_output(output, "cargo-semver-checks test");
+        let diags = parse_semver_output(output);
         assert_eq!(diags.len(), 3);
         assert!(diags[0].message.contains("function_missing"));
         assert!(diags[1].message.contains("struct_missing"));
@@ -146,20 +137,20 @@ Summary: 3 semver violations found
         let output = r"Checking my-crate v0.2.0 against v0.1.0
 Summary: no semver violations found
 ";
-        let diags = parse_semver_output(output, "cargo-semver-checks test");
+        let diags = parse_semver_output(output);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn test_parse_empty_output() {
-        let diags = parse_semver_output("", "cargo-semver-checks test");
+        let diags = parse_semver_output("");
         assert!(diags.is_empty());
     }
 
     #[test]
     fn test_help_text_present() {
         let output = "--- failure[trait_missing]: trait `MyTrait` was removed\n";
-        let diags = parse_semver_output(output, "cargo-semver-checks test");
+        let diags = parse_semver_output(output);
         assert_eq!(diags.len(), 1);
         let help = diags[0].help.as_ref().unwrap();
         assert!(help.contains("semver-incompatible"));
@@ -169,7 +160,7 @@ Summary: no semver violations found
     #[test]
     fn test_parse_violation_with_extra_whitespace() {
         let output = "  --- failure[method_missing]:   method `do_thing` was removed  \n";
-        let diags = parse_semver_output(output, "cargo-semver-checks test");
+        let diags = parse_semver_output(output);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("method_missing"));
         assert!(diags[0].message.contains("method `do_thing` was removed"));

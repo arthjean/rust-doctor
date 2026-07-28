@@ -62,7 +62,6 @@
       }
     },
     "tool_revision": { "type": "string", "minLength": 1 },
-    "binary_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "evaluation_profile_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "catalog_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "catalog": {

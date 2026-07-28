@@ -31,7 +31,6 @@ struct RunContext<'a> {
     binary: &'a Path,
     cargo_home: &'a Path,
     tool_revision: &'a str,
-    binary_sha256: &'a str,
     evaluation_profile_sha256: &'a str,
     catalog_sha256: &'a str,
     catalog: &'a BTreeMap<String, EvaluationRule>,
@@ -199,7 +198,6 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
             "tool revision cannot be empty".to_string(),
         ));
     }
-    let binary_sha256 = sha256_file(&binary)?;
     let evaluation_profile_sha256 = evaluation_profile_sha256(&manifest.evaluation_profile)?;
     let catalog = read_evaluation_catalog(
         &binary,
@@ -217,7 +215,6 @@ pub(crate) fn run(args: CorpusArgs) -> Result<()> {
         binary: &binary,
         cargo_home: &cargo_home,
         tool_revision: &tool_revision,
-        binary_sha256: &binary_sha256,
         evaluation_profile_sha256: &evaluation_profile_sha256,
         catalog_sha256: &catalog_sha256,
         catalog: &catalog,
@@ -861,9 +858,6 @@ fn cargo_workspace_roots(
         if !members.contains(id) {
             continue;
         }
-        if !package_has_primary_target(package, id)? {
-            continue;
-        }
         let manifest_path = package["manifest_path"].as_str().ok_or_else(|| {
             EvalError::Command(format!("Cargo metadata package {id} has no manifest path"))
         })?;
@@ -885,42 +879,6 @@ fn cargo_workspace_roots(
     roots.sort();
     roots.dedup();
     Ok(Some(roots))
-}
-
-fn package_has_primary_target(package: &serde_json::Value, id: &str) -> Result<bool> {
-    let manifest_path = package["manifest_path"].as_str().ok_or_else(|| {
-        EvalError::Command(format!("Cargo metadata package {id} has no manifest path"))
-    })?;
-    let package_root = Path::new(manifest_path)
-        .parent()
-        .ok_or_else(|| EvalError::Command(format!("package {id} has no root")))?;
-    let canonical_package_root = package_root.canonicalize().ok();
-    let targets = package["targets"]
-        .as_array()
-        .ok_or_else(|| EvalError::Command(format!("Cargo metadata package {id} has no targets")))?;
-    for target in targets {
-        let kinds = target["kind"].as_array().ok_or_else(|| {
-            EvalError::Command(format!("Cargo metadata target in package {id} has no kind"))
-        })?;
-        let primary = kinds
-            .iter()
-            .filter_map(serde_json::Value::as_str)
-            .any(|kind| {
-                matches!(
-                    kind,
-                    "bin" | "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
-                )
-            });
-        let local = target["src_path"]
-            .as_str()
-            .and_then(|path| Path::new(path).canonicalize().ok())
-            .zip(canonical_package_root.as_ref())
-            .is_some_and(|(path, root)| path.starts_with(root));
-        if primary && local {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 fn binary_revision(
@@ -1484,7 +1442,6 @@ fn record_from_scans(
         reported_roots,
         root_states,
         tool_revision: context.tool_revision.to_string(),
-        binary_sha256: context.binary_sha256.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
         catalog: context.catalog.clone(),
@@ -1525,7 +1482,6 @@ fn failed_record(
         reported_roots: Vec::new(),
         root_states,
         tool_revision: context.tool_revision.to_string(),
-        binary_sha256: context.binary_sha256.to_string(),
         evaluation_profile_sha256: context.evaluation_profile_sha256.to_string(),
         catalog_sha256: context.catalog_sha256.to_string(),
         catalog: context.catalog.clone(),
@@ -1672,62 +1628,6 @@ mod tests {
             discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
                 .unwrap(),
             ["member", "standalone"]
-        );
-    }
-
-    #[test]
-    fn project_root_discovery_excludes_packages_without_primary_targets() {
-        let directory = tempfile::tempdir().unwrap();
-        let cargo_home = tempfile::tempdir().unwrap();
-        std::fs::write(
-            directory.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"library\", \"compile-tests\", \"external-bin\"]\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(directory.path().join("library/src")).unwrap();
-        std::fs::write(
-            directory.path().join("library/Cargo.toml"),
-            "[package]\nname=\"library\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
-        std::fs::write(directory.path().join("library/src/lib.rs"), "").unwrap();
-        std::fs::create_dir_all(directory.path().join("compile-tests/tests")).unwrap();
-        std::fs::write(
-            directory.path().join("compile-tests/Cargo.toml"),
-            concat!(
-                "[package]\n",
-                "name=\"compile-tests\"\n",
-                "version=\"0.1.0\"\n",
-                "autolib=false\n",
-                "autobins=false\n",
-                "autotests=false\n",
-                "[[test]]\n",
-                "name=\"ui\"\n",
-                "path=\"tests/ui.rs\"\n",
-            ),
-        )
-        .unwrap();
-        std::fs::write(directory.path().join("compile-tests/tests/ui.rs"), "").unwrap();
-        std::fs::create_dir_all(directory.path().join("external-bin")).unwrap();
-        std::fs::write(
-            directory.path().join("external-bin/Cargo.toml"),
-            concat!(
-                "[package]\n",
-                "name=\"external-bin\"\n",
-                "version=\"0.1.0\"\n",
-                "autobins=false\n",
-                "[[bin]]\n",
-                "name=\"external-bin\"\n",
-                "path=\"../external-main.rs\"\n",
-            ),
-        )
-        .unwrap();
-        std::fs::write(directory.path().join("external-main.rs"), "fn main() {}\n").unwrap();
-
-        assert_eq!(
-            discover_project_roots(directory.path(), cargo_home.path(), Duration::from_secs(10))
-                .unwrap(),
-            ["library"]
         );
     }
 

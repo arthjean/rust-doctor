@@ -31,9 +31,7 @@ status_description() {
     printf 'Incomplete: requested scope degraded'
   elif [[ -s "${REPORT_FILE:-}" ]]; then
     jq -r '
-      if (.summary.score == null and (.summary.score_reasons | length) > 0 and (.outcome == "partial" or .outcome == "failed")) then
-        "Incomplete: " + .summary.score_reasons[0]
-      elif .completeness.state != "complete" then
+      if .completeness.state != "complete" then
         "Incomplete: required analysis did not complete"
       elif .outcome == "clean" or .outcome == "nothing_to_scan" then
         "Passed: no blocking findings"
@@ -47,31 +45,6 @@ status_description() {
     printf 'Failed: Report V1 unavailable'
   fi
 }
-
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" && -s "${REPORT_FILE:-}" ]]; then
-  jq -r '
-    def score:
-      if .summary.score == null then "n/a" else (.summary.score | tostring) end;
-    def score_label:
-      if .summary.score_label == null then "unavailable" else .summary.score_label end;
-    def authority:
-      if (.summary.score_reasons | length) == 0
-      then "authoritative"
-      else (.summary.score_reasons | join(", "))
-      end;
-    "## Rust Doctor decision\n\n" +
-    score + "/100 (" + score_label + ")\n\n" +
-    "Authority: " + authority + "\n\n" +
-    (.summary.error_count | tostring) + " errors | " +
-    (.summary.warning_count | tostring) + " warnings | " +
-    (.summary.info_count | tostring) + " info\n\n" +
-    ([.diagnostics[] | select(.score_impact == "scored")] | length | tostring) + " scored | " +
-    ([.diagnostics[] | select(.score_impact != "scored" and .trust_tier != "audit-only")] | length | tostring) + " advisory | " +
-    ([.diagnostics[] | select(.trust_tier == "audit-only")] | length | tostring) + " audit\n\n" +
-    "### Top remediations\n" +
-    ([((.root_causes // [])[:3])[] | "- `" + .rule + "` [" + .key + "]: " + .title] | join("\n"))
-  ' "$REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
-fi
 
 if [[ "$COMMIT_STATUS_ENABLED" == true ]]; then
   STATE=$(status_state)
@@ -159,10 +132,7 @@ if [[ "$REVIEW_COMMENTS_ENABLED" == true && "$EVENT_NAME" == pull_request && -s 
         else $scan_prefix + "/" + .
         end;
       [
-        # `.diagnostics` already arrives in the canonical priority order every
-        # Rust Doctor surface shares. `order` preserves it through the
-        # deduplication step instead of re-sorting by path (US-015 AC-1).
-        (.diagnostics | to_entries[] | .value + {rust_doctor_order: .key})
+        .diagnostics[]
         | select(.visible_on | index("pr-comment"))
         | select(.location.kind == "source")
         | (.location.path | repository_path) as $path
@@ -171,7 +141,6 @@ if [[ "$REVIEW_COMMENTS_ENABLED" == true && "$EVENT_NAME" == pull_request && -s 
         | select(any($changed[0][]; .path == $path and .line == $line))
         | {
             site_id,
-            rust_doctor_order,
             path: $path,
             line: $line,
             side: "RIGHT",
@@ -179,8 +148,7 @@ if [[ "$REVIEW_COMMENTS_ENABLED" == true && "$EVENT_NAME" == pull_request && -s 
           }
       ]
       | unique_by(.site_id)
-      | sort_by(.rust_doctor_order)
-      | map(del(.rust_doctor_order))
+      | sort_by(.path, .line, .site_id)
     ' "$REPORT_FILE" > "$COMMENTS_ALL"
     COMMENT_COUNT=$(jq 'length' "$COMMENTS_ALL")
     if (( COMMENT_COUNT > 50 )); then
@@ -245,24 +213,14 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
         | gsub("<"; "&lt;")
         | gsub(">"; "&gt;");
       def score: if .summary.score == null then "unavailable" else (.summary.score | tostring) + "/100" end;
-      def authority_reason: if (.summary.score_reasons | length) == 0 then "none" else (.summary.score_reasons[0] | safe) end;
       def baseline_available: .mode == "baseline" and .baseline != null and $degraded == "";
       def introduced: if baseline_available then (.baseline.new_count | tostring) else "unavailable" end;
       def fixed: if baseline_available then (.baseline.fixed_count | tostring) else "unavailable" end;
       def pr_diagnostics: [.diagnostics[] | select(.visible_on | index("pr-comment"))];
       def packages: ([.projects[].cargo_package_id] | unique | map(safe) | join(", "));
       def top_rules:
-        reduce pr_diagnostics[] as $diagnostic
-          ({order: [], groups: {}};
-            ($diagnostic.root_cause_key // $diagnostic.rule) as $key
-            | if .groups[$key] then
-                .groups[$key].count += 1
-              else
-                .order += [$key]
-                | .groups[$key] = {rule: $diagnostic.rule, count: 1}
-              end
-          )
-        | [.order[] as $key | .groups[$key]]
+        [pr_diagnostics | group_by(.rule)[] | {rule: .[0].rule, count: length}]
+        | sort_by(-.count, .rule)
         | .[:5]
         | if length == 0 then "None" else map((.rule | safe) + " (" + (.count | tostring) + ")") | join(", ") end;
       $marker + "\n" +
@@ -270,7 +228,6 @@ if [[ "$COMMENT_ENABLED" == true && "$EVENT_NAME" == pull_request ]]; then
       "| Metric | Result |\n|---|---:|\n" +
       "| Completeness | " + (.completeness.state | safe) + " |\n" +
       "| Score | " + score + " |\n" +
-      "| Score authority | " + authority_reason + " |\n" +
       "| Introduced | " + introduced + " |\n" +
       "| Fixed | " + fixed + " |\n" +
       "| Errors | " + (pr_diagnostics | map(select(.severity == "error")) | length | tostring) + " |\n" +

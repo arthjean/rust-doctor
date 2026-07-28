@@ -512,26 +512,11 @@ fn sticky_summary_updates_after_an_independent_status_permission_failure() {
             "completeness": {"state": "complete"},
             "summary": {"score": 91, "error_count": 1, "warning_count": 2},
             "projects": [{"cargo_package_id": "example-package"}],
-            "diagnostics": [
-                {
-                    "rule": "rust-doctor/z-canonical-first",
-                    "root_cause_key": "rule:z-canonical-first",
-                    "severity": "error",
-                    "visible_on": ["pr-comment"]
-                },
-                {
-                    "rule": "rust-doctor/a-canonical-second",
-                    "root_cause_key": "rule:a-canonical-second",
-                    "severity": "warning",
-                    "visible_on": ["pr-comment"]
-                },
-                {
-                    "rule": "rust-doctor/hidden",
-                    "root_cause_key": "rule:hidden",
-                    "severity": "error",
-                    "visible_on": ["terminal"]
-                }
-            ]
+            "diagnostics": [{
+                "rule": "rust-doctor/example",
+                "severity": "error",
+                "visible_on": ["pr-comment"]
+            }]
         }))
         .unwrap(),
     )
@@ -615,11 +600,5 @@ exit 1
     assert!(summary.contains("| Introduced | 2 |"));
     assert!(summary.contains("| Fixed | 1 |"));
     assert!(summary.contains("Affected packages: example-package"));
-    let first = summary.find("rust-doctor/z-canonical-first (1)").unwrap();
-    let second = summary.find("rust-doctor/a-canonical-second (1)").unwrap();
-    assert!(
-        first < second,
-        "GitHub summary reordered canonical findings"
-    );
-    assert!(!summary.contains("rust-doctor/hidden"));
+    assert!(summary.contains("rust-doctor/example (1)"));
 }

@@ -1,5 +1,0 @@
-     Checking conformance-fixture v0.2.0 -> v0.3.0 (no change)
---- failure[function_missing]: pub fn removed
-       Description:
---- failure[enum_variant_added]: enum variant added on exhaustive enum
-     Summary semver requires new major version

@@ -905,7 +905,6 @@ mod tests {
             reported_roots: vec![".".to_string()],
             root_states: BTreeMap::from([(".".to_string(), RootState::Complete)]),
             tool_revision: "test".to_string(),
-            binary_sha256: String::new(),
             evaluation_profile_sha256: "b".repeat(64),
             catalog_sha256,
             catalog,

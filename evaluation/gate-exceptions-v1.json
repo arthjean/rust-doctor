@@ -1,5 +1,0 @@
-{
-  "schema_version": "1.0",
-  "_comment": "Deliberate, time-bounded threshold exceptions. Every entry must name one rule, an accountable owner, a granted/expires window, a reason, and the evidence behind the decision. Exceptions are surfaced in Report V1 under audit.trust_exceptions so nothing bypasses a gate invisibly. The list is empty on purpose: no rule currently ships on an exception.",
-  "exceptions": []
-}

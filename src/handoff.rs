@@ -16,6 +16,7 @@ const MAX_DIAGNOSTICS: usize = 1_000;
 const MAX_MESSAGE_CHARS: usize = 500;
 const MAX_INLINE_GROUPS: usize = 3;
 const MAX_INLINE_FINDINGS: usize = 5;
+const MIGRATION_SCALE_FILE_COUNT: usize = 40;
 const COPY_PROMPT_LABEL: &str = "Copy prompt to clipboard";
 const SKIP_LABEL: &str = "Skip";
 
@@ -53,19 +54,9 @@ pub enum HandoffError {
 #[derive(Debug, Serialize)]
 struct DiagnosticDump {
     schema_version: &'static str,
-    score: Option<u32>,
-    score_label: Option<crate::diagnostics::ScoreLabel>,
-    score_authoritative: bool,
-    score_reasons: Vec<String>,
     total_diagnostics: usize,
     included_diagnostics: usize,
     truncated: bool,
-    /// What truncation dropped, by priority and category. An agent that reads
-    /// this dump must never mistake a bounded head for the whole repository
-    /// (US-015 AC-5).
-    #[serde(skip_serializing_if = "crate::ordering::TruncationSummary::is_empty")]
-    omitted: crate::ordering::TruncationSummary,
-    root_causes: Vec<crate::diagnostics::RootCauseGroup>,
     diagnostics: Vec<DumpDiagnostic>,
 }
 
@@ -81,11 +72,6 @@ struct DumpDiagnostic {
     help: Option<String>,
     url: String,
     fix_group_ids: Vec<String>,
-    /// Canonical decision metadata, so an agent ranks the dump the way every
-    /// other Rust Doctor surface does.
-    priority: Option<String>,
-    root_cause_key: Option<String>,
-    score_impact: crate::diagnostics::ScoreImpact,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -122,7 +108,7 @@ pub fn execute(
     }
 
     let directory = output_directory(request.output_dir.as_deref())?;
-    let dump = bounded_dump(report);
+    let dump = bounded_dump(&report.diagnostics);
     let working_directory = handoff_working_directory(report);
     let project_name = project_name(&working_directory);
     let handoff = render_handoff(&dump, &project_name, &directory);
@@ -138,21 +124,8 @@ pub fn execute(
     }))
 }
 
-fn bounded_dump(report: &ReportV1) -> DiagnosticDump {
-    // The dump inherits the canonical order and the canonical bound: the top
-    // root-cause groups survive truncation, and what was dropped is reported.
-    let mut ordered: Vec<&CanonicalDiagnostic> = report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.visible_on.iter().any(|surface| surface == "mcp"))
-        .collect();
-    let impact = crate::ordering::RootCauseImpact::measure(ordered.iter().copied());
-    crate::ordering::sort_refs(&mut ordered, &impact);
-    let root_causes = crate::ordering::root_cause_groups(ordered.iter().copied());
-    let total_diagnostics = ordered.len();
-    let (kept, omitted) = crate::ordering::truncate(&ordered, &root_causes, MAX_DIAGNOSTICS);
-
-    let mut diagnostics: Vec<_> = kept
+fn bounded_dump(diagnostics: &[CanonicalDiagnostic]) -> DiagnosticDump {
+    let mut diagnostics: Vec<_> = diagnostics
         .iter()
         .map(|diagnostic| DumpDiagnostic {
             site_id: diagnostic.site_id.clone(),
@@ -169,26 +142,25 @@ fn bounded_dump(report: &ReportV1) -> DiagnosticDump {
                 .iter()
                 .filter_map(|fix| fix.group_id.clone())
                 .collect(),
-            priority: diagnostic.priority.clone(),
-            root_cause_key: diagnostic.root_cause_key.clone(),
-            score_impact: diagnostic.score_impact,
         })
         .collect();
     for diagnostic in &mut diagnostics {
         diagnostic.fix_group_ids.sort();
         diagnostic.fix_group_ids.dedup();
     }
+    diagnostics.sort_by(|left, right| {
+        severity_rank(right.severity)
+            .cmp(&severity_rank(left.severity))
+            .then(left.rule.cmp(&right.rule))
+            .then(left.site_id.cmp(&right.site_id))
+    });
+    let total_diagnostics = diagnostics.len();
+    diagnostics.truncate(MAX_DIAGNOSTICS);
     DiagnosticDump {
         schema_version: "1.0",
-        score: report.summary.score,
-        score_label: report.summary.score_label,
-        score_authoritative: report.summary.score_authoritative,
-        score_reasons: report.summary.score_reasons.clone(),
         total_diagnostics,
         included_diagnostics: diagnostics.len(),
         truncated: diagnostics.len() < total_diagnostics,
-        omitted,
-        root_causes,
         diagnostics,
     }
 }
@@ -289,24 +261,6 @@ fn write_dump(directory: &Path, dump: &DiagnosticDump, handoff: &str) -> Result<
     Ok(())
 }
 
-fn handoff_score_status(dump: &DiagnosticDump) -> String {
-    (dump.score_authoritative.then_some(dump.score).flatten()).map_or_else(
-        || {
-            dump.score_reasons.first().map_or_else(
-                || "Authoritative Core Score unavailable.".to_string(),
-                |reason| format!("Authoritative Core Score unavailable ({reason})."),
-            )
-        },
-        |score| {
-            format!(
-                "Authoritative Core Score: {score}/100 ({}).",
-                dump.score_label
-                    .map_or_else(|| "unlabeled".to_string(), |label| label.to_string())
-            )
-        },
-    )
-}
-
 fn render_handoff(dump: &DiagnosticDump, project_name: &str, directory: &Path) -> String {
     let groups = priority_groups(&dump.diagnostics);
     let shown_group_count = groups.len().min(MAX_INLINE_GROUPS);
@@ -315,22 +269,9 @@ fn render_handoff(dump: &DiagnosticDump, project_name: &str, directory: &Path) -
     } else {
         "issues"
     };
-    let migration_scale =
-        crate::ordering::use_migration_grouping(dump.total_diagnostics, &dump.root_causes);
-    let mut output = if migration_scale {
-        // Above the canonical threshold the handoff leads with root causes, not
-        // with individual sites (US-015 AC-3).
-        format!(
-            "Rust Doctor found {} findings in {project_name} across {} root causes. This is migration-scale work: fix the top {shown_group_count} root {issue_label} below on this pass, sampling before you sweep.\n\n",
-            dump.total_diagnostics,
-            dump.root_causes.len()
-        )
-    } else {
-        format!(
-            "Fix the top {shown_group_count} Rust Doctor {issue_label} in {project_name} on this pass. Leave the rest for a follow-up.\n\n"
-        )
-    };
-    output.insert_str(0, &format!("{}\n\n", handoff_score_status(dump)));
+    let mut output = format!(
+        "Fix the top {shown_group_count} Rust Doctor {issue_label} in {project_name} on this pass. Leave the rest for a follow-up.\n\n"
+    );
     for (index, (rule, diagnostics)) in groups.iter().take(MAX_INLINE_GROUPS).enumerate() {
         let Some(representative) = diagnostics.first() else {
             continue;
@@ -366,7 +307,7 @@ fn render_handoff(dump: &DiagnosticDump, project_name: &str, directory: &Path) -
             let _ = writeln!(output, "   - +{remaining_locations} more sites");
         }
         let migration_file_count = migration_file_count(diagnostics);
-        if migration_scale && migration_file_count >= crate::ordering::MIGRATION_FILE_THRESHOLD {
+        if migration_file_count >= MIGRATION_SCALE_FILE_COUNT {
             let _ = writeln!(
                 output,
                 "   Migration-scale ({migration_file_count} files): fix a representative sample, confirm the recipe holds, and get the code owner's sign-off before changing the rest in one pass."
@@ -375,9 +316,6 @@ fn render_handoff(dump: &DiagnosticDump, project_name: &str, directory: &Path) -
         output.push('\n');
     }
 
-    if !dump.omitted.is_empty() {
-        let _ = writeln!(output, "Truncated: {}.\n", dump.omitted.describe());
-    }
     let included_label = if dump.truncated {
         format!(
             "{} included of {} total diagnostics",
@@ -420,9 +358,7 @@ fn append_deferred_group_guidance(output: &mut String, groups: &[(String, Vec<&D
     let migration_count = groups
         .iter()
         .skip(MAX_INLINE_GROUPS)
-        .filter(|(_, diagnostics)| {
-            migration_file_count(diagnostics) >= crate::ordering::MIGRATION_FILE_THRESHOLD
-        })
+        .filter(|(_, diagnostics)| migration_file_count(diagnostics) >= MIGRATION_SCALE_FILE_COUNT)
         .count();
     if migration_count > 0 {
         let group_label = if migration_count == 1 {
@@ -438,41 +374,29 @@ fn append_deferred_group_guidance(output: &mut String, groups: &[(String, Vec<&D
     output.push_str("\nThen work through the rest from the full results above.\n");
 }
 
-/// Groups in canonical root-cause order.
-///
-/// The dump is already sorted by the canonical comparator, so first appearance
-/// is the canonical rank: no second ordering heuristic is applied here
-/// (US-015 AC-1).
 fn priority_groups(diagnostics: &[DumpDiagnostic]) -> Vec<(String, Vec<&DumpDiagnostic>)> {
-    let mut order: Vec<String> = Vec::new();
-    let mut groups: BTreeMap<String, Vec<&DumpDiagnostic>> = BTreeMap::new();
-    for diagnostic in diagnostics {
-        let key = group_key(diagnostic);
-        if !groups.contains_key(&key) {
-            order.push(key.clone());
-        }
-        groups.entry(key).or_default().push(diagnostic);
-    }
-    order
-        .into_iter()
-        .filter_map(|key| groups.remove(&key).map(|value| (key, value)))
-        .collect()
-}
-
-/// Root cause when the rule declares one, rule identity otherwise. An unmapped
-/// rule keeps its own group rather than borrowing another rule's root cause.
-fn group_key(diagnostic: &DumpDiagnostic) -> String {
-    diagnostic
-        .root_cause_key
-        .clone()
-        .unwrap_or_else(|| diagnostic.rule.clone())
+    let mut groups: Vec<_> = group_diagnostics(diagnostics).into_iter().collect();
+    groups.sort_by(|(left_rule, left), (right_rule, right)| {
+        let left_rank = left
+            .iter()
+            .map(|diagnostic| severity_rank(diagnostic.severity))
+            .max()
+            .unwrap_or_default();
+        let right_rank = right
+            .iter()
+            .map(|diagnostic| severity_rank(diagnostic.severity))
+            .max()
+            .unwrap_or_default();
+        right_rank.cmp(&left_rank).then(left_rule.cmp(right_rule))
+    });
+    groups
 }
 
 fn group_diagnostics(diagnostics: &[DumpDiagnostic]) -> BTreeMap<String, Vec<&DumpDiagnostic>> {
     let mut groups = BTreeMap::new();
     for diagnostic in diagnostics {
         groups
-            .entry(group_key(diagnostic))
+            .entry(diagnostic.rule.clone())
             .or_insert_with(Vec::new)
             .push(diagnostic);
     }
@@ -535,21 +459,16 @@ fn select_target(request: &HandoffRequest) -> Result<TargetSelection, HandoffErr
     let mut targets = launch::launchable_targets();
     targets.push((COPY_PROMPT_LABEL.to_string(), HandoffTarget::Clipboard));
     targets.push((SKIP_LABEL.to_string(), HandoffTarget::None));
-    let choices: Vec<_> = targets
-        .iter()
-        .map(|(label, target)| choice_label(label, *target))
-        .collect();
+    let labels: Vec<_> = targets.iter().map(|(label, _)| label.as_str()).collect();
     let remembered = if home_directory().is_some() {
         load_preference().unwrap_or(None)
     } else {
         None
     };
     let initial = remembered_choice_index(&targets, remembered);
-    // React Doctor separates the footer from the picker with a blank line.
-    println!();
-    let selection = Select::with_theme(&crate::output::PromptTheme)
+    let selection = Select::new()
         .with_prompt("What would you like to do next?")
-        .items(&choices)
+        .items(&labels)
         .default(initial)
         .interact_on_opt(&dialoguer::console::Term::stdout())?;
     Ok(selection.map_or(TargetSelection::Cancelled, |selection| {
@@ -559,19 +478,6 @@ fn select_target(request: &HandoffRequest) -> Result<TargetSelection, HandoffErr
                 .map_or(HandoffTarget::None, |(_, target)| *target),
         )
     }))
-}
-
-/// Pair a picker label with the one-line description React Doctor shows.
-fn choice_label(label: &str, target: HandoffTarget) -> String {
-    let description = match target {
-        HandoffTarget::Clipboard => "Paste into any agent or chat".to_string(),
-        HandoffTarget::None => "Don't hand off".to_string(),
-        _ => match launch::binary_name(target) {
-            Some(binary) => format!("Open {binary} here with the top issues as a prompt"),
-            None => return label.to_string(),
-        },
-    };
-    format!("{label}\n  {description}")
 }
 
 fn remembered_choice_index(
@@ -818,6 +724,14 @@ fn group_filename(rule: &str) -> String {
     )
 }
 
+const fn severity_rank(severity: Severity) -> u8 {
+    match severity {
+        Severity::Error => 3,
+        Severity::Warning => 2,
+        Severity::Info => 1,
+    }
+}
+
 fn display_location(location: &DiagnosticLocation) -> String {
     match location {
         DiagnosticLocation::Source { path, range } => {
@@ -830,42 +744,6 @@ fn display_location(location: &DiagnosticLocation) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn canonical(rule: &str, priority: &str, surfaces: &[&str]) -> CanonicalDiagnostic {
-        serde_json::from_value(serde_json::json!({
-            "provider": "rust-doctor",
-            "rule": rule,
-            "title": rule,
-            "category": "correctness",
-            "severity": "warning",
-            "message": format!("{rule} fired"),
-            "url": "",
-            "tags": [],
-            "analysis_kind": "syn_ast",
-            "confidence": "medium",
-            "original_level": "warning",
-            "ownership": {"kind": "workspace"},
-            "source_surface": "library",
-            "location": {"kind": "project"},
-            "related_locations": [],
-            "fixes": [],
-            "visible_on": surfaces,
-            "site_id": format!("site:{rule}"),
-            "baseline_key": format!("baseline:{rule}"),
-            "namespace_fallback": false,
-            "advisory": false,
-            "priority": priority,
-            "trust_tier": "compiler-proven",
-            "score_eligible": true,
-            "score_impact": "scored",
-            "aggregation_policy": "bounded-occurrence",
-            "root_cause_key": format!("rule:{rule}"),
-            "evidence_summary": "",
-            "limitations": [],
-            "suppressed": false
-        }))
-        .unwrap()
-    }
 
     #[test]
     fn handoff_text_redacts_secrets_and_is_bounded() {
@@ -882,29 +760,6 @@ mod tests {
         assert_eq!(left, group_filename("clippy::future/unsafe"));
         assert!(!left.contains('/'));
         assert!(!left.contains(':'));
-    }
-
-    #[test]
-    fn handoff_uses_agent_surface_and_canonical_order() {
-        let mut report = ReportV1::failure(
-            Path::new("/project"),
-            crate::diagnostics::ScanMode::Full,
-            "test",
-            "",
-        );
-        report.diagnostics = vec![
-            canonical("later", "p2", &["mcp"]),
-            canonical("hidden", "p0", &["terminal"]),
-            canonical("first", "p0", &["mcp"]),
-        ];
-        let dump = bounded_dump(&report);
-        assert_eq!(
-            dump.diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.rule.as_str())
-                .collect::<Vec<_>>(),
-            vec!["first", "later"]
-        );
     }
 
     #[test]
@@ -929,26 +784,6 @@ mod tests {
         );
         assert_eq!(COPY_PROMPT_LABEL, "Copy prompt to clipboard");
         assert_eq!(SKIP_LABEL, "Skip");
-    }
-
-    #[test]
-    fn interactive_picker_describes_every_choice_like_react_doctor() {
-        assert_eq!(
-            choice_label("Claude Code", HandoffTarget::ClaudeCode),
-            "Claude Code\n  Open claude here with the top issues as a prompt"
-        );
-        assert_eq!(
-            choice_label("Cursor", HandoffTarget::Cursor),
-            "Cursor\n  Open cursor-agent here with the top issues as a prompt"
-        );
-        assert_eq!(
-            choice_label(COPY_PROMPT_LABEL, HandoffTarget::Clipboard),
-            "Copy prompt to clipboard\n  Paste into any agent or chat"
-        );
-        assert_eq!(
-            choice_label(SKIP_LABEL, HandoffTarget::None),
-            "Skip\n  Don't hand off"
-        );
     }
 
     #[test]
@@ -991,9 +826,6 @@ mod tests {
                 help: Some("Return a typed error.".to_string()),
                 url: "https://rust-doctor.vercel.app/docs/rules/unwrap-in-production".to_string(),
                 fix_group_ids: vec!["shared-fix".to_string()],
-                priority: Some("p2".to_string()),
-                root_cause_key: Some("rule:unwrap-in-production".to_string()),
-                score_impact: crate::diagnostics::ScoreImpact::Scored,
             },
             DumpDiagnostic {
                 site_id: "site-2".to_string(),
@@ -1014,22 +846,13 @@ mod tests {
                 help: Some("Return a typed error.".to_string()),
                 url: String::new(),
                 fix_group_ids: vec!["shared-fix".to_string()],
-                priority: Some("p2".to_string()),
-                root_cause_key: Some("rule:unwrap-in-production".to_string()),
-                score_impact: crate::diagnostics::ScoreImpact::Scored,
             },
         ];
         let dump = DiagnosticDump {
             schema_version: "1.0",
-            score: Some(87),
-            score_label: Some(crate::diagnostics::ScoreLabel::Great),
-            score_authoritative: true,
-            score_reasons: Vec::new(),
             total_diagnostics: diagnostics.len(),
             included_diagnostics: diagnostics.len(),
             truncated: false,
-            omitted: crate::ordering::TruncationSummary::default(),
-            root_causes: Vec::new(),
             diagnostics,
         };
         assert_eq!(shared_fix_site_count(&[&dump.diagnostics[0]]), None);
@@ -1063,30 +886,20 @@ mod tests {
             help: None,
             url: String::new(),
             fix_group_ids: Vec::new(),
-            priority: Some("p2".to_string()),
-            root_cause_key: Some(format!("rule:{rule}")),
-            score_impact: crate::diagnostics::ScoreImpact::Scored,
         };
         let mut diagnostics = ["a-first", "b-second", "c-third"]
             .into_iter()
             .map(|rule| diagnostic(rule, format!("src/{rule}.rs")))
             .collect::<Vec<_>>();
         diagnostics.extend(
-            (0..crate::ordering::MIGRATION_FILE_THRESHOLD * 4)
+            (0..MIGRATION_SCALE_FILE_COUNT)
                 .map(|index| diagnostic("z-deferred-migration", format!("src/file_{index}.rs"))),
         );
-        let root_causes = Vec::new();
         let dump = DiagnosticDump {
             schema_version: "1.0",
-            score: Some(87),
-            score_label: Some(crate::diagnostics::ScoreLabel::Great),
-            score_authoritative: true,
-            score_reasons: Vec::new(),
             total_diagnostics: diagnostics.len(),
             included_diagnostics: diagnostics.len(),
             truncated: false,
-            omitted: crate::ordering::TruncationSummary::default(),
-            root_causes,
             diagnostics,
         };
 
@@ -1132,15 +945,9 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), directory.path().join("rules")).unwrap();
         let dump = DiagnosticDump {
             schema_version: "1.0",
-            score: None,
-            score_label: None,
-            score_authoritative: false,
-            score_reasons: vec!["required_analysis_failed:clippy".to_string()],
             total_diagnostics: 0,
             included_diagnostics: 0,
             truncated: false,
-            omitted: crate::ordering::TruncationSummary::default(),
-            root_causes: Vec::new(),
             diagnostics: Vec::new(),
         };
         assert!(write_dump(directory.path(), &dump, "# handoff\n").is_err());

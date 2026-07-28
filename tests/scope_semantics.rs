@@ -233,7 +233,7 @@ fn unavailable_score_keeps_stdout_empty() {
     );
 
     let output = scan(repository.path(), &["--score", "--offline"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_success(&output);
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("No Rust source files found"));
 }
@@ -701,7 +701,6 @@ fn scan(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg(root)
         .args(arguments)
-        .args(["--fail-on", "none"])
         .output()
         .unwrap()
 }

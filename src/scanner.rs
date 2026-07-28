@@ -1,10 +1,8 @@
-use crate::clippy::LintPolicyEntry;
 use crate::config::ResolvedConfig;
 use crate::diagnostics::{
     AnalysisFailureReceipt, CheckState, CheckStatus, CompilerDiagnosticEvidence, Diagnostic,
 };
 use crate::process::{ProcessStop, ScanControl};
-use crate::rules::AbstentionReceipt;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashSet;
@@ -51,24 +49,6 @@ pub trait AnalysisPass: Send + Sync {
     fn take_compiler_evidence(&self) -> Vec<CompilerDiagnosticEvidence> {
         Vec::new()
     }
-
-    /// Drain the receipts of rules that declined to decide, after `run`
-    /// completes. Abstentions are analyzer receipts, never diagnostics.
-    fn take_abstentions(&self) -> Vec<AbstentionReceipt> {
-        Vec::new()
-    }
-
-    /// Drain the effective Cargo lint policy the pass resolved, after `run`
-    /// completes.
-    fn take_lint_policy(&self) -> Vec<LintPolicyEntry> {
-        Vec::new()
-    }
-
-    /// Machine-readable completion provenance retained on a successful
-    /// analyzer receipt. Most in-process passes need no extra receipt detail.
-    fn completion_reason(&self) -> Option<String> {
-        None
-    }
 }
 
 /// Result from a single analysis pass (internal).
@@ -76,7 +56,6 @@ struct PassResult {
     name: String,
     required: bool,
     result: Result<Vec<Diagnostic>, crate::error::PassError>,
-    completion_reason: Option<String>,
     elapsed: std::time::Duration,
     stop: Option<ProcessStop>,
 }
@@ -140,8 +119,6 @@ pub struct ScanPassResult {
     pub compiler_evidence: Vec<CompilerDiagnosticEvidence>,
     pub checks: Vec<CheckState>,
     pub analysis_failures: Vec<AnalysisFailureReceipt>,
-    pub abstentions: Vec<AbstentionReceipt>,
-    pub lint_policy: Vec<LintPolicyEntry>,
 }
 
 /// Orchestrates multiple analysis passes in parallel and merges results.
@@ -266,7 +243,6 @@ impl ScanOrchestrator {
                         CheckStatus::Failed if work_units_failed => {
                             Some(summarize_work_failures(&work_failures))
                         }
-                        CheckStatus::Completed => result.completion_reason.clone(),
                         _ => None,
                     };
                     if let Some(reason) = &reason {
@@ -284,43 +260,26 @@ impl ScanOrchestrator {
                     });
                 }
                 Err(crate::error::PassError::Skipped { pass, reason }) => {
-                    if let Some(status) = stopped_status {
-                        let reason = match status {
-                            CheckStatus::TimedOut => "analysis deadline reached during tool probe",
-                            CheckStatus::Cancelled => "scan cancelled during tool probe",
-                            _ => &reason,
-                        }
-                        .to_string();
-                        skipped_passes
-                            .push(format!("{pass}: {}: {reason}", check_status_name(status)));
-                        checks.push(CheckState {
-                            name: result.name,
-                            required: result.required,
-                            status,
-                            reason: Some(reason),
-                        });
-                    } else {
-                        skipped_passes.push(format!("{pass}: skipped: {reason}"));
-                        eprintln!("Info: {pass}: {reason}");
-                        checks.push(CheckState {
-                            name: result.name,
-                            required: result.required,
-                            status: CheckStatus::Skipped,
-                            reason: Some(reason.clone()),
-                        });
-                        // Emit a visible diagnostic so MCP/JSON consumers see the skip
-                        all_diagnostics.push(crate::diagnostics::Diagnostic {
-                            file_path: std::path::PathBuf::from("Cargo.toml"),
-                            rule: "skipped-pass".to_string(),
-                            category: crate::diagnostics::Category::Cargo,
-                            severity: crate::diagnostics::Severity::Info,
-                            message: reason,
-                            help: None,
-                            line: None,
-                            column: None,
-                            fix: None,
-                        });
-                    }
+                    skipped_passes.push(format!("{pass}: skipped: {reason}"));
+                    eprintln!("Info: {pass}: {reason}");
+                    checks.push(CheckState {
+                        name: result.name,
+                        required: result.required,
+                        status: CheckStatus::Skipped,
+                        reason: Some(reason.clone()),
+                    });
+                    // Emit a visible diagnostic so MCP/JSON consumers see the skip
+                    all_diagnostics.push(crate::diagnostics::Diagnostic {
+                        file_path: std::path::PathBuf::from("Cargo.toml"),
+                        rule: "skipped-pass".to_string(),
+                        category: crate::diagnostics::Category::Cargo,
+                        severity: crate::diagnostics::Severity::Info,
+                        message: reason,
+                        help: None,
+                        line: None,
+                        column: None,
+                        fix: None,
+                    });
                 }
                 Err(crate::error::PassError::TimedOut { pass, reason }) => {
                     skipped_passes.push(format!("{pass}: timed out: {reason}"));
@@ -358,20 +317,6 @@ impl ScanOrchestrator {
             .iter()
             .flat_map(|pass| pass.take_compiler_evidence())
             .collect();
-        let lint_policy: Vec<LintPolicyEntry> = self
-            .passes
-            .iter()
-            .flat_map(|pass| pass.take_lint_policy())
-            .collect();
-        let abstentions = crate::rules::context::aggregate_abstentions(
-            self.passes
-                .iter()
-                .flat_map(|pass| pass.take_abstentions())
-                .flat_map(|receipt| {
-                    std::iter::repeat_n((receipt.rule, receipt.reason), receipt.count)
-                })
-                .collect(),
-        );
 
         // If all passes failed, report it
         if checks
@@ -407,8 +352,6 @@ impl ScanOrchestrator {
             compiler_evidence,
             checks,
             analysis_failures,
-            abstentions,
-            lint_policy,
         }
     }
 
@@ -469,9 +412,7 @@ impl ScanOrchestrator {
                         let stop =
                             crate::process::take_process_stop().or_else(|| control.stop_reason());
                         let elapsed = start.elapsed();
-                        let completion_reason =
-                            result.as_ref().ok().and_then(|_| pass.completion_reason());
-                        (name, required, result, completion_reason, elapsed, stop)
+                        (name, required, result, elapsed, stop)
                     })
                 })
                 .collect();
@@ -483,13 +424,12 @@ impl ScanOrchestrator {
                 .into_iter()
                 .enumerate()
                 .map(|(i, h)| {
-                    if let Ok((name, required, result, completion_reason, elapsed, stop)) = h.join() {
+                    if let Ok((name, required, result, elapsed, stop)) = h.join() {
                         tracing::debug!(pass = %name, elapsed_ms = elapsed.as_millis(), "pass complete");
                         PassResult {
                             name,
                             required,
                             result,
-                            completion_reason,
                             elapsed,
                             stop,
                         }
@@ -502,7 +442,6 @@ impl ScanOrchestrator {
                             name: name.clone(),
                             required: true,
                             result: Err(crate::error::PassError::Panicked { pass: name }),
-                            completion_reason: None,
                             elapsed: Duration::ZERO,
                             stop: None,
                         }
@@ -611,14 +550,6 @@ fn finish_scan_progress(
             .tick_strings(&[symbol]),
     );
     progress.finish_with_message(message);
-    // indicatif parks the cursor at the end of the finished line instead of
-    // terminating it, so the report's own leading newline only closes that line
-    // and its blank separator disappears. Close the line here so the summary is
-    // followed by one blank line, like React Doctor's `Console.log("")` between
-    // the scan summary and the findings.
-    if !progress.is_hidden() {
-        eprintln!();
-    }
 }
 
 fn file_count_label(count: usize) -> String {

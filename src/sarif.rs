@@ -32,21 +32,6 @@ struct SarifLog<'a> {
 struct Run<'a> {
     tool: Tool<'a>,
     results: Vec<Result_<'a>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    properties: Option<RunProperties>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-#[expect(
-    clippy::struct_field_names,
-    reason = "SARIF property-bag keys share the rustDoctorScore namespace by contract"
-)]
-struct RunProperties {
-    rust_doctor_score: Option<u32>,
-    rust_doctor_score_label: Option<String>,
-    rust_doctor_score_authoritative: bool,
-    rust_doctor_score_reasons: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -77,57 +62,13 @@ struct ReportingDescriptor<'a> {
     /// Omitted for type-aware clippy lints and external-tool findings, keeping
     /// the output backward-compatible.
     #[serde(skip_serializing_if = "Option::is_none")]
-    properties: Option<RuleProperties<'a>>,
+    properties: Option<RuleProperties>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuleProperties<'a> {
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+struct RuleProperties {
     heuristic: bool,
-    /// SARIF-standard confidence hint derived from the rule's trust tier, so
-    /// GitHub Code Scanning can calibrate how much to trust the result.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    precision: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    trust_tier: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    score_eligible: Option<bool>,
-}
-
-/// Per-result properties: the canonical decision metadata that has no native
-/// SARIF field survives here rather than being dropped (US-015 AC-7).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ResultProperties<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    root_cause_key: Option<&'a str>,
-    score_impact: &'static str,
-}
-
-/// SARIF precision vocabulary for one trust tier.
-const fn precision_for(trust_tier: &str) -> Option<&'static str> {
-    match trust_tier.as_bytes() {
-        b"compiler-proven" => Some("very-high"),
-        b"advisory-backed" => Some("high"),
-        b"calibrated-heuristic" => Some("medium"),
-        b"audit-only" => Some("low"),
-        _ => None,
-    }
-}
-
-const fn score_impact_key(impact: crate::diagnostics::ScoreImpact) -> &'static str {
-    use crate::diagnostics::ScoreImpact;
-    match impact {
-        ScoreImpact::Scored => "scored",
-        ScoreImpact::Advisory => "advisory",
-        ScoreImpact::Ineligible => "ineligible",
-        ScoreImpact::Suppressed => "suppressed",
-    }
 }
 
 #[derive(Serialize)]
@@ -145,8 +86,6 @@ struct Result_<'a> {
     locations: Vec<Location<'a>>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     partial_fingerprints: std::collections::BTreeMap<&'static str, &'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    properties: Option<ResultProperties<'a>>,
 }
 
 #[derive(Serialize)]
@@ -211,13 +150,8 @@ fn build_rules(diagnostics: &[Diagnostic]) -> Vec<ReportingDescriptor<'_>> {
                 default_configuration: DefaultConfiguration {
                     level: severity_to_sarif_level(d.severity),
                 },
-                properties: crate::rules::is_heuristic_rule(&d.rule).then_some(RuleProperties {
-                    heuristic: true,
-                    precision: None,
-                    priority: None,
-                    trust_tier: None,
-                    score_eligible: None,
-                }),
+                properties: crate::rules::is_heuristic_rule(&d.rule)
+                    .then_some(RuleProperties { heuristic: true }),
             });
         }
     }
@@ -252,7 +186,6 @@ fn diagnostic_to_result(d: &Diagnostic) -> Result_<'_> {
             },
         }],
         partial_fingerprints: std::collections::BTreeMap::new(),
-        properties: None,
     }
 }
 
@@ -272,14 +205,11 @@ fn build_report_rules<'a>(
                 default_configuration: DefaultConfiguration {
                     level: severity_to_sarif_level(diagnostic.severity),
                 },
-                properties: Some(RuleProperties {
-                    heuristic: diagnostic.tags.iter().any(|tag| tag == "heuristic"),
-                    precision: precision_for(&diagnostic.trust_tier),
-                    priority: diagnostic.priority.as_deref(),
-                    trust_tier: (!diagnostic.trust_tier.is_empty())
-                        .then_some(diagnostic.trust_tier.as_str()),
-                    score_eligible: Some(diagnostic.score_eligible),
-                }),
+                properties: diagnostic
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "heuristic")
+                    .then_some(RuleProperties { heuristic: true }),
             });
         }
     }
@@ -313,28 +243,11 @@ fn canonical_to_result(diagnostic: &CanonicalDiagnostic) -> Result_<'_> {
         level: severity_to_sarif_level(diagnostic.severity),
         message: Message { text },
         locations,
-        partial_fingerprints: root_cause_fingerprints(diagnostic),
-        properties: Some(ResultProperties {
-            priority: diagnostic.priority.as_deref(),
-            root_cause_key: diagnostic.root_cause_key.as_deref(),
-            score_impact: score_impact_key(diagnostic.score_impact),
-        }),
+        partial_fingerprints: std::collections::BTreeMap::from([(
+            "rustDoctorSiteId/v1",
+            diagnostic.site_id.as_str(),
+        )]),
     }
-}
-
-/// Site identity plus root-cause correlation.
-///
-/// Two results that share `rustDoctorRootCause/v1` are one defect: a SARIF
-/// consumer can collapse them without re-deriving the grouping.
-fn root_cause_fingerprints(
-    diagnostic: &CanonicalDiagnostic,
-) -> std::collections::BTreeMap<&'static str, &str> {
-    let mut fingerprints =
-        std::collections::BTreeMap::from([("rustDoctorSiteId/v1", diagnostic.site_id.as_str())]);
-    if let Some(key) = diagnostic.root_cause_key.as_deref() {
-        fingerprints.insert("rustDoctorRootCause/v1", key);
-    }
-    fingerprints
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +280,6 @@ pub fn render_sarif(scan_result: &ScanResult) -> Result<String, serde_json::Erro
                 },
             },
             results,
-            properties: None,
         }],
     };
 
@@ -399,12 +311,6 @@ pub fn render_report_sarif(report: &ReportV1) -> Result<String, serde_json::Erro
                 },
             },
             results,
-            properties: Some(RunProperties {
-                rust_doctor_score: report.summary.score,
-                rust_doctor_score_label: report.summary.score_label.map(|label| label.to_string()),
-                rust_doctor_score_authoritative: report.summary.score_authoritative,
-                rust_doctor_score_reasons: report.summary.score_reasons.clone(),
-            }),
         }],
     };
     serde_json::to_string_pretty(&log)
