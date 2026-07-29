@@ -28,7 +28,6 @@ secrets.*
 
 # Local AI agent / tooling state (not for the public repo)
 /.meta/
-/tasks/
 .codex
 **/.claude/
 
