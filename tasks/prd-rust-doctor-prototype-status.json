@@ -1,0 +1,98 @@
+{
+  "prd": {
+    "file": "tasks/prd-rust-doctor-prototype.md",
+    "title": "Prototype Rust Doctor - inspection Cargo et Clippy",
+    "created_at": "2026-07-30",
+    "status": "DONE"
+  },
+  "epics": [
+    {
+      "id": "EP-001",
+      "title": "Fondation et exécution",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 2,
+      "stories_done": 2
+    },
+    {
+      "id": "EP-002",
+      "title": "Rapport et preuve produit",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 3,
+      "stories_done": 3
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Initialiser le package et valider le protocole",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": "2026-07-30T16:20:16+02:00",
+      "completed_at": "2026-07-30T20:57:47+02:00",
+      "reviewed_at": "2026-07-30T20:57:47+02:00"
+    },
+    {
+      "id": "US-002",
+      "title": "Découvrir le workspace et exécuter Clippy",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-001"
+      ],
+      "started_at": "2026-07-30T16:27:49+02:00",
+      "completed_at": "2026-07-30T20:57:47+02:00",
+      "reviewed_at": "2026-07-30T20:57:47+02:00"
+    },
+    {
+      "id": "US-003",
+      "title": "Produire le rapport v1 déterministe",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-001"
+      ],
+      "started_at": "2026-07-30T16:57:04+02:00",
+      "completed_at": "2026-07-31T08:09:52+02:00",
+      "reviewed_at": "2026-07-31T08:09:52+02:00"
+    },
+    {
+      "id": "US-004",
+      "title": "Exposer la CLI terminal et JSON",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [
+        "US-003"
+      ],
+      "started_at": "2026-07-30T17:03:06+02:00",
+      "completed_at": "2026-07-31T08:09:52+02:00",
+      "reviewed_at": "2026-07-31T08:09:52+02:00"
+    },
+    {
+      "id": "US-005",
+      "title": "Prouver la boucle scan, correction, rescan",
+      "epic": "EP-002",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-002",
+        "US-003",
+        "US-004"
+      ],
+      "started_at": "2026-07-30T17:03:06+02:00",
+      "completed_at": "2026-07-31T08:09:52+02:00",
+      "reviewed_at": "2026-07-31T08:09:52+02:00"
+    }
+  ]
+}
