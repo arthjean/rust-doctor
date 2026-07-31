@@ -1,0 +1,88 @@
+{
+  "positive": [
+    {
+      "key": "git_branch",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "message": "Git dependency \"git_branch\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "key": "git_default",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "message": "Git dependency \"git_default\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "key": "git_non_hex",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "message": "Git dependency \"git_non_hex\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "key": "git_short",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "message": "Git dependency \"git_short\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "key": "git_tag",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "message": "Git dependency \"git_tag\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "key": "registry_build",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "message": "Registry dependency \"registry_build\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    },
+    {
+      "key": "registry_development",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "message": "Registry dependency \"registry_development\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    },
+    {
+      "key": "registry_normal",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "message": "Registry dependency \"registry_normal\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    },
+    {
+      "key": "registry_optional_alias",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "message": "Registry dependency \"registry_optional_alias\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    },
+    {
+      "key": "registry_target",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "message": "Registry dependency \"registry_target\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    }
+  ],
+  "negative_keys": [
+    "bounded_bare",
+    "bounded_bare_minor",
+    "bounded_caret",
+    "bounded_exact",
+    "bounded_prerelease",
+    "bounded_range",
+    "bounded_wildcard_major",
+    "bounded_wildcard_minor",
+    "bounded_wildcard_x",
+    "git_full",
+    "path_external",
+    "registry_alternative_bounded"
+  ]
+}

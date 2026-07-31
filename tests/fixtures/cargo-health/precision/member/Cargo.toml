@@ -1,0 +1,34 @@
+[package]
+name = "cargo-health-precision"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bounded_bare = "1"
+bounded_bare_minor = "1.2"
+bounded_caret = "^1.2.3"
+bounded_exact = "=1.2.3"
+bounded_prerelease = "1.2.3-alpha.1"
+bounded_range = ">=1.2,<2"
+bounded_wildcard_major = "1.*"
+bounded_wildcard_minor = "1.2.*"
+bounded_wildcard_x = "1.x"
+git_branch = { git = "https://user:secret@git.invalid/branch.git", branch = "main" }
+git_default = { git = "https://user:secret@git.invalid/default.git" }
+git_full = { git = "https://user:secret@git.invalid/full.git", rev = "0123456789abcdef0123456789abcdef01234567" }
+git_non_hex = { git = "https://user:secret@git.invalid/non-hex.git", rev = "gggggggggggggggggggggggggggggggggggggggg" }
+git_short = { git = "https://user:secret@git.invalid/short.git", rev = "0123456" }
+git_tag = { git = "https://user:secret@git.invalid/tag.git", tag = "v1.0.0" }
+path_external = { path = "../external-path" }
+registry_alternative_bounded = { package = "alternative-package", version = "1.2", registry = "private" }
+registry_normal = { package = "registry-normal-package", version = "*" }
+registry_optional_alias = { package = "registry-optional-package", version = "*", optional = true }
+
+[dev-dependencies]
+registry_development = { package = "registry-development-package", version = "*" }
+
+[build-dependencies]
+registry_build = { package = "registry-build-package", version = "*" }
+
+[target.'cfg(unix)'.dependencies]
+registry_target = { package = "registry-target-package", version = "*" }

@@ -1,0 +1,25 @@
+[package]
+name = "cargo-health-protocol"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bounded_registry = { package = "bounded-registry", version = "1.*" }
+git_branch = { git = "https://user:secret@git.invalid/private.git", branch = "main" }
+git_default = { git = "https://user:secret@git.invalid/default.git" }
+git_full = { git = "https://user:secret@git.invalid/full.git", rev = "0123456789abcdef0123456789abcdef01234567" }
+git_non_hex = { git = "https://user:secret@git.invalid/non-hex.git", rev = "gggggggggggggggggggggggggggggggggggggggg" }
+git_short = { git = "https://user:secret@git.invalid/short.git", rev = "0123456" }
+git_tag = { git = "https://user:secret@git.invalid/tag.git", tag = "v1.0.0" }
+path_dependency = { path = "path-dependency" }
+registry_alias = { package = "registry-package", version = "*", optional = true }
+registry_alternative = { package = "alternative-package", version = "1.2", registry = "private" }
+
+[dev-dependencies]
+development_dependency = "1"
+
+[build-dependencies]
+build_dependency = "1"
+
+[target.'cfg(unix)'.dependencies]
+target_dependency = "1"

@@ -9,6 +9,7 @@ use cargo_metadata::Metadata;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::cargo_health;
 use crate::execution::{
     CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData, ExecutionResult,
     InternalError, ScanExecution,
@@ -435,6 +436,13 @@ fn normalize_diagnostics(
     };
     let mut diagnostics = BTreeMap::<String, Diagnostic>::new();
 
+    if let Some(metadata) = metadata {
+        for candidate in cargo_health::inspect(metadata) {
+            let diagnostic = normalize_cargo_health_candidate(candidate, workspace_root, home);
+            merge_diagnostic(&mut diagnostics, diagnostic);
+        }
+    }
+
     for message in messages {
         let message = match message {
             CapturedMessage::Compiler(message) => message,
@@ -448,21 +456,62 @@ fn normalize_diagnostics(
             }
         };
         let diagnostic = normalize_diagnostic(message, workspace_root, metadata, home);
-        match diagnostics.get_mut(&diagnostic.id) {
-            Some(existing) => {
-                existing.occurrences += 1;
-                merge_optional_context(&mut existing.package, diagnostic.package);
-                merge_optional_context(&mut existing.target, diagnostic.target);
-            }
-            None => {
-                diagnostics.insert(diagnostic.id.clone(), diagnostic);
-            }
-        }
+        merge_diagnostic(&mut diagnostics, diagnostic);
     }
 
     let mut diagnostics: Vec<_> = diagnostics.into_values().collect();
     diagnostics.sort_by(compare_diagnostics);
     diagnostics
+}
+
+fn normalize_cargo_health_candidate(
+    candidate: cargo_health::Candidate,
+    workspace_root: &Path,
+    home: &HomePaths,
+) -> Diagnostic {
+    let source = DiagnosticSource::RustDoctor;
+    let code = Some(candidate.code.to_owned());
+    let message = sanitize_text(&candidate.message, Some(workspace_root), home);
+    let path = candidate
+        .manifest_path
+        .as_deref()
+        .and_then(|path| normalize_relative_path(Path::new(path)));
+    let id = fingerprint(
+        source,
+        code.as_deref(),
+        path.as_deref(),
+        None,
+        candidate.severity,
+        &message,
+    );
+
+    Diagnostic {
+        id,
+        source,
+        code,
+        severity: candidate.severity,
+        category: Some(candidate.category.to_owned()),
+        message,
+        help: Some(candidate.help.to_owned()),
+        package: Some(normalize_text(&candidate.package)),
+        target: None,
+        path,
+        span: None,
+        occurrences: 1,
+    }
+}
+
+fn merge_diagnostic(diagnostics: &mut BTreeMap<String, Diagnostic>, diagnostic: Diagnostic) {
+    match diagnostics.get_mut(&diagnostic.id) {
+        Some(existing) => {
+            existing.occurrences += 1;
+            merge_optional_context(&mut existing.package, diagnostic.package);
+            merge_optional_context(&mut existing.target, diagnostic.target);
+        }
+        None => {
+            diagnostics.insert(diagnostic.id.clone(), diagnostic);
+        }
+    }
 }
 
 fn normalize_diagnostic(
@@ -674,6 +723,13 @@ fn normalize_path(workspace_root: &Path, path: &Path) -> Option<String> {
     let existing_ancestor = existing_ancestor(&physical_candidate)?;
     let canonical_ancestor = existing_ancestor.canonicalize().ok()?;
     if !canonical_ancestor.starts_with(&canonical_workspace) {
+        return None;
+    }
+    normalize_relative_path(relative)
+}
+
+fn normalize_relative_path(relative: &Path) -> Option<String> {
+    if relative.is_absolute() {
         return None;
     }
     let components: Option<Vec<_>> = relative

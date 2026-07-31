@@ -1,0 +1,7 @@
+[package]
+name = "cargo-health-offline-registry"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fixture_registry_alias = { package = "fixture-registry-dep", version = "*" }

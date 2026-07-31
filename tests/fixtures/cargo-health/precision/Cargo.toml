@@ -1,0 +1,4 @@
+[workspace]
+members = ["member", "empty-member"]
+exclude = ["external-path"]
+resolver = "3"
