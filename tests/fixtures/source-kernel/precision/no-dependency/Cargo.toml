@@ -1,0 +1,4 @@
+[package]
+name = "source-kernel-no-dependency"
+version = "0.1.0"
+edition = "2024"

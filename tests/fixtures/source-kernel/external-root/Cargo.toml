@@ -1,0 +1,8 @@
+[package]
+name = "source-kernel-external-root"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "external-root"
+path = "../external-main.rs"

@@ -1,0 +1,90 @@
+{
+  "positive_counts": {
+    "rust_doctor::source::disabled_tls_verification": 5,
+    "rust_doctor::source::dynamic_shell_command": 5
+  },
+  "findings": [
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/inline/custom.rs",
+      "span": { "line_start": 2, "column_start": 72, "line_end": 2, "column_end": 76 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/nested.rs",
+      "span": { "line_start": 6, "column_start": 76, "line_end": 6, "column_end": 80 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/nested.rs",
+      "span": { "line_start": 8, "column_start": 42, "line_end": 8, "column_end": 46 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 2, "column_start": 100, "line_end": 2, "column_end": 104 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 7, "column_start": 42, "line_end": 7, "column_end": 46 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 13, "column_start": 14, "line_end": 13, "column_end": 36 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 19, "column_start": 14, "line_end": 19, "column_end": 33 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 25, "column_start": 14, "line_end": 25, "column_end": 39 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 31, "column_start": 14, "line_end": 31, "column_end": 42 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/shared.rs",
+      "span": { "line_start": 2, "column_start": 80, "line_end": 2, "column_end": 102 }
+    }
+  ],
+  "negative_cases": {
+    "rust_doctor::source::disabled_tls_verification": [
+      { "case": "false", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_false" },
+      { "case": "variable", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_variable" },
+      { "case": "shadowing", "workspace": "precision", "path": "app/src/shadowed.rs", "symbol": "local_builder" },
+      { "case": "absence-dependency", "workspace": "precision", "path": "no-dependency/src/lib.rs", "symbol": "tls_without_dependency" },
+      { "case": "other-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_other_builder" },
+      { "case": "tests-directory", "workspace": "precision", "path": "app/tests/excluded.rs", "symbol": "tls_in_test_target_is_excluded" },
+      { "case": "cfg-test", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "cfg_test_builder" },
+      { "case": "test-attribute", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "test_builder" },
+      { "case": "intersected-error", "workspace": "errors", "path": "src/intersected.rs", "symbol": "intersected_tls" },
+      { "case": "other-method", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_other_method" },
+      { "case": "unknown-alias", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_unknown_alias" },
+      { "case": "missing-argument", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_argument_missing" },
+      { "case": "nested-self-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_nested_self_shadow" },
+      { "case": "glob-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_glob_shadow" }
+    ],
+    "rust_doctor::source::dynamic_shell_command": [
+      { "case": "import", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_import" },
+      { "case": "variable-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_variable_builder" },
+      { "case": "args", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_args" },
+      { "case": "literal-payload", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_literal" },
+      { "case": "literal-interpolation", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_literal_interpolation" },
+      { "case": "shell-outside-allowlist", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_outside_allowlist" },
+      { "case": "windows", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_windows" },
+      { "case": "login-flag", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_login_flag" },
+      { "case": "variable-flag", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_variable_flag" },
+      { "case": "intersected-error", "workspace": "errors", "path": "src/intersected.rs", "symbol": "intersected" },
+      { "case": "helper", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_helper" },
+      { "case": "direct-arguments", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_direct_arguments" }
+    ]
+  }
+}

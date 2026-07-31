@@ -1,0 +1,337 @@
+{
+  "artifact": "rust-doctor-native-source-kernel-real-world-evaluation",
+  "schema_version": 1,
+  "generated_at": "2026-07-31T13:56:59+02:00",
+  "epic": "EP-008",
+  "network_in_automated_tests": false,
+  "scan_network_mode": "offline",
+  "trust_boundary": {
+    "policy": "Only the five explicitly approved, pinned public repositories were evaluated.",
+    "warning": "Cargo may execute build.rs programs and procedural macros during inspection.",
+    "decision": "The approved repository set and exact commits were reused without substitution."
+  },
+  "clippy_catalog": {
+    "command": ["clippy-driver", "-W", "help"],
+    "version": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rust_doctor::source::disabled_tls_verification": {
+      "candidate_lints": [],
+      "exact_equivalent": null,
+      "conclusion": "No Clippy lint covers Reqwest TLS verification being disabled by these builder methods."
+    },
+    "rust_doctor::source::dynamic_shell_command": {
+      "candidate_lints": [
+        "clippy::suspicious-command-arg-space",
+        "clippy::zombie-processes"
+      ],
+      "exact_equivalent": null,
+      "conclusion": "The candidate command lints do not detect dynamic interpolation into a shell payload passed after -c."
+    }
+  },
+  "repositories": [
+    {
+      "name": "anyhow",
+      "tag": "1.0.100",
+      "commit": "18c2598afa0f996f56217ef128aa3a20ea1e9512",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": true
+      },
+      "trusted": true,
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "source_pairs": 29,
+        "files_read": 29,
+        "bytes_parsed": 211279,
+        "source_errors": {},
+        "counts": {
+          "rust_doctor::source::disabled_tls_verification": 0,
+          "rust_doctor::source::dynamic_shell_command": 0
+        },
+        "source_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No source findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true,
+        "source_files_unchanged": true
+      }
+    },
+    {
+      "name": "thiserror",
+      "tag": "2.0.17",
+      "commit": "72ae716e6d6a7f7fdabdc394018c745b4d39ca45",
+      "cargo_shape": {
+        "workspace_members": 3,
+        "library": true,
+        "binary": false,
+        "proc_macro": true,
+        "custom_build": true
+      },
+      "trusted": true,
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "source_pairs": 31,
+        "files_read": 31,
+        "bytes_parsed": 140879,
+        "source_errors": {},
+        "counts": {
+          "rust_doctor::source::disabled_tls_verification": 0,
+          "rust_doctor::source::dynamic_shell_command": 0
+        },
+        "source_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No source findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true,
+        "source_files_unchanged": true
+      }
+    },
+    {
+      "name": "serde_json",
+      "tag": "v1.0.145",
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": true
+      },
+      "trusted": true,
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "source_pairs": 53,
+        "files_read": 53,
+        "bytes_parsed": 687591,
+        "source_errors": {},
+        "counts": {
+          "rust_doctor::source::disabled_tls_verification": 0,
+          "rust_doctor::source::dynamic_shell_command": 0
+        },
+        "source_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No source findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true,
+        "source_files_unchanged": true
+      }
+    },
+    {
+      "name": "log",
+      "tag": "0.4.28",
+      "commit": "6e1735597bb21c5d979a077395df85e1d633e077",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": false
+      },
+      "trusted": true,
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "source_pairs": 12,
+        "files_read": 12,
+        "bytes_parsed": 185462,
+        "source_errors": {},
+        "counts": {
+          "rust_doctor::source::disabled_tls_verification": 0,
+          "rust_doctor::source::dynamic_shell_command": 0
+        },
+        "source_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No source findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true,
+        "source_files_unchanged": true
+      }
+    },
+    {
+      "name": "hexyl",
+      "tag": "v0.16.0",
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": true,
+        "proc_macro": false,
+        "custom_build": false
+      },
+      "trusted": true,
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "source_pairs": 7,
+        "files_read": 7,
+        "bytes_parsed": 112569,
+        "source_errors": {},
+        "counts": {
+          "rust_doctor::source::disabled_tls_verification": 0,
+          "rust_doctor::source::dynamic_shell_command": 0
+        },
+        "source_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No source findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true,
+        "source_files_unchanged": true
+      }
+    }
+  ],
+  "totals": {
+    "repositories": 5,
+    "complete_scans": 5,
+    "source_pairs": 132,
+    "files_read": 132,
+    "bytes_parsed": 1337780,
+    "source_errors": 0,
+    "disabled_tls_verification": 0,
+    "dynamic_shell_command": 0,
+    "source_findings": 0,
+    "false_positives": 0,
+    "ambiguous": 0,
+    "tracked_repositories_unchanged": 5,
+    "source_trees_unchanged": 5
+  },
+  "rule_decision": {
+    "rust_doctor::source::disabled_tls_verification": "enabled",
+    "rust_doctor::source::dynamic_shell_command": "enabled"
+  },
+  "verdict": "pass"
+}

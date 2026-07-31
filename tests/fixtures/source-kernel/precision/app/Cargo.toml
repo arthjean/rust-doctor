@@ -1,0 +1,7 @@
+[package]
+name = "source-kernel-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+http_client = { package = "reqwest", path = "../reqwest" }

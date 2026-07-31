@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::rules::RULES;
+use crate::source_kernel::{self, SourceScan};
 
 const CLIPPY_BASE_ARGS: [&str; 5] = [
     "clippy",
@@ -23,6 +24,7 @@ pub(crate) struct ExecutionResult {
     pub(crate) metadata: Option<Metadata>,
     pub(crate) toolchain: ToolchainProvenance,
     pub(crate) scan: Option<ScanExecution>,
+    pub(crate) source: Option<SourceScan>,
     pub(crate) error: Option<InternalError>,
 }
 
@@ -33,6 +35,7 @@ impl ExecutionResult {
             metadata: None,
             toolchain: ToolchainProvenance::default(),
             scan: None,
+            source: None,
             error: None,
         }
     }
@@ -216,6 +219,9 @@ fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
     match run_clippy(&programs.cargo, workspace_root.as_std_path()) {
         Ok(scan) => result.scan = Some(scan),
         Err(error) => result.fail(error),
+    }
+    if result.scan.is_some() {
+        result.source = result.metadata.as_ref().map(source_kernel::inspect);
     }
 
     result

@@ -15,6 +15,7 @@ use crate::execution::{
     InternalError, ScanExecution,
 };
 use crate::rules;
+use crate::source_kernel;
 
 pub const SCHEMA_VERSION: u8 = 3;
 
@@ -235,7 +236,7 @@ pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
         .map(|metadata| metadata.workspace_root.as_std_path());
     let home = home_paths();
     let status = classify(&result);
-    let diagnostics = match (status, result.scan.as_ref()) {
+    let mut diagnostics = match (status, result.scan.as_ref()) {
         (Status::Failed, _) | (_, None) => Vec::new(),
         (_, Some(scan)) => normalize_diagnostics(
             &scan.messages,
@@ -244,6 +245,11 @@ pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
             &home,
         ),
     };
+    if status != Status::Failed
+        && let Some(source) = result.source.as_ref()
+    {
+        merge_source_candidates(&mut diagnostics, source, workspace_root, &home);
+    }
     let summary = summarize(&diagnostics);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
     let scan = scan_report(result.scan.as_ref());
@@ -290,6 +296,10 @@ fn classify(result: &ExecutionResult) -> Status {
         && scan.build_finished == Some(true)
         && scan.malformed_messages == 0
         && scan.errors.is_empty()
+        && result
+            .source
+            .as_ref()
+            .is_none_or(|source| source.errors.is_empty())
     {
         Status::Complete
     } else {
@@ -406,6 +416,13 @@ fn report_errors(
             });
         }
     }
+    if let Some(source) = result.source.as_ref() {
+        errors.extend(source.errors.iter().map(|error| ReportError {
+            stage: "source".to_owned(),
+            code: error.code.to_owned(),
+            message: sanitize_text(&error.message, workspace_root, home),
+        }));
+    }
     errors.sort_by(|left, right| {
         (&left.stage, &left.code, &left.message).cmp(&(&right.stage, &right.code, &right.message))
     });
@@ -497,6 +514,63 @@ fn normalize_cargo_health_candidate(
         target: None,
         path,
         span: None,
+        occurrences: 1,
+    }
+}
+
+fn merge_source_candidates(
+    diagnostics: &mut Vec<Diagnostic>,
+    source_scan: &source_kernel::SourceScan,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) {
+    let mut merged: BTreeMap<_, _> = diagnostics
+        .drain(..)
+        .map(|diagnostic| (diagnostic.id.clone(), diagnostic))
+        .collect();
+    for candidate in &source_scan.candidates {
+        let diagnostic = normalize_source_candidate(candidate, workspace_root, home);
+        merge_diagnostic(&mut merged, diagnostic);
+    }
+    diagnostics.extend(merged.into_values());
+    diagnostics.sort_by(compare_diagnostics);
+}
+
+fn normalize_source_candidate(
+    candidate: &source_kernel::Candidate,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) -> Diagnostic {
+    let source = DiagnosticSource::RustDoctor;
+    let code = Some(candidate.code.to_owned());
+    let path = normalize_relative_path(Path::new(&candidate.path));
+    let span = Some(DiagnosticSpan {
+        line_start: candidate.span.line_start,
+        column_start: candidate.span.column_start,
+        line_end: candidate.span.line_end,
+        column_end: candidate.span.column_end,
+    });
+    let message = sanitize_text(candidate.message, workspace_root, home);
+    let id = fingerprint(
+        source,
+        code.as_deref(),
+        path.as_deref(),
+        span.as_ref(),
+        candidate.severity,
+        &message,
+    );
+    Diagnostic {
+        id,
+        source,
+        code,
+        severity: candidate.severity,
+        category: Some(candidate.category.to_owned()),
+        message,
+        help: Some(candidate.help.to_owned()),
+        package: candidate.package.as_deref().map(normalize_text),
+        target: candidate.target.as_deref().map(normalize_text),
+        path,
+        span,
         occurrences: 1,
     }
 }
@@ -1306,6 +1380,7 @@ mod tests {
                 messages: Vec::new(),
                 errors: Vec::new(),
             }),
+            source: None,
             error: None,
         };
         let report = from_execution(result);
@@ -1346,6 +1421,7 @@ mod tests {
                 messages: Vec::new(),
                 errors: vec![duplicate],
             }),
+            source: None,
             error: None,
         };
         let report = from_execution(result);
@@ -1392,6 +1468,7 @@ mod tests {
                 messages: Vec::new(),
                 errors: Vec::new(),
             }),
+            source: None,
             error: None,
         };
         let report = from_execution(result);

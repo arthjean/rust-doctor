@@ -5,6 +5,7 @@ mod execution;
 pub mod render;
 mod report;
 mod rules;
+mod source_kernel;
 
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, InspectReport, InspectRequest, PackageReport,
