@@ -1113,6 +1113,412 @@ mod tests {
         }
     }
 
+    fn dependency(
+        name: &str,
+        source: Option<&str>,
+        requirement: &str,
+        rename: Option<&str>,
+        path: Option<&Path>,
+    ) -> Value {
+        serde_json::json!({
+            "name": name,
+            "source": source,
+            "req": requirement,
+            "kind": null,
+            "rename": rename,
+            "optional": false,
+            "uses_default_features": true,
+            "features": [],
+            "target": null,
+            "registry": null,
+            "path": path.map(|path| path.to_string_lossy().into_owned()),
+        })
+    }
+
+    fn cargo_health_metadata(order: &[usize]) -> Metadata {
+        let workspace = fixture("clean").canonicalize().unwrap();
+        let package_id = format!("path+file://{}#example@0.1.0", workspace.display());
+        let dependencies = [
+            dependency(
+                "serde",
+                Some("registry+https://github.com/rust-lang/crates.io-index"),
+                "*",
+                Some("serde_alias"),
+                None,
+            ),
+            dependency(
+                "serde",
+                Some("registry+https://github.com/rust-lang/crates.io-index"),
+                "*",
+                Some("serde_alias"),
+                None,
+            ),
+            dependency(
+                "internal_core",
+                Some("git+https://credential@git.invalid/private.git?branch=main"),
+                "*",
+                None,
+                None,
+            ),
+            dependency(
+                "pinned_core",
+                Some(
+                    "git+https://credential@git.invalid/pinned.git?rev=0123456789abcdef0123456789abcdef01234567",
+                ),
+                "*",
+                None,
+                None,
+            ),
+            dependency(
+                "bounded",
+                Some("registry+https://github.com/rust-lang/crates.io-index"),
+                "1.*",
+                None,
+                None,
+            ),
+        ];
+        let dependencies: Vec<_> = order
+            .iter()
+            .map(|&index| dependencies[index].clone())
+            .collect();
+        let manifest_path = workspace.join("Cargo.toml");
+        let target_directory = workspace.join("target");
+
+        serde_json::from_value(serde_json::json!({
+            "packages": [{
+                "name": "example",
+                "version": "0.1.0",
+                "id": package_id,
+                "license": null,
+                "license_file": null,
+                "description": null,
+                "source": null,
+                "dependencies": dependencies,
+                "targets": [],
+                "features": {},
+                "manifest_path": manifest_path,
+                "metadata": null,
+                "publish": [],
+                "authors": [],
+                "categories": [],
+                "keywords": [],
+                "readme": null,
+                "repository": null,
+                "homepage": null,
+                "documentation": null,
+                "edition": "2024",
+                "links": null,
+                "default_run": null,
+                "rust_version": null
+            }],
+            "workspace_members": [package_id],
+            "workspace_default_members": [package_id],
+            "resolve": null,
+            "workspace_root": workspace,
+            "target_directory": target_directory,
+            "build_directory": target_directory,
+            "metadata": null,
+            "version": 1
+        }))
+        .unwrap()
+    }
+
+    fn scan(
+        messages: Vec<CapturedMessage>,
+        exit_code: i32,
+        success: bool,
+        build_finished: bool,
+    ) -> ScanExecution {
+        ScanExecution {
+            command: vec![
+                "cargo".to_owned(),
+                "clippy".to_owned(),
+                "--workspace".to_owned(),
+                "--all-targets".to_owned(),
+                "--no-deps".to_owned(),
+                "--message-format=json".to_owned(),
+            ],
+            exit_code: Some(exit_code),
+            exit_success: Some(success),
+            build_finished: Some(build_finished),
+            noise_lines: 0,
+            malformed_messages: 0,
+            messages,
+            errors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cargo_health_joins_the_v3_pipeline_without_restamping_compiler_ids() {
+        let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
+        let workspace = metadata.workspace_root.as_std_path();
+        let messages = vec![compiler_message(
+            Some("clippy::lint"),
+            "warning",
+            "compiler warning",
+            "src/lib.rs",
+            2,
+        )];
+        let compiler_only =
+            normalize_diagnostics(&messages, Some(workspace), None, &HomePaths::default());
+        let mixed = normalize_diagnostics(
+            &messages,
+            Some(workspace),
+            Some(&metadata),
+            &HomePaths::default(),
+        );
+
+        assert_eq!(mixed.len(), 3);
+        let compiler = mixed
+            .iter()
+            .find(|diagnostic| diagnostic.source == DiagnosticSource::Clippy)
+            .expect("compiler diagnostic should remain");
+        assert_eq!(compiler.id, compiler_only[0].id);
+        assert_eq!(compiler.occurrences, compiler_only[0].occurrences);
+
+        let registry = mixed
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code.as_deref()
+                    == Some("rust_doctor::cargo::unbounded_registry_dependency")
+            })
+            .expect("registry finding should exist");
+        assert_eq!(registry.source, DiagnosticSource::RustDoctor);
+        assert_eq!(registry.severity, Severity::Warning);
+        assert_eq!(registry.category.as_deref(), Some("reliability"));
+        assert_eq!(
+            registry.message,
+            "Registry dependency \"serde_alias\" uses an unbounded \"*\" version requirement."
+        );
+        assert_eq!(
+            registry.help.as_deref(),
+            Some(
+                "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+            )
+        );
+        assert_eq!(registry.package.as_deref(), Some("example"));
+        assert_eq!(registry.target, None);
+        assert_eq!(registry.path.as_deref(), Some("Cargo.toml"));
+        assert_eq!(registry.span, None);
+        assert_eq!(registry.occurrences, 2);
+
+        let git = mixed
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code.as_deref() == Some("rust_doctor::cargo::unpinned_git_dependency")
+            })
+            .expect("Git finding should exist");
+        assert_eq!(git.source.to_string(), "rust-doctor");
+        assert_eq!(git.category.as_deref(), Some("security"));
+        assert_eq!(
+            git.message,
+            "Git dependency \"internal_core\" is not pinned to a full commit revision."
+        );
+        assert!(!format!("{mixed:?}").contains("git.invalid"));
+
+        let report = report_with_diagnostics(mixed);
+        assert_eq!(report.schema_version, 3);
+        assert_eq!(report.summary.warnings, 3);
+        assert_eq!(report.summary.total, 3);
+        let mut rendered = Vec::new();
+        crate::render::render_json(&report, &mut rendered).unwrap();
+        let rendered: Value = serde_json::from_slice(&rendered).unwrap();
+        assert_eq!(rendered["diagnostics"][0]["source"], "rust-doctor");
+    }
+
+    #[test]
+    fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
+        let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
+        let manifest_path = metadata
+            .workspace_root
+            .join("Cargo.toml")
+            .into_std_path_buf();
+        let expected_command = scan(Vec::new(), 0, true, true).command;
+        let complete = from_execution(ExecutionResult {
+            manifest_path: Some(manifest_path.clone()),
+            metadata: Some(metadata.clone()),
+            toolchain: ToolchainProvenance::default(),
+            scan: Some(scan(Vec::new(), 0, true, true)),
+            source: None,
+            error: None,
+        });
+        assert_eq!(complete.status, Status::Complete);
+        assert!(complete.complete);
+        assert_eq!(complete.status.exit_code(), 0);
+        assert_eq!(complete.scan.command, Some(expected_command.clone()));
+        assert_eq!(complete.diagnostics.len(), 2);
+
+        let incomplete = from_execution(ExecutionResult {
+            manifest_path: Some(manifest_path),
+            metadata: Some(metadata),
+            toolchain: ToolchainProvenance::default(),
+            scan: Some(scan(
+                vec![compiler_message(
+                    Some("E0001"),
+                    "error",
+                    "compiler error",
+                    "src/lib.rs",
+                    2,
+                )],
+                101,
+                false,
+                false,
+            )),
+            source: None,
+            error: None,
+        });
+        assert_eq!(incomplete.status, Status::Incomplete);
+        assert!(!incomplete.complete);
+        assert_eq!(incomplete.status.exit_code(), 1);
+        assert_eq!(incomplete.scan.command, Some(expected_command));
+        assert_eq!(incomplete.diagnostics.len(), 3);
+        assert!(
+            incomplete
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.source == DiagnosticSource::RustDoctor)
+        );
+
+        let failed = from_execution(ExecutionResult {
+            manifest_path: None,
+            metadata: None,
+            toolchain: ToolchainProvenance::default(),
+            scan: None,
+            source: None,
+            error: Some(InternalError {
+                stage: "metadata",
+                code: "cargo-metadata",
+                message: "metadata unavailable".to_owned(),
+            }),
+        });
+        assert_eq!(failed.status, Status::Failed);
+        assert_eq!(failed.status.exit_code(), 2);
+        assert!(failed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_candidates_share_identity_while_source_errors_only_make_scans_incomplete() {
+        let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
+        let workspace = metadata.workspace_root.as_std_path();
+        let compiler_messages = vec![
+            compiler_message(
+                Some("clippy::lint"),
+                "warning",
+                "compiler warning",
+                "src/lib.rs",
+                2,
+            ),
+            compiler_message(
+                Some("clippy::lint"),
+                "warning",
+                "compiler warning",
+                "src/lib.rs",
+                2,
+            ),
+        ];
+        let compiler_only = normalize_diagnostics(
+            &compiler_messages,
+            Some(workspace),
+            Some(&metadata),
+            &HomePaths::default(),
+        );
+        let source = source_kernel::SourceScan {
+            candidates: vec![source_kernel::Candidate {
+                code: "rust_doctor::source::dynamic_shell_command",
+                category: "security",
+                severity: Severity::Warning,
+                message: "A dynamic value is interpolated into a shell command string.",
+                help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
+                package: Some("example".to_owned()),
+                target: None,
+                path: "src/source.rs".to_owned(),
+                span: source_kernel::SourceSpan {
+                    line_start: 4,
+                    column_start: 8,
+                    line_end: 4,
+                    column_end: 24,
+                },
+            }],
+            errors: vec![source_kernel::SourceError {
+                code: "parse-error",
+                message: "Source path \"src/broken.rs\" contains 1 parse errors.".to_owned(),
+            }],
+            counters: source_kernel::SourceCounters::default(),
+        };
+        let report = from_execution(ExecutionResult {
+            manifest_path: Some(workspace.join("Cargo.toml")),
+            metadata: Some(metadata),
+            toolchain: ToolchainProvenance::default(),
+            scan: Some(scan(compiler_messages, 0, true, true)),
+            source: Some(source),
+            error: None,
+        });
+
+        assert_eq!(report.status, Status::Incomplete);
+        assert_eq!(report.status.exit_code(), 1);
+        let compiler = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.source == DiagnosticSource::Clippy)
+            .unwrap();
+        let baseline = compiler_only
+            .iter()
+            .find(|diagnostic| diagnostic.source == DiagnosticSource::Clippy)
+            .unwrap();
+        assert_eq!(compiler.id, baseline.id);
+        assert_eq!(compiler.occurrences, baseline.occurrences);
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_deref() == Some("rust_doctor::source::dynamic_shell_command")
+                && diagnostic.span.is_some()
+        }));
+        assert!(report.errors.iter().any(|error| {
+            error.stage == "source"
+                && error.code == "parse-error"
+                && !error.message.contains(env!("CARGO_MANIFEST_DIR"))
+        }));
+    }
+
+    #[test]
+    fn twenty_mixed_permutations_render_identically() {
+        let mut expected = None;
+        let mut order = [0, 1, 2, 3, 4];
+        let mut seen = BTreeSet::new();
+
+        for permutation in 0..20 {
+            assert!(seen.insert(order));
+            let metadata = cargo_health_metadata(&order);
+            let workspace = metadata.workspace_root.as_std_path();
+            let messages = if permutation % 2 == 0 {
+                vec![
+                    compiler_message(Some("clippy::lint"), "warning", "beta", "src/b.rs", 3),
+                    compiler_message(Some("E0001"), "error", "alpha", "src/a.rs", 2),
+                ]
+            } else {
+                vec![
+                    compiler_message(Some("E0001"), "error", "alpha", "src/a.rs", 2),
+                    compiler_message(Some("clippy::lint"), "warning", "beta", "src/b.rs", 3),
+                ]
+            };
+            let diagnostics = normalize_diagnostics(
+                &messages,
+                Some(workspace),
+                Some(&metadata),
+                &HomePaths::default(),
+            );
+            let mut rendered = Vec::new();
+            crate::render::render_json(&report_with_diagnostics(diagnostics), &mut rendered)
+                .unwrap();
+            match expected.as_ref() {
+                Some(expected) => assert_eq!(&rendered, expected),
+                None => expected = Some(rendered),
+            }
+            if permutation < 19 {
+                assert!(next_permutation(&mut order));
+            }
+        }
+        assert_eq!(seen.len(), 20);
+    }
+
     #[test]
     fn normalizes_text_paths_severity_and_deduplicates() {
         let workspace = fixture("clean").canonicalize().unwrap();
