@@ -1,0 +1,5 @@
+/target/
+/tests/fixtures/projects/*/target/
+/tests/fixtures/projects/*/Cargo.lock
+/tests/fixtures/kernel-contract/*/target/
+/tests/fixtures/kernel-contract/*/Cargo.lock

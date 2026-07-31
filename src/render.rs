@@ -1,0 +1,231 @@
+use std::error::Error;
+use std::fmt;
+use std::io::{self, Write};
+
+use crate::{InspectReport, Status};
+
+#[derive(Debug)]
+pub enum RenderError {
+    Json(serde_json::Error),
+    Write(io::Error),
+}
+
+impl fmt::Display for RenderError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(error) => write!(formatter, "could not serialize report: {error}"),
+            Self::Write(error) => write!(formatter, "could not write report: {error}"),
+        }
+    }
+}
+
+impl Error for RenderError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Json(error) => Some(error),
+            Self::Write(error) => Some(error),
+        }
+    }
+}
+
+pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
+    serde_json::to_writer(&mut writer, report).map_err(RenderError::Json)?;
+    writer.write_all(b"\n").map_err(RenderError::Write)
+}
+
+pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
+    for diagnostic in &report.diagnostics {
+        let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
+        let (line, column) = diagnostic
+            .span
+            .as_ref()
+            .map_or((0, 0), |span| (span.line_start, span.column_start));
+        match diagnostic.code.as_deref() {
+            Some(code) => writeln!(
+                writer,
+                "{path}:{line}:{column} {} [{code}] {}",
+                diagnostic.severity, diagnostic.message
+            ),
+            None => writeln!(
+                writer,
+                "{path}:{line}:{column} {} {}",
+                diagnostic.severity, diagnostic.message
+            ),
+        }
+        .map_err(RenderError::Write)?;
+        if let (Some(category), Some(help)) =
+            (diagnostic.category.as_deref(), diagnostic.help.as_deref())
+        {
+            writeln!(writer, "Help ({category}): {help}").map_err(RenderError::Write)?;
+        }
+    }
+
+    writeln!(
+        writer,
+        "{} diagnostic(s): {} error(s), {} warning(s), {} info, {} unknown; status {}",
+        report.summary.total,
+        report.summary.errors,
+        report.summary.warnings,
+        report.summary.info,
+        report.summary.unknown,
+        report.status,
+    )
+    .map_err(RenderError::Write)?;
+
+    if report.status != Status::Complete {
+        let heading = match report.status {
+            Status::Incomplete => "Scan incomplete",
+            Status::Failed => "Scan failed",
+            Status::Complete => "Scan",
+        };
+        for error in &report.errors {
+            writeln!(
+                writer,
+                "{heading}: {} ({}/{})",
+                error.message, error.stage, error.code
+            )
+            .map_err(RenderError::Write)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Diagnostic, DiagnosticSource, DiagnosticSpan, InspectReport, ScanReport, Severity, Summary,
+        ToolchainReport,
+    };
+
+    struct ClosedWriter {
+        writes: usize,
+    }
+
+    impl Write for ClosedWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn report() -> InspectReport {
+        InspectReport {
+            schema_version: 2,
+            status: Status::Complete,
+            complete: true,
+            project: None,
+            toolchain: ToolchainReport {
+                rustc: None,
+                cargo: None,
+                clippy: None,
+            },
+            scan: ScanReport {
+                command: None,
+                exit_code: Some(0),
+                build_finished: Some(true),
+                noise_lines: Some(0),
+            },
+            diagnostics: vec![Diagnostic {
+                id: "id".to_owned(),
+                source: DiagnosticSource::Clippy,
+                code: Some("clippy::lint".to_owned()),
+                severity: Severity::Warning,
+                category: None,
+                message: "message".to_owned(),
+                help: None,
+                package: Some("package".to_owned()),
+                target: Some("target".to_owned()),
+                path: Some("src/lib.rs".to_owned()),
+                span: Some(DiagnosticSpan {
+                    line_start: 2,
+                    column_start: 3,
+                    line_end: 2,
+                    column_end: 4,
+                }),
+                occurrences: 1,
+            }],
+            errors: Vec::new(),
+            summary: Summary {
+                errors: 0,
+                warnings: 1,
+                info: 0,
+                unknown: 0,
+                total: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn json_is_one_document_followed_by_newline() {
+        let mut output = Vec::new();
+        render_json(&report(), &mut output).unwrap();
+
+        assert_eq!(output.last(), Some(&b'\n'));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
+            2
+        );
+    }
+
+    #[test]
+    fn terminal_diagnostic_contains_location_severity_code_and_message() {
+        let mut output = Vec::new();
+        render_terminal(&report(), &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains("src/lib.rs:2:3 warning [clippy::lint] message"));
+        assert!(output.contains("status complete"));
+        assert!(!output.contains("Help ("));
+    }
+
+    #[test]
+    fn curated_terminal_diagnostic_is_followed_by_stable_help() {
+        let mut report = report();
+        report.diagnostics[0].category = Some("correctness".to_owned());
+        report.diagnostics[0].help = Some("Replace the placeholder.".to_owned());
+        let mut output = Vec::new();
+
+        render_terminal(&report, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains(
+            "warning [clippy::lint] message\nHelp (correctness): Replace the placeholder.\n"
+        ));
+    }
+
+    #[test]
+    fn incomplete_terminal_output_explains_each_structured_error() {
+        let mut report = report();
+        report.status = Status::Incomplete;
+        report.complete = false;
+        report.errors = vec![crate::ReportError {
+            stage: "execution".to_owned(),
+            code: "clippy-exit".to_owned(),
+            message: "Clippy exited with status 101".to_owned(),
+        }];
+        let mut output = Vec::new();
+
+        render_terminal(&report, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(
+            output
+                .contains("Scan incomplete: Clippy exited with status 101 (execution/clippy-exit)")
+        );
+    }
+
+    #[test]
+    fn closed_writer_returns_typed_error_without_second_document() {
+        let mut writer = ClosedWriter { writes: 0 };
+        let error = render_json(&report(), &mut writer).unwrap_err();
+
+        assert!(matches!(error, RenderError::Json(_)));
+        assert_eq!(writer.writes, 1);
+    }
+}
