@@ -1,0 +1,88 @@
+{
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "clap": "4.6.4"
+  },
+  "catalog": [
+    {
+      "id": "clippy::dbg_macro",
+      "category": "maintainability",
+      "producer": "clippy",
+      "default_level": "warn",
+      "help": "Remove dbg! or replace it with intentional logging."
+    },
+    {
+      "id": "clippy::todo",
+      "category": "correctness",
+      "producer": "clippy",
+      "default_level": "warn",
+      "help": "Replace todo! with the intended implementation or remove the reachable placeholder."
+    },
+    {
+      "id": "clippy::unimplemented",
+      "category": "correctness",
+      "producer": "clippy",
+      "default_level": "warn",
+      "help": "Implement this code path or remove the reachable placeholder."
+    },
+    {
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "category": "reliability",
+      "producer": "cargo-health",
+      "default_level": "warn",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+    },
+    {
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "category": "security",
+      "producer": "cargo-health",
+      "default_level": "warn",
+      "help": "Set rev to the full 40-character commit SHA intended by the project."
+    },
+    {
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "category": "security",
+      "producer": "source-kernel",
+      "default_level": "warn",
+      "help": "Keep TLS verification enabled and configure the required trust roots or server name instead."
+    },
+    {
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "category": "security",
+      "producer": "source-kernel",
+      "default_level": "warn",
+      "help": "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary."
+    }
+  ],
+  "clippy_command": [
+    "cargo",
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--no-deps",
+    "--message-format=json",
+    "--",
+    "-W",
+    "clippy::dbg_macro",
+    "-W",
+    "clippy::todo",
+    "-W",
+    "clippy::unimplemented"
+  ],
+  "representative_diagnostic_ids": {
+    "clippy::dbg_macro": "425396296fdead1104c673b67c668fe38c43fd4539c69cb564df130cbeed770f",
+    "clippy::todo": "262fe86e4f45ee4cb80fada6ab1c4e94e73f6255125b829fb4f4b30643693d16",
+    "clippy::unimplemented": "f3eef65d57a9ee9e960b4f47d705ce74f2a72aabb9661c0d50ffe483b7070e7c"
+  },
+  "identity_severity": "base",
+  "effective_error_clippy_flag": "-W",
+  "exit_contract": [
+    { "scan_status": "complete", "complete": true, "gate_status": "passed", "exit_code": 0 },
+    { "scan_status": "complete", "complete": true, "gate_status": "failed", "exit_code": 1 },
+    { "scan_status": "incomplete", "complete": false, "gate_status": "not-evaluated", "exit_code": 1 },
+    { "scan_status": "failed", "complete": false, "gate_status": "not-evaluated", "exit_code": 2 },
+    { "scan_status": "clap-error", "complete": false, "gate_status": null, "exit_code": 2 }
+  ]
+}

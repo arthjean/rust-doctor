@@ -1,0 +1,4 @@
+[workspace]
+members = ["app"]
+exclude = ["reqwest"]
+resolver = "3"

@@ -64,10 +64,10 @@ fn native_source_findings_join_the_existing_v3_report() {
     let after = content_hashes(&root);
 
     assert_eq!(before, after);
-    assert_eq!(report.schema_version, 3);
+    assert_eq!(report.schema_version, 4);
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     assert!(report.complete);
-    assert_eq!(report.status.exit_code(), 0);
+    assert_eq!(report.exit_code(), 0);
     assert_eq!(
         report.scan.command.as_deref(),
         Some(
@@ -193,7 +193,7 @@ fn source_errors_make_a_started_scan_incomplete_without_losing_valid_findings() 
 
     assert_eq!(report.status, Status::Incomplete);
     assert!(!report.complete);
-    assert_eq!(report.status.exit_code(), 1);
+    assert_eq!(report.exit_code(), 1);
     let source_error_codes: Vec<_> = report
         .errors
         .iter()
@@ -236,7 +236,7 @@ fn failures_before_scan_execution_do_not_run_the_source_kernel() {
     let report = inspect(InspectRequest::new(fixture("does-not-exist")));
 
     assert_eq!(report.status, Status::Failed);
-    assert_eq!(report.status.exit_code(), 2);
+    assert_eq!(report.exit_code(), 2);
     assert!(report.diagnostics.is_empty());
     assert!(report.errors.iter().all(|error| error.stage != "source"));
 }
