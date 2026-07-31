@@ -14,19 +14,45 @@ use crate::execution::{
     CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData, ExecutionResult,
     InternalError, ScanExecution,
 };
-use crate::rules;
+use crate::policy::{
+    self, BlockingLevel, CategoryOverride, PolicyError, PolicyInput, PolicyPlan, RuleLevel,
+    RuleOverride,
+};
 use crate::source_kernel;
 
-pub const SCHEMA_VERSION: u8 = 3;
+pub const SCHEMA_VERSION: u8 = 4;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
     pub path: PathBuf,
+    policy: PolicyInput,
 }
 
 impl InspectRequest {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            policy: PolicyInput::default(),
+        }
+    }
+
+    pub fn with_rule_override(mut self, rule_override: RuleOverride) -> Self {
+        self.policy.push_rule(rule_override);
+        self
+    }
+
+    pub fn with_category_override(mut self, category_override: CategoryOverride) -> Self {
+        self.policy.push_category(category_override);
+        self
+    }
+
+    pub fn with_blocking(mut self, blocking: BlockingLevel) -> Self {
+        self.policy = self.policy.with_blocking(blocking);
+        self
+    }
+
+    pub(crate) const fn policy(&self) -> &PolicyInput {
+        &self.policy
     }
 }
 
@@ -47,6 +73,7 @@ pub struct InspectReport {
     pub diagnostics: Vec<Diagnostic>,
     pub errors: Vec<ReportError>,
     pub summary: Summary,
+    pub gate: GateReport,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -58,14 +85,6 @@ pub enum Status {
 }
 
 impl Status {
-    pub const fn exit_code(self) -> u8 {
-        match self {
-            Self::Complete => 0,
-            Self::Incomplete => 1,
-            Self::Failed => 2,
-        }
-    }
-
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Complete => "complete",
@@ -115,6 +134,7 @@ pub struct Diagnostic {
     pub id: String,
     pub source: DiagnosticSource,
     pub code: Option<String>,
+    pub base_severity: Severity,
     pub severity: Severity,
     pub category: Option<String>,
     pub message: String,
@@ -210,6 +230,48 @@ pub struct Summary {
     pub total: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GateStatus {
+    Passed,
+    Failed,
+    NotEvaluated,
+}
+
+impl GateStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::NotEvaluated => "not-evaluated",
+        }
+    }
+}
+
+impl fmt::Display for GateStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GateReport {
+    pub blocking: BlockingLevel,
+    pub status: GateStatus,
+    pub blocking_diagnostics: Option<usize>,
+}
+
+impl InspectReport {
+    pub const fn exit_code(&self) -> u8 {
+        match (self.status, self.gate.status) {
+            (Status::Complete, GateStatus::Passed) => 0,
+            (Status::Complete, GateStatus::Failed | GateStatus::NotEvaluated)
+            | (Status::Incomplete, _) => 1,
+            (Status::Failed, _) => 2,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct HomePaths {
     lexical: Option<String>,
@@ -229,7 +291,7 @@ impl HomePaths {
     }
 }
 
-pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
+pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> InspectReport {
     let workspace_root = result
         .metadata
         .as_ref()
@@ -238,11 +300,12 @@ pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
     let status = classify(&result);
     let mut diagnostics = match (status, result.scan.as_ref()) {
         (Status::Failed, _) | (_, None) => Vec::new(),
-        (_, Some(scan)) => normalize_diagnostics(
+        (_, Some(scan)) => normalize_diagnostics_with_plan(
             &scan.messages,
             workspace_root,
             result.metadata.as_ref(),
             &home,
+            plan,
         ),
     };
     if status != Status::Failed
@@ -250,7 +313,10 @@ pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
     {
         merge_source_candidates(&mut diagnostics, source, workspace_root, &home);
     }
+    apply_policy(&mut diagnostics, plan);
+    diagnostics.sort_by(compare_diagnostics);
     let summary = summarize(&diagnostics);
+    let gate = evaluate_gate(status, &diagnostics, plan.blocking());
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
     let scan = scan_report(result.scan.as_ref());
     let errors = report_errors(&result, workspace_root, &home);
@@ -281,6 +347,39 @@ pub(crate) fn from_execution(result: ExecutionResult) -> InspectReport {
         diagnostics,
         errors,
         summary,
+        gate,
+    }
+}
+
+pub(crate) fn policy_failure(error: PolicyError, blocking: BlockingLevel) -> InspectReport {
+    InspectReport {
+        schema_version: SCHEMA_VERSION,
+        status: Status::Failed,
+        complete: false,
+        project: None,
+        toolchain: ToolchainReport {
+            rustc: None,
+            cargo: None,
+            clippy: None,
+        },
+        scan: ScanReport {
+            command: None,
+            exit_code: None,
+            build_finished: None,
+            noise_lines: None,
+        },
+        diagnostics: Vec::new(),
+        errors: vec![ReportError {
+            stage: "policy".to_owned(),
+            code: error.code.to_owned(),
+            message: error.message.to_owned(),
+        }],
+        summary: Summary::default(),
+        gate: GateReport {
+            blocking,
+            status: GateStatus::NotEvaluated,
+            blocking_diagnostics: None,
+        },
     }
 }
 
@@ -442,11 +541,12 @@ fn normalize_error(
     }
 }
 
-fn normalize_diagnostics(
+fn normalize_diagnostics_with_plan(
     messages: &[CapturedMessage],
     workspace_root: Option<&Path>,
     metadata: Option<&Metadata>,
     home: &HomePaths,
+    plan: &PolicyPlan,
 ) -> Vec<Diagnostic> {
     let Some(workspace_root) = workspace_root else {
         return Vec::new();
@@ -454,7 +554,7 @@ fn normalize_diagnostics(
     let mut diagnostics = BTreeMap::<String, Diagnostic>::new();
 
     if let Some(metadata) = metadata {
-        for candidate in cargo_health::inspect(metadata) {
+        for candidate in cargo_health::inspect(metadata, plan).candidates {
             let diagnostic = normalize_cargo_health_candidate(candidate, workspace_root, home);
             merge_diagnostic(&mut diagnostics, diagnostic);
         }
@@ -472,6 +572,14 @@ fn normalize_diagnostics(
                 continue;
             }
         };
+        if message
+            .message
+            .code
+            .as_ref()
+            .is_some_and(|code| policy::find(&code.code).is_some() && !plan.is_active(&code.code))
+        {
+            continue;
+        }
         let diagnostic = normalize_diagnostic(message, workspace_root, metadata, home);
         merge_diagnostic(&mut diagnostics, diagnostic);
     }
@@ -481,13 +589,30 @@ fn normalize_diagnostics(
     diagnostics
 }
 
+#[cfg(test)]
+fn normalize_diagnostics(
+    messages: &[CapturedMessage],
+    workspace_root: Option<&Path>,
+    metadata: Option<&Metadata>,
+    home: &HomePaths,
+) -> Vec<Diagnostic> {
+    normalize_diagnostics_with_plan(
+        messages,
+        workspace_root,
+        metadata,
+        home,
+        &PolicyPlan::default(),
+    )
+}
+
 fn normalize_cargo_health_candidate(
     candidate: cargo_health::Candidate,
     workspace_root: &Path,
     home: &HomePaths,
 ) -> Diagnostic {
+    let definition = candidate.definition;
     let source = DiagnosticSource::RustDoctor;
-    let code = Some(candidate.code.to_owned());
+    let code = Some(definition.id.to_owned());
     let message = sanitize_text(&candidate.message, Some(workspace_root), home);
     let path = candidate
         .manifest_path
@@ -498,7 +623,7 @@ fn normalize_cargo_health_candidate(
         code.as_deref(),
         path.as_deref(),
         None,
-        candidate.severity,
+        canonical_severity(definition.default_level),
         &message,
     );
 
@@ -506,10 +631,11 @@ fn normalize_cargo_health_candidate(
         id,
         source,
         code,
-        severity: candidate.severity,
-        category: Some(candidate.category.to_owned()),
+        base_severity: canonical_severity(definition.default_level),
+        severity: canonical_severity(definition.default_level),
+        category: Some(definition.category.to_owned()),
         message,
-        help: Some(candidate.help.to_owned()),
+        help: Some(definition.help.to_owned()),
         package: Some(normalize_text(&candidate.package)),
         target: None,
         path,
@@ -541,8 +667,9 @@ fn normalize_source_candidate(
     workspace_root: Option<&Path>,
     home: &HomePaths,
 ) -> Diagnostic {
+    let definition = candidate.definition;
     let source = DiagnosticSource::RustDoctor;
-    let code = Some(candidate.code.to_owned());
+    let code = Some(definition.id.to_owned());
     let path = normalize_relative_path(Path::new(&candidate.path));
     let span = Some(DiagnosticSpan {
         line_start: candidate.span.line_start,
@@ -556,17 +683,18 @@ fn normalize_source_candidate(
         code.as_deref(),
         path.as_deref(),
         span.as_ref(),
-        candidate.severity,
+        canonical_severity(definition.default_level),
         &message,
     );
     Diagnostic {
         id,
         source,
         code,
-        severity: candidate.severity,
-        category: Some(candidate.category.to_owned()),
+        base_severity: canonical_severity(definition.default_level),
+        severity: canonical_severity(definition.default_level),
+        category: Some(definition.category.to_owned()),
         message,
-        help: Some(candidate.help.to_owned()),
+        help: Some(definition.help.to_owned()),
         package: candidate.package.as_deref().map(normalize_text),
         target: candidate.target.as_deref().map(normalize_text),
         path,
@@ -598,7 +726,7 @@ fn normalize_diagnostic(
         .message
         .code
         .as_ref()
-        .and_then(|code| rules::find(&code.code));
+        .and_then(|code| policy::find(&code.code));
     let code = captured
         .message
         .code
@@ -632,6 +760,7 @@ fn normalize_diagnostic(
         id,
         source,
         code,
+        base_severity: severity,
         severity,
         category: rule.map(|rule| rule.category.to_owned()),
         message,
@@ -656,6 +785,60 @@ fn severity(level: &str) -> Severity {
         "warning" => Severity::Warning,
         "note" | "help" => Severity::Info,
         _ => Severity::Unknown,
+    }
+}
+
+fn canonical_severity(level: RuleLevel) -> Severity {
+    match level {
+        RuleLevel::Warn => Severity::Warning,
+        RuleLevel::Error => Severity::Error,
+        RuleLevel::Off => Severity::Unknown,
+    }
+}
+
+fn apply_policy(diagnostics: &mut [Diagnostic], plan: &PolicyPlan) {
+    for diagnostic in diagnostics {
+        if let Some(level) = diagnostic
+            .code
+            .as_deref()
+            .and_then(|code| plan.restamp_level(code))
+        {
+            diagnostic.severity = canonical_severity(level);
+        }
+    }
+}
+
+fn evaluate_gate(
+    status: Status,
+    diagnostics: &[Diagnostic],
+    blocking: BlockingLevel,
+) -> GateReport {
+    if status != Status::Complete {
+        return GateReport {
+            blocking,
+            status: GateStatus::NotEvaluated,
+            blocking_diagnostics: None,
+        };
+    }
+
+    let blocking_diagnostics = diagnostics
+        .iter()
+        .filter(|diagnostic| match blocking {
+            BlockingLevel::None => false,
+            BlockingLevel::Error => diagnostic.severity == Severity::Error,
+            BlockingLevel::Warning => {
+                matches!(diagnostic.severity, Severity::Error | Severity::Warning)
+            }
+        })
+        .count();
+    GateReport {
+        blocking,
+        status: if blocking_diagnostics == 0 {
+            GateStatus::Passed
+        } else {
+            GateStatus::Failed
+        },
+        blocking_diagnostics: Some(blocking_diagnostics),
     }
 }
 
@@ -735,7 +918,7 @@ fn fingerprint(
     code: Option<&str>,
     path: Option<&str>,
     span: Option<&DiagnosticSpan>,
-    severity: Severity,
+    base_severity: Severity,
     message: &str,
 ) -> String {
     let span = span.map_or_else(
@@ -756,7 +939,7 @@ fn fingerprint(
         json_optional_string(code),
         json_optional_string(path),
         span,
-        json_string(severity.as_str()),
+        json_string(base_severity.as_str()),
         json_string(message),
     );
     blake3::hash(tuple.as_bytes()).to_hex().to_string()
@@ -993,6 +1176,10 @@ mod tests {
     use super::*;
     use crate::execution::{CapturedDiagnosticCode, CapturedTarget, ToolchainProvenance};
 
+    fn from_execution(result: ExecutionResult) -> InspectReport {
+        super::from_execution(result, &PolicyPlan::default())
+    }
+
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/projects")
@@ -1091,6 +1278,7 @@ mod tests {
     }
 
     fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
+        let gate = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error);
         InspectReport {
             schema_version: SCHEMA_VERSION,
             status: Status::Complete,
@@ -1110,7 +1298,86 @@ mod tests {
             summary: summarize(&diagnostics),
             diagnostics,
             errors: Vec::new(),
+            gate,
         }
+    }
+
+    #[test]
+    fn restamping_changes_only_effective_severity_summary_and_gate() {
+        let workspace = fixture("clean");
+        let home = HomePaths::default();
+        let messages = vec![compiler_message(
+            Some("clippy::todo"),
+            "warning",
+            "placeholder",
+            "src/lib.rs",
+            2,
+        )];
+        let baseline = normalize_diagnostics(&messages, Some(&workspace), None, &home);
+        let input = PolicyInput::default().with_rule("clippy::todo", RuleLevel::Error);
+        let plan = PolicyPlan::compile(&input).expect("policy should compile");
+        let mut effective = baseline.clone();
+        apply_policy(&mut effective, &plan);
+
+        assert_eq!(effective[0].id, baseline[0].id);
+        assert_eq!(effective[0].base_severity, Severity::Warning);
+        assert_eq!(effective[0].severity, Severity::Error);
+        assert_eq!(effective[0].message, baseline[0].message);
+        assert_eq!(effective[0].path, baseline[0].path);
+        assert_eq!(effective[0].span, baseline[0].span);
+        assert_eq!(effective[0].occurrences, baseline[0].occurrences);
+        assert_eq!(summarize(&baseline).warnings, 1);
+        assert_eq!(summarize(&effective).errors, 1);
+        assert_eq!(
+            evaluate_gate(Status::Complete, &effective, BlockingLevel::Error),
+            GateReport {
+                blocking: BlockingLevel::Error,
+                status: GateStatus::Failed,
+                blocking_diagnostics: Some(1),
+            }
+        );
+    }
+
+    #[test]
+    fn gate_counts_deduplicated_diagnostics_and_exit_codes_follow_both_states() {
+        let workspace = fixture("clean");
+        let home = HomePaths::default();
+        let mut diagnostics = normalize_diagnostics(
+            &[
+                compiler_message(Some("E0001"), "error", "error", "src/lib.rs", 1),
+                compiler_message(None, "warning", "warning", "src/lib.rs", 2),
+                compiler_message(None, "note", "info", "src/lib.rs", 3),
+                compiler_message(None, "future", "unknown", "src/lib.rs", 4),
+            ],
+            Some(&workspace),
+            None,
+            &home,
+        );
+        diagnostics[0].occurrences = 99;
+
+        let none = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::None);
+        let error = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error);
+        let warning = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Warning);
+        let incomplete = evaluate_gate(Status::Incomplete, &diagnostics, BlockingLevel::Warning);
+        assert_eq!(none.blocking_diagnostics, Some(0));
+        assert_eq!(none.status, GateStatus::Passed);
+        assert_eq!(error.blocking_diagnostics, Some(1));
+        assert_eq!(error.status, GateStatus::Failed);
+        assert_eq!(warning.blocking_diagnostics, Some(2));
+        assert_eq!(warning.status, GateStatus::Failed);
+        assert_eq!(incomplete.blocking_diagnostics, None);
+        assert_eq!(incomplete.status, GateStatus::NotEvaluated);
+
+        let mut report = report_with_diagnostics(diagnostics);
+        report.gate = none;
+        assert_eq!(report.exit_code(), 0);
+        report.gate = error;
+        assert_eq!(report.exit_code(), 1);
+        report.status = Status::Incomplete;
+        report.gate = incomplete.clone();
+        assert_eq!(report.exit_code(), 1);
+        report.status = Status::Failed;
+        assert_eq!(report.exit_code(), 2);
     }
 
     fn dependency(
@@ -1249,7 +1516,7 @@ mod tests {
     }
 
     #[test]
-    fn cargo_health_joins_the_v3_pipeline_without_restamping_compiler_ids() {
+    fn cargo_health_joins_the_v4_pipeline_without_restamping_compiler_ids() {
         let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
         let workspace = metadata.workspace_root.as_std_path();
         let messages = vec![compiler_message(
@@ -1317,7 +1584,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 3);
+        assert_eq!(report.schema_version, 4);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();
@@ -1344,7 +1611,7 @@ mod tests {
         });
         assert_eq!(complete.status, Status::Complete);
         assert!(complete.complete);
-        assert_eq!(complete.status.exit_code(), 0);
+        assert_eq!(complete.exit_code(), 0);
         assert_eq!(complete.scan.command, Some(expected_command.clone()));
         assert_eq!(complete.diagnostics.len(), 2);
 
@@ -1369,7 +1636,7 @@ mod tests {
         });
         assert_eq!(incomplete.status, Status::Incomplete);
         assert!(!incomplete.complete);
-        assert_eq!(incomplete.status.exit_code(), 1);
+        assert_eq!(incomplete.exit_code(), 1);
         assert_eq!(incomplete.scan.command, Some(expected_command));
         assert_eq!(incomplete.diagnostics.len(), 3);
         assert!(
@@ -1392,7 +1659,7 @@ mod tests {
             }),
         });
         assert_eq!(failed.status, Status::Failed);
-        assert_eq!(failed.status.exit_code(), 2);
+        assert_eq!(failed.exit_code(), 2);
         assert!(failed.diagnostics.is_empty());
     }
 
@@ -1424,11 +1691,8 @@ mod tests {
         );
         let source = source_kernel::SourceScan {
             candidates: vec![source_kernel::Candidate {
-                code: "rust_doctor::source::dynamic_shell_command",
-                category: "security",
-                severity: Severity::Warning,
+                definition: crate::policy::SOURCE_DYNAMIC_SHELL,
                 message: "A dynamic value is interpolated into a shell command string.",
-                help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
                 package: Some("example".to_owned()),
                 target: None,
                 path: "src/source.rs".to_owned(),
@@ -1455,7 +1719,7 @@ mod tests {
         });
 
         assert_eq!(report.status, Status::Incomplete);
-        assert_eq!(report.status.exit_code(), 1);
+        assert_eq!(report.exit_code(), 1);
         let compiler = report
             .diagnostics
             .iter()

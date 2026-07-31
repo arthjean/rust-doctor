@@ -7,7 +7,7 @@ use cargo_metadata::{Message, Metadata, MetadataCommand};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::rules::RULES;
+use crate::policy::{PolicyPlan, Producer};
 use crate::source_kernel::{self, SourceScan};
 
 const CLIPPY_BASE_ARGS: [&str; 5] = [
@@ -139,11 +139,11 @@ impl Default for Programs {
     }
 }
 
-pub(crate) fn execute(path: &Path) -> ExecutionResult {
-    execute_with(path, &Programs::default())
+pub(crate) fn execute(path: &Path, plan: &PolicyPlan) -> ExecutionResult {
+    execute_with_plan(path, &Programs::default(), plan)
 }
 
-fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
+fn execute_with_plan(path: &Path, programs: &Programs, plan: &PolicyPlan) -> ExecutionResult {
     let manifest_path = match discover_manifest(path) {
         Ok(manifest_path) => manifest_path,
         Err(error) => {
@@ -216,12 +216,15 @@ fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
     };
     result.toolchain.clippy = Some(clippy_version);
 
-    match run_clippy(&programs.cargo, workspace_root.as_std_path()) {
+    match run_clippy(&programs.cargo, workspace_root.as_std_path(), plan) {
         Ok(scan) => result.scan = Some(scan),
         Err(error) => result.fail(error),
     }
     if result.scan.is_some() {
-        result.source = result.metadata.as_ref().map(source_kernel::inspect);
+        result.source = result
+            .metadata
+            .as_ref()
+            .map(|metadata| source_kernel::inspect(metadata, plan));
     }
 
     result
@@ -384,8 +387,12 @@ fn version_command(program: &Path, arguments: &[&str], working_directory: &Path)
     command
 }
 
-fn run_clippy(cargo: &Path, workspace_root: &Path) -> Result<ScanExecution, InternalError> {
-    let arguments = clippy_arguments();
+fn run_clippy(
+    cargo: &Path,
+    workspace_root: &Path,
+    plan: &PolicyPlan,
+) -> Result<ScanExecution, InternalError> {
+    let arguments = clippy_arguments_for_plan(plan);
     let mut child = clippy_command(cargo, workspace_root, &arguments)
         .spawn()
         .map_err(|error| {
@@ -433,12 +440,14 @@ fn run_clippy(cargo: &Path, workspace_root: &Path) -> Result<ScanExecution, Inte
     })
 }
 
-fn clippy_arguments() -> Vec<&'static str> {
-    let mut arguments = Vec::with_capacity(CLIPPY_BASE_ARGS.len() + 1 + RULES.len() * 2);
+fn clippy_arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
+    let mut arguments = Vec::with_capacity(CLIPPY_BASE_ARGS.len() + 1 + 6);
     arguments.extend(CLIPPY_BASE_ARGS);
     arguments.push("--");
-    for rule in RULES {
-        arguments.extend([rule.activation.flag(), rule.code]);
+    for (definition, level) in plan.active_rules(Producer::Clippy) {
+        if let Some(flag) = level.clippy_flag() {
+            arguments.extend([flag, definition.id]);
+        }
     }
     arguments
 }
@@ -565,6 +574,19 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     use super::*;
+    use crate::policy::{PolicyInput, RuleLevel};
+
+    fn execute(path: &Path) -> ExecutionResult {
+        super::execute(path, &PolicyPlan::default())
+    }
+
+    fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
+        execute_with_plan(path, programs, &PolicyPlan::default())
+    }
+
+    fn clippy_arguments() -> Vec<&'static str> {
+        clippy_arguments_for_plan(&PolicyPlan::default())
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -723,6 +745,40 @@ mod tests {
             1
         );
         assert_eq!(command.get_current_dir(), Some(workspace.as_path()));
+    }
+
+    #[test]
+    fn clippy_arguments_prune_off_rules_but_keep_error_rules_at_warning() {
+        let input = PolicyInput::default()
+            .with_rule("clippy::dbg_macro", RuleLevel::Off)
+            .with_rule("clippy::todo", RuleLevel::Error);
+        let plan = PolicyPlan::compile(&input).expect("policy should compile");
+        let arguments = clippy_arguments_for_plan(&plan);
+
+        assert!(!arguments.contains(&"clippy::dbg_macro"));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-W", "clippy::todo"])
+        );
+        assert!(!arguments.contains(&"-D"));
+
+        let all_off = PolicyInput::default()
+            .with_rule("clippy::dbg_macro", RuleLevel::Off)
+            .with_rule("clippy::todo", RuleLevel::Off)
+            .with_rule("clippy::unimplemented", RuleLevel::Off);
+        let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
+        assert_eq!(
+            clippy_arguments_for_plan(&all_off),
+            [
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--no-deps",
+                "--message-format=json",
+                "--",
+            ]
+        );
     }
 
     #[test]

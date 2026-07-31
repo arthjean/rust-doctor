@@ -1,46 +1,37 @@
 use cargo_metadata::{Dependency, Metadata};
 
-use crate::report::Severity;
-
-const UNBOUNDED_REGISTRY_CODE: &str = "rust_doctor::cargo::unbounded_registry_dependency";
-const UNPINNED_GIT_CODE: &str = "rust_doctor::cargo::unpinned_git_dependency";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Rule {
-    code: &'static str,
-    category: &'static str,
-    severity: Severity,
-    help: &'static str,
-}
-
-const RULES: [Rule; 2] = [
-    Rule {
-        code: UNBOUNDED_REGISTRY_CODE,
-        category: "reliability",
-        severity: Severity::Warning,
-        help: "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
-    },
-    Rule {
-        code: UNPINNED_GIT_CODE,
-        category: "security",
-        severity: Severity::Warning,
-        help: "Set rev to the full 40-character commit SHA intended by the project.",
-    },
-];
+use crate::policy::{CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, PolicyPlan, RuleDefinition};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
-    pub(crate) code: &'static str,
-    pub(crate) category: &'static str,
-    pub(crate) severity: Severity,
+    pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: String,
-    pub(crate) help: &'static str,
     pub(crate) package: String,
     pub(crate) manifest_path: Option<String>,
 }
 
-pub(crate) fn inspect(metadata: &Metadata) -> Vec<Candidate> {
-    let mut candidates = Vec::new();
+#[derive(Debug, Default)]
+pub(crate) struct CargoHealthScan {
+    pub(crate) candidates: Vec<Candidate>,
+    #[allow(dead_code)]
+    pub(crate) counters: CargoHealthCounters,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct CargoHealthCounters {
+    pub(crate) dependencies_evaluated: usize,
+    pub(crate) unbounded_registry_predicates: usize,
+    pub(crate) unpinned_git_predicates: usize,
+}
+
+pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan {
+    let unbounded_registry = plan.is_active(CARGO_UNBOUNDED_REGISTRY.id);
+    let unpinned_git = plan.is_active(CARGO_UNPINNED_GIT.id);
+    if !unbounded_registry && !unpinned_git {
+        return CargoHealthScan::default();
+    }
+
+    let mut scan = CargoHealthScan::default();
 
     for package in metadata
         .packages
@@ -54,31 +45,30 @@ pub(crate) fn inspect(metadata: &Metadata) -> Vec<Candidate> {
             .map(|path| path.as_str().to_owned());
 
         for dependency in &package.dependencies {
+            scan.counters.dependencies_evaluated += 1;
             let key = dependency.rename.as_deref().unwrap_or(&dependency.name);
-            if is_unbounded_registry(dependency) {
-                let rule = &RULES[0];
-                candidates.push(Candidate {
-                    code: rule.code,
-                    category: rule.category,
-                    severity: rule.severity,
+            if unbounded_registry {
+                scan.counters.unbounded_registry_predicates += 1;
+            }
+            if unbounded_registry && is_unbounded_registry(dependency) {
+                scan.candidates.push(Candidate {
+                    definition: CARGO_UNBOUNDED_REGISTRY,
                     message: format!(
                         "Registry dependency \"{key}\" uses an unbounded \"*\" version requirement."
                     ),
-                    help: rule.help,
                     package: package.name.to_string(),
                     manifest_path: manifest_path.clone(),
                 });
             }
-            if is_unpinned_git(dependency) {
-                let rule = &RULES[1];
-                candidates.push(Candidate {
-                    code: rule.code,
-                    category: rule.category,
-                    severity: rule.severity,
+            if unpinned_git {
+                scan.counters.unpinned_git_predicates += 1;
+            }
+            if unpinned_git && is_unpinned_git(dependency) {
+                scan.candidates.push(Candidate {
+                    definition: CARGO_UNPINNED_GIT,
                     message: format!(
                         "Git dependency \"{key}\" is not pinned to a full commit revision."
                     ),
-                    help: rule.help,
                     package: package.name.to_string(),
                     manifest_path: manifest_path.clone(),
                 });
@@ -86,7 +76,7 @@ pub(crate) fn inspect(metadata: &Metadata) -> Vec<Candidate> {
         }
     }
 
-    candidates
+    scan
 }
 
 fn is_unbounded_registry(dependency: &Dependency) -> bool {
@@ -136,6 +126,11 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+    use crate::policy::{PolicyInput, RuleLevel};
+
+    fn inspect(metadata: &Metadata) -> Vec<Candidate> {
+        super::inspect(metadata, &PolicyPlan::default()).candidates
+    }
 
     static NEXT_CARGO_HOME: AtomicUsize = AtomicUsize::new(0);
 
@@ -235,25 +230,15 @@ mod tests {
     }
 
     #[test]
-    fn registry_is_the_exact_normative_inventory() {
+    fn producer_uses_the_two_canonical_catalog_entries() {
+        let definitions: Vec<_> = PolicyPlan::default()
+            .active_rules(crate::policy::Producer::CargoHealth)
+            .map(|(definition, _)| definition.id)
+            .collect();
         assert_eq!(
-            RULES,
-            [
-                Rule {
-                    code: UNBOUNDED_REGISTRY_CODE,
-                    category: "reliability",
-                    severity: Severity::Warning,
-                    help: "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
-                },
-                Rule {
-                    code: UNPINNED_GIT_CODE,
-                    category: "security",
-                    severity: Severity::Warning,
-                    help: "Set rev to the full 40-character commit SHA intended by the project.",
-                },
-            ]
+            definitions,
+            [CARGO_UNBOUNDED_REGISTRY.id, CARGO_UNPINNED_GIT.id]
         );
-        assert!(RULES.windows(2).all(|pair| pair[0].code < pair[1].code));
     }
 
     #[test]
@@ -401,7 +386,7 @@ mod tests {
             "target_dependency",
         ] {
             assert!(candidates.iter().any(|candidate| {
-                candidate.code == UNBOUNDED_REGISTRY_CODE
+                candidate.definition.id == CARGO_UNBOUNDED_REGISTRY.id
                     && candidate.message
                         == format!(
                             "Registry dependency \"{key}\" uses an unbounded \"*\" version requirement."
@@ -443,10 +428,11 @@ mod tests {
                 .iter()
                 .find(|candidate| candidate.message == message)
                 .expect("every positive oracle should produce one candidate");
-            assert_eq!(candidate.code, expected["code"]);
-            assert_eq!(candidate.category, expected["category"]);
-            assert_eq!(candidate.severity, Severity::Warning);
-            assert_eq!(candidate.help, expected["help"]);
+            let definition = candidate.definition;
+            assert_eq!(definition.id, expected["code"]);
+            assert_eq!(definition.category, expected["category"]);
+            assert_eq!(definition.default_level, RuleLevel::Warn);
+            assert_eq!(definition.help, expected["help"]);
             assert_eq!(candidate.package, "cargo-health-precision");
             assert_eq!(
                 candidate.manifest_path.as_deref(),
@@ -535,13 +521,14 @@ mod tests {
         let observable = candidates
             .iter()
             .map(|candidate| {
+                let definition = candidate.definition;
                 format!(
                     "{} {} {:?} {} {} {} {}",
-                    candidate.code,
-                    candidate.category,
-                    candidate.severity,
+                    definition.id,
+                    definition.category,
+                    definition.default_level,
                     candidate.message,
-                    candidate.help,
+                    definition.help,
                     candidate.package,
                     candidate.manifest_path.as_deref().unwrap_or_default()
                 )
@@ -561,6 +548,32 @@ mod tests {
             assert!(!observable.contains(secret), "leaked {secret:?}");
         }
         assert_eq!(fixture_hashes(&fixture), before);
+    }
+
+    #[test]
+    fn policy_prunes_the_producer_and_each_inactive_predicate() {
+        let (metadata, _) = protocol_metadata();
+        let all_off = PolicyInput::default()
+            .with_rule(CARGO_UNBOUNDED_REGISTRY.id, RuleLevel::Off)
+            .with_rule(CARGO_UNPINNED_GIT.id, RuleLevel::Off);
+        let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
+        let scan = super::inspect(&metadata, &all_off);
+        assert!(scan.candidates.is_empty());
+        assert_eq!(scan.counters.dependencies_evaluated, 0);
+        assert_eq!(scan.counters.unbounded_registry_predicates, 0);
+        assert_eq!(scan.counters.unpinned_git_predicates, 0);
+
+        let git_off = PolicyInput::default().with_rule(CARGO_UNPINNED_GIT.id, RuleLevel::Off);
+        let git_off = PolicyPlan::compile(&git_off).expect("policy should compile");
+        let scan = super::inspect(&metadata, &git_off);
+        assert!(scan.counters.dependencies_evaluated > 0);
+        assert!(scan.counters.unbounded_registry_predicates > 0);
+        assert_eq!(scan.counters.unpinned_git_predicates, 0);
+        assert!(
+            scan.candidates
+                .iter()
+                .all(|candidate| candidate.definition.id != CARGO_UNPINNED_GIT.id)
+        );
     }
 
     #[test]
@@ -617,12 +630,13 @@ mod tests {
         let candidates = inspect(&metadata);
         assert_eq!(candidates.len(), 6);
         assert!(candidates.iter().all(|candidate| {
+            let definition = candidate.definition;
             let observable = format!(
                 "{} {} {} {} {} {}",
-                candidate.code,
-                candidate.category,
+                definition.id,
+                definition.category,
                 candidate.message,
-                candidate.help,
+                definition.help,
                 candidate.package,
                 candidate.manifest_path.as_deref().unwrap_or_default()
             );
@@ -631,14 +645,14 @@ mod tests {
                 && !observable.contains("0123456789abcdef")
         }));
         assert!(candidates.iter().any(|candidate| {
-            candidate.code == UNBOUNDED_REGISTRY_CODE
+            candidate.definition.id == CARGO_UNBOUNDED_REGISTRY.id
                 && candidate.message
                     == "Registry dependency \"registry_alias\" uses an unbounded \"*\" version requirement."
         }));
         assert_eq!(
             candidates
                 .iter()
-                .filter(|candidate| candidate.code == UNPINNED_GIT_CODE)
+                .filter(|candidate| candidate.definition.id == CARGO_UNPINNED_GIT.id)
                 .count(),
             5
         );

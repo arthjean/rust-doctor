@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 
-use crate::{InspectReport, Status};
+use crate::{GateStatus, InspectReport, Status};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -58,6 +58,14 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
         {
             writeln!(writer, "Help ({category}): {help}").map_err(RenderError::Write)?;
         }
+        if diagnostic.base_severity != diagnostic.severity {
+            writeln!(
+                writer,
+                "Policy: base severity {}, effective severity {}",
+                diagnostic.base_severity, diagnostic.severity
+            )
+            .map_err(RenderError::Write)?;
+        }
     }
 
     writeln!(
@@ -70,6 +78,21 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
         report.summary.unknown,
         report.status,
     )
+    .map_err(RenderError::Write)?;
+
+    match (report.gate.status, report.gate.blocking_diagnostics) {
+        (GateStatus::Passed | GateStatus::Failed, Some(count)) => writeln!(
+            writer,
+            "Gate {}: blocking {}, {} blocking diagnostic(s)",
+            report.gate.status, report.gate.blocking, count
+        ),
+        (GateStatus::NotEvaluated, None) => writeln!(
+            writer,
+            "Gate not evaluated: blocking {}",
+            report.gate.blocking
+        ),
+        _ => writeln!(writer, "Gate not evaluated: inconsistent gate state"),
+    }
     .map_err(RenderError::Write)?;
 
     if report.status != Status::Complete {
@@ -95,8 +118,8 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
 mod tests {
     use super::*;
     use crate::{
-        Diagnostic, DiagnosticSource, DiagnosticSpan, InspectReport, ScanReport, Severity, Summary,
-        ToolchainReport,
+        BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, InspectReport,
+        ScanReport, Severity, Summary, ToolchainReport,
     };
 
     struct ClosedWriter {
@@ -116,7 +139,7 @@ mod tests {
 
     fn report() -> InspectReport {
         InspectReport {
-            schema_version: 3,
+            schema_version: 4,
             status: Status::Complete,
             complete: true,
             project: None,
@@ -135,6 +158,7 @@ mod tests {
                 id: "id".to_owned(),
                 source: DiagnosticSource::Clippy,
                 code: Some("clippy::lint".to_owned()),
+                base_severity: Severity::Warning,
                 severity: Severity::Warning,
                 category: None,
                 message: "message".to_owned(),
@@ -158,6 +182,11 @@ mod tests {
                 unknown: 0,
                 total: 1,
             },
+            gate: GateReport {
+                blocking: BlockingLevel::Error,
+                status: GateStatus::Passed,
+                blocking_diagnostics: Some(0),
+            },
         }
     }
 
@@ -169,7 +198,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            3
+            4
         );
     }
 
@@ -204,6 +233,8 @@ mod tests {
         let mut report = report();
         report.status = Status::Incomplete;
         report.complete = false;
+        report.gate.status = GateStatus::NotEvaluated;
+        report.gate.blocking_diagnostics = None;
         report.errors = vec![crate::ReportError {
             stage: "execution".to_owned(),
             code: "clippy-exit".to_owned(),
@@ -218,6 +249,7 @@ mod tests {
             output
                 .contains("Scan incomplete: Clippy exited with status 101 (execution/clippy-exit)")
         );
+        assert!(output.contains("Gate not evaluated: blocking error"));
     }
 
     #[test]

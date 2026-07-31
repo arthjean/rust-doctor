@@ -7,48 +7,17 @@ use cargo_metadata::{Metadata, Package};
 use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, HasName, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxNode, TextRange};
 
-use crate::report::Severity;
+use crate::policy::{PolicyPlan, RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
 
 const FILE_BYTES_LIMIT: u64 = 8_388_608;
 const TOTAL_BYTES_LIMIT: u64 = 268_435_456;
 const UNIT_LIMIT: usize = 20_000;
 const MODULE_DEPTH_LIMIT: usize = 256;
 
-const DISABLED_TLS_CODE: &str = "rust_doctor::source::disabled_tls_verification";
-const DYNAMIC_SHELL_CODE: &str = "rust_doctor::source::dynamic_shell_command";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Rule {
-    code: &'static str,
-    category: &'static str,
-    severity: Severity,
-    help: &'static str,
-}
-
-const DISABLED_TLS_RULE: Rule = Rule {
-    code: DISABLED_TLS_CODE,
-    category: "security",
-    severity: Severity::Warning,
-    help: "Keep TLS verification enabled and configure the required trust roots or server name instead.",
-};
-
-const DYNAMIC_SHELL_RULE: Rule = Rule {
-    code: DYNAMIC_SHELL_CODE,
-    category: "security",
-    severity: Severity::Warning,
-    help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
-};
-
-#[cfg(test)]
-const RULES: [Rule; 2] = [DISABLED_TLS_RULE, DYNAMIC_SHELL_RULE];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
-    pub(crate) code: &'static str,
-    pub(crate) category: &'static str,
-    pub(crate) severity: Severity,
+    pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: &'static str,
-    pub(crate) help: &'static str,
     pub(crate) package: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) path: String,
@@ -82,6 +51,8 @@ pub(crate) struct SourceCounters {
     pub(crate) files_read: usize,
     pub(crate) files_parsed: usize,
     pub(crate) bytes_read: u64,
+    pub(crate) disabled_tls_predicates: usize,
+    pub(crate) dynamic_shell_predicates: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -142,11 +113,21 @@ struct CandidateKey {
     message: &'static str,
 }
 
-pub(crate) fn inspect(metadata: &Metadata) -> SourceScan {
-    inspect_with_limits(metadata, LIMITS)
+pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> SourceScan {
+    inspect_with_limits_for_plan(metadata, LIMITS, plan)
 }
 
-fn inspect_with_limits(metadata: &Metadata, limits: Limits) -> SourceScan {
+fn inspect_with_limits_for_plan(
+    metadata: &Metadata,
+    limits: Limits,
+    plan: &PolicyPlan,
+) -> SourceScan {
+    let disabled_tls = plan.is_active(SOURCE_DISABLED_TLS.id);
+    let dynamic_shell = plan.is_active(SOURCE_DYNAMIC_SHELL.id);
+    if !disabled_tls && !dynamic_shell {
+        return SourceScan::default();
+    }
+
     let workspace_root = match metadata.workspace_root.as_std_path().canonicalize() {
         Ok(root) => root,
         Err(_) => {
@@ -245,7 +226,13 @@ fn inspect_with_limits(metadata: &Metadata, limits: Limits) -> SourceScan {
 
     let mut candidates = BTreeMap::<CandidateKey, Candidate>::new();
     for unit in units.values() {
-        analyze_unit(unit, &mut candidates);
+        analyze_unit(
+            unit,
+            &mut candidates,
+            disabled_tls,
+            dynamic_shell,
+            &mut counters,
+        );
     }
     errors.sort();
     errors.dedup();
@@ -586,13 +573,20 @@ fn module_directory_for_file(path: &Path) -> PathBuf {
     }
 }
 
-fn analyze_unit(unit: &SourceUnit, candidates: &mut BTreeMap<CandidateKey, Candidate>) {
+fn analyze_unit(
+    unit: &SourceUnit,
+    candidates: &mut BTreeMap<CandidateKey, Candidate>,
+    disabled_tls: bool,
+    dynamic_shell: bool,
+    counters: &mut SourceCounters,
+) {
     let tree = unit.parse.tree();
     let package = unique_package(&unit.reachability);
     let target = unique_target(&unit.reachability);
     let line_starts = line_starts(&unit.source);
 
-    if !path_contains_tests_segment(&unit.relative_path)
+    if disabled_tls
+        && !path_contains_tests_segment(&unit.relative_path)
         && let Some(alias) = shared_reqwest_alias(&unit.reachability)
     {
         for call in tree
@@ -600,6 +594,7 @@ fn analyze_unit(unit: &SourceUnit, candidates: &mut BTreeMap<CandidateKey, Candi
             .descendants()
             .filter_map(ast::MethodCallExpr::cast)
         {
+            counters.disabled_tls_predicates += 1;
             let Some((message, range)) = tls_match(&call, &alias, &unit.error_ranges) else {
                 continue;
             };
@@ -608,7 +603,7 @@ fn analyze_unit(unit: &SourceUnit, candidates: &mut BTreeMap<CandidateKey, Candi
             }
             insert_candidate(
                 candidates,
-                &DISABLED_TLS_RULE,
+                SOURCE_DISABLED_TLS,
                 message,
                 package.clone(),
                 target.clone(),
@@ -620,25 +615,28 @@ fn analyze_unit(unit: &SourceUnit, candidates: &mut BTreeMap<CandidateKey, Candi
         }
     }
 
-    for call in tree
-        .syntax()
-        .descendants()
-        .filter_map(ast::MethodCallExpr::cast)
-    {
-        let Some(range) = shell_match(&call, &unit.error_ranges, unit.edition) else {
-            continue;
-        };
-        insert_candidate(
-            candidates,
-            &DYNAMIC_SHELL_RULE,
-            "A dynamic value is interpolated into a shell command string.",
-            package.clone(),
-            target.clone(),
-            &unit.relative_path,
-            range,
-            &line_starts,
-            &unit.source,
-        );
+    if dynamic_shell {
+        for call in tree
+            .syntax()
+            .descendants()
+            .filter_map(ast::MethodCallExpr::cast)
+        {
+            counters.dynamic_shell_predicates += 1;
+            let Some(range) = shell_match(&call, &unit.error_ranges, unit.edition) else {
+                continue;
+            };
+            insert_candidate(
+                candidates,
+                SOURCE_DYNAMIC_SHELL,
+                "A dynamic value is interpolated into a shell command string.",
+                package.clone(),
+                target.clone(),
+                &unit.relative_path,
+                range,
+                &line_starts,
+                &unit.source,
+            );
+        }
     }
 }
 
@@ -1070,7 +1068,7 @@ fn visible_binding_scopes(call_ancestors: &[SyntaxNode]) -> Vec<SyntaxNode> {
 #[allow(clippy::too_many_arguments)]
 fn insert_candidate(
     candidates: &mut BTreeMap<CandidateKey, Candidate>,
-    rule: &Rule,
+    definition: &'static RuleDefinition,
     message: &'static str,
     package: Option<String>,
     target: Option<String>,
@@ -1084,17 +1082,14 @@ fn insert_candidate(
     }
     let span = source_span(range, line_starts, source);
     let key = CandidateKey {
-        code: rule.code,
+        code: definition.id,
         path: path.to_owned(),
         span,
         message,
     };
     let candidate = Candidate {
-        code: rule.code,
-        category: rule.category,
-        severity: rule.severity,
+        definition,
         message,
-        help: rule.help,
         package,
         target,
         path: path.to_owned(),
@@ -1269,7 +1264,16 @@ fn push_error(errors: &mut Vec<SourceError>, code: &'static str, message: String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::{PolicyInput, Producer, RuleLevel};
     use cargo_metadata::MetadataCommand;
+
+    fn inspect(metadata: &Metadata) -> SourceScan {
+        super::inspect(metadata, &PolicyPlan::default())
+    }
+
+    fn inspect_with_limits(metadata: &Metadata, limits: Limits) -> SourceScan {
+        inspect_with_limits_for_plan(metadata, limits, &PolicyPlan::default())
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1319,24 +1323,54 @@ mod tests {
     }
 
     #[test]
-    fn source_registry_is_exact_and_lexicographic() {
-        assert_eq!(RULES.len(), 2);
+    fn producer_uses_the_two_canonical_catalog_entries() {
+        let definitions: Vec<_> = PolicyPlan::default()
+            .active_rules(Producer::SourceKernel)
+            .map(|(definition, _)| definition.id)
+            .collect();
         assert_eq!(
-            RULES.map(|rule| (rule.code, rule.category, rule.severity, rule.help)),
-            [
-                (
-                    "rust_doctor::source::disabled_tls_verification",
-                    "security",
-                    Severity::Warning,
-                    "Keep TLS verification enabled and configure the required trust roots or server name instead.",
-                ),
-                (
-                    "rust_doctor::source::dynamic_shell_command",
-                    "security",
-                    Severity::Warning,
-                    "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
-                ),
-            ]
+            definitions,
+            [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]
+        );
+    }
+
+    #[test]
+    fn policy_prunes_source_io_and_each_inactive_predicate() {
+        let metadata = metadata("precision");
+        let all_off = PolicyInput::default()
+            .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)
+            .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
+        let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
+        let scan = super::inspect(&metadata, &all_off);
+        assert!(scan.candidates.is_empty());
+        assert!(scan.errors.is_empty());
+        assert_eq!(scan.counters.files_read, 0);
+        assert_eq!(scan.counters.files_parsed, 0);
+        assert_eq!(scan.counters.bytes_read, 0);
+        assert_eq!(scan.counters.disabled_tls_predicates, 0);
+        assert_eq!(scan.counters.dynamic_shell_predicates, 0);
+
+        let shell_off = PolicyInput::default().with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
+        let shell_off = PolicyPlan::compile(&shell_off).expect("policy should compile");
+        let scan = super::inspect(&metadata, &shell_off);
+        assert!(scan.counters.files_read > 0);
+        assert!(scan.counters.disabled_tls_predicates > 0);
+        assert_eq!(scan.counters.dynamic_shell_predicates, 0);
+        assert!(
+            scan.candidates
+                .iter()
+                .all(|candidate| candidate.definition.id != SOURCE_DYNAMIC_SHELL.id)
+        );
+
+        let tls_off = PolicyInput::default().with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off);
+        let tls_off = PolicyPlan::compile(&tls_off).expect("policy should compile");
+        let scan = super::inspect(&metadata, &tls_off);
+        assert_eq!(scan.counters.disabled_tls_predicates, 0);
+        assert!(scan.counters.dynamic_shell_predicates > 0);
+        assert!(
+            scan.candidates
+                .iter()
+                .all(|candidate| candidate.definition.id != SOURCE_DISABLED_TLS.id)
         );
     }
 
@@ -1388,14 +1422,14 @@ mod tests {
                 .all(|candidate| candidate.package.as_deref() == Some("source-kernel-app"))
         );
         assert!(scan.candidates.iter().any(|candidate| {
-            candidate.code == DYNAMIC_SHELL_CODE
+            candidate.definition.id == SOURCE_DYNAMIC_SHELL.id
                 && candidate.path == "app/src/shared.rs"
                 && candidate.target.is_none()
         }));
         assert_eq!(
             scan.candidates
                 .iter()
-                .filter(|candidate| candidate.code == DISABLED_TLS_CODE)
+                .filter(|candidate| candidate.definition.id == SOURCE_DISABLED_TLS.id)
                 .count(),
             5
         );
@@ -1431,7 +1465,7 @@ mod tests {
         assert!(
             scan.candidates
                 .iter()
-                .all(|candidate| candidate.code == DYNAMIC_SHELL_CODE)
+                .all(|candidate| candidate.definition.id == SOURCE_DYNAMIC_SHELL.id)
         );
         assert!(
             scan.candidates
@@ -1681,10 +1715,12 @@ mod tests {
             .no_deps()
             .other_options(["--offline".to_owned()]);
         let scan = inspect(&command.exec().expect("approved metadata should load"));
-        let mut counts =
-            BTreeMap::from([(DISABLED_TLS_CODE, 0_usize), (DYNAMIC_SHELL_CODE, 0_usize)]);
+        let mut counts = BTreeMap::from([
+            (SOURCE_DISABLED_TLS.id, 0_usize),
+            (SOURCE_DYNAMIC_SHELL.id, 0_usize),
+        ]);
         for candidate in &scan.candidates {
-            *counts.entry(candidate.code).or_default() += 1;
+            *counts.entry(candidate.definition.id).or_default() += 1;
         }
         let mut errors = BTreeMap::<&str, usize>::new();
         for error in &scan.errors {
@@ -1695,7 +1731,7 @@ mod tests {
             .iter()
             .map(|candidate| {
                 serde_json::json!({
-                    "code": candidate.code,
+                    "code": candidate.definition.id,
                     "package": candidate.package,
                     "target": candidate.target,
                     "path": candidate.path,
