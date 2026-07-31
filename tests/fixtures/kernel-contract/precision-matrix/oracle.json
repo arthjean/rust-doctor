@@ -1,0 +1,138 @@
+{
+  "positive": [
+    {
+      "case": "dbg-direct-library",
+      "form": "direct",
+      "code": "clippy::dbg_macro",
+      "path": "src/précision.rs",
+      "line": 2,
+      "occurrences": 2
+    },
+    {
+      "case": "todo-direct-library",
+      "form": "direct",
+      "code": "clippy::todo",
+      "path": "src/précision.rs",
+      "line": 6,
+      "occurrences": 2
+    },
+    {
+      "case": "unimplemented-direct-library",
+      "form": "direct",
+      "code": "clippy::unimplemented",
+      "path": "src/précision.rs",
+      "line": 10,
+      "occurrences": 2
+    },
+    {
+      "case": "dbg-qualified-binary",
+      "form": "qualified",
+      "code": "clippy::dbg_macro",
+      "path": "src/main.rs",
+      "line": 2,
+      "occurrences": 2
+    },
+    {
+      "case": "todo-qualified-binary",
+      "form": "qualified",
+      "code": "clippy::todo",
+      "path": "src/main.rs",
+      "line": 6,
+      "occurrences": 2
+    },
+    {
+      "case": "unimplemented-qualified-binary",
+      "form": "qualified",
+      "code": "clippy::unimplemented",
+      "path": "src/main.rs",
+      "line": 10,
+      "occurrences": 2
+    },
+    {
+      "case": "dbg-aliased-test",
+      "form": "aliased",
+      "code": "clippy::dbg_macro",
+      "path": "tests/aliases.rs",
+      "line": 4,
+      "occurrences": 1
+    },
+    {
+      "case": "todo-aliased-test",
+      "form": "aliased",
+      "code": "clippy::todo",
+      "path": "tests/aliases.rs",
+      "line": 8,
+      "occurrences": 1
+    },
+    {
+      "case": "unimplemented-aliased-test",
+      "form": "aliased",
+      "code": "clippy::unimplemented",
+      "path": "tests/aliases.rs",
+      "line": 12,
+      "occurrences": 1
+    }
+  ],
+  "negative": [
+    {
+      "case": "dbg-allowed",
+      "kind": "allow",
+      "marker": "negative_allowed_dbg"
+    },
+    {
+      "case": "todo-allowed",
+      "kind": "allow",
+      "marker": "negative_allowed_todo"
+    },
+    {
+      "case": "unimplemented-allowed",
+      "kind": "allow",
+      "marker": "negative_allowed_unimplemented"
+    },
+    {
+      "case": "dbg-comment",
+      "kind": "comment",
+      "marker": "negative-comment-dbg"
+    },
+    {
+      "case": "todo-comment",
+      "kind": "comment",
+      "marker": "negative-comment-todo"
+    },
+    {
+      "case": "unimplemented-comment",
+      "kind": "comment",
+      "marker": "negative-comment-unimplemented"
+    },
+    {
+      "case": "dbg-string",
+      "kind": "string",
+      "marker": "negative-string-dbg"
+    },
+    {
+      "case": "todo-string",
+      "kind": "string",
+      "marker": "negative-string-todo"
+    },
+    {
+      "case": "unimplemented-string",
+      "kind": "string",
+      "marker": "negative-string-unimplemented"
+    },
+    {
+      "case": "dbg-neighbor-macro",
+      "kind": "neighbor_macro",
+      "marker": "negative_dbg_neighbor"
+    },
+    {
+      "case": "todo-neighbor-macro",
+      "kind": "neighbor_macro",
+      "marker": "negative_todo_neighbor"
+    },
+    {
+      "case": "unimplemented-neighbor-macro",
+      "kind": "neighbor_macro",
+      "marker": "negative_unimplemented_neighbor"
+    }
+  ]
+}

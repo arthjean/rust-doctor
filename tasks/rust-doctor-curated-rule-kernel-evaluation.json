@@ -1,0 +1,297 @@
+{
+  "artifact": "rust-doctor-curated-rule-kernel-real-world-evaluation",
+  "schema_version": 1,
+  "generated_at": "2026-07-31T09:36:46+02:00",
+  "network_in_automated_tests": false,
+  "trust_boundary": {
+    "policy": "Only explicitly trusted, pinned public repositories are evaluated.",
+    "warning": "Cargo may execute build.rs programs and procedural macros during inspection.",
+    "decision": "The five repositories and commits below were explicitly retained as trusted for this evaluation."
+  },
+  "repositories": [
+    {
+      "name": "anyhow",
+      "url": "https://github.com/dtolnay/anyhow.git",
+      "tag": "1.0.100",
+      "commit": "18c2598afa0f996f56217ef128aa3a20ea1e9512",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": true
+      },
+      "trusted": true,
+      "trust_rationale": "Mature, narrowly scoped Rust error-handling library maintained in the dtolnay organization.",
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "counts": {
+          "clippy::dbg_macro": 0,
+          "clippy::todo": 0,
+          "clippy::unimplemented": 0
+        },
+        "curated_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No curated findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true
+      }
+    },
+    {
+      "name": "thiserror",
+      "url": "https://github.com/dtolnay/thiserror.git",
+      "tag": "2.0.17",
+      "commit": "72ae716e6d6a7f7fdabdc394018c745b4d39ca45",
+      "cargo_shape": {
+        "workspace_members": 3,
+        "library": true,
+        "binary": false,
+        "proc_macro": true,
+        "custom_build": true
+      },
+      "trusted": true,
+      "trust_rationale": "Mature derive-macro and library workspace maintained in the dtolnay organization.",
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "counts": {
+          "clippy::dbg_macro": 0,
+          "clippy::todo": 0,
+          "clippy::unimplemented": 0
+        },
+        "curated_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No curated findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true
+      }
+    },
+    {
+      "name": "serde_json",
+      "url": "https://github.com/serde-rs/json.git",
+      "tag": "v1.0.145",
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": true
+      },
+      "trusted": true,
+      "trust_rationale": "Widely deployed JSON library maintained in the serde-rs organization.",
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "counts": {
+          "clippy::dbg_macro": 0,
+          "clippy::todo": 0,
+          "clippy::unimplemented": 0
+        },
+        "curated_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No curated findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true
+      }
+    },
+    {
+      "name": "log",
+      "url": "https://github.com/rust-lang/log.git",
+      "tag": "0.4.28",
+      "commit": "6e1735597bb21c5d979a077395df85e1d633e077",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": false,
+        "proc_macro": false,
+        "custom_build": false
+      },
+      "trusted": true,
+      "trust_rationale": "Foundational Rust logging facade maintained in the rust-lang organization.",
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "counts": {
+          "clippy::dbg_macro": 0,
+          "clippy::todo": 0,
+          "clippy::unimplemented": 0
+        },
+        "curated_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No curated findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true
+      }
+    },
+    {
+      "name": "hexyl",
+      "url": "https://github.com/sharkdp/hexyl.git",
+      "tag": "v0.16.0",
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "cargo_shape": {
+        "workspace_members": 1,
+        "library": true,
+        "binary": true,
+        "proc_macro": false,
+        "custom_build": false
+      },
+      "trusted": true,
+      "trust_rationale": "Established Rust command-line utility maintained by sharkdp.",
+      "build_code_warning_acknowledged": true,
+      "scan": {
+        "toolchain": {
+          "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+        },
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--no-deps",
+          "--message-format=json",
+          "--",
+          "-W",
+          "clippy::dbg_macro",
+          "-W",
+          "clippy::todo",
+          "-W",
+          "clippy::unimplemented"
+        ],
+        "status": "complete",
+        "exit_code": 0,
+        "counts": {
+          "clippy::dbg_macro": 0,
+          "clippy::todo": 0,
+          "clippy::unimplemented": 0
+        },
+        "curated_findings": [],
+        "manual_verdicts": [],
+        "manual_review": "No curated findings to classify; the real zero result is preserved.",
+        "false_positives": 0,
+        "ambiguous": 0
+      },
+      "repository_state": {
+        "before": "clean",
+        "after": "clean",
+        "tracked_files_unchanged": true
+      }
+    }
+  ],
+  "totals": {
+    "repositories": 5,
+    "complete_scans": 5,
+    "curated_findings": 0,
+    "false_positives": 0,
+    "ambiguous": 0,
+    "tracked_repositories_unchanged": 5
+  },
+  "verdict": "pass"
+}
