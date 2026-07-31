@@ -15,7 +15,7 @@ use crate::execution::{
 };
 use crate::rules;
 
-pub const SCHEMA_VERSION: u8 = 2;
+pub const SCHEMA_VERSION: u8 = 3;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -129,6 +129,8 @@ pub struct Diagnostic {
 pub enum DiagnosticSource {
     Rustc,
     Clippy,
+    #[serde(rename = "rust-doctor")]
+    RustDoctor,
 }
 
 impl DiagnosticSource {
@@ -136,6 +138,7 @@ impl DiagnosticSource {
         match self {
             Self::Rustc => "rustc",
             Self::Clippy => "clippy",
+            Self::RustDoctor => "rust-doctor",
         }
     }
 }

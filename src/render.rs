@@ -116,7 +116,7 @@ mod tests {
 
     fn report() -> InspectReport {
         InspectReport {
-            schema_version: 2,
+            schema_version: 3,
             status: Status::Complete,
             complete: true,
             project: None,
@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            2
+            3
         );
     }
 
