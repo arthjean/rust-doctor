@@ -173,7 +173,10 @@
     "canonical_paths": "workspace_path::tests::changed_paths_use_the_same_safe_representation_as_diagnostics",
     "external_symlink": "workspace_path::tests::paths_crossing_symlinks_outside_the_workspace_are_null",
     "oracle_artifact": "tests/fixtures/git-scope/oracle.json",
-    "oracle_cases": 24
+    "oracle_cases": 24,
+    "scope_expansion_bound": "git_scope::tests::normalized_scope_cannot_expand_beyond_the_report_limit",
+    "scope_output_bound": "git_scope::tests::serialized_scope_limit_accepts_the_last_byte_and_rejects_the_boundary",
+    "stderr_bound": "git_scope::tests::real_process_output_limits_and_stderr_are_closed"
   },
   "epic": "EP-014",
   "git_version": "git version 2.55.0",
