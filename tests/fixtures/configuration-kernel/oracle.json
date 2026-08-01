@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "epic": "EP-011",
+  "story": "US-030",
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "clap": "4.6.4",
+    "serde": "1.0.229",
+    "toml": "1.1.4"
+  },
+  "msrv_verification": {
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "cargo_driver": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "targets": [
+    {
+      "entry": "workspace",
+      "selected_manifest": "Cargo.toml",
+      "workspace_root": ".",
+      "metadata_invocations": 1,
+      "no_deps": true
+    },
+    {
+      "entry": "member/Cargo.toml",
+      "selected_manifest": "member/Cargo.toml",
+      "workspace_root": ".",
+      "metadata_invocations": 1,
+      "no_deps": true
+    }
+  ],
+  "configuration_contract": {
+    "maximum_bytes": 65536,
+    "guarded_bytes": 65537,
+    "encoding": "utf-8",
+    "map_order": "lexicographic",
+    "top_level_fields": [
+      "blocking",
+      "categories",
+      "rules"
+    ],
+    "closed_cases": [
+      "duplicate-key",
+      "duplicate-table",
+      "unknown-top-level",
+      "unknown-nested-field",
+      "unknown-enum"
+    ]
+  },
+  "verdict": "pass"
+}

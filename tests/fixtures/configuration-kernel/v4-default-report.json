@@ -1,0 +1,118 @@
+{
+  "schema_version": 4,
+  "status": "complete",
+  "complete": true,
+  "project": {
+    "workspace_root": ".",
+    "manifest_path": "Cargo.toml",
+    "packages": [
+      {
+        "name": "kernel-todo",
+        "manifest_path": "Cargo.toml",
+        "targets": [
+          "kernel_todo"
+        ]
+      }
+    ]
+  },
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+  },
+  "scan": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--no-deps",
+      "--message-format=json",
+      "--",
+      "-W",
+      "clippy::dbg_macro",
+      "-W",
+      "clippy::todo",
+      "-W",
+      "clippy::unimplemented"
+    ],
+    "exit_code": 0,
+    "build_finished": true,
+    "noise_lines": 0
+  },
+  "diagnostics": [
+    {
+      "id": "02d8e09ff7da9c5469912f860ca8f4d8d352b3894a12d47e5fa635cb51183481",
+      "source": "clippy",
+      "code": "clippy::todo",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "correctness",
+      "message": "`todo` should not be present in production code",
+      "help": "Replace todo! with the intended implementation or remove the reachable placeholder.",
+      "package": "kernel-todo",
+      "target": "kernel_todo",
+      "path": "src/lib.rs",
+      "span": {
+        "line_start": 4,
+        "column_start": 5,
+        "line_end": 4,
+        "column_end": 12
+      },
+      "occurrences": 2
+    },
+    {
+      "id": "5aa2b7ea889f982a6584b4f666ecd7b57f6b7d94b33e90ae68def10ff9307cfe",
+      "source": "clippy",
+      "code": "clippy::todo",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "correctness",
+      "message": "`todo` should not be present in production code",
+      "help": "Replace todo! with the intended implementation or remove the reachable placeholder.",
+      "package": "kernel-todo",
+      "target": "kernel_todo",
+      "path": "src/lib.rs",
+      "span": {
+        "line_start": 8,
+        "column_start": 5,
+        "line_end": 8,
+        "column_end": 17
+      },
+      "occurrences": 2
+    },
+    {
+      "id": "eb9e54f9e3dc35be03cea32f75a826c3770fc4e64fd3ce498ebbb712d0bbaa3e",
+      "source": "clippy",
+      "code": "clippy::todo",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "correctness",
+      "message": "`todo` should not be present in production code",
+      "help": "Replace todo! with the intended implementation or remove the reachable placeholder.",
+      "package": "kernel-todo",
+      "target": "kernel_todo",
+      "path": "src/lib.rs",
+      "span": {
+        "line_start": 12,
+        "column_start": 5,
+        "line_end": 12,
+        "column_end": 20
+      },
+      "occurrences": 2
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "errors": 0,
+    "warnings": 3,
+    "info": 0,
+    "unknown": 0,
+    "total": 3
+  },
+  "gate": {
+    "blocking": "error",
+    "status": "passed",
+    "blocking_diagnostics": 0
+  }
+}
