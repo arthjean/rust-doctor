@@ -177,7 +177,17 @@ fn full_v6_is_the_frozen_v5_fixture_plus_version_and_scope() {
     assert!(scope.comparison_base().is_none());
     assert!(scope.files().is_none());
 
-    let mut compatible = serde_json::to_value(report).unwrap();
+    let current = serde_json::to_value(report).unwrap();
+    let frozen_v6: Value =
+        serde_json::from_str(include_str!("fixtures/git-scope/v6-full-report.json")).unwrap();
+    assert_eq!(current, frozen_v6);
+
+    let changelog = include_str!("../CHANGELOG.md");
+    assert!(changelog.contains("Report schema v6"));
+    assert!(changelog.contains("Consumers restricted to schema v5"));
+    assert!(changelog.contains("scope: null"));
+
+    let mut compatible = current;
     compatible["schema_version"] = Value::from(5);
     compatible.as_object_mut().unwrap().remove("scope");
     let frozen: Value =
