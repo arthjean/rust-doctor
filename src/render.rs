@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 
+use crate::git_scope::ScopeDetails;
 use crate::{GateStatus, InspectReport, Status};
 
 #[derive(Debug)]
@@ -35,17 +36,27 @@ pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<()
 
 pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
     if let Some(scope) = &report.scope {
-        match scope.files_details() {
-            None => writeln!(
+        match scope.details() {
+            ScopeDetails::Full => writeln!(
                 writer,
                 "Scope: full; execution workspace; all files selected; base none."
             ),
-            Some((comparison_base, files)) => {
+            ScopeDetails::Files {
+                comparison_base,
+                files,
+            } => {
                 let file_count = files.len();
                 let comparison_base = &comparison_base[..12];
                 writeln!(
                     writer,
                     "Scope: files; execution workspace; {file_count} selected files; base {comparison_base}."
+                )
+            }
+            ScopeDetails::Baseline { comparison_base } => {
+                let comparison_base = &comparison_base[..12];
+                writeln!(
+                    writer,
+                    "Scope: baseline; execution workspace; all current files selected; base {comparison_base}."
                 )
             }
         }
@@ -300,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_renders_one_private_scope_line_for_full_and_files() {
+    fn terminal_renders_one_private_scope_line_for_every_mode() {
         let mut full = report();
         full.scope = Some(ScopeReport::full());
         let mut output = Vec::new();
@@ -337,6 +348,18 @@ mod tests {
             "Scope: files; execution workspace; 2 selected files; base 0123456789ab.\n"
         ));
         assert!(!output.contains("src/private.rs"));
+
+        let mut baseline = report();
+        baseline.scope = Some(ScopeReport::baseline_scope(
+            "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        ));
+        let mut output = Vec::new();
+        render_terminal(&baseline, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("Scope:").count(), 1);
+        assert!(output.starts_with(
+            "Scope: baseline; execution workspace; all current files selected; base 0123456789ab.\n"
+        ));
     }
 
     #[test]

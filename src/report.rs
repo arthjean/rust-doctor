@@ -10,8 +10,8 @@ use serde_json::Value;
 
 use crate::cargo_health;
 use crate::execution::{
-    CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData, ExecutionResult,
-    InternalError, ScanExecution,
+    BaselineExecution, CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData,
+    ExecutionResult, InternalError, ScanExecution,
 };
 use crate::git_scope::{ScopeReport, ScopeRequest};
 use crate::policy::{
@@ -56,6 +56,11 @@ impl InspectRequest {
 
     pub fn with_files_scope(mut self, base: impl Into<String>) -> Self {
         self.scope = ScopeRequest::Files { base: base.into() };
+        self
+    }
+
+    pub fn with_baseline_scope(mut self, base: impl Into<String>) -> Self {
+        self.scope = ScopeRequest::Baseline { base: base.into() };
         self
     }
 
@@ -365,45 +370,99 @@ pub(crate) fn from_execution_scoped(
     from_execution_with_plan(result, Some(plan), plan.blocking(), Some(scope))
 }
 
+pub(crate) fn from_baseline_execution(
+    execution: Result<BaselineExecution, Box<ExecutionResult>>,
+    plan: &PolicyPlan,
+    scope: ScopeReport,
+) -> InspectReport {
+    match execution {
+        Ok(execution) => analyze_baseline_execution(execution, plan, scope).into_v6_report(),
+        Err(execution) => {
+            let report =
+                from_execution_with_plan(*execution, Some(plan), plan.blocking(), Some(scope));
+            force_baseline_gate(report)
+        }
+    }
+}
+
+struct BaselineAnalysis {
+    baseline: InspectReport,
+    current: InspectReport,
+}
+
+impl BaselineAnalysis {
+    fn into_v6_report(self) -> InspectReport {
+        let Self { baseline, current } = self;
+        drop(baseline);
+        force_baseline_gate(current)
+    }
+}
+
+fn analyze_baseline_execution(
+    execution: BaselineExecution,
+    plan: &PolicyPlan,
+    scope: ScopeReport,
+) -> BaselineAnalysis {
+    let (baseline, current) = execution.into_sides();
+    BaselineAnalysis {
+        baseline: from_execution_with_plan(
+            baseline,
+            Some(plan),
+            plan.blocking(),
+            Some(scope.clone()),
+        ),
+        current: from_execution_with_plan(current, Some(plan), plan.blocking(), Some(scope)),
+    }
+}
+
+pub(crate) fn baseline_cleanup_failure(
+    report: InspectReport,
+    error: InternalError,
+) -> InspectReport {
+    baseline_report_failure(report, error)
+}
+
+fn baseline_report_failure(mut report: InspectReport, error: InternalError) -> InspectReport {
+    report.status = Status::Failed;
+    report.complete = false;
+    report.diagnostics.clear();
+    report.errors = vec![ReportError {
+        stage: error.stage.to_owned(),
+        code: error.code.to_owned(),
+        message: error.message,
+    }];
+    report.summary = Summary::default();
+    force_baseline_gate(report)
+}
+
+fn force_baseline_gate(mut report: InspectReport) -> InspectReport {
+    report.gate = GateReport {
+        blocking: report.gate.blocking,
+        status: GateStatus::NotEvaluated,
+        blocking_diagnostics: None,
+    };
+    report
+}
+
 fn from_execution_with_plan(
     result: ExecutionResult,
     plan: Option<&PolicyPlan>,
     blocking: BlockingLevel,
     scope: Option<ScopeReport>,
 ) -> InspectReport {
+    let home = home_paths();
+    let status = classify(&result);
     let workspace_root = result
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path());
-    let home = home_paths();
-    let status = classify(&result);
-    let mut diagnostics = match (status, result.scan.as_ref(), plan) {
-        (Status::Failed, _, _) | (_, None, _) | (_, _, None) => Vec::new(),
-        (_, Some(scan), Some(plan)) => normalize_diagnostics_with_plan(
-            &scan.messages,
-            workspace_root,
-            result.metadata.as_ref(),
-            &home,
-            plan,
-        ),
-    };
-    if plan.is_some()
-        && status != Status::Failed
-        && let Some(source) = result.source.as_ref()
-    {
-        merge_source_candidates(&mut diagnostics, source, workspace_root, &home);
-    }
-    if let Some(plan) = plan {
-        apply_policy(&mut diagnostics, plan);
-    }
-    if let Some(scope) = scope.as_ref() {
-        project_diagnostics(&mut diagnostics, scope);
-    }
-    diagnostics.sort_by(compare_diagnostics);
+    let diagnostics = plan.map_or_else(Vec::new, |plan| {
+        diagnostics_from_execution(&result, plan, scope.as_ref(), &home)
+    });
     let summary = summarize(&diagnostics);
     let gate = evaluate_gate(status, &diagnostics, blocking);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
-    let scan = scan_report(result.scan.as_ref());
+    let scan = scan_report(result.scan.finished());
     let errors = report_errors(&result, workspace_root, &home);
 
     InspectReport {
@@ -436,6 +495,44 @@ fn from_execution_with_plan(
         summary,
         gate,
     }
+}
+
+fn diagnostics_from_execution(
+    result: &ExecutionResult,
+    plan: &PolicyPlan,
+    scope: Option<&ScopeReport>,
+    home: &HomePaths,
+) -> Vec<Diagnostic> {
+    let status = classify(result);
+    let workspace_root = result
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.workspace_root.as_std_path());
+    let mut diagnostics = match status {
+        Status::Failed => Vec::new(),
+        Status::Complete | Status::Incomplete => normalize_diagnostics_with_plan(
+            result
+                .scan
+                .finished()
+                .map(|scan| scan.messages.as_slice())
+                .unwrap_or_default(),
+            workspace_root,
+            result.metadata.as_ref(),
+            home,
+            plan,
+        ),
+    };
+    if status != Status::Failed
+        && let Some(source) = result.source.as_ref()
+    {
+        merge_source_candidates(&mut diagnostics, source, workspace_root, home);
+    }
+    apply_policy(&mut diagnostics, plan);
+    if let Some(scope) = scope {
+        project_diagnostics(&mut diagnostics, scope);
+    }
+    diagnostics.sort_by(compare_diagnostics);
+    diagnostics
 }
 
 pub(crate) fn preparation_failure(
@@ -505,23 +602,13 @@ fn classify(result: &ExecutionResult) -> Status {
     if result.error.is_some() {
         return Status::Failed;
     }
-
-    let Some(scan) = result.scan.as_ref() else {
-        return Status::Failed;
-    };
-    if scan.exit_success == Some(true)
-        && scan.build_finished == Some(true)
-        && scan.malformed_messages == 0
-        && scan.errors.is_empty()
-        && result
-            .source
-            .as_ref()
-            .is_none_or(|source| source.errors.is_empty())
-    {
-        Status::Complete
-    } else {
-        Status::Incomplete
+    if result.is_complete() {
+        return Status::Complete;
     }
+    if !result.scan.has_outcome() {
+        return Status::Failed;
+    }
+    Status::Incomplete
 }
 
 fn project_report(
@@ -592,7 +679,7 @@ fn report_errors(
     if let Some(error) = result.error.as_ref() {
         errors.push(normalize_error(error, workspace_root, home));
     }
-    if let Some(scan) = result.scan.as_ref() {
+    if let Some(scan) = result.scan.finished() {
         errors.extend(
             scan.errors
                 .iter()
@@ -1325,6 +1412,23 @@ mod tests {
     }
 
     #[test]
+    fn baseline_cleanup_failure_overrides_an_otherwise_complete_report() {
+        let report = report_with_diagnostics(Vec::new());
+        let failed = baseline_cleanup_failure(report, crate::baseline::cleanup_failed());
+
+        assert_eq!(failed.status, Status::Failed);
+        assert!(!failed.complete);
+        assert!(failed.diagnostics.is_empty());
+        assert_eq!(failed.summary, Summary::default());
+        assert_eq!(failed.gate.status, GateStatus::NotEvaluated);
+        assert_eq!(failed.gate.blocking_diagnostics, None);
+        assert_eq!(failed.exit_code(), 2);
+        assert_eq!(failed.errors.len(), 1);
+        assert_eq!(failed.errors[0].stage, "baseline");
+        assert_eq!(failed.errors[0].code, "baseline-cleanup-failed");
+    }
+
+    #[test]
     fn restamping_changes_only_effective_severity_summary_and_gate() {
         let workspace = fixture("clean");
         let home = HomePaths::default();
@@ -1633,6 +1737,99 @@ mod tests {
         }
     }
 
+    fn complete_analysis_side(
+        metadata: Metadata,
+        message: &'static str,
+        path: &str,
+    ) -> ExecutionResult {
+        let manifest_path = metadata
+            .workspace_root
+            .join("Cargo.toml")
+            .into_std_path_buf();
+        ExecutionResult {
+            manifest_path: Some(manifest_path),
+            metadata: Some(metadata),
+            toolchain: ToolchainProvenance::default(),
+            scan: Some(scan(
+                vec![compiler_message(
+                    Some("clippy::todo"),
+                    "warning",
+                    message,
+                    path,
+                    2,
+                )],
+                0,
+                true,
+                true,
+            ))
+            .into(),
+            source: Some(crate::source_kernel::SourceScan {
+                candidates: vec![crate::source_kernel::Candidate {
+                    definition: crate::policy::SOURCE_DYNAMIC_SHELL,
+                    message,
+                    package: Some("example".to_owned()),
+                    target: Some("example".to_owned()),
+                    path: path.to_owned(),
+                    span: crate::source_kernel::SourceSpan {
+                        line_start: 3,
+                        column_start: 1,
+                        line_end: 3,
+                        column_end: 8,
+                    },
+                }],
+                errors: Vec::new(),
+                counters: crate::source_kernel::SourceCounters::default(),
+            }),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn baseline_analysis_normalizes_every_active_producer_on_both_sides() {
+        let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
+        let baseline = complete_analysis_side(
+            metadata.clone(),
+            "baseline producer diagnostic",
+            "src/base.rs",
+        );
+        let current =
+            complete_analysis_side(metadata, "current producer diagnostic", "src/current.rs");
+        let execution = BaselineExecution::from_complete_sides(baseline, current);
+        let analysis = analyze_baseline_execution(
+            execution,
+            &PolicyPlan::default(),
+            ScopeReport::baseline_scope("1".repeat(40)),
+        );
+
+        let baseline_codes: BTreeSet<_> = analysis
+            .baseline
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.code.as_deref())
+            .collect();
+        assert!(baseline_codes.contains("clippy::todo"));
+        assert!(baseline_codes.contains("rust_doctor::cargo::unbounded_registry_dependency"));
+        assert!(baseline_codes.contains("rust_doctor::source::dynamic_shell_command"));
+        let current_codes: BTreeSet<_> = analysis
+            .current
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.code.as_deref())
+            .collect();
+        assert_eq!(current_codes, baseline_codes);
+
+        let report = analysis.into_v6_report();
+        assert_eq!(report.gate.status, GateStatus::NotEvaluated);
+        assert_eq!(
+            report
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code.as_deref() == Some("clippy::todo"))
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn cargo_health_joins_the_v4_pipeline_without_restamping_compiler_ids() {
         let metadata = cargo_health_metadata(&[0, 1, 2, 3, 4]);
@@ -1723,7 +1920,7 @@ mod tests {
             manifest_path: Some(manifest_path.clone()),
             metadata: Some(metadata.clone()),
             toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(Vec::new(), 0, true, true)),
+            scan: Some(scan(Vec::new(), 0, true, true)).into(),
             source: None,
             error: None,
         });
@@ -1748,7 +1945,8 @@ mod tests {
                 101,
                 false,
                 false,
-            )),
+            ))
+            .into(),
             source: None,
             error: None,
         });
@@ -1768,7 +1966,7 @@ mod tests {
             manifest_path: None,
             metadata: None,
             toolchain: ToolchainProvenance::default(),
-            scan: None,
+            scan: None.into(),
             source: None,
             error: Some(InternalError {
                 stage: "metadata",
@@ -1831,7 +2029,7 @@ mod tests {
             manifest_path: Some(workspace.join("Cargo.toml")),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(compiler_messages, 0, true, true)),
+            scan: Some(scan(compiler_messages, 0, true, true)).into(),
             source: Some(source),
             error: None,
         });
@@ -2167,7 +2365,8 @@ mod tests {
                 malformed_messages: 1,
                 messages: Vec::new(),
                 errors: Vec::new(),
-            }),
+            })
+            .into(),
             source: None,
             error: None,
         };
@@ -2208,7 +2407,8 @@ mod tests {
                 malformed_messages: 2,
                 messages: Vec::new(),
                 errors: vec![duplicate],
-            }),
+            })
+            .into(),
             source: None,
             error: None,
         };
@@ -2255,7 +2455,8 @@ mod tests {
                 malformed_messages: 0,
                 messages: Vec::new(),
                 errors: Vec::new(),
-            }),
+            })
+            .into(),
             source: None,
             error: None,
         };

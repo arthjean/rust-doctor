@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -10,6 +11,12 @@ use crate::configuration::{self, WorkspaceConfiguration};
 use crate::policy::{PolicyPlan, Producer};
 use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceScan};
+
+mod baseline;
+mod clippy;
+
+pub(crate) use baseline::{BaselineExecution, execute as execute_baseline};
+use clippy::ClippyExecution;
 
 const CLIPPY_BASE_ARGS: [&str; 5] = [
     "clippy",
@@ -24,7 +31,7 @@ pub(crate) struct ExecutionResult {
     pub(crate) manifest_path: Option<PathBuf>,
     pub(crate) metadata: Option<Metadata>,
     pub(crate) toolchain: ToolchainProvenance,
-    pub(crate) scan: Option<ScanExecution>,
+    pub(crate) scan: ClippyExecution,
     pub(crate) source: Option<SourceScan>,
     pub(crate) error: Option<InternalError>,
 }
@@ -35,7 +42,7 @@ impl ExecutionResult {
             manifest_path,
             metadata: None,
             toolchain: ToolchainProvenance::default(),
-            scan: None,
+            scan: ClippyExecution::NotRun,
             source: None,
             error: None,
         }
@@ -44,9 +51,18 @@ impl ExecutionResult {
     fn fail(&mut self, error: InternalError) {
         self.error = Some(error);
     }
+
+    pub(crate) fn is_complete(&self) -> bool {
+        self.error.is_none()
+            && self.scan.is_complete()
+            && self
+                .source
+                .as_ref()
+                .is_none_or(|source| source.errors.is_empty())
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ToolchainProvenance {
     pub(crate) cargo: Option<String>,
     pub(crate) rustc: Option<String>,
@@ -150,6 +166,19 @@ struct Programs {
     rustc: PathBuf,
 }
 
+#[derive(Debug, Clone, Default)]
+struct CommandEnvironment {
+    rustup_toolchain: Option<OsString>,
+}
+
+impl CommandEnvironment {
+    fn apply(&self, command: &mut Command) {
+        if let Some(toolchain) = self.rustup_toolchain.as_ref() {
+            command.env("RUSTUP_TOOLCHAIN", toolchain);
+        }
+    }
+}
+
 impl Default for Programs {
     fn default() -> Self {
         Self {
@@ -200,7 +229,65 @@ fn execute_with_plan(
     programs: &Programs,
     plan: &PolicyPlan,
 ) -> ExecutionResult {
-    let PreparedInspection { target, .. } = prepared;
+    let environment = CommandEnvironment::default();
+    let toolchain = match resolve_toolchain(programs, prepared.workspace_root(), &environment) {
+        Ok(toolchain) => toolchain,
+        Err(error) => return prepared.fail(error),
+    };
+    execute_target(
+        prepared.target,
+        programs,
+        plan,
+        toolchain,
+        None,
+        &environment,
+    )
+}
+
+fn resolve_toolchain(
+    programs: &Programs,
+    workspace_root: &Path,
+    environment: &CommandEnvironment,
+) -> Result<ToolchainProvenance, InternalError> {
+    let cargo = tool_version(
+        &programs.cargo,
+        &["--version"],
+        workspace_root,
+        "cargo-unavailable",
+        "Cargo",
+        environment,
+    )?;
+    let rustc = tool_version(
+        &programs.rustc,
+        &["--version"],
+        workspace_root,
+        "rustc-unavailable",
+        "rustc",
+        environment,
+    )?;
+    let clippy = tool_version(
+        &programs.cargo,
+        &["clippy", "--version"],
+        workspace_root,
+        "clippy-unavailable",
+        "Clippy",
+        environment,
+    )?;
+    Ok(ToolchainProvenance {
+        cargo: Some(cargo),
+        rustc: Some(rustc),
+        clippy: Some(clippy),
+    })
+}
+
+fn execute_target(
+    target: ResolvedScanTarget,
+    programs: &Programs,
+    plan: &PolicyPlan,
+    toolchain: ToolchainProvenance,
+    target_dir: Option<&Path>,
+    environment: &CommandEnvironment,
+) -> ExecutionResult {
     let ResolvedScanTarget {
         manifest_path,
         metadata,
@@ -208,57 +295,23 @@ fn execute_with_plan(
     let workspace_root = metadata.workspace_root.clone();
     let mut result = ExecutionResult::new(Some(manifest_path));
     result.metadata = Some(metadata);
+    result.toolchain = toolchain;
 
-    let cargo_version = match tool_version(
-        &programs.cargo,
-        &["--version"],
-        workspace_root.as_std_path(),
-        "cargo-unavailable",
-        "Cargo",
-    ) {
-        Ok(version) => version,
-        Err(error) => {
-            result.fail(error);
-            return result;
+    if plan.active_rules(Producer::Clippy).next().is_none() {
+        result.scan = ClippyExecution::Disabled;
+    } else {
+        match run_clippy(
+            &programs.cargo,
+            workspace_root.as_std_path(),
+            plan,
+            target_dir,
+            environment,
+        ) {
+            Ok(scan) => result.scan = ClippyExecution::Finished(scan),
+            Err(error) => result.fail(error),
         }
-    };
-    result.toolchain.cargo = Some(cargo_version);
-
-    let rustc_version = match tool_version(
-        &programs.rustc,
-        &["--version"],
-        workspace_root.as_std_path(),
-        "rustc-unavailable",
-        "rustc",
-    ) {
-        Ok(version) => version,
-        Err(error) => {
-            result.fail(error);
-            return result;
-        }
-    };
-    result.toolchain.rustc = Some(rustc_version);
-
-    let clippy_version = match tool_version(
-        &programs.cargo,
-        &["clippy", "--version"],
-        workspace_root.as_std_path(),
-        "clippy-unavailable",
-        "Clippy",
-    ) {
-        Ok(version) => version,
-        Err(error) => {
-            result.fail(error);
-            return result;
-        }
-    };
-    result.toolchain.clippy = Some(clippy_version);
-
-    match run_clippy(&programs.cargo, workspace_root.as_std_path(), plan) {
-        Ok(scan) => result.scan = Some(scan),
-        Err(error) => result.fail(error),
     }
-    if result.scan.is_some() {
+    if result.error.is_none() && plan.active_rules(Producer::SourceKernel).next().is_some() {
         result.source = result
             .metadata
             .as_ref()
@@ -274,8 +327,9 @@ fn tool_version(
     working_directory: &Path,
     code: &'static str,
     label: &str,
+    environment: &CommandEnvironment,
 ) -> Result<String, InternalError> {
-    let output = version_command(program, arguments, working_directory)
+    let output = version_command(program, arguments, working_directory, environment)
         .output()
         .map_err(|error| {
             InternalError::new(
@@ -312,13 +366,19 @@ fn tool_version(
     Ok(version.to_owned())
 }
 
-fn version_command(program: &Path, arguments: &[&str], working_directory: &Path) -> Command {
+fn version_command(
+    program: &Path,
+    arguments: &[&str],
+    working_directory: &Path,
+    environment: &CommandEnvironment,
+) -> Command {
     let mut command = Command::new(program);
     command
         .args(arguments)
         .current_dir(working_directory)
         .stdin(Stdio::null())
         .stderr(Stdio::null());
+    environment.apply(&mut command);
     command
 }
 
@@ -326,9 +386,11 @@ fn run_clippy(
     cargo: &Path,
     workspace_root: &Path,
     plan: &PolicyPlan,
+    target_dir: Option<&Path>,
+    environment: &CommandEnvironment,
 ) -> Result<ScanExecution, InternalError> {
     let arguments = clippy_arguments_for_plan(plan);
-    let mut child = clippy_command(cargo, workspace_root, &arguments)
+    let mut child = clippy_command(cargo, workspace_root, &arguments, target_dir, environment)
         .spawn()
         .map_err(|error| {
             InternalError::new(
@@ -387,7 +449,13 @@ fn clippy_arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
     arguments
 }
 
-fn clippy_command(cargo: &Path, workspace_root: &Path, arguments: &[&str]) -> Command {
+fn clippy_command(
+    cargo: &Path,
+    workspace_root: &Path,
+    arguments: &[&str],
+    target_dir: Option<&Path>,
+    environment: &CommandEnvironment,
+) -> Command {
     let mut command = Command::new(cargo);
     command
         .args(arguments)
@@ -395,6 +463,10 @@ fn clippy_command(cargo: &Path, workspace_root: &Path, arguments: &[&str]) -> Co
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    if let Some(target_dir) = target_dir {
+        command.env("CARGO_TARGET_DIR", target_dir);
+    }
+    environment.apply(&mut command);
     command
 }
 
@@ -551,13 +623,18 @@ mod tests {
             Some(("discovery", "no-manifest"))
         );
         assert!(result.metadata.is_none());
-        assert!(result.scan.is_none());
+        assert!(result.scan.finished().is_none());
     }
 
     #[test]
     fn version_command_uses_the_requested_working_directory() {
         let workspace = fixture("clean").canonicalize().unwrap();
-        let command = version_command(Path::new("cargo"), &["--version"], &workspace);
+        let command = version_command(
+            Path::new("cargo"),
+            &["--version"],
+            &workspace,
+            &CommandEnvironment::default(),
+        );
 
         assert_eq!(command.get_program(), OsStr::new("cargo"));
         assert_eq!(
@@ -571,7 +648,13 @@ mod tests {
     fn clippy_command_has_exact_arguments_and_workspace() {
         let workspace = fixture("clean").canonicalize().unwrap();
         let arguments = clippy_arguments();
-        let command = clippy_command(Path::new("cargo"), &workspace, &arguments);
+        let command = clippy_command(
+            Path::new("cargo"),
+            &workspace,
+            &arguments,
+            None,
+            &CommandEnvironment::default(),
+        );
         let arguments: Vec<_> = command.get_args().collect();
 
         assert_eq!(command.get_program(), OsStr::new("cargo"));
@@ -653,7 +736,7 @@ mod tests {
             Some(("execution", "cargo-unavailable"))
         );
         assert!(result.metadata.is_none());
-        assert!(result.scan.is_none());
+        assert!(result.scan.finished().is_none());
     }
 
     #[test]
@@ -664,6 +747,7 @@ mod tests {
             &fixture("clean"),
             "clippy-unavailable",
             "Clippy",
+            &CommandEnvironment::default(),
         )
         .unwrap_err();
 
@@ -827,7 +911,7 @@ mod tests {
                 .unwrap()
                 .starts_with("clippy ")
         );
-        let scan = result.scan.unwrap();
+        let scan = result.scan.into_finished().unwrap();
         assert_eq!(
             scan.command,
             [
@@ -860,7 +944,7 @@ mod tests {
         let result = execute(&fixture("compile-error"));
 
         assert!(result.error.is_none(), "{:?}", result.error);
-        let scan = result.scan.unwrap();
+        let scan = result.scan.into_finished().unwrap();
         assert_eq!(scan.exit_code, Some(101));
         assert_eq!(scan.exit_success, Some(false));
         assert_eq!(scan.build_finished, Some(false));

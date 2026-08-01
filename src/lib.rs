@@ -1,5 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod baseline;
 mod cargo_health;
 mod configuration;
 mod execution;
@@ -38,17 +39,32 @@ fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> Inspec
         Ok(prepared) => prepared,
         Err(result) => return report::preparation_failure(*result, policy.failure_blocking()),
     };
+    let plan = match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration)
+    {
+        Ok(plan) => plan,
+        Err(error) => return report::policy_failure(error, policy.failure_blocking()),
+    };
     let scope = match git_scope::resolve(&scope_request, prepared.workspace_root()) {
         Ok(scope) => scope,
         Err(error) => {
             return report::preparation_failure(prepared.fail(error), policy.failure_blocking());
         }
     };
-    let plan = match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration)
-    {
-        Ok(plan) => plan,
-        Err(error) => return report::policy_failure(error, policy.failure_blocking()),
-    };
+    if let git_scope::ScopeDetails::Baseline { comparison_base } = scope.details() {
+        let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return report::from_execution_scoped(prepared.fail(error), &plan, scope);
+            }
+        };
+        let execution =
+            execution::execute_baseline(prepared, snapshot.workspace(), snapshot.target(), &plan);
+        let report = report::from_baseline_execution(execution, &plan, scope);
+        return match snapshot.cleanup() {
+            Ok(()) => report,
+            Err(error) => report::baseline_cleanup_failure(report, error),
+        };
+    }
     report::from_execution_scoped(execution::execute(prepared, &plan), &plan, scope)
 }
 

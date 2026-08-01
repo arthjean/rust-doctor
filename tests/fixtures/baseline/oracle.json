@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "git_version": "git version 2.55.0",
+  "limits": {
+    "entries": 100000,
+    "blob_bytes": 67108864,
+    "total_blob_bytes": 1073741824,
+    "inventory_stdout_bytes": 16777216,
+    "path_bytes": 4096,
+    "stderr_bytes": 65536
+  },
+  "measurements": [
+    {
+      "name": "rust-doctor",
+      "commit": "150a7ef4b1c4a91bb7e557a2497d97394ff9af77",
+      "source": "product repository",
+      "entries": 188,
+      "max_blob_bytes": 78647,
+      "total_blob_bytes": 1001146,
+      "max_path_bytes": 99,
+      "inventory_stdout_bytes": 20731
+    },
+    {
+      "name": "anyhow",
+      "commit": "18c2598afa0f996f56217ef128aa3a20ea1e9512",
+      "source": "tasks/rust-doctor-curated-rule-kernel-evaluation.json",
+      "entries": 54,
+      "max_blob_bytes": 51113,
+      "total_blob_bytes": 242104,
+      "max_path_bytes": 35,
+      "inventory_stdout_bytes": 4382
+    },
+    {
+      "name": "serde_json",
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "source": "tasks/rust-doctor-curated-rule-kernel-evaluation.json",
+      "entries": 91,
+      "max_blob_bytes": 86368,
+      "total_blob_bytes": 732459,
+      "max_path_bytes": 46,
+      "inventory_stdout_bytes": 7558
+    },
+    {
+      "name": "hexyl",
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "source": "tasks/rust-doctor-curated-rule-kernel-evaluation.json",
+      "entries": 22,
+      "max_blob_bytes": 41528,
+      "total_blob_bytes": 191002,
+      "max_path_bytes": 32,
+      "inventory_stdout_bytes": 1710
+    }
+  ],
+  "decision": "retain-candidate-limits"
+}

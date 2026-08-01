@@ -365,25 +365,29 @@ fn policy_discovery_and_metadata_failures_precede_every_git_process() {
 #[test]
 fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
     let hostile = "--secret^{commit}";
-    let request = InspectRequest::new("/path/that/must/not/be/inspected").with_files_scope(hostile);
-    assert!(!format!("{request:?}").contains(hostile));
-    let report = inspect(request);
+    for request in [
+        InspectRequest::new("/path/that/must/not/be/inspected").with_files_scope(hostile),
+        InspectRequest::new("/path/that/must/not/be/inspected").with_baseline_scope(hostile),
+    ] {
+        assert!(!format!("{request:?}").contains(hostile));
+        let report = inspect(request);
 
-    assert_eq!(report.schema_version, 6);
-    assert_eq!(report.status, Status::Failed);
-    assert!(report.project.is_none());
-    assert!(report.policy.is_none());
-    assert!(report.scope.is_none());
-    assert!(report.toolchain.cargo.is_none());
-    assert!(report.toolchain.rustc.is_none());
-    assert!(report.toolchain.clippy.is_none());
-    assert!(report.scan.command.is_none());
-    assert_eq!(report.gate.status, GateStatus::NotEvaluated);
-    assert_eq!(report.exit_code(), 2);
-    assert_eq!(report.errors.len(), 1);
-    assert_eq!(report.errors[0].stage, "scope");
-    assert_eq!(report.errors[0].code, "invalid-base");
-    assert!(!format!("{report:?}").contains(hostile));
+        assert_eq!(report.schema_version, 6);
+        assert_eq!(report.status, Status::Failed);
+        assert!(report.project.is_none());
+        assert!(report.policy.is_none());
+        assert!(report.scope.is_none());
+        assert!(report.toolchain.cargo.is_none());
+        assert!(report.toolchain.rustc.is_none());
+        assert!(report.toolchain.clippy.is_none());
+        assert!(report.scan.command.is_none());
+        assert_eq!(report.gate.status, GateStatus::NotEvaluated);
+        assert_eq!(report.exit_code(), 2);
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].stage, "scope");
+        assert_eq!(report.errors[0].code, "invalid-base");
+        assert!(!format!("{report:?}").contains(hostile));
+    }
 }
 
 #[test]
@@ -456,6 +460,8 @@ fn terminal_scope_failure_exposes_only_the_closed_code() {
 fn clap_rejects_invalid_scope_combinations_without_a_report_or_inspection() {
     for arguments in [
         vec!["--scope", "files"],
+        vec!["--scope", "baseline"],
+        vec!["--scope", "baseline", "--scope", "files", "--base", "main"],
         vec!["--scope", "full", "--base", "main"],
         vec!["--base", "main"],
         vec!["--scope", "unknown"],
@@ -493,8 +499,12 @@ fn closed_configuration_rejects_scope_fields_before_git() {
 
 #[test]
 fn request_debug_never_contains_a_files_base() {
-    let request = InspectRequest::new(".").with_files_scope("credential-secret-ref");
-    let debug = format!("{request:?}");
-    assert!(debug.contains("<redacted>"));
-    assert!(!debug.contains("credential-secret-ref"));
+    for request in [
+        InspectRequest::new(".").with_files_scope("credential-secret-ref"),
+        InspectRequest::new(".").with_baseline_scope("credential-secret-ref"),
+    ] {
+        let debug = format!("{request:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("credential-secret-ref"));
+    }
 }

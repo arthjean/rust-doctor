@@ -493,21 +493,12 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
         let proof = match producer {
             "clippy" => {
-                let command = json!([
-                    "cargo",
-                    "clippy",
-                    "--workspace",
-                    "--all-targets",
-                    "--no-deps",
-                    "--message-format=json",
-                    "--"
-                ]);
-                assert_eq!(report["scan"]["command"], command);
+                assert!(report["scan"]["command"].is_null());
                 json!({
                     "inactive_rules": inactive_rules,
-                    "scan_command": command,
-                    "curated_rule_flags": 0,
-                    "counter_test": "execution::tests::clippy_arguments_prune_off_rules_but_keep_error_rules_at_warning",
+                    "scan_command": null,
+                    "process_count": 0,
+                    "counter_test": "baseline_kernel::disabled_clippy_producer_starts_no_scan_on_either_side",
                 })
             }
             "cargo-health" => json!({

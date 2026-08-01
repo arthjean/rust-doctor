@@ -104,6 +104,7 @@ enum Command {
 enum ScopeArgument {
     Full,
     Files,
+    Baseline,
 }
 
 fn main() -> ExitCode {
@@ -130,26 +131,38 @@ fn run_inspect(
     scope: Option<ScopeArgument>,
     base: Option<String>,
 ) -> ExitCode {
-    let files_base = match (scope, base) {
+    let scoped_base = match (scope, base) {
         (None | Some(ScopeArgument::Full), None) => None,
-        (Some(ScopeArgument::Files), Some(base)) => Some(base),
+        (Some(mode @ (ScopeArgument::Files | ScopeArgument::Baseline)), Some(base)) => {
+            Some((mode, base))
+        }
         (Some(ScopeArgument::Files), None) => {
             return clap_error(
                 ErrorKind::MissingRequiredArgument,
                 "--scope files requires --base <REF>",
             );
         }
+        (Some(ScopeArgument::Baseline), None) => {
+            return clap_error(
+                ErrorKind::MissingRequiredArgument,
+                "--scope baseline requires --base <REF>",
+            );
+        }
         (None | Some(ScopeArgument::Full), Some(_)) => {
             return clap_error(
                 ErrorKind::ArgumentConflict,
-                "--base <REF> requires --scope files",
+                "--base <REF> requires --scope files or --scope baseline",
             );
         }
     };
     eprintln!("Inspecting Cargo workspace");
     let mut request = InspectRequest::new(path);
-    if let Some(base) = files_base {
-        request = request.with_files_scope(base);
+    if let Some((mode, base)) = scoped_base {
+        request = match mode {
+            ScopeArgument::Files => request.with_files_scope(base),
+            ScopeArgument::Baseline => request.with_baseline_scope(base),
+            ScopeArgument::Full => request,
+        };
     }
     if let Some(blocking) = blocking {
         request = request.with_blocking(blocking);

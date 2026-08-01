@@ -25,7 +25,24 @@ pub(crate) struct ResolutionFailure {
 
 pub(crate) fn resolve(path: &Path, cargo: &Path) -> Result<ResolvedScanTarget, ResolutionFailure> {
     resolve_with(path, |manifest_path, manifest_directory| {
-        load_metadata(manifest_path, manifest_directory, cargo)
+        load_metadata(manifest_path, manifest_directory, cargo, None, None)
+    })
+}
+
+pub(crate) fn resolve_isolated(
+    path: &Path,
+    cargo: &Path,
+    target_dir: &Path,
+    rustup_toolchain: Option<&OsStr>,
+) -> Result<ResolvedScanTarget, ResolutionFailure> {
+    resolve_with(path, |manifest_path, manifest_directory| {
+        load_metadata(
+            manifest_path,
+            manifest_directory,
+            cargo,
+            Some(target_dir),
+            rustup_toolchain,
+        )
     })
 }
 
@@ -126,34 +143,44 @@ fn load_metadata(
     manifest_path: &Path,
     manifest_directory: &Path,
     cargo: &Path,
+    target_dir: Option<&Path>,
+    rustup_toolchain: Option<&OsStr>,
 ) -> Result<Metadata, InternalError> {
-    metadata_command(cargo, manifest_path, manifest_directory)
-        .exec()
-        .map_err(|error| {
-            if let cargo_metadata::Error::Io(error) = error {
-                return InternalError::new(
-                    "execution",
-                    "cargo-unavailable",
-                    format!("Cargo could not be started: {error}"),
-                );
-            }
-            let detail = if matches!(&error, cargo_metadata::Error::CargoMetadata { .. }) {
-                "cargo metadata exited with an error".to_owned()
-            } else {
-                error.to_string()
-            };
-            InternalError::new(
-                "metadata",
-                "cargo-metadata",
-                format!("cargo metadata failed: {detail}"),
-            )
-        })
+    metadata_command(
+        cargo,
+        manifest_path,
+        manifest_directory,
+        target_dir,
+        rustup_toolchain,
+    )
+    .exec()
+    .map_err(|error| {
+        if let cargo_metadata::Error::Io(error) = error {
+            return InternalError::new(
+                "execution",
+                "cargo-unavailable",
+                format!("Cargo could not be started: {error}"),
+            );
+        }
+        let detail = if matches!(&error, cargo_metadata::Error::CargoMetadata { .. }) {
+            "cargo metadata exited with an error".to_owned()
+        } else {
+            error.to_string()
+        };
+        InternalError::new(
+            "metadata",
+            "cargo-metadata",
+            format!("cargo metadata failed: {detail}"),
+        )
+    })
 }
 
 fn metadata_command(
     cargo: &Path,
     manifest_path: &Path,
     manifest_directory: &Path,
+    target_dir: Option<&Path>,
+    rustup_toolchain: Option<&OsStr>,
 ) -> MetadataCommand {
     let mut command = MetadataCommand::new();
     command
@@ -161,6 +188,12 @@ fn metadata_command(
         .manifest_path(manifest_path)
         .current_dir(manifest_directory)
         .no_deps();
+    if let Some(target_dir) = target_dir {
+        command.env("CARGO_TARGET_DIR", target_dir);
+    }
+    if let Some(toolchain) = rustup_toolchain {
+        command.env("RUSTUP_TOOLCHAIN", toolchain);
+    }
     command
 }
 
@@ -193,7 +226,7 @@ mod tests {
             let calls = Cell::new(0);
             let target = resolve_with(&path, |manifest, directory| {
                 calls.set(calls.get() + 1);
-                load_metadata(manifest, directory, Path::new("cargo"))
+                load_metadata(manifest, directory, Path::new("cargo"), None, None)
             })
             .unwrap();
 
@@ -207,7 +240,8 @@ mod tests {
     fn metadata_command_uses_the_versioned_no_deps_contract() {
         let manifest = fixture().join("Cargo.toml");
         let directory = manifest.parent().unwrap();
-        let command = metadata_command(Path::new("cargo"), &manifest, directory).cargo_command();
+        let command =
+            metadata_command(Path::new("cargo"), &manifest, directory, None, None).cargo_command();
         let arguments: Vec<_> = command.get_args().collect();
 
         assert_eq!(command.get_program(), OsStr::new("cargo"));
