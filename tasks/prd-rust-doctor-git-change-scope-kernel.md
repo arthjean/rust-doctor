@@ -7,6 +7,7 @@
 |---------|------|--------|---------|
 | 1.0 | 2026-08-01 | Arthur Jean | Initial draft |
 | 1.1 | 2026-08-01 | Arthur Jean | Correction de la commande relative Git selon l'oracle 2.55.0 et alignement du minimum Rust sur 1.97.1 |
+| 1.2 | 2026-08-01 | Arthur Jean | Rétablissement du MSRV 1.95, bornes stderr et scope sérialisé, changelog produit et fixtures v5/v6 figées |
 
 ## Problem Statement
 
@@ -98,7 +99,7 @@ Key findings that informed this PRD:
   2. `git -c color.ui=false -c core.fsmonitor=false --no-pager -C <workspace> merge-base --all <BASE_COMMIT> HEAD`;
   3. `git -c color.ui=false -c core.fsmonitor=false --no-pager -C <workspace> diff --no-ext-diff --no-renames --relative --name-only -z --diff-filter=ACMR <MERGE_BASE> -- .`.
 - Le premier processus doit produire exactement un OID de 40 ou 64 caractères hexadécimaux. Le deuxième doit produire exactement un OID de même forme. Zéro ou plusieurs OIDs échouent fermés.
-- Les sorties stdout de `rev-parse` et `merge-base` sont limitées à 4 096 octets chacune. La sortie stdout de `diff` est limitée à 1 048 576 octets. Les stderr sont limitées à 65 536 octets puis éliminées sans entrer dans un rapport.
+- Les sorties stdout de `rev-parse` et `merge-base` sont limitées à 4 096 octets chacune. La sortie stdout de `diff` est limitée à 1 048 576 octets. Chaque stderr est capturée jusqu'à 65 536 octets, drainée puis éliminée sans entrer dans un rapport; tout octet supplémentaire retourne `git-output-too-large`.
 - Les variables `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_CONFIG`, `GIT_CONFIG_COUNT`, `GIT_EXTERNAL_DIFF` et `GIT_PAGER` sont retirées ou remplacées pour que la cible reste le workspace fourni.
 - Le change-set accepte au plus 10 000 paths non vides, chacun d'au plus 4 096 octets UTF-8. Chaque path doit être relatif, n'avoir que des composants `Normal` et rester lexicalement sous le workspace. Il est trié et dédupliqué par ordre d'octets UTF-8.
 - La détection de rename et copy reste désactivée. Une rename est représentée comme suppression plus ajout; `D` est exclu et seul le path destination encore présent peut sélectionner un diagnostic.
@@ -108,12 +109,13 @@ Key findings that informed this PRD:
 - La policy effective et le restamping sont appliqués avant projection. Les IDs sont calculés selon le tuple historique et ne contiennent ni mode, base ni change-set.
 - Le summary et le gate sont calculés après projection. Un scope vide sans erreur produit 0 diagnostic, un summary nul, un gate `passed` et exit 0.
 - Le rapport v6 contient `scope: null` avant résolution. Après résolution, la forme normative est `{"mode":"full","execution_scope":"workspace","comparison_base":null,"files":null}` ou `{"mode":"files","execution_scope":"workspace","comparison_base":"<MERGE_BASE_OID>","files":["path/trié"]}`.
+- L'objet scope compact sérialisé reste strictement inférieur à 2 097 152 octets. Toute expansion de normalisation qui atteint cette borne retourne `git-output-too-large` avant l'analyse.
 - Une erreur de résolution Git après metadata/configuration expose le projet, `policy: null`, `scope: null`, les trois versions toolchain à `null`, la commande scan à `null`, gate `not-evaluated`, exit 2 et une seule erreur stage `scope`.
 - Les codes fermés sont `invalid-base`, `git-unavailable`, `base-unavailable`, `merge-base-unavailable`, `merge-base-ambiguous`, `git-diff-failed`, `git-output-too-large`, `git-path-invalid` et `too-many-files`. Aucun message ne recopie ref, stderr Git, path hostile, path absolu, URL, credential ou contrôle.
 - Le terminal affiche une seule ligne compacte de scope. Il n'affiche ni liste de paths ni ref brute.
 - Aucun champ `scope` ou `base` n'est ajouté à `rust-doctor.toml`; son schema fermé existant reste inchangé.
 - Aucune nouvelle dépendance directe, feature Cargo, règle, catégorie, producteur, fingerprint, suppression ou ignore n'est ajouté.
-- Le MSRV et le toolchain normatif Rust sont 1.97.1, et l'edition reste 2024. L'oracle Git est capturé sous Git 2.55.0 sans déclarer une compatibilité avec des versions non testées.
+- Le MSRV reste Rust 1.95, le toolchain normatif Rust reste 1.97.1 et l'edition reste 2024. L'oracle Git est capturé sous Git 2.55.0 sans déclarer une compatibilité avec des versions non testées.
 - Rust Doctor ne modifie aucun manifest, source, configuration, fichier Git, index, ref ou objet du projet inspecté.
 
 ### Normative Git Oracle Matrix
@@ -200,6 +202,9 @@ Définir puis intégrer une frontière Git read-only qui transforme une base exp
 - [ ] Given un sélecteur vide, option-shaped, hors grammaire, trop long ou ressemblant à un rev expression, when il est validé, then `scope/invalid-base` est retourné avant discovery et 0 processus est observé.
 - [ ] Given Git absent, base ou repository indisponible, merge-base nul ou multiple, ou diff nonzero, when la phase correspondante échoue, then le code fermé exact est retourné, les phases suivantes observent 0 processus et aucun stdout/stderr brut n'est transporté.
 - [ ] Given 1 048 577 octets de diff, 10 001 paths, un path de 4 097 octets, non UTF-8, absolu, vide ou contenant `.` ou `..`, when la sortie est traitée, then le code de borne ou path exact est retourné sans résultat partiel.
+- [ ] Given exactement 65 536 puis 65 537 octets sur stderr Git, when le processus est drainé, then la première sortie reste admissible, la seconde retourne `git-output-too-large` et aucun octet stderr n'entre dans le rapport.
+- [ ] Given un objet scope compact de 2 097 151 puis 2 097 152 octets, when la borne de sérialisation est évaluée, then le premier est admissible et le second retourne `git-output-too-large`.
+- [ ] Given un diff brut admissible dont les `%` ou contrôles font atteindre 2 097 152 octets au scope compact après normalisation, when le scope est finalisé, then `git-output-too-large` est retourné avant toute version ou analyse.
 - [ ] Given un environnement avec overrides `GIT_*`, pager ou external diff, when le resolver s'exécute, then les overrides interdits n'influencent ni repository, index, commande, sortie ni processus enfant.
 - [ ] Given le repository, index, refs et working tree avant et après résolution, when hashes et statuts sont comparés, then 100 % restent inchangés.
 
@@ -268,7 +273,7 @@ Projeter les diagnostics normalisés sur le change-set, publier la couverture r�
 - [ ] Given le renderer terminal en full, files avec 0 path puis files avec N paths, when il s'exécute, then il imprime exactement une ligne compacte indiquant mode, execution workspace, nombre de paths et préfixe hexadécimal du comparison base sans liste de paths.
 - [ ] Given une erreur scope, when terminal et JSON sont rendus, then le code fermé apparaît, aucune ref brute, sortie Git, path hostile, URL, credential, ANSI ou contrôle ne paraît dans stdout ou stderr.
 - [ ] Given un writer fermé pendant le rendu scope, when le renderer échoue, then il retourne l'erreur typée historique, n'émet pas de second document et l'exit CLI vaut 2.
-- [ ] Given un consumer qui ne connaît que v5, when il lit schema_version 6, then le changelog et la fixture v5/v6 lui permettent de refuser ou migrer explicitement sans ambiguïté de champ.
+- [ ] Given un consumer qui ne connaît que v5, when il lit schema_version 6, then `CHANGELOG.md` et les fixtures figées v5 et v6 lui permettent de refuser ou migrer explicitement sans ambiguïté de champ.
 - [ ] Given `cargo tree -e features`, when la livraison est inspectée, then aucune dépendance directe ou feature nouvelle n'est présente.
 
 #### US-041: Prouver la boucle Git scope E2E
@@ -290,7 +295,7 @@ Projeter les diagnostics normalisés sur le change-set, publier la couverture r�
 - [ ] Given une erreur scope, when les compteurs sont lus, then metadata vaut au plus 1 selon le point d'échec, Git s'arrête au premier processus fautif, `execution_started` reste `false` à la frontière d'orchestration, et tool versions ou Clippy observent 0 processus.
 - [ ] Given le repository, HEAD, refs, index, manifests, sources, config et lockfile avant et après les 240 scans, when leurs hashes, tailles, mtimes et statut Git sont comparés, then 100 % restent inchangés hors target isolé de la fixture.
 - [ ] Given l'artifact `tasks/rust-doctor-git-change-scope-kernel-evaluation.json`, when il est produit, then il contient toolchain, Git version, OIDs hexadécimaux, cibles relatives, scope, paths relatifs, process counters, gates et hashes d'IDs sans ref brute, source, contenu, path absolu ou environnement privé.
-- [ ] Given les quatre quality gates sous Rust 1.97.1 et le toolchain normatif, when la livraison est validée, then elles passent avec l'artifact byte-identical à sa reconstruction.
+- [ ] Given `cargo check --all-targets` sous Rust 1.95 et les quatre quality gates sous le toolchain normatif Rust 1.97.1, when la livraison est validée, then elles passent avec l'artifact byte-identical à sa reconstruction.
 - [ ] Given une sélection incorrecte, un fallback full, un second metadata, un processus Git supplémentaire, une sortie non déterministe, une fuite, une mutation ou une rupture d'ID, when US-041 est évaluée, then la story reste non DONE et le cas minimal rejoint la matrice.
 
 ## Functional Requirements
@@ -346,7 +351,7 @@ Projeter les diagnostics normalisés sur le change-set, publier la couverture r�
 | Source preservation | 100 % de HEAD, refs, index, configs, manifests, lockfiles et sources gardent hash/statut; 0 écriture hors target de test | Snapshot avant/après |
 | Report size | L'objet scope sérialisé reste sous 2 097 152 octets à la borne maximale | Taille JSON du corpus limite |
 | Dependency | 0 nouvelle dépendance directe et 0 nouvelle feature Cargo | Diff Cargo et feature tree |
-| Toolchain | 4 quality gates sur 4 passent avec rustc 1.97.1 minimum et le toolchain normatif; Git oracle sous 2.55.0 | CI locale et oracle US-036 |
+| Toolchain | `cargo check --all-targets` passe sous le MSRV 1.95; 4 quality gates sur 4 passent sous le toolchain normatif Rust 1.97.1; Git oracle sous 2.55.0 | Validation locale et oracle US-036 |
 
 ## Edge Cases & Error States
 
