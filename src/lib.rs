@@ -1,39 +1,46 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod cargo_health;
+mod configuration;
 mod execution;
 mod policy;
 pub mod render;
 mod report;
+mod scan_target;
 mod source_kernel;
 
-pub use policy::{BlockingLevel, CategoryOverride, RuleLevel, RuleOverride};
+pub use policy::{
+    BlockingLevel, BlockingLevelSource, CategoryOverride, RuleLevel, RuleLevelSource, RuleOverride,
+};
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,
-    InspectRequest, PackageReport, ProjectReport, ReportError, ScanReport, Severity, Status,
-    Summary, ToolchainReport,
+    InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
+    ProjectReport, ReportError, ScanReport, Severity, Status, Summary, ToolchainReport,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {
     let policy = request.policy().clone();
-    inspect_with(request, &policy, execution::execute)
+    inspect_with(request, &policy)
 }
 
-fn inspect_with(
-    request: InspectRequest,
-    policy: &policy::PolicyInput,
-    execute: impl FnOnce(&std::path::Path, &policy::PolicyPlan) -> execution::ExecutionResult,
-) -> InspectReport {
-    let plan = match policy::PolicyPlan::compile(policy) {
-        Ok(plan) => plan,
-        Err(error) => return report::policy_failure(error, policy.blocking()),
+fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> InspectReport {
+    if let Err(error) = policy.validate() {
+        return report::policy_failure(error, policy.failure_blocking());
+    }
+    let prepared = match execution::prepare(&request.path) {
+        Ok(prepared) => prepared,
+        Err(result) => return report::preparation_failure(*result, policy.failure_blocking()),
     };
-    report::from_execution(execute(&request.path, &plan), &plan)
+    let plan = match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration)
+    {
+        Ok(plan) => plan,
+        Err(error) => return report::policy_failure(error, policy.failure_blocking()),
+    };
+    report::from_execution(execution::execute(prepared, &plan), &plan)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
     use std::path::Path;
 
     use super::*;
@@ -41,16 +48,11 @@ mod tests {
 
     #[test]
     fn invalid_policy_returns_before_execution_or_path_discovery() {
-        let executed = Cell::new(false);
         let request = InspectRequest::new("/path/that/must/not/be/inspected");
         let policy = PolicyInput::default().with_rule("unknown::rule", RuleLevel::Warn);
 
-        let report = inspect_with(request, &policy, |_, _| {
-            executed.set(true);
-            unreachable!("invalid policy must prevent execution")
-        });
+        let report = inspect_with(request, &policy);
 
-        assert!(!executed.get());
         assert_eq!(report.status, Status::Failed);
         assert!(!report.complete);
         assert!(report.project.is_none());
@@ -65,11 +67,7 @@ mod tests {
     fn clippy_off_prunes_execution_and_error_preserves_warning_identity() {
         let fixture =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kernel-contract/todo");
-        let baseline = inspect_with(
-            InspectRequest::new(&fixture),
-            &PolicyInput::default(),
-            execution::execute,
-        );
+        let baseline = inspect_with(InspectRequest::new(&fixture), &PolicyInput::default());
         assert_eq!(baseline.status, Status::Complete);
         let baseline_ids: Vec<_> = baseline
             .diagnostics
@@ -80,11 +78,7 @@ mod tests {
         assert!(!baseline_ids.is_empty());
 
         let off_policy = PolicyInput::default().with_rule("clippy::todo", RuleLevel::Off);
-        let off = inspect_with(
-            InspectRequest::new(&fixture),
-            &off_policy,
-            execution::execute,
-        );
+        let off = inspect_with(InspectRequest::new(&fixture), &off_policy);
         assert_eq!(off.status, Status::Complete);
         assert!(
             off.diagnostics
@@ -102,11 +96,7 @@ mod tests {
         );
 
         let error_policy = PolicyInput::default().with_rule("clippy::todo", RuleLevel::Error);
-        let error = inspect_with(
-            InspectRequest::new(&fixture),
-            &error_policy,
-            execution::execute,
-        );
+        let error = inspect_with(InspectRequest::new(&fixture), &error_policy);
         assert_eq!(error.status, Status::Complete);
         let error_ids: Vec<_> = error
             .diagnostics

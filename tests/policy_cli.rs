@@ -123,7 +123,7 @@ fn clap_rejects_malformed_policy_inputs_before_inspection() {
 }
 
 #[test]
-fn semantic_policy_failures_are_single_private_v4_reports_before_discovery() {
+fn semantic_policy_failures_are_single_private_v5_reports_before_discovery() {
     let long = format!("{}SECRET_AFTER_BOUND", "a".repeat(129));
     let cases = [
         ("--rule", "unknown::rule".to_owned(), "unknown-rule"),
@@ -150,7 +150,8 @@ fn semantic_policy_failures_are_single_private_v4_reports_before_discovery() {
         ]);
         assert_eq!(output.status.code(), Some(2), "{selector:?}");
         let report = json_report(&output);
-        assert_eq!(report["schema_version"], 4);
+        assert_eq!(report["schema_version"], 5);
+        assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["gate"]["status"], "not-evaluated");
         assert_eq!(report["gate"]["blocking_diagnostics"], Value::Null);

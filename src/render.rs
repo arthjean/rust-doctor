@@ -34,6 +34,24 @@ pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<()
 }
 
 pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
+    if let Some(policy) = &report.policy {
+        let source = match policy.blocking.source {
+            crate::BlockingLevelSource::Default => "default",
+            crate::BlockingLevelSource::Config => "config",
+            crate::BlockingLevelSource::Request => "request",
+        };
+        let configuration = policy
+            .config_file
+            .as_deref()
+            .map_or_else(|| "none loaded".to_owned(), |file| format!("{file} loaded"));
+        writeln!(
+            writer,
+            "Configuration: {configuration}; blocking {} ({source})",
+            policy.blocking.level,
+        )
+        .map_err(RenderError::Write)?;
+    }
+
     for diagnostic in &report.diagnostics {
         let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
         let (line, column) = diagnostic
@@ -139,9 +157,10 @@ mod tests {
 
     fn report() -> InspectReport {
         InspectReport {
-            schema_version: 4,
+            schema_version: 5,
             status: Status::Complete,
             complete: true,
+            policy: None,
             project: None,
             toolchain: ToolchainReport {
                 rustc: None,
@@ -198,7 +217,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            4
+            5
         );
     }
 

@@ -1,13 +1,14 @@
-use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use cargo_metadata::{Message, Metadata, MetadataCommand};
+use cargo_metadata::{Message, Metadata};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::configuration::{self, WorkspaceConfiguration};
 use crate::policy::{PolicyPlan, Producer};
+use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceScan};
 
 const CLIPPY_BASE_ARGS: [&str; 5] = [
@@ -115,13 +116,19 @@ pub(crate) struct InternalError {
 }
 
 impl InternalError {
-    fn new(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             stage,
             code,
             message: message.into(),
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedInspection {
+    target: ResolvedScanTarget,
+    pub(crate) configuration: WorkspaceConfiguration,
 }
 
 #[derive(Debug)]
@@ -139,32 +146,60 @@ impl Default for Programs {
     }
 }
 
-pub(crate) fn execute(path: &Path, plan: &PolicyPlan) -> ExecutionResult {
-    execute_with_plan(path, &Programs::default(), plan)
+pub(crate) fn prepare(path: &Path) -> Result<PreparedInspection, Box<ExecutionResult>> {
+    prepare_with(path, &Programs::default())
 }
 
-fn execute_with_plan(path: &Path, programs: &Programs, plan: &PolicyPlan) -> ExecutionResult {
-    let manifest_path = match discover_manifest(path) {
-        Ok(manifest_path) => manifest_path,
-        Err(error) => {
-            let mut result = ExecutionResult::new(None);
-            result.fail(error);
-            return result;
+fn prepare_with(
+    path: &Path,
+    programs: &Programs,
+) -> Result<PreparedInspection, Box<ExecutionResult>> {
+    let target = match scan_target::resolve(path, &programs.cargo) {
+        Ok(target) => target,
+        Err(failure) => {
+            let mut result = ExecutionResult::new(failure.manifest_path);
+            result.fail(failure.error);
+            return Err(Box::new(result));
         }
     };
-    let mut result = ExecutionResult::new(Some(manifest_path.clone()));
-    let Some(manifest_directory) = manifest_path.parent() else {
-        result.fail(no_manifest_error(
-            &manifest_path,
-            "manifest has no parent directory",
-        ));
-        return result;
+    let configuration = match configuration::load(&target) {
+        Ok(configuration) => configuration,
+        Err(error) => {
+            let mut result = ExecutionResult::new(Some(target.manifest_path));
+            result.metadata = Some(target.metadata);
+            result.fail(error);
+            return Err(Box::new(result));
+        }
     };
+
+    Ok(PreparedInspection {
+        target,
+        configuration,
+    })
+}
+
+pub(crate) fn execute(prepared: PreparedInspection, plan: &PolicyPlan) -> ExecutionResult {
+    execute_with_plan(prepared, &Programs::default(), plan)
+}
+
+fn execute_with_plan(
+    prepared: PreparedInspection,
+    programs: &Programs,
+    plan: &PolicyPlan,
+) -> ExecutionResult {
+    let PreparedInspection { target, .. } = prepared;
+    let ResolvedScanTarget {
+        manifest_path,
+        metadata,
+    } = target;
+    let workspace_root = metadata.workspace_root.clone();
+    let mut result = ExecutionResult::new(Some(manifest_path));
+    result.metadata = Some(metadata);
 
     let cargo_version = match tool_version(
         &programs.cargo,
         &["--version"],
-        manifest_directory,
+        workspace_root.as_std_path(),
         "cargo-unavailable",
         "Cargo",
     ) {
@@ -175,16 +210,6 @@ fn execute_with_plan(path: &Path, programs: &Programs, plan: &PolicyPlan) -> Exe
         }
     };
     result.toolchain.cargo = Some(cargo_version);
-
-    let metadata = match load_metadata(&manifest_path, manifest_directory, &programs.cargo) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            result.fail(error);
-            return result;
-        }
-    };
-    let workspace_root = metadata.workspace_root.clone();
-    result.metadata = Some(metadata);
 
     let rustc_version = match tool_version(
         &programs.rustc,
@@ -228,109 +253,6 @@ fn execute_with_plan(path: &Path, programs: &Programs, plan: &PolicyPlan) -> Exe
     }
 
     result
-}
-
-fn discover_manifest(path: &Path) -> Result<PathBuf, InternalError> {
-    if path.file_name() == Some(OsStr::new("Cargo.toml")) {
-        return resolve_manifest_boundary(path);
-    }
-
-    if !path.is_dir() {
-        return Err(no_manifest_error(path, "path is not a directory"));
-    }
-
-    let directory = path.canonicalize().map_err(|error| {
-        no_manifest_error(path, format!("could not resolve directory: {error}"))
-    })?;
-    for ancestor in directory.ancestors() {
-        let candidate = ancestor.join("Cargo.toml");
-        match candidate.symlink_metadata() {
-            Ok(_) => return resolve_manifest_boundary(&candidate),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(invalid_manifest_error(
-                    &candidate,
-                    format!("could not inspect manifest path: {error}"),
-                ));
-            }
-        }
-    }
-
-    Err(no_manifest_error(
-        path,
-        "no Cargo.toml found in this path or its ancestors",
-    ))
-}
-
-fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
-    let resolved = path.canonicalize().map_err(|error| {
-        invalid_manifest_error(path, format!("could not resolve manifest path: {error}"))
-    })?;
-    let metadata = resolved.metadata().map_err(|error| {
-        invalid_manifest_error(
-            path,
-            format!("could not inspect resolved manifest: {error}"),
-        )
-    })?;
-    if !metadata.is_file() {
-        return Err(invalid_manifest_error(
-            path,
-            "manifest path does not resolve to a regular file",
-        ));
-    }
-
-    Ok(resolved)
-}
-
-fn no_manifest_error(path: &Path, detail: impl AsRef<str>) -> InternalError {
-    InternalError::new(
-        "discovery",
-        "no-manifest",
-        format!("{}: {}", detail.as_ref(), path.display()),
-    )
-}
-
-fn invalid_manifest_error(path: &Path, detail: impl AsRef<str>) -> InternalError {
-    InternalError::new(
-        "discovery",
-        "invalid-manifest",
-        format!("{}: {}", detail.as_ref(), path.display()),
-    )
-}
-
-fn load_metadata(
-    manifest_path: &Path,
-    manifest_directory: &Path,
-    cargo: &Path,
-) -> Result<Metadata, InternalError> {
-    metadata_command(cargo, manifest_path, manifest_directory)
-        .exec()
-        .map_err(|error| {
-            let detail = if matches!(&error, cargo_metadata::Error::CargoMetadata { .. }) {
-                "cargo metadata exited with an error".to_owned()
-            } else {
-                error.to_string()
-            };
-            InternalError::new(
-                "metadata",
-                "cargo-metadata",
-                format!("cargo metadata failed: {detail}"),
-            )
-        })
-}
-
-fn metadata_command(
-    cargo: &Path,
-    manifest_path: &Path,
-    manifest_directory: &Path,
-) -> MetadataCommand {
-    let mut command = MetadataCommand::new();
-    command
-        .cargo_path(cargo)
-        .manifest_path(manifest_path)
-        .current_dir(manifest_directory)
-        .no_deps();
-    command
 }
 
 fn tool_version(
@@ -568,20 +490,26 @@ fn capture_json_line(line: &str, collected: &mut CollectedMessages) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::ffi::OsStr;
     use std::io::Cursor;
-    #[cfg(unix)]
-    use std::os::unix::fs::symlink;
 
     use super::*;
     use crate::policy::{PolicyInput, RuleLevel};
 
     fn execute(path: &Path) -> ExecutionResult {
-        super::execute(path, &PolicyPlan::default())
+        let prepared = match super::prepare(path) {
+            Ok(prepared) => prepared,
+            Err(result) => return *result,
+        };
+        super::execute(prepared, &PolicyPlan::default())
     }
 
     fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
-        execute_with_plan(path, programs, &PolicyPlan::default())
+        let prepared = match prepare_with(path, programs) {
+            Ok(prepared) => prepared,
+            Err(result) => return *result,
+        };
+        execute_with_plan(prepared, programs, &PolicyPlan::default())
     }
 
     fn clippy_arguments() -> Vec<&'static str> {
@@ -602,66 +530,6 @@ mod tests {
     }
 
     #[test]
-    fn discovers_directory_and_direct_manifest() {
-        let project = fixture("clean");
-        let expected = project.join("Cargo.toml").canonicalize().unwrap();
-
-        assert_eq!(discover_manifest(&project).unwrap(), expected);
-        assert_eq!(
-            discover_manifest(&project.join("Cargo.toml")).unwrap(),
-            expected
-        );
-        assert_eq!(discover_manifest(&project.join("src")).unwrap(), expected);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn invalid_manifest_boundary_stops_discovery_before_processes_start() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("discovery-boundary-{}", std::process::id()));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        let nested = root.join("nested");
-        fs::create_dir_all(nested.join("Cargo.toml")).unwrap();
-        fs::write(
-            root.join("Cargo.toml"),
-            "[package]\nname = \"ancestor\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
-        )
-        .unwrap();
-
-        let directory_error = discover_manifest(&nested).unwrap_err();
-        assert_eq!(
-            (directory_error.stage, directory_error.code),
-            ("discovery", "invalid-manifest")
-        );
-
-        let programs = Programs {
-            cargo: PathBuf::from("/definitely/missing/rust-doctor-cargo"),
-            rustc: PathBuf::from("/definitely/missing/rust-doctor-rustc"),
-        };
-        let result = execute_with(&nested, &programs);
-        assert_eq!(
-            result.error.as_ref().map(|error| (error.stage, error.code)),
-            Some(("discovery", "invalid-manifest"))
-        );
-        assert!(result.metadata.is_none());
-        assert!(result.scan.is_none());
-        assert!(result.toolchain.cargo.is_none());
-
-        fs::remove_dir_all(nested.join("Cargo.toml")).unwrap();
-        symlink("missing-target", nested.join("Cargo.toml")).unwrap();
-        let symlink_error = discover_manifest(&nested).unwrap_err();
-        assert_eq!(
-            (symlink_error.stage, symlink_error.code),
-            ("discovery", "invalid-manifest")
-        );
-
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn missing_manifest_returns_structured_failure_without_scan() {
         let result = execute(Path::new("/definitely/missing/rust-doctor-fixture"));
 
@@ -671,28 +539,6 @@ mod tests {
         );
         assert!(result.metadata.is_none());
         assert!(result.scan.is_none());
-    }
-
-    #[test]
-    fn metadata_command_uses_the_versioned_no_deps_contract() {
-        let manifest = fixture("clean").join("Cargo.toml");
-        let directory = manifest.parent().unwrap();
-        let command = metadata_command(Path::new("cargo"), &manifest, directory).cargo_command();
-        let arguments: Vec<_> = command.get_args().collect();
-
-        assert_eq!(command.get_program(), OsStr::new("cargo"));
-        assert_eq!(
-            arguments,
-            [
-                OsStr::new("metadata"),
-                OsStr::new("--format-version"),
-                OsStr::new("1"),
-                OsStr::new("--no-deps"),
-                OsStr::new("--manifest-path"),
-                manifest.as_os_str(),
-            ]
-        );
-        assert_eq!(command.get_current_dir(), Some(directory));
     }
 
     #[test]
@@ -782,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn cargo_spawn_failure_is_classified_before_metadata_or_scan() {
+    fn cargo_spawn_failure_is_classified_before_versions_or_scan() {
         let programs = Programs {
             cargo: PathBuf::from("/definitely/missing/rust-doctor-cargo"),
             rustc: PathBuf::from("rustc"),

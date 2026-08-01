@@ -91,8 +91,8 @@ enum Command {
             value_parser = RedactedOverrideParser::<CategoryOverride>::new()
         )]
         category: Vec<CategoryOverride>,
-        #[arg(long, value_enum, default_value_t)]
-        blocking: BlockingLevel,
+        #[arg(long, value_enum)]
+        blocking: Option<BlockingLevel>,
     },
 }
 
@@ -114,10 +114,13 @@ fn run_inspect(
     json: bool,
     rule_overrides: Vec<RuleOverride>,
     category_overrides: Vec<CategoryOverride>,
-    blocking: BlockingLevel,
+    blocking: Option<BlockingLevel>,
 ) -> ExitCode {
     eprintln!("Inspecting Cargo workspace");
-    let mut request = InspectRequest::new(path).with_blocking(blocking);
+    let mut request = InspectRequest::new(path);
+    if let Some(blocking) = blocking {
+        request = request.with_blocking(blocking);
+    }
     for rule_override in rule_overrides {
         request = request.with_rule_override(rule_override);
     }

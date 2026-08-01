@@ -276,7 +276,7 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     );
     assert_eq!(output.status.code(), Some(0));
     let report = report(&output);
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["complete"], true);
     let findings = native_findings(&report);

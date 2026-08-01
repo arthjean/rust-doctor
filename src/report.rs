@@ -15,12 +15,12 @@ use crate::execution::{
     InternalError, ScanExecution,
 };
 use crate::policy::{
-    self, BlockingLevel, CategoryOverride, PolicyError, PolicyInput, PolicyPlan, RuleLevel,
-    RuleOverride,
+    self, BlockingLevel, BlockingLevelSource, CategoryOverride, PolicyError, PolicyInput,
+    PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride,
 };
 use crate::source_kernel;
 
-pub const SCHEMA_VERSION: u8 = 4;
+pub const SCHEMA_VERSION: u8 = 5;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -67,6 +67,7 @@ pub struct InspectReport {
     pub schema_version: u8,
     pub status: Status,
     pub complete: bool,
+    pub policy: Option<PolicyReport>,
     pub project: Option<ProjectReport>,
     pub toolchain: ToolchainReport,
     pub scan: ScanReport,
@@ -74,6 +75,48 @@ pub struct InspectReport {
     pub errors: Vec<ReportError>,
     pub summary: Summary,
     pub gate: GateReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PolicyReport {
+    pub config_file: Option<String>,
+    pub blocking: PolicyBlockingReport,
+    pub rules: Vec<PolicyRuleReport>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PolicyBlockingReport {
+    pub level: BlockingLevel,
+    pub source: BlockingLevelSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PolicyRuleReport {
+    pub id: String,
+    pub category: String,
+    pub level: RuleLevel,
+    pub source: RuleLevelSource,
+}
+
+impl PolicyReport {
+    fn from_plan(plan: &PolicyPlan) -> Self {
+        Self {
+            config_file: plan.config_file().map(str::to_owned),
+            blocking: PolicyBlockingReport {
+                level: plan.blocking(),
+                source: plan.blocking_source(),
+            },
+            rules: plan
+                .effective_rules()
+                .map(|(definition, level, source)| PolicyRuleReport {
+                    id: definition.id.to_owned(),
+                    category: definition.category.to_owned(),
+                    level,
+                    source,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -292,15 +335,23 @@ impl HomePaths {
 }
 
 pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> InspectReport {
+    from_execution_with_plan(result, Some(plan), plan.blocking())
+}
+
+fn from_execution_with_plan(
+    result: ExecutionResult,
+    plan: Option<&PolicyPlan>,
+    blocking: BlockingLevel,
+) -> InspectReport {
     let workspace_root = result
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path());
     let home = home_paths();
     let status = classify(&result);
-    let mut diagnostics = match (status, result.scan.as_ref()) {
-        (Status::Failed, _) | (_, None) => Vec::new(),
-        (_, Some(scan)) => normalize_diagnostics_with_plan(
+    let mut diagnostics = match (status, result.scan.as_ref(), plan) {
+        (Status::Failed, _, _) | (_, None, _) | (_, _, None) => Vec::new(),
+        (_, Some(scan), Some(plan)) => normalize_diagnostics_with_plan(
             &scan.messages,
             workspace_root,
             result.metadata.as_ref(),
@@ -308,15 +359,18 @@ pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> Insp
             plan,
         ),
     };
-    if status != Status::Failed
+    if plan.is_some()
+        && status != Status::Failed
         && let Some(source) = result.source.as_ref()
     {
         merge_source_candidates(&mut diagnostics, source, workspace_root, &home);
     }
-    apply_policy(&mut diagnostics, plan);
+    if let Some(plan) = plan {
+        apply_policy(&mut diagnostics, plan);
+    }
     diagnostics.sort_by(compare_diagnostics);
     let summary = summarize(&diagnostics);
-    let gate = evaluate_gate(status, &diagnostics, plan.blocking());
+    let gate = evaluate_gate(status, &diagnostics, blocking);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
     let scan = scan_report(result.scan.as_ref());
     let errors = report_errors(&result, workspace_root, &home);
@@ -325,6 +379,7 @@ pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> Insp
         schema_version: SCHEMA_VERSION,
         status,
         complete: status == Status::Complete,
+        policy: plan.map(PolicyReport::from_plan),
         project,
         toolchain: ToolchainReport {
             rustc: result
@@ -351,11 +406,19 @@ pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> Insp
     }
 }
 
+pub(crate) fn preparation_failure(
+    result: ExecutionResult,
+    blocking: BlockingLevel,
+) -> InspectReport {
+    from_execution_with_plan(result, None, blocking)
+}
+
 pub(crate) fn policy_failure(error: PolicyError, blocking: BlockingLevel) -> InspectReport {
     InspectReport {
         schema_version: SCHEMA_VERSION,
         status: Status::Failed,
         complete: false,
+        policy: None,
         project: None,
         toolchain: ToolchainReport {
             rustc: None,
@@ -1283,6 +1346,7 @@ mod tests {
             schema_version: SCHEMA_VERSION,
             status: Status::Complete,
             complete: true,
+            policy: None,
             project: None,
             toolchain: ToolchainReport {
                 rustc: None,
@@ -1584,7 +1648,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 4);
+        assert_eq!(report.schema_version, 5);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();

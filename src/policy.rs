@@ -5,9 +5,11 @@ use std::fmt;
 use std::str::FromStr;
 
 use clap::ValueEnum;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ValueEnum)]
+use crate::configuration::WorkspaceConfiguration;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleLevel {
     Off,
@@ -28,7 +30,7 @@ impl RuleLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum BlockingLevel {
     None,
@@ -205,7 +207,7 @@ fn parse_override(value: &str) -> Result<(&str, RuleLevel), &'static str> {
 pub(crate) struct PolicyInput {
     rule_overrides: Vec<RuleOverride>,
     category_overrides: Vec<CategoryOverride>,
-    blocking: BlockingLevel,
+    blocking: Option<BlockingLevel>,
 }
 
 impl PolicyInput {
@@ -223,7 +225,7 @@ impl PolicyInput {
     }
 
     pub(crate) fn with_blocking(mut self, blocking: BlockingLevel) -> Self {
-        self.blocking = blocking;
+        self.blocking = Some(blocking);
         self
     }
 
@@ -235,15 +237,38 @@ impl PolicyInput {
         self.category_overrides.push(category_override);
     }
 
-    pub(crate) const fn blocking(&self) -> BlockingLevel {
-        self.blocking
+    pub(crate) fn failure_blocking(&self) -> BlockingLevel {
+        self.blocking.unwrap_or_default()
     }
+
+    pub(crate) fn validate(&self) -> Result<(), PolicyError> {
+        validated_overrides(self).map(|_| ())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleLevelSource {
+    Default,
+    ConfigCategory,
+    ConfigRule,
+    RequestCategory,
+    RequestRule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockingLevelSource {
+    Default,
+    Config,
+    Request,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 struct PlannedRule {
     id: &'static str,
     level: RuleLevel,
+    source: RuleLevelSource,
     restamp: bool,
 }
 
@@ -251,6 +276,8 @@ struct PlannedRule {
 pub(crate) struct PolicyPlan {
     rules: [PlannedRule; CATALOG.len()],
     blocking: BlockingLevel,
+    blocking_source: BlockingLevelSource,
+    config_file: Option<&'static str>,
 }
 
 impl Default for PolicyPlan {
@@ -259,60 +286,59 @@ impl Default for PolicyPlan {
             rules: CATALOG.map(|definition| PlannedRule {
                 id: definition.id,
                 level: definition.default_level,
+                source: RuleLevelSource::Default,
                 restamp: false,
             }),
             blocking: BlockingLevel::default(),
+            blocking_source: BlockingLevelSource::Default,
+            config_file: None,
         }
     }
 }
 
 impl PolicyPlan {
+    #[cfg(test)]
     pub(crate) fn compile(input: &PolicyInput) -> Result<Self, PolicyError> {
-        let mut rule_overrides = BTreeMap::new();
-        for rule_override in &input.rule_overrides {
-            validate_rule_selector(&rule_override.selector)?;
-            if find(&rule_override.selector).is_none() {
-                return Err(PolicyError::unknown_rule());
-            }
-            if rule_overrides
-                .insert(rule_override.selector.as_str(), rule_override.level)
-                .is_some()
-            {
-                return Err(PolicyError::duplicate_rule());
-            }
-        }
+        Self::compile_with_configuration(input, &WorkspaceConfiguration::default())
+    }
 
-        let mut category_overrides = BTreeMap::new();
-        for category_override in &input.category_overrides {
-            validate_category_selector(&category_override.selector)?;
-            if CATEGORIES
-                .binary_search(&category_override.selector.as_str())
-                .is_err()
-            {
-                return Err(PolicyError::unknown_category());
-            }
-            if category_overrides
-                .insert(category_override.selector.as_str(), category_override.level)
-                .is_some()
-            {
-                return Err(PolicyError::duplicate_category());
-            }
-        }
+    pub(crate) fn compile_with_configuration(
+        input: &PolicyInput,
+        configuration: &WorkspaceConfiguration,
+    ) -> Result<Self, PolicyError> {
+        let (rule_overrides, category_overrides) = validated_overrides(input)?;
 
         let rules = CATALOG.map(|definition| {
-            let rule_level = rule_overrides.get(definition.id).copied();
-            let category_level = category_overrides.get(definition.category).copied();
+            let (level, source) = if let Some(level) = rule_overrides.get(definition.id).copied() {
+                (level, RuleLevelSource::RequestRule)
+            } else if let Some(level) = category_overrides.get(definition.category).copied() {
+                (level, RuleLevelSource::RequestCategory)
+            } else if let Some(level) = configuration.rules.get(definition.id).copied() {
+                (level, RuleLevelSource::ConfigRule)
+            } else if let Some(level) = configuration.categories.get(definition.category).copied() {
+                (level, RuleLevelSource::ConfigCategory)
+            } else {
+                (definition.default_level, RuleLevelSource::Default)
+            };
             PlannedRule {
                 id: definition.id,
-                level: rule_level
-                    .or(category_level)
-                    .unwrap_or(definition.default_level),
-                restamp: rule_level.is_some() || category_level.is_some(),
+                level,
+                source,
+                restamp: source != RuleLevelSource::Default,
             }
         });
+        let (blocking, blocking_source) = if let Some(blocking) = input.blocking {
+            (blocking, BlockingLevelSource::Request)
+        } else if let Some(blocking) = configuration.blocking {
+            (blocking, BlockingLevelSource::Config)
+        } else {
+            (BlockingLevel::default(), BlockingLevelSource::Default)
+        };
         Ok(Self {
             rules,
-            blocking: input.blocking,
+            blocking,
+            blocking_source,
+            config_file: configuration.file_name,
         })
     }
 
@@ -350,6 +376,60 @@ impl PolicyPlan {
     pub(crate) const fn blocking(&self) -> BlockingLevel {
         self.blocking
     }
+
+    pub(crate) const fn blocking_source(&self) -> BlockingLevelSource {
+        self.blocking_source
+    }
+
+    pub(crate) const fn config_file(&self) -> Option<&'static str> {
+        self.config_file
+    }
+
+    pub(crate) fn effective_rules(
+        &self,
+    ) -> impl Iterator<Item = (&'static RuleDefinition, RuleLevel, RuleLevelSource)> + '_ {
+        CATALOG
+            .iter()
+            .zip(self.rules.iter())
+            .map(|(definition, planned)| (definition, planned.level, planned.source))
+    }
+}
+
+type ValidatedOverrides<'a> = (BTreeMap<&'a str, RuleLevel>, BTreeMap<&'a str, RuleLevel>);
+
+fn validated_overrides(input: &PolicyInput) -> Result<ValidatedOverrides<'_>, PolicyError> {
+    let mut rule_overrides = BTreeMap::new();
+    for rule_override in &input.rule_overrides {
+        validate_rule_selector(&rule_override.selector)?;
+        if find(&rule_override.selector).is_none() {
+            return Err(PolicyError::unknown_rule());
+        }
+        if rule_overrides
+            .insert(rule_override.selector.as_str(), rule_override.level)
+            .is_some()
+        {
+            return Err(PolicyError::duplicate_rule());
+        }
+    }
+
+    let mut category_overrides = BTreeMap::new();
+    for category_override in &input.category_overrides {
+        validate_category_selector(&category_override.selector)?;
+        if CATEGORIES
+            .binary_search(&category_override.selector.as_str())
+            .is_err()
+        {
+            return Err(PolicyError::unknown_category());
+        }
+        if category_overrides
+            .insert(category_override.selector.as_str(), category_override.level)
+            .is_some()
+        {
+            return Err(PolicyError::duplicate_category());
+        }
+    }
+
+    Ok((rule_overrides, category_overrides))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,7 +482,7 @@ impl PolicyError {
     }
 }
 
-fn validate_rule_selector(selector: &str) -> Result<(), PolicyError> {
+pub(crate) fn validate_rule_selector(selector: &str) -> Result<(), PolicyError> {
     if !(1..=128).contains(&selector.len())
         || !selector.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b':')
@@ -413,7 +493,7 @@ fn validate_rule_selector(selector: &str) -> Result<(), PolicyError> {
     Ok(())
 }
 
-fn validate_category_selector(selector: &str) -> Result<(), PolicyError> {
+pub(crate) fn validate_category_selector(selector: &str) -> Result<(), PolicyError> {
     if !(1..=32).contains(&selector.len())
         || !selector.bytes().all(|byte| byte.is_ascii_lowercase())
     {
@@ -594,6 +674,67 @@ mod tests {
             Some(RuleLevel::Off)
         );
         assert_eq!(plan.blocking(), BlockingLevel::Warning);
+    }
+
+    #[test]
+    fn configuration_and_request_layers_have_closed_precedence_and_provenance() {
+        let configuration = WorkspaceConfiguration {
+            file_name: Some("rust-doctor.toml"),
+            blocking: Some(BlockingLevel::Warning),
+            categories: BTreeMap::from([
+                ("correctness".to_owned(), RuleLevel::Off),
+                ("security".to_owned(), RuleLevel::Off),
+            ]),
+            rules: BTreeMap::from([
+                ("clippy::todo".to_owned(), RuleLevel::Error),
+                (
+                    "rust_doctor::source::dynamic_shell_command".to_owned(),
+                    RuleLevel::Error,
+                ),
+            ]),
+        };
+        let request = PolicyInput::default()
+            .with_category("correctness", RuleLevel::Warn)
+            .with_rule(
+                "rust_doctor::source::dynamic_shell_command",
+                RuleLevel::Warn,
+            );
+        let plan = PolicyPlan::compile_with_configuration(&request, &configuration)
+            .expect("layered policy should compile");
+        let rules: BTreeMap<_, _> = plan
+            .effective_rules()
+            .map(|(definition, level, source)| (definition.id, (level, source)))
+            .collect();
+
+        assert_eq!(plan.config_file(), Some("rust-doctor.toml"));
+        assert_eq!(plan.blocking(), BlockingLevel::Warning);
+        assert_eq!(plan.blocking_source(), BlockingLevelSource::Config);
+        assert_eq!(
+            rules["clippy::todo"],
+            (RuleLevel::Warn, RuleLevelSource::RequestCategory)
+        );
+        assert_eq!(
+            rules["clippy::unimplemented"],
+            (RuleLevel::Warn, RuleLevelSource::RequestCategory)
+        );
+        assert_eq!(
+            rules["rust_doctor::source::dynamic_shell_command"],
+            (RuleLevel::Warn, RuleLevelSource::RequestRule)
+        );
+        assert_eq!(
+            rules["rust_doctor::source::disabled_tls_verification"],
+            (RuleLevel::Off, RuleLevelSource::ConfigCategory)
+        );
+        assert_eq!(
+            rules["clippy::dbg_macro"],
+            (RuleLevel::Warn, RuleLevelSource::Default)
+        );
+
+        let explicit = PolicyInput::default().with_blocking(BlockingLevel::None);
+        let explicit = PolicyPlan::compile_with_configuration(&explicit, &configuration)
+            .expect("request blocking should compile");
+        assert_eq!(explicit.blocking(), BlockingLevel::None);
+        assert_eq!(explicit.blocking_source(), BlockingLevelSource::Request);
     }
 
     #[test]

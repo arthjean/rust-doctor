@@ -323,7 +323,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let (default_exit, default) = &reports["default"];
     assert_eq!(*default_exit, 0);
-    assert_eq!(default["schema_version"], 4);
+    assert_eq!(default["schema_version"], 5);
     assert_eq!(default["status"], "complete");
     assert_eq!(default["summary"]["warnings"], 7);
     assert_eq!(default["summary"]["total"], 7);
@@ -399,10 +399,22 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         .as_object_mut()
         .unwrap()
         .remove("gate");
+    correctness_without_gate
+        .as_object_mut()
+        .unwrap()
+        .remove("policy");
     none_without_gate.as_object_mut().unwrap().remove("gate");
+    none_without_gate.as_object_mut().unwrap().remove("policy");
     warning_without_gate.as_object_mut().unwrap().remove("gate");
+    warning_without_gate
+        .as_object_mut()
+        .unwrap()
+        .remove("policy");
     assert_eq!(correctness_without_gate, none_without_gate);
     assert_eq!(correctness_without_gate, warning_without_gate);
+    assert_eq!(correctness["policy"]["blocking"]["source"], "default");
+    assert_eq!(none["policy"]["blocking"]["source"], "request");
+    assert_eq!(warning["policy"]["blocking"]["source"], "request");
     assert_eq!(reports["correctness-error-none"].0, 0);
     assert_eq!(none["gate"]["status"], "passed");
     assert_eq!(none["gate"]["blocking_diagnostics"], 0);
