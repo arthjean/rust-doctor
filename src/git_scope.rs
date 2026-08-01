@@ -11,7 +11,9 @@ use crate::execution::InternalError;
 use crate::workspace_path;
 
 const OID_OUTPUT_LIMIT: usize = 4_096;
+const STDERR_OUTPUT_LIMIT: usize = 65_536;
 const DIFF_OUTPUT_LIMIT: usize = 1_048_576;
+const SCOPE_OUTPUT_LIMIT: usize = 2_097_152;
 const PATH_LIMIT: usize = 4_096;
 const FILE_LIMIT: usize = 10_000;
 
@@ -276,12 +278,14 @@ fn resolve_with(
         failure_message: "Git changed files could not be read.",
     })?;
 
-    Ok(ScopeReport {
+    let scope = ScopeReport {
         kind: ResolvedScope::Files {
             comparison_base,
             files: parse_paths(&diff_output.stdout)?,
         },
-    })
+    };
+    ensure_scope_output_bound(&scope)?;
+    Ok(scope)
 }
 
 fn git_arguments<const N: usize>(workspace_root: &Path, operation: [OsString; N]) -> Vec<OsString> {
@@ -307,7 +311,7 @@ fn run_git(git: &Path, workspace_root: &Path, call: &GitCall) -> Result<GitOutpu
     let stderr = child.stderr.take().ok_or_else(git_unavailable)?;
     let stdout_limit = call.stdout_limit;
     let stdout_reader = thread::spawn(move || collect_bounded(stdout, stdout_limit));
-    let stderr_reader = thread::spawn(move || discard(stderr));
+    let stderr_reader = thread::spawn(move || collect_bounded(stderr, STDERR_OUTPUT_LIMIT));
     let status = child
         .wait()
         .map_err(|_| phase_failure(call.failure_code, call.failure_message))?;
@@ -315,12 +319,12 @@ fn run_git(git: &Path, workspace_root: &Path, call: &GitCall) -> Result<GitOutpu
         .join()
         .map_err(|_| phase_failure(call.failure_code, call.failure_message))?
         .map_err(|_| phase_failure(call.failure_code, call.failure_message))?;
-    stderr_reader
+    let stderr = stderr_reader
         .join()
         .map_err(|_| phase_failure(call.failure_code, call.failure_message))?
         .map_err(|_| phase_failure(call.failure_code, call.failure_message))?;
 
-    if stdout.exceeded {
+    if stdout.exceeded || stderr.exceeded {
         return Err(output_too_large());
     }
     if !status.success() {
@@ -367,8 +371,11 @@ fn collect_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOut
     Ok(BoundedOutput { bytes, exceeded })
 }
 
-fn discard(mut reader: impl Read) -> io::Result<()> {
-    io::copy(&mut reader, &mut io::sink()).map(|_| ())
+fn ensure_scope_output_bound(scope: &ScopeReport) -> Result<(), InternalError> {
+    match serde_json::to_vec(scope) {
+        Ok(serialized) if serialized.len() < SCOPE_OUTPUT_LIMIT => Ok(()),
+        Ok(_) | Err(_) => Err(output_too_large()),
+    }
 }
 
 fn valid_base(base: &str) -> bool {
@@ -732,6 +739,21 @@ mod tests {
         .unwrap();
         assert!(bounded.exceeded);
         assert_eq!(bounded.bytes.len(), OID_OUTPUT_LIMIT);
+
+        let exact_stderr = collect_bounded(
+            Cursor::new(vec![b'x'; STDERR_OUTPUT_LIMIT]),
+            STDERR_OUTPUT_LIMIT,
+        )
+        .unwrap();
+        assert!(!exact_stderr.exceeded);
+        assert_eq!(exact_stderr.bytes.len(), STDERR_OUTPUT_LIMIT);
+        let oversized_stderr = collect_bounded(
+            Cursor::new(vec![b'x'; STDERR_OUTPUT_LIMIT + 1]),
+            STDERR_OUTPUT_LIMIT,
+        )
+        .unwrap();
+        assert!(oversized_stderr.exceeded);
+        assert_eq!(oversized_stderr.bytes.len(), STDERR_OUTPUT_LIMIT);
     }
 
     #[test]
@@ -805,5 +827,91 @@ mod tests {
         assert_eq!(error.code, "git-diff-failed");
         assert!(!error.message.contains("https://secret"));
         assert!(!error.message.contains("credential=secret"));
+
+        let (workspace, exact_stderr) = git_script(concat!(
+            "#!/bin/sh\n",
+            "i=0\n",
+            "while [ \"$i\" -lt 8192 ]; do printf 12345678 >&2; i=$((i + 1)); done\n",
+        ));
+        let call = GitCall {
+            arguments: git_arguments(&workspace, [OsString::from("status")]),
+            stdout_limit: OID_OUTPUT_LIMIT,
+            failure_code: "base-unavailable",
+            failure_message: "Git base commit is unavailable.",
+        };
+        let output = run_git(&exact_stderr, &workspace, &call).unwrap();
+        assert!(output.stdout.is_empty());
+
+        let (workspace, oversized_stderr) = git_script(concat!(
+            "#!/bin/sh\n",
+            "i=0\n",
+            "while [ \"$i\" -lt 8192 ]; do printf 12345678 >&2; i=$((i + 1)); done\n",
+            "printf x >&2\n",
+        ));
+        let call = GitCall {
+            arguments: git_arguments(&workspace, [OsString::from("status")]),
+            stdout_limit: OID_OUTPUT_LIMIT,
+            failure_code: "base-unavailable",
+            failure_message: "Git base commit is unavailable.",
+        };
+        let error = run_git(&oversized_stderr, &workspace, &call).unwrap_err();
+        assert_eq!(error.code, "git-output-too-large");
+    }
+
+    #[test]
+    fn serialized_scope_limit_accepts_the_last_byte_and_rejects_the_boundary() {
+        fn scope_with_serialized_size(size: usize) -> ScopeReport {
+            let empty = ScopeReport::files_scope(MERGE_BASE.to_owned(), vec![String::new()]);
+            let overhead = serde_json::to_vec(&empty).unwrap().len();
+            let scope =
+                ScopeReport::files_scope(MERGE_BASE.to_owned(), vec!["x".repeat(size - overhead)]);
+            assert_eq!(serde_json::to_vec(&scope).unwrap().len(), size);
+            scope
+        }
+
+        let last_valid = scope_with_serialized_size(SCOPE_OUTPUT_LIMIT - 1);
+        assert!(ensure_scope_output_bound(&last_valid).is_ok());
+        let first_invalid = scope_with_serialized_size(SCOPE_OUTPUT_LIMIT);
+        assert_eq!(
+            ensure_scope_output_bound(&first_invalid).unwrap_err().code,
+            "git-output-too-large"
+        );
+    }
+
+    #[test]
+    fn normalized_scope_cannot_expand_beyond_the_report_limit() {
+        let mut diff = Vec::new();
+        for index in 0..FILE_LIMIT {
+            let prefix = format!("{index:04}-");
+            let path = format!("{prefix}{}", "%".repeat(PATH_LIMIT - prefix.len()));
+            if diff.len() + path.len() + 1 > DIFF_OUTPUT_LIMIT {
+                break;
+            }
+            diff.extend_from_slice(path.as_bytes());
+            diff.push(0);
+        }
+        assert!(diff.len() <= DIFF_OUTPUT_LIMIT);
+        let expanded_size = {
+            let scope = ScopeReport {
+                kind: ResolvedScope::Files {
+                    comparison_base: MERGE_BASE.to_owned(),
+                    files: parse_paths(&diff).unwrap(),
+                },
+            };
+            serde_json::to_vec(&scope).unwrap().len()
+        };
+        assert!(expanded_size >= SCOPE_OUTPUT_LIMIT);
+
+        let responses = RefCell::new(VecDeque::from([
+            format!("{BASE}\n").into_bytes(),
+            format!("{MERGE_BASE}\n").into_bytes(),
+            diff,
+        ]));
+        let error = resolve_with(&files("main"), Path::new("/workspace"), |_| {
+            output(responses.borrow_mut().pop_front().unwrap())
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, "git-output-too-large");
     }
 }
