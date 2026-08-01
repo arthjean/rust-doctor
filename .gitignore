@@ -5,3 +5,5 @@
 /tests/fixtures/kernel-contract/*/Cargo.lock
 /tests/fixtures/cargo-health/*/target/
 /tests/fixtures/source-kernel/*/target/
+/tests/fixtures/configuration-kernel/workspace/Cargo.lock
+/tests/fixtures/configuration-kernel/workspace/target/

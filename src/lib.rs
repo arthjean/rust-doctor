@@ -3,12 +3,15 @@
 mod cargo_health;
 mod configuration;
 mod execution;
+mod git_scope;
 mod policy;
 pub mod render;
 mod report;
 mod scan_target;
 mod source_kernel;
+mod workspace_path;
 
+pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, RuleLevel, RuleLevelSource, RuleOverride,
 };
@@ -27,16 +30,26 @@ fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> Inspec
     if let Err(error) = policy.validate() {
         return report::policy_failure(error, policy.failure_blocking());
     }
+    let scope_request = request.scope().clone();
+    if let Err(error) = git_scope::validate(&scope_request) {
+        return report::scope_failure(error, policy.failure_blocking());
+    }
     let prepared = match execution::prepare(&request.path) {
         Ok(prepared) => prepared,
         Err(result) => return report::preparation_failure(*result, policy.failure_blocking()),
+    };
+    let scope = match git_scope::resolve(&scope_request, prepared.workspace_root()) {
+        Ok(scope) => scope,
+        Err(error) => {
+            return report::preparation_failure(prepared.fail(error), policy.failure_blocking());
+        }
     };
     let plan = match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration)
     {
         Ok(plan) => plan,
         Err(error) => return report::policy_failure(error, policy.failure_blocking()),
     };
-    report::from_execution(execution::execute(prepared, &plan), &plan)
+    report::from_execution_scoped(execution::execute(prepared, &plan), &plan, scope)
 }
 
 #[cfg(test)]

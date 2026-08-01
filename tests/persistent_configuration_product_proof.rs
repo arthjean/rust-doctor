@@ -5,13 +5,11 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsString;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::AtomicUsize;
-use std::time::SystemTime;
 
 use serde_json::{Value, json};
 
@@ -28,20 +26,12 @@ const RULES: [&str; 7] = [
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Debug, PartialEq, Eq)]
-struct FileState {
-    hash: blake3::Hash,
-    length: u64,
-    modified: Option<SystemTime>,
-}
-
 struct Fixture {
     root: PathBuf,
     project: PathBuf,
     cargo_home: PathBuf,
     target: PathBuf,
-    wrapper_bin: PathBuf,
-    process_log: PathBuf,
+    processes: support::ProcessHarness,
     real_rustc: PathBuf,
 }
 
@@ -109,56 +99,6 @@ fn initialize_git_dependency(root: &Path) {
     );
 }
 
-fn resolve_program(name: &str) -> PathBuf {
-    env::split_paths(&env::var_os("PATH").unwrap_or_default())
-        .map(|directory| directory.join(name))
-        .find(|path| path.is_file())
-        .unwrap()
-}
-
-fn install_process_wrappers(root: &Path) -> (PathBuf, PathBuf) {
-    let wrapper_bin = root.join("wrapper-bin");
-    let process_log = root.join("process.log");
-    fs::create_dir_all(&wrapper_bin).unwrap();
-    let wrapper = wrapper_bin.join("cargo");
-    fs::write(
-        &wrapper,
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$1\" in\n",
-            "  metadata) stage=metadata ;;\n",
-            "  --version) stage=cargo-version ;;\n",
-            "  clippy)\n",
-            "    if [ \"$2\" = \"--version\" ]; then stage=clippy-version; else stage=clippy; fi ;;\n",
-            "  *) stage=other ;;\n",
-            "esac\n",
-            "printf '%s\\n' \"$stage\" >> \"$RUST_DOCTOR_PROCESS_LOG\"\n",
-            "exec \"$RUST_DOCTOR_REAL_CARGO\" \"$@\"\n",
-        ),
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&wrapper).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&wrapper, permissions).unwrap();
-    let rustc_wrapper = wrapper_bin.join("rustc");
-    fs::write(
-        &rustc_wrapper,
-        concat!(
-            "#!/bin/sh\n",
-            "if [ \"$1\" = \"--version\" ]; then\n",
-            "  printf 'rustc-version\\n' >> \"$RUST_DOCTOR_PROCESS_LOG\"\n",
-            "fi\n",
-            "exec \"$RUST_DOCTOR_REAL_RUSTC\" \"$@\"\n",
-        ),
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&rustc_wrapper).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&rustc_wrapper, permissions).unwrap();
-    fs::write(&process_log, []).unwrap();
-    (wrapper_bin, process_log)
-}
-
 fn prepare_fixture() -> Fixture {
     let root = temporary_workspace();
     if root.exists() {
@@ -192,58 +132,16 @@ fn prepare_fixture() -> Fixture {
             .env("CARGO_NET_OFFLINE", "false"),
         "local fixture fetch",
     );
-    let real_rustc = resolve_program("rustc");
-    let (wrapper_bin, process_log) = install_process_wrappers(&root);
+    let real_rustc = support::resolve_program("rustc");
+    let processes = support::ProcessHarness::install(&root);
     Fixture {
         root,
         project,
         cargo_home,
         target,
-        wrapper_bin,
-        process_log,
+        processes,
         real_rustc,
     }
-}
-
-fn file_states(root: &Path) -> BTreeMap<String, FileState> {
-    fn visit(root: &Path, directory: &Path, states: &mut BTreeMap<String, FileState>) {
-        let mut entries: Vec<_> = fs::read_dir(directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect();
-        entries.sort();
-        for path in entries {
-            if path.is_dir() {
-                visit(root, &path, states);
-            } else {
-                let metadata = fs::symlink_metadata(&path).unwrap();
-                let contents = if metadata.file_type().is_symlink() {
-                    fs::read_link(&path)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned()
-                        .into_bytes()
-                } else {
-                    fs::read(&path).unwrap()
-                };
-                states.insert(
-                    path.strip_prefix(root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                    FileState {
-                        hash: blake3::hash(&contents),
-                        length: metadata.len(),
-                        modified: metadata.modified().ok(),
-                    },
-                );
-            }
-        }
-    }
-
-    let mut states = BTreeMap::new();
-    visit(root, root, &mut states);
-    states
 }
 
 fn remove_config_surface(path: &Path) {
@@ -265,25 +163,19 @@ fn set_configuration(project: &Path, contents: Option<&str>) {
     }
 }
 
-fn command_path(wrapper_bin: &Path) -> OsString {
-    let mut paths = vec![wrapper_bin.to_path_buf()];
-    paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
-    env::join_paths(paths).unwrap()
-}
-
 fn inspect(
     fixture: &Fixture,
     entry: &Path,
     arguments: &[&str],
 ) -> (Output, BTreeMap<String, usize>) {
-    fs::write(&fixture.process_log, []).unwrap();
+    fixture.processes.reset();
     let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("inspect")
         .arg("--json")
         .args(arguments)
         .arg(entry)
-        .env("PATH", command_path(&fixture.wrapper_bin))
-        .env("RUST_DOCTOR_PROCESS_LOG", &fixture.process_log)
+        .env("PATH", fixture.processes.command_path())
+        .env("RUST_DOCTOR_PROCESS_LOG", fixture.processes.log_path())
         .env("RUST_DOCTOR_REAL_CARGO", env!("CARGO"))
         .env("RUST_DOCTOR_REAL_RUSTC", &fixture.real_rustc)
         .env("CARGO_HOME", &fixture.cargo_home)
@@ -291,11 +183,7 @@ fn inspect(
         .env("CARGO_NET_OFFLINE", "true")
         .output()
         .unwrap();
-    let mut counters = BTreeMap::new();
-    for stage in fs::read_to_string(&fixture.process_log).unwrap().lines() {
-        *counters.entry(stage.to_owned()).or_insert(0) += 1;
-    }
-    (output, counters)
+    (output, fixture.processes.counts())
 }
 
 fn report(output: &Output) -> Value {
@@ -332,6 +220,18 @@ fn normalized_for_entry(report: &Value) -> Value {
         .unwrap()
         .remove("manifest_path");
     normalized
+}
+
+fn v5_compatible_output(output: &[u8]) -> Vec<u8> {
+    let output = std::str::from_utf8(output).unwrap();
+    let output = output.replacen("\"schema_version\":6", "\"schema_version\":5", 1);
+    output
+        .replacen(
+            ",\"scope\":{\"mode\":\"full\",\"execution_scope\":\"workspace\",\"comparison_base\":null,\"files\":null}",
+            "",
+            1,
+        )
+        .into_bytes()
 }
 
 fn diagnostic_ids(report: &Value) -> BTreeMap<String, String> {
@@ -436,7 +336,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
 
     for case in CASES {
         set_configuration(&fixture.project, case.configuration);
-        let before = file_states(&fixture.project);
+        let before = support::file_states(&fixture.project);
         let config_hash = case
             .configuration
             .map(|contents| blake3::hash(contents.as_bytes()).to_hex().to_string());
@@ -469,7 +369,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 5);
+            assert_eq!(report["schema_version"], 6);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
             assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 7);
             let rule_ids: Vec<_> = report["policy"]["rules"]
@@ -498,7 +398,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             }
             output_hashes.insert(
                 entry_name,
-                blake3::hash(&expected_output.as_ref().unwrap().1)
+                blake3::hash(&v5_compatible_output(&expected_output.as_ref().unwrap().1))
                     .to_hex()
                     .to_string(),
             );
@@ -507,7 +407,12 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             }
         }
 
-        assert_eq!(file_states(&fixture.project), before, "{}", case.name);
+        assert_eq!(
+            support::file_states(&fixture.project),
+            before,
+            "{}",
+            case.name
+        );
         let report = representative.unwrap();
         if case.name == "absent" {
             toolchain = report["toolchain"].clone();
@@ -609,7 +514,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
     let mut configuration_errors = Vec::new();
     for code in error_codes {
         set_error_surface(&fixture.project, code);
-        let before = file_states(&fixture.project);
+        let before = support::file_states(&fixture.project);
         let (output, counters) = inspect(&fixture, &fixture.project, &[]);
         assert_eq!(output.status.code(), Some(2), "{code}");
         assert_private(&output, &fixture);
@@ -624,7 +529,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 5);
+        assert_eq!(report["schema_version"], 6);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");
@@ -634,7 +539,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert!(report["toolchain"]["rustc"].is_null());
         assert!(report["toolchain"]["clippy"].is_null());
         assert!(report["scan"]["command"].is_null());
-        assert_eq!(file_states(&fixture.project), before, "{code}");
+        assert_eq!(support::file_states(&fixture.project), before, "{code}");
         configuration_errors.push(json!({
             "code": code,
             "processes": {

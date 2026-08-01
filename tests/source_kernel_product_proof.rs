@@ -64,7 +64,7 @@ fn native_source_findings_join_the_existing_v3_report() {
     let after = content_hashes(&root);
 
     assert_eq!(before, after);
-    assert_eq!(report.schema_version, 5);
+    assert_eq!(report.schema_version, 6);
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     assert!(report.complete);
     assert_eq!(report.exit_code(), 0);

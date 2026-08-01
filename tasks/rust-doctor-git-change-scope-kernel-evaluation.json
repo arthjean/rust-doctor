@@ -1,0 +1,220 @@
+{
+  "cases": [
+    {
+      "diagnostic_id_hash": "b4fc472b457ae079a9d2ee4d543c89aaead2409cc7b4748904a4491b90a1deb6",
+      "diagnostics": 7,
+      "entry_output_hashes": {
+        "member-manifest": "9b42faf3538e63ecd2edaca722dff9eb19d0f08faf516410ad56d0fe18b6caff",
+        "member-subdirectory": "9b42faf3538e63ecd2edaca722dff9eb19d0f08faf516410ad56d0fe18b6caff",
+        "workspace": "91877a2d5072fcfed51a823b5b7cc51af74932ed35c2c4718009a3035d57922e"
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "full",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 1,
+        "clippy-version": 1,
+        "metadata": 1,
+        "rustc-version": 1
+      },
+      "runs_per_entry": 20,
+      "scope": {
+        "comparison_base": null,
+        "execution_scope": "workspace",
+        "files": null,
+        "mode": "full"
+      },
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 7,
+        "unknown": 0,
+        "warnings": 7
+      }
+    },
+    {
+      "diagnostic_id_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "diagnostics": 0,
+      "entry_output_hashes": {
+        "member-manifest": "905044ea3b438cfef66036c2f438985e2f0eb978dec3310724c245c01ae0a321",
+        "member-subdirectory": "905044ea3b438cfef66036c2f438985e2f0eb978dec3310724c245c01ae0a321",
+        "workspace": "4117d6b65269179df6aea8d72fbd9da4e16c5810b68a6bc4f2b4245387dc6a4f"
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "files-empty",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 1,
+        "clippy-version": 1,
+        "git-diff": 1,
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1,
+        "rustc-version": 1
+      },
+      "runs_per_entry": 20,
+      "scope": {
+        "comparison_base": "baa387f9184dbbd36a6e33b2a4ae352798ac9d46",
+        "execution_scope": "workspace",
+        "files": [],
+        "mode": "files"
+      },
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 0,
+        "unknown": 0,
+        "warnings": 0
+      }
+    },
+    {
+      "diagnostic_id_hash": "9283e6d60ba849e271a79a7d7ca4483b877735c0827b5e60f71b00230d812271",
+      "diagnostics": 5,
+      "entry_output_hashes": {
+        "member-manifest": "136cf4dc9cfb5bf155b3c60f970839bd8f2d637c41e6820ae83b90645d6f7476",
+        "member-subdirectory": "136cf4dc9cfb5bf155b3c60f970839bd8f2d637c41e6820ae83b90645d6f7476",
+        "workspace": "646612d7b13f912f17ea644dcedbd1b5f5887c5346fa134539bf20d67b2929fa"
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "files-source",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 1,
+        "clippy-version": 1,
+        "git-diff": 1,
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1,
+        "rustc-version": 1
+      },
+      "runs_per_entry": 20,
+      "scope": {
+        "comparison_base": "baa387f9184dbbd36a6e33b2a4ae352798ac9d46",
+        "execution_scope": "workspace",
+        "files": [
+          "app/src/lib.rs"
+        ],
+        "mode": "files"
+      },
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 5,
+        "unknown": 0,
+        "warnings": 5
+      }
+    },
+    {
+      "diagnostic_id_hash": "b6c4b81eb71d7ce104ef89ddf469f137fb63f912df9a869dd88482286a3bb0aa",
+      "diagnostics": 2,
+      "entry_output_hashes": {
+        "member-manifest": "c0f2b98179641729bdeb48d2509fd63ea6b5b1490b1b73097b29c8421dd58489",
+        "member-subdirectory": "c0f2b98179641729bdeb48d2509fd63ea6b5b1490b1b73097b29c8421dd58489",
+        "workspace": "ad0723ba144f623080a1787b2f301b34374b402417171e293f1e0564d997a487"
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "files-manifest",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 1,
+        "clippy-version": 1,
+        "git-diff": 1,
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1,
+        "rustc-version": 1
+      },
+      "runs_per_entry": 20,
+      "scope": {
+        "comparison_base": "243fdc33263ca8c1f43be99e01ccfd1321cf130f",
+        "execution_scope": "workspace",
+        "files": [
+          "app/Cargo.toml"
+        ],
+        "mode": "files"
+      },
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 2,
+        "unknown": 0,
+        "warnings": 2
+      }
+    }
+  ],
+  "determinism": {
+    "combinations": 4,
+    "entry_points": 3,
+    "runs_per_combination": 20,
+    "total_reports": 240
+  },
+  "edge_case_evidence": {
+    "bounded_kernel": "git_scope::tests::all_output_and_path_boundaries_fail_atomically",
+    "canonical_paths": "workspace_path::tests::changed_paths_use_the_same_safe_representation_as_diagnostics",
+    "external_symlink": "workspace_path::tests::paths_crossing_symlinks_outside_the_workspace_are_null",
+    "oracle_artifact": "tests/fixtures/git-scope/oracle.json",
+    "oracle_cases": 24
+  },
+  "epic": "EP-014",
+  "git_version": "git version 2.55.0",
+  "non_mutation": "content-size-mtime-and-git-state",
+  "privacy": "pass",
+  "schema_version": 1,
+  "scope_error": {
+    "code": "base-unavailable",
+    "execution_started": false,
+    "exit_code": 2,
+    "processes": {
+      "git-rev-parse": 1,
+      "metadata": 1
+    }
+  },
+  "stories": [
+    "US-039",
+    "US-040",
+    "US-041"
+  ],
+  "targets": [
+    {
+      "manifest": "Cargo.toml",
+      "name": "workspace",
+      "path": "."
+    },
+    {
+      "manifest": "app/Cargo.toml",
+      "name": "member-manifest",
+      "path": "app/Cargo.toml"
+    },
+    {
+      "manifest": "app/Cargo.toml",
+      "name": "member-subdirectory",
+      "path": "app/src"
+    }
+  ],
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  "verdict": "pass"
+}

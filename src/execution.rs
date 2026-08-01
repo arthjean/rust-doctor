@@ -131,6 +131,19 @@ pub(crate) struct PreparedInspection {
     pub(crate) configuration: WorkspaceConfiguration,
 }
 
+impl PreparedInspection {
+    pub(crate) fn workspace_root(&self) -> &Path {
+        self.target.workspace_root()
+    }
+
+    pub(crate) fn fail(self, error: InternalError) -> ExecutionResult {
+        let mut result = ExecutionResult::new(Some(self.target.manifest_path));
+        result.metadata = Some(self.target.metadata);
+        result.fail(error);
+        result
+    }
+}
+
 #[derive(Debug)]
 struct Programs {
     cargo: PathBuf,

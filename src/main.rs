@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use clap::builder::TypedValueParser;
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use rust_doctor::render::{render_json, render_terminal};
 use rust_doctor::{BlockingLevel, CategoryOverride, InspectRequest, RuleOverride, inspect};
 
@@ -93,7 +93,17 @@ enum Command {
         category: Vec<CategoryOverride>,
         #[arg(long, value_enum)]
         blocking: Option<BlockingLevel>,
+        #[arg(long, value_enum)]
+        scope: Option<ScopeArgument>,
+        #[arg(long, value_name = "REF")]
+        base: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ScopeArgument {
+    Full,
+    Files,
 }
 
 fn main() -> ExitCode {
@@ -105,7 +115,9 @@ fn main() -> ExitCode {
             rule,
             category,
             blocking,
-        } => run_inspect(path, json, rule, category, blocking),
+            scope,
+            base,
+        } => run_inspect(path, json, rule, category, blocking, scope, base),
     }
 }
 
@@ -115,9 +127,30 @@ fn run_inspect(
     rule_overrides: Vec<RuleOverride>,
     category_overrides: Vec<CategoryOverride>,
     blocking: Option<BlockingLevel>,
+    scope: Option<ScopeArgument>,
+    base: Option<String>,
 ) -> ExitCode {
+    let files_base = match (scope, base) {
+        (None | Some(ScopeArgument::Full), None) => None,
+        (Some(ScopeArgument::Files), Some(base)) => Some(base),
+        (Some(ScopeArgument::Files), None) => {
+            return clap_error(
+                ErrorKind::MissingRequiredArgument,
+                "--scope files requires --base <REF>",
+            );
+        }
+        (None | Some(ScopeArgument::Full), Some(_)) => {
+            return clap_error(
+                ErrorKind::ArgumentConflict,
+                "--base <REF> requires --scope files",
+            );
+        }
+    };
     eprintln!("Inspecting Cargo workspace");
     let mut request = InspectRequest::new(path);
+    if let Some(base) = files_base {
+        request = request.with_files_scope(base);
+    }
     if let Some(blocking) = blocking {
         request = request.with_blocking(blocking);
     }
@@ -142,4 +175,11 @@ fn run_inspect(
             ExitCode::from(2)
         }
     }
+}
+
+fn clap_error(kind: ErrorKind, message: &'static str) -> ExitCode {
+    let mut command = Cli::command();
+    let error = command.error(kind, message);
+    let _ = error.print();
+    ExitCode::from(2)
 }

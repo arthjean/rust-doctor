@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "epic": "EP-013",
+  "story": "US-036",
+  "verdict": "pass",
+  "git_version": "git version 2.55.0",
+  "object_format": "sha1",
+  "base_commit": "6c10d3e60aeb8381749b3f0904445515b2ec83fe",
+  "merge_base": "6c10d3e60aeb8381749b3f0904445515b2ec83fe",
+  "diff_paths": [
+    "src/added.rs",
+    "src/committed.rs",
+    "src/lib.rs",
+    "src/line\nname.rs",
+    "src/renamed.rs",
+    "src/space name.rs",
+    "src/staged.rs",
+    "src/tab\tname.rs"
+  ],
+  "commands": [
+    ["git", "-c", "color.ui=false", "-c", "core.fsmonitor=false", "--no-pager", "-C", "<workspace>", "rev-parse", "--verify", "--quiet", "--end-of-options", "<REF>^{commit}"],
+    ["git", "-c", "color.ui=false", "-c", "core.fsmonitor=false", "--no-pager", "-C", "<workspace>", "merge-base", "--all", "<BASE_COMMIT>", "HEAD"],
+    ["git", "-c", "color.ui=false", "-c", "core.fsmonitor=false", "--no-pager", "-C", "<workspace>", "diff", "--no-ext-diff", "--no-renames", "--relative", "--name-only", "-z", "--diff-filter=ACMR", "<MERGE_BASE>", "--", "."]
+  ],
+  "cases": [
+    {"id": 1, "name": "local-branch-selector", "expected": "resolved-sha1"},
+    {"id": 2, "name": "remote-tracking-selector", "expected": "resolved-sha1"},
+    {"id": 3, "name": "annotated-tag-selector", "expected": "resolved-sha1"},
+    {"id": 4, "name": "direct-sha1-selector", "expected": "resolved-sha1"},
+    {"id": 5, "name": "direct-sha256-selector", "expected": "resolved-sha256"},
+    {"id": 6, "name": "committed-source-change", "expected": "selected"},
+    {"id": 7, "name": "staged-tracked-change", "expected": "selected"},
+    {"id": 8, "name": "unstaged-tracked-change", "expected": "selected"},
+    {"id": 9, "name": "ordinary-untracked-file", "expected": "excluded"},
+    {"id": 10, "name": "added-tracked-file", "expected": "selected"},
+    {"id": 11, "name": "modified-tracked-file", "expected": "selected-once"},
+    {"id": 12, "name": "deleted-tracked-file", "expected": "excluded"},
+    {"id": 13, "name": "rename-without-detection", "expected": "destination-only"},
+    {"id": 14, "name": "filename-with-space", "expected": "byte-exact-entry"},
+    {"id": 15, "name": "filename-with-tab", "expected": "byte-exact-entry"},
+    {"id": 16, "name": "filename-with-newline", "expected": "byte-exact-entry"},
+    {"id": 17, "name": "nested-cargo-workspace", "expected": "workspace-relative"},
+    {"id": 18, "name": "changed-sibling", "expected": "excluded"},
+    {"id": 19, "name": "empty-diff", "expected": "empty-success"},
+    {"id": 20, "name": "invalid-selector", "expected": "invalid-base-zero-process"},
+    {"id": 21, "name": "missing-named-ref", "expected": "base-unavailable"},
+    {"id": 22, "name": "workspace-outside-repository", "expected": "base-unavailable"},
+    {"id": 23, "name": "unrelated-histories", "expected": "merge-base-unavailable"},
+    {"id": 24, "name": "criss-cross-history", "expected": "merge-base-ambiguous"}
+  ]
+}

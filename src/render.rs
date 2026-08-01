@@ -34,6 +34,24 @@ pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<()
 }
 
 pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
+    if let Some(scope) = &report.scope {
+        match scope.files_details() {
+            None => writeln!(
+                writer,
+                "Scope: full; execution workspace; all files selected; base none."
+            ),
+            Some((comparison_base, files)) => {
+                let file_count = files.len();
+                let comparison_base = &comparison_base[..12];
+                writeln!(
+                    writer,
+                    "Scope: files; execution workspace; {file_count} selected files; base {comparison_base}."
+                )
+            }
+        }
+        .map_err(RenderError::Write)?;
+    }
+
     if let Some(policy) = &report.policy {
         let source = match policy.blocking.source {
             crate::BlockingLevelSource::Default => "default",
@@ -137,7 +155,7 @@ mod tests {
     use super::*;
     use crate::{
         BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, InspectReport,
-        ScanReport, Severity, Summary, ToolchainReport,
+        ScanReport, ScopeReport, Severity, Summary, ToolchainReport,
     };
 
     struct ClosedWriter {
@@ -157,10 +175,11 @@ mod tests {
 
     fn report() -> InspectReport {
         InspectReport {
-            schema_version: 5,
+            schema_version: 6,
             status: Status::Complete,
             complete: true,
             policy: None,
+            scope: None,
             project: None,
             toolchain: ToolchainReport {
                 rustc: None,
@@ -217,7 +236,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            5
+            6
         );
     }
 
@@ -277,6 +296,58 @@ mod tests {
         let error = render_json(&report(), &mut writer).unwrap_err();
 
         assert!(matches!(error, RenderError::Json(_)));
+        assert_eq!(writer.writes, 1);
+    }
+
+    #[test]
+    fn terminal_renders_one_private_scope_line_for_full_and_files() {
+        let mut full = report();
+        full.scope = Some(ScopeReport::full());
+        let mut output = Vec::new();
+        render_terminal(&full, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("Scope:").count(), 1);
+        assert!(
+            output
+                .starts_with("Scope: full; execution workspace; all files selected; base none.\n")
+        );
+
+        let mut files = report();
+        files.scope = Some(ScopeReport::files_scope(
+            "0123456789abcdef0123456789abcdef01234567".to_owned(),
+            Vec::new(),
+        ));
+        let mut output = Vec::new();
+        render_terminal(&files, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("Scope:").count(), 1);
+        assert!(output.starts_with(
+            "Scope: files; execution workspace; 0 selected files; base 0123456789ab.\n"
+        ));
+
+        files.scope = Some(ScopeReport::files_scope(
+            "0123456789abcdef0123456789abcdef01234567".to_owned(),
+            vec!["Cargo.toml".to_owned(), "src/private.rs".to_owned()],
+        ));
+        let mut output = Vec::new();
+        render_terminal(&files, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("Scope:").count(), 1);
+        assert!(output.starts_with(
+            "Scope: files; execution workspace; 2 selected files; base 0123456789ab.\n"
+        ));
+        assert!(!output.contains("src/private.rs"));
+    }
+
+    #[test]
+    fn closed_writer_during_scope_returns_the_historical_typed_error() {
+        let mut report = report();
+        report.scope = Some(ScopeReport::full());
+        let mut writer = ClosedWriter { writes: 0 };
+
+        let error = render_terminal(&report, &mut writer).unwrap_err();
+
+        assert!(matches!(error, RenderError::Write(_)));
         assert_eq!(writer.writes, 1);
     }
 }

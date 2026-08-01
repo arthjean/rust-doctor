@@ -1,6 +1,27 @@
+#![allow(dead_code)]
+
+use std::collections::BTreeMap;
+use std::env;
+use std::ffi::OsString;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::SystemTime;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct FileState {
+    hash: blake3::Hash,
+    length: u64,
+    modified: Option<SystemTime>,
+}
+
+#[cfg(unix)]
+pub(crate) struct ProcessHarness {
+    bin: PathBuf,
+    log: PathBuf,
+}
 
 pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,4 +49,157 @@ pub(crate) fn copy_tree(source: &Path, destination: &Path) {
             fs::copy(path, target).unwrap();
         }
     }
+}
+
+pub(crate) fn resolve_program(name: &str) -> PathBuf {
+    env::split_paths(&env::var_os("PATH").unwrap_or_default())
+        .map(|directory| directory.join(name))
+        .find(|path| path.is_file())
+        .unwrap()
+}
+
+pub(crate) fn file_states(root: &Path) -> BTreeMap<String, FileState> {
+    fn visit(root: &Path, directory: &Path, states: &mut BTreeMap<String, FileState>) {
+        let mut entries: Vec<_> = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                visit(root, &path, states);
+            } else {
+                let metadata = fs::symlink_metadata(&path).unwrap();
+                let contents = if metadata.file_type().is_symlink() {
+                    fs::read_link(&path)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                        .into_bytes()
+                } else {
+                    fs::read(&path).unwrap()
+                };
+                states.insert(
+                    path.strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    FileState {
+                        hash: blake3::hash(&contents),
+                        length: metadata.len(),
+                        modified: metadata.modified().ok(),
+                    },
+                );
+            }
+        }
+    }
+
+    let mut states = BTreeMap::new();
+    visit(root, root, &mut states);
+    states
+}
+
+#[cfg(unix)]
+impl ProcessHarness {
+    pub(crate) fn install(root: &Path) -> Self {
+        Self::install_with(root, &[])
+    }
+
+    pub(crate) fn install_with_git(root: &Path) -> Self {
+        Self::install_with(
+            root,
+            &[(
+                "git",
+                concat!(
+                    "#!/bin/sh\n",
+                    "for argument in \"$@\"; do\n",
+                    "  case \"$argument\" in\n",
+                    "    rev-parse|merge-base|diff) printf 'git-%s\\n' \"$argument\" >> \"$RUST_DOCTOR_PROCESS_LOG\"; break ;;\n",
+                    "  esac\n",
+                    "done\n",
+                    "exec \"$RUST_DOCTOR_REAL_GIT\" \"$@\"\n",
+                ),
+            )],
+        )
+    }
+
+    fn install_with(root: &Path, extra_wrappers: &[(&str, &str)]) -> Self {
+        let bin = root.join("wrapper-bin");
+        let log = root.join("process.log");
+        fs::create_dir_all(&bin).unwrap();
+        for (name, source) in [
+            (
+                "cargo",
+                concat!(
+                    "#!/bin/sh\n",
+                    "case \"$1\" in\n",
+                    "  metadata) stage=metadata ;;\n",
+                    "  --version) stage=cargo-version ;;\n",
+                    "  clippy)\n",
+                    "    if [ \"$2\" = \"--version\" ]; then stage=clippy-version; else stage=clippy; fi ;;\n",
+                    "  *) stage=other ;;\n",
+                    "esac\n",
+                    "printf '%s\\n' \"$stage\" >> \"$RUST_DOCTOR_PROCESS_LOG\"\n",
+                    "exec \"$RUST_DOCTOR_REAL_CARGO\" \"$@\"\n",
+                ),
+            ),
+            (
+                "rustc",
+                concat!(
+                    "#!/bin/sh\n",
+                    "if [ \"$1\" = \"--version\" ]; then\n",
+                    "  printf 'rustc-version\\n' >> \"$RUST_DOCTOR_PROCESS_LOG\"\n",
+                    "fi\n",
+                    "exec \"$RUST_DOCTOR_REAL_RUSTC\" \"$@\"\n",
+                ),
+            ),
+        ]
+        .into_iter()
+        .chain(extra_wrappers.iter().copied())
+        {
+            install_executable(&bin.join(name), source);
+        }
+        fs::write(&log, []).unwrap();
+        Self { bin, log }
+    }
+
+    pub(crate) fn command_path(&self) -> OsString {
+        env::join_paths(
+            std::iter::once(self.bin.clone())
+                .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn reset(&self) {
+        fs::write(&self.log, []).unwrap();
+    }
+
+    pub(crate) fn counts(&self) -> BTreeMap<String, usize> {
+        let mut counters = BTreeMap::new();
+        for stage in self.events() {
+            *counters.entry(stage).or_insert(0) += 1;
+        }
+        counters
+    }
+
+    pub(crate) fn events(&self) -> Vec<String> {
+        fs::read_to_string(&self.log)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    pub(crate) fn log_path(&self) -> &Path {
+        &self.log
+    }
+}
+
+#[cfg(unix)]
+fn install_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).unwrap();
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
 }

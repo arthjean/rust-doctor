@@ -111,7 +111,7 @@ fn only_the_workspace_root_configuration_is_consulted() {
 }
 
 #[test]
-fn v5_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
+fn v6_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
     let workspace = temporary_workspace();
     fs::write(
         workspace.join("rust-doctor.toml"),
@@ -132,7 +132,7 @@ fn v5_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
         ));
     let api = inspect(request);
     let policy = api.policy.as_ref().unwrap();
-    assert_eq!(api.schema_version, 5);
+    assert_eq!(api.schema_version, 6);
     assert_eq!(policy.config_file.as_deref(), Some("rust-doctor.toml"));
     assert_eq!(policy.blocking.level, BlockingLevel::Warning);
     assert_eq!(policy.blocking.source, BlockingLevelSource::Config);
@@ -207,7 +207,7 @@ fn terminal_exposes_config_state_and_blocking_source_compactly() {
 
 #[cfg(unix)]
 #[test]
-fn all_configuration_error_families_are_failed_private_v5_reports_for_api_and_cli() {
+fn all_configuration_error_families_are_failed_private_v6_reports_for_api_and_cli() {
     enum Surface {
         Directory,
         DanglingSymlink,
@@ -251,7 +251,7 @@ fn all_configuration_error_families_are_failed_private_v5_reports_for_api_and_cl
         }
 
         let api = inspect(InspectRequest::new(&workspace));
-        assert_eq!(api.schema_version, 5, "{expected_code}");
+        assert_eq!(api.schema_version, 6, "{expected_code}");
         assert_eq!(api.status, Status::Failed, "{expected_code}");
         assert_eq!(api.exit_code(), 2, "{expected_code}");
         assert!(api.policy.is_none(), "{expected_code}");
@@ -268,7 +268,7 @@ fn all_configuration_error_families_are_failed_private_v5_reports_for_api_and_cl
         let cli_output = cli(&workspace, &[]);
         assert_eq!(cli_output.status.code(), Some(2), "{expected_code}");
         let cli_report = json(&cli_output);
-        assert_eq!(cli_report["schema_version"], 5, "{expected_code}");
+        assert_eq!(cli_report["schema_version"], 6, "{expected_code}");
         assert_eq!(cli_report["policy"], Value::Null, "{expected_code}");
         assert_eq!(
             cli_report["gate"]["status"], "not-evaluated",
@@ -293,7 +293,7 @@ fn invalid_workspace_configuration_fails_after_metadata_and_before_all_analysis(
     let report = inspect(InspectRequest::new(&workspace));
 
     assert_eq!(report.status, Status::Failed);
-    assert_eq!(report.schema_version, 5);
+    assert_eq!(report.schema_version, 6);
     assert!(report.policy.is_none());
     assert_eq!(report.exit_code(), 2);
     assert!(report.project.is_some());
@@ -347,7 +347,7 @@ fn hostile_configuration_content_never_reaches_json_or_terminal_reports() {
 }
 
 #[test]
-fn default_v5_report_matches_the_frozen_v4_contract_outside_policy() {
+fn default_v6_report_matches_the_frozen_v4_contract_outside_policy_and_scope() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kernel-contract/todo");
     let output = cli(&fixture, &[]);
     assert!(output.status.success());
@@ -357,10 +357,11 @@ fn default_v5_report_matches_the_frozen_v4_contract_outside_policy() {
     ))
     .unwrap();
 
-    assert_eq!(current["schema_version"], 5);
+    assert_eq!(current["schema_version"], 6);
     assert_eq!(baseline["schema_version"], 4);
     current.as_object_mut().unwrap().remove("schema_version");
     current.as_object_mut().unwrap().remove("policy");
+    current.as_object_mut().unwrap().remove("scope");
     baseline.as_object_mut().unwrap().remove("schema_version");
     assert_eq!(current, baseline);
 }

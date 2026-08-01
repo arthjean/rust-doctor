@@ -1,9 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsStr;
 use std::fmt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use cargo_metadata::Metadata;
 use serde::Serialize;
@@ -14,18 +13,21 @@ use crate::execution::{
     CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData, ExecutionResult,
     InternalError, ScanExecution,
 };
+use crate::git_scope::{ScopeReport, ScopeRequest};
 use crate::policy::{
     self, BlockingLevel, BlockingLevelSource, CategoryOverride, PolicyError, PolicyInput,
     PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride,
 };
 use crate::source_kernel;
+use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 5;
+pub const SCHEMA_VERSION: u8 = 6;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
     pub path: PathBuf,
     policy: PolicyInput,
+    scope: ScopeRequest,
 }
 
 impl InspectRequest {
@@ -33,6 +35,7 @@ impl InspectRequest {
         Self {
             path: path.into(),
             policy: PolicyInput::default(),
+            scope: ScopeRequest::Full,
         }
     }
 
@@ -51,8 +54,17 @@ impl InspectRequest {
         self
     }
 
+    pub fn with_files_scope(mut self, base: impl Into<String>) -> Self {
+        self.scope = ScopeRequest::Files { base: base.into() };
+        self
+    }
+
     pub(crate) const fn policy(&self) -> &PolicyInput {
         &self.policy
+    }
+
+    pub(crate) const fn scope(&self) -> &ScopeRequest {
+        &self.scope
     }
 }
 
@@ -68,6 +80,7 @@ pub struct InspectReport {
     pub status: Status,
     pub complete: bool,
     pub policy: Option<PolicyReport>,
+    pub scope: Option<ScopeReport>,
     pub project: Option<ProjectReport>,
     pub toolchain: ToolchainReport,
     pub scan: ScanReport,
@@ -334,14 +347,29 @@ impl HomePaths {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn from_execution(result: ExecutionResult, plan: &PolicyPlan) -> InspectReport {
-    from_execution_with_plan(result, Some(plan), plan.blocking())
+    from_execution_with_plan(
+        result,
+        Some(plan),
+        plan.blocking(),
+        Some(ScopeReport::full()),
+    )
+}
+
+pub(crate) fn from_execution_scoped(
+    result: ExecutionResult,
+    plan: &PolicyPlan,
+    scope: ScopeReport,
+) -> InspectReport {
+    from_execution_with_plan(result, Some(plan), plan.blocking(), Some(scope))
 }
 
 fn from_execution_with_plan(
     result: ExecutionResult,
     plan: Option<&PolicyPlan>,
     blocking: BlockingLevel,
+    scope: Option<ScopeReport>,
 ) -> InspectReport {
     let workspace_root = result
         .metadata
@@ -368,6 +396,9 @@ fn from_execution_with_plan(
     if let Some(plan) = plan {
         apply_policy(&mut diagnostics, plan);
     }
+    if let Some(scope) = scope.as_ref() {
+        project_diagnostics(&mut diagnostics, scope);
+    }
     diagnostics.sort_by(compare_diagnostics);
     let summary = summarize(&diagnostics);
     let gate = evaluate_gate(status, &diagnostics, blocking);
@@ -380,6 +411,7 @@ fn from_execution_with_plan(
         status,
         complete: status == Status::Complete,
         policy: plan.map(PolicyReport::from_plan),
+        scope,
         project,
         toolchain: ToolchainReport {
             rustc: result
@@ -410,15 +442,38 @@ pub(crate) fn preparation_failure(
     result: ExecutionResult,
     blocking: BlockingLevel,
 ) -> InspectReport {
-    from_execution_with_plan(result, None, blocking)
+    from_execution_with_plan(result, None, blocking, None)
 }
 
 pub(crate) fn policy_failure(error: PolicyError, blocking: BlockingLevel) -> InspectReport {
+    immediate_failure(
+        ReportError {
+            stage: "policy".to_owned(),
+            code: error.code.to_owned(),
+            message: error.message.to_owned(),
+        },
+        blocking,
+    )
+}
+
+pub(crate) fn scope_failure(error: InternalError, blocking: BlockingLevel) -> InspectReport {
+    immediate_failure(
+        ReportError {
+            stage: error.stage.to_owned(),
+            code: error.code.to_owned(),
+            message: error.message,
+        },
+        blocking,
+    )
+}
+
+fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectReport {
     InspectReport {
         schema_version: SCHEMA_VERSION,
         status: Status::Failed,
         complete: false,
         policy: None,
+        scope: None,
         project: None,
         toolchain: ToolchainReport {
             rustc: None,
@@ -432,11 +487,7 @@ pub(crate) fn policy_failure(error: PolicyError, blocking: BlockingLevel) -> Ins
             noise_lines: None,
         },
         diagnostics: Vec::new(),
-        errors: vec![ReportError {
-            stage: "policy".to_owned(),
-            code: error.code.to_owned(),
-            message: error.message.to_owned(),
-        }],
+        errors: vec![error],
         summary: Summary::default(),
         gate: GateReport {
             blocking,
@@ -444,6 +495,10 @@ pub(crate) fn policy_failure(error: PolicyError, blocking: BlockingLevel) -> Ins
             blocking_diagnostics: None,
         },
     }
+}
+
+fn project_diagnostics(diagnostics: &mut Vec<Diagnostic>, scope: &ScopeReport) {
+    diagnostics.retain(|diagnostic| scope.includes(diagnostic.path.as_deref()));
 }
 
 fn classify(result: &ExecutionResult) -> Status {
@@ -476,14 +531,15 @@ fn project_report(
     let metadata = metadata?;
     let workspace_root = metadata.workspace_root.as_std_path();
     let manifest_path = manifest_path
-        .and_then(|path| normalize_path(workspace_root, path))
+        .and_then(|path| workspace_path::normalize(workspace_root, path))
         .unwrap_or_else(|| "Cargo.toml".to_owned());
     let mut packages: Vec<_> = metadata
         .packages
         .iter()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
-            let manifest_path = normalize_path(workspace_root, package.manifest_path.as_std_path());
+            let manifest_path =
+                workspace_path::normalize(workspace_root, package.manifest_path.as_std_path());
             let mut targets: Vec<_> = package
                 .targets
                 .iter()
@@ -680,7 +736,7 @@ fn normalize_cargo_health_candidate(
     let path = candidate
         .manifest_path
         .as_deref()
-        .and_then(|path| normalize_relative_path(Path::new(path)));
+        .and_then(|path| workspace_path::normalize_relative(Path::new(path)));
     let id = fingerprint(
         source,
         code.as_deref(),
@@ -733,7 +789,7 @@ fn normalize_source_candidate(
     let definition = candidate.definition;
     let source = DiagnosticSource::RustDoctor;
     let code = Some(definition.id.to_owned());
-    let path = normalize_relative_path(Path::new(&candidate.path));
+    let path = workspace_path::normalize_relative(Path::new(&candidate.path));
     let span = Some(DiagnosticSpan {
         line_start: candidate.span.line_start,
         column_start: candidate.span.column_start,
@@ -924,7 +980,7 @@ fn normalized_span(
     workspace_root: &Path,
 ) -> (Option<String>, Option<DiagnosticSpan>) {
     (
-        normalize_path(workspace_root, Path::new(&span.file_name)),
+        workspace_path::normalize(workspace_root, Path::new(&span.file_name)),
         Some(DiagnosticSpan {
             line_start: span.line_start,
             column_start: span.column_start,
@@ -1028,102 +1084,6 @@ fn summarize(diagnostics: &[Diagnostic]) -> Summary {
     }
     summary.total = diagnostics.len();
     summary
-}
-
-fn normalize_path(workspace_root: &Path, path: &Path) -> Option<String> {
-    let workspace_root = lexical_normalize(workspace_root)?;
-    let physical_candidate = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        workspace_root.join(path)
-    };
-    let candidate = lexical_normalize(&physical_candidate)?;
-    let relative = candidate.strip_prefix(&workspace_root).ok()?;
-    let canonical_workspace = workspace_root.canonicalize().ok()?;
-    let existing_ancestor = existing_ancestor(&physical_candidate)?;
-    let canonical_ancestor = existing_ancestor.canonicalize().ok()?;
-    if !canonical_ancestor.starts_with(&canonical_workspace) {
-        return None;
-    }
-    normalize_relative_path(relative)
-}
-
-fn normalize_relative_path(relative: &Path) -> Option<String> {
-    if relative.is_absolute() {
-        return None;
-    }
-    let components: Option<Vec<_>> = relative
-        .components()
-        .map(|component| match component {
-            Component::Normal(value) => safe_path_component(value),
-            Component::CurDir => Some(".".to_owned()),
-            _ => None,
-        })
-        .collect();
-    let normalized = components?.join("/");
-    if normalized.split('/').any(|component| component == "..") {
-        None
-    } else if normalized.is_empty() {
-        Some(".".to_owned())
-    } else {
-        Some(normalized)
-    }
-}
-
-fn existing_ancestor(path: &Path) -> Option<&Path> {
-    existing_ancestor_with(path, |candidate| candidate.symlink_metadata().map(|_| ()))
-}
-
-fn existing_ancestor_with(
-    path: &Path,
-    mut probe: impl FnMut(&Path) -> std::io::Result<()>,
-) -> Option<&Path> {
-    for ancestor in path.ancestors() {
-        match probe(ancestor) {
-            Ok(()) => return Some(ancestor),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return None,
-        }
-    }
-    None
-}
-
-fn safe_path_component(value: &OsStr) -> Option<String> {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-
-    let value = value.to_str()?;
-    let mut encoded = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character == '%' || character.is_control() {
-            let mut buffer = [0; 4];
-            for byte in character.encode_utf8(&mut buffer).bytes() {
-                encoded.push('%');
-                encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-                encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-            }
-        } else {
-            encoded.push(character);
-        }
-    }
-    Some(encoded)
-}
-
-fn lexical_normalize(path: &Path) -> Option<PathBuf> {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return None;
-                }
-            }
-            Component::Normal(value) => normalized.push(value),
-        }
-    }
-    Some(normalized)
 }
 
 fn sanitize_text(value: &str, workspace_root: Option<&Path>, home: &HomePaths) -> String {
@@ -1230,11 +1190,8 @@ mod tests {
     use std::collections::BTreeSet;
     #[cfg(unix)]
     use std::ffi::OsString;
-    use std::fs;
     #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
-    #[cfg(unix)]
-    use std::os::unix::fs::symlink;
 
     use super::*;
     use crate::execution::{CapturedDiagnosticCode, CapturedTarget, ToolchainProvenance};
@@ -1347,6 +1304,7 @@ mod tests {
             status: Status::Complete,
             complete: true,
             policy: None,
+            scope: None,
             project: None,
             toolchain: ToolchainReport {
                 rustc: None,
@@ -1398,6 +1356,102 @@ mod tests {
                 blocking: BlockingLevel::Error,
                 status: GateStatus::Failed,
                 blocking_diagnostics: Some(1),
+            }
+        );
+    }
+
+    #[test]
+    fn files_projection_is_exact_and_runs_after_policy_before_summary_and_gate() {
+        let workspace = fixture("clean");
+        let home = HomePaths::default();
+        let mut diagnostics = normalize_diagnostics(
+            &[
+                compiler_message(Some("clippy::todo"), "warning", "selected", "src/lib.rs", 2),
+                compiler_message(
+                    Some("clippy::todo"),
+                    "warning",
+                    "selected encoded path",
+                    "src/100%.rs",
+                    4,
+                ),
+                compiler_message(
+                    Some("clippy::todo"),
+                    "warning",
+                    "not selected",
+                    "src/other.rs",
+                    3,
+                ),
+            ],
+            Some(&workspace),
+            None,
+            &home,
+        );
+        let selected_id = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.path.as_deref() == Some("src/lib.rs"))
+            .unwrap()
+            .id
+            .clone();
+        let encoded_path_id = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.path.as_deref() == Some("src/100%25.rs"))
+            .unwrap()
+            .id
+            .clone();
+        let mut pathless = diagnostics[0].clone();
+        pathless.id = "pathless".to_owned();
+        pathless.path = None;
+        diagnostics.push(pathless);
+        let plan = PolicyPlan::compile(
+            &PolicyInput::default().with_rule("clippy::todo", RuleLevel::Error),
+        )
+        .unwrap();
+        apply_policy(&mut diagnostics, &plan);
+        let scope = ScopeReport::files_scope(
+            "0".repeat(40),
+            vec![
+                "z.rs".to_owned(),
+                workspace_path::normalize_changed("src/100%.rs").unwrap(),
+                "src/lib.rs".to_owned(),
+            ],
+        );
+
+        project_diagnostics(&mut diagnostics, &scope);
+        diagnostics.sort_by(compare_diagnostics);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Severity::Error)
+        );
+        let selected_ids: BTreeSet<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.id.as_str())
+            .collect();
+        assert_eq!(
+            selected_ids,
+            BTreeSet::from([selected_id.as_str(), encoded_path_id.as_str()])
+        );
+        assert_eq!(summarize(&diagnostics).errors, 2);
+        assert_eq!(
+            evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error),
+            GateReport {
+                blocking: BlockingLevel::Error,
+                status: GateStatus::Failed,
+                blocking_diagnostics: Some(2),
+            }
+        );
+
+        let empty_scope = ScopeReport::files_scope("0".repeat(40), Vec::new());
+        project_diagnostics(&mut diagnostics, &empty_scope);
+        assert_eq!(summarize(&diagnostics), Summary::default());
+        assert_eq!(
+            evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error),
+            GateReport {
+                blocking: BlockingLevel::Error,
+                status: GateStatus::Passed,
+                blocking_diagnostics: Some(0),
             }
         );
     }
@@ -1648,7 +1702,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 5);
+        assert_eq!(report.schema_version, 6);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();
@@ -2364,72 +2418,5 @@ mod tests {
             json["diagnostics"][0]["path"],
             "src/100%25%1B[31mline%0A.rs"
         );
-    }
-
-    #[test]
-    fn physical_containment_stops_on_non_not_found_errors() {
-        let mut probes = 0;
-        let ancestor = existing_ancestor_with(Path::new("one/two/three.rs"), |_| {
-            probes += 1;
-            match probes {
-                1 => Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "missing leaf",
-                )),
-                2 => Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "unreadable parent",
-                )),
-                _ => Ok(()),
-            }
-        });
-
-        assert!(ancestor.is_none());
-        assert_eq!(probes, 2);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn paths_crossing_symlinks_outside_the_workspace_are_null() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("report-paths-{}", std::process::id()));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        let workspace = root.join("workspace");
-        let outside = root.join("outside");
-        fs::create_dir_all(workspace.join("src")).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        fs::write(outside.join("external.rs"), "pub fn external() {}\n").unwrap();
-        symlink(&outside, workspace.join("linked")).unwrap();
-        symlink(
-            outside.join("external.rs"),
-            workspace.join("direct-link.rs"),
-        )
-        .unwrap();
-
-        assert_eq!(
-            normalize_path(&workspace, &workspace.join("src/future.rs")).as_deref(),
-            Some("src/future.rs")
-        );
-        assert_eq!(
-            normalize_path(&workspace, &workspace.join("linked/external.rs")),
-            None
-        );
-        assert_eq!(
-            normalize_path(&workspace, &workspace.join("direct-link.rs")),
-            None
-        );
-        assert_eq!(
-            normalize_path(&workspace, &workspace.join("linked/future.rs")),
-            None
-        );
-        assert_eq!(
-            normalize_path(&workspace, &workspace.join("linked/../outside/external.rs")),
-            None
-        );
-
-        fs::remove_dir_all(root).unwrap();
     }
 }
