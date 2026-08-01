@@ -1,0 +1,633 @@
+{
+  "configuration_errors": [
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "config-not-file",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "config-unreadable",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "config-too-large",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "config-invalid-utf8",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "config-invalid",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "invalid-rule-selector",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "unknown-rule",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "invalid-category-selector",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    },
+    {
+      "analysis": {
+        "execution_started": false
+      },
+      "code": "unknown-category",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "processes": {
+        "clippy": 0,
+        "metadata": 1,
+        "tool_versions": 0
+      }
+    }
+  ],
+  "determinism": {
+    "entry_points": 3,
+    "policies": 6,
+    "runs_per_combination": 20,
+    "total_reports": 360
+  },
+  "epic": "EP-012",
+  "member_config_ignored": "app/rust-doctor.toml",
+  "non_mutation": "content-size-mtime",
+  "policies": [
+    {
+      "arguments": [],
+      "config_hash": null,
+      "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
+      "diagnostics": 7,
+      "entry_output_hashes": {
+        "member-manifest": "7515f5c2ef948817ea8386322854befaa870c485dfb2b5346e670509c7946a04",
+        "member-subdirectory": "7515f5c2ef948817ea8386322854befaa870c485dfb2b5346e670509c7946a04",
+        "workspace": "d1ca34feb6a629e4d68d141daba46f93c3b1fe7eccb2b1116e0eb76013e60adf"
+      },
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "absent",
+      "policy": {
+        "blocking": {
+          "level": "error",
+          "source": "default"
+        },
+        "config_file": null,
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "warn",
+            "source": "default"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    },
+    {
+      "arguments": [],
+      "config_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
+      "diagnostics": 7,
+      "entry_output_hashes": {
+        "member-manifest": "2ed693c0428a4fd0551923d211e80137a614e45734c384fab56cb299d1bf13a2",
+        "member-subdirectory": "2ed693c0428a4fd0551923d211e80137a614e45734c384fab56cb299d1bf13a2",
+        "workspace": "b16fff1af231be532dfb320bf1346f49f06dfde73f76ae49baeffcf06e44e24a"
+      },
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "empty",
+      "policy": {
+        "blocking": {
+          "level": "error",
+          "source": "default"
+        },
+        "config_file": "rust-doctor.toml",
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "warn",
+            "source": "default"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    },
+    {
+      "arguments": [],
+      "config_hash": "79e8d2a82d92595b80618e4b71a4a9c543cfa820ead52f3a5462791bff7aeb2c",
+      "diagnostic_id_hash": "f1d67c301a2a1fa353bf631b244e95c42077aa7fcec0ec9b308c31412a933fd9",
+      "diagnostics": 5,
+      "entry_output_hashes": {
+        "member-manifest": "5ff773b9121054341de624bc7ee964d66eddca470d722a54e864c423491221f6",
+        "member-subdirectory": "5ff773b9121054341de624bc7ee964d66eddca470d722a54e864c423491221f6",
+        "workspace": "fe3cad515aab832d22d3b1dbcbdb65fc53f8d9dec831d0c597712074056e5a5e"
+      },
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 1,
+        "status": "failed"
+      },
+      "name": "config-rule",
+      "policy": {
+        "blocking": {
+          "level": "error",
+          "source": "default"
+        },
+        "config_file": "rust-doctor.toml",
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "off",
+            "source": "config-category"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "off",
+            "source": "config-category"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "error",
+            "source": "config-rule"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    },
+    {
+      "arguments": [
+        "--rule",
+        "rust_doctor::source::dynamic_shell_command=error"
+      ],
+      "config_hash": "2c7682d7e0586eb39272c6196ac98e1167ee2c853c2e2e607488c8ebf4d4433d",
+      "diagnostic_id_hash": "f1d67c301a2a1fa353bf631b244e95c42077aa7fcec0ec9b308c31412a933fd9",
+      "diagnostics": 5,
+      "entry_output_hashes": {
+        "member-manifest": "528f7759156e77d2c3701fb316b647db75c6519f991741753d668969af06be85",
+        "member-subdirectory": "528f7759156e77d2c3701fb316b647db75c6519f991741753d668969af06be85",
+        "workspace": "f5fe1e9f95194da4c6d304a2528e6c3289c1fcd24eb08860855fcf8397a14fdd"
+      },
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 1,
+        "status": "failed"
+      },
+      "name": "shell-reactivated",
+      "policy": {
+        "blocking": {
+          "level": "error",
+          "source": "default"
+        },
+        "config_file": "rust-doctor.toml",
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "off",
+            "source": "config-category"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "off",
+            "source": "config-category"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "error",
+            "source": "request-rule"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    },
+    {
+      "arguments": [
+        "--category",
+        "correctness=off"
+      ],
+      "config_hash": "c19c04bb811c8e60506db036cbe63f1f46352206ce50bb931f183ea974377120",
+      "diagnostic_id_hash": "51f0ca0e2a50214cfa9b7a4cb7008c32fc2ed482459f118ff3740285b5b9d32e",
+      "diagnostics": 5,
+      "entry_output_hashes": {
+        "member-manifest": "4a8a45634365a27b40821c4e546a9535c2ea39d067ea4b6219c7531e3b98c25a",
+        "member-subdirectory": "4a8a45634365a27b40821c4e546a9535c2ea39d067ea4b6219c7531e3b98c25a",
+        "workspace": "6494ae429b7451a1acdcf200c069375317f1455dc09eb1707b3fbd7760e661e3"
+      },
+      "gate": {
+        "blocking": "error",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "request-category-off",
+      "policy": {
+        "blocking": {
+          "level": "error",
+          "source": "default"
+        },
+        "config_file": "rust-doctor.toml",
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "off",
+            "source": "request-category"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "off",
+            "source": "request-category"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "warn",
+            "source": "default"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    },
+    {
+      "arguments": [
+        "--blocking",
+        "none"
+      ],
+      "config_hash": "17e6a205b77cace4762d9332cc1456f5c4485bc0cfe76a2862532359ea75d2cc",
+      "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
+      "diagnostics": 7,
+      "entry_output_hashes": {
+        "member-manifest": "c323b454d085d4ac5b595a9cea0c2e1c8d6220e71aafb7afcc48fed3f807ee1b",
+        "member-subdirectory": "c323b454d085d4ac5b595a9cea0c2e1c8d6220e71aafb7afcc48fed3f807ee1b",
+        "workspace": "0d91a78b805877a7216f55cd275894af1e1bd01e6d1e3ffbf3116fd7841f990a"
+      },
+      "gate": {
+        "blocking": "none",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "name": "request-blocking",
+      "policy": {
+        "blocking": {
+          "level": "none",
+          "source": "request"
+        },
+        "config_file": "rust-doctor.toml",
+        "rules": [
+          {
+            "category": "maintainability",
+            "id": "clippy::dbg_macro",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::todo",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unimplemented",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "reliability",
+            "id": "rust_doctor::cargo::unbounded_registry_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::cargo::unpinned_git_dependency",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::disabled_tls_verification",
+            "level": "warn",
+            "source": "default"
+          },
+          {
+            "category": "security",
+            "id": "rust_doctor::source::dynamic_shell_command",
+            "level": "warn",
+            "source": "default"
+          }
+        ]
+      },
+      "processes_per_run": {
+        "cargo_version": 1,
+        "clippy": 1,
+        "clippy_version": 1,
+        "metadata": 1,
+        "rustc_version": 1
+      },
+      "runs_per_entry": 20
+    }
+  ],
+  "privacy": "pass",
+  "schema_version": 1,
+  "stories": [
+    "US-033",
+    "US-034",
+    "US-035"
+  ],
+  "targets": [
+    {
+      "metadata_invocations": 1,
+      "name": "workspace",
+      "path": ".",
+      "selected_manifest": "Cargo.toml",
+      "workspace_root": "."
+    },
+    {
+      "metadata_invocations": 1,
+      "name": "member-manifest",
+      "path": "app/Cargo.toml",
+      "selected_manifest": "app/Cargo.toml",
+      "workspace_root": "."
+    },
+    {
+      "metadata_invocations": 1,
+      "name": "member-subdirectory",
+      "path": "app/src",
+      "selected_manifest": "app/Cargo.toml",
+      "workspace_root": "."
+    }
+  ],
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  "verdict": "pass"
+}
