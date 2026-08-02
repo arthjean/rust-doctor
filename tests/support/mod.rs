@@ -99,6 +99,13 @@ pub(crate) fn file_states(root: &Path) -> BTreeMap<String, FileState> {
     states
 }
 
+pub(crate) fn content_states(root: &Path) -> BTreeMap<String, (blake3::Hash, u64)> {
+    file_states(root)
+        .into_iter()
+        .map(|(path, state)| (path, (state.hash, state.length)))
+        .collect()
+}
+
 #[cfg(unix)]
 impl ProcessHarness {
     pub(crate) fn install(root: &Path) -> Self {
@@ -112,11 +119,22 @@ impl ProcessHarness {
                 "git",
                 concat!(
                     "#!/bin/sh\n",
+                    "operation=\n",
                     "for argument in \"$@\"; do\n",
                     "  case \"$argument\" in\n",
-                    "    rev-parse|merge-base|diff|ls-tree|read-tree|checkout-index) printf 'git-%s\\n' \"$argument\" >> \"$RUST_DOCTOR_PROCESS_LOG\"; break ;;\n",
+                    "    rev-parse|merge-base|diff|ls-tree|read-tree|checkout-index) operation=$argument; printf 'git-%s\\n' \"$argument\" >> \"$RUST_DOCTOR_PROCESS_LOG\"; break ;;\n",
                     "  esac\n",
                     "done\n",
+                    "case \"$RUST_DOCTOR_GIT_FAULT:$operation\" in\n",
+                    "  merge-base-unavailable:merge-base) exit 1 ;;\n",
+                    "  merge-base-ambiguous:merge-base) printf '%040d\\n%040d\\n' 1 2; exit 0 ;;\n",
+                    "  baseline-limit:ls-tree) printf '100644 blob 1111111111111111111111111111111111111111 67108865\\tlarge.rs\\0'; exit 0 ;;\n",
+                    "  baseline-gitlink:ls-tree) printf '160000 commit 1111111111111111111111111111111111111111 -\\tprivate-gitlink\\0'; exit 0 ;;\n",
+                    "  cleanup-failure:checkout-index)\n",
+                    "    \"$RUST_DOCTOR_REAL_GIT\" \"$@\" || exit $?\n",
+                    "    chmod 0500 \"$RUST_DOCTOR_CLEANUP_PARENT\" || exit $?\n",
+                    "    exit 0 ;;\n",
+                    "esac\n",
                     "exec \"$RUST_DOCTOR_REAL_GIT\" \"$@\"\n",
                 ),
             )],

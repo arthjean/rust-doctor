@@ -3,6 +3,7 @@
 mod baseline;
 mod cargo_health;
 mod configuration;
+mod delta;
 mod execution;
 mod git_scope;
 mod policy;
@@ -12,6 +13,7 @@ mod scan_target;
 mod source_kernel;
 mod workspace_path;
 
+pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, RuleLevel, RuleLevelSource, RuleOverride,

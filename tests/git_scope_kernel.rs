@@ -78,6 +78,31 @@ fn json(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn compact_json_fixture(input: &str) -> Vec<u8> {
+    let mut compact = Vec::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in input.bytes() {
+        if in_string {
+            compact.push(byte);
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+            compact.push(byte);
+        } else if !byte.is_ascii_whitespace() {
+            compact.push(byte);
+        }
+    }
+    compact.push(b'\n');
+    compact
+}
+
 fn snapshot(root: &Path) -> Vec<Vec<u8>> {
     [
         vec!["rev-parse", "HEAD"],
@@ -137,7 +162,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 6);
+    assert_eq!(full.schema_version, 7);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -168,7 +193,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
 }
 
 #[test]
-fn full_v6_is_the_frozen_v5_fixture_plus_version_and_scope() {
+fn full_v7_preserves_the_frozen_v6_fields_and_adds_only_delta() {
     let report = inspect(InspectRequest::new(fixture()));
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     let scope = report.scope.as_ref().unwrap();
@@ -177,23 +202,92 @@ fn full_v6_is_the_frozen_v5_fixture_plus_version_and_scope() {
     assert!(scope.comparison_base().is_none());
     assert!(scope.files().is_none());
 
+    let mut current_wire = Vec::new();
+    rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
+    let frozen_v7_source = include_str!("fixtures/git-scope/v7-full-report.json");
+    assert_eq!(current_wire, compact_json_fixture(frozen_v7_source));
+
     let current = serde_json::to_value(report).unwrap();
+    assert_eq!(current["schema_version"], 7);
+    assert!(current["delta"].is_null());
+    let frozen_v7: Value =
+        serde_json::from_str(include_str!("fixtures/git-scope/v7-full-report.json")).unwrap();
+    assert_eq!(current, frozen_v7);
+
+    let mut compatible_v6 = current.clone();
+    compatible_v6["schema_version"] = Value::from(6);
+    compatible_v6.as_object_mut().unwrap().remove("delta");
     let frozen_v6: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v6-full-report.json")).unwrap();
-    assert_eq!(current, frozen_v6);
+    assert_eq!(compatible_v6, frozen_v6);
+    let projected_v6 = frozen_v7_source
+        .replacen("\"schema_version\": 7", "\"schema_version\": 6", 1)
+        .replace(
+            "  \"diagnostics\": [],\n  \"delta\": null,\n",
+            "  \"diagnostics\": [],\n",
+        );
+    assert_eq!(
+        projected_v6,
+        include_str!("fixtures/git-scope/v6-full-report.json"),
+        "the frozen v6 bytes may only gain schema v7 and delta",
+    );
 
     let changelog = include_str!("../CHANGELOG.md");
-    assert!(changelog.contains("Report schema v6"));
-    assert!(changelog.contains("Consumers restricted to schema v5"));
-    assert!(changelog.contains("scope: null"));
+    assert!(changelog.contains("Report schema v7"));
+    assert!(changelog.contains("Consumers restricted to schema v6"));
+    assert!(changelog.contains("delta"));
 
-    let mut compatible = current;
+    let mut compatible = compatible_v6;
     compatible["schema_version"] = Value::from(5);
     compatible.as_object_mut().unwrap().remove("scope");
     let frozen: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v5-full-report.json")).unwrap();
 
     assert_eq!(compatible, frozen);
+}
+
+#[test]
+fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
+    let root = repository("git-scope-v7-baseline-fixture");
+    let output = cli(&root, &["--scope", "baseline", "--base", "baseline"]);
+    assert_eq!(output.status.code(), Some(0));
+    let production = json(&output);
+    let comparison_base = production["scope"]["comparison_base"].as_str().unwrap();
+    let normalized_wire = String::from_utf8(output.stdout)
+        .unwrap()
+        .replace(comparison_base, "0123456789abcdef0123456789abcdef01234567");
+    assert_eq!(
+        normalized_wire.as_bytes(),
+        compact_json_fixture(include_str!("fixtures/baseline/v7-baseline-report.json")),
+    );
+
+    let baseline: Value =
+        serde_json::from_str(include_str!("fixtures/baseline/v7-baseline-report.json")).unwrap();
+    assert_eq!(baseline["schema_version"], 7);
+    assert_eq!(baseline["scope"]["mode"], "baseline");
+    assert_eq!(
+        baseline["scope"]["comparison_base"],
+        "0123456789abcdef0123456789abcdef01234567"
+    );
+    let keys = baseline["delta"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        keys,
+        std::collections::BTreeSet::from([
+            "base_diagnostics",
+            "current_diagnostics",
+            "fingerprint_version",
+            "fixed",
+            "introduced",
+            "pre_existing",
+            "summary",
+        ])
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -372,7 +466,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 6);
+        assert_eq!(report.schema_version, 7);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Report schema v7
+
+- Every report adds a top-level `delta` field. Full, files, failed and incomplete inspections emit `delta: null`.
+- Complete baseline inspections publish fingerprint version 1, side cardinalities, introduced IDs, current-to-baseline pre-existing ID pairs, complete fixed baseline diagnostics and deterministic delta counters.
+- Baseline quality gates count only introduced current diagnostics. Full and files gates retain their schema v6 behavior.
+- Baseline terminal output shows introduced and fixed details, suppresses pre-existing details and prints the stable delta summary.
+- Consumers restricted to schema v6 must reject schema v7 or explicitly add the nullable `delta` field and the `baseline` scope mode. Existing schema v6 fixtures remain frozen.
+
 ### Report schema v6
 
 - Every resolved inspection now includes a top-level `scope` object.

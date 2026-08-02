@@ -1,0 +1,115 @@
+{
+  "schema_version": 7,
+  "status": "complete",
+  "complete": true,
+  "policy": {
+    "config_file": null,
+    "blocking": {
+      "level": "error",
+      "source": "default"
+    },
+    "rules": [
+      {
+        "id": "clippy::dbg_macro",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::todo",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unimplemented",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unbounded_registry_dependency",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unpinned_git_dependency",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::disabled_tls_verification",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::dynamic_shell_command",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      }
+    ]
+  },
+  "scope": {
+    "mode": "full",
+    "execution_scope": "workspace",
+    "comparison_base": null,
+    "files": null
+  },
+  "project": {
+    "workspace_root": ".",
+    "manifest_path": "Cargo.toml",
+    "packages": [
+      {
+        "name": "configuration-kernel-member",
+        "manifest_path": "member/Cargo.toml",
+        "targets": [
+          "configuration_kernel_member"
+        ]
+      }
+    ]
+  },
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+  },
+  "scan": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--no-deps",
+      "--message-format=json",
+      "--",
+      "-W",
+      "clippy::dbg_macro",
+      "-W",
+      "clippy::todo",
+      "-W",
+      "clippy::unimplemented"
+    ],
+    "exit_code": 0,
+    "build_finished": true,
+    "noise_lines": 0
+  },
+  "diagnostics": [],
+  "delta": null,
+  "errors": [],
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "info": 0,
+    "unknown": 0,
+    "total": 0
+  },
+  "gate": {
+    "blocking": "error",
+    "status": "passed",
+    "blocking_diagnostics": 0
+  }
+}

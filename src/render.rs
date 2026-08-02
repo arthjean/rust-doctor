@@ -1,9 +1,10 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 
 use crate::git_scope::ScopeDetails;
-use crate::{GateStatus, InspectReport, Status};
+use crate::{Diagnostic, GateStatus, InspectReport, Status};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -81,37 +82,21 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
         .map_err(RenderError::Write)?;
     }
 
-    for diagnostic in &report.diagnostics {
-        let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
-        let (line, column) = diagnostic
-            .span
-            .as_ref()
-            .map_or((0, 0), |span| (span.line_start, span.column_start));
-        match diagnostic.code.as_deref() {
-            Some(code) => writeln!(
-                writer,
-                "{path}:{line}:{column} {} [{code}] {}",
-                diagnostic.severity, diagnostic.message
-            ),
-            None => writeln!(
-                writer,
-                "{path}:{line}:{column} {} {}",
-                diagnostic.severity, diagnostic.message
-            ),
-        }
-        .map_err(RenderError::Write)?;
-        if let (Some(category), Some(help)) =
-            (diagnostic.category.as_deref(), diagnostic.help.as_deref())
+    if let Some(delta) = &report.delta {
+        let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
+        for diagnostic in report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| introduced.contains(&diagnostic.id))
         {
-            writeln!(writer, "Help ({category}): {help}").map_err(RenderError::Write)?;
+            render_diagnostic(&mut writer, diagnostic, "Introduced: ")?;
         }
-        if diagnostic.base_severity != diagnostic.severity {
-            writeln!(
-                writer,
-                "Policy: base severity {}, effective severity {}",
-                diagnostic.base_severity, diagnostic.severity
-            )
-            .map_err(RenderError::Write)?;
+        for diagnostic in &delta.fixed {
+            render_diagnostic(&mut writer, diagnostic, "Fixed: ")?;
+        }
+    } else {
+        for diagnostic in &report.diagnostics {
+            render_diagnostic(&mut writer, diagnostic, "")?;
         }
     }
 
@@ -126,6 +111,18 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
         report.status,
     )
     .map_err(RenderError::Write)?;
+
+    if let Some(delta) = &report.delta {
+        writeln!(
+            writer,
+            "Delta: +{} introduced; ={} pre-existing; -{} fixed; {} cross-file match(es).",
+            delta.summary.introduced,
+            delta.summary.pre_existing,
+            delta.summary.fixed,
+            delta.summary.cross_file_matches,
+        )
+        .map_err(RenderError::Write)?;
+    }
 
     match (report.gate.status, report.gate.blocking_diagnostics) {
         (GateStatus::Passed | GateStatus::Failed, Some(count)) => writeln!(
@@ -161,12 +158,52 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
     Ok(())
 }
 
+fn render_diagnostic<W: Write>(
+    writer: &mut W,
+    diagnostic: &Diagnostic,
+    prefix: &str,
+) -> Result<(), RenderError> {
+    let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
+    let (line, column) = diagnostic
+        .span
+        .as_ref()
+        .map_or((0, 0), |span| (span.line_start, span.column_start));
+    match diagnostic.code.as_deref() {
+        Some(code) => writeln!(
+            writer,
+            "{prefix}{path}:{line}:{column} {} [{code}] {}",
+            diagnostic.severity, diagnostic.message
+        ),
+        None => writeln!(
+            writer,
+            "{prefix}{path}:{line}:{column} {} {}",
+            diagnostic.severity, diagnostic.message
+        ),
+    }
+    .map_err(RenderError::Write)?;
+    if let (Some(category), Some(help)) =
+        (diagnostic.category.as_deref(), diagnostic.help.as_deref())
+    {
+        writeln!(writer, "Help ({category}): {help}").map_err(RenderError::Write)?;
+    }
+    if diagnostic.base_severity != diagnostic.severity {
+        writeln!(
+            writer,
+            "Policy: base severity {}, effective severity {}",
+            diagnostic.base_severity, diagnostic.severity
+        )
+        .map_err(RenderError::Write)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, InspectReport,
-        ScanReport, ScopeReport, Severity, Summary, ToolchainReport,
+        BlockingLevel, DeltaMatch, DeltaReport, DeltaSummary, Diagnostic, DiagnosticSource,
+        DiagnosticSpan, GateReport, InspectReport, ScanReport, ScopeReport, Severity, Summary,
+        ToolchainReport,
     };
 
     struct ClosedWriter {
@@ -186,7 +223,7 @@ mod tests {
 
     fn report() -> InspectReport {
         InspectReport {
-            schema_version: 6,
+            schema_version: 7,
             status: Status::Complete,
             complete: true,
             policy: None,
@@ -223,6 +260,7 @@ mod tests {
                 }),
                 occurrences: 1,
             }],
+            delta: None,
             errors: Vec::new(),
             summary: Summary {
                 errors: 0,
@@ -247,7 +285,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            6
+            7
         );
     }
 
@@ -359,6 +397,49 @@ mod tests {
         assert_eq!(output.matches("Scope:").count(), 1);
         assert!(output.starts_with(
             "Scope: baseline; execution workspace; all current files selected; base 0123456789ab.\n"
+        ));
+    }
+
+    #[test]
+    fn baseline_terminal_renders_only_introduced_and_fixed_details_then_exact_delta() {
+        let mut report = report();
+        report.scope = Some(ScopeReport::baseline_scope(
+            "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        ));
+        let mut pre_existing = report.diagnostics[0].clone();
+        pre_existing.id = "pre-existing-current".to_owned();
+        pre_existing.message = "must stay hidden".to_owned();
+        report.diagnostics.push(pre_existing);
+        let mut fixed = report.diagnostics[0].clone();
+        fixed.id = "fixed-baseline".to_owned();
+        fixed.message = "removed debt".to_owned();
+        report.delta = Some(DeltaReport {
+            fingerprint_version: 1,
+            base_diagnostics: 2,
+            current_diagnostics: 2,
+            introduced: vec!["id".to_owned()],
+            pre_existing: vec![DeltaMatch {
+                current_id: "pre-existing-current".to_owned(),
+                baseline_id: "pre-existing-baseline".to_owned(),
+            }],
+            fixed: vec![fixed],
+            summary: DeltaSummary {
+                introduced: 1,
+                pre_existing: 1,
+                fixed: 1,
+                cross_file_matches: 1,
+            },
+        });
+        let mut output = Vec::new();
+
+        render_terminal(&report, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains("Introduced: src/lib.rs:2:3 warning [clippy::lint] message"));
+        assert!(output.contains("Fixed: src/lib.rs:2:3 warning [clippy::lint] removed debt"));
+        assert!(!output.contains("must stay hidden"));
+        assert!(output.contains(
+            "Delta: +1 introduced; =1 pre-existing; -1 fixed; 1 cross-file match(es).\n"
         ));
     }
 

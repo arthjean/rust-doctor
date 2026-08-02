@@ -1,0 +1,241 @@
+{
+  "cases": [
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "unicode",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "crlf-lf",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "tabs",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "multiline-span",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "duplicates",
+      "pre_existing": 2
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 1,
+      "name": "copies",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "nullable-code",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "severity-excluded",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-00",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-01",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-02",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-03",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-04",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-05",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-06",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 1,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "cross-file-stable-07",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "pathless-fallback",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "missing-source-fallback",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "baseline-unavailable-fallback",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 0,
+      "name": "current-unavailable-fallback",
+      "pre_existing": 1
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-evidence-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-evidence-01",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-evidence-02",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-evidence-03",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-message-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-code-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-source-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 1,
+      "name": "changed-message-prefix-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 1,
+      "name": "introduced-only-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 0,
+      "introduced": 1,
+      "name": "introduced-only-01",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 0,
+      "name": "fixed-only-00",
+      "pre_existing": 0
+    },
+    {
+      "cross_file_matches": 0,
+      "fixed": 1,
+      "introduced": 0,
+      "name": "fixed-only-01",
+      "pre_existing": 0
+    }
+  ],
+  "features": [
+    "unicode",
+    "crlf-lf",
+    "tabs",
+    "multiline-span",
+    "pathless",
+    "duplicates",
+    "copies",
+    "prefix-collisions"
+  ],
+  "fingerprint_version": 1,
+  "runs": 20,
+  "schema_version": 1
+}

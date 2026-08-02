@@ -6,7 +6,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Mutex;
@@ -147,7 +147,11 @@ fn fixture_with_baseline_source(
         .current_dir(&project));
     if valid_baseline {
         git(&project, &["add", "Cargo.lock"]);
-        git(&project, &["commit", "--amend", "--no-edit", "--quiet"]);
+        run(Command::new("git")
+            .args(["commit", "--amend", "--no-edit", "--quiet"])
+            .current_dir(&project)
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z"));
         git(&project, &["branch", "-f", SELECTOR, "HEAD"]);
     }
     write(
@@ -228,6 +232,7 @@ fn inspect_command(fixture: &Fixture, arguments: &[&str], target: &Path) -> Comm
         .env("GIT_CONFIG_VALUE_0", "/private/hostile/pager")
         .env("GIT_EXTERNAL_DIFF", "/private/hostile/diff")
         .env("GIT_PAGER", "/private/hostile/pager")
+        .env("GIT_NO_LAZY_FETCH", "0")
         .env_remove("RUSTUP_TOOLCHAIN");
     command
 }
@@ -264,16 +269,28 @@ fn counts(events: &[String]) -> BTreeMap<&str, usize> {
     counts
 }
 
-fn repository_state(root: &Path) -> Vec<Vec<u8>> {
-    [
-        vec!["status", "--porcelain=v1", "-z"],
+#[derive(Debug, PartialEq, Eq)]
+struct RepositoryState {
+    commands: Vec<Vec<u8>>,
+    config: Vec<u8>,
+    objects: BTreeMap<String, (blake3::Hash, u64)>,
+}
+
+fn repository_state(root: &Path) -> RepositoryState {
+    let commands = [
+        vec!["--no-optional-locks", "status", "--porcelain=v1", "-z"],
         vec!["rev-parse", "HEAD"],
         vec!["show-ref"],
         vec!["hash-object", ".git/index"],
     ]
     .into_iter()
     .map(|arguments| git(root, &arguments).stdout)
-    .collect()
+    .collect();
+    RepositoryState {
+        commands,
+        config: fs::read(root.join(".git/config")).unwrap(),
+        objects: support::content_states(&root.join(".git/objects")),
+    }
 }
 
 #[test]
@@ -304,11 +321,11 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
         &["--scope", "baseline", "--base", SELECTOR],
         &fixture.target,
     );
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     let baseline = report(&output);
     let baseline_events = fixture.processes.events();
 
-    assert_eq!(baseline["schema_version"], 6);
+    assert_eq!(baseline["schema_version"], 7);
     assert_eq!(baseline["status"], "complete");
     assert_eq!(baseline["complete"], true);
     assert_eq!(baseline["scope"]["mode"], "baseline");
@@ -326,8 +343,14 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
             "files": null,
         })
     );
-    assert_eq!(baseline["gate"]["status"], "not-evaluated");
-    assert!(baseline["gate"]["blocking_diagnostics"].is_null());
+    assert_eq!(baseline["gate"]["status"], "passed");
+    assert_eq!(baseline["gate"]["blocking_diagnostics"], 0);
+    assert_eq!(baseline["delta"]["fingerprint_version"], 1);
+    assert_eq!(baseline["delta"]["base_diagnostics"], 4);
+    assert_eq!(baseline["delta"]["current_diagnostics"], 8);
+    assert_eq!(baseline["delta"]["summary"]["introduced"], 4);
+    assert_eq!(baseline["delta"]["summary"]["pre_existing"], 4);
+    assert_eq!(baseline["delta"]["summary"]["fixed"], 0);
     assert_eq!(baseline["policy"]["config_file"], "rust-doctor.toml");
 
     let paths: BTreeSet<_> = baseline["diagnostics"]
@@ -423,6 +446,31 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
 }
 
 #[test]
+fn baseline_gate_counts_only_introduced_diagnostics() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let fixture = fixture(true);
+    let output = inspect(
+        &fixture,
+        &[
+            "--blocking",
+            "warning",
+            "--scope",
+            "baseline",
+            "--base",
+            SELECTOR,
+        ],
+        &fixture.target,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let report = report(&output);
+    assert_eq!(report["status"], "complete");
+    assert_eq!(report["delta"]["summary"]["introduced"], 4);
+    assert_eq!(report["delta"]["summary"]["pre_existing"], 4);
+    assert_eq!(report["gate"]["status"], "failed");
+    assert_eq!(report["gate"]["blocking_diagnostics"], 4);
+}
+
+#[test]
 fn invalid_baseline_metadata_fails_closed_before_versions_or_current_scan() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let fixture = fixture(false);
@@ -437,6 +485,7 @@ fn invalid_baseline_metadata_fails_closed_before_versions_or_current_scan() {
     assert_eq!(report["status"], "failed");
     assert_eq!(report["errors"][0]["stage"], "baseline");
     assert_eq!(report["errors"][0]["code"], "baseline-scan-incomplete");
+    assert!(report["delta"].is_null());
     assert_eq!(report["gate"]["status"], "not-evaluated");
     assert_eq!(report["scope"]["mode"], "baseline");
     assert!(report["toolchain"]["cargo"].is_null());
@@ -468,6 +517,7 @@ fn unresolved_active_toolchain_fails_closed_before_baseline_metadata_or_scans() 
     assert_eq!(output.status.code(), Some(2));
     let report = report(&output);
     assert_eq!(report["errors"][0]["code"], "baseline-scan-incomplete");
+    assert!(report["delta"].is_null());
     assert_eq!(report["gate"]["status"], "not-evaluated");
     let events = fixture.processes.events();
     assert_eq!(
@@ -500,6 +550,7 @@ fn escaping_baseline_symlink_fails_before_baseline_metadata() {
     let report = report(&output);
     assert_eq!(report["errors"][0]["stage"], "baseline");
     assert_eq!(report["errors"][0]["code"], "baseline-entry-invalid");
+    assert!(report["delta"].is_null());
     let events = fixture.processes.events();
     assert_eq!(
         events.iter().filter(|event| *event == "metadata").count(),
@@ -522,6 +573,7 @@ fn incomplete_baseline_clippy_stops_before_the_current_clippy_scan() {
     assert_eq!(output.status.code(), Some(2));
     let report = report(&output);
     assert_eq!(report["errors"][0]["code"], "baseline-scan-incomplete");
+    assert!(report["delta"].is_null());
     assert!(report["toolchain"]["cargo"].is_string());
     let events = fixture.processes.events();
     assert_eq!(
@@ -551,6 +603,7 @@ fn incomplete_current_preserves_current_errors_after_a_complete_baseline() {
     assert_eq!(report["status"], "incomplete");
     assert_eq!(report["complete"], false);
     assert_eq!(report["gate"]["status"], "not-evaluated");
+    assert!(report["delta"].is_null());
     let codes: BTreeSet<_> = report["errors"]
         .as_array()
         .unwrap()
@@ -593,7 +646,7 @@ fn disabled_clippy_producer_starts_no_scan_on_either_side() {
         &fixture.target,
     );
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     let report = report(&output);
     assert_eq!(report["status"], "complete");
     assert!(report["scan"]["command"].is_null());
@@ -636,8 +689,92 @@ fn concurrent_baseline_scans_are_isolated_and_deterministic() {
     };
     let left = run("left").join().unwrap();
     let right = run("right").join().unwrap();
-    assert_eq!(left.status.code(), Some(1));
-    assert_eq!(right.status.code(), Some(1));
+    assert_eq!(left.status.code(), Some(0));
+    assert_eq!(right.status.code(), Some(0));
     assert_eq!(left.stdout, right.stdout);
     assert_eq!(temporary_snapshots(), before_temp);
 }
+
+#[test]
+fn promisor_clone_fails_closed_without_fetching_or_writing_git_objects() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let root = support::temporary_target("baseline-promisor", &NEXT_FIXTURE);
+    let _ = fs::remove_dir_all(&root);
+    let origin = root.join("origin");
+    fs::create_dir_all(origin.join("src")).unwrap();
+    write(
+        origin.join("Cargo.toml"),
+        "[package]\nname = \"promisor-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    );
+    write(
+        origin.join("src/lib.rs"),
+        "pub fn historical() -> bool { false }\n",
+    );
+    git(&origin, &["init", "--initial-branch=main", "--quiet"]);
+    git(&origin, &["config", "user.name", "Rust Doctor"]);
+    git(
+        &origin,
+        &["config", "user.email", "rust-doctor@example.invalid"],
+    );
+    git(&origin, &["config", "uploadpack.allowFilter", "true"]);
+    git(&origin, &["add", "."]);
+    commit(&origin, "baseline");
+    let base = String::from_utf8(git(&origin, &["rev-parse", "HEAD"]).stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    write(
+        origin.join("src/lib.rs"),
+        "pub fn historical() -> bool { true }\n",
+    );
+    git(&origin, &["add", "."]);
+    commit(&origin, "current");
+
+    let clone = root.join("clone");
+    run(Command::new("git")
+        .args([
+            "-c",
+            "protocol.file.allow=always",
+            "clone",
+            "--quiet",
+            "--filter=blob:none",
+        ])
+        .arg(format!("file://{}", origin.display()))
+        .arg(&clone));
+    let missing = Command::new("git")
+        .args([
+            "--no-lazy-fetch",
+            "cat-file",
+            "-e",
+            &format!("{base}:src/lib.rs"),
+        ])
+        .current_dir(&clone)
+        .output()
+        .unwrap();
+    assert!(
+        !missing.status.success(),
+        "the historical blob must be absent locally"
+    );
+
+    let before = repository_state(&clone);
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg("inspect")
+        .arg("--json")
+        .args(["--scope", "baseline", "--base", &base])
+        .arg(&clone)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CARGO_TARGET_DIR", root.join("current-target"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let report = report(&output);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(report["errors"][0]["code"], "baseline-inventory-failed");
+    assert_eq!(report["gate"]["status"], "not-evaluated");
+    assert!(report["delta"].is_null());
+    assert_eq!(repository_state(&clone), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[path = "baseline_kernel/delta.rs"]
+mod delta;

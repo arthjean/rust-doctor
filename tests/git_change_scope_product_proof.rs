@@ -219,6 +219,14 @@ fn diagnostic_id_hash(report: &Value) -> String {
     .to_string()
 }
 
+fn v6_compatible_output(output: &[u8]) -> Vec<u8> {
+    std::str::from_utf8(output)
+        .unwrap()
+        .replacen("\"schema_version\":7", "\"schema_version\":6", 1)
+        .replacen(",\"delta\":null", "", 1)
+        .into_bytes()
+}
+
 fn run_case(
     fixture: &Fixture,
     name: &str,
@@ -255,9 +263,14 @@ fn run_case(
             }
         }
         let output = expected_output.unwrap();
-        output_hashes.insert(entry_name, blake3::hash(&output).to_hex().to_string());
+        output_hashes.insert(
+            entry_name,
+            blake3::hash(&v6_compatible_output(&output))
+                .to_hex()
+                .to_string(),
+        );
         let report: Value = serde_json::from_slice(&output).unwrap();
-        assert_eq!(report["schema_version"], 6);
+        assert_eq!(report["schema_version"], 7);
         assert_eq!(report["project"]["workspace_root"], ".");
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
         assert_eq!(

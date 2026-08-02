@@ -1,0 +1,533 @@
+{
+  "comparison_base": "f8f31e759eac3e650b436a6f05be06fa412b864e",
+  "determinism": {
+    "runs_per_state": 30,
+    "states": 8,
+    "total_reports": 240
+  },
+  "epic": "EP-016",
+  "error_matrix": [
+    {
+      "error_code": "base-unavailable",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 2,
+      "name": "missing-ref",
+      "processes": {
+        "git-rev-parse": 1,
+        "metadata": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "merge-base-unavailable",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 3,
+      "name": "shallow-history",
+      "processes": {
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "merge-base-ambiguous",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 3,
+      "name": "ambiguous-merge-base",
+      "processes": {
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "baseline-limit-exceeded",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 4,
+      "name": "snapshot-limit",
+      "processes": {
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "baseline-entry-invalid",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 4,
+      "name": "gitlink",
+      "processes": {
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-rev-parse": 1,
+        "metadata": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "baseline-scan-incomplete",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 8,
+      "name": "baseline-scan-incomplete",
+      "processes": {
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustup-toolchain": 1
+      },
+      "status": "failed"
+    },
+    {
+      "error_code": "clippy-exit",
+      "exit_code": 1,
+      "gate": "not-evaluated",
+      "maximum_processes": 13,
+      "name": "current-scan-incomplete",
+      "processes": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "status": "incomplete"
+    },
+    {
+      "error_code": "baseline-cleanup-failed",
+      "exit_code": 2,
+      "gate": "not-evaluated",
+      "maximum_processes": 13,
+      "name": "cleanup-failure",
+      "processes": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "status": "failed"
+    }
+  ],
+  "git_version": "git version 2.55.0",
+  "limits": {
+    "diagnostics_per_side": 50000,
+    "evidence_bytes_per_side": 67108864,
+    "proof_bytes": 65536,
+    "source_file_bytes": 8388608
+  },
+  "matrix": [
+    {
+      "current_id_hash": "a4403b35890933b2ffffaa1729acfcc9d803176683b8a270c52ca869a1d8bb0e",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 0,
+        "pre_existing": 6
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "introduced_id_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "name": "baseline",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 6,
+        "unknown": 0,
+        "warnings": 6
+      }
+    },
+    {
+      "current_id_hash": "339f68528bf1e19f0c21b791cc0cdc28409aa20653a2594d257672c847293438",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 1,
+        "pre_existing": 6
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 1,
+        "status": "failed"
+      },
+      "introduced_id_hash": "3a5a9258ed6f7d0ac9e2d3a20b6fa8d8982e5591e88d39c950b1845905c93569",
+      "name": "staged",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 7,
+        "unknown": 0,
+        "warnings": 7
+      }
+    },
+    {
+      "current_id_hash": "394d9609b57e5ae713f31ff410631f3238148ea214d1f1034ba889ded6849763",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 2,
+        "pre_existing": 6
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 2,
+        "status": "failed"
+      },
+      "introduced_id_hash": "4dd5384f054ab001b763b53ded99eca3b951ab08e5917b7fd5e69821dbeb8bf3",
+      "name": "unstaged",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 8,
+        "unknown": 0,
+        "warnings": 8
+      }
+    },
+    {
+      "current_id_hash": "bc5424ec331501a07149374000f044837d376e98b6468f9ec71f7e49cb9d4ace",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 3,
+        "pre_existing": 6
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 3,
+        "status": "failed"
+      },
+      "introduced_id_hash": "7d302647eae39cef76de9660871c4eeb1c29ec0fb3316172cce81136e267d41b",
+      "name": "untracked",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 9,
+        "unknown": 0,
+        "warnings": 9
+      }
+    },
+    {
+      "current_id_hash": "491c9012170888a7a819c5e6268229cf17e80b805e3e81b1036dce61e1e749d3",
+      "delta": {
+        "cross_file_matches": 1,
+        "fixed": 0,
+        "introduced": 3,
+        "pre_existing": 6
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 3,
+        "status": "failed"
+      },
+      "introduced_id_hash": "7d302647eae39cef76de9660871c4eeb1c29ec0fb3316172cce81136e267d41b",
+      "name": "moved",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 9,
+        "unknown": 0,
+        "warnings": 9
+      }
+    },
+    {
+      "current_id_hash": "a4da1e3ad7cf0890b01ccdbfab53efbb2f1e9914add5fb1de008d5eeeb210c29",
+      "delta": {
+        "cross_file_matches": 1,
+        "fixed": 0,
+        "introduced": 4,
+        "pre_existing": 6
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 4,
+        "status": "failed"
+      },
+      "introduced_id_hash": "7436324e96b040226d1283a9b145f39dcf2145cf2c7828d4cd7c20dccb5d3e8a",
+      "name": "copied",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 10,
+        "unknown": 0,
+        "warnings": 10
+      }
+    },
+    {
+      "current_id_hash": "b4fbc06a756fc568ee94fb4ec414b367bfd2c20d2ad89211b8d4f0d4319f469b",
+      "delta": {
+        "cross_file_matches": 1,
+        "fixed": 2,
+        "introduced": 6,
+        "pre_existing": 4
+      },
+      "exit_code": 1,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 6,
+        "status": "failed"
+      },
+      "introduced_id_hash": "2995181f7f848daa951b81f9f405df4ac21d8e672e61807b45b02a1ba42f5a9e",
+      "name": "changed-and-fixed",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 10,
+        "unknown": 0,
+        "warnings": 10
+      }
+    },
+    {
+      "current_id_hash": "0d2c4109a17c8ac79b1ddc52c47015893b4103f4687002e53ebfc47ad0e1db3e",
+      "delta": {
+        "cross_file_matches": 1,
+        "fixed": 1,
+        "introduced": 0,
+        "pre_existing": 5
+      },
+      "exit_code": 0,
+      "gate": {
+        "blocking": "warning",
+        "blocking_diagnostics": 0,
+        "status": "passed"
+      },
+      "introduced_id_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "name": "corrected",
+      "processes_per_run": {
+        "cargo-version": 1,
+        "clippy": 2,
+        "clippy-version": 1,
+        "git-checkout-index": 1,
+        "git-ls-tree": 1,
+        "git-merge-base": 1,
+        "git-read-tree": 1,
+        "git-rev-parse": 1,
+        "metadata": 2,
+        "rustc-version": 1,
+        "rustup-toolchain": 1
+      },
+      "runs": 30,
+      "summary": {
+        "errors": 0,
+        "info": 0,
+        "total": 5,
+        "unknown": 0,
+        "warnings": 5
+      }
+    }
+  ],
+  "non_mutation": "working-content-size-mtime-plus-head-refs-index-config-and-objects",
+  "ordinary_temp_residue": 0,
+  "performance": {
+    "fixture": "rich-delta",
+    "maximum_ratio": 2.5,
+    "measured": true,
+    "runs": 30,
+    "verdict": "pass",
+    "warmups": 3
+  },
+  "privacy": "pass",
+  "public_repositories": [
+    {
+      "base_commit": "f2719888cb2f4f033c441cf6723cea1c532c0c87",
+      "current_commit": "18c2598afa0f996f56217ef128aa3a20ea1e9512",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 0,
+        "pre_existing": 0
+      },
+      "error_codes": [],
+      "exit_code": 0,
+      "gate": "passed",
+      "lockfile_input": "generated-before-measurement",
+      "name": "anyhow",
+      "offline": true,
+      "repository_unchanged": true,
+      "status": "complete"
+    },
+    {
+      "base_commit": "23679e2b9d7e4dcaef797ca7c51a4ffb6fce9f36",
+      "current_commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 0,
+        "pre_existing": 0
+      },
+      "error_codes": [],
+      "exit_code": 0,
+      "gate": "passed",
+      "lockfile_input": "generated-before-measurement",
+      "name": "serde_json",
+      "offline": true,
+      "repository_unchanged": true,
+      "status": "complete"
+    },
+    {
+      "base_commit": "dd89c22327f388a4ca07108ab18bd7afcb64f7ba",
+      "current_commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "delta": {
+        "cross_file_matches": 0,
+        "fixed": 0,
+        "introduced": 0,
+        "pre_existing": 4
+      },
+      "error_codes": [],
+      "exit_code": 0,
+      "gate": "passed",
+      "lockfile_input": "committed",
+      "name": "hexyl",
+      "offline": true,
+      "repository_unchanged": true,
+      "status": "complete"
+    }
+  ],
+  "reconstruction": {
+    "performance": "measured",
+    "public_repositories": "measured",
+    "test": "baseline_delta_evaluation_is_reconstructed_from_measured_inputs"
+  },
+  "schema_version": 1,
+  "stories": [
+    "US-045",
+    "US-046",
+    "US-047"
+  ],
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  "verdict": "pass"
+}

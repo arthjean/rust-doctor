@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::cargo_health;
+use crate::delta::DeltaReport;
 use crate::execution::{
     BaselineExecution, CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData,
     ExecutionResult, InternalError, ScanExecution,
@@ -21,7 +22,7 @@ use crate::policy::{
 use crate::source_kernel;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 6;
+pub const SCHEMA_VERSION: u8 = 7;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -90,6 +91,7 @@ pub struct InspectReport {
     pub toolchain: ToolchainReport,
     pub scan: ScanReport,
     pub diagnostics: Vec<Diagnostic>,
+    pub delta: Option<DeltaReport>,
     pub errors: Vec<ReportError>,
     pub summary: Summary,
     pub gate: GateReport,
@@ -376,7 +378,7 @@ pub(crate) fn from_baseline_execution(
     scope: ScopeReport,
 ) -> InspectReport {
     match execution {
-        Ok(execution) => analyze_baseline_execution(execution, plan, scope).into_v6_report(),
+        Ok(execution) => analyze_baseline_execution(execution, plan, scope).into_report(),
         Err(execution) => {
             let report =
                 from_execution_with_plan(*execution, Some(plan), plan.blocking(), Some(scope));
@@ -388,13 +390,41 @@ pub(crate) fn from_baseline_execution(
 struct BaselineAnalysis {
     baseline: InspectReport,
     current: InspectReport,
+    baseline_root: Option<PathBuf>,
+    current_root: Option<PathBuf>,
 }
 
 impl BaselineAnalysis {
-    fn into_v6_report(self) -> InspectReport {
-        let Self { baseline, current } = self;
-        drop(baseline);
-        force_baseline_gate(current)
+    fn into_report(self) -> InspectReport {
+        let Self {
+            baseline,
+            mut current,
+            baseline_root,
+            current_root,
+        } = self;
+        if baseline.status != Status::Complete || current.status != Status::Complete {
+            return force_baseline_gate(current);
+        }
+        let (Some(baseline_root), Some(current_root)) = (baseline_root, current_root) else {
+            return baseline_report_failure(current, crate::baseline::scan_incomplete());
+        };
+        let delta = match crate::delta::compute(
+            &baseline.diagnostics,
+            &current.diagnostics,
+            &baseline_root,
+            &current_root,
+        ) {
+            Ok(delta) => delta,
+            Err(error) => return baseline_report_failure(current, error),
+        };
+        current.gate = evaluate_baseline_gate(
+            current.status,
+            &current.diagnostics,
+            &delta,
+            current.gate.blocking,
+        );
+        current.delta = Some(delta);
+        current
     }
 }
 
@@ -404,6 +434,14 @@ fn analyze_baseline_execution(
     scope: ScopeReport,
 ) -> BaselineAnalysis {
     let (baseline, current) = execution.into_sides();
+    let baseline_root = baseline
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.workspace_root.as_std_path().to_path_buf());
+    let current_root = current
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.workspace_root.as_std_path().to_path_buf());
     BaselineAnalysis {
         baseline: from_execution_with_plan(
             baseline,
@@ -412,6 +450,8 @@ fn analyze_baseline_execution(
             Some(scope.clone()),
         ),
         current: from_execution_with_plan(current, Some(plan), plan.blocking(), Some(scope)),
+        baseline_root,
+        current_root,
     }
 }
 
@@ -426,6 +466,7 @@ fn baseline_report_failure(mut report: InspectReport, error: InternalError) -> I
     report.status = Status::Failed;
     report.complete = false;
     report.diagnostics.clear();
+    report.delta = None;
     report.errors = vec![ReportError {
         stage: error.stage.to_owned(),
         code: error.code.to_owned(),
@@ -436,6 +477,7 @@ fn baseline_report_failure(mut report: InspectReport, error: InternalError) -> I
 }
 
 fn force_baseline_gate(mut report: InspectReport) -> InspectReport {
+    report.delta = None;
     report.gate = GateReport {
         blocking: report.gate.blocking,
         status: GateStatus::NotEvaluated,
@@ -491,6 +533,7 @@ fn from_execution_with_plan(
         },
         scan,
         diagnostics,
+        delta: None,
         errors,
         summary,
         gate,
@@ -584,6 +627,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             noise_lines: None,
         },
         diagnostics: Vec::new(),
+        delta: None,
         errors: vec![error],
         summary: Summary::default(),
         gate: GateReport {
@@ -1029,14 +1073,45 @@ fn evaluate_gate(
 
     let blocking_diagnostics = diagnostics
         .iter()
-        .filter(|diagnostic| match blocking {
-            BlockingLevel::None => false,
-            BlockingLevel::Error => diagnostic.severity == Severity::Error,
-            BlockingLevel::Warning => {
-                matches!(diagnostic.severity, Severity::Error | Severity::Warning)
-            }
+        .filter(|diagnostic| is_blocking(diagnostic, blocking))
+        .count();
+    evaluated_gate(blocking, blocking_diagnostics)
+}
+
+fn evaluate_baseline_gate(
+    status: Status,
+    diagnostics: &[Diagnostic],
+    delta: &DeltaReport,
+    blocking: BlockingLevel,
+) -> GateReport {
+    if status != Status::Complete {
+        return GateReport {
+            blocking,
+            status: GateStatus::NotEvaluated,
+            blocking_diagnostics: None,
+        };
+    }
+    let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
+    let blocking_diagnostics = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            introduced.contains(&diagnostic.id) && is_blocking(diagnostic, blocking)
         })
         .count();
+    evaluated_gate(blocking, blocking_diagnostics)
+}
+
+fn is_blocking(diagnostic: &Diagnostic, blocking: BlockingLevel) -> bool {
+    match blocking {
+        BlockingLevel::None => false,
+        BlockingLevel::Error => diagnostic.severity == Severity::Error,
+        BlockingLevel::Warning => {
+            matches!(diagnostic.severity, Severity::Error | Severity::Warning)
+        }
+    }
+}
+
+fn evaluated_gate(blocking: BlockingLevel, blocking_diagnostics: usize) -> GateReport {
     GateReport {
         blocking,
         status: if blocking_diagnostics == 0 {
@@ -1406,6 +1481,7 @@ mod tests {
             },
             summary: summarize(&diagnostics),
             diagnostics,
+            delta: None,
             errors: Vec::new(),
             gate,
         }
@@ -1818,8 +1894,9 @@ mod tests {
             .collect();
         assert_eq!(current_codes, baseline_codes);
 
-        let report = analysis.into_v6_report();
-        assert_eq!(report.gate.status, GateStatus::NotEvaluated);
+        let report = analysis.into_report();
+        assert_eq!(report.gate.status, GateStatus::Passed);
+        assert!(report.delta.is_some());
         assert_eq!(
             report
                 .diagnostics
@@ -1899,7 +1976,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 6);
+        assert_eq!(report.schema_version, 7);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();
