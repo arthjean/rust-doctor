@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Report schema v8
+
+- Every report adds a deterministic top-level `audit` field containing analyzed Rust file count, ordered category tallies and the local `core-v1` score.
+- Scores retain a numeric partial result but suppress projection and sharing when the scan or any diagnostic is not authoritative. Reports with no eligible Rust files expose `score: null`.
+- Rule groups, migration-scale advisories and confined code-frame data are derived from the report without changing the diagnostic kernel.
+- Consumers restricted to schema v7 must reject schema v8 or explicitly remove `audit` and normalize `schema_version`; every remaining serialized byte is preserved by compatibility tests.
+
 ### Report schema v7
 
 - Every report adds a top-level `delta` field. Full, files, failed and incomplete inspections emit `delta: null`.
