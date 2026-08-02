@@ -1,0 +1,110 @@
+{
+  "prd": {
+    "file": "tasks/prd-rust-doctor-rule-scaling-kernel.md",
+    "title": "Rust Doctor - Rule Scaling Kernel and First High-Signal Rule Pack",
+    "created_at": "2026-08-02",
+    "status": "IN_PROGRESS"
+  },
+  "epics": [
+    {
+      "id": "EP-017",
+      "title": "Admission des règles et catalogue profond",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 3,
+      "stories_done": 3
+    },
+    {
+      "id": "EP-018",
+      "title": "Précision, compatibilité et preuve réelle",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 3,
+      "stories_done": 0
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-048",
+      "title": "Valider l'oracle des cinq candidats Clippy",
+      "epic": "EP-017",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": "2026-08-02T12:07:17+02:00",
+      "completed_at": "2026-08-02T12:38:32+02:00",
+      "reviewed_at": "2026-08-02T12:38:32+02:00"
+    },
+    {
+      "id": "US-049",
+      "title": "Supprimer le couplage positionnel du catalogue",
+      "epic": "EP-017",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-048"
+      ],
+      "started_at": "2026-08-02T12:07:17+02:00",
+      "completed_at": "2026-08-02T12:38:32+02:00",
+      "reviewed_at": "2026-08-02T12:38:32+02:00"
+    },
+    {
+      "id": "US-050",
+      "title": "Intégrer le pack dans la policy et le rapport v7",
+      "epic": "EP-017",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-049"
+      ],
+      "started_at": "2026-08-02T12:07:17+02:00",
+      "completed_at": "2026-08-02T12:38:32+02:00",
+      "reviewed_at": "2026-08-02T12:38:32+02:00"
+    },
+    {
+      "id": "US-051",
+      "title": "Construire la matrice TP/FP/TN/FN par règle",
+      "epic": "EP-018",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-050"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-052",
+      "title": "Prouver policy, scopes, baseline et déterminisme",
+      "epic": "EP-018",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-051"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-053",
+      "title": "Valider le pack sur cinq dépôts épinglés",
+      "epic": "EP-018",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-052"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    }
+  ]
+}
