@@ -9,14 +9,31 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct FileState {
     hash: blake3::Hash,
     length: u64,
     modified: Option<SystemTime>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GitRepositoryState {
+    pub(crate) config_hash: String,
+    pub(crate) head: String,
+    pub(crate) index_hash: String,
+    pub(crate) objects_hash: String,
+    pub(crate) refs_hash: String,
+    pub(crate) status_hash: String,
+    pub(crate) tracked_files_hash: String,
+    pub(crate) tree: String,
+    pub(crate) working_state_hash: String,
 }
 
 #[cfg(unix)]
@@ -106,6 +123,51 @@ pub(crate) fn content_states(root: &Path) -> BTreeMap<String, (blake3::Hash, u64
         .into_iter()
         .map(|(path, state)| (path, (state.hash, state.length)))
         .collect()
+}
+
+pub(crate) fn git_output(root: &Path, arguments: &[&str]) -> Output {
+    let output = Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .output()
+        .expect("Git process should start");
+    assert!(
+        output.status.success(),
+        "git {arguments:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn hash_git_output(root: &Path, arguments: &[&str]) -> String {
+    blake3::hash(&git_output(root, arguments).stdout)
+        .to_hex()
+        .to_string()
+}
+
+pub(crate) fn git_repository_state(root: &Path) -> GitRepositoryState {
+    let content = content_states(root)
+        .into_iter()
+        .map(|(path, (hash, length))| format!("{path}\0{hash}\0{length}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let trimmed = |arguments: &[&str]| {
+        String::from_utf8(git_output(root, arguments).stdout)
+            .expect("Git output should be UTF-8")
+            .trim_end()
+            .to_owned()
+    };
+    GitRepositoryState {
+        head: trimmed(&["rev-parse", "HEAD"]),
+        tree: trimmed(&["rev-parse", "HEAD^{tree}"]),
+        index_hash: hash_git_output(root, &["hash-object", ".git/index"]),
+        refs_hash: hash_git_output(root, &["show-ref"]),
+        tracked_files_hash: hash_git_output(root, &["ls-files", "-s"]),
+        status_hash: hash_git_output(root, &["status", "--porcelain=v2", "--untracked-files=all"]),
+        config_hash: hash_git_output(root, &["config", "--local", "--list"]),
+        objects_hash: hash_git_output(root, &["count-objects", "-v"]),
+        working_state_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
+    }
 }
 
 #[cfg(unix)]

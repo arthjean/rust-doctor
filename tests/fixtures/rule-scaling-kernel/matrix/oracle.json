@@ -1,0 +1,112 @@
+{
+  "rules": [
+    {
+      "id": "clippy::mem_forget",
+      "positives": [
+        { "case": "drop-resource", "span": { "line_start": 15, "column_start": 9, "line_end": 15, "column_end": 39 } },
+        { "case": "owned-string", "span": { "line_start": 19, "column_start": 9, "line_end": 19, "column_end": 48 } },
+        { "case": "owned-vector", "span": { "line_start": 23, "column_start": 9, "line_end": 23, "column_end": 40 } },
+        { "case": "reference-counted", "span": { "line_start": 27, "column_start": 9, "line_end": 27, "column_end": 40 } }
+      ],
+      "negatives": [
+        "mem-forget-non-drop-u8",
+        "mem-forget-manually-drop",
+        "mem-forget-transfer-ownership",
+        "mem-forget-explicit-drop",
+        "mem-forget-borrow",
+        "mem-forget-local-suppression",
+        "mem-forget-comment",
+        "mem-forget-string"
+      ]
+    },
+    {
+      "id": "clippy::non_send_fields_in_send_ty",
+      "positives": [
+        { "case": "rc-field", "span": { "line_start": 34, "column_start": 5, "line_end": 34, "column_end": 37 } },
+        { "case": "nested-rc-field", "span": { "line_start": 40, "column_start": 5, "line_end": 40, "column_end": 43 } },
+        { "case": "non-send-callback", "span": { "line_start": 46, "column_start": 5, "line_end": 46, "column_end": 43 } },
+        { "case": "generic-rc-field", "span": { "line_start": 52, "column_start": 5, "line_end": 52, "column_end": 48 } }
+      ],
+      "negatives": [
+        "non-send-all-fields-send",
+        "non-send-no-unsafe-impl",
+        "non-send-bounded-generic",
+        "non-send-conditional-impl",
+        "non-send-phantom-send",
+        "non-send-reference-send",
+        "non-send-comment",
+        "non-send-string"
+      ]
+    },
+    {
+      "id": "clippy::permissions_set_readonly_false",
+      "positives": [
+        { "case": "false-one", "span": { "line_start": 55, "column_start": 9, "line_end": 55, "column_end": 40 } },
+        { "case": "false-two", "span": { "line_start": 59, "column_start": 9, "line_end": 59, "column_end": 40 } },
+        { "case": "false-three", "span": { "line_start": 63, "column_start": 9, "line_end": 63, "column_end": 40 } },
+        { "case": "false-four", "span": { "line_start": 67, "column_start": 9, "line_end": 67, "column_end": 40 } }
+      ],
+      "negatives": [
+        "permissions-readonly-true",
+        "permissions-explicit-mode",
+        "permissions-dynamic-value",
+        "permissions-read",
+        "permissions-clone",
+        "permissions-local-suppression",
+        "permissions-comment",
+        "permissions-string"
+      ]
+    },
+    {
+      "id": "clippy::suspicious_command_arg_space",
+      "positives": [
+        { "case": "option-and-value", "span": { "line_start": 71, "column_start": 21, "line_end": 71, "column_end": 36 } },
+        { "case": "long-option-and-value", "span": { "line_start": 75, "column_start": 21, "line_end": 75, "column_end": 36 } },
+        { "case": "named-value", "span": { "line_start": 79, "column_start": 21, "line_end": 79, "column_end": 35 } },
+        { "case": "unicode-neighbor", "span": { "line_start": 83, "column_start": 44, "line_end": 83, "column_end": 57 } }
+      ],
+      "negatives": [
+        "command-separated-arguments",
+        "command-dynamic-argument",
+        "command-single-token",
+        "command-shell-payload",
+        "command-os-string",
+        "command-neighbor-text",
+        "command-comment",
+        "command-string"
+      ]
+    },
+    {
+      "id": "clippy::zombie_processes",
+      "positives": [
+        { "case": "direct-drop", "span": { "line_start": 87, "column_start": 9, "line_end": 89, "column_end": 49 } },
+        { "case": "argument-builder-drop", "span": { "line_start": 93, "column_start": 9, "line_end": 96, "column_end": 49 } },
+        { "case": "echo-drop", "span": { "line_start": 100, "column_start": 9, "line_end": 103, "column_end": 49 } },
+        { "case": "shell-drop", "span": { "line_start": 107, "column_start": 9, "line_end": 111, "column_end": 49 } }
+      ],
+      "negatives": [
+        "zombie-wait",
+        "zombie-wait-with-output",
+        "zombie-status",
+        "zombie-transfer-return",
+        "zombie-transfer-argument",
+        "zombie-kill-and-wait",
+        "zombie-local-suppression",
+        "zombie-string"
+      ]
+    }
+  ],
+  "contexts": {
+    "build_output_candidate_diagnostics": 0,
+    "local_macro_contract": "tests/fixtures/rule-scaling-kernel/oracle/src/lib.rs",
+    "external_expansion_contract": "tests/fixtures/rule-scaling-kernel/dependency/src/lib.rs",
+    "missing_primary_span_contract": "report::tests::missing_code_or_primary_span_does_not_invent_structured_fields",
+    "unicode_primary_span": { "line_start": 83, "column_start": 44, "line_end": 83, "column_end": 57 },
+    "non_unix_permissions": {
+      "target": "x86_64-pc-windows-msvc",
+      "fixture": "tests/fixtures/rule-scaling-kernel/non-unix/Cargo.toml",
+      "candidate_diagnostics": 1,
+      "primary_span": { "line_start": 5, "column_start": 5, "line_end": 5, "column_end": 36 }
+    }
+  }
+}

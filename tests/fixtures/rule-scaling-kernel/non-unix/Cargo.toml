@@ -1,0 +1,16 @@
+[package]
+name = "rule-scaling-non-unix"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints.clippy]
+panic = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+unwrap_in_result = "warn"
+
+[workspace]

@@ -226,10 +226,10 @@ fn each_candidate_has_an_isolated_positive_with_exact_baseline_behavior() {
         assert!(baseline.status.success(), "{}", rule.id);
         let baseline_records = records(&baseline);
         let baseline_findings = diagnostics(&baseline_records, &codes);
-        if rule.clippy_default == "allow" {
+        if rule.clippy_default.as_str() == "allow" {
             assert!(baseline_findings.is_empty(), "{}", rule.id);
         } else {
-            assert_eq!(rule.clippy_default, "warn", "{}", rule.id);
+            assert_eq!(rule.clippy_default.as_str(), "warn", "{}", rule.id);
             assert_eq!(baseline_findings.len(), 1, "{}", rule.id);
             assert_eq!(
                 diagnostic_signature(baseline_findings[0]),
@@ -260,7 +260,7 @@ fn baseline_levels_suppression_denial_and_macro_boundaries_are_observed() {
         oracle
             .rules
             .iter()
-            .filter(|rule| rule.clippy_default == "warn")
+            .filter(|rule| rule.clippy_default.as_str() == "warn")
             .map(|rule| rule.id.as_str())
             .collect()
     );
