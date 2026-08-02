@@ -32,6 +32,34 @@ pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     help: "Remove dbg! or replace it with intentional logging.",
 };
+pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
+    id: "clippy::mem_forget",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    help: "Avoid leaking a value with drop semantics; use an explicit ownership or lifetime strategy.",
+};
+pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefinition {
+    id: "clippy::non_send_fields_in_send_ty",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    help: "Remove the unsafe Send implementation or ensure every field is safe to send between threads.",
+};
+pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDefinition {
+    id: "clippy::permissions_set_readonly_false",
+    category: "security",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    help: "Set explicit Unix permission bits instead of clearing readonly on Unix.",
+};
+pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefinition {
+    id: "clippy::suspicious_command_arg_space",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    help: "Pass each process argument separately instead of embedding spaces in one argument.",
+};
 pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
     id: "clippy::todo",
     category: "correctness",
@@ -45,6 +73,13 @@ pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
     help: "Implement this code path or remove the reachable placeholder.",
+};
+pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
+    id: "clippy::zombie_processes",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    help: "Wait on the child process or otherwise reap it before the handle is dropped.",
 };
 pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unbounded_registry_dependency",
@@ -75,10 +110,15 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 7] = [
+pub(crate) const CATALOG: [&RuleDefinition; 12] = [
     &CLIPPY_DBG_MACRO,
+    &CLIPPY_MEM_FORGET,
+    &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
+    &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
+    &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
     &CLIPPY_TODO,
     &CLIPPY_UNIMPLEMENTED,
+    &CLIPPY_ZOMBIE_PROCESSES,
     &CARGO_UNBOUNDED_REGISTRY,
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
@@ -152,11 +192,16 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 8] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 13] = [
         &CLIPPY_DBG_MACRO,
+        &CLIPPY_MEM_FORGET,
+        &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
+        &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
+        &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
         &SYNTHETIC_CLIPPY_RULE,
         &CLIPPY_TODO,
         &CLIPPY_UNIMPLEMENTED,
+        &CLIPPY_ZOMBIE_PROCESSES,
         &CARGO_UNBOUNDED_REGISTRY,
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
@@ -171,14 +216,28 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 7);
+        assert_eq!(CATALOG.len(), 12);
         assert_eq!(
             CATEGORIES,
             ["correctness", "maintainability", "reliability", "security"]
         );
 
+        let historical: Vec<_> = CATALOG
+            .iter()
+            .filter(|definition| {
+                !matches!(
+                    definition.id,
+                    "clippy::mem_forget"
+                        | "clippy::non_send_fields_in_send_ty"
+                        | "clippy::permissions_set_readonly_false"
+                        | "clippy::suspicious_command_arg_space"
+                        | "clippy::zombie_processes"
+                )
+            })
+            .copied()
+            .collect();
         assert_eq!(
-            serde_json::to_value(CATALOG).expect("catalog should serialize"),
+            serde_json::to_value(historical).expect("historical catalog should serialize"),
             historical_oracle()["catalog"]
         );
         assert_eq!(
@@ -187,7 +246,16 @@ mod tests {
                 .filter(|definition| definition.producer == Producer::Clippy)
                 .map(|definition| definition.id)
                 .collect::<Vec<_>>(),
-            ["clippy::dbg_macro", "clippy::todo", "clippy::unimplemented",]
+            [
+                "clippy::dbg_macro",
+                "clippy::mem_forget",
+                "clippy::non_send_fields_in_send_ty",
+                "clippy::permissions_set_readonly_false",
+                "clippy::suspicious_command_arg_space",
+                "clippy::todo",
+                "clippy::unimplemented",
+                "clippy::zombie_processes",
+            ]
         );
     }
 
@@ -201,7 +269,7 @@ mod tests {
         }
 
         let plan = PolicyPlan::default();
-        assert_eq!(plan.active_rules(Producer::Clippy).count(), 3);
+        assert_eq!(plan.active_rules(Producer::Clippy).count(), 8);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 2);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
     }
@@ -258,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_eighth_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
+    fn synthetic_thirteenth_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
         validate_catalog(&SYNTHETIC_CATALOG).expect("synthetic catalog should be valid");
         assert!(std::ptr::eq(
             find_in(&SYNTHETIC_CATALOG, SYNTHETIC_CLIPPY_RULE.id).unwrap(),
@@ -293,7 +361,13 @@ mod tests {
                 "-W",
                 "clippy::dbg_macro",
                 "-W",
+                "clippy::mem_forget",
+                "-W",
+                "clippy::permissions_set_readonly_false",
+                "-W",
                 "clippy::synthetic_rule",
+                "-W",
+                "clippy::zombie_processes",
             ]
         );
     }

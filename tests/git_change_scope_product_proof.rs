@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicUsize;
 
 use rust_doctor::{InspectRequest, Status, inspect};
 use serde_json::{Value, json};
+use support::rule_scaling::oracle as rule_scaling_oracle;
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 const FILES_ARGUMENTS: &[&str] = &["--scope", "files", "--base", "baseline"];
@@ -499,9 +500,41 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     let expected: Value =
         serde_json::from_str(&fs::read_to_string(&artifact_path).unwrap()).unwrap();
     fs::remove_dir_all(&fixture.root).unwrap();
+
+    let rule_scaling = rule_scaling_oracle();
+    let output_hashes: BTreeMap<_, _> = evaluation["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            (
+                case["name"].as_str().unwrap().to_owned(),
+                case["entry_output_hashes"]
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .map(|(entry, hash)| (entry.clone(), hash.as_str().unwrap().to_owned()))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        })
+        .collect();
     assert_eq!(
-        evaluation,
-        expected,
+        output_hashes,
+        rule_scaling.compatibility.git_change_scope_output_hashes,
+        "EP-017 output hashes differ:\n{}",
+        serde_json::to_string_pretty(&evaluation).unwrap()
+    );
+
+    let mut historical_evaluation = evaluation.clone();
+    let mut historical_expected = expected;
+    for value in [&mut historical_evaluation, &mut historical_expected] {
+        for case in value["cases"].as_array_mut().unwrap() {
+            case.as_object_mut().unwrap().remove("entry_output_hashes");
+        }
+    }
+    assert_eq!(
+        historical_evaluation,
+        historical_expected,
         "evaluation artifact differs:\n{}",
         serde_json::to_string_pretty(&evaluation).unwrap()
     );

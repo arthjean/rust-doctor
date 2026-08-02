@@ -651,9 +651,19 @@ mod tests {
                 "-W",
                 "clippy::dbg_macro",
                 "-W",
+                "clippy::mem_forget",
+                "-W",
+                "clippy::non_send_fields_in_send_ty",
+                "-W",
+                "clippy::permissions_set_readonly_false",
+                "-W",
+                "clippy::suspicious_command_arg_space",
+                "-W",
                 "clippy::todo",
                 "-W",
                 "clippy::unimplemented",
+                "-W",
+                "clippy::zombie_processes",
             ]
             .map(OsStr::new)
         );
@@ -872,9 +882,19 @@ mod tests {
                 "-W",
                 "clippy::dbg_macro",
                 "-W",
+                "clippy::mem_forget",
+                "-W",
+                "clippy::non_send_fields_in_send_ty",
+                "-W",
+                "clippy::permissions_set_readonly_false",
+                "-W",
+                "clippy::suspicious_command_arg_space",
+                "-W",
                 "clippy::todo",
                 "-W",
                 "clippy::unimplemented",
+                "-W",
+                "clippy::zombie_processes",
             ]
         );
         assert_eq!(scan.exit_code, Some(0));

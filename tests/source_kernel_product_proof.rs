@@ -82,9 +82,19 @@ fn native_source_findings_join_the_existing_v3_report() {
                 "-W",
                 "clippy::dbg_macro",
                 "-W",
+                "clippy::mem_forget",
+                "-W",
+                "clippy::non_send_fields_in_send_ty",
+                "-W",
+                "clippy::permissions_set_readonly_false",
+                "-W",
+                "clippy::suspicious_command_arg_space",
+                "-W",
                 "clippy::todo",
                 "-W",
                 "clippy::unimplemented",
+                "-W",
+                "clippy::zombie_processes",
             ]
             .map(str::to_owned)
             .as_slice()

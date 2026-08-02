@@ -12,12 +12,18 @@ use std::process::{Command, Output};
 use std::sync::atomic::AtomicUsize;
 
 use serde_json::{Value, json};
+use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 7] = [
+const RULES: [&str; 12] = [
     "clippy::dbg_macro",
+    "clippy::mem_forget",
+    "clippy::non_send_fields_in_send_ty",
+    "clippy::permissions_set_readonly_false",
+    "clippy::suspicious_command_arg_space",
     "clippy::todo",
     "clippy::unimplemented",
+    "clippy::zombie_processes",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
@@ -372,7 +378,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 7);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 7);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 12);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -468,9 +474,14 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         .iter()
         .find(|policy| policy["name"] == "default")
         .unwrap()["result"];
+    let rule_scaling = oracle();
     let absent = &reports["absent"];
     assert_eq!(absent["status"], historical["status"]);
-    assert_eq!(absent["scan"]["command"], historical["scan_command"]);
+    assert_ne!(absent["scan"]["command"], historical["scan_command"]);
+    assert_eq!(
+        absent["scan"]["command"],
+        serde_json::to_value(&rule_scaling.clippy_command).unwrap()
+    );
     assert_eq!(absent["summary"], historical["summary"]);
     assert_eq!(absent["gate"], historical["gate"]);
     assert_eq!(id_hash(absent), historical["id_hash"]);
@@ -592,9 +603,53 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         serde_json::from_str(&fs::read_to_string(&artifact_path).unwrap()).unwrap();
     remove_config_surface(&fixture.project.join("rust-doctor.toml"));
     fs::remove_dir_all(&fixture.root).unwrap();
+
+    let output_hashes: BTreeMap<_, _> = evaluation["policies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|policy| {
+            (
+                policy["name"].as_str().unwrap().to_owned(),
+                policy["entry_output_hashes"]
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .map(|(entry, hash)| (entry.clone(), hash.as_str().unwrap().to_owned()))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        })
+        .collect();
     assert_eq!(
-        evaluation,
-        expected,
+        output_hashes,
+        rule_scaling
+            .compatibility
+            .persistent_configuration_output_hashes,
+        "EP-017 output hashes differ:\n{}",
+        serde_json::to_string_pretty(&evaluation).unwrap()
+    );
+
+    let project_historical = |mut value: Value| {
+        let candidate_ids = rule_scaling.candidate_ids();
+        for policy in value["policies"].as_array_mut().unwrap() {
+            policy
+                .as_object_mut()
+                .unwrap()
+                .remove("entry_output_hashes");
+            policy["policy"]["rules"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|rule| {
+                    !rule["id"]
+                        .as_str()
+                        .is_some_and(|id| candidate_ids.contains(id))
+                });
+        }
+        value
+    };
+    assert_eq!(
+        project_historical(evaluation.clone()),
+        project_historical(expected),
         "evaluation artifact differs:\n{}",
         serde_json::to_string_pretty(&evaluation).unwrap()
     );

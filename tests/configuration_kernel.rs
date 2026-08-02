@@ -71,7 +71,7 @@ fn root_member_manifest_and_subdirectory_keep_one_workspace_and_selected_manifes
         assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
         let policy = report.policy.as_ref().unwrap();
         assert!(policy.config_file.is_none());
-        assert_eq!(policy.rules.len(), 7);
+        assert_eq!(policy.rules.len(), 12);
         assert!(
             policy
                 .rules
@@ -136,10 +136,10 @@ fn v7_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
     assert_eq!(policy.config_file.as_deref(), Some("rust-doctor.toml"));
     assert_eq!(policy.blocking.level, BlockingLevel::Warning);
     assert_eq!(policy.blocking.source, BlockingLevelSource::Config);
-    assert_eq!(policy.rules.len(), 7);
+    assert_eq!(policy.rules.len(), 12);
     assert_eq!(policy.rules[0].id, "clippy::dbg_macro");
     assert_eq!(
-        policy.rules[6].id,
+        policy.rules[11].id,
         "rust_doctor::source::dynamic_shell_command"
     );
 
@@ -364,5 +364,8 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     current.as_object_mut().unwrap().remove("scope");
     current.as_object_mut().unwrap().remove("delta");
     baseline.as_object_mut().unwrap().remove("schema_version");
+    assert_ne!(current["scan"]["command"], baseline["scan"]["command"]);
+    current["scan"].as_object_mut().unwrap().remove("command");
+    baseline["scan"].as_object_mut().unwrap().remove("command");
     assert_eq!(current, baseline);
 }

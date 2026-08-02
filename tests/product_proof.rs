@@ -250,9 +250,19 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
             "-W",
             "clippy::dbg_macro",
             "-W",
+            "clippy::mem_forget",
+            "-W",
+            "clippy::non_send_fields_in_send_ty",
+            "-W",
+            "clippy::permissions_set_readonly_false",
+            "-W",
+            "clippy::suspicious_command_arg_space",
+            "-W",
             "clippy::todo",
             "-W",
-            "clippy::unimplemented"
+            "clippy::unimplemented",
+            "-W",
+            "clippy::zombie_processes"
         ])
     );
     let dbg_findings: Vec<_> = report["diagnostics"]

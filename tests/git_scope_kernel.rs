@@ -12,6 +12,7 @@ use rust_doctor::{
     BlockingLevel, ExecutionScope, GateStatus, InspectRequest, ScopeMode, Status, inspect,
 };
 use serde_json::Value;
+use support::rule_scaling::{oracle, project_legacy_report};
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
@@ -204,10 +205,15 @@ fn full_v7_preserves_the_frozen_v6_fields_and_adds_only_delta() {
 
     let mut current_wire = Vec::new();
     rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
-    let frozen_v7_source = include_str!("fixtures/git-scope/v7-full-report.json");
-    assert_eq!(current_wire, compact_json_fixture(frozen_v7_source));
+    assert_eq!(
+        current_wire,
+        compact_json_fixture(include_str!(
+            "fixtures/rule-scaling-kernel/v7-full-report.json"
+        ))
+    );
 
-    let current = serde_json::to_value(report).unwrap();
+    let frozen_v7_source = include_str!("fixtures/git-scope/v7-full-report.json");
+    let current = project_legacy_report(serde_json::to_value(report).unwrap(), &oracle());
     assert_eq!(current["schema_version"], 7);
     assert!(current["delta"].is_null());
     let frozen_v7: Value =
@@ -258,11 +264,19 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
         .replace(comparison_base, "0123456789abcdef0123456789abcdef01234567");
     assert_eq!(
         normalized_wire.as_bytes(),
-        compact_json_fixture(include_str!("fixtures/baseline/v7-baseline-report.json")),
+        compact_json_fixture(include_str!(
+            "fixtures/rule-scaling-kernel/v7-baseline-report.json"
+        )),
     );
+
+    let mut normalized = production;
+    normalized["scope"]["comparison_base"] =
+        Value::String("0123456789abcdef0123456789abcdef01234567".to_owned());
+    let normalized = project_legacy_report(normalized, &oracle());
 
     let baseline: Value =
         serde_json::from_str(include_str!("fixtures/baseline/v7-baseline-report.json")).unwrap();
+    assert_eq!(normalized, baseline);
     assert_eq!(baseline["schema_version"], 7);
     assert_eq!(baseline["scope"]["mode"], "baseline");
     assert_eq!(

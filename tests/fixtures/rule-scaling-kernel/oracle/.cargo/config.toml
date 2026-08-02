@@ -1,0 +1,12 @@
+[net]
+offline = true
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.rule-scaling-git]
+git = "https://git.invalid/rule-scaling.git"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

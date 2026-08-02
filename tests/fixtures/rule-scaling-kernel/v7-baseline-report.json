@@ -1,0 +1,168 @@
+{
+  "schema_version": 7,
+  "status": "complete",
+  "complete": true,
+  "policy": {
+    "config_file": null,
+    "blocking": {
+      "level": "error",
+      "source": "default"
+    },
+    "rules": [
+      {
+        "id": "clippy::dbg_macro",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::mem_forget",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::non_send_fields_in_send_ty",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::permissions_set_readonly_false",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::suspicious_command_arg_space",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::todo",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unimplemented",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::zombie_processes",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unbounded_registry_dependency",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unpinned_git_dependency",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::disabled_tls_verification",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::dynamic_shell_command",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      }
+    ]
+  },
+  "scope": {
+    "mode": "baseline",
+    "execution_scope": "workspace",
+    "comparison_base": "0123456789abcdef0123456789abcdef01234567",
+    "files": null
+  },
+  "project": {
+    "workspace_root": ".",
+    "manifest_path": "Cargo.toml",
+    "packages": [
+      {
+        "name": "configuration-kernel-member",
+        "manifest_path": "member/Cargo.toml",
+        "targets": [
+          "configuration_kernel_member"
+        ]
+      }
+    ]
+  },
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+  },
+  "scan": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--no-deps",
+      "--message-format=json",
+      "--",
+      "-W",
+      "clippy::dbg_macro",
+      "-W",
+      "clippy::mem_forget",
+      "-W",
+      "clippy::non_send_fields_in_send_ty",
+      "-W",
+      "clippy::permissions_set_readonly_false",
+      "-W",
+      "clippy::suspicious_command_arg_space",
+      "-W",
+      "clippy::todo",
+      "-W",
+      "clippy::unimplemented",
+      "-W",
+      "clippy::zombie_processes"
+    ],
+    "exit_code": 0,
+    "build_finished": true,
+    "noise_lines": 0
+  },
+  "diagnostics": [],
+  "delta": {
+    "fingerprint_version": 1,
+    "base_diagnostics": 0,
+    "current_diagnostics": 0,
+    "introduced": [],
+    "pre_existing": [],
+    "fixed": [],
+    "summary": {
+      "introduced": 0,
+      "pre_existing": 0,
+      "fixed": 0,
+      "cross_file_matches": 0
+    }
+  },
+  "errors": [],
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "info": 0,
+    "unknown": 0,
+    "total": 0
+  },
+  "gate": {
+    "blocking": "error",
+    "status": "passed",
+    "blocking_diagnostics": 0
+  }
+}

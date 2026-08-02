@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub(crate) mod rule_scaling;
+
 use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsString;

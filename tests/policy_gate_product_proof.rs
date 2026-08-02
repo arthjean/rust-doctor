@@ -1,5 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,6 +9,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::{Value, json};
+use support::rule_scaling::{clippy_command_without_rules, oracle};
 
 const RULES: [(&str, &str); 7] = [
     ("clippy::dbg_macro", "maintainability"),
@@ -450,9 +453,19 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
                 "--rule",
                 "clippy::dbg_macro=off",
                 "--rule",
+                "clippy::mem_forget=off",
+                "--rule",
+                "clippy::non_send_fields_in_send_ty=off",
+                "--rule",
+                "clippy::permissions_set_readonly_false=off",
+                "--rule",
+                "clippy::suspicious_command_arg_space=off",
+                "--rule",
                 "clippy::todo=off",
                 "--rule",
                 "clippy::unimplemented=off",
+                "--rule",
+                "clippy::zombie_processes=off",
             ],
         ),
         (
@@ -567,7 +580,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         "execution_pruning": execution_pruning,
         "policies": evaluation_policies,
     });
-    let mut expected: Value = serde_json::from_str(include_str!(
+    let expected: Value = serde_json::from_str(include_str!(
         "../tasks/rust-doctor-rule-policy-quality-gate-evaluation.json"
     ))
     .unwrap();
@@ -575,10 +588,61 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         expected["execution_pruning"]["clippy"]["curated_rule_flags"], 0,
         "the historical policy artifact must remain byte-stable",
     );
-    expected["execution_pruning"]["clippy"] = evaluation["execution_pruning"]["clippy"].clone();
+    let rule_scaling = oracle();
+    let scan_commands: BTreeMap<_, _> = evaluation["policies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|policy| {
+            (
+                policy["name"].as_str().unwrap().to_owned(),
+                policy["result"]["scan_command"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|argument| argument.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    let expected_scan_commands: BTreeMap<_, _> = rule_scaling
+        .compatibility
+        .policy_disabled_clippy_rules
+        .iter()
+        .map(|(name, disabled)| {
+            (
+                name.clone(),
+                clippy_command_without_rules(&rule_scaling.clippy_command, disabled),
+            )
+        })
+        .collect();
+    assert_eq!(
+        scan_commands,
+        expected_scan_commands,
+        "EP-017 scan commands differ:\n{}",
+        serde_json::to_string_pretty(&evaluation).unwrap()
+    );
+    assert_eq!(
+        evaluation["execution_pruning"]["clippy"],
+        serde_json::to_value(&rule_scaling.compatibility.policy_clippy_pruning).unwrap()
+    );
+
+    let mut historical_evaluation = evaluation.clone();
+    historical_evaluation["execution_pruning"]["clippy"] =
+        expected["execution_pruning"]["clippy"].clone();
+    for (historical_policy, expected_policy) in historical_evaluation["policies"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(expected["policies"].as_array().unwrap())
+    {
+        assert_eq!(historical_policy["name"], expected_policy["name"]);
+        historical_policy["result"]["scan_command"] =
+            expected_policy["result"]["scan_command"].clone();
+    }
     fs::remove_dir_all(&fixture.root).unwrap();
     assert_eq!(
-        evaluation,
+        historical_evaluation,
         expected,
         "evaluation artifact differs:\n{}",
         serde_json::to_string_pretty(&evaluation).unwrap()

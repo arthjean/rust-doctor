@@ -1,0 +1,19 @@
+[package]
+name = "rule-scaling-oracle"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[features]
+allowed = []
+denied = []
+local-macro = []
+
+[dependencies]
+fixture_git_dep = { package = "fixture-git-dep", git = "https://git.invalid/rule-scaling.git" }
+fixture_registry_dep = { package = "fixture-registry-dep", version = "*" }
+reqwest = { path = "vendor/reqwest" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,14 @@
+[package]
+name = "rule-scaling-denied"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["denied"]
+allowed = []
+denied = []
+local-macro = []
+
+[lib]
+path = "../oracle/src/lib.rs"

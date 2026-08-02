@@ -1,0 +1,226 @@
+{
+  "toolchain": {
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "rules": [
+    {
+      "id": "clippy::mem_forget",
+      "category": "reliability",
+      "help": "Avoid leaking a value with drop semantics; use an explicit ownership or lifetime strategy.",
+      "clippy_default": "allow",
+      "message": "usage of `mem::forget` on `Drop` type",
+      "positive_fixture": "positive/mem-forget/Cargo.toml",
+      "positive_span": { "line_start": 8, "column_start": 5, "line_end": 8, "column_end": 31 },
+      "integration_span": { "line_start": 14, "column_start": 9, "line_end": 14, "column_end": 39 }
+    },
+    {
+      "id": "clippy::non_send_fields_in_send_ty",
+      "category": "correctness",
+      "help": "Remove the unsafe Send implementation or ensure every field is safe to send between threads.",
+      "clippy_default": "allow",
+      "message": "some fields in `UnsafeSend` are not safe to be sent to another thread",
+      "positive_fixture": "positive/non-send-fields-in-send-ty/Cargo.toml",
+      "positive_span": { "line_start": 7, "column_start": 1, "line_end": 7, "column_end": 35 },
+      "integration_span": { "line_start": 21, "column_start": 5, "line_end": 21, "column_end": 39 }
+    },
+    {
+      "id": "clippy::permissions_set_readonly_false",
+      "category": "security",
+      "help": "Set explicit Unix permission bits instead of clearing readonly on Unix.",
+      "clippy_default": "warn",
+      "message": "call to `set_readonly` with argument `false`",
+      "positive_fixture": "positive/permissions-set-readonly-false/Cargo.toml",
+      "positive_span": { "line_start": 2, "column_start": 5, "line_end": 2, "column_end": 36 },
+      "integration_span": { "line_start": 24, "column_start": 9, "line_end": 24, "column_end": 40 }
+    },
+    {
+      "id": "clippy::suspicious_command_arg_space",
+      "category": "correctness",
+      "help": "Pass each process argument separately instead of embedding spaces in one argument.",
+      "clippy_default": "warn",
+      "message": "single argument that looks like it should be multiple arguments",
+      "positive_fixture": "positive/suspicious-command-arg-space/Cargo.toml",
+      "positive_span": { "line_start": 3, "column_start": 17, "line_end": 3, "column_end": 32 },
+      "integration_span": { "line_start": 29, "column_start": 21, "line_end": 29, "column_end": 36 }
+    },
+    {
+      "id": "clippy::zombie_processes",
+      "category": "reliability",
+      "help": "Wait on the child process or otherwise reap it before the handle is dropped.",
+      "clippy_default": "warn",
+      "message": "spawned process is never `wait()`ed on",
+      "positive_fixture": "positive/zombie-processes/Cargo.toml",
+      "positive_span": { "line_start": 2, "column_start": 5, "line_end": 4, "column_end": 46 },
+      "integration_span": { "line_start": 34, "column_start": 9, "line_end": 36, "column_end": 50 }
+    }
+  ],
+  "historical_rules": [
+    {
+      "id": "clippy::dbg_macro",
+      "message": "the `dbg!` macro is intended as a debugging tool",
+      "path": "src/lib.rs",
+      "span": { "line_start": 40, "column_start": 9, "line_end": 40, "column_end": 20 }
+    },
+    {
+      "id": "clippy::todo",
+      "message": "`todo` should not be present in production code",
+      "path": "src/lib.rs",
+      "span": { "line_start": 44, "column_start": 9, "line_end": 44, "column_end": 16 }
+    },
+    {
+      "id": "clippy::unimplemented",
+      "message": "`unimplemented` should not be present in production code",
+      "path": "src/lib.rs",
+      "span": { "line_start": 48, "column_start": 9, "line_end": 48, "column_end": 25 }
+    },
+    {
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "message": "Registry dependency \"fixture_registry_dep\" uses an unbounded \"*\" version requirement.",
+      "path": "Cargo.toml",
+      "span": null
+    },
+    {
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "message": "Git dependency \"fixture_git_dep\" is not pinned to a full commit revision.",
+      "path": "Cargo.toml",
+      "span": null
+    },
+    {
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "message": "Reqwest client builder disables TLS certificate verification.",
+      "path": "src/lib.rs",
+      "span": { "line_start": 58, "column_start": 72, "line_end": 58, "column_end": 76 }
+    },
+    {
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "message": "A dynamic value is interpolated into a shell command string.",
+      "path": "src/lib.rs",
+      "span": { "line_start": 54, "column_start": 18, "line_end": 54, "column_end": 41 }
+    }
+  ],
+  "observed_contexts": {
+    "source_allow": [],
+    "source_deny": [
+      "clippy::mem_forget",
+      "clippy::non_send_fields_in_send_ty",
+      "clippy::permissions_set_readonly_false",
+      "clippy::suspicious_command_arg_space",
+      "clippy::zombie_processes"
+    ],
+    "local_macro": [
+      { "id": "clippy::mem_forget", "primary_line": 162 },
+      { "id": "clippy::non_send_fields_in_send_ty", "primary_line": 171 }
+    ],
+    "external_macro_under_no_deps": [
+      { "id": "clippy::mem_forget", "primary_line": 16 }
+    ],
+    "build_output_candidate_codes": [],
+    "dependency_direct_candidate_codes": []
+  },
+  "clippy_command": [
+    "cargo",
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--no-deps",
+    "--message-format=json",
+    "--",
+    "-W",
+    "clippy::dbg_macro",
+    "-W",
+    "clippy::mem_forget",
+    "-W",
+    "clippy::non_send_fields_in_send_ty",
+    "-W",
+    "clippy::permissions_set_readonly_false",
+    "-W",
+    "clippy::suspicious_command_arg_space",
+    "-W",
+    "clippy::todo",
+    "-W",
+    "clippy::unimplemented",
+    "-W",
+    "clippy::zombie_processes"
+  ],
+  "compatibility": {
+    "git_change_scope_output_hashes": {
+      "full": {
+        "member-manifest": "366127f495450901fc3c4a1a3a97a34669d3270451e126876f16e1147d5b81ca",
+        "member-subdirectory": "366127f495450901fc3c4a1a3a97a34669d3270451e126876f16e1147d5b81ca",
+        "workspace": "316559590a68b737679ca51b88e4637d392449d88a49e74372590e222ba2233a"
+      },
+      "files-empty": {
+        "member-manifest": "5343a0665bc9a5d4a931244f2dca574b840c2f8a459b441437fd9cc901e6488d",
+        "member-subdirectory": "5343a0665bc9a5d4a931244f2dca574b840c2f8a459b441437fd9cc901e6488d",
+        "workspace": "3e55f7c4004500dd66e892b1e3e1ce4fc3e41fd1c49c61cb7701c7a183f56412"
+      },
+      "files-source": {
+        "member-manifest": "5d7f7e5a5730a3ba8d95af7670c66dd7220fa9c223910d51e7cb5095514fe513",
+        "member-subdirectory": "5d7f7e5a5730a3ba8d95af7670c66dd7220fa9c223910d51e7cb5095514fe513",
+        "workspace": "7f3f0787ab1dc7d130ed48c1be6666c8df7da27e0fb184b1351c2f6358a8017c"
+      },
+      "files-manifest": {
+        "member-manifest": "ffdb43cb3e40ae3285c1c899847603f389f65f20418a66c907e63167f1c7425c",
+        "member-subdirectory": "ffdb43cb3e40ae3285c1c899847603f389f65f20418a66c907e63167f1c7425c",
+        "workspace": "822187189507a07a44343c8b4a1384d1ea2699592303ad2375ebd49811162812"
+      }
+    },
+    "persistent_configuration_output_hashes": {
+      "absent": {
+        "member-manifest": "ca42ff5b04ac95daa03f6cd8756d1cca45feba88cdefd655c5ac752c87d7d47e",
+        "member-subdirectory": "ca42ff5b04ac95daa03f6cd8756d1cca45feba88cdefd655c5ac752c87d7d47e",
+        "workspace": "4cd88becb59875226abe962b64c4decfa236447714504d490a4076a58de902f7"
+      },
+      "empty": {
+        "member-manifest": "47404f447d1159dd8b7beac2411bb91f0c2b33c0e7b8c57d33e762d0eddbd4bb",
+        "member-subdirectory": "47404f447d1159dd8b7beac2411bb91f0c2b33c0e7b8c57d33e762d0eddbd4bb",
+        "workspace": "2173cbf6917f2ef5a78f1e8581b92686b93245ef97848107ac64671b1b61632f"
+      },
+      "config-rule": {
+        "member-manifest": "ccdb85e52b7c461fe85bc879a8d8467b4af790378bf0f94be83ef2665a4c15e6",
+        "member-subdirectory": "ccdb85e52b7c461fe85bc879a8d8467b4af790378bf0f94be83ef2665a4c15e6",
+        "workspace": "6295a0b4c3330778b6e67f082a080e7b00a13bfa2f8282e17f4579381d38a4e0"
+      },
+      "shell-reactivated": {
+        "member-manifest": "6d3577b3293f9e143867866840542c119530258ee5a08c250d1bc7aa8d1f13e2",
+        "member-subdirectory": "6d3577b3293f9e143867866840542c119530258ee5a08c250d1bc7aa8d1f13e2",
+        "workspace": "bd6bebedea05962a43554ea6ff87a45c08c93b920841dc86cd71669d6c33c3b4"
+      },
+      "request-category-off": {
+        "member-manifest": "08b3cbfffa48ff8581b5776bfdb5a108255bba994c220afe8bd1adb2998f0173",
+        "member-subdirectory": "08b3cbfffa48ff8581b5776bfdb5a108255bba994c220afe8bd1adb2998f0173",
+        "workspace": "9c37d8b1a1ba0bfd74a3e8797b21844015ec5442111b4741b40cef69a3501aed"
+      },
+      "request-blocking": {
+        "member-manifest": "beeb357a193b14236ce8ed7b888027cdc8107be4e98f705204808c20152e5e7d",
+        "member-subdirectory": "beeb357a193b14236ce8ed7b888027cdc8107be4e98f705204808c20152e5e7d",
+        "workspace": "f3b71e2b654146037a189182d09d6ebc8a44810b90b792299c39802e5ad9f1a8"
+      }
+    },
+    "policy_disabled_clippy_rules": {
+      "default": [],
+      "security-off": ["clippy::permissions_set_readonly_false"],
+      "shell-reactivated": ["clippy::permissions_set_readonly_false"],
+      "correctness-error": [],
+      "correctness-error-none": [],
+      "correctness-error-warning": []
+    },
+    "policy_clippy_pruning": {
+      "inactive_rules": [
+        "clippy::dbg_macro",
+        "clippy::mem_forget",
+        "clippy::non_send_fields_in_send_ty",
+        "clippy::permissions_set_readonly_false",
+        "clippy::suspicious_command_arg_space",
+        "clippy::todo",
+        "clippy::unimplemented",
+        "clippy::zombie_processes"
+      ],
+      "scan_command": null,
+      "process_count": 0,
+      "counter_test": "baseline_kernel::disabled_clippy_producer_starts_no_scan_on_either_side"
+    }
+  }
+}
