@@ -30,6 +30,39 @@ pub(crate) fn normalize_changed(path: &str) -> Option<String> {
     normalize_components(Path::new(path), false)
 }
 
+pub(crate) fn decode_normalized_relative(path: &str) -> Option<PathBuf> {
+    if path.is_empty() || path.split('/').any(str::is_empty) {
+        return None;
+    }
+    let mut decoded = PathBuf::new();
+    for component in path.split('/') {
+        let bytes = component.as_bytes();
+        let mut output = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] != b'%' {
+                output.push(bytes[index]);
+                index += 1;
+                continue;
+            }
+            let high = hex_value(*bytes.get(index + 1)?)?;
+            let low = hex_value(*bytes.get(index + 2)?)?;
+            output.push((high << 4) | low);
+            index += 3;
+        }
+        decoded.push(String::from_utf8(output).ok()?);
+    }
+    (normalize_relative(&decoded).as_deref() == Some(path)).then_some(decoded)
+}
+
+const fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn normalize_components(path: &Path, allow_current_directory: bool) -> Option<String> {
     if path.is_absolute() {
         return None;
@@ -128,6 +161,17 @@ mod tests {
             "double//component",
         ] {
             assert!(normalize_changed(invalid).is_none(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn normalized_paths_round_trip_to_physical_relative_paths() {
+        assert_eq!(
+            decode_normalized_relative("src/100%25%1B.rs"),
+            Some(PathBuf::from("src/100%\u{001b}.rs"))
+        );
+        for invalid in ["src/100%.rs", "src/%2Fescape.rs", "src/%41.rs"] {
+            assert!(decode_normalized_relative(invalid).is_none(), "{invalid}");
         }
     }
 

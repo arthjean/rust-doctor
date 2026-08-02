@@ -8,6 +8,7 @@ mod delta;
 mod execution;
 mod git_scope;
 mod policy;
+pub mod presentation;
 pub mod render;
 mod report;
 mod scan_target;
