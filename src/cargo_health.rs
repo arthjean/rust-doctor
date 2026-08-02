@@ -52,7 +52,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
             }
             if unbounded_registry && is_unbounded_registry(dependency) {
                 scan.candidates.push(Candidate {
-                    definition: CARGO_UNBOUNDED_REGISTRY,
+                    definition: &CARGO_UNBOUNDED_REGISTRY,
                     message: format!(
                         "Registry dependency \"{key}\" uses an unbounded \"*\" version requirement."
                     ),
@@ -65,7 +65,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
             }
             if unpinned_git && is_unpinned_git(dependency) {
                 scan.candidates.push(Candidate {
-                    definition: CARGO_UNPINNED_GIT,
+                    definition: &CARGO_UNPINNED_GIT,
                     message: format!(
                         "Git dependency \"{key}\" is not pinned to a full commit revision."
                     ),

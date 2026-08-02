@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-#[cfg(test)]
-use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -8,6 +6,14 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::configuration::WorkspaceConfiguration;
+
+mod catalog;
+
+use catalog::find_in;
+pub(crate) use catalog::{
+    CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, CATALOG, CATEGORIES, Producer, RuleDefinition,
+    SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL, find,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -53,90 +59,6 @@ impl fmt::Display for BlockingLevel {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Producer {
-    Clippy,
-    CargoHealth,
-    SourceKernel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub(crate) struct RuleDefinition {
-    pub(crate) id: &'static str,
-    pub(crate) category: &'static str,
-    pub(crate) producer: Producer,
-    pub(crate) default_level: RuleLevel,
-    pub(crate) help: &'static str,
-}
-
-pub(crate) const CATEGORIES: [&str; 4] =
-    ["correctness", "maintainability", "reliability", "security"];
-
-pub(crate) const CATALOG: [RuleDefinition; 7] = [
-    RuleDefinition {
-        id: "clippy::dbg_macro",
-        category: "maintainability",
-        producer: Producer::Clippy,
-        default_level: RuleLevel::Warn,
-        help: "Remove dbg! or replace it with intentional logging.",
-    },
-    RuleDefinition {
-        id: "clippy::todo",
-        category: "correctness",
-        producer: Producer::Clippy,
-        default_level: RuleLevel::Warn,
-        help: "Replace todo! with the intended implementation or remove the reachable placeholder.",
-    },
-    RuleDefinition {
-        id: "clippy::unimplemented",
-        category: "correctness",
-        producer: Producer::Clippy,
-        default_level: RuleLevel::Warn,
-        help: "Implement this code path or remove the reachable placeholder.",
-    },
-    RuleDefinition {
-        id: "rust_doctor::cargo::unbounded_registry_dependency",
-        category: "reliability",
-        producer: Producer::CargoHealth,
-        default_level: RuleLevel::Warn,
-        help: "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
-    },
-    RuleDefinition {
-        id: "rust_doctor::cargo::unpinned_git_dependency",
-        category: "security",
-        producer: Producer::CargoHealth,
-        default_level: RuleLevel::Warn,
-        help: "Set rev to the full 40-character commit SHA intended by the project.",
-    },
-    RuleDefinition {
-        id: "rust_doctor::source::disabled_tls_verification",
-        category: "security",
-        producer: Producer::SourceKernel,
-        default_level: RuleLevel::Warn,
-        help: "Keep TLS verification enabled and configure the required trust roots or server name instead.",
-    },
-    RuleDefinition {
-        id: "rust_doctor::source::dynamic_shell_command",
-        category: "security",
-        producer: Producer::SourceKernel,
-        default_level: RuleLevel::Warn,
-        help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
-    },
-];
-
-pub(crate) const CARGO_UNBOUNDED_REGISTRY: &RuleDefinition = &CATALOG[3];
-pub(crate) const CARGO_UNPINNED_GIT: &RuleDefinition = &CATALOG[4];
-pub(crate) const SOURCE_DISABLED_TLS: &RuleDefinition = &CATALOG[5];
-pub(crate) const SOURCE_DYNAMIC_SHELL: &RuleDefinition = &CATALOG[6];
-
-pub(crate) fn find(id: &str) -> Option<&'static RuleDefinition> {
-    CATALOG
-        .binary_search_by_key(&id, |definition| definition.id)
-        .ok()
-        .map(|index| &CATALOG[index])
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,7 +188,7 @@ pub enum BlockingLevelSource {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 struct PlannedRule {
-    id: &'static str,
+    definition: &'static RuleDefinition,
     level: RuleLevel,
     source: RuleLevelSource,
     restamp: bool,
@@ -284,7 +206,7 @@ impl Default for PolicyPlan {
     fn default() -> Self {
         Self {
             rules: CATALOG.map(|definition| PlannedRule {
-                id: definition.id,
+                definition,
                 level: definition.default_level,
                 source: RuleLevelSource::Default,
                 restamp: false,
@@ -306,27 +228,7 @@ impl PolicyPlan {
         input: &PolicyInput,
         configuration: &WorkspaceConfiguration,
     ) -> Result<Self, PolicyError> {
-        let (rule_overrides, category_overrides) = validated_overrides(input)?;
-
-        let rules = CATALOG.map(|definition| {
-            let (level, source) = if let Some(level) = rule_overrides.get(definition.id).copied() {
-                (level, RuleLevelSource::RequestRule)
-            } else if let Some(level) = category_overrides.get(definition.category).copied() {
-                (level, RuleLevelSource::RequestCategory)
-            } else if let Some(level) = configuration.rules.get(definition.id).copied() {
-                (level, RuleLevelSource::ConfigRule)
-            } else if let Some(level) = configuration.categories.get(definition.category).copied() {
-                (level, RuleLevelSource::ConfigCategory)
-            } else {
-                (definition.default_level, RuleLevelSource::Default)
-            };
-            PlannedRule {
-                id: definition.id,
-                level,
-                source,
-                restamp: source != RuleLevelSource::Default,
-            }
-        });
+        let rules = compile_rules(&CATALOG, input, configuration)?;
         let (blocking, blocking_source) = if let Some(blocking) = input.blocking {
             (blocking, BlockingLevelSource::Request)
         } else if let Some(blocking) = configuration.blocking {
@@ -344,7 +246,7 @@ impl PolicyPlan {
 
     pub(crate) fn level(&self, id: &str) -> Option<RuleLevel> {
         self.rules
-            .binary_search_by_key(&id, |rule| rule.id)
+            .binary_search_by_key(&id, |rule| rule.definition.id)
             .ok()
             .map(|index| self.rules[index].level)
     }
@@ -355,7 +257,7 @@ impl PolicyPlan {
 
     pub(crate) fn restamp_level(&self, id: &str) -> Option<RuleLevel> {
         self.rules
-            .binary_search_by_key(&id, |rule| rule.id)
+            .binary_search_by_key(&id, |rule| rule.definition.id)
             .ok()
             .and_then(|index| self.rules[index].restamp.then_some(self.rules[index].level))
     }
@@ -364,13 +266,7 @@ impl PolicyPlan {
         &self,
         producer: Producer,
     ) -> impl Iterator<Item = (&'static RuleDefinition, RuleLevel)> + '_ {
-        CATALOG
-            .iter()
-            .zip(self.rules.iter())
-            .filter_map(move |(definition, planned)| {
-                (definition.producer == producer && planned.level.is_active())
-                    .then_some((definition, planned.level))
-            })
+        active_rules_in(&self.rules, producer)
     }
 
     pub(crate) const fn blocking(&self) -> BlockingLevel {
@@ -388,20 +284,63 @@ impl PolicyPlan {
     pub(crate) fn effective_rules(
         &self,
     ) -> impl Iterator<Item = (&'static RuleDefinition, RuleLevel, RuleLevelSource)> + '_ {
-        CATALOG
+        self.rules
             .iter()
-            .zip(self.rules.iter())
-            .map(|(definition, planned)| (definition, planned.level, planned.source))
+            .map(|planned| (planned.definition, planned.level, planned.source))
     }
+}
+
+fn active_rules_in<const N: usize>(
+    rules: &[PlannedRule; N],
+    producer: Producer,
+) -> impl Iterator<Item = (&'static RuleDefinition, RuleLevel)> + '_ {
+    rules.iter().filter_map(move |planned| {
+        (planned.definition.producer == producer && planned.level.is_active())
+            .then_some((planned.definition, planned.level))
+    })
+}
+
+fn compile_rules<const N: usize>(
+    catalog: &[&'static RuleDefinition; N],
+    input: &PolicyInput,
+    configuration: &WorkspaceConfiguration,
+) -> Result<[PlannedRule; N], PolicyError> {
+    let (rule_overrides, category_overrides) = validated_overrides_in(input, catalog)?;
+    Ok(catalog.map(|definition| {
+        let (level, source) = if let Some(level) = rule_overrides.get(definition.id).copied() {
+            (level, RuleLevelSource::RequestRule)
+        } else if let Some(level) = category_overrides.get(definition.category).copied() {
+            (level, RuleLevelSource::RequestCategory)
+        } else if let Some(level) = configuration.rules.get(definition.id).copied() {
+            (level, RuleLevelSource::ConfigRule)
+        } else if let Some(level) = configuration.categories.get(definition.category).copied() {
+            (level, RuleLevelSource::ConfigCategory)
+        } else {
+            (definition.default_level, RuleLevelSource::Default)
+        };
+        PlannedRule {
+            definition,
+            level,
+            source,
+            restamp: source != RuleLevelSource::Default,
+        }
+    }))
 }
 
 type ValidatedOverrides<'a> = (BTreeMap<&'a str, RuleLevel>, BTreeMap<&'a str, RuleLevel>);
 
 fn validated_overrides(input: &PolicyInput) -> Result<ValidatedOverrides<'_>, PolicyError> {
+    validated_overrides_in(input, &CATALOG)
+}
+
+fn validated_overrides_in<'a>(
+    input: &'a PolicyInput,
+    catalog: &[&RuleDefinition],
+) -> Result<ValidatedOverrides<'a>, PolicyError> {
     let mut rule_overrides = BTreeMap::new();
     for rule_override in &input.rule_overrides {
         validate_rule_selector(&rule_override.selector)?;
-        if find(&rule_override.selector).is_none() {
+        if find_in(catalog, &rule_override.selector).is_none() {
             return Err(PolicyError::unknown_rule());
         }
         if rule_overrides
@@ -503,43 +442,9 @@ pub(crate) fn validate_category_selector(selector: &str) -> Result<(), PolicyErr
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CatalogError {
-    Count,
-    DuplicateId,
-    Unsorted,
-    EmptyMetadata,
-    UnknownCategory,
-}
-
-#[cfg(test)]
-fn validate_catalog(catalog: &[RuleDefinition]) -> Result<(), CatalogError> {
-    if catalog.len() != CATALOG.len() {
-        return Err(CatalogError::Count);
-    }
-    let mut ids = BTreeSet::new();
-    if catalog.iter().any(|definition| !ids.insert(definition.id)) {
-        return Err(CatalogError::DuplicateId);
-    }
-    if catalog.windows(2).any(|pair| pair[0].id > pair[1].id) {
-        return Err(CatalogError::Unsorted);
-    }
-    if catalog.iter().any(|definition| {
-        definition.id.is_empty() || definition.category.is_empty() || definition.help.is_empty()
-    }) {
-        return Err(CatalogError::EmptyMetadata);
-    }
-    if catalog
-        .iter()
-        .any(|definition| CATEGORIES.binary_search(&definition.category).is_err())
-    {
-        return Err(CatalogError::UnknownCategory);
-    }
-    Ok(())
-}
-
-#[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use serde_json::Value;
 
@@ -588,54 +493,6 @@ mod tests {
         assert_eq!(exits[1]["scan_status"], "complete");
         assert_eq!(exits[0]["complete"], true);
         assert_eq!(exits[1]["complete"], true);
-    }
-
-    #[test]
-    fn catalog_is_the_exact_normative_inventory() {
-        validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(
-            CATEGORIES,
-            ["correctness", "maintainability", "reliability", "security"]
-        );
-        assert_eq!(
-            serde_json::to_value(CATALOG).expect("catalog should serialize"),
-            oracle()["catalog"]
-        );
-    }
-
-    #[test]
-    fn exact_lookup_rejects_prefixes_suffixes_and_unknown_ids() {
-        assert_eq!(
-            find("clippy::todo").map(|definition| definition.category),
-            Some("correctness")
-        );
-        assert!(find("clippy::to").is_none());
-        assert!(find("clippy::todo_suffix").is_none());
-        assert!(find("todo").is_none());
-    }
-
-    #[test]
-    fn malformed_synthetic_catalogs_fail_deterministically() {
-        assert_eq!(validate_catalog(&CATALOG[..6]), Err(CatalogError::Count));
-
-        let mut duplicate = CATALOG;
-        duplicate[1] = duplicate[0];
-        assert_eq!(validate_catalog(&duplicate), Err(CatalogError::DuplicateId));
-
-        let mut unsorted = CATALOG;
-        unsorted.swap(0, 1);
-        assert_eq!(validate_catalog(&unsorted), Err(CatalogError::Unsorted));
-
-        let mut empty = CATALOG;
-        empty[0].help = "";
-        assert_eq!(validate_catalog(&empty), Err(CatalogError::EmptyMetadata));
-
-        let mut category = CATALOG;
-        category[0].category = "style";
-        assert_eq!(
-            validate_catalog(&category),
-            Err(CatalogError::UnknownCategory)
-        );
     }
 
     #[test]
@@ -804,7 +661,7 @@ mod tests {
             ),
             Override::Rule("clippy::todo", RuleLevel::Warn),
         ];
-        let mut outputs = BTreeSet::new();
+        let mut expected_plan = None;
         let mut orders = BTreeSet::new();
         let mut order = [0, 1, 2, 3];
         for _ in 0..20 {
@@ -817,7 +674,11 @@ mod tests {
                 };
             }
             let plan = PolicyPlan::compile(&input).expect("permuted policy should compile");
-            outputs.insert(serde_json::to_vec(&plan).expect("plan should serialize"));
+            if let Some(expected) = &expected_plan {
+                assert_eq!(&plan, expected);
+            } else {
+                expected_plan = Some(plan);
+            }
 
             let pivot = (0..order.len() - 1)
                 .rev()
@@ -831,6 +692,5 @@ mod tests {
             order[pivot + 1..].reverse();
         }
         assert_eq!(orders.len(), 20);
-        assert_eq!(outputs.len(), 1);
     }
 }

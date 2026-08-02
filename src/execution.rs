@@ -16,15 +16,9 @@ mod baseline;
 mod clippy;
 
 pub(crate) use baseline::{BaselineExecution, execute as execute_baseline};
-use clippy::ClippyExecution;
-
-const CLIPPY_BASE_ARGS: [&str; 5] = [
-    "clippy",
-    "--workspace",
-    "--all-targets",
-    "--no-deps",
-    "--message-format=json",
-];
+#[cfg(test)]
+pub(crate) use clippy::arguments_for_rules as clippy_arguments_for_rules;
+use clippy::{ClippyExecution, arguments_for_plan as clippy_arguments_for_plan};
 
 #[derive(Debug)]
 pub(crate) struct ExecutionResult {
@@ -437,18 +431,6 @@ fn run_clippy(
     })
 }
 
-fn clippy_arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
-    let mut arguments = Vec::with_capacity(CLIPPY_BASE_ARGS.len() + 1 + 6);
-    arguments.extend(CLIPPY_BASE_ARGS);
-    arguments.push("--");
-    for (definition, level) in plan.active_rules(Producer::Clippy) {
-        if let Some(flag) = level.clippy_flag() {
-            arguments.extend([flag, definition.id]);
-        }
-    }
-    arguments
-}
-
 fn clippy_command(
     cargo: &Path,
     workspace_root: &Path,
@@ -579,7 +561,6 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::policy::{PolicyInput, RuleLevel};
 
     fn execute(path: &Path) -> ExecutionResult {
         let prepared = match super::prepare(path) {
@@ -687,40 +668,6 @@ mod tests {
             1
         );
         assert_eq!(command.get_current_dir(), Some(workspace.as_path()));
-    }
-
-    #[test]
-    fn clippy_arguments_prune_off_rules_but_keep_error_rules_at_warning() {
-        let input = PolicyInput::default()
-            .with_rule("clippy::dbg_macro", RuleLevel::Off)
-            .with_rule("clippy::todo", RuleLevel::Error);
-        let plan = PolicyPlan::compile(&input).expect("policy should compile");
-        let arguments = clippy_arguments_for_plan(&plan);
-
-        assert!(!arguments.contains(&"clippy::dbg_macro"));
-        assert!(
-            arguments
-                .windows(2)
-                .any(|pair| pair == ["-W", "clippy::todo"])
-        );
-        assert!(!arguments.contains(&"-D"));
-
-        let all_off = PolicyInput::default()
-            .with_rule("clippy::dbg_macro", RuleLevel::Off)
-            .with_rule("clippy::todo", RuleLevel::Off)
-            .with_rule("clippy::unimplemented", RuleLevel::Off);
-        let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-        assert_eq!(
-            clippy_arguments_for_plan(&all_off),
-            [
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--no-deps",
-                "--message-format=json",
-                "--",
-            ]
-        );
     }
 
     #[test]
