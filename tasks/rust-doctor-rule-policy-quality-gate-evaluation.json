@@ -58,9 +58,17 @@
         "clippy::todo",
         "clippy::unimplemented"
       ],
-      "scan_command": null,
-      "process_count": 0,
-      "counter_test": "baseline_kernel::disabled_clippy_producer_starts_no_scan_on_either_side"
+      "scan_command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--no-deps",
+        "--message-format=json",
+        "--"
+      ],
+      "curated_rule_flags": 0,
+      "counter_test": "execution::tests::clippy_arguments_prune_off_rules_but_keep_error_rules_at_warning"
     },
     "cargo-health": {
       "inactive_rules": [

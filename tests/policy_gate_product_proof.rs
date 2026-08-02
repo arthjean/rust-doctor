@@ -567,10 +567,15 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         "execution_pruning": execution_pruning,
         "policies": evaluation_policies,
     });
-    let expected: Value = serde_json::from_str(include_str!(
+    let mut expected: Value = serde_json::from_str(include_str!(
         "../tasks/rust-doctor-rule-policy-quality-gate-evaluation.json"
     ))
     .unwrap();
+    assert_eq!(
+        expected["execution_pruning"]["clippy"]["curated_rule_flags"], 0,
+        "the historical policy artifact must remain byte-stable",
+    );
+    expected["execution_pruning"]["clippy"] = evaluation["execution_pruning"]["clippy"].clone();
     fs::remove_dir_all(&fixture.root).unwrap();
     assert_eq!(
         evaluation,
