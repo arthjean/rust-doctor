@@ -104,6 +104,14 @@ fn compact_json_fixture(input: &str) -> Vec<u8> {
     compact
 }
 
+fn project_v8_value_to_v7(report: &mut Value) {
+    report["schema_version"] = Value::from(7);
+    report
+        .as_object_mut()
+        .expect("report should be an object")
+        .remove("audit");
+}
+
 fn snapshot(root: &Path) -> Vec<Vec<u8>> {
     [
         vec!["rev-parse", "HEAD"],
@@ -163,7 +171,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 7);
+    assert_eq!(full.schema_version, 8);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -194,7 +202,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
 }
 
 #[test]
-fn full_v7_preserves_the_frozen_v6_fields_and_adds_only_delta() {
+fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     let report = inspect(InspectRequest::new(fixture()));
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     let scope = report.scope.as_ref().unwrap();
@@ -206,14 +214,16 @@ fn full_v7_preserves_the_frozen_v6_fields_and_adds_only_delta() {
     let mut current_wire = Vec::new();
     rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
     assert_eq!(
-        current_wire,
+        support::project_v8_wire_to_v7(&current_wire),
         compact_json_fixture(include_str!(
             "fixtures/rule-scaling-kernel/v7-full-report.json"
         ))
     );
 
     let frozen_v7_source = include_str!("fixtures/git-scope/v7-full-report.json");
-    let current = project_legacy_report(serde_json::to_value(report).unwrap(), &oracle());
+    let mut current = serde_json::to_value(report).unwrap();
+    project_v8_value_to_v7(&mut current);
+    let current = project_legacy_report(current, &oracle());
     assert_eq!(current["schema_version"], 7);
     assert!(current["delta"].is_null());
     let frozen_v7: Value =
@@ -263,7 +273,7 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
         .unwrap()
         .replace(comparison_base, "0123456789abcdef0123456789abcdef01234567");
     assert_eq!(
-        normalized_wire.as_bytes(),
+        support::project_v8_wire_to_v7(normalized_wire.as_bytes()),
         compact_json_fixture(include_str!(
             "fixtures/rule-scaling-kernel/v7-baseline-report.json"
         )),
@@ -272,6 +282,7 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
     let mut normalized = production;
     normalized["scope"]["comparison_base"] =
         Value::String("0123456789abcdef0123456789abcdef01234567".to_owned());
+    project_v8_value_to_v7(&mut normalized);
     let normalized = project_legacy_report(normalized, &oracle());
 
     let baseline: Value =
@@ -480,7 +491,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 7);
+        assert_eq!(report.schema_version, 8);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

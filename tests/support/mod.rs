@@ -53,6 +53,23 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
+pub(crate) fn project_v8_wire_to_v7(output: &[u8]) -> Vec<u8> {
+    const PREFIX: &[u8] = b"{\"schema_version\":8,\"audit\":";
+    let payload = output
+        .strip_prefix(PREFIX)
+        .expect("schema v8 should start with its audit member");
+    let mut values = serde_json::Deserializer::from_slice(payload).into_iter::<serde_json::Value>();
+    values
+        .next()
+        .expect("schema v8 should contain an audit value")
+        .expect("audit should be valid JSON");
+    let suffix = &payload[values.byte_offset()..];
+    let mut projected = Vec::with_capacity(output.len());
+    projected.extend_from_slice(b"{\"schema_version\":7");
+    projected.extend_from_slice(suffix);
+    projected
+}
+
 pub(crate) fn copy_tree(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     let mut entries: Vec<_> = fs::read_dir(source)

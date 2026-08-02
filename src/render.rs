@@ -222,8 +222,29 @@ mod tests {
     }
 
     fn report() -> InspectReport {
+        let diagnostics = vec![Diagnostic {
+            id: "id".to_owned(),
+            source: DiagnosticSource::Clippy,
+            code: Some("clippy::lint".to_owned()),
+            base_severity: Severity::Warning,
+            severity: Severity::Warning,
+            category: None,
+            message: "message".to_owned(),
+            help: None,
+            package: Some("package".to_owned()),
+            target: Some("target".to_owned()),
+            path: Some("src/lib.rs".to_owned()),
+            span: Some(DiagnosticSpan {
+                line_start: 2,
+                column_start: 3,
+                line_end: 2,
+                column_end: 4,
+            }),
+            occurrences: 1,
+        }];
         InspectReport {
-            schema_version: 7,
+            schema_version: 8,
+            audit: crate::Audit::build(1, Status::Complete, &diagnostics),
             status: Status::Complete,
             complete: true,
             policy: None,
@@ -240,26 +261,7 @@ mod tests {
                 build_finished: Some(true),
                 noise_lines: Some(0),
             },
-            diagnostics: vec![Diagnostic {
-                id: "id".to_owned(),
-                source: DiagnosticSource::Clippy,
-                code: Some("clippy::lint".to_owned()),
-                base_severity: Severity::Warning,
-                severity: Severity::Warning,
-                category: None,
-                message: "message".to_owned(),
-                help: None,
-                package: Some("package".to_owned()),
-                target: Some("target".to_owned()),
-                path: Some("src/lib.rs".to_owned()),
-                span: Some(DiagnosticSpan {
-                    line_start: 2,
-                    column_start: 3,
-                    line_end: 2,
-                    column_end: 4,
-                }),
-                occurrences: 1,
-            }],
+            diagnostics,
             delta: None,
             errors: Vec::new(),
             summary: Summary {
@@ -285,7 +287,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            7
+            8
         );
     }
 

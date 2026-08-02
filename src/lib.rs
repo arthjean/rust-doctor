@@ -1,5 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod audit;
 mod baseline;
 mod cargo_health;
 mod configuration;
@@ -13,6 +14,9 @@ mod scan_target;
 mod source_kernel;
 mod workspace_path;
 
+pub use audit::{
+    Audit, AuditCategory, AuditCategoryName, AuditScore, ScoreDimensions, ScoreLabel, ShareError,
+};
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{

@@ -229,7 +229,8 @@ fn normalized_for_entry(report: &Value) -> Value {
 }
 
 fn v5_compatible_output(output: &[u8]) -> Vec<u8> {
-    let output = std::str::from_utf8(output).unwrap();
+    let projected = support::project_v8_wire_to_v7(output);
+    let output = std::str::from_utf8(&projected).unwrap();
     let output = output.replacen("\"schema_version\":7", "\"schema_version\":5", 1);
     output
         .replacen(
@@ -376,7 +377,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 7);
+            assert_eq!(report["schema_version"], 8);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
             assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 12);
             let rule_ids: Vec<_> = report["policy"]["rules"]
@@ -541,7 +542,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 7);
+        assert_eq!(report["schema_version"], 8);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

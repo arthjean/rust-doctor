@@ -132,7 +132,7 @@ fn v7_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
         ));
     let api = inspect(request);
     let policy = api.policy.as_ref().unwrap();
-    assert_eq!(api.schema_version, 7);
+    assert_eq!(api.schema_version, 8);
     assert_eq!(policy.config_file.as_deref(), Some("rust-doctor.toml"));
     assert_eq!(policy.blocking.level, BlockingLevel::Warning);
     assert_eq!(policy.blocking.source, BlockingLevelSource::Config);
@@ -251,7 +251,7 @@ fn all_configuration_error_families_are_failed_private_v7_reports_for_api_and_cl
         }
 
         let api = inspect(InspectRequest::new(&workspace));
-        assert_eq!(api.schema_version, 7, "{expected_code}");
+        assert_eq!(api.schema_version, 8, "{expected_code}");
         assert_eq!(api.status, Status::Failed, "{expected_code}");
         assert_eq!(api.exit_code(), 2, "{expected_code}");
         assert!(api.policy.is_none(), "{expected_code}");
@@ -268,7 +268,7 @@ fn all_configuration_error_families_are_failed_private_v7_reports_for_api_and_cl
         let cli_output = cli(&workspace, &[]);
         assert_eq!(cli_output.status.code(), Some(2), "{expected_code}");
         let cli_report = json(&cli_output);
-        assert_eq!(cli_report["schema_version"], 7, "{expected_code}");
+        assert_eq!(cli_report["schema_version"], 8, "{expected_code}");
         assert_eq!(cli_report["policy"], Value::Null, "{expected_code}");
         assert_eq!(
             cli_report["gate"]["status"], "not-evaluated",
@@ -293,7 +293,7 @@ fn invalid_workspace_configuration_fails_after_metadata_and_before_all_analysis(
     let report = inspect(InspectRequest::new(&workspace));
 
     assert_eq!(report.status, Status::Failed);
-    assert_eq!(report.schema_version, 7);
+    assert_eq!(report.schema_version, 8);
     assert!(report.policy.is_none());
     assert_eq!(report.exit_code(), 2);
     assert!(report.project.is_some());
@@ -357,9 +357,10 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     ))
     .unwrap();
 
-    assert_eq!(current["schema_version"], 7);
+    assert_eq!(current["schema_version"], 8);
     assert_eq!(baseline["schema_version"], 4);
     current.as_object_mut().unwrap().remove("schema_version");
+    current.as_object_mut().unwrap().remove("audit");
     current.as_object_mut().unwrap().remove("policy");
     current.as_object_mut().unwrap().remove("scope");
     current.as_object_mut().unwrap().remove("delta");

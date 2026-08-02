@@ -221,7 +221,8 @@ fn diagnostic_id_hash(report: &Value) -> String {
 }
 
 fn v6_compatible_output(output: &[u8]) -> Vec<u8> {
-    std::str::from_utf8(output)
+    let projected = support::project_v8_wire_to_v7(output);
+    std::str::from_utf8(&projected)
         .unwrap()
         .replacen("\"schema_version\":7", "\"schema_version\":6", 1)
         .replacen(",\"delta\":null", "", 1)
@@ -271,7 +272,7 @@ fn run_case(
                 .to_string(),
         );
         let report: Value = serde_json::from_slice(&output).unwrap();
-        assert_eq!(report["schema_version"], 7);
+        assert_eq!(report["schema_version"], 8);
         assert_eq!(report["project"]["workspace_root"], ".");
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
         assert_eq!(

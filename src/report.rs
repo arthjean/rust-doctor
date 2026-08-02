@@ -8,6 +8,7 @@ use cargo_metadata::Metadata;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::audit::{self, Audit, SourceFileInventory};
 use crate::cargo_health;
 use crate::delta::DeltaReport;
 use crate::execution::{
@@ -22,7 +23,7 @@ use crate::policy::{
 use crate::source_kernel;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 7;
+pub const SCHEMA_VERSION: u8 = 8;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -83,6 +84,7 @@ impl Default for InspectRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InspectReport {
     pub schema_version: u8,
+    pub audit: Audit,
     pub status: Status,
     pub complete: bool,
     pub policy: Option<PolicyReport>,
@@ -244,7 +246,7 @@ pub enum Severity {
 }
 
 impl Severity {
-    const fn rank(self) -> u8 {
+    pub(crate) const fn rank(self) -> u8 {
         match self {
             Self::Error => 0,
             Self::Warning => 1,
@@ -463,6 +465,7 @@ pub(crate) fn baseline_cleanup_failure(
 }
 
 fn baseline_report_failure(mut report: InspectReport, error: InternalError) -> InspectReport {
+    let source_files = report.audit.source_files;
     report.status = Status::Failed;
     report.complete = false;
     report.diagnostics.clear();
@@ -473,6 +476,7 @@ fn baseline_report_failure(mut report: InspectReport, error: InternalError) -> I
         message: error.message,
     }];
     report.summary = Summary::default();
+    report.audit = Audit::build(source_files, report.status, &report.diagnostics);
     force_baseline_gate(report)
 }
 
@@ -506,9 +510,22 @@ fn from_execution_with_plan(
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
     let scan = scan_report(result.scan.finished());
     let errors = report_errors(&result, workspace_root, &home);
+    let source_inventory =
+        result
+            .metadata
+            .as_ref()
+            .map_or_else(SourceFileInventory::default, |metadata| {
+                audit::source_file_inventory(
+                    metadata,
+                    result.scan.finished(),
+                    result.source.as_ref(),
+                )
+            });
+    let audit = Audit::build_from_inventory(source_inventory, status, &diagnostics);
 
     InspectReport {
         schema_version: SCHEMA_VERSION,
+        audit,
         status,
         complete: status == Status::Complete,
         policy: plan.map(PolicyReport::from_plan),
@@ -610,6 +627,7 @@ pub(crate) fn scope_failure(error: InternalError, blocking: BlockingLevel) -> In
 fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectReport {
     InspectReport {
         schema_version: SCHEMA_VERSION,
+        audit: Audit::build(0, Status::Failed, &[]),
         status: Status::Failed,
         complete: false,
         policy: None,
@@ -1463,6 +1481,7 @@ mod tests {
         let gate = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error);
         InspectReport {
             schema_version: SCHEMA_VERSION,
+            audit: Audit::build(1, Status::Complete, &diagnostics),
             status: Status::Complete,
             complete: true,
             policy: None,
@@ -1976,7 +1995,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 7);
+        assert_eq!(report.schema_version, 8);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();
