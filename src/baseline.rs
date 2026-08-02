@@ -43,6 +43,48 @@ struct Inventory {
 }
 
 #[derive(Debug)]
+struct TempRoot {
+    path: PathBuf,
+    cleanup_pending: bool,
+}
+
+impl TempRoot {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn into_path(mut self) -> PathBuf {
+        self.cleanup_pending = false;
+        self.path.clone()
+    }
+
+    fn cleanup_with(
+        &mut self,
+        remove: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), InternalError> {
+        match remove(&self.path) {
+            Ok(()) => {
+                self.cleanup_pending = false;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.cleanup_pending = false;
+                Ok(())
+            }
+            Err(_) => Err(cleanup_failed()),
+        }
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        if self.cleanup_pending {
+            let _ = remove_snapshot(&self.path);
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct Snapshot {
     root: PathBuf,
     tree: PathBuf,
@@ -119,7 +161,7 @@ pub(crate) fn materialize(
     let workspace_relative = workspace_root
         .strip_prefix(&repository_root)
         .map_err(|_| materialization_failed())?;
-    let root = create_temp_root(&repository_root)?;
+    let root = create_temp_root(&repository_root)?.into_path();
     let tree = root.join("tree");
     let target = root.join("target");
     let workspace = tree.join(workspace_relative);
@@ -313,14 +355,14 @@ fn repository_root(workspace_root: &Path) -> Result<PathBuf, InternalError> {
         .ok_or_else(materialization_failed)
 }
 
-fn create_temp_root(repository_root: &Path) -> Result<PathBuf, InternalError> {
+fn create_temp_root(repository_root: &Path) -> Result<TempRoot, InternalError> {
     create_temp_root_in(repository_root, &env::temp_dir())
 }
 
 fn create_temp_root_in(
     repository_root: &Path,
     temporary_root: &Path,
-) -> Result<PathBuf, InternalError> {
+) -> Result<TempRoot, InternalError> {
     let temporary = temporary_root
         .canonicalize()
         .map_err(|_| temp_unavailable())?;
@@ -338,17 +380,34 @@ fn create_temp_root_in(
         ));
         match create_private_directory(&root) {
             Ok(()) => {
-                if finalize_private_permissions(&root).is_err() {
-                    let _ = fs::remove_dir(&root);
-                    return Err(temp_unavailable());
-                }
-                return Ok(root);
+                return finalize_temp_root(
+                    TempRoot {
+                        path: root,
+                        cleanup_pending: true,
+                    },
+                    finalize_private_permissions,
+                    |path| fs::remove_dir(path),
+                );
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(_) => return Err(temp_unavailable()),
         }
     }
     Err(temp_unavailable())
+}
+
+fn finalize_temp_root(
+    mut root: TempRoot,
+    finalize: impl FnOnce(&Path) -> io::Result<()>,
+    remove: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<TempRoot, InternalError> {
+    if finalize(root.path()).is_ok() {
+        return Ok(root);
+    }
+    match root.cleanup_with(remove) {
+        Ok(()) => Err(temp_unavailable()),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -379,7 +438,7 @@ fn inventory_failed() -> InternalError {
     INVENTORY_FAILURE.error()
 }
 
-fn limit_exceeded() -> InternalError {
+pub(crate) fn limit_exceeded() -> InternalError {
     LIMIT_EXCEEDED.error()
 }
 
@@ -562,12 +621,40 @@ mod tests {
             .canonicalize()
             .unwrap();
         let root = create_temp_root(&repository).unwrap();
-        assert!(!root.starts_with(&repository));
+        assert!(!root.path().starts_with(&repository));
         assert_eq!(
-            fs::symlink_metadata(&root).unwrap().permissions().mode() & 0o777,
+            fs::symlink_metadata(root.path())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
             0o700
         );
-        fs::remove_dir(&root).unwrap();
+        let path = root.into_path();
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn permission_finalization_failure_is_owned_and_reports_failed_cleanup() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/baseline-permission-cleanup-failure")
+            .join(std::process::id().to_string());
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let owner = TempRoot {
+            path: root.clone(),
+            cleanup_pending: true,
+        };
+
+        let error = finalize_temp_root(
+            owner,
+            |_| Err(io::Error::new(io::ErrorKind::PermissionDenied, "finalize")),
+            |_| Err(io::Error::new(io::ErrorKind::PermissionDenied, "cleanup")),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "baseline-cleanup-failed");
+        assert!(!root.exists(), "the RAII owner must retry cleanup on drop");
     }
 
     #[test]

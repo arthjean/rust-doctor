@@ -74,8 +74,15 @@ fn write(path: impl AsRef<Path>, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
-fn repository_state(root: &Path) -> Vec<Vec<u8>> {
-    [
+#[derive(Debug, PartialEq, Eq)]
+struct RepositoryState {
+    commands: Vec<Vec<u8>>,
+    config: Vec<u8>,
+    objects: std::collections::BTreeMap<String, (blake3::Hash, u64)>,
+}
+
+fn repository_state(root: &Path) -> RepositoryState {
+    let commands = [
         vec!["status", "--porcelain=v1", "-z"],
         vec!["rev-parse", "HEAD"],
         vec!["show-ref"],
@@ -83,7 +90,12 @@ fn repository_state(root: &Path) -> Vec<Vec<u8>> {
     ]
     .into_iter()
     .map(|arguments| git(root, &arguments).stdout)
-    .collect()
+    .collect();
+    RepositoryState {
+        commands,
+        config: fs::read(root.join(".git/config")).unwrap(),
+        objects: support::content_states(&root.join(".git/objects")),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

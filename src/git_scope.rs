@@ -706,6 +706,10 @@ mod tests {
         assert_eq!(command.get_args().collect::<Vec<_>>(), arguments);
         let environment: BTreeMap<_, _> = command.get_envs().collect();
         assert_eq!(
+            environment.get(OsStr::new("GIT_NO_LAZY_FETCH")),
+            Some(&Some(OsStr::new("1")))
+        );
+        assert_eq!(
             environment.get(OsStr::new("GIT_OPTIONAL_LOCKS")),
             Some(&Some(OsStr::new("0")))
         );

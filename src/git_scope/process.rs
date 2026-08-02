@@ -155,6 +155,7 @@ pub(super) fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsStri
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("LC_ALL", "C");
     for variable in GIT_ENVIRONMENT_OVERRIDES {
