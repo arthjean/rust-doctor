@@ -10,3 +10,4 @@
 /tests/fixtures/rule-scaling-kernel/*/target/
 /npm/rust-doctor/node_modules/
 /npm/rust-doctor/*.tgz
+/.claude/
