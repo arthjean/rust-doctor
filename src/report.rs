@@ -159,6 +159,25 @@ impl Status {
     }
 }
 
+impl InspectReport {
+    pub fn is_valid(&self) -> bool {
+        if self.schema_version != SCHEMA_VERSION || !self.audit.is_valid() {
+            return false;
+        }
+        let Some(delta) = &self.delta else {
+            return true;
+        };
+        let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
+        let scoped: Vec<_> = self
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| introduced.contains(diagnostic.id.as_str()))
+            .cloned()
+            .collect();
+        self.audit == self.audit.rebuild_for_scope(self.status, &scoped)
+    }
+}
+
 impl fmt::Display for Status {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())

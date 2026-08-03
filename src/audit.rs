@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write as _;
 
-use serde::{Deserialize, Serialize};
+use serde::ser::{Error as _, SerializeStruct};
+use serde::{Deserialize, Serialize, Serializer};
 
 use cargo_metadata::Metadata;
 
@@ -30,7 +31,7 @@ pub const SCORE_MODEL: &str = "core-v1";
 const SHARE_BASE_URL: &str = "https://rust-doctor.vercel.app/share";
 const MAX_SHARED_COUNT: usize = 1_000_000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {
     pub source_files: usize,
     pub categories: Vec<AuditCategory>,
@@ -137,7 +138,7 @@ struct PendingRule {
 }
 
 impl Audit {
-    pub(crate) fn build(source_files: usize, status: Status, diagnostics: &[Diagnostic]) -> Self {
+    pub fn build(source_files: usize, status: Status, diagnostics: &[Diagnostic]) -> Self {
         Self::build_with_authority(source_files, status == Status::Complete, diagnostics)
     }
 
@@ -215,6 +216,22 @@ impl Audit {
         categories_are_valid
             && (self.source_files > 0) == self.score.is_some()
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
+    }
+}
+
+impl Serialize for Audit {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if !self.is_valid() {
+            return Err(S::Error::custom("invalid audit state"));
+        }
+        let mut state = serializer.serialize_struct("Audit", 3)?;
+        state.serialize_field("source_files", &self.source_files)?;
+        state.serialize_field("categories", &self.categories)?;
+        state.serialize_field("score", &self.score)?;
+        state.end()
     }
 }
 

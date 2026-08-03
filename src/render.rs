@@ -17,6 +17,7 @@ const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
 
 #[derive(Debug)]
 pub enum RenderError {
+    InvalidReport,
     Json(serde_json::Error),
     Write(io::Error),
 }
@@ -24,6 +25,7 @@ pub enum RenderError {
 impl RenderError {
     pub fn is_broken_pipe(&self) -> bool {
         match self {
+            Self::InvalidReport => false,
             Self::Json(error) => error.io_error_kind() == Some(io::ErrorKind::BrokenPipe),
             Self::Write(error) => error.kind() == io::ErrorKind::BrokenPipe,
         }
@@ -33,6 +35,7 @@ impl RenderError {
 impl fmt::Display for RenderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidReport => formatter.write_str("refusing to render an invalid report"),
             Self::Json(error) => write!(formatter, "could not serialize report: {error}"),
             Self::Write(error) => write!(formatter, "could not write report: {error}"),
         }
@@ -42,6 +45,7 @@ impl fmt::Display for RenderError {
 impl Error for RenderError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::InvalidReport => None,
             Self::Json(error) => Some(error),
             Self::Write(error) => Some(error),
         }
@@ -77,6 +81,9 @@ impl<'a> TerminalOptions<'a> {
 }
 
 pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
+    if !report.is_valid() {
+        return Err(RenderError::InvalidReport);
+    }
     serde_json::to_writer(&mut writer, report).map_err(RenderError::Json)?;
     writer.write_all(b"\n").map_err(RenderError::Write)
 }
@@ -100,6 +107,9 @@ pub fn render_terminal_with_presentation<W: Write>(
     mut writer: W,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
+    if !report.is_valid() {
+        return Err(RenderError::InvalidReport);
+    }
     let options = options.normalized();
     let issue_count = presentation.issue_count;
 
@@ -667,6 +677,25 @@ mod tests {
     }
 
     #[test]
+    fn invalid_report_is_rejected_before_any_output() {
+        let mut report = report();
+        report.audit.score.as_mut().unwrap().value = 101;
+        let mut json = Vec::new();
+        assert!(matches!(
+            render_json(&report, &mut json),
+            Err(RenderError::InvalidReport)
+        ));
+        assert!(json.is_empty());
+
+        let mut terminal = Vec::new();
+        assert!(matches!(
+            render_terminal(&report, &mut terminal),
+            Err(RenderError::InvalidReport)
+        ));
+        assert!(terminal.is_empty());
+    }
+
+    #[test]
     fn terminal_sections_follow_the_normative_order() {
         let output = rendered(&report(), 100, false, false);
         let labels = [
@@ -808,6 +837,7 @@ mod tests {
                 cross_file_matches: 1,
             },
         });
+        report.audit = Audit::build(1, Status::Complete, &report.diagnostics[..1]);
 
         let output = rendered(&report, 100, false, false);
 
