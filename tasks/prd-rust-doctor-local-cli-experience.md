@@ -7,6 +7,7 @@
 |---------|------|--------|---------|
 | 1.0 | 2026-08-02 | Arthur Jean | Contrat local de score, rendu terminal inspiré de React Doctor, handoff vers les agents et launcher npm testable sans publication |
 | 1.1 | 2026-08-02 | Arthur Jean | Ajout de la source map opérationnelle React Doctor, Rust Doctor legacy, site public et kernel courant |
+| 1.2 | 2026-08-03 | Arthur Jean | Alignement des dépendances terminal réellement requises et des preuves NFR après review complète |
 
 ## Problem Statement
 
@@ -80,7 +81,7 @@ Key findings that informed this PRD:
 - La documentation [Node child process](https://nodejs.org/api/child_process.html) et [Rust `std::process`](https://doc.rust-lang.org/stable/std/process/) convergent sur un contrat sûr: exécutable direct, argv séparé, aucun shell, stdio hérité, code ou signal traité après la fermeture du child.
 - La détection [Node TTY](https://nodejs.org/api/tty.html) et `std::io::IsTerminal` justifie une gate explicite sur stdin et stdout. La seule variable `CI` ne suffit pas; JSON, redirections et `--yes` doivent aussi neutraliser prompts et contrôle du curseur.
 - [clap 4.6](https://docs.rs/clap/4.6.0/clap/_derive/_tutorial/) accepte un `PATH` racine optionnel avec un subcommand optionnel. `rust-doctor inspect .` reste compatible; un dossier nommé `inspect` doit être passé comme `./inspect`.
-- [dialoguer 0.11](https://docs.rs/dialoguer/0.11.0/dialoguer/) fournit sélection et confirmation mais ne garantit pas que stdin est un TTY. Rust Doctor effectue sa propre gate et traite `Esc` ou `q` comme annulation, pas comme choix implicite.
+- [`console` 0.15](https://docs.rs/console/0.15.11/console/) fournit la lecture de touches et le terminal stdout nécessaires au sélecteur. Rust Doctor effectue sa propre gate TTY et traite `Esc` ou `q` comme annulation, pas comme choix implicite. [`unicode-width` 0.2](https://docs.rs/unicode-width/0.2.2/unicode_width/) borne les lignes selon leur largeur terminal réelle.
 - Le fragment URL décrit par [RFC 3986 section 3.5](https://www.rfc-editor.org/rfc/rfc3986#section-3.5) réduirait l'exposition serveur, mais le site Rust Doctor possède déjà un query contract testé. Cette tranche conserve ce contrat agrégé et n'ajoute aucune donnée de code, chemin ou identité.
 
 ## Implementation Source Map
@@ -149,7 +150,7 @@ Les changements locaux déjà présents dans `src/report.rs` doivent être relus
 - Les diagnostics possédant un `code` stable couvrent les règles scorables actuelles. Tout diagnostic sans code ou avec catégorie inconnue rend le score non autoritaire au lieu d'inventer une clé.
 - Un rendu anglais est le contrat initial, comme React Doctor et les diagnostics actuels. L'internationalisation n'est pas requise avant la première release.
 - Le package npm neutre peut être prouvé localement avec Bun, Node 22 et un package natif de l'hôte sans publier ni télécharger un artifact.
-- `dialoguer = 0.11.0` est la seule nouvelle dépendance Rust nécessaire. ANSI, TTY, processus, clipboard et temporisation utilisent la bibliothèque standard ou des exécutables locaux détectés.
+- `console = 0.15.11` et `unicode-width = 0.2.2` sont les seules nouvelles dépendances Rust runtime nécessaires au terminal exact sur stdout. `libc = 0.2.189` reste une dev-dependency réservée aux preuves PTY Unix. ANSI, gate TTY, processus, clipboard et temporisation utilisent sinon la bibliothèque standard ou des exécutables locaux détectés.
 
 ### Hard Constraints
 
@@ -495,7 +496,7 @@ Explicit boundaries for this version:
 | Faut-il sérialiser la durée? | Non. Mesurer autour de `inspect` dans le CLI et passer une `RunObservation` uniquement au renderer conserve le report byte-déterministe. |
 | Faut-il reprendre `ReportV1`? | Non. Migrer uniquement les algorithmes score/share/groupement vers les types v8 courants. |
 | Comment rendre les frames? | Recommandé: adapter filesystem privé injecté dans les tests, revalidation canonique et aucun contenu stocké dans le JSON ou le handoff. |
-| Quelle dépendance terminal ajouter? | `dialoguer = "=0.11.0"` uniquement pour select/confirm. Utiliser `std::io::IsTerminal`; ne pas ajouter indicatif, owo-colors, arboard ou thiserror. |
+| Quelle dépendance terminal ajouter? | `console = "=0.15.11"` pour la lecture directe des touches sur stdout et `unicode-width = "=0.2.2"` pour les bornes visuelles. Garder `libc = "=0.2.189"` en test PTY Unix uniquement; ne pas ajouter dialoguer, indicatif, owo-colors, arboard ou thiserror. |
 | Comment colorer sans bibliothèque? | Recommandé: petit thème ANSI privé désactivé par TTY, `NO_COLOR` ou `TERM=dumb`, avec fonctions de largeur et sanitation testées. |
 | Comment conserver `inspect`? | `Cli` porte un PATH et des `InspectArgs` racine optionnels plus un subcommand optionnel qui réutilise les mêmes args. `./inspect` désambiguïse le chemin. |
 | Comment traiter la sélection du scope? | Utiliser seulement le diff local contre `HEAD` pour l'option interactive initiale. Les scopes et bases explicites restent prioritaires. |

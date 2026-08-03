@@ -20,7 +20,7 @@
     },
     "native": {
       "file": "rust-doctor-linux-x64-0.1.0.tgz",
-      "sha256": "3d04245ef952cd769d775c1aacf5f0a2fe6c0b827116de90a5d75a634b9de993",
+      "sha256": "b583c68f2fb436cda068c41853fe37e7ef5827f9c44cac64d8bce6bd12ae48e5",
       "inventory": [
         "package/bin/rust-doctor",
         "package/package.json"
@@ -41,7 +41,7 @@
     "human_exit": 0,
     "direct_exit": 0,
     "json_exit": 0,
-    "source_files": 55,
+    "source_files": 56,
     "score": 100,
     "score_label": "Great",
     "sections": [
