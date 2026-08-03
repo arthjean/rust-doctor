@@ -94,6 +94,8 @@ pub(super) fn read_code_frame(
         ));
     }
 
+    // Canonicalization alone has a replacement race. Open the checked path, then verify that the
+    // live path still resolves inside the workspace and identifies the same file as the handle.
     before_open();
     let file = File::open(&canonical_source).map_err(|_| {
         unavailable(

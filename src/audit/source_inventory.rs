@@ -10,6 +10,8 @@ use super::SourceFileInventory;
 use crate::execution::{CapturedMessage, ScanExecution};
 use crate::source_kernel::SourceScan;
 
+// This is one budget for the complete scan, not one allowance per artifact. Otherwise a
+// workspace with many dep-info files could multiply the limit without bound.
 const DEP_INFO_BYTES_LIMIT: u64 = 8 * 1024 * 1024;
 
 pub(super) fn collect(
@@ -179,6 +181,9 @@ fn dep_info_path(artifact: &Path, custom_build: bool) -> Option<PathBuf> {
 }
 
 fn parse_dep_info(contents: &[u8]) -> Result<Vec<PathBuf>, ()> {
+    // Cargo dep-info is Makefile-like. We need only the first target's dependency list, so this
+    // parser handles its escaping and continuations and fails closed on malformed input instead
+    // of accepting the rest of the file as source inventory.
     let separator = contents
         .windows(2)
         .position(|window| window[0] == b':' && window[1].is_ascii_whitespace())
