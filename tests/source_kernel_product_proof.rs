@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rust_doctor::{Diagnostic, DiagnosticSource, InspectReport, InspectRequest, Status, inspect};
+
 use serde_json::{Value, json};
+
+mod support;
 
 const TLS: &str = "rust_doctor::source::disabled_tls_verification";
 const SHELL: &str = "rust_doctor::source::dynamic_shell_command";
@@ -68,37 +71,10 @@ fn native_source_findings_join_the_existing_v3_report() {
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     assert!(report.complete);
     assert_eq!(report.exit_code(), 0);
+    let published = serde_json::to_value(&report).expect("a valid report should serialize");
     assert_eq!(
         report.scan.command.as_deref(),
-        Some(
-            [
-                "cargo",
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--no-deps",
-                "--message-format=json",
-                "--",
-                "-W",
-                "clippy::dbg_macro",
-                "-W",
-                "clippy::mem_forget",
-                "-W",
-                "clippy::non_send_fields_in_send_ty",
-                "-W",
-                "clippy::permissions_set_readonly_false",
-                "-W",
-                "clippy::suspicious_command_arg_space",
-                "-W",
-                "clippy::todo",
-                "-W",
-                "clippy::unimplemented",
-                "-W",
-                "clippy::zombie_processes",
-            ]
-            .map(str::to_owned)
-            .as_slice()
-        )
+        Some(support::expected_clippy_command(&published["policy"]).as_slice())
     );
 
     let native = source_findings(&report);

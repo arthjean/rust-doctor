@@ -492,11 +492,24 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         let active = candidate_codes(&report, &candidates);
         assert_eq!(active.len(), 4, "{id}");
         assert!(!active.contains(id), "{id}");
+        let published = serde_json::to_value(&report).expect("a valid report should serialize");
         assert_eq!(
             report.scan.command.as_ref().unwrap(),
-            &clippy_command_without_rules(&rule_scaling.clippy_command, &[id.to_owned()]),
+            &support::expected_clippy_command(&published["policy"]),
             "{id}"
         );
+        // La règle éteinte disparaît de la commande, et seulement elle: la
+        // commande figée d'EP-018 privée de cette règle reste une sous-suite
+        // ordonnée de la commande courante.
+        let mut current = report.scan.command.as_ref().unwrap().iter();
+        for historical in
+            clippy_command_without_rules(&rule_scaling.clippy_command, &[id.to_owned()])
+        {
+            assert!(
+                current.any(|argument| *argument == historical),
+                "{id} dropped {historical}"
+            );
+        }
         for historical in ["clippy::dbg_macro", "clippy::todo", "clippy::unimplemented"] {
             assert!(
                 report

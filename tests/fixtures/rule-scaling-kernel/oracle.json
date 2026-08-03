@@ -12,8 +12,18 @@
       "clippy_default": "allow",
       "message": "usage of `mem::forget` on `Drop` type",
       "positive_fixture": "positive/mem-forget/Cargo.toml",
-      "positive_span": { "line_start": 8, "column_start": 5, "line_end": 8, "column_end": 31 },
-      "integration_span": { "line_start": 14, "column_start": 9, "line_end": 14, "column_end": 39 }
+      "positive_span": {
+        "line_start": 8,
+        "column_start": 5,
+        "line_end": 8,
+        "column_end": 31
+      },
+      "integration_span": {
+        "line_start": 14,
+        "column_start": 9,
+        "line_end": 14,
+        "column_end": 39
+      }
     },
     {
       "id": "clippy::non_send_fields_in_send_ty",
@@ -22,8 +32,18 @@
       "clippy_default": "allow",
       "message": "some fields in `UnsafeSend` are not safe to be sent to another thread",
       "positive_fixture": "positive/non-send-fields-in-send-ty/Cargo.toml",
-      "positive_span": { "line_start": 7, "column_start": 1, "line_end": 7, "column_end": 35 },
-      "integration_span": { "line_start": 21, "column_start": 5, "line_end": 21, "column_end": 39 }
+      "positive_span": {
+        "line_start": 7,
+        "column_start": 1,
+        "line_end": 7,
+        "column_end": 35
+      },
+      "integration_span": {
+        "line_start": 21,
+        "column_start": 5,
+        "line_end": 21,
+        "column_end": 39
+      }
     },
     {
       "id": "clippy::permissions_set_readonly_false",
@@ -32,8 +52,18 @@
       "clippy_default": "warn",
       "message": "call to `set_readonly` with argument `false`",
       "positive_fixture": "positive/permissions-set-readonly-false/Cargo.toml",
-      "positive_span": { "line_start": 2, "column_start": 5, "line_end": 2, "column_end": 36 },
-      "integration_span": { "line_start": 24, "column_start": 9, "line_end": 24, "column_end": 40 }
+      "positive_span": {
+        "line_start": 2,
+        "column_start": 5,
+        "line_end": 2,
+        "column_end": 36
+      },
+      "integration_span": {
+        "line_start": 24,
+        "column_start": 9,
+        "line_end": 24,
+        "column_end": 40
+      }
     },
     {
       "id": "clippy::suspicious_command_arg_space",
@@ -42,8 +72,18 @@
       "clippy_default": "warn",
       "message": "single argument that looks like it should be multiple arguments",
       "positive_fixture": "positive/suspicious-command-arg-space/Cargo.toml",
-      "positive_span": { "line_start": 3, "column_start": 17, "line_end": 3, "column_end": 32 },
-      "integration_span": { "line_start": 29, "column_start": 21, "line_end": 29, "column_end": 36 }
+      "positive_span": {
+        "line_start": 3,
+        "column_start": 17,
+        "line_end": 3,
+        "column_end": 32
+      },
+      "integration_span": {
+        "line_start": 29,
+        "column_start": 21,
+        "line_end": 29,
+        "column_end": 36
+      }
     },
     {
       "id": "clippy::zombie_processes",
@@ -52,8 +92,18 @@
       "clippy_default": "warn",
       "message": "spawned process is never `wait()`ed on",
       "positive_fixture": "positive/zombie-processes/Cargo.toml",
-      "positive_span": { "line_start": 2, "column_start": 5, "line_end": 4, "column_end": 46 },
-      "integration_span": { "line_start": 34, "column_start": 9, "line_end": 36, "column_end": 50 }
+      "positive_span": {
+        "line_start": 2,
+        "column_start": 5,
+        "line_end": 4,
+        "column_end": 46
+      },
+      "integration_span": {
+        "line_start": 34,
+        "column_start": 9,
+        "line_end": 36,
+        "column_end": 50
+      }
     }
   ],
   "historical_rules": [
@@ -61,19 +111,34 @@
       "id": "clippy::dbg_macro",
       "message": "the `dbg!` macro is intended as a debugging tool",
       "path": "src/lib.rs",
-      "span": { "line_start": 40, "column_start": 9, "line_end": 40, "column_end": 20 }
+      "span": {
+        "line_start": 40,
+        "column_start": 9,
+        "line_end": 40,
+        "column_end": 20
+      }
     },
     {
       "id": "clippy::todo",
       "message": "`todo` should not be present in production code",
       "path": "src/lib.rs",
-      "span": { "line_start": 44, "column_start": 9, "line_end": 44, "column_end": 16 }
+      "span": {
+        "line_start": 44,
+        "column_start": 9,
+        "line_end": 44,
+        "column_end": 16
+      }
     },
     {
       "id": "clippy::unimplemented",
       "message": "`unimplemented` should not be present in production code",
       "path": "src/lib.rs",
-      "span": { "line_start": 48, "column_start": 9, "line_end": 48, "column_end": 25 }
+      "span": {
+        "line_start": 48,
+        "column_start": 9,
+        "line_end": 48,
+        "column_end": 25
+      }
     },
     {
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
@@ -91,13 +156,23 @@
       "id": "rust_doctor::source::disabled_tls_verification",
       "message": "Reqwest client builder disables TLS certificate verification.",
       "path": "src/lib.rs",
-      "span": { "line_start": 58, "column_start": 72, "line_end": 58, "column_end": 76 }
+      "span": {
+        "line_start": 58,
+        "column_start": 72,
+        "line_end": 58,
+        "column_end": 76
+      }
     },
     {
       "id": "rust_doctor::source::dynamic_shell_command",
       "message": "A dynamic value is interpolated into a shell command string.",
       "path": "src/lib.rs",
-      "span": { "line_start": 54, "column_start": 18, "line_end": 54, "column_end": 41 }
+      "span": {
+        "line_start": 54,
+        "column_start": 18,
+        "line_end": 54,
+        "column_end": 41
+      }
     }
   ],
   "observed_contexts": {
@@ -110,11 +185,20 @@
       "clippy::zombie_processes"
     ],
     "local_macro": [
-      { "id": "clippy::mem_forget", "primary_line": 162 },
-      { "id": "clippy::non_send_fields_in_send_ty", "primary_line": 171 }
+      {
+        "id": "clippy::mem_forget",
+        "primary_line": 162
+      },
+      {
+        "id": "clippy::non_send_fields_in_send_ty",
+        "primary_line": 171
+      }
     ],
     "external_macro_under_no_deps": [
-      { "id": "clippy::mem_forget", "primary_line": 16 }
+      {
+        "id": "clippy::mem_forget",
+        "primary_line": 16
+      }
     ],
     "build_output_candidate_codes": [],
     "dependency_direct_candidate_codes": []
@@ -147,75 +231,104 @@
   "compatibility": {
     "git_change_scope_output_hashes": {
       "full": {
-        "member-manifest": "366127f495450901fc3c4a1a3a97a34669d3270451e126876f16e1147d5b81ca",
-        "member-subdirectory": "366127f495450901fc3c4a1a3a97a34669d3270451e126876f16e1147d5b81ca",
-        "workspace": "316559590a68b737679ca51b88e4637d392449d88a49e74372590e222ba2233a"
+        "member-manifest": "0ef6556b8884c6b9156a46f92e530b6d4be1568dcd47b28433a0f5635ab04c84",
+        "member-subdirectory": "0ef6556b8884c6b9156a46f92e530b6d4be1568dcd47b28433a0f5635ab04c84",
+        "workspace": "65a9469af8b3b147443bc4a99441d7d4a9e63d65b4d85506df13f3ca2a8a2cce"
       },
       "files-empty": {
-        "member-manifest": "5343a0665bc9a5d4a931244f2dca574b840c2f8a459b441437fd9cc901e6488d",
-        "member-subdirectory": "5343a0665bc9a5d4a931244f2dca574b840c2f8a459b441437fd9cc901e6488d",
-        "workspace": "3e55f7c4004500dd66e892b1e3e1ce4fc3e41fd1c49c61cb7701c7a183f56412"
+        "member-manifest": "9430785cb9a1eecc2e2d3f1ff19bb284e17072afd8be6c61f4139807f4205aaa",
+        "member-subdirectory": "9430785cb9a1eecc2e2d3f1ff19bb284e17072afd8be6c61f4139807f4205aaa",
+        "workspace": "28ea5fdca5a0f75c7b8d4baf4c8134c56b522f9ed416689b6479e24478b82f1b"
       },
       "files-source": {
-        "member-manifest": "5d7f7e5a5730a3ba8d95af7670c66dd7220fa9c223910d51e7cb5095514fe513",
-        "member-subdirectory": "5d7f7e5a5730a3ba8d95af7670c66dd7220fa9c223910d51e7cb5095514fe513",
-        "workspace": "7f3f0787ab1dc7d130ed48c1be6666c8df7da27e0fb184b1351c2f6358a8017c"
+        "member-manifest": "662638ea2b807d5b2e107a45a9e5412163a208d312e1dc0ae2dc785ee4e9b4a4",
+        "member-subdirectory": "662638ea2b807d5b2e107a45a9e5412163a208d312e1dc0ae2dc785ee4e9b4a4",
+        "workspace": "e9104b5411eb7c3653223bc7e59530fff90b485a1be1a3fb57ef9d914a2a5eb4"
       },
       "files-manifest": {
-        "member-manifest": "ffdb43cb3e40ae3285c1c899847603f389f65f20418a66c907e63167f1c7425c",
-        "member-subdirectory": "ffdb43cb3e40ae3285c1c899847603f389f65f20418a66c907e63167f1c7425c",
-        "workspace": "822187189507a07a44343c8b4a1384d1ea2699592303ad2375ebd49811162812"
+        "member-manifest": "c60138a056992721c665dcd39ee13f2f85c16aad62102865d7b3f97a1bc0c385",
+        "member-subdirectory": "c60138a056992721c665dcd39ee13f2f85c16aad62102865d7b3f97a1bc0c385",
+        "workspace": "fe288921d8e3c453bbfaf7b5f0ee40a2cb7b9bc18d0c62cf319aa7e0693aba99"
       }
     },
     "persistent_configuration_output_hashes": {
       "absent": {
-        "member-manifest": "ca42ff5b04ac95daa03f6cd8756d1cca45feba88cdefd655c5ac752c87d7d47e",
-        "member-subdirectory": "ca42ff5b04ac95daa03f6cd8756d1cca45feba88cdefd655c5ac752c87d7d47e",
-        "workspace": "4cd88becb59875226abe962b64c4decfa236447714504d490a4076a58de902f7"
+        "member-manifest": "13efbb43f2c0b1d497286cdf2fe4b9dce2c813e0a1d6a6dcc09a5497b40ca4e4",
+        "member-subdirectory": "13efbb43f2c0b1d497286cdf2fe4b9dce2c813e0a1d6a6dcc09a5497b40ca4e4",
+        "workspace": "f0037d2818b3274fb12742b902ca0a4f79fe67b76e9d177419d202ed48137c53"
       },
       "empty": {
-        "member-manifest": "47404f447d1159dd8b7beac2411bb91f0c2b33c0e7b8c57d33e762d0eddbd4bb",
-        "member-subdirectory": "47404f447d1159dd8b7beac2411bb91f0c2b33c0e7b8c57d33e762d0eddbd4bb",
-        "workspace": "2173cbf6917f2ef5a78f1e8581b92686b93245ef97848107ac64671b1b61632f"
+        "member-manifest": "55329fa5e831a7fa28a25f93855af5ed773ea5d2d57b45563c233d90d09ad7f4",
+        "member-subdirectory": "55329fa5e831a7fa28a25f93855af5ed773ea5d2d57b45563c233d90d09ad7f4",
+        "workspace": "db1db4c3851a5f802ebe05e01442812e9afaccd57e9ca2942fdfaa89783ec8f8"
       },
       "config-rule": {
-        "member-manifest": "ccdb85e52b7c461fe85bc879a8d8467b4af790378bf0f94be83ef2665a4c15e6",
-        "member-subdirectory": "ccdb85e52b7c461fe85bc879a8d8467b4af790378bf0f94be83ef2665a4c15e6",
-        "workspace": "6295a0b4c3330778b6e67f082a080e7b00a13bfa2f8282e17f4579381d38a4e0"
+        "member-manifest": "8b543263f50b2afa9d0664c964dc7b37826feba96aa9d253ae510c3540b1b84a",
+        "member-subdirectory": "8b543263f50b2afa9d0664c964dc7b37826feba96aa9d253ae510c3540b1b84a",
+        "workspace": "c19bd0ebc44da27423a9ec0dce14f19003fef904166ce3584053755f7a9788d2"
       },
       "shell-reactivated": {
-        "member-manifest": "6d3577b3293f9e143867866840542c119530258ee5a08c250d1bc7aa8d1f13e2",
-        "member-subdirectory": "6d3577b3293f9e143867866840542c119530258ee5a08c250d1bc7aa8d1f13e2",
-        "workspace": "bd6bebedea05962a43554ea6ff87a45c08c93b920841dc86cd71669d6c33c3b4"
+        "member-manifest": "e49d9a88f70d232aca42b904def17d2f520c8a3aa34645bdc006a6657d8d5e47",
+        "member-subdirectory": "e49d9a88f70d232aca42b904def17d2f520c8a3aa34645bdc006a6657d8d5e47",
+        "workspace": "e9ec64088377e10cc756f3d55df78de1d77b34790afb84c61b801eaf1533e046"
       },
       "request-category-off": {
-        "member-manifest": "08b3cbfffa48ff8581b5776bfdb5a108255bba994c220afe8bd1adb2998f0173",
-        "member-subdirectory": "08b3cbfffa48ff8581b5776bfdb5a108255bba994c220afe8bd1adb2998f0173",
-        "workspace": "9c37d8b1a1ba0bfd74a3e8797b21844015ec5442111b4741b40cef69a3501aed"
+        "member-manifest": "658f3fb4e2605c96bc8b88a00c732f3e5b4eb63c78d9c9b943504ce6215f5a2a",
+        "member-subdirectory": "658f3fb4e2605c96bc8b88a00c732f3e5b4eb63c78d9c9b943504ce6215f5a2a",
+        "workspace": "0c42132c48455db2b34c7bbf1ee113ff4abae897d55494b51b7fb8bb6cd6c559"
       },
       "request-blocking": {
-        "member-manifest": "beeb357a193b14236ce8ed7b888027cdc8107be4e98f705204808c20152e5e7d",
-        "member-subdirectory": "beeb357a193b14236ce8ed7b888027cdc8107be4e98f705204808c20152e5e7d",
-        "workspace": "f3b71e2b654146037a189182d09d6ebc8a44810b90b792299c39802e5ad9f1a8"
+        "member-manifest": "69a920ff875ecdf9e5ce7c4e2bb11531e44f30677e6373257e758b8bd98ed376",
+        "member-subdirectory": "69a920ff875ecdf9e5ce7c4e2bb11531e44f30677e6373257e758b8bd98ed376",
+        "workspace": "e2b53765ca1059f1cc7a9626068775a05a44454785a47576f79e0baf3391438f"
       }
     },
     "policy_disabled_clippy_rules": {
       "default": [],
-      "security-off": ["clippy::permissions_set_readonly_false"],
-      "shell-reactivated": ["clippy::permissions_set_readonly_false"],
+      "security-off": [
+        "clippy::permissions_set_readonly_false"
+      ],
+      "shell-reactivated": [
+        "clippy::permissions_set_readonly_false"
+      ],
       "correctness-error": [],
       "correctness-error-none": [],
       "correctness-error-warning": []
     },
     "policy_clippy_pruning": {
       "inactive_rules": [
+        "clippy::arc_with_non_send_sync",
+        "clippy::await_holding_lock",
+        "clippy::await_holding_refcell_ref",
         "clippy::dbg_macro",
+        "clippy::exit",
+        "clippy::expect_used",
+        "clippy::format_collect",
+        "clippy::indexing_slicing",
+        "clippy::large_types_passed_by_value",
+        "clippy::manual_memcpy",
         "clippy::mem_forget",
+        "clippy::mut_mutex_lock",
         "clippy::non_send_fields_in_send_ty",
+        "clippy::panic",
+        "clippy::panic_in_result_fn",
         "clippy::permissions_set_readonly_false",
+        "clippy::print_stderr",
+        "clippy::print_stdout",
+        "clippy::rc_buffer",
+        "clippy::rc_mutex",
+        "clippy::redundant_allocation",
+        "clippy::stable_sort_primitive",
+        "clippy::string_slice",
         "clippy::suspicious_command_arg_space",
         "clippy::todo",
         "clippy::unimplemented",
+        "clippy::unnecessary_to_owned",
+        "clippy::unreachable",
+        "clippy::unused_async",
+        "clippy::unwrap_used",
+        "clippy::useless_vec",
+        "clippy::vec_init_then_push",
         "clippy::zombie_processes"
       ],
       "scan_command": null,

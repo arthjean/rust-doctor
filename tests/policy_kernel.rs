@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rust_doctor::{InspectRequest, Status, inspect};
+use rust_doctor::{InspectRequest, RuleLevel, Status, inspect};
 use serde_json::Value;
 
 #[test]
@@ -20,35 +20,33 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         .command
         .as_ref()
         .expect("complete scan should expose its command");
-    assert_eq!(
-        command,
-        &[
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--no-deps",
-            "--message-format=json",
-            "--",
-            "-W",
-            "clippy::dbg_macro",
-            "-W",
-            "clippy::mem_forget",
-            "-W",
-            "clippy::non_send_fields_in_send_ty",
-            "-W",
-            "clippy::permissions_set_readonly_false",
-            "-W",
-            "clippy::suspicious_command_arg_space",
-            "-W",
-            "clippy::todo",
-            "-W",
-            "clippy::unimplemented",
-            "-W",
-            "clippy::zombie_processes",
-        ]
-        .map(str::to_owned)
-    );
+    // Le catalogue est la seule source de la liste publiée: la commande doit
+    // porter chaque règle Clippy active de la policy, dans l'ordre publié.
+    let policy = report
+        .policy
+        .as_ref()
+        .expect("a scan should publish its policy");
+    let expected: Vec<String> = [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--no-deps",
+        "--message-format=json",
+        "--",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain(
+        policy
+            .rules
+            .iter()
+            .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)
+            .flat_map(|rule| ["-W".to_owned(), rule.id.clone()]),
+    )
+    .collect();
+    assert_eq!(expected.len(), 7 + 2 * 33);
+    assert_eq!(command, &expected);
 
     let mut remaining_command = command.iter();
     for historical_argument in oracle["clippy_command"]

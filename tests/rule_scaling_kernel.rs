@@ -415,10 +415,21 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     assert_eq!(baseline.schema_version, 9);
     assert_eq!(baseline.status, Status::Complete);
     assert!(baseline.complete);
+    let published = serde_json::to_value(&baseline).expect("a valid report should serialize");
     assert_eq!(
         baseline.scan.command.as_deref().unwrap(),
-        oracle.clippy_command
+        support::expected_clippy_command(&published["policy"])
     );
+    // La commande figée d'EP-018 reste une sous-suite ordonnée de la commande
+    // courante: aucun élargissement du catalogue n'a retiré ni déplacé une
+    // règle déjà admise.
+    let mut current = baseline.scan.command.as_deref().unwrap().iter();
+    for historical in &oracle.clippy_command {
+        assert!(
+            current.any(|argument| argument == historical),
+            "{historical} left the command"
+        );
+    }
     assert_eq!(
         baseline
             .scan
@@ -432,10 +443,24 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     );
 
     assert_eq!(oracle.historical_rules.len(), 7);
+    // Règles admises après EP-018 qui trouvent quelque chose sur cette fixture:
+    // le `expect()` du cas `zombie_processes` en fait partie depuis EP-024.
+    const ADMITTED_AFTER_EP018: [&str; 1] = ["clippy::expect_used"];
     assert_eq!(
         baseline.diagnostics.len(),
-        oracle.rules.len() + oracle.historical_rules.len()
+        oracle.rules.len() + oracle.historical_rules.len() + ADMITTED_AFTER_EP018.len()
     );
+    for code in ADMITTED_AFTER_EP018 {
+        assert_eq!(
+            baseline
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code.as_deref() == Some(code))
+                .count(),
+            1,
+            "{code}"
+        );
+    }
     let historical_codes: BTreeSet<_> = oracle
         .historical_rules
         .iter()

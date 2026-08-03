@@ -474,16 +474,27 @@ pub(crate) fn clippy_command_without_rules(
     projected
 }
 
+/// Identifiants du catalogue historique EP-017, les seuls que portent les
+/// rapports v7 et v6 figés. Tout ce que les tranches suivantes ont admis est
+/// retiré par la projection, sans quoi chaque élargissement du catalogue
+/// déplacerait un octet gelé.
+pub(crate) const HISTORICAL_RULE_IDS: [&str; 7] = [
+    "clippy::dbg_macro",
+    "clippy::todo",
+    "clippy::unimplemented",
+    "rust_doctor::cargo::unbounded_registry_dependency",
+    "rust_doctor::cargo::unpinned_git_dependency",
+    "rust_doctor::source::disabled_tls_verification",
+    "rust_doctor::source::dynamic_shell_command",
+];
+
 pub(crate) fn project_legacy_report(mut report: Value, oracle: &RuleScalingOracle) -> Value {
-    let candidate_ids = oracle.candidate_ids();
+    let _ = oracle;
+    let candidate_ids = |id: &str| !HISTORICAL_RULE_IDS.contains(&id);
     report["policy"]["rules"]
         .as_array_mut()
         .expect("policy rules should be an array")
-        .retain(|rule| {
-            !rule["id"]
-                .as_str()
-                .is_some_and(|id| candidate_ids.contains(id))
-        });
+        .retain(|rule| !rule["id"].as_str().is_some_and(candidate_ids));
 
     let command = report["scan"]["command"]
         .as_array_mut()
@@ -494,7 +505,7 @@ pub(crate) fn project_legacy_report(mut report: Value, oracle: &RuleScalingOracl
             && current
                 .peek()
                 .and_then(Value::as_str)
-                .is_some_and(|id| candidate_ids.contains(id))
+                .is_some_and(candidate_ids)
         {
             current.next();
         } else {

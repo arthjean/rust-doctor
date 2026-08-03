@@ -97,15 +97,13 @@ mod tests {
         );
         assert!(!arguments.contains(&"-D"));
 
-        let all_off = PolicyInput::default()
-            .with_rule("clippy::dbg_macro", RuleLevel::Off)
-            .with_rule("clippy::mem_forget", RuleLevel::Off)
-            .with_rule("clippy::non_send_fields_in_send_ty", RuleLevel::Off)
-            .with_rule("clippy::permissions_set_readonly_false", RuleLevel::Off)
-            .with_rule("clippy::suspicious_command_arg_space", RuleLevel::Off)
-            .with_rule("clippy::todo", RuleLevel::Off)
-            .with_rule("clippy::unimplemented", RuleLevel::Off)
-            .with_rule("clippy::zombie_processes", RuleLevel::Off);
+        // Éteindre chaque catégorie éteint chaque règle, quel que soit le
+        // volume du catalogue: la commande retombe alors sur ses seules bases.
+        let all_off = crate::policy::CATEGORIES
+            .iter()
+            .fold(PolicyInput::default(), |input, category| {
+                input.with_category(*category, RuleLevel::Off)
+            });
         let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
         assert_eq!(
             arguments_for_plan(&all_off),

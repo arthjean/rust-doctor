@@ -42,6 +42,56 @@ pub(crate) struct ProcessHarness {
     log: PathBuf,
 }
 
+/// Catégories admissibles du catalogue, dans l'ordre publié. Les éteindre
+/// toutes éteint chaque producteur, quel que soit le volume du catalogue.
+pub(crate) const CATEGORIES: [&str; 6] = [
+    "correctness",
+    "dependencies",
+    "maintainability",
+    "performance",
+    "reliability",
+    "security",
+];
+
+/// Commande Clippy attendue pour une policy publiée.
+///
+/// Le catalogue grandit d'une tranche à l'autre, donc figer la liste dans
+/// chaque test la rendrait fausse à chaque élargissement. La commande reste
+/// néanmoins contrainte exactement: base, séparateur unique, puis un `-W` par
+/// règle Clippy active de `policy.rules`, dans l'ordre publié.
+pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String> {
+    let base = [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--no-deps",
+        "--message-format=json",
+        "--",
+    ];
+    base.into_iter()
+        .map(str::to_owned)
+        .chain(
+            policy["rules"]
+                .as_array()
+                .expect("a policy should publish its rules")
+                .iter()
+                .filter(|rule| {
+                    rule["id"]
+                        .as_str()
+                        .is_some_and(|id| id.starts_with("clippy::"))
+                        && rule["level"] != "off"
+                })
+                .flat_map(|rule| {
+                    [
+                        "-W".to_owned(),
+                        rule["id"].as_str().unwrap_or_default().to_owned(),
+                    ]
+                }),
+        )
+        .collect()
+}
+
 pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")

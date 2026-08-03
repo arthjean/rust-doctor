@@ -15,15 +15,43 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 12] = [
+const RULES: [&str; 40] = [
+    "clippy::arc_with_non_send_sync",
+    "clippy::await_holding_lock",
+    "clippy::await_holding_refcell_ref",
     "clippy::dbg_macro",
+    "clippy::exit",
+    "clippy::expect_used",
+    "clippy::format_collect",
+    "clippy::indexing_slicing",
+    "clippy::large_types_passed_by_value",
+    "clippy::manual_memcpy",
     "clippy::mem_forget",
+    "clippy::mut_mutex_lock",
     "clippy::non_send_fields_in_send_ty",
+    "clippy::panic",
+    "clippy::panic_in_result_fn",
     "clippy::permissions_set_readonly_false",
+    "clippy::print_stderr",
+    "clippy::print_stdout",
+    "clippy::rc_buffer",
+    "clippy::rc_mutex",
+    "clippy::redundant_allocation",
+    "clippy::stable_sort_primitive",
+    "clippy::string_slice",
     "clippy::suspicious_command_arg_space",
     "clippy::todo",
     "clippy::unimplemented",
+    "clippy::unnecessary_to_owned",
+    "clippy::unreachable",
+    "clippy::unused_async",
+    "clippy::unwrap_used",
+    "clippy::useless_vec",
+    "clippy::vec_init_then_push",
     "clippy::zombie_processes",
+    "rust_doctor::cargo::duplicate_major_versions",
+    "rust_doctor::cargo::missing_lockfile",
+    "rust_doctor::cargo::path_dependency_outside_workspace",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
@@ -379,7 +407,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 9);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 12);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 40);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -480,9 +508,24 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
     assert_eq!(absent["status"], historical["status"]);
     assert_ne!(absent["scan"]["command"], historical["scan_command"]);
     assert_eq!(
-        absent["scan"]["command"],
-        serde_json::to_value(&rule_scaling.clippy_command).unwrap()
+        absent["scan"]["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|argument| argument.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        support::expected_clippy_command(&absent["policy"])
     );
+    // La commande figée d'EP-018 reste une sous-suite ordonnée de la commande
+    // courante: aucun élargissement du catalogue n'a retiré ni déplacé une
+    // règle déjà admise.
+    let mut current = absent["scan"]["command"].as_array().unwrap().iter();
+    for historical_argument in &rule_scaling.clippy_command {
+        assert!(
+            current.any(|argument| argument.as_str() == Some(historical_argument.as_str())),
+            "{historical_argument} left the command"
+        );
+    }
     // Le schema v9 ajoute les deux grandeurs nommées. Les champs historiques du
     // `summary` gardent leur nom, leur type et leur valeur.
     let mut projected_summary = absent["summary"].clone();

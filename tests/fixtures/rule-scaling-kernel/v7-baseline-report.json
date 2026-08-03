@@ -10,8 +10,62 @@
     },
     "rules": [
       {
+        "id": "clippy::arc_with_non_send_sync",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::await_holding_lock",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::await_holding_refcell_ref",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::dbg_macro",
         "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::exit",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::expect_used",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::format_collect",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::indexing_slicing",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::large_types_passed_by_value",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::manual_memcpy",
+        "category": "performance",
         "level": "warn",
         "source": "default"
       },
@@ -22,7 +76,25 @@
         "source": "default"
       },
       {
+        "id": "clippy::mut_mutex_lock",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::non_send_fields_in_send_ty",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::panic",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::panic_in_result_fn",
         "category": "correctness",
         "level": "warn",
         "source": "default"
@@ -30,6 +102,48 @@
       {
         "id": "clippy::permissions_set_readonly_false",
         "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::print_stderr",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::print_stdout",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::rc_buffer",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::rc_mutex",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::redundant_allocation",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::stable_sort_primitive",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::string_slice",
+        "category": "reliability",
         "level": "warn",
         "source": "default"
       },
@@ -52,8 +166,62 @@
         "source": "default"
       },
       {
+        "id": "clippy::unnecessary_to_owned",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unreachable",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unused_async",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unwrap_used",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::useless_vec",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::vec_init_then_push",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::zombie_processes",
         "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::duplicate_major_versions",
+        "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::missing_lockfile",
+        "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+        "category": "dependencies",
         "level": "warn",
         "source": "default"
       },
@@ -117,19 +285,69 @@
       "--message-format=json",
       "--",
       "-W",
+      "clippy::arc_with_non_send_sync",
+      "-W",
+      "clippy::await_holding_lock",
+      "-W",
+      "clippy::await_holding_refcell_ref",
+      "-W",
       "clippy::dbg_macro",
+      "-W",
+      "clippy::exit",
+      "-W",
+      "clippy::expect_used",
+      "-W",
+      "clippy::format_collect",
+      "-W",
+      "clippy::indexing_slicing",
+      "-W",
+      "clippy::large_types_passed_by_value",
+      "-W",
+      "clippy::manual_memcpy",
       "-W",
       "clippy::mem_forget",
       "-W",
+      "clippy::mut_mutex_lock",
+      "-W",
       "clippy::non_send_fields_in_send_ty",
       "-W",
+      "clippy::panic",
+      "-W",
+      "clippy::panic_in_result_fn",
+      "-W",
       "clippy::permissions_set_readonly_false",
+      "-W",
+      "clippy::print_stderr",
+      "-W",
+      "clippy::print_stdout",
+      "-W",
+      "clippy::rc_buffer",
+      "-W",
+      "clippy::rc_mutex",
+      "-W",
+      "clippy::redundant_allocation",
+      "-W",
+      "clippy::stable_sort_primitive",
+      "-W",
+      "clippy::string_slice",
       "-W",
       "clippy::suspicious_command_arg_space",
       "-W",
       "clippy::todo",
       "-W",
       "clippy::unimplemented",
+      "-W",
+      "clippy::unnecessary_to_owned",
+      "-W",
+      "clippy::unreachable",
+      "-W",
+      "clippy::unused_async",
+      "-W",
+      "clippy::unwrap_used",
+      "-W",
+      "clippy::useless_vec",
+      "-W",
+      "clippy::vec_init_then_push",
       "-W",
       "clippy::zombie_processes"
     ],

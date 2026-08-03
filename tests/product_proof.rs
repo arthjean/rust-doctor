@@ -7,6 +7,8 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 
+mod support;
+
 fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
@@ -237,32 +239,13 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
     assert_eq!(report["schema_version"], 9);
     assert_eq!(report["status"], "complete");
     assert_eq!(
-        report["scan"]["command"],
-        serde_json::json!([
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--no-deps",
-            "--message-format=json",
-            "--",
-            "-W",
-            "clippy::dbg_macro",
-            "-W",
-            "clippy::mem_forget",
-            "-W",
-            "clippy::non_send_fields_in_send_ty",
-            "-W",
-            "clippy::permissions_set_readonly_false",
-            "-W",
-            "clippy::suspicious_command_arg_space",
-            "-W",
-            "clippy::todo",
-            "-W",
-            "clippy::unimplemented",
-            "-W",
-            "clippy::zombie_processes"
-        ])
+        report["scan"]["command"]
+            .as_array()
+            .expect("a complete scan should publish its command")
+            .iter()
+            .map(|argument| argument.as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>(),
+        support::expected_clippy_command(&report["policy"])
     );
     let dbg_findings: Vec<_> = report["diagnostics"]
         .as_array()

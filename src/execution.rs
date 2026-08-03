@@ -655,33 +655,32 @@ mod tests {
         let arguments: Vec<_> = command.get_args().collect();
 
         assert_eq!(command.get_program(), OsStr::new("cargo"));
+        // Le catalogue est la seule source de la liste: la commande doit porter
+        // chaque règle Clippy active, dans l'ordre du catalogue, sous `-W`.
+        let expected: Vec<String> = [
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--no-deps",
+            "--message-format=json",
+            "--",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(
+            crate::policy::CATALOG
+                .iter()
+                .filter(|definition| definition.producer == Producer::Clippy)
+                .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
+        )
+        .collect();
+        assert_eq!(expected.len(), 6 + 2 * 33);
         assert_eq!(
             arguments,
-            [
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--no-deps",
-                "--message-format=json",
-                "--",
-                "-W",
-                "clippy::dbg_macro",
-                "-W",
-                "clippy::mem_forget",
-                "-W",
-                "clippy::non_send_fields_in_send_ty",
-                "-W",
-                "clippy::permissions_set_readonly_false",
-                "-W",
-                "clippy::suspicious_command_arg_space",
-                "-W",
-                "clippy::todo",
-                "-W",
-                "clippy::unimplemented",
-                "-W",
-                "clippy::zombie_processes",
-            ]
-            .map(OsStr::new)
+            expected
+                .iter()
+                .map(|argument| OsStr::new(argument.as_str()))
+                .collect::<Vec<_>>()
         );
         for forbidden in ["clippy::restriction", "clippy::all", "--force-warn", "-D"] {
             assert!(!arguments.contains(&OsStr::new(forbidden)));
@@ -887,32 +886,15 @@ mod tests {
         let scan = result.scan.into_finished().unwrap();
         assert_eq!(
             scan.command,
-            [
-                "cargo",
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--no-deps",
-                "--message-format=json",
-                "--",
-                "-W",
-                "clippy::dbg_macro",
-                "-W",
-                "clippy::mem_forget",
-                "-W",
-                "clippy::non_send_fields_in_send_ty",
-                "-W",
-                "clippy::permissions_set_readonly_false",
-                "-W",
-                "clippy::suspicious_command_arg_space",
-                "-W",
-                "clippy::todo",
-                "-W",
-                "clippy::unimplemented",
-                "-W",
-                "clippy::zombie_processes",
-            ]
+            std::iter::once("cargo".to_owned())
+                .chain(
+                    clippy_arguments_for_plan(&PolicyPlan::default())
+                        .into_iter()
+                        .map(str::to_owned)
+                )
+                .collect::<Vec<_>>()
         );
+        assert_eq!(scan.command.len(), 1 + 6 + 2 * 33);
         assert_eq!(scan.exit_code, Some(0));
         assert_eq!(scan.exit_success, Some(true));
         assert_eq!(scan.build_finished, Some(true));

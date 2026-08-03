@@ -451,19 +451,69 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
             "clippy",
             vec![
                 "--rule",
+                "clippy::arc_with_non_send_sync=off",
+                "--rule",
+                "clippy::await_holding_lock=off",
+                "--rule",
+                "clippy::await_holding_refcell_ref=off",
+                "--rule",
                 "clippy::dbg_macro=off",
+                "--rule",
+                "clippy::exit=off",
+                "--rule",
+                "clippy::expect_used=off",
+                "--rule",
+                "clippy::format_collect=off",
+                "--rule",
+                "clippy::indexing_slicing=off",
+                "--rule",
+                "clippy::large_types_passed_by_value=off",
+                "--rule",
+                "clippy::manual_memcpy=off",
                 "--rule",
                 "clippy::mem_forget=off",
                 "--rule",
+                "clippy::mut_mutex_lock=off",
+                "--rule",
                 "clippy::non_send_fields_in_send_ty=off",
                 "--rule",
+                "clippy::panic=off",
+                "--rule",
+                "clippy::panic_in_result_fn=off",
+                "--rule",
                 "clippy::permissions_set_readonly_false=off",
+                "--rule",
+                "clippy::print_stderr=off",
+                "--rule",
+                "clippy::print_stdout=off",
+                "--rule",
+                "clippy::rc_buffer=off",
+                "--rule",
+                "clippy::rc_mutex=off",
+                "--rule",
+                "clippy::redundant_allocation=off",
+                "--rule",
+                "clippy::stable_sort_primitive=off",
+                "--rule",
+                "clippy::string_slice=off",
                 "--rule",
                 "clippy::suspicious_command_arg_space=off",
                 "--rule",
                 "clippy::todo=off",
                 "--rule",
                 "clippy::unimplemented=off",
+                "--rule",
+                "clippy::unnecessary_to_owned=off",
+                "--rule",
+                "clippy::unreachable=off",
+                "--rule",
+                "clippy::unused_async=off",
+                "--rule",
+                "clippy::unwrap_used=off",
+                "--rule",
+                "clippy::useless_vec=off",
+                "--rule",
+                "clippy::vec_init_then_push=off",
                 "--rule",
                 "clippy::zombie_processes=off",
             ],
@@ -605,6 +655,13 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
             )
         })
         .collect();
+    // La commande de la policy par défaut est la référence vivante: chaque
+    // autre policy doit en être exactement la commande privée des règles
+    // qu'elle éteint.
+    let default_command = scan_commands
+        .get("default")
+        .expect("the default policy should publish its command")
+        .clone();
     let expected_scan_commands: BTreeMap<_, _> = rule_scaling
         .compatibility
         .policy_disabled_clippy_rules
@@ -612,7 +669,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         .map(|(name, disabled)| {
             (
                 name.clone(),
-                clippy_command_without_rules(&rule_scaling.clippy_command, disabled),
+                clippy_command_without_rules(&default_command, disabled),
             )
         })
         .collect();

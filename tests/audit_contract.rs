@@ -68,14 +68,21 @@ fn incomplete_and_unscorable_reports_keep_existing_outcome_without_a_share() {
 
 #[test]
 fn metadata_roots_keep_a_partial_inventory_when_code_producers_are_disabled() {
-    let report = ["maintainability", "correctness", "reliability", "security"]
-        .into_iter()
-        .fold(
-            InspectRequest::new(fixture("tests/fixtures/projects/clean")),
-            |request, category| {
-                request.with_category_override(CategoryOverride::new(category, RuleLevel::Off))
-            },
-        );
+    let report = [
+        "correctness",
+        "dependencies",
+        "maintainability",
+        "performance",
+        "reliability",
+        "security",
+    ]
+    .into_iter()
+    .fold(
+        InspectRequest::new(fixture("tests/fixtures/projects/clean")),
+        |request, category| {
+            request.with_category_override(CategoryOverride::new(category, RuleLevel::Off))
+        },
+    );
     let report = inspect(report);
 
     assert_eq!(report.status, Status::Complete);

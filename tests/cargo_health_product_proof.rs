@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
 
+mod support;
+
 const REGISTRY_CODE: &str = "rust_doctor::cargo::unbounded_registry_dependency";
 const GIT_CODE: &str = "rust_doctor::cargo::unpinned_git_dependency";
 
@@ -312,32 +314,13 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     assert!(finding["target"].is_null());
     assert!(finding["span"].is_null());
     assert_eq!(
-        report["scan"]["command"],
-        serde_json::json!([
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--no-deps",
-            "--message-format=json",
-            "--",
-            "-W",
-            "clippy::dbg_macro",
-            "-W",
-            "clippy::mem_forget",
-            "-W",
-            "clippy::non_send_fields_in_send_ty",
-            "-W",
-            "clippy::permissions_set_readonly_false",
-            "-W",
-            "clippy::suspicious_command_arg_space",
-            "-W",
-            "clippy::todo",
-            "-W",
-            "clippy::unimplemented",
-            "-W",
-            "clippy::zombie_processes"
-        ])
+        report["scan"]["command"]
+            .as_array()
+            .expect("a scan should publish its command")
+            .iter()
+            .map(|argument| argument.as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>(),
+        support::expected_clippy_command(&report["policy"])
     );
 
     // `--verbose` liste tous les groupes: le rendu par défaut n'en montre qu'un,
