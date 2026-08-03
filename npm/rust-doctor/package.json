@@ -1,0 +1,32 @@
+{
+  "name": "rust-doctor",
+  "version": "0.1.0",
+  "description": "Local-first Rust project health audit",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arthjean/rust-doctor"
+  },
+  "homepage": "https://github.com/arthjean/rust-doctor",
+  "type": "module",
+  "bin": {
+    "rust-doctor": "bin/rust-doctor.js"
+  },
+  "files": [
+    "bin/",
+    "lib/"
+  ],
+  "engines": {
+    "node": "^20.19.0 || >=22.13.0"
+  },
+  "optionalDependencies": {
+    "@rust-doctor/darwin-x64": "0.1.0",
+    "@rust-doctor/darwin-arm64": "0.1.0",
+    "@rust-doctor/linux-x64": "0.1.0",
+    "@rust-doctor/linux-arm64": "0.1.0",
+    "@rust-doctor/win32-x64": "0.1.0"
+  },
+  "scripts": {
+    "test": "bun test tests"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "rust-doctor",
+      "optionalDependencies": {
+        "@rust-doctor/darwin-arm64": "0.1.0",
+        "@rust-doctor/darwin-x64": "0.1.0",
+        "@rust-doctor/linux-arm64": "0.1.0",
+        "@rust-doctor/linux-x64": "0.1.0",
+        "@rust-doctor/win32-x64": "0.1.0",
+      },
+    },
+  },
+  "packages": {}
+}
