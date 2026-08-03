@@ -34,6 +34,20 @@ impl RuleLevel {
             Self::Warn | Self::Error => Some("-W"),
         }
     }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl fmt::Display for RuleLevel {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
@@ -76,6 +90,12 @@ impl RuleOverride {
     }
 }
 
+impl fmt::Display for RuleOverride {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}={}", self.selector, self.level)
+    }
+}
+
 impl FromStr for RuleOverride {
     type Err = &'static str;
 
@@ -97,6 +117,12 @@ impl CategoryOverride {
             selector: selector.into(),
             level,
         }
+    }
+}
+
+impl fmt::Display for CategoryOverride {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}={}", self.selector, self.level)
     }
 }
 

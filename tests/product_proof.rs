@@ -120,10 +120,7 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
         } else {
             assert!(diagnostic_count >= minimum_diagnostics, "{name}");
         }
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains("Inspecting Cargo workspace"),
-            "{name}"
-        );
+        assert!(output.stderr.is_empty(), "{name}");
     }
 
     let compile_error = parse_report(&inspect_json(&fixture("compile-error")));
@@ -209,8 +206,10 @@ fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
         .expect("rust-doctor should start");
     let terminal_stdout = String::from_utf8_lossy(&terminal.stdout);
     assert_eq!(terminal.status.code(), Some(0));
-    assert!(terminal_stdout.contains("src/lib.rs:4:5 warning [clippy::needless_return]"));
-    assert!(terminal_stdout.contains("status complete"));
+    assert!(terminal_stdout.contains("Top warning: Needless return"));
+    assert!(terminal_stdout.contains("Rule ID: clippy::needless_return"));
+    assert!(terminal_stdout.contains("src/lib.rs:4:5"));
+    assert!(terminal_stdout.contains("Rust Doctor score:"));
 
     let help = binary()
         .arg("--help")
@@ -280,11 +279,18 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
 
     let terminal = binary()
         .arg("inspect")
+        .arg("--verbose")
         .arg(kernel_fixture("dbg-macro"))
         .output()
         .expect("rust-doctor should start");
     let terminal = String::from_utf8_lossy(&terminal.stdout);
-    assert_eq!(terminal.matches("Help (maintainability):").count(), 3);
+    assert_eq!(
+        terminal
+            .matches("Help: Remove dbg! or replace it with intentional logging.")
+            .count(),
+        3
+    );
+    assert!(terminal.contains("All 6 issues"));
 
     let denied_output = inspect_json(&kernel_fixture("denied"));
     let denied = parse_report(&denied_output);

@@ -1,5 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+use std::path::Path;
+
 mod audit;
 mod baseline;
 mod cargo_health;
@@ -13,6 +15,7 @@ pub mod render;
 mod report;
 mod scan_target;
 mod source_kernel;
+mod terminal_text;
 mod workspace_path;
 
 pub use audit::{
@@ -30,32 +33,132 @@ pub use report::{
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {
-    let policy = request.policy().clone();
-    inspect_with(request, &policy)
+    match InspectionSession::prepare(request) {
+        Ok(session) => session.inspect(),
+        Err(report) => *report,
+    }
 }
 
-fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> InspectReport {
-    if let Err(error) = policy.validate() {
-        return report::policy_failure(error, policy.failure_blocking());
+#[derive(Debug)]
+pub struct InspectionSession {
+    prepared: execution::PreparedInspection,
+    plan: policy::PolicyPlan,
+    scope_request: git_scope::ScopeRequest,
+    preview_scope: Option<ScopeReport>,
+}
+
+impl InspectionSession {
+    pub fn prepare(request: InspectRequest) -> Result<Self, Box<InspectReport>> {
+        let policy = request.policy().clone();
+        Self::prepare_with(request, &policy)
     }
-    let scope_request = request.scope().clone();
-    if let Err(error) = git_scope::validate(&scope_request) {
-        return report::scope_failure(error, policy.failure_blocking());
-    }
-    let prepared = match execution::prepare(&request.path) {
-        Ok(prepared) => prepared,
-        Err(result) => return report::preparation_failure(*result, policy.failure_blocking()),
-    };
-    let plan = match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration)
-    {
-        Ok(plan) => plan,
-        Err(error) => return report::policy_failure(error, policy.failure_blocking()),
-    };
-    let scope = match git_scope::resolve(&scope_request, prepared.workspace_root()) {
-        Ok(scope) => scope,
-        Err(error) => {
-            return report::preparation_failure(prepared.fail(error), policy.failure_blocking());
+
+    fn prepare_with(
+        request: InspectRequest,
+        policy: &policy::PolicyInput,
+    ) -> Result<Self, Box<InspectReport>> {
+        if let Err(error) = policy.validate() {
+            return Err(Box::new(report::policy_failure(
+                error,
+                policy.failure_blocking(),
+            )));
         }
+        let scope_request = request.scope().clone();
+        if let Err(error) = git_scope::validate(&scope_request) {
+            return Err(Box::new(report::scope_failure(
+                error,
+                policy.failure_blocking(),
+            )));
+        }
+        let prepared = match execution::prepare(&request.path) {
+            Ok(prepared) => prepared,
+            Err(result) => {
+                return Err(Box::new(report::preparation_failure(
+                    *result,
+                    policy.failure_blocking(),
+                )));
+            }
+        };
+        let plan =
+            match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    return Err(Box::new(report::policy_failure(
+                        error,
+                        policy.failure_blocking(),
+                    )));
+                }
+            };
+        Ok(Self {
+            prepared,
+            plan,
+            scope_request,
+            preview_scope: None,
+        })
+    }
+
+    pub fn workspace_root(&self) -> &Path {
+        self.prepared.workspace_root()
+    }
+
+    pub fn preview_uncommitted_rust_files(&mut self) -> Option<usize> {
+        if self.preview_scope.is_none() {
+            self.preview_scope = git_scope::resolve(
+                &git_scope::ScopeRequest::Files {
+                    base: "HEAD".to_owned(),
+                },
+                self.prepared.workspace_root(),
+            )
+            .ok();
+        }
+        Some(
+            self.preview_scope
+                .as_ref()?
+                .files()?
+                .iter()
+                .filter(|path| path.ends_with(".rs"))
+                .count(),
+        )
+    }
+
+    pub fn select_uncommitted_files(&mut self) {
+        self.scope_request = git_scope::ScopeRequest::Files {
+            base: "HEAD".to_owned(),
+        };
+    }
+
+    pub fn inspect(self) -> InspectReport {
+        inspect_prepared(self)
+    }
+}
+
+#[cfg(test)]
+fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> InspectReport {
+    match InspectionSession::prepare_with(request, policy) {
+        Ok(session) => session.inspect(),
+        Err(report) => *report,
+    }
+}
+
+fn inspect_prepared(session: InspectionSession) -> InspectReport {
+    let InspectionSession {
+        prepared,
+        plan,
+        scope_request,
+        preview_scope,
+    } = session;
+    let cached_preview_matches = matches!(
+        &scope_request,
+        git_scope::ScopeRequest::Files { base } if base == "HEAD"
+    );
+    let scope = match preview_scope.filter(|_| cached_preview_matches) {
+        Some(scope) => scope,
+        None => match git_scope::resolve(&scope_request, prepared.workspace_root()) {
+            Ok(scope) => scope,
+            Err(error) => {
+                return report::preparation_failure(prepared.fail(error), plan.blocking());
+            }
+        },
     };
     if let git_scope::ScopeDetails::Baseline { comparison_base } = scope.details() {
         let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {
