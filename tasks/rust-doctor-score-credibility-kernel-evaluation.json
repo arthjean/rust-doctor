@@ -1,0 +1,314 @@
+{
+  "artifact": "rust-doctor-score-credibility-kernel-evaluation",
+  "schema_version": 1,
+  "epic": "EP-024",
+  "generated_at": "2026-08-03",
+  "network_in_automated_tests": false,
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+  },
+  "compilation_profile": {
+    "profile": "dev",
+    "note": "cargo clippy runs the dev profile. No admitted performance lint reads optimised MIR, so no verdict depends on the optimisation level."
+  },
+  "visibility_note": "clippy::large_types_passed_by_value, clippy::rc_buffer, clippy::redundant_allocation and clippy::rc_mutex only fire on non-exported items: Clippy refuses to propose a signature change on a public API. Their fixtures exercise private items through a public entry point.",
+  "test_context_note": "Whether a panic-pack lint fires inside a Cargo test target is not a property of the lint: it is governed by the scanned workspace's clippy.toml, which Clippy resolves by walking the parent directories. allow-unwrap-in-tests, allow-expect-in-tests, allow-panic-in-tests and allow-print-in-tests each default to false. The panic fixture therefore carries its own clippy.toml so its oracle pins lint behaviour rather than the location of the fixture inside this repository.",
+  "admission_rules": [
+    "A candidate must emit exactly one catalogued diagnostic on its positive fixture.",
+    "A candidate must stay silent on its idiomatic negative fixture and under a local #[allow].",
+    "A candidate must not be denied by default: switching the rule off would otherwise restore Clippy's refusal and break the scan.",
+    "A candidate whose verdict depends on the compilation profile or on a toolchain-specific uplift is rejected and the rejection is traced here."
+  ],
+  "packs": [
+    {
+      "pack": "panic",
+      "story": "US-073",
+      "admitted": [
+        {
+          "id": "clippy::exit",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::expect_used",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::indexing_slicing",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::panic",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::panic_in_result_fn",
+          "category": "correctness",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::print_stderr",
+          "category": "maintainability",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::print_stdout",
+          "category": "maintainability",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::string_slice",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::unreachable",
+          "category": "correctness",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::unwrap_used",
+          "category": "reliability",
+          "tier": "P2",
+          "clippy_default": "allow"
+        }
+      ],
+      "rejected": [
+        {
+          "id": "clippy::unwrap_in_result",
+          "reason_code": "not-observed",
+          "reason": "No diagnostic on the normative toolchain for a Result-returning free function or inherent method containing unwrap(); clippy::string_slice was admitted instead."
+        }
+      ],
+      "oracle": "tests/fixtures/score-credibility/packs/panic/oracle.json",
+      "positive_fixture": "tests/fixtures/score-credibility/packs/panic/src/lib.rs",
+      "negative_fixture": "tests/fixtures/score-credibility/packs/panic/src/negatives.rs"
+    },
+    {
+      "pack": "performance",
+      "story": "US-074",
+      "admitted": [
+        {
+          "id": "clippy::format_collect",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::large_types_passed_by_value",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::manual_memcpy",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::rc_buffer",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::redundant_allocation",
+          "category": "performance",
+          "tier": "P2",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::stable_sort_primitive",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::unnecessary_to_owned",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::useless_vec",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::vec_init_then_push",
+          "category": "performance",
+          "tier": "P3",
+          "clippy_default": "warn"
+        }
+      ],
+      "rejected": [
+        {
+          "id": "clippy::inefficient_to_string",
+          "reason_code": "not-observed",
+          "reason": "No diagnostic on the normative toolchain for to_string() called through a double reference; clippy::useless_vec was admitted instead."
+        },
+        {
+          "id": "clippy::redundant_clone",
+          "reason_code": "profile-dependent",
+          "reason": "Nursery lint whose verdict is computed from optimised MIR, so it depends on the compilation profile; excluded to keep every admitted performance lint stable on the dev profile that cargo clippy runs."
+        }
+      ],
+      "oracle": "tests/fixtures/score-credibility/packs/performance/oracle.json",
+      "positive_fixture": "tests/fixtures/score-credibility/packs/performance/src/lib.rs",
+      "negative_fixture": "tests/fixtures/score-credibility/packs/performance/src/negatives.rs"
+    },
+    {
+      "pack": "concurrency",
+      "story": "US-075",
+      "admitted": [
+        {
+          "id": "clippy::arc_with_non_send_sync",
+          "category": "correctness",
+          "tier": "P1",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::await_holding_lock",
+          "category": "correctness",
+          "tier": "P1",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::await_holding_refcell_ref",
+          "category": "correctness",
+          "tier": "P1",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::mut_mutex_lock",
+          "category": "correctness",
+          "tier": "P2",
+          "clippy_default": "warn"
+        },
+        {
+          "id": "clippy::rc_mutex",
+          "category": "correctness",
+          "tier": "P2",
+          "clippy_default": "allow"
+        },
+        {
+          "id": "clippy::unused_async",
+          "category": "maintainability",
+          "tier": "P3",
+          "clippy_default": "allow"
+        }
+      ],
+      "rejected": [
+        {
+          "id": "clippy::let_underscore_lock",
+          "reason_code": "uplifted",
+          "reason": "Uplifted into rustc: the emitted code is let_underscore_lock, outside the clippy:: namespace the catalogue contracts, and it is denied by default."
+        },
+        {
+          "id": "clippy::async_yields_async",
+          "reason_code": "denied-by-default",
+          "reason": "Denied by default: dropping its -W flag when the policy switches the rule off restores Clippy's refusal and turns the scan into a build failure."
+        },
+        {
+          "id": "clippy::unused_io_amount",
+          "reason_code": "denied-by-default",
+          "reason": "Denied by default: dropping its -W flag when the policy switches the rule off restores Clippy's refusal and turns the scan into a build failure."
+        }
+      ],
+      "oracle": "tests/fixtures/score-credibility/packs/concurrency/oracle.json",
+      "positive_fixture": "tests/fixtures/score-credibility/packs/concurrency/src/lib.rs",
+      "negative_fixture": "tests/fixtures/score-credibility/packs/concurrency/src/negatives.rs"
+    },
+    {
+      "pack": "dependencies",
+      "story": "US-076",
+      "admitted": [
+        {
+          "id": "rust_doctor::cargo::duplicate_major_versions",
+          "category": "dependencies",
+          "tier": "P2",
+          "clippy_default": null
+        },
+        {
+          "id": "rust_doctor::cargo::missing_lockfile",
+          "category": "dependencies",
+          "tier": "P2",
+          "clippy_default": null
+        },
+        {
+          "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+          "category": "dependencies",
+          "tier": "P1",
+          "clippy_default": null
+        }
+      ],
+      "rejected": [],
+      "oracle": null,
+      "positive_fixture": "tests/fixtures/cargo-health/resolution",
+      "negative_fixture": "tests/fixtures/cargo-health/resolution/clean"
+    }
+  ],
+  "self_scan": {
+    "target": "the rust-doctor repository itself",
+    "status": "complete",
+    "score": 90,
+    "label": "Great",
+    "dimensions": {
+      "security": 100,
+      "reliability": 75,
+      "maintainability": 97,
+      "performance": 99,
+      "dependencies": 75
+    },
+    "distinct": 1252,
+    "occurrences": 1554,
+    "occurrences_per_rule": {
+      "clippy::format_collect": 1,
+      "clippy::indexing_slicing": 1518,
+      "clippy::print_stderr": 8,
+      "clippy::print_stdout": 1,
+      "clippy::string_slice": 17,
+      "clippy::unreachable": 7,
+      "rust_doctor::cargo::duplicate_major_versions": 2
+    },
+    "noisiest_rule": {
+      "id": "clippy::indexing_slicing",
+      "occurrences": 1518,
+      "note": "Every occurrence is a true positive under the lint definition, but the volume makes this rule the first candidate the measured precision gate of US-080 should re-examine before the tiers are activated by default."
+    },
+    "concurrency_pack_findings": 0,
+    "dependency_pack_true_positives": [
+      "Crate \"winnow\" is resolved with incompatible major versions 0.7.15, 1.0.4.",
+      "Crate \"rustc-hash\" is resolved with incompatible major versions 1.1.0, 2.1.3."
+    ]
+  },
+  "catalog": {
+    "rules": 40,
+    "clippy_rules": 33,
+    "clippy_lints_available": 815,
+    "rules_per_dimension": {
+      "dependencies": 3,
+      "maintainability": 4,
+      "performance": 9,
+      "reliability": 20,
+      "security": 4
+    }
+  },
+  "verdict": "pass"
+}

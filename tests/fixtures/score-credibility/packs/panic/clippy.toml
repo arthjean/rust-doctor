@@ -1,0 +1,14 @@
+# Contrat d'exemption du pack panique, gouverné par la fixture elle-même.
+#
+# Clippy remonte les répertoires parents jusqu'à trouver une configuration.
+# Sans ce fichier, la fixture hériterait du `clippy.toml` de la racine du dépôt
+# Rust Doctor et l'oracle figerait une propriété de son emplacement au lieu du
+# comportement des lints. Mesuré: la même fixture copiée hors du dépôt émet
+# `unwrap_used` et `expect_used` dans `tests/exemptions.rs`.
+#
+# Les quatre options sont déclarées explicitement, y compris celles à leur
+# valeur par défaut, parce que chacune est l'origine d'un verdict de l'oracle.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = false
+allow-print-in-tests = false

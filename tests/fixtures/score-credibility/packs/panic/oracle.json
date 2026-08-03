@@ -1,0 +1,220 @@
+{
+  "pack": "panic",
+  "story": "US-073",
+  "label": "panique et placeholders",
+  "score": {
+    "value": 94,
+    "dimensions": {
+      "security": 100,
+      "reliability": 75,
+      "maintainability": 97,
+      "performance": 100,
+      "dependencies": 100
+    }
+  },
+  "positive": [
+    {
+      "code": "clippy::unwrap_used",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 13,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::expect_used",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 18,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::panic",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 24,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::unreachable",
+      "category": "correctness",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 33,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::exit",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 40,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::indexing_slicing",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 47,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::string_slice",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 52,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::panic_in_result_fn",
+      "category": "correctness",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 57,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::print_stdout",
+      "category": "maintainability",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 66,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::print_stderr",
+      "category": "maintainability",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 71,
+      "occurrences": 2
+    }
+  ],
+  "negative": [
+    {
+      "marker": "negative_unwrap_used",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_expect_used",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_panic",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unreachable",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_exit",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_indexing_slicing",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_string_slice",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_panic_in_result_fn",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_print_stdout",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_print_stderr",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_allowed_unwrap_used",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_expect_used",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_panic",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unreachable",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_exit",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_indexing_slicing",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_string_slice",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_panic_in_result_fn",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_print_stdout",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_print_stderr",
+      "kind": "allow"
+    }
+  ],
+  "test_context": [
+    {
+      "code": "clippy::panic",
+      "category": "reliability",
+      "tier": "P2",
+      "path": "tests/exemptions.rs",
+      "line": 33,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::print_stdout",
+      "category": "maintainability",
+      "tier": "P3",
+      "path": "tests/exemptions.rs",
+      "line": 39,
+      "occurrences": 1
+    }
+  ],
+  "test_context_configuration": "clippy.toml",
+  "test_context_exemptions": [
+    {
+      "code": "clippy::expect_used",
+      "clippy_option": "allow-expect-in-tests",
+      "exempt_in_cargo_tests": true
+    },
+    {
+      "code": "clippy::panic",
+      "clippy_option": "allow-panic-in-tests",
+      "exempt_in_cargo_tests": false
+    },
+    {
+      "code": "clippy::print_stdout",
+      "clippy_option": "allow-print-in-tests",
+      "exempt_in_cargo_tests": false
+    },
+    {
+      "code": "clippy::unwrap_used",
+      "clippy_option": "allow-unwrap-in-tests",
+      "exempt_in_cargo_tests": true
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "pack": "concurrency",
+  "story": "US-075",
+  "label": "concurrence et asynchrone",
+  "score": {
+    "value": 65,
+    "dimensions": {
+      "security": 100,
+      "reliability": 50,
+      "maintainability": 99,
+      "performance": 100,
+      "dependencies": 100
+    }
+  },
+  "positive": [
+    {
+      "code": "clippy::arc_with_non_send_sync",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 30,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::await_holding_lock",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 36,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::await_holding_refcell_ref",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 42,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::mut_mutex_lock",
+      "category": "correctness",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 49,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::unused_async",
+      "category": "maintainability",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 53,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::rc_mutex",
+      "category": "correctness",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 59,
+      "occurrences": 2
+    }
+  ],
+  "negative": [
+    {
+      "marker": "negative_arc_with_non_send_sync",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_await_holding_lock",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_await_holding_refcell_ref",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_mut_mutex_lock",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unused_async",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_rc_mutex",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_allowed_arc_with_non_send_sync",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_await_holding_lock",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_await_holding_refcell_ref",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_mut_mutex_lock",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unused_async",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_rc_mutex",
+      "kind": "allow"
+    }
+  ],
+  "test_context": []
+}

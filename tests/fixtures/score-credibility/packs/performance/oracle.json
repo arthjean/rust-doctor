@@ -1,0 +1,164 @@
+{
+  "pack": "performance",
+  "story": "US-074",
+  "label": "performance",
+  "score": {
+    "value": 96,
+    "dimensions": {
+      "security": 100,
+      "reliability": 100,
+      "maintainability": 100,
+      "performance": 75,
+      "dependencies": 100
+    }
+  },
+  "positive": [
+    {
+      "code": "clippy::format_collect",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 21,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::manual_memcpy",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 27,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::stable_sort_primitive",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 34,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::unnecessary_to_owned",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 39,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::useless_vec",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 44,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::vec_init_then_push",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 50,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::large_types_passed_by_value",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 57,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::rc_buffer",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 62,
+      "occurrences": 2
+    },
+    {
+      "code": "clippy::redundant_allocation",
+      "category": "performance",
+      "tier": "P2",
+      "path": "src/lib.rs",
+      "line": 67,
+      "occurrences": 2
+    }
+  ],
+  "negative": [
+    {
+      "marker": "negative_format_collect",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_manual_memcpy",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_stable_sort_primitive",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unnecessary_to_owned",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_useless_vec",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_vec_init_then_push",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_large_types_passed_by_value",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_rc_buffer",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_redundant_allocation",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_allowed_format_collect",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_manual_memcpy",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_stable_sort_primitive",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unnecessary_to_owned",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_useless_vec",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_vec_init_then_push",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_large_types_passed_by_value",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_rc_buffer",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_redundant_allocation",
+      "kind": "allow"
+    }
+  ],
+  "test_context": []
+}
