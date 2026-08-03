@@ -3,7 +3,7 @@
     "file": "tasks/prd-rust-doctor-local-cli-experience.md",
     "title": "Rust Doctor - Local CLI Audit Experience",
     "created_at": "2026-08-02",
-    "status": "IN_PROGRESS"
+    "status": "DONE"
   },
   "epics": [
     {
@@ -25,10 +25,10 @@
     {
       "id": "EP-021",
       "title": "Launcher npm local et preuve dogfood",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 3,
-      "stories_done": 0
+      "stories_done": 3
     }
   ],
   "stories": [
@@ -118,44 +118,44 @@
       "id": "US-060",
       "title": "Construire les packages npm locaux",
       "epic": "EP-021",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-057"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T10:02:00+02:00",
+      "completed_at": "2026-08-03T10:18:52+02:00",
+      "reviewed_at": "2026-08-03T11:00:47+02:00"
     },
     {
       "id": "US-061",
       "title": "Garantir le contrat de processus du wrapper",
       "epic": "EP-021",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-060"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T10:02:00+02:00",
+      "completed_at": "2026-08-03T10:18:52+02:00",
+      "reviewed_at": "2026-08-03T11:00:47+02:00"
     },
     {
       "id": "US-062",
       "title": "Dogfooder le tarball sur Rust Doctor",
       "epic": "EP-021",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-059",
         "US-061"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T10:02:00+02:00",
+      "completed_at": "2026-08-03T10:18:52+02:00",
+      "reviewed_at": "2026-08-03T11:00:47+02:00"
     }
   ]
 }
