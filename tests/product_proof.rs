@@ -209,7 +209,7 @@ fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
     assert!(terminal_stdout.contains("Top warning: Needless return"));
     assert!(terminal_stdout.contains("Rule ID: clippy::needless_return"));
     assert!(terminal_stdout.contains("src/lib.rs:4:5"));
-    assert!(terminal_stdout.contains("Rust Doctor score:"));
+    assert!(terminal_stdout.contains("/ 100 "));
 
     let help = binary()
         .arg("--help")

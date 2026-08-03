@@ -166,7 +166,7 @@ function sectionOrder(terminal) {
     "Scanned ",
     "All ",
     "Categories:",
-    "Rust Doctor score:",
+    "┌─────┐",
     "Share:",
     "Docs:",
     "GitHub:",
@@ -322,7 +322,7 @@ function proveCli(installed) {
   assert(/^Scanning Rust files\.\.\.$/mu.test(human.stderr.trim()), "human progress is missing");
   const sections = sectionOrder(human.stdout);
   const scan = human.stdout.match(/Scanned (\d+) files in (\d+\.\d)s/u);
-  const terminalScore = human.stdout.match(/Rust Doctor score: (\d+)\/100 ([A-Za-z ]+)/u);
+  const terminalScore = human.stdout.match(/(\d+) \/ 100 ([A-Za-z ]+)/u);
   assert(scan, "human scan count or one-decimal duration is missing");
   assert(terminalScore, "human score is missing");
 

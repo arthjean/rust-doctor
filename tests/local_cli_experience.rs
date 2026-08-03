@@ -104,7 +104,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
         "Top warning:",
         "All 6 issues",
         "Run with --verbose",
-        "Rust Doctor score:",
+        "┌─────┐",
         "Share:",
         "Docs:",
         "GitHub:",
@@ -129,7 +129,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     let clean = terminal(&["--yes"], &project("clean"));
     assert!(clean.contains("No issues found."));
     assert!(clean.contains("All 0 issues"));
-    assert!(clean.contains("Rust Doctor score: 100/100 Great"));
+    assert!(clean.contains("100 / 100 Great"));
     assert!(!clean.contains("What would you like to do next?"));
 
     let partial = run(&["--yes"], &project("compile-error"));

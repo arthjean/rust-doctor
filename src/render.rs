@@ -10,6 +10,8 @@ use crate::presentation::{DiagnosticGroup, ReportPresentation, code_frame};
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
+mod score_header;
+
 const DEFAULT_WIDTH: usize = 80;
 const MIN_WIDTH: usize = 80;
 const DOCS_URL: &str = "https://rust-doctor.vercel.app/docs";
@@ -59,6 +61,9 @@ pub struct TerminalOptions<'a> {
     pub verbose: bool,
     pub width: usize,
     pub color: bool,
+    /// Autorise l'animation du bloc de score. Réservé à un vrai terminal
+    /// interactif: toute sortie capturée doit rester déterministe.
+    pub animate: bool,
 }
 
 impl<'a> TerminalOptions<'a> {
@@ -69,6 +74,7 @@ impl<'a> TerminalOptions<'a> {
             verbose: false,
             width: DEFAULT_WIDTH,
             color: false,
+            animate: false,
         }
     }
 
@@ -458,18 +464,28 @@ fn render_score<W: Write>(
     } else {
         "Core partial"
     };
-    let filled = usize::from(score.value) * 20 / 100;
-    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(20 - filled));
-    line(
+    let drawn = score_header::render(
         writer,
-        &format!("Rust Doctor score: {}/100 {label} [{bar}]", score.value),
+        score.value,
+        score.label,
+        score.authoritative,
+        report.status != Status::Failed,
         options,
-        if score.authoritative {
-            Style::Success
-        } else {
-            Style::Warning
-        },
     )?;
+    if !drawn {
+        let filled = usize::from(score.value) * 20 / 100;
+        let bar = format!("{}{}", "█".repeat(filled), "░".repeat(20 - filled));
+        line(
+            writer,
+            &format!("Rust Doctor score: {}/100 {label} [{bar}]", score.value),
+            options,
+            if score.authoritative {
+                Style::Success
+            } else {
+                Style::Warning
+            },
+        )?;
+    }
     if !score.authoritative {
         line(
             writer,
@@ -662,6 +678,7 @@ mod tests {
                 verbose,
                 width,
                 color,
+                animate: false,
             },
         )
         .unwrap();
@@ -708,7 +725,9 @@ mod tests {
             "All 1 issues",
             "Bugs:",
             "Run with --verbose",
-            "Rust Doctor score:",
+            // Bordure haute du bloc de score: le marqueur stable de la section
+            // depuis que la valeur se lit `N / 100 Label`.
+            "┌─────┐",
             "Share:",
             "Docs:",
             "GitHub:",
@@ -732,13 +751,10 @@ mod tests {
             let colored = rendered(&report(), width, true, false);
             assert!(colored.contains("\u{1b}["));
             for line in colored.lines() {
-                let visible = line
-                    .replace("\u{1b}[1m", "")
-                    .replace("\u{1b}[2m", "")
-                    .replace("\u{1b}[32m", "")
-                    .replace("\u{1b}[33m", "")
-                    .replace("\u{1b}[36m", "")
-                    .replace("\u{1b}[0m", "");
+                // `sanitize` retire toute séquence d'échappement, y compris le
+                // truecolor de la barre d'un score parfait, que la liste de
+                // codes en dur d'origine ne couvrait pas.
+                let visible = sanitize(line);
                 assert!(display_width(&visible) <= width, "{visible}");
             }
         }
@@ -788,7 +804,7 @@ mod tests {
         assert_eq!(score.projected_after_top_three, Some(score.value));
         assert!(!score.projected_rule_ids.is_empty());
         let output = rendered(&flat, 80, false, false);
-        assert!(output.contains("Rust Doctor score:"));
+        assert!(output.contains("100 / 100 Great"));
         assert!(!output.contains("projected"));
 
         let mut raising = report();

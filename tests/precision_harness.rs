@@ -249,6 +249,7 @@ fn one_inspection_drives_json_and_terminal_for_the_same_diagnostics() {
             verbose: true,
             width: 140,
             color: false,
+            animate: false,
         },
     )
     .expect("terminal rendering should succeed");

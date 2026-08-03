@@ -269,6 +269,12 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
                     env::var_os("NO_COLOR").as_deref(),
                     term.as_deref(),
                 ),
+                animate: terminal_animation_enabled(
+                    stdout_is_terminal,
+                    env::var_os("NO_COLOR").as_deref(),
+                    term.as_deref(),
+                    env::var_os("CI").as_deref(),
+                ),
             },
         )
     };
@@ -451,6 +457,18 @@ fn terminal_color_enabled(
     term: Option<&OsStr>,
 ) -> bool {
     stdout_is_terminal && no_color.is_none() && term != Some(OsStr::new("dumb"))
+}
+
+/// L'animation du score exige tout ce qu'exige la couleur, et en plus une
+/// session hors CI: un runner capture la sortie, où les frames intermédiaires
+/// ne seraient que du bruit.
+fn terminal_animation_enabled(
+    stdout_is_terminal: bool,
+    no_color: Option<&OsStr>,
+    term: Option<&OsStr>,
+    ci: Option<&OsStr>,
+) -> bool {
+    terminal_color_enabled(stdout_is_terminal, no_color, term) && ci.is_none()
 }
 
 fn bounded_stderr(message: &str) {

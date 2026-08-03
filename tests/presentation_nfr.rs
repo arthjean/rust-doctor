@@ -145,6 +145,7 @@ fn presentation_pipeline(report: &mut InspectReport) {
             verbose: false,
             width: 100,
             color: false,
+            animate: false,
         },
     )
     .expect("static rendering should succeed");
