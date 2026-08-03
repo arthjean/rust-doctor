@@ -405,6 +405,29 @@ mod tty {
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
+    fn assert_handoff_contract(
+        command: Command,
+        selection: &[u8],
+        capture: &Path,
+        workspace: &Path,
+    ) {
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("What would you like to do next?");
+        assert!(!String::from_utf8_lossy(&process.output).contains("Choose what to scan"));
+        process.send(selection);
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert_eq!(fs::read_to_string(capture.join("argc")).unwrap(), "1");
+        let payload = fs::read(capture.join("payload")).unwrap();
+        assert!(payload.len() <= 12 * 1024);
+        assert!(String::from_utf8_lossy(&payload).contains("Validate with:"));
+        assert_eq!(fs::read_to_string(capture.join("tty")).unwrap(), "yyy");
+        assert_eq!(
+            PathBuf::from(fs::read_to_string(capture.join("cwd")).unwrap().trim()),
+            workspace.canonicalize().unwrap()
+        );
+    }
+
     #[test]
     fn escape_q_and_ctrl_c_cancel_scope_selection_before_scan_with_exit_130() {
         for (name, input) in [
@@ -464,21 +487,44 @@ mod tty {
             .args(["--scope", "full"])
             .env("PATH", path)
             .env("RD_HANDOFF_CAPTURE", &capture);
-        let mut process = PtyProcess::spawn(command);
-        process.wait_for("What would you like to do next?");
-        assert!(!String::from_utf8_lossy(&process.output).contains("Choose what to scan"));
-        process.send(b"\x1b[B\r");
-        let (status, output) = process.wait();
-        assert_eq!(status.code(), Some(0), "{output}");
-        assert_eq!(fs::read_to_string(capture.join("argc")).unwrap(), "1");
-        let payload = fs::read(capture.join("payload")).unwrap();
-        assert!(payload.len() <= 12 * 1024);
-        assert!(String::from_utf8_lossy(&payload).contains("Validate with:"));
-        assert_eq!(fs::read_to_string(capture.join("tty")).unwrap(), "yyy");
-        assert_eq!(
-            PathBuf::from(fs::read_to_string(capture.join("cwd")).unwrap().trim()),
-            kernel("todo").canonicalize().unwrap()
-        );
+        assert_handoff_contract(command, b"\x1b[B\r", &capture, &kernel("todo"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn packed_wrapper_tty_handoff_contract_when_requested() {
+        let Some(wrapper) = env::var_os("RD_PACKED_WRAPPER") else {
+            return;
+        };
+        let controlled_path = PathBuf::from(
+            env::var_os("RD_PACKED_CONTROLLED_BIN")
+                .expect("packed TTY proof requires its controlled bin directory"),
+        );
+        let capture = PathBuf::from(
+            env::var_os("RD_PACKED_CAPTURE")
+                .expect("packed TTY proof requires its capture directory"),
+        );
+        fs::create_dir_all(&capture).unwrap();
+        write_agent(&controlled_path.join("codex"));
+        let path = env::join_paths([
+            controlled_path,
+            PathBuf::from("/usr/bin"),
+            PathBuf::from("/bin"),
+        ])
+        .unwrap();
+
+        let mut command = Command::new(wrapper);
+        command
+            .arg(kernel("todo"))
+            .args(["--scope", "full"])
+            .env("PATH", path)
+            .env("RD_HANDOFF_CAPTURE", &capture)
+            .env("CARGO_NET_OFFLINE", "true")
+            .env(
+                "CARGO_TARGET_DIR",
+                env::var_os("RD_PACKED_SCAN_TARGET")
+                    .expect("packed TTY proof requires an external Cargo target"),
+            );
+        assert_handoff_contract(command, b"\r", &capture, &kernel("todo"));
     }
 }

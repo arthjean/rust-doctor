@@ -27,6 +27,7 @@
     "@rust-doctor/win32-x64": "0.1.0"
   },
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "smoke:packed": "bun scripts/smoke-packed.mjs"
   }
 }
