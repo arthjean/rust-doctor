@@ -478,7 +478,10 @@ fn render_score<W: Write>(
             Style::Warning,
         )?;
     }
-    if let Some(projected) = score.projected_after_top_three {
+    if let Some(projected) = score
+        .projected_after_top_three
+        .filter(|projected| *projected > score.value)
+    {
         line(
             writer,
             &format!(
@@ -776,6 +779,25 @@ mod tests {
         let output = rendered(&partial, 80, false, false);
         assert!(output.contains("Score unavailable: no Rust files were analyzed."));
         assert!(!output.contains("Share:"));
+    }
+
+    #[test]
+    fn projection_is_rendered_only_when_it_raises_the_score() {
+        let mut flat = report();
+        let score = flat.audit.score.as_mut().unwrap();
+        assert_eq!(score.projected_after_top_three, Some(score.value));
+        assert!(!score.projected_rule_ids.is_empty());
+        let output = rendered(&flat, 80, false, false);
+        assert!(output.contains("Rust Doctor score:"));
+        assert!(!output.contains("projected"));
+
+        let mut raising = report();
+        let score = raising.audit.score.as_mut().unwrap();
+        score.value = 90;
+        score.label = crate::audit::score_label(90);
+        score.projected_after_top_three = Some(95);
+        let output = rendered(&raising, 80, false, false);
+        assert!(output.contains("to reach a projected 95/100"));
     }
 
     #[test]
