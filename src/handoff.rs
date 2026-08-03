@@ -264,7 +264,8 @@ impl<'a> RelativeLocation<'a> {
         let path = Path::new(value);
         if value.is_empty()
             || value.chars().any(char::is_control)
-            || value.starts_with("\\\\")
+            || value.contains('\\')
+            || has_windows_drive_prefix(value)
             || path.is_absolute()
             || path
                 .components()
@@ -278,6 +279,14 @@ impl<'a> RelativeLocation<'a> {
     const fn as_str(&self) -> &'a str {
         self.0
     }
+}
+
+fn has_windows_drive_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -690,13 +699,20 @@ mod tests {
             Err(HandoffError::UnsafePayload)
         );
 
-        let mut hostile_presentation = presentation;
-        hostile_presentation.groups[0].diagnostics[0].path =
-            Some("/home/private/source.rs".to_owned());
-        assert_eq!(
-            build_prompt(&report, &hostile_presentation, &rescan_command()),
-            Err(HandoffError::UnsafePayload)
-        );
+        for hostile_path in [
+            "/home/private/source.rs",
+            "C:/private/source.rs",
+            "C:\\private\\source.rs",
+            "src\\private.rs",
+        ] {
+            let mut hostile_presentation = presentation.clone();
+            hostile_presentation.groups[0].diagnostics[0].path = Some(hostile_path.to_owned());
+            assert_eq!(
+                build_prompt(&report, &hostile_presentation, &rescan_command()),
+                Err(HandoffError::UnsafePayload),
+                "{hostile_path}"
+            );
+        }
 
         let mut oversized = ReportPresentation::derive(&report);
         oversized.groups[0].diagnostics[0].path =
