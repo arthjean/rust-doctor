@@ -8,6 +8,7 @@
 /tests/fixtures/configuration-kernel/workspace/Cargo.lock
 /tests/fixtures/configuration-kernel/workspace/target/
 /tests/fixtures/rule-scaling-kernel/*/target/
+/tests/fixtures/score-credibility/*/target/
 /npm/rust-doctor/node_modules/
 /npm/rust-doctor/*.tgz
 /.claude/
