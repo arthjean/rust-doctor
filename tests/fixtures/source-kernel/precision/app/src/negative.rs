@@ -71,8 +71,38 @@ pub fn tls_argument_missing() {
     let _ = http_client::Client::builder().tls_danger_accept_invalid_certs();
 }
 
-pub fn shell_import(user: &str) {
-    use std::process::Command;
+mod local_process {
+    pub struct Command;
+
+    impl Command {
+        pub fn new(_program: &str) -> Self {
+            Self
+        }
+
+        pub fn arg(self, _argument: impl AsRef<str>) -> Self {
+            self
+        }
+    }
+}
+
+pub fn shell_glob_provenance(user: &str) {
+    use local_process::*;
+
+    let _ = Command::new("sh").arg("-c").arg(format!("echo {user}"));
+}
+
+pub fn shell_local_type(user: &str) {
+    struct Command;
+
+    impl Command {
+        fn new(_program: &str) -> Self {
+            Self
+        }
+
+        fn arg(self, _argument: impl AsRef<str>) -> Self {
+            self
+        }
+    }
 
     let _ = Command::new("sh").arg("-c").arg(format!("echo {user}"));
 }

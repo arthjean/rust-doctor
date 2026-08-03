@@ -102,20 +102,20 @@ fn native_source_findings_join_the_existing_v3_report() {
     );
 
     let native = source_findings(&report);
-    assert_eq!(native.len(), 10, "{:?}", report.diagnostics);
+    assert_eq!(native.len(), 13, "{:?}", report.diagnostics);
     assert_eq!(
         native
             .iter()
             .filter(|diagnostic| diagnostic.code.as_deref() == Some(TLS))
             .count(),
-        5
+        7
     );
     assert_eq!(
         native
             .iter()
             .filter(|diagnostic| diagnostic.code.as_deref() == Some(SHELL))
             .count(),
-        5
+        6
     );
     assert!(native.iter().all(|diagnostic| {
         diagnostic.id.len() == 64

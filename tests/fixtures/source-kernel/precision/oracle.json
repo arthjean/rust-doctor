@@ -1,7 +1,7 @@
 {
   "positive_counts": {
-    "rust_doctor::source::disabled_tls_verification": 5,
-    "rust_doctor::source::dynamic_shell_command": 5
+    "rust_doctor::source::disabled_tls_verification": 7,
+    "rust_doctor::source::dynamic_shell_command": 6
   },
   "findings": [
     {
@@ -21,33 +21,48 @@
     },
     {
       "code": "rust_doctor::source::disabled_tls_verification",
-      "path": "app/src/positives.rs",
-      "span": { "line_start": 2, "column_start": 100, "line_end": 2, "column_end": 104 }
+      "path": "app/src/nested.rs",
+      "span": { "line_start": 12, "column_start": 68, "line_end": 12, "column_end": 72 }
     },
     {
       "code": "rust_doctor::source::disabled_tls_verification",
       "path": "app/src/positives.rs",
-      "span": { "line_start": 7, "column_start": 42, "line_end": 7, "column_end": 46 }
+      "span": { "line_start": 5, "column_start": 100, "line_end": 5, "column_end": 104 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 10, "column_start": 42, "line_end": 10, "column_end": 46 }
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
       "path": "app/src/positives.rs",
-      "span": { "line_start": 13, "column_start": 14, "line_end": 13, "column_end": 36 }
+      "span": { "line_start": 16, "column_start": 14, "line_end": 16, "column_end": 36 }
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
       "path": "app/src/positives.rs",
-      "span": { "line_start": 19, "column_start": 14, "line_end": 19, "column_end": 33 }
+      "span": { "line_start": 22, "column_start": 14, "line_end": 22, "column_end": 33 }
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
       "path": "app/src/positives.rs",
-      "span": { "line_start": 25, "column_start": 14, "line_end": 25, "column_end": 39 }
+      "span": { "line_start": 28, "column_start": 14, "line_end": 28, "column_end": 39 }
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
       "path": "app/src/positives.rs",
-      "span": { "line_start": 31, "column_start": 14, "line_end": 31, "column_end": 42 }
+      "span": { "line_start": 34, "column_start": 14, "line_end": 34, "column_end": 42 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 48, "column_start": 59, "line_end": 48, "column_end": 63 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 52, "column_start": 46, "line_end": 52, "column_end": 68 }
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
@@ -55,6 +70,15 @@
       "span": { "line_start": 2, "column_start": 80, "line_end": 2, "column_end": 102 }
     }
   ],
+  "imported_forms": {
+    "rust_doctor::source::disabled_tls_verification": [
+      { "case": "renamed-import", "workspace": "precision", "path": "app/src/nested.rs", "symbol": "imported_builder" },
+      { "case": "plain-import", "workspace": "precision", "path": "app/src/positives.rs", "symbol": "tls_imported_client" }
+    ],
+    "rust_doctor::source::dynamic_shell_command": [
+      { "case": "nested-group-import", "workspace": "precision", "path": "app/src/positives.rs", "symbol": "shell_imported_command" }
+    ]
+  },
   "negative_cases": {
     "rust_doctor::source::disabled_tls_verification": [
       { "case": "false", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_false" },
@@ -73,7 +97,8 @@
       { "case": "glob-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_glob_shadow" }
     ],
     "rust_doctor::source::dynamic_shell_command": [
-      { "case": "import", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_import" },
+      { "case": "glob-provenance", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_glob_provenance" },
+      { "case": "local-type", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_local_type" },
       { "case": "variable-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_variable_builder" },
       { "case": "args", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_args" },
       { "case": "literal-payload", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_literal" },

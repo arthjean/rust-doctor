@@ -1,3 +1,6 @@
+use http_client::Client;
+use std::{io::Write, process::Command};
+
 pub fn tls_current_hostname() {
     let _ = "sécurité"; let _ = http_client::Client::builder().tls_danger_accept_invalid_hostnames(true);
 }
@@ -39,4 +42,16 @@ pub fn unrelated_local_alias() {
     use sibling_scope as http_client;
 
     let _ = http_client::Marker;
+}
+
+pub fn tls_imported_client() {
+    let _ = Client::builder().danger_accept_invalid_certs(true);
+}
+
+pub fn shell_imported_command(user: &str) {
+    let _ = Command::new("sh").arg("-c").arg(format!("echo {user}"));
+}
+
+pub fn write_report(buffer: &mut Vec<u8>) -> std::io::Result<()> {
+    buffer.write_all(b"report")
 }

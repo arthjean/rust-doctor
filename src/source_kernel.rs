@@ -3,11 +3,17 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-use cargo_metadata::{Metadata, Package};
-use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, HasName, LiteralKind};
-use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxNode, TextRange};
+use cargo_metadata::Metadata;
+use ra_ap_syntax::ast::{self, HasAttrs, HasName, LiteralKind};
+use ra_ap_syntax::{AstNode, Edition, SourceFile, TextRange};
 
-use crate::policy::{PolicyPlan, RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
+use crate::policy::{PolicyPlan, RuleDefinition};
+
+mod aliases;
+mod detectors;
+
+use aliases::AliasMap;
+use detectors::{CrateAliases, DETECTORS, Detection, Detector};
 
 const FILE_BYTES_LIMIT: u64 = 8_388_608;
 const TOTAL_BYTES_LIMIT: u64 = 268_435_456;
@@ -51,8 +57,17 @@ pub(crate) struct SourceCounters {
     pub(crate) files_read: usize,
     pub(crate) files_parsed: usize,
     pub(crate) bytes_read: u64,
-    pub(crate) disabled_tls_predicates: usize,
-    pub(crate) dynamic_shell_predicates: usize,
+    pub(crate) nodes_visited: usize,
+    /// Sollicitations par règle. Le registre porte N détecteurs, donc le
+    /// compteur est indexé par identifiant plutôt que par champ nommé.
+    pub(crate) predicates: BTreeMap<&'static str, usize>,
+}
+
+impl SourceCounters {
+    #[cfg(test)]
+    fn solicitations(&self, id: &str) -> usize {
+        self.predicates.get(id).copied().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -61,6 +76,7 @@ struct Limits {
     total_bytes: u64,
     units: usize,
     module_depth: usize,
+    alias_bindings: usize,
 }
 
 const LIMITS: Limits = Limits {
@@ -68,6 +84,7 @@ const LIMITS: Limits = Limits {
     total_bytes: TOTAL_BYTES_LIMIT,
     units: UNIT_LIMIT,
     module_depth: MODULE_DEPTH_LIMIT,
+    alias_bindings: aliases::BINDING_LIMIT,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,13 +93,16 @@ struct Identity {
     edition: Edition,
 }
 
+/// Identité de l'atteinte d'une unité. Elle ne porte que l'identité du paquet
+/// et de la cible: les alias de crates vivent dans une table indexée par
+/// paquet, donc ajouter un détecteur visant une autre crate n'élargit pas
+/// cette structure partagée.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Reachability {
     package_id: String,
     package_name: String,
     target_key: String,
     target_name: String,
-    reqwest_alias: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -122,9 +142,12 @@ fn inspect_with_limits_for_plan(
     limits: Limits,
     plan: &PolicyPlan,
 ) -> SourceScan {
-    let disabled_tls = plan.is_active(SOURCE_DISABLED_TLS.id);
-    let dynamic_shell = plan.is_active(SOURCE_DYNAMIC_SHELL.id);
-    if !disabled_tls && !dynamic_shell {
+    let detectors: Vec<&'static Detector> = DETECTORS
+        .iter()
+        .copied()
+        .filter(|detector| plan.is_active(detector.definition.id))
+        .collect();
+    if detectors.is_empty() {
         return SourceScan::default();
     }
 
@@ -224,14 +247,17 @@ fn inspect_with_limits_for_plan(
         queue.extend(requests);
     }
 
+    let tables = crate_alias_tables(metadata);
     let mut candidates = BTreeMap::<CandidateKey, Candidate>::new();
     for unit in units.values() {
         analyze_unit(
             unit,
+            &detectors,
+            &tables,
+            &limits,
             &mut candidates,
-            disabled_tls,
-            dynamic_shell,
             &mut counters,
+            &mut errors,
         );
     }
     errors.sort();
@@ -262,7 +288,6 @@ fn source_roots(metadata: &Metadata, errors: &mut Vec<SourceError>) -> BTreeSet<
             );
             continue;
         };
-        let reqwest_alias = reqwest_alias(package);
         for (target_index, target) in package.targets.iter().enumerate() {
             let path = target.src_path.as_std_path().to_path_buf();
             let module_directory = path
@@ -278,7 +303,6 @@ fn source_roots(metadata: &Metadata, errors: &mut Vec<SourceError>) -> BTreeSet<
                     package_name: package.name.to_string(),
                     target_key: format!("{}:{target_index}", package.id.repr),
                     target_name: target.name.clone(),
-                    reqwest_alias: reqwest_alias.clone(),
                 },
                 depth: 0,
             });
@@ -287,24 +311,13 @@ fn source_roots(metadata: &Metadata, errors: &mut Vec<SourceError>) -> BTreeSet<
     roots
 }
 
-fn reqwest_alias(package: &Package) -> Option<String> {
-    let aliases: BTreeSet<_> = package
-        .dependencies
+fn crate_alias_tables(metadata: &Metadata) -> BTreeMap<String, CrateAliases> {
+    metadata
+        .packages
         .iter()
-        .filter(|dependency| dependency.name == "reqwest")
-        .map(|dependency| {
-            dependency
-                .rename
-                .as_deref()
-                .unwrap_or(&dependency.name)
-                .replace('-', "_")
-        })
-        .collect();
-    if aliases.len() == 1 {
-        aliases.into_iter().next()
-    } else {
-        None
-    }
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+        .map(|package| (package.id.repr.clone(), detectors::crate_aliases(package)))
+        .collect()
 }
 
 fn syntax_edition(edition: &str) -> Option<Edition> {
@@ -573,170 +586,57 @@ fn module_directory_for_file(path: &Path) -> PathBuf {
     }
 }
 
+/// Parcourt le CST une seule fois et sollicite chaque détecteur actif sur les
+/// nœuds du type qu'il a déclaré.
 fn analyze_unit(
     unit: &SourceUnit,
+    detectors: &[&'static Detector],
+    tables: &BTreeMap<String, CrateAliases>,
+    limits: &Limits,
     candidates: &mut BTreeMap<CandidateKey, Candidate>,
-    disabled_tls: bool,
-    dynamic_shell: bool,
     counters: &mut SourceCounters,
+    errors: &mut Vec<SourceError>,
 ) {
     let tree = unit.parse.tree();
-    let package = unique_package(&unit.reachability);
-    let target = unique_target(&unit.reachability);
-    let line_starts = line_starts(&unit.source);
+    let aliases = AliasMap::build(&tree, &unit.error_ranges, limits.alias_bindings);
+    if aliases.saturated() {
+        push_limit_error(errors, "alias-bindings", limits.alias_bindings);
+    }
+    let crates = detectors::shared_crate_aliases(
+        unit.reachability
+            .iter()
+            .map(|reach| tables.get(&reach.package_id)),
+    );
+    let context = detectors::Context {
+        aliases: &aliases,
+        crates: &crates,
+        error_ranges: &unit.error_ranges,
+        edition: unit.edition,
+        test_path: path_contains_tests_segment(&unit.relative_path),
+    };
+    let emitter = Emitter {
+        package: unique_package(&unit.reachability),
+        target: unique_target(&unit.reachability),
+        path: &unit.relative_path,
+        line_starts: line_starts(&unit.source),
+        source: &unit.source,
+    };
 
-    if disabled_tls
-        && !path_contains_tests_segment(&unit.relative_path)
-        && let Some(alias) = shared_reqwest_alias(&unit.reachability)
-    {
-        for call in tree
-            .syntax()
-            .descendants()
-            .filter_map(ast::MethodCallExpr::cast)
+    for node in tree.syntax().descendants() {
+        counters.nodes_visited += 1;
+        for detector in detectors
+            .iter()
+            .filter(|detector| detector.node == node.kind())
         {
-            counters.disabled_tls_predicates += 1;
-            let Some((message, range)) = tls_match(&call, &alias, &unit.error_ranges) else {
-                continue;
-            };
-            if excluded_test_context(&call) || alias_shadowed(&call, &alias) {
-                continue;
+            *counters
+                .predicates
+                .entry(detector.definition.id)
+                .or_default() += 1;
+            if let Some(detection) = (detector.inspect)(&context, &node) {
+                emitter.insert(candidates, detector.definition, &detection);
             }
-            insert_candidate(
-                candidates,
-                &SOURCE_DISABLED_TLS,
-                message,
-                package.clone(),
-                target.clone(),
-                &unit.relative_path,
-                range,
-                &line_starts,
-                &unit.source,
-            );
         }
     }
-
-    if dynamic_shell {
-        for call in tree
-            .syntax()
-            .descendants()
-            .filter_map(ast::MethodCallExpr::cast)
-        {
-            counters.dynamic_shell_predicates += 1;
-            let Some(range) = shell_match(&call, &unit.error_ranges, unit.edition) else {
-                continue;
-            };
-            insert_candidate(
-                candidates,
-                &SOURCE_DYNAMIC_SHELL,
-                "A dynamic value is interpolated into a shell command string.",
-                package.clone(),
-                target.clone(),
-                &unit.relative_path,
-                range,
-                &line_starts,
-                &unit.source,
-            );
-        }
-    }
-}
-
-fn tls_match(
-    call: &ast::MethodCallExpr,
-    alias: &str,
-    error_ranges: &[TextRange],
-) -> Option<(&'static str, TextRange)> {
-    let method = call.name_ref()?.text().to_string();
-    let message = match method.as_str() {
-        "tls_danger_accept_invalid_certs" | "danger_accept_invalid_certs" => {
-            "Reqwest client builder disables TLS certificate verification."
-        }
-        "tls_danger_accept_invalid_hostnames" | "danger_accept_invalid_hostnames" => {
-            "Reqwest client builder disables TLS hostname verification."
-        }
-        _ => return None,
-    };
-    let argument = only_argument(call.arg_list()?)?;
-    if !literal_bool(&argument, true) {
-        return None;
-    }
-
-    let mut receiver = call.receiver()?;
-    while let ast::Expr::MethodCallExpr(method_call) = receiver {
-        receiver = method_call.receiver()?;
-    }
-    let ast::Expr::CallExpr(builder) = receiver else {
-        return None;
-    };
-    if builder.arg_list()?.args().next().is_some() {
-        return None;
-    }
-    let callee = builder.expr()?;
-    let path = compact(callee.syntax());
-    let async_builder = format!("{alias}::Client::builder");
-    let blocking_builder = format!("{alias}::blocking::Client::builder");
-    if path != async_builder && path != blocking_builder {
-        return None;
-    }
-    if intersects_errors(call.syntax().text_range(), error_ranges) {
-        return None;
-    }
-    Some((message, argument.syntax().text_range()))
-}
-
-fn shell_match(
-    call: &ast::MethodCallExpr,
-    error_ranges: &[TextRange],
-    edition: Edition,
-) -> Option<TextRange> {
-    if call.name_ref()?.text() != "arg" {
-        return None;
-    }
-    let payload = only_argument(call.arg_list()?)?;
-    if !dynamic_payload(&payload, edition) {
-        return None;
-    }
-    let ast::Expr::MethodCallExpr(shell_arg) = call.receiver()? else {
-        return None;
-    };
-    if shell_arg.name_ref()?.text() != "arg"
-        || only_argument(shell_arg.arg_list()?)
-            .and_then(literal_string)
-            .as_deref()
-            != Some("-c")
-    {
-        return None;
-    }
-    let ast::Expr::CallExpr(command) = shell_arg.receiver()? else {
-        return None;
-    };
-    if compact(command.expr()?.syntax()) != "std::process::Command::new" {
-        return None;
-    }
-    let shell = only_argument(command.arg_list()?).and_then(literal_string)?;
-    if !matches!(shell.as_str(), "sh" | "bash" | "dash" | "zsh") {
-        return None;
-    }
-    if intersects_errors(call.syntax().text_range(), error_ranges) {
-        return None;
-    }
-    Some(payload.syntax().text_range())
-}
-
-fn only_argument(arguments: ast::ArgList) -> Option<ast::Expr> {
-    let mut arguments = arguments.args();
-    let argument = arguments.next()?;
-    if arguments.next().is_some() {
-        None
-    } else {
-        Some(argument)
-    }
-}
-
-fn literal_bool(expression: &ast::Expr, expected: bool) -> bool {
-    matches!(
-        expression,
-        ast::Expr::Literal(literal) if literal.kind() == LiteralKind::Bool(expected)
-    )
 }
 
 fn literal_string(expression: ast::Expr) -> Option<String> {
@@ -749,359 +649,49 @@ fn literal_string(expression: ast::Expr) -> Option<String> {
     string.value().ok().map(|value| value.into_owned())
 }
 
-fn strip_wrappers(mut expression: ast::Expr) -> ast::Expr {
-    loop {
-        expression = match expression {
-            ast::Expr::ParenExpr(paren) => match paren.expr() {
-                Some(inner) => inner,
-                None => return ast::Expr::ParenExpr(paren),
-            },
-            ast::Expr::RefExpr(reference) => match reference.expr() {
-                Some(inner) => inner,
-                None => return ast::Expr::RefExpr(reference),
-            },
-            expression => return expression,
-        };
-    }
-}
-
-fn dynamic_payload(expression: &ast::Expr, edition: Edition) -> bool {
-    let expression = strip_wrappers(expression.clone());
-    match expression {
-        ast::Expr::BinExpr(binary) => {
-            binary.op_kind() == Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add))
-                && [binary.lhs(), binary.rhs()]
-                    .into_iter()
-                    .flatten()
-                    .any(|operand| concat_operand_dynamic(&operand))
-        }
-        ast::Expr::MacroExpr(macro_expression) => macro_expression
-            .macro_call()
-            .is_some_and(|call| format_macro_dynamic(&call, edition)),
-        _ => false,
-    }
-}
-
-fn concat_operand_dynamic(expression: &ast::Expr) -> bool {
-    let expression = strip_wrappers(expression.clone());
-    match expression {
-        ast::Expr::BinExpr(binary)
-            if binary.op_kind() == Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) =>
-        {
-            [binary.lhs(), binary.rhs()]
-                .into_iter()
-                .flatten()
-                .any(|operand| concat_operand_dynamic(&operand))
-        }
-        ast::Expr::Literal(_) => false,
-        _ => true,
-    }
-}
-
-fn format_macro_dynamic(call: &ast::MacroCall, edition: Edition) -> bool {
-    let Some(path) = call.path() else {
-        return false;
-    };
-    if compact(path.syntax()) != "format" {
-        return false;
-    }
-    let Some(token_tree) = call.token_tree() else {
-        return false;
-    };
-    let arguments = token_tree_arguments(token_tree.syntax());
-    let Some((format_literal, values)) = arguments.split_first() else {
-        return false;
-    };
-    let Some(format_expression) = parsed_expression(format_literal, edition) else {
-        return false;
-    };
-    let Some(format_text) = literal_string(format_expression) else {
-        return false;
-    };
-    let fields = format_fields(&format_text);
-    if fields.is_empty() {
-        return false;
-    }
-
-    let mut positional = Vec::new();
-    let mut named = BTreeMap::new();
-    for value in values {
-        if let Some((name, expression)) = named_format_argument(value) {
-            named.insert(name, expression_is_literal(expression, edition));
-        } else {
-            positional.push(expression_is_literal(value, edition));
-        }
-    }
-    let mut next_position = 0;
-    fields.into_iter().any(|field| {
-        let field = field.split(':').next().unwrap_or_default();
-        if field.is_empty() {
-            let literal = positional.get(next_position).copied().unwrap_or(true);
-            next_position += 1;
-            !literal
-        } else if let Ok(index) = field.parse::<usize>() {
-            !positional.get(index).copied().unwrap_or(true)
-        } else {
-            !named.get(field).copied().unwrap_or(false)
-        }
-    })
-}
-
-fn token_tree_arguments(tree: &SyntaxNode) -> Vec<String> {
-    let mut arguments = vec![String::new()];
-    for element in tree.children_with_tokens() {
-        if element
-            .as_token()
-            .is_some_and(|token| matches!(token.text(), "(" | ")" | "[" | "]" | "{" | "}"))
-        {
-            continue;
-        }
-        if element.as_token().is_some_and(|token| token.text() == ",") {
-            arguments.push(String::new());
-            continue;
-        }
-        if element.kind().is_trivia() {
-            continue;
-        }
-        if let Some(argument) = arguments.last_mut() {
-            argument.push_str(&element.to_string());
-        }
-    }
-    arguments
-        .into_iter()
-        .filter(|argument| !argument.is_empty())
-        .collect()
-}
-
-fn named_format_argument(argument: &str) -> Option<(&str, &str)> {
-    let (name, expression) = argument.split_once('=')?;
-    if !name.is_empty()
-        && !expression.starts_with('=')
-        && name
-            .chars()
-            .all(|character| character == '_' || character.is_alphanumeric())
-    {
-        Some((name, expression))
-    } else {
-        None
-    }
-}
-
-fn expression_is_literal(expression: &str, edition: Edition) -> bool {
-    parsed_expression(expression, edition)
-        .is_some_and(|expression| matches!(strip_wrappers(expression), ast::Expr::Literal(_)))
-}
-
-fn parsed_expression(expression: &str, edition: Edition) -> Option<ast::Expr> {
-    let parse = ast::Expr::parse(expression, edition);
-    if parse.errors().is_empty() {
-        ast::Expr::cast(parse.syntax_node())
-    } else {
-        None
-    }
-}
-
-fn format_fields(format: &str) -> Vec<String> {
-    let mut fields = Vec::new();
-    let mut characters = format.char_indices().peekable();
-    while let Some((_, character)) = characters.next() {
-        if character != '{' {
-            continue;
-        }
-        if characters.peek().is_some_and(|(_, next)| *next == '{') {
-            characters.next();
-            continue;
-        }
-        let mut field = String::new();
-        for (_, character) in characters.by_ref() {
-            if character == '}' {
-                fields.push(field);
-                break;
-            }
-            field.push(character);
-        }
-    }
-    fields
-}
-
-fn excluded_test_context(call: &ast::MethodCallExpr) -> bool {
-    call.syntax().ancestors().any(|ancestor| {
-        let has_cfg_test = ancestor
-            .children()
-            .filter_map(ast::Attr::cast)
-            .any(|attribute| compact(attribute.syntax()) == "#[cfg(test)]");
-        let is_test_function = ast::Fn::cast(ancestor.clone()).is_some_and(|function| {
-            function
-                .attrs()
-                .any(|attribute| compact(attribute.syntax()) == "#[test]")
-        });
-        has_cfg_test || is_test_function
-    })
-}
-
-fn alias_shadowed(call: &ast::MethodCallExpr, alias: &str) -> bool {
-    let call_ancestors: Vec<_> = call.syntax().ancestors().collect();
-    let visible_scopes = visible_binding_scopes(&call_ancestors);
-    let root = call_ancestors
-        .iter()
-        .find(|node| ast::SourceFile::cast((*node).clone()).is_some())
-        .cloned()
-        .unwrap_or_else(|| call.syntax().clone());
-
-    if call.syntax().ancestors().any(|ancestor| {
-        ancestor
-            .children()
-            .filter_map(ast::GenericParamList::cast)
-            .flat_map(|parameters| parameters.generic_params())
-            .any(|parameter| {
-                matches!(
-                    parameter,
-                    ast::GenericParam::TypeParam(parameter)
-                        if parameter.name().is_some_and(|name| name.text() == alias)
-                )
-            })
-    }) {
-        return true;
-    }
-
-    root.descendants().any(|node| {
-        let visible = binding_scope(&node)
-            .as_ref()
-            .is_some_and(|scope| visible_scopes.contains(scope));
-        if !visible {
-            return false;
-        }
-        if let Some(module) = ast::Module::cast(node.clone())
-            && module.name().is_some_and(|name| name.text() == alias)
-        {
-            return true;
-        }
-        if let Some(item) = ast::Use::cast(node.clone()) {
-            return item
-                .use_tree()
-                .is_none_or(|tree| use_tree_may_bind_alias(&tree, None, alias));
-        }
-        if let Some(item) = ast::ExternCrate::cast(node.clone()) {
-            return match item.rename() {
-                Some(rename) => rename.name().is_some_and(|name| name.text() == alias),
-                None => item.name_ref().is_some_and(|name| name.text() == alias),
-            };
-        }
-        if let Some(name) = type_item_name(&node) {
-            return name == alias;
-        }
-        false
-    })
-}
-
-fn use_tree_may_bind_alias(tree: &ast::UseTree, parent_name: Option<&str>, alias: &str) -> bool {
-    if tree.star_token().is_some() {
-        return true;
-    }
-    if let Some(rename) = tree.rename() {
-        return rename.name().is_some_and(|name| name.text() == alias);
-    }
-
-    let path_name = tree.path().and_then(|path| {
-        path.segment()
-            .and_then(|segment| segment.name_ref())
-            .map(|name| name.text().to_string())
-    });
-    let bound_name = match path_name.as_deref() {
-        Some("self") => parent_name,
-        Some(name) => Some(name),
-        None => parent_name,
-    };
-
-    if let Some(list) = tree.use_tree_list() {
-        return list
-            .use_trees()
-            .any(|child| use_tree_may_bind_alias(&child, bound_name, alias));
-    }
-    bound_name == Some(alias)
-}
-
-fn type_item_name(node: &SyntaxNode) -> Option<String> {
-    if let Some(item) = ast::Struct::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Enum::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Union::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Trait::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    ast::TypeAlias::cast(node.clone())
-        .and_then(|item| item.name().map(|name| name.text().to_string()))
-}
-
-fn binding_scope(node: &SyntaxNode) -> Option<SyntaxNode> {
-    node.parent()?.ancestors().find(|ancestor| {
-        ast::SourceFile::cast(ancestor.clone()).is_some()
-            || ast::Module::cast(ancestor.clone())
-                .is_some_and(|module| module.item_list().is_some())
-            || ast::BlockExpr::cast(ancestor.clone()).is_some()
-    })
-}
-
-fn visible_binding_scopes(call_ancestors: &[SyntaxNode]) -> Vec<SyntaxNode> {
-    let mut scopes = Vec::new();
-    for ancestor in call_ancestors {
-        if ast::BlockExpr::cast(ancestor.clone()).is_some() {
-            scopes.push(ancestor.clone());
-            continue;
-        }
-        if ast::SourceFile::cast(ancestor.clone()).is_some()
-            || ast::Module::cast(ancestor.clone())
-                .is_some_and(|module| module.item_list().is_some())
-        {
-            scopes.push(ancestor.clone());
-            break;
-        }
-    }
-    scopes
-}
-
-#[allow(clippy::too_many_arguments)]
-fn insert_candidate(
-    candidates: &mut BTreeMap<CandidateKey, Candidate>,
-    definition: &'static RuleDefinition,
-    message: &'static str,
+/// Contexte d'émission d'une unité. Il porte ce qu'un candidat doit reprendre
+/// de son unité, donc l'ajout d'un détecteur n'ajoute aucun paramètre.
+struct Emitter<'a> {
     package: Option<String>,
     target: Option<String>,
-    path: &str,
-    range: TextRange,
-    line_starts: &[usize],
-    source: &str,
-) {
-    if range.is_empty() {
-        return;
-    }
-    let span = source_span(range, line_starts, source);
-    let key = CandidateKey {
-        code: definition.id,
-        path: path.to_owned(),
-        span,
-        message,
-    };
-    let candidate = Candidate {
-        definition,
-        message,
-        package,
-        target,
-        path: path.to_owned(),
-        span,
-    };
-    match candidates.get_mut(&key) {
-        Some(existing) => {
-            merge_context(&mut existing.package, candidate.package);
-            merge_context(&mut existing.target, candidate.target);
+    path: &'a str,
+    line_starts: Vec<usize>,
+    source: &'a str,
+}
+
+impl Emitter<'_> {
+    fn insert(
+        &self,
+        candidates: &mut BTreeMap<CandidateKey, Candidate>,
+        definition: &'static RuleDefinition,
+        detection: &Detection,
+    ) {
+        if detection.range.is_empty() {
+            return;
         }
-        None => {
-            candidates.insert(key, candidate);
+        let span = source_span(detection.range, &self.line_starts, self.source);
+        let key = CandidateKey {
+            code: definition.id,
+            path: self.path.to_owned(),
+            span,
+            message: detection.message,
+        };
+        let candidate = Candidate {
+            definition,
+            message: detection.message,
+            package: self.package.clone(),
+            target: self.target.clone(),
+            path: self.path.to_owned(),
+            span,
+        };
+        match candidates.get_mut(&key) {
+            Some(existing) => {
+                merge_context(&mut existing.package, candidate.package);
+                merge_context(&mut existing.target, candidate.target);
+            }
+            None => {
+                candidates.insert(key, candidate);
+            }
         }
     }
 }
@@ -1136,18 +726,6 @@ fn unique_target(reachability: &BTreeSet<Reachability>) -> Option<String> {
     }
 }
 
-fn shared_reqwest_alias(reachability: &BTreeSet<Reachability>) -> Option<String> {
-    let aliases: BTreeSet<_> = reachability
-        .iter()
-        .map(|reach| reach.reqwest_alias.as_deref())
-        .collect();
-    if aliases.len() == 1 {
-        aliases.into_iter().next().flatten().map(str::to_owned)
-    } else {
-        None
-    }
-}
-
 fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
     let start = u32::from(range.start());
     let end = u32::from(range.end());
@@ -1160,14 +738,6 @@ fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
             error_start < end && error_end > start
         }
     })
-}
-
-fn compact(node: &SyntaxNode) -> String {
-    node.descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia())
-        .map(|token| token.text().to_string())
-        .collect()
 }
 
 fn line_starts(source: &str) -> Vec<usize> {
@@ -1264,8 +834,11 @@ fn push_error(errors: &mut Vec<SourceError>, code: &'static str, message: String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::{PolicyInput, Producer, RuleLevel};
+    use crate::policy::{
+        PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
+    };
     use cargo_metadata::MetadataCommand;
+    use ra_ap_syntax::{SyntaxKind, SyntaxNode};
 
     fn inspect(metadata: &Metadata) -> SourceScan {
         super::inspect(metadata, &PolicyPlan::default())
@@ -1289,6 +862,85 @@ mod tests {
             .no_deps()
             .other_options(["--offline".to_owned(), "--locked".to_owned()]);
         command.exec().unwrap()
+    }
+
+    static SILENT_RULE: RuleDefinition = RuleDefinition {
+        id: "rust_doctor::source::silent_probe",
+        category: "security",
+        producer: Producer::SourceKernel,
+        default_level: RuleLevel::Warn,
+        tier: RuleTier::P3,
+        help: "Synthetic registry proof.",
+    };
+
+    /// Détecteur enregistré qui n'émet jamais: il prouve qu'un détecteur muet
+    /// coûte une sollicitation et rien d'autre.
+    static SILENT: Detector = Detector {
+        definition: &SILENT_RULE,
+        node: SyntaxKind::SOURCE_FILE,
+        inspect: silent,
+    };
+
+    const REGISTERED: [&Detector; 2] = DETECTORS;
+
+    fn silent(_: &detectors::Context<'_>, _: &SyntaxNode) -> Option<Detection> {
+        None
+    }
+
+    /// Unité synthétique: le registre s'analyse sans passer par le disque.
+    fn synthetic_unit(source: &str) -> SourceUnit {
+        let parse = SourceFile::parse(source, Edition::Edition2024);
+        SourceUnit {
+            source: source.to_owned(),
+            error_ranges: parse.errors().iter().map(|error| error.range()).collect(),
+            parse,
+            edition: Edition::Edition2024,
+            relative_path: "src/lib.rs".to_owned(),
+            reachability: BTreeSet::from([Reachability {
+                package_id: "synthetic".to_owned(),
+                package_name: "synthetic".to_owned(),
+                target_key: "synthetic:0".to_owned(),
+                target_name: "synthetic".to_owned(),
+            }]),
+            traversals: BTreeSet::new(),
+        }
+    }
+
+    fn analyze(
+        source: &str,
+        detectors: &[&'static Detector],
+    ) -> (Vec<&'static str>, SourceCounters) {
+        let (candidates, counters, _) = analyze_with_limits(source, detectors, LIMITS);
+        (candidates, counters)
+    }
+
+    fn analyze_with_limits(
+        source: &str,
+        detectors: &[&'static Detector],
+        limits: Limits,
+    ) -> (Vec<&'static str>, SourceCounters, Vec<SourceError>) {
+        let unit = synthetic_unit(source);
+        let tables = BTreeMap::from([(
+            "synthetic".to_owned(),
+            CrateAliases::from([("http_client".to_owned(), "reqwest".to_owned())]),
+        )]);
+        let mut candidates = BTreeMap::new();
+        let mut counters = SourceCounters::default();
+        let mut errors = Vec::new();
+        analyze_unit(
+            &unit,
+            detectors,
+            &tables,
+            &limits,
+            &mut candidates,
+            &mut counters,
+            &mut errors,
+        );
+        let codes = candidates
+            .into_values()
+            .map(|candidate| candidate.definition.id)
+            .collect();
+        (codes, counters, errors)
     }
 
     #[test]
@@ -1347,15 +999,15 @@ mod tests {
         assert_eq!(scan.counters.files_read, 0);
         assert_eq!(scan.counters.files_parsed, 0);
         assert_eq!(scan.counters.bytes_read, 0);
-        assert_eq!(scan.counters.disabled_tls_predicates, 0);
-        assert_eq!(scan.counters.dynamic_shell_predicates, 0);
+        assert_eq!(scan.counters.nodes_visited, 0);
+        assert!(scan.counters.predicates.is_empty());
 
         let shell_off = PolicyInput::default().with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
         let shell_off = PolicyPlan::compile(&shell_off).expect("policy should compile");
         let scan = super::inspect(&metadata, &shell_off);
         assert!(scan.counters.files_read > 0);
-        assert!(scan.counters.disabled_tls_predicates > 0);
-        assert_eq!(scan.counters.dynamic_shell_predicates, 0);
+        assert!(scan.counters.solicitations(SOURCE_DISABLED_TLS.id) > 0);
+        assert_eq!(scan.counters.solicitations(SOURCE_DYNAMIC_SHELL.id), 0);
         assert!(
             scan.candidates
                 .iter()
@@ -1365,8 +1017,8 @@ mod tests {
         let tls_off = PolicyInput::default().with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off);
         let tls_off = PolicyPlan::compile(&tls_off).expect("policy should compile");
         let scan = super::inspect(&metadata, &tls_off);
-        assert_eq!(scan.counters.disabled_tls_predicates, 0);
-        assert!(scan.counters.dynamic_shell_predicates > 0);
+        assert_eq!(scan.counters.solicitations(SOURCE_DISABLED_TLS.id), 0);
+        assert!(scan.counters.solicitations(SOURCE_DYNAMIC_SHELL.id) > 0);
         assert!(
             scan.candidates
                 .iter()
@@ -1374,39 +1026,107 @@ mod tests {
         );
     }
 
+    /// La forme importée et la forme pleinement qualifiée passent par le même
+    /// mécanisme, et une provenance non décidable fait taire le détecteur.
     #[test]
-    fn reqwest_shadowing_respects_ast_binding_scopes_and_use_trees() {
-        fn shadowed(source: &str) -> bool {
-            let parse = SourceFile::parse(source, Edition::Edition2024);
-            assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-            let call = parse
-                .tree()
-                .syntax()
-                .descendants()
-                .filter_map(ast::MethodCallExpr::cast)
-                .find(|call| {
-                    call.name_ref()
-                        .is_some_and(|name| name.text() == "tls_danger_accept_invalid_certs")
-                })
-                .unwrap();
-            alias_shadowed(&call, "http_client")
+    fn detectors_resolve_written_paths_through_the_alias_map() {
+        let both = "use std::process::Command;
+fn run(user: &str) {
+    let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\"));
+    let _ = std::process::Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\"));
+}";
+        assert_eq!(
+            analyze(both, &REGISTERED).0,
+            [SOURCE_DYNAMIC_SHELL.id, SOURCE_DYNAMIC_SHELL.id]
+        );
+
+        let renamed = "use http_client::Client;
+fn build() {
+    let _ = Client::builder().danger_accept_invalid_certs(true);
+}";
+        assert_eq!(analyze(renamed, &REGISTERED).0, [SOURCE_DISABLED_TLS.id]);
+
+        for abstained in [
+            "use std::process::*;
+fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\")); }",
+            "fn run(user: &str) {
+    struct Command;
+    let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\"));
+}",
+            "use unknown_crate::Client;
+fn build() { let _ = Client::builder().danger_accept_invalid_certs(true); }",
+            "fn build() { let _ = other_alias::Client::builder().danger_accept_invalid_certs(true); }",
+        ] {
+            assert!(analyze(abstained, &REGISTERED).0.is_empty(), "{abstained}");
+        }
+    }
+
+    /// Le parcours est unique et indépendant du registre: le nombre de nœuds
+    /// visités ne dépend ni du nombre de détecteurs, ni de leur ordre, et un
+    /// détecteur muet ne change pas le résultat.
+    #[test]
+    fn the_registry_shares_one_traversal_and_stays_order_independent() {
+        let source = "use std::process::Command;
+fn run(user: &str) {
+    let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\"));
+    let _ = http_client::Client::builder().danger_accept_invalid_certs(true);
+}";
+        let nodes = SourceFile::parse(source, Edition::Edition2024)
+            .tree()
+            .syntax()
+            .descendants()
+            .count();
+        let method_calls = SourceFile::parse(source, Edition::Edition2024)
+            .tree()
+            .syntax()
+            .descendants()
+            .filter(|node| node.kind() == SyntaxKind::METHOD_CALL_EXPR)
+            .count();
+
+        let (expected, counters) = analyze(source, &REGISTERED);
+        assert_eq!(expected, [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]);
+        assert_eq!(counters.nodes_visited, nodes);
+        for detector in REGISTERED {
+            assert_eq!(
+                counters.solicitations(detector.definition.id),
+                method_calls,
+                "{}",
+                detector.definition.id
+            );
         }
 
-        assert!(!shadowed(
-            "fn target() { http_client::Client::builder().tls_danger_accept_invalid_certs(true); } fn sibling() { use local as http_client; }",
-        ));
-        assert!(shadowed(
-            "fn target() { use local as http_client; http_client::Client::builder().tls_danger_accept_invalid_certs(true); }",
-        ));
-        assert!(!shadowed(
-            "use local as http_client; mod child { fn target() { http_client::Client::builder().tls_danger_accept_invalid_certs(true); } }",
-        ));
-        assert!(shadowed(
-            "fn target() { use local::http_client::{self}; http_client::Client::builder().tls_danger_accept_invalid_certs(true); }",
-        ));
-        assert!(shadowed(
-            "fn target() { use local::*; http_client::Client::builder().tls_danger_accept_invalid_certs(true); }",
-        ));
+        let permuted = analyze(source, &[REGISTERED[1], REGISTERED[0]]);
+        assert_eq!(permuted.0, expected);
+        assert_eq!(permuted.1.nodes_visited, nodes);
+
+        let single = analyze(source, &[REGISTERED[0]]);
+        assert_eq!(single.1.nodes_visited, nodes);
+        assert_eq!(single.1.solicitations(SOURCE_DYNAMIC_SHELL.id), 0);
+
+        // Un détecteur enregistré qui n'émet rien laisse le résultat inchangé.
+        let with_silent = analyze(source, &[REGISTERED[0], &SILENT, REGISTERED[1]]);
+        assert_eq!(with_silent.0, expected);
+        assert_eq!(with_silent.1.nodes_visited, nodes);
+        assert_eq!(with_silent.1.solicitations(SILENT_RULE.id), 1);
+    }
+
+    /// Une unité dont la carte d'alias sature reste analysée, mais aucune
+    /// provenance n'y est plus décidable.
+    #[test]
+    fn a_saturated_alias_map_reports_a_bounded_error_and_abstains() {
+        let source = "use std::process::Command;
+use std::io::Write;
+fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\")); }";
+        let limits = Limits {
+            alias_bindings: 1,
+            ..LIMITS
+        };
+        let (candidates, _, errors) = analyze_with_limits(source, &REGISTERED, limits);
+
+        assert!(candidates.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "limit-exceeded");
+        assert!(errors[0].message.contains("alias-bindings"));
     }
 
     #[test]
@@ -1415,7 +1135,7 @@ mod tests {
         assert!(scan.errors.is_empty(), "{:?}", scan.errors);
         assert_eq!(scan.counters.files_read, 13);
         assert_eq!(scan.counters.files_parsed, 13);
-        assert_eq!(scan.candidates.len(), 10, "{:?}", scan.candidates);
+        assert_eq!(scan.candidates.len(), 13, "{:?}", scan.candidates);
         assert!(
             scan.candidates
                 .iter()
@@ -1431,7 +1151,7 @@ mod tests {
                 .iter()
                 .filter(|candidate| candidate.definition.id == SOURCE_DISABLED_TLS.id)
                 .count(),
-            5
+            7
         );
         assert!(
             scan.candidates
@@ -1587,7 +1307,7 @@ mod tests {
         assert!(scan.errors.is_empty(), "{:?}", scan.errors);
         assert_eq!(scan.counters.files_read, 11);
         assert_eq!(scan.counters.files_parsed, 11);
-        assert_eq!(scan.candidates.len(), 10);
+        assert_eq!(scan.candidates.len(), 13);
         assert!(
             scan.candidates
                 .iter()
@@ -1638,6 +1358,13 @@ mod tests {
                     ..LIMITS
                 },
                 "module-depth",
+            ),
+            (
+                Limits {
+                    alias_bindings: 1,
+                    ..LIMITS
+                },
+                "alias-bindings",
             ),
         ] {
             let scan = inspect_with_limits(&metadata, limits);
