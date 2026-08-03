@@ -80,7 +80,7 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout.last(), Some(&b'\n'));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 8);
+    assert_eq!(report["schema_version"], 9);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
     let rejected = binary()
@@ -102,7 +102,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
         "Scope: full codebase",
         "Scanned 1 files in ",
         "Top warning:",
-        "All 6 issues",
+        "All 6 occurrences across 3 findings",
         "Run with --verbose",
         "┌─────┐",
         "Share:",
@@ -128,7 +128,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
 
     let clean = terminal(&["--yes"], &project("clean"));
     assert!(clean.contains("No issues found."));
-    assert!(clean.contains("All 0 issues"));
+    assert!(clean.contains("All 0 occurrences across 0 findings"));
     assert!(clean.contains("100 / 100 Great"));
     assert!(!clean.contains("What would you like to do next?"));
 

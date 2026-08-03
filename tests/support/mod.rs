@@ -53,20 +53,66 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-pub(crate) fn project_v8_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":8,\"audit\":";
+/// Ramène un rapport v9 sur les octets figés de v7.
+///
+/// v8 avait ajouté le bloc `audit`, v9 ajoute le `tier` de chaque règle de
+/// policy et les deux grandeurs nommées de `summary`. Aucun champ historique
+/// n'est retiré ni retypé, donc la projection consiste uniquement à enlever les
+/// membres ajoutés depuis.
+pub(crate) fn project_v9_wire_to_v7(output: &[u8]) -> Vec<u8> {
+    const PREFIX: &[u8] = b"{\"schema_version\":9,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
-        .expect("schema v8 should start with its audit member");
-    let mut values = serde_json::Deserializer::from_slice(payload).into_iter::<serde_json::Value>();
-    values
-        .next()
-        .expect("schema v8 should contain an audit value")
-        .expect("audit should be valid JSON");
-    let suffix = &payload[values.byte_offset()..];
+        .expect("schema v9 should start with its audit member");
+    let suffix = &payload[value_end(payload, 0)..];
     let mut projected = Vec::with_capacity(output.len());
     projected.extend_from_slice(b"{\"schema_version\":7");
     projected.extend_from_slice(suffix);
+
+    let summary = find(&projected, 0, b"\"summary\":{").expect("a report should carry a summary");
+    let projected = remove_member(&projected, summary, "occurrences");
+    let summary = find(&projected, 0, b"\"summary\":{").expect("a report should carry a summary");
+    let mut projected = remove_member(&projected, summary, "distinct");
+    while let Some(rule) = find(&projected, 0, b"\"tier\":") {
+        projected = remove_member(&projected, rule, "tier");
+    }
+    projected
+}
+
+fn find(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    haystack[from..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|position| from + position)
+}
+
+/// Fin du premier document JSON présent à `from`, offsets d'octets compris.
+fn value_end(wire: &[u8], from: usize) -> usize {
+    let mut values =
+        serde_json::Deserializer::from_slice(&wire[from..]).into_iter::<serde_json::Value>();
+    values
+        .next()
+        .expect("a JSON value should follow")
+        .expect("the projected wire should stay valid JSON");
+    from + values.byte_offset()
+}
+
+/// Retire le premier membre `member` rencontré à partir de `from`, avec la
+/// virgule qui le rattache à son objet.
+fn remove_member(wire: &[u8], from: usize, member: &str) -> Vec<u8> {
+    let key = format!("\"{member}\":").into_bytes();
+    let start = find(wire, from, &key).expect("the projected member should exist");
+    let end = value_end(wire, start + key.len());
+    let (start, end) = if wire[start - 1] == b',' {
+        (start - 1, end)
+    } else if wire[end] == b',' {
+        (start, end + 1)
+    } else {
+        (start, end)
+    };
+    let mut projected = Vec::with_capacity(wire.len());
+    projected.extend_from_slice(&wire[..start]);
+    projected.extend_from_slice(&wire[end..]);
     projected
 }
 

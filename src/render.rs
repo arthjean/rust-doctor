@@ -149,7 +149,10 @@ pub fn render_terminal_with_presentation<W: Write>(
     )?;
     line(
         &mut writer,
-        &format!("All {issue_count} issues"),
+        &format!(
+            "All {issue_count} occurrences across {} findings",
+            presentation.finding_count
+        ),
         options,
         Style::Heading,
     )?;
@@ -325,7 +328,7 @@ fn render_categories<W: Write>(
         line(
             writer,
             &format!(
-                "{}: {} errors, {} warnings, {} info, {} unknown",
+                "{}: {} errors, {} warnings, {} info, {} unknown (occurrences)",
                 category.name, category.errors, category.warnings, category.info, category.unknown
             ),
             options,
@@ -446,6 +449,35 @@ fn render_legacy_context<W: Write>(
     Ok(())
 }
 
+/// Règles du pire tier présentes dans la portée du score, bornées pour tenir
+/// sur une ligne. Un plafond sans cause nommée n'est pas explicable.
+fn capping_rule_ids(report: &InspectReport, tier: crate::RuleTier) -> Vec<String> {
+    const MAX_NAMED_RULES: usize = 3;
+    let scoped: Option<BTreeSet<_>> = report.delta.as_ref().map(|delta| {
+        delta
+            .introduced
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+    });
+    let mut ids: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            scoped
+                .as_ref()
+                .is_none_or(|scoped| scoped.contains(diagnostic.id.as_str()))
+        })
+        .filter_map(|diagnostic| diagnostic.code.as_deref())
+        .filter(|code| crate::policy::find(code).is_some_and(|definition| definition.tier == tier))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    ids.truncate(MAX_NAMED_RULES);
+    ids
+}
+
 fn render_score<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -464,6 +496,19 @@ fn render_score<W: Write>(
     } else {
         "Core partial"
     };
+    if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
+        let blocking = capping_rule_ids(report, tier);
+        line(
+            writer,
+            &format!(
+                "Capped at {ceiling}/100 by a {} finding: {}",
+                tier.as_str(),
+                blocking.join(", ")
+            ),
+            options,
+            Style::Warning,
+        )?;
+    }
     let drawn = score_header::render(
         writer,
         score.value,
@@ -630,8 +675,9 @@ mod tests {
             }),
             occurrences: 1,
         }];
+        let summary = Summary::from_diagnostics(&diagnostics);
         InspectReport {
-            schema_version: 8,
+            schema_version: crate::report::SCHEMA_VERSION,
             audit: Audit::build(1, Status::Complete, &diagnostics),
             status: Status::Complete,
             complete: true,
@@ -652,13 +698,7 @@ mod tests {
             diagnostics,
             delta: None,
             errors: Vec::new(),
-            summary: Summary {
-                errors: 0,
-                warnings: 1,
-                info: 0,
-                unknown: 0,
-                total: 1,
-            },
+            summary,
             gate: GateReport {
                 blocking: BlockingLevel::Error,
                 status: GateStatus::Passed,
@@ -692,7 +732,7 @@ mod tests {
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
-            8
+            crate::report::SCHEMA_VERSION
         );
     }
 
@@ -722,7 +762,7 @@ mod tests {
             "Scope:",
             "Scanned ",
             "Top warning:",
-            "All 1 issues",
+            "All 1 occurrences across 1 findings",
             "Bugs:",
             "Run with --verbose",
             // Bordure haute du bloc de score: le marqueur stable de la section
@@ -800,7 +840,10 @@ mod tests {
     #[test]
     fn projection_is_rendered_only_when_it_raises_the_score() {
         let mut flat = report();
-        let score = flat.audit.score.as_mut().unwrap();
+        flat.diagnostics[0].code = Some("clippy::dbg_macro".to_owned());
+        flat.diagnostics[0].category = Some("maintainability".to_owned());
+        flat.audit = Audit::build(1, Status::Complete, &flat.diagnostics);
+        let score = flat.audit.score.as_ref().unwrap();
         assert_eq!(score.projected_after_top_three, Some(score.value));
         assert!(!score.projected_rule_ids.is_empty());
         let output = rendered(&flat, 80, false, false);
@@ -808,12 +851,17 @@ mod tests {
         assert!(!output.contains("projected"));
 
         let mut raising = report();
-        let score = raising.audit.score.as_mut().unwrap();
-        score.value = 90;
-        score.label = crate::audit::score_label(90);
-        score.projected_after_top_three = Some(95);
+        raising.diagnostics[0].code = Some("rust_doctor::source::dynamic_shell_command".to_owned());
+        raising.diagnostics[0].category = Some("security".to_owned());
+        raising.audit = Audit::build(1, Status::Complete, &raising.diagnostics);
+        let score = raising.audit.score.as_ref().unwrap();
+        assert_eq!(score.value, 40);
+        assert_eq!(score.projected_after_top_three, Some(100));
         let output = rendered(&raising, 80, false, false);
-        assert!(output.contains("to reach a projected 95/100"));
+        assert!(output.contains("to reach a projected 100/100"));
+        assert!(output.contains(
+            "Capped at 40/100 by a P0 finding: rust_doctor::source::dynamic_shell_command"
+        ));
     }
 
     #[test]
@@ -821,9 +869,8 @@ mod tests {
         let mut failed = report();
         failed.status = Status::Failed;
         failed.complete = false;
-        failed.audit.source_files = 0;
-        failed.audit.score = None;
         failed.diagnostics.clear();
+        failed.audit = Audit::build(0, Status::Failed, &failed.diagnostics);
         failed.summary = Summary::default();
 
         let output = rendered(&failed, 80, false, false);
@@ -876,6 +923,7 @@ mod tests {
             },
         });
         report.audit = Audit::build(1, Status::Complete, &report.diagnostics[..1]);
+        report.summary = Summary::from_diagnostics(&report.diagnostics);
 
         let output = rendered(&report, 100, false, false);
 

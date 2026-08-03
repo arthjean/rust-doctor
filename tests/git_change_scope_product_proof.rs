@@ -221,7 +221,7 @@ fn diagnostic_id_hash(report: &Value) -> String {
 }
 
 fn v6_compatible_output(output: &[u8]) -> Vec<u8> {
-    let projected = support::project_v8_wire_to_v7(output);
+    let projected = support::project_v9_wire_to_v7(output);
     std::str::from_utf8(&projected)
         .unwrap()
         .replacen("\"schema_version\":7", "\"schema_version\":6", 1)
@@ -272,12 +272,24 @@ fn run_case(
                 .to_string(),
         );
         let report: Value = serde_json::from_slice(&output).unwrap();
-        assert_eq!(report["schema_version"], 8);
+        assert_eq!(report["schema_version"], 9);
         assert_eq!(report["project"]["workspace_root"], ".");
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
+        let diagnostics = report["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), expected_diagnostics);
+        // Les deux grandeurs du rapport se recalculent depuis les diagnostics
+        // publiés: un finding remonté par deux cibles reste un diagnostic
+        // distinct et deux occurrences.
         assert_eq!(
-            report["diagnostics"].as_array().unwrap().len(),
-            expected_diagnostics
+            report["summary"]["distinct"]["total"].as_u64().unwrap(),
+            expected_diagnostics as u64
+        );
+        assert_eq!(
+            report["summary"]["occurrences"]["total"].as_u64().unwrap(),
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic["occurrences"].as_u64().unwrap())
+                .sum::<u64>()
         );
         match expected_files {
             None => {
@@ -343,6 +355,7 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     cases.push(evaluation);
 
     let (report, evaluation) = run_case(&fixture, "files-empty", FILES_ARGUMENTS, Some(&[]), 0);
+    let empty = json!({ "errors": 0, "warnings": 0, "info": 0, "unknown": 0, "total": 0 });
     assert_eq!(
         report["summary"],
         json!({
@@ -351,6 +364,8 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
             "info": 0,
             "unknown": 0,
             "total": 0,
+            "distinct": empty,
+            "occurrences": empty,
         })
     );
     assert_eq!(report["gate"]["status"], "passed");

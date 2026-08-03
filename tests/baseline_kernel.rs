@@ -325,7 +325,7 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     let baseline = report(&output);
     let baseline_events = fixture.processes.events();
 
-    assert_eq!(baseline["schema_version"], 8);
+    assert_eq!(baseline["schema_version"], 9);
     assert_eq!(baseline["status"], "complete");
     assert_eq!(baseline["complete"], true);
     assert_eq!(baseline["scope"]["mode"], "baseline");
@@ -365,28 +365,26 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
         .iter()
         .map(|id| id.as_str().unwrap())
         .collect();
-    let introduced_occurrences: u64 = baseline["diagnostics"]
+    // Aucun diagnostic introduit ne disparaît des catégories, y compris celui
+    // qu'aucune catégorie du catalogue ne couvre: il tombe dans `Other`.
+    let introduced_diagnostics: Vec<_> = baseline["diagnostics"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|diagnostic| {
-            introduced.contains(diagnostic["id"].as_str().unwrap())
-                && matches!(
-                    diagnostic["category"].as_str(),
-                    Some(
-                        "security"
-                            | "correctness"
-                            | "reliability"
-                            | "performance"
-                            | "cargo"
-                            | "dependencies"
-                            | "maintainability"
-                    )
-                )
-        })
+        .filter(|diagnostic| introduced.contains(diagnostic["id"].as_str().unwrap()))
+        .collect();
+    let introduced_occurrences: u64 = introduced_diagnostics
+        .iter()
         .map(|diagnostic| diagnostic["occurrences"].as_u64().unwrap())
         .sum();
+    let audit_distinct: u64 = baseline["audit"]["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|category| category["distinct"]["total"].as_u64().unwrap())
+        .sum();
     assert_eq!(audit_issues, introduced_occurrences);
+    assert_eq!(audit_distinct, introduced_diagnostics.len() as u64);
 
     let paths: BTreeSet<_> = baseline["diagnostics"]
         .as_array()

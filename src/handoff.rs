@@ -532,9 +532,8 @@ mod tests {
     use super::*;
     use rust_doctor::presentation::ReportPresentation;
     use rust_doctor::{
-        Audit, AuditScore, BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport,
-        GateStatus, InspectReport, ScanReport, ScoreDimensions, ScoreLabel, Severity, Status,
-        Summary, ToolchainReport,
+        Audit, BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus,
+        InspectReport, ScanReport, Severity, Status, Summary, ToolchainReport,
     };
 
     static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
@@ -572,27 +571,10 @@ mod tests {
             }),
             occurrences: 2,
         }];
+        let summary = Summary::from_diagnostics(&diagnostics);
         InspectReport {
-            schema_version: 8,
-            audit: Audit {
-                source_files: 1,
-                categories: Vec::new(),
-                score: Some(AuditScore {
-                    model: "core-v1".to_owned(),
-                    value: 99,
-                    label: ScoreLabel::Great,
-                    authoritative: true,
-                    dimensions: ScoreDimensions {
-                        security: 100,
-                        reliability: 99,
-                        maintainability: 100,
-                        performance: 100,
-                        dependencies: 100,
-                    },
-                    projected_after_top_three: None,
-                    projected_rule_ids: Vec::new(),
-                }),
-            },
+            schema_version: rust_doctor::SCHEMA_VERSION,
+            audit: Audit::build(1, Status::Complete, &diagnostics),
             status: Status::Complete,
             complete: true,
             policy: None,
@@ -612,13 +594,7 @@ mod tests {
             diagnostics,
             delta: None,
             errors: Vec::new(),
-            summary: Summary {
-                errors: 0,
-                warnings: 2,
-                info: 0,
-                unknown: 0,
-                total: 2,
-            },
+            summary,
             gate: GateReport {
                 blocking: BlockingLevel::Error,
                 status: GateStatus::Passed,

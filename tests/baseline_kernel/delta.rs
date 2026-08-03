@@ -139,7 +139,7 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         assert!(!rendered.contains(private), "{name} leaked {private:?}");
     }
     let report: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(report["schema_version"], 8);
+    assert_eq!(report["schema_version"], 9);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["scope"]["mode"], "baseline");
     assert_eq!(report["delta"]["fingerprint_version"], 1);
@@ -635,6 +635,19 @@ fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
             artifact.get(key),
             Some(value),
             "measured local artifact field {key:?} differs",
+        );
+    }
+    // Les deux grandeurs sont publiées séparément et restent cohérentes: chaque
+    // diagnostic de la fixture est émis par la cible lib et par la cible test,
+    // donc une occurrence sur deux est un doublon de cible et non un finding.
+    for state in artifact["matrix"].as_array().unwrap() {
+        let summary = &state["summary"];
+        assert_eq!(summary["distinct"]["total"], summary["total"]);
+        assert_eq!(
+            summary["occurrences"]["total"].as_u64().unwrap(),
+            summary["distinct"]["total"].as_u64().unwrap() * 2,
+            "state {}",
+            state["name"]
         );
     }
     assert_eq!(artifact["public_repositories"].as_array().unwrap().len(), 3);

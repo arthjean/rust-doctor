@@ -229,7 +229,7 @@ fn normalized_for_entry(report: &Value) -> Value {
 }
 
 fn v5_compatible_output(output: &[u8]) -> Vec<u8> {
-    let projected = support::project_v8_wire_to_v7(output);
+    let projected = support::project_v9_wire_to_v7(output);
     let output = std::str::from_utf8(&projected).unwrap();
     let output = output.replacen("\"schema_version\":7", "\"schema_version\":5", 1);
     output
@@ -377,7 +377,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 8);
+            assert_eq!(report["schema_version"], 9);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
             assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 12);
             let rule_ids: Vec<_> = report["policy"]["rules"]
@@ -483,7 +483,17 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         absent["scan"]["command"],
         serde_json::to_value(&rule_scaling.clippy_command).unwrap()
     );
-    assert_eq!(absent["summary"], historical["summary"]);
+    // Le schema v9 ajoute les deux grandeurs nommées. Les champs historiques du
+    // `summary` gardent leur nom, leur type et leur valeur.
+    let mut projected_summary = absent["summary"].clone();
+    for added in ["distinct", "occurrences"] {
+        projected_summary
+            .as_object_mut()
+            .unwrap()
+            .remove(added)
+            .expect("schema v9 should publish both magnitudes");
+    }
+    assert_eq!(projected_summary, historical["summary"]);
     assert_eq!(absent["gate"], historical["gate"]);
     assert_eq!(id_hash(absent), historical["id_hash"]);
     assert_eq!(
@@ -542,7 +552,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 8);
+        assert_eq!(report["schema_version"], 9);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");
@@ -645,6 +655,15 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                         .as_str()
                         .is_some_and(|id| candidate_ids.contains(id))
                 });
+            // Champs ajoutés par le schema v9: le tier par règle et les deux
+            // grandeurs nommées du `summary`.
+            for rule in policy["policy"]["rules"].as_array_mut().unwrap() {
+                rule.as_object_mut().unwrap().remove("tier");
+            }
+            if let Some(summary) = policy["result"]["summary"].as_object_mut() {
+                summary.remove("distinct");
+                summary.remove("occurrences");
+            }
         }
         value
     };

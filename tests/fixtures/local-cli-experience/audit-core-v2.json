@@ -1,0 +1,1441 @@
+{
+  "schema_version": 2,
+  "model": "core-v2",
+  "uncategorized_bucket": "Other",
+  "category_mappings": {
+    "security": {
+      "display": "Security",
+      "dimension": "Security"
+    },
+    "correctness": {
+      "display": "Bugs",
+      "dimension": "Reliability"
+    },
+    "reliability": {
+      "display": "Bugs",
+      "dimension": "Reliability"
+    },
+    "maintainability": {
+      "display": "Maintainability",
+      "dimension": "Maintainability"
+    },
+    "performance": {
+      "display": "Performance",
+      "dimension": "Performance"
+    },
+    "cargo": {
+      "display": "Dependencies",
+      "dimension": "Dependencies"
+    },
+    "dependencies": {
+      "display": "Dependencies",
+      "dimension": "Dependencies"
+    }
+  },
+  "rule_tiers": {
+    "clippy::dbg_macro": "P3",
+    "clippy::mem_forget": "P2",
+    "clippy::non_send_fields_in_send_ty": "P1",
+    "clippy::permissions_set_readonly_false": "P1",
+    "clippy::suspicious_command_arg_space": "P2",
+    "clippy::todo": "P2",
+    "clippy::unimplemented": "P1",
+    "clippy::zombie_processes": "P2",
+    "rust_doctor::cargo::unbounded_registry_dependency": "P3",
+    "rust_doctor::cargo::unpinned_git_dependency": "P1",
+    "rust_doctor::source::disabled_tls_verification": "P0",
+    "rust_doctor::source::dynamic_shell_command": "P0"
+  },
+  "tier_ceilings": [
+    {
+      "tier": "P0",
+      "dimension": 20,
+      "overall": 40
+    },
+    {
+      "tier": "P1",
+      "dimension": 50,
+      "overall": 65
+    },
+    {
+      "tier": "P2",
+      "dimension": 75,
+      "overall": null
+    },
+    {
+      "tier": "P3",
+      "dimension": null,
+      "overall": null
+    }
+  ],
+  "occurrence_steps": [
+    {
+      "occurrences": 0,
+      "multiplier": 1
+    },
+    {
+      "occurrences": 1,
+      "multiplier": 1
+    },
+    {
+      "occurrences": 2,
+      "multiplier": 2
+    },
+    {
+      "occurrences": 5,
+      "multiplier": 2
+    },
+    {
+      "occurrences": 6,
+      "multiplier": 3
+    },
+    {
+      "occurrences": 20,
+      "multiplier": 3
+    },
+    {
+      "occurrences": 21,
+      "multiplier": 4
+    },
+    {
+      "occurrences": 1000,
+      "multiplier": 4
+    }
+  ],
+  "score_boundaries": [
+    {
+      "name": "lower-bound",
+      "dimensions": {
+        "security": 0,
+        "reliability": 0,
+        "maintainability": 0,
+        "performance": 0,
+        "dependencies": 0
+      },
+      "expected_value": 0,
+      "expected_label": "Critical",
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "critical-upper-bound",
+      "dimensions": {
+        "security": 49,
+        "reliability": 49,
+        "maintainability": 49,
+        "performance": 49,
+        "dependencies": 49
+      },
+      "expected_value": 49,
+      "expected_label": "Critical",
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "needs-work-lower-bound",
+      "dimensions": {
+        "security": 50,
+        "reliability": 50,
+        "maintainability": 50,
+        "performance": 50,
+        "dependencies": 50
+      },
+      "expected_value": 50,
+      "expected_label": "Needs work",
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "needs-work-upper-bound",
+      "dimensions": {
+        "security": 74,
+        "reliability": 74,
+        "maintainability": 74,
+        "performance": 74,
+        "dependencies": 74
+      },
+      "expected_value": 74,
+      "expected_label": "Needs work",
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "great-lower-bound",
+      "dimensions": {
+        "security": 75,
+        "reliability": 75,
+        "maintainability": 75,
+        "performance": 75,
+        "dependencies": 75
+      },
+      "expected_value": 75,
+      "expected_label": "Great",
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "upper-bound",
+      "dimensions": {
+        "security": 100,
+        "reliability": 100,
+        "maintainability": 100,
+        "performance": 100,
+        "dependencies": 100
+      },
+      "expected_value": 100,
+      "expected_label": "Great",
+      "expected_counted_rule_ids": []
+    }
+  ],
+  "rounding_cases": [
+    {
+      "penalty_quarters": 0,
+      "score": 100
+    },
+    {
+      "penalty_quarters": 1,
+      "score": 100
+    },
+    {
+      "penalty_quarters": 2,
+      "score": 100
+    },
+    {
+      "penalty_quarters": 6,
+      "score": 99
+    },
+    {
+      "penalty_quarters": 100,
+      "score": 75
+    },
+    {
+      "penalty_quarters": 104,
+      "score": 74
+    },
+    {
+      "penalty_quarters": 200,
+      "score": 50
+    },
+    {
+      "penalty_quarters": 204,
+      "score": 49
+    },
+    {
+      "penalty_quarters": 400,
+      "score": 0
+    },
+    {
+      "penalty_quarters": 406,
+      "score": 0
+    }
+  ],
+  "score_cases": [
+    {
+      "name": "zero-files-retains-real-categories-without-artificial-score",
+      "source_files": 0,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::security",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 0,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": null
+      },
+      "expected_counted_rule_ids": [
+        "clippy::security"
+      ]
+    },
+    {
+      "name": "clean",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 100,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "five-dimensions-rounding-and-projection-order",
+      "source_files": 7,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::security",
+          "category": "security",
+          "severity": "error",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "clippy::bug-a",
+          "category": "correctness",
+          "severity": "warning",
+          "occurrences": 2
+        },
+        {
+          "rule_id": "clippy::bug-b",
+          "category": "reliability",
+          "severity": "warning",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "clippy::maint",
+          "category": "maintainability",
+          "severity": "info",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "clippy::perf",
+          "category": "performance",
+          "severity": "error",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "rust_doctor::cargo::dep",
+          "category": "cargo",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 7,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 1,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          },
+          {
+            "name": "Bugs",
+            "errors": 0,
+            "warnings": 3,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 2,
+              "info": 0,
+              "unknown": 0,
+              "total": 2
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 3,
+              "info": 0,
+              "unknown": 0,
+              "total": 3
+            }
+          },
+          {
+            "name": "Performance",
+            "errors": 1,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          },
+          {
+            "name": "Dependencies",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          },
+          {
+            "name": "Maintainability",
+            "errors": 0,
+            "warnings": 0,
+            "info": 1,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 0,
+              "info": 1,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 0,
+              "info": 1,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 99,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 99,
+            "reliability": 98,
+            "maintainability": 100,
+            "performance": 99,
+            "dependencies": 99
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::security",
+            "clippy::bug-a",
+            "clippy::perf"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::bug-a",
+        "clippy::bug-b",
+        "clippy::maint",
+        "clippy::perf",
+        "clippy::security",
+        "rust_doctor::cargo::dep"
+      ]
+    },
+    {
+      "name": "forty-nine-occurrences-reach-the-last-step",
+      "source_files": 49,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::repeated",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 49
+        }
+      ],
+      "expected_audit": {
+        "source_files": 49,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 49,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 49,
+              "info": 0,
+              "unknown": 0,
+              "total": 49
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 99,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 97,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::repeated"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::repeated"
+      ]
+    },
+    {
+      "name": "one-occurrence-costs-the-first-step",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::stepped",
+          "category": "security",
+          "severity": "error",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 1,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 99,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::stepped"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::stepped"
+      ]
+    },
+    {
+      "name": "fifty-occurrences-cost-strictly-more-than-one",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::stepped",
+          "category": "security",
+          "severity": "error",
+          "occurrences": 50
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 50,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 50,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 50
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 98,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 94,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::stepped"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::stepped"
+      ]
+    },
+    {
+      "name": "severity-conflict-keeps-highest",
+      "source_files": 2,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::conflict",
+          "category": "correctness",
+          "severity": "warning",
+          "occurrences": 2
+        },
+        {
+          "rule_id": "clippy::conflict",
+          "category": "correctness",
+          "severity": "error",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 2,
+        "categories": [
+          {
+            "name": "Bugs",
+            "errors": 1,
+            "warnings": 2,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 2
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 2,
+              "info": 0,
+              "unknown": 0,
+              "total": 3
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 99,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 100,
+            "reliability": 97,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::conflict"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::conflict"
+      ]
+    },
+    {
+      "name": "missing-code-is-partial-without-message-fallback",
+      "source_files": 1,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": null,
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 1,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": false,
+          "dimensions": {
+            "security": 100,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "unknown-category-falls-into-the-other-bucket",
+      "source_files": 1,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::future",
+          "category": "future",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 1,
+        "categories": [
+          {
+            "name": "Other",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": false,
+          "dimensions": {
+            "security": 100,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "unknown-severity-is-partial",
+      "source_files": 1,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::future",
+          "category": "maintainability",
+          "severity": "unknown",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 1,
+        "categories": [
+          {
+            "name": "Maintainability",
+            "errors": 0,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 1,
+            "distinct": {
+              "errors": 0,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 1,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 1,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": false,
+          "dimensions": {
+            "security": 100,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": []
+    },
+    {
+      "name": "unknown-occurrence-keeps-valid-rule-penalty",
+      "source_files": 1,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::mixed",
+          "category": "security",
+          "severity": "error",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "clippy::mixed",
+          "category": "security",
+          "severity": "unknown",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 1,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 1,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 1,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 1,
+              "total": 2
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 1,
+              "total": 2
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 99,
+          "label": "Great",
+          "authoritative": false,
+          "dimensions": {
+            "security": 97,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::mixed"
+      ]
+    },
+    {
+      "name": "incomplete-scan-keeps-numeric-score-but-not-projection",
+      "source_files": 1,
+      "complete": false,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::security",
+          "category": "security",
+          "severity": "error",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 1,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 1,
+            "warnings": 0,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 1,
+              "warnings": 0,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": false,
+          "dimensions": {
+            "security": 99,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": null,
+          "applied_ceiling": null,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::security"
+      ]
+    },
+    {
+      "name": "p0-caps-the-dimension-and-the-overall-score",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "rust_doctor::source::dynamic_shell_command",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 40,
+          "label": "Critical",
+          "authoritative": true,
+          "dimensions": {
+            "security": 20,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P0",
+          "applied_ceiling": 40,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "rust_doctor::source::dynamic_shell_command"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "rust_doctor::source::dynamic_shell_command"
+      ]
+    },
+    {
+      "name": "p1-caps-higher-than-p0",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::unimplemented",
+          "category": "correctness",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Bugs",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 65,
+          "label": "Needs work",
+          "authoritative": true,
+          "dimensions": {
+            "security": 100,
+            "reliability": 50,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P1",
+          "applied_ceiling": 65,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::unimplemented"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::unimplemented"
+      ]
+    },
+    {
+      "name": "p2-caps-the-dimension-only",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::todo",
+          "category": "correctness",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Bugs",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 94,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 100,
+            "reliability": 75,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P2",
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::todo"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::todo"
+      ]
+    },
+    {
+      "name": "p3-imposes-no-ceiling",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::dbg_macro",
+          "category": "maintainability",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Maintainability",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 100,
+          "label": "Great",
+          "authoritative": true,
+          "dimensions": {
+            "security": 100,
+            "reliability": 100,
+            "maintainability": 99,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P3",
+          "applied_ceiling": null,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::dbg_macro"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::dbg_macro"
+      ]
+    },
+    {
+      "name": "the-worst-tier-of-a-dimension-wins",
+      "source_files": 3,
+      "complete": true,
+      "diagnostics": [
+        {
+          "rule_id": "clippy::permissions_set_readonly_false",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        },
+        {
+          "rule_id": "rust_doctor::source::disabled_tls_verification",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 2,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 2,
+              "info": 0,
+              "unknown": 0,
+              "total": 2
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 2,
+              "info": 0,
+              "unknown": 0,
+              "total": 2
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 40,
+          "label": "Critical",
+          "authoritative": true,
+          "dimensions": {
+            "security": 20,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P0",
+          "applied_ceiling": 40,
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
+            "clippy::permissions_set_readonly_false",
+            "rust_doctor::source::disabled_tls_verification"
+          ]
+        }
+      },
+      "expected_counted_rule_ids": [
+        "clippy::permissions_set_readonly_false",
+        "rust_doctor::source::disabled_tls_verification"
+      ]
+    },
+    {
+      "name": "an-incomplete-scan-is-still-capped",
+      "source_files": 3,
+      "complete": false,
+      "diagnostics": [
+        {
+          "rule_id": "rust_doctor::source::disabled_tls_verification",
+          "category": "security",
+          "severity": "warning",
+          "occurrences": 1
+        }
+      ],
+      "expected_audit": {
+        "source_files": 3,
+        "categories": [
+          {
+            "name": "Security",
+            "errors": 0,
+            "warnings": 1,
+            "info": 0,
+            "unknown": 0,
+            "distinct": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            },
+            "occurrences": {
+              "errors": 0,
+              "warnings": 1,
+              "info": 0,
+              "unknown": 0,
+              "total": 1
+            }
+          }
+        ],
+        "score": {
+          "model": "core-v2",
+          "value": 40,
+          "label": "Critical",
+          "authoritative": false,
+          "dimensions": {
+            "security": 20,
+            "reliability": 100,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 100
+          },
+          "worst_tier": "P0",
+          "applied_ceiling": 40,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      },
+      "expected_counted_rule_ids": [
+        "rust_doctor::source::disabled_tls_verification"
+      ]
+    }
+  ],
+  "share_cases": [
+    {
+      "score": 52,
+      "errors": 1,
+      "warnings": 13,
+      "info": 0,
+      "files": 130,
+      "expected": "https://rust-doctor.vercel.app/share?s=52&e=1&w=13&f=130"
+    },
+    {
+      "score": 0,
+      "errors": 0,
+      "warnings": 0,
+      "info": 0,
+      "files": 0,
+      "expected": "https://rust-doctor.vercel.app/share?s=0"
+    },
+    {
+      "score": 100,
+      "errors": 1000000,
+      "warnings": 1000000,
+      "info": 1000000,
+      "files": 1000000,
+      "expected": "https://rust-doctor.vercel.app/share?s=100&e=1000000&w=1000000&i=1000000&f=1000000"
+    },
+    {
+      "score": 101,
+      "errors": 0,
+      "warnings": 0,
+      "info": 0,
+      "files": 1,
+      "expected": null
+    },
+    {
+      "score": 100,
+      "errors": 1000001,
+      "warnings": 0,
+      "info": 0,
+      "files": 1,
+      "expected": null
+    }
+  ]
+}

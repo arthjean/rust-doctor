@@ -25,7 +25,10 @@ const MIGRATION_FILE_THRESHOLD: usize = 40;
 pub struct ReportPresentation {
     pub groups: Vec<DiagnosticGroup>,
     pub migration_advisories: Vec<MigrationAdvisory>,
+    /// Nombre d'occurrences, la grandeur publiée par `summary.occurrences.total`.
     pub issue_count: usize,
+    /// Nombre de diagnostics distincts, la grandeur publiée par `summary.total`.
+    pub finding_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -98,12 +101,14 @@ impl ReportPresentation {
         let issue_count = diagnostics.iter().fold(0usize, |total, diagnostic| {
             total.saturating_add(diagnostic.occurrences)
         });
+        let finding_count = diagnostics.len();
         let groups = diagnostic_groups(&diagnostics);
         let migration_advisories = migration_advisories(&groups);
         Self {
             groups,
             migration_advisories,
             issue_count,
+            finding_count,
         }
     }
 }

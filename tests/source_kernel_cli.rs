@@ -171,7 +171,7 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     assert_eq!(content_hashes(&project), before_scan);
 
     let initial_report = initial_report.unwrap();
-    assert_eq!(initial_report["schema_version"], 8);
+    assert_eq!(initial_report["schema_version"], 9);
     assert_eq!(initial_report["status"], "complete");
     let findings = source_findings(&initial_report);
     assert_eq!(findings.len(), 2);
@@ -189,9 +189,29 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     assert_eq!(terminal_a.status.code(), Some(0));
     assert_eq!(terminal_a.stdout, terminal_b.stdout);
     let terminal = String::from_utf8_lossy(&terminal_a.stdout);
-    assert!(terminal.contains(&format!("Rule ID: {TLS}")));
+    // Le rendu par défaut n'expose qu'un groupe, celui de plus forte
+    // contribution: `clippy::todo` y passe devant les findings source parce que
+    // le barème pondère désormais les occurrences. Les deux règles P0 restent
+    // nommées comme cause du plafond de la note.
+    assert!(!terminal.contains(&format!("Rule ID: {TLS}")), "{terminal}");
     assert!(!terminal.contains(&format!("Rule ID: {SHELL}")));
+    assert!(
+        terminal.contains("Capped at 40/100 by a P0 finding"),
+        "{terminal}"
+    );
+    assert!(
+        terminal.contains(TLS) && terminal.contains(SHELL),
+        "{terminal}"
+    );
     assert_private(&terminal_a, &project);
+
+    let verbose = command(&project, false, &cargo_home, &target)
+        .arg("--verbose")
+        .output()
+        .unwrap();
+    let verbose = String::from_utf8_lossy(&verbose.stdout);
+    assert!(verbose.contains(&format!("Rule ID: {TLS}")), "{verbose}");
+    assert!(verbose.contains(&format!("Rule ID: {SHELL}")), "{verbose}");
 
     let source = project.join("app/src/lib.rs");
     replace(

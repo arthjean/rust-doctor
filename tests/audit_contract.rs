@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use rust_doctor::{
-    CategoryOverride, InspectRequest, RuleLevel, RuleOverride, ScoreLabel, ShareError, Status,
-    inspect,
+    CategoryOverride, InspectRequest, RuleLevel, RuleOverride, RuleTier, ScoreLabel, ShareError,
+    Status, inspect,
 };
 use serde_json::Value;
 
@@ -13,12 +13,12 @@ fn fixture(path: &str) -> PathBuf {
 }
 
 #[test]
-fn report_v8_exposes_one_canonical_audit_block() {
+fn report_v9_exposes_one_canonical_audit_block() {
     let clean = inspect(InspectRequest::new(fixture(
         "tests/fixtures/projects/clean",
     )));
     let value = serde_json::to_value(&clean).unwrap();
-    assert_eq!(clean.schema_version, 8);
+    assert_eq!(clean.schema_version, 9);
     assert_eq!(clean.status, Status::Complete);
     assert_eq!(clean.audit.source_files, 1);
     assert!(clean.audit.categories.is_empty());
@@ -27,7 +27,7 @@ fn report_v8_exposes_one_canonical_audit_block() {
         .score
         .as_ref()
         .expect("clean score should exist");
-    assert_eq!(score.model, "core-v1");
+    assert_eq!(score.model, "core-v2");
     assert_eq!(score.value, 100);
     assert_eq!(score.label, ScoreLabel::Great);
     assert!(score.authoritative);
@@ -175,9 +175,17 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.projected_after_top_three, Some(100));
     assert_eq!(report.audit.categories[0].name.to_string(), "Bugs");
     assert_eq!(report.audit.categories[0].warnings, 6);
+    assert_eq!(report.audit.categories[0].occurrences.total, 6);
+    assert_eq!(report.audit.categories[0].distinct.total, 3);
+    // `clippy::todo` est de tier P2: la dimension Reliability est plafonnée à 75
+    // et la note globale ne subit aucun plafond global.
+    assert_eq!(score.dimensions.reliability, 75);
+    assert_eq!(score.worst_tier, Some(RuleTier::P2));
+    assert_eq!(score.applied_ceiling, None);
+    assert_eq!(score.value, 94);
     assert_eq!(
         report.audit.share_url().unwrap(),
-        "https://rust-doctor.vercel.app/share?s=100&w=6&f=1"
+        "https://rust-doctor.vercel.app/share?s=94&w=6&f=1"
     );
 }
 

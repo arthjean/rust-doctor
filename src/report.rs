@@ -5,10 +5,11 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use cargo_metadata::Metadata;
-use serde::Serialize;
+use serde::ser::{Error as _, SerializeStruct};
+use serde::{Serialize, Serializer};
 use serde_json::Value;
 
-use crate::audit::{self, Audit, SourceFileInventory};
+use crate::audit::{self, Audit, SeverityCounts, SourceFileInventory};
 use crate::cargo_health;
 use crate::delta::DeltaReport;
 use crate::execution::{
@@ -18,12 +19,12 @@ use crate::execution::{
 use crate::git_scope::{ScopeReport, ScopeRequest};
 use crate::policy::{
     self, BlockingLevel, BlockingLevelSource, CategoryOverride, PolicyError, PolicyInput,
-    PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride,
+    PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
 };
 use crate::source_kernel;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 8;
+pub const SCHEMA_VERSION: u8 = 9;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -81,7 +82,7 @@ impl Default for InspectRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectReport {
     pub schema_version: u8,
     pub audit: Audit,
@@ -116,6 +117,7 @@ pub struct PolicyBlockingReport {
 pub struct PolicyRuleReport {
     pub id: String,
     pub category: String,
+    pub tier: RuleTier,
     pub level: RuleLevel,
     pub source: RuleLevelSource,
 }
@@ -133,6 +135,7 @@ impl PolicyReport {
                 .map(|(definition, level, source)| PolicyRuleReport {
                     id: definition.id.to_owned(),
                     category: definition.category.to_owned(),
+                    tier: definition.tier,
                     level,
                     source,
                 })
@@ -160,12 +163,24 @@ impl Status {
 }
 
 impl InspectReport {
+    /// Un rapport n'est publiable que si ses comptages concordent.
+    ///
+    /// `summary` décrit l'ensemble des diagnostics du rapport. `audit` décrit la
+    /// portée du score: le rapport complet, ou les seuls diagnostics introduits
+    /// quand un delta est présent. Les deux grandeurs, diagnostics distincts et
+    /// occurrences, sont vérifiées séparément.
     pub fn is_valid(&self) -> bool {
         if self.schema_version != SCHEMA_VERSION || !self.audit.is_valid() {
             return false;
         }
+        if self.summary != summarize(&self.diagnostics) {
+            return false;
+        }
         let Some(delta) = &self.delta else {
-            return true;
+            let (distinct, occurrences) = self.audit.totals();
+            return self.audit == self.audit.rebuild_for_scope(self.status, &self.diagnostics)
+                && distinct == self.summary.distinct
+                && occurrences == self.summary.occurrences;
         };
         let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
         let scoped: Vec<_> = self
@@ -175,6 +190,33 @@ impl InspectReport {
             .cloned()
             .collect();
         self.audit == self.audit.rebuild_for_scope(self.status, &scoped)
+    }
+}
+
+impl Serialize for InspectReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if !self.is_valid() {
+            return Err(S::Error::custom("invalid report state"));
+        }
+        let mut state = serializer.serialize_struct("InspectReport", 14)?;
+        state.serialize_field("schema_version", &self.schema_version)?;
+        state.serialize_field("audit", &self.audit)?;
+        state.serialize_field("status", &self.status)?;
+        state.serialize_field("complete", &self.complete)?;
+        state.serialize_field("policy", &self.policy)?;
+        state.serialize_field("scope", &self.scope)?;
+        state.serialize_field("project", &self.project)?;
+        state.serialize_field("toolchain", &self.toolchain)?;
+        state.serialize_field("scan", &self.scan)?;
+        state.serialize_field("diagnostics", &self.diagnostics)?;
+        state.serialize_field("delta", &self.delta)?;
+        state.serialize_field("errors", &self.errors)?;
+        state.serialize_field("summary", &self.summary)?;
+        state.serialize_field("gate", &self.gate)?;
+        state.end()
     }
 }
 
@@ -305,6 +347,11 @@ pub struct ReportError {
     pub message: String,
 }
 
+/// Comptages du rapport, publiés sous deux grandeurs explicites.
+///
+/// Les cinq champs plats sont l'alias historique de `distinct`: un diagnostic
+/// remonté par deux cibles de compilation compte pour un diagnostic distinct et
+/// deux occurrences.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub errors: usize,
@@ -312,6 +359,30 @@ pub struct Summary {
     pub info: usize,
     pub unknown: usize,
     pub total: usize,
+    pub distinct: SeverityCounts,
+    pub occurrences: SeverityCounts,
+}
+
+impl Summary {
+    /// Seule dérivation admise des comptages: un rapport dont le `summary`
+    /// s'écarte de cette fonction est refusé à la sérialisation.
+    pub fn from_diagnostics(diagnostics: &[Diagnostic]) -> Self {
+        let mut distinct = SeverityCounts::default();
+        let mut occurrences = SeverityCounts::default();
+        for diagnostic in diagnostics {
+            distinct.add(diagnostic.severity, 1);
+            occurrences.add(diagnostic.severity, diagnostic.occurrences);
+        }
+        Self {
+            errors: distinct.errors,
+            warnings: distinct.warnings,
+            info: distinct.info,
+            unknown: distinct.unknown,
+            total: distinct.total,
+            distinct,
+            occurrences,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1280,17 +1351,7 @@ fn json_string(value: &str) -> String {
 }
 
 fn summarize(diagnostics: &[Diagnostic]) -> Summary {
-    let mut summary = Summary::default();
-    for diagnostic in diagnostics {
-        match diagnostic.severity {
-            Severity::Error => summary.errors += 1,
-            Severity::Warning => summary.warnings += 1,
-            Severity::Info => summary.info += 1,
-            Severity::Unknown => summary.unknown += 1,
-        }
-    }
-    summary.total = diagnostics.len();
-    summary
+    Summary::from_diagnostics(diagnostics)
 }
 
 fn sanitize_text(value: &str, workspace_root: Option<&Path>, home: &HomePaths) -> String {
@@ -2022,7 +2083,7 @@ mod tests {
         assert!(!format!("{mixed:?}").contains("git.invalid"));
 
         let report = report_with_diagnostics(mixed);
-        assert_eq!(report.schema_version, 8);
+        assert_eq!(report.schema_version, SCHEMA_VERSION);
         assert_eq!(report.summary.warnings, 3);
         assert_eq!(report.summary.total, 3);
         let mut rendered = Vec::new();

@@ -91,8 +91,9 @@ fn fixture_report() -> InspectReport {
             occurrences: 1,
         })
         .collect();
+    let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 8,
+        schema_version: 9,
         audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
@@ -113,13 +114,7 @@ fn fixture_report() -> InspectReport {
         diagnostics,
         delta: None,
         errors: Vec::new(),
-        summary: Summary {
-            errors: 0,
-            warnings: DIAGNOSTICS,
-            info: 0,
-            unknown: 0,
-            total: DIAGNOSTICS,
-        },
+        summary,
         gate: GateReport {
             blocking: BlockingLevel::Error,
             status: GateStatus::Passed,

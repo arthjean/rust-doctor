@@ -47,10 +47,23 @@ fn run(command: &mut Command, description: &str) -> Output {
 }
 
 fn inspect(path: &Path, json: bool, cargo_home: &Path, target: &Path) -> Output {
+    inspect_with(path, json, false, cargo_home, target)
+}
+
+fn inspect_with(
+    path: &Path,
+    json: bool,
+    verbose: bool,
+    cargo_home: &Path,
+    target: &Path,
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
     command.arg("inspect");
     if json {
         command.arg("--json");
+    }
+    if verbose {
+        command.arg("--verbose");
     }
     command
         .arg(path)
@@ -276,7 +289,7 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     );
     assert_eq!(output.status.code(), Some(0));
     let report = report(&output);
-    assert_eq!(report["schema_version"], 8);
+    assert_eq!(report["schema_version"], 9);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["complete"], true);
     let findings = native_findings(&report);
@@ -327,15 +340,22 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
         ])
     );
 
-    let terminal = inspect(
+    // `--verbose` liste tous les groupes: le rendu par défaut n'en montre qu'un,
+    // et le classement suit la contribution, désormais pondérée par le nombre
+    // d'occurrences.
+    let terminal = inspect_with(
         &fixture,
         false,
+        true,
         &root.join("cargo-home"),
         &root.join("target"),
     );
     assert_eq!(terminal.status.code(), Some(0));
     let terminal = String::from_utf8(terminal.stdout).expect("terminal output should be UTF-8");
-    assert!(terminal.contains(&format!("Rule ID: {REGISTRY_CODE}")));
+    assert!(
+        terminal.contains(&format!("Rule ID: {REGISTRY_CODE}")),
+        "{terminal}"
+    );
     assert!(terminal.contains("Help: Replace the unbounded version requirement with the minimum"));
     assert!(terminal.contains("version intended by the project."));
     assert_eq!(content_hashes(&fixture), before);

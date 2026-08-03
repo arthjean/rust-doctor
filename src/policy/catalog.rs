@@ -2,6 +2,8 @@
 use std::collections::BTreeSet;
 
 use serde::Serialize;
+#[cfg(test)]
+use serde_json::Value;
 
 use super::RuleLevel;
 
@@ -13,12 +15,57 @@ pub(crate) enum Producer {
     SourceKernel,
 }
 
+/// Criticité d'une règle, indépendante de `default_level` et de la sévérité
+/// effective d'un diagnostic.
+///
+/// Le tier ne pilote que le score `core-v2`: il impose un plafond à la
+/// dimension concernée et à la note globale. Il n'entre ni dans `base_severity`
+/// ni dans `fingerprint()`, donc il ne déplace aucune baseline.
+///
+/// L'ordre déclaré va du plus grave au moins grave: `P0 < P1 < P2 < P3`, donc
+/// le pire tier d'un ensemble est son minimum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub enum RuleTier {
+    P0,
+    P1,
+    P2,
+    P3,
+}
+
+impl RuleTier {
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 4] = [Self::P0, Self::P1, Self::P2, Self::P3];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::P0 => "P0",
+            Self::P1 => "P1",
+            Self::P2 => "P2",
+            Self::P3 => "P3",
+        }
+    }
+
+    /// Lecture fermée d'un tier publié. Toute autre valeur est refusée sans
+    /// écho de l'entrée.
+    #[cfg(test)]
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "P0" => Some(Self::P0),
+            "P1" => Some(Self::P1),
+            "P2" => Some(Self::P2),
+            "P3" => Some(Self::P3),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub(crate) struct RuleDefinition {
     pub(crate) id: &'static str,
     pub(crate) category: &'static str,
     pub(crate) producer: Producer,
     pub(crate) default_level: RuleLevel,
+    pub(crate) tier: RuleTier,
     pub(crate) help: &'static str,
 }
 
@@ -30,6 +77,7 @@ pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     category: "maintainability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
     help: "Remove dbg! or replace it with intentional logging.",
 };
 pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
@@ -37,6 +85,7 @@ pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
     help: "Avoid leaking a value with drop semantics; use an explicit ownership or lifetime strategy.",
 };
 pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefinition {
@@ -44,6 +93,7 @@ pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefini
     category: "correctness",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
     help: "Remove the unsafe Send implementation or ensure every field is safe to send between threads.",
 };
 pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDefinition {
@@ -51,6 +101,7 @@ pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDe
     category: "security",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
     help: "Set explicit Unix permission bits instead of clearing readonly on Unix.",
 };
 pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefinition {
@@ -58,6 +109,7 @@ pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefi
     category: "correctness",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
     help: "Pass each process argument separately instead of embedding spaces in one argument.",
 };
 pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
@@ -65,6 +117,7 @@ pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
     category: "correctness",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
     help: "Replace todo! with the intended implementation or remove the reachable placeholder.",
 };
 pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
@@ -72,6 +125,7 @@ pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     category: "correctness",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
     help: "Implement this code path or remove the reachable placeholder.",
 };
 pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
@@ -79,6 +133,7 @@ pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
     help: "Wait on the child process or otherwise reap it before the handle is dropped.",
 };
 pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
@@ -86,6 +141,7 @@ pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
     help: "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
 };
 pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
@@ -93,6 +149,7 @@ pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
     category: "security",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
     help: "Set rev to the full 40-character commit SHA intended by the project.",
 };
 pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
@@ -100,6 +157,7 @@ pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
     category: "security",
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P0,
     help: "Keep TLS verification enabled and configure the required trust roots or server name instead.",
 };
 pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
@@ -107,6 +165,7 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     category: "security",
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
+    tier: RuleTier::P0,
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
 
@@ -144,6 +203,7 @@ enum CatalogError {
     EmptyMetadata,
     UnknownCategory,
     InvalidProducer,
+    InvalidTier,
 }
 
 #[cfg(test)]
@@ -173,12 +233,31 @@ fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
     }) {
         return Err(CatalogError::InvalidProducer);
     }
+    for definition in catalog {
+        let published = serde_json::to_value(definition).map_err(|_| CatalogError::InvalidTier)?;
+        if published_tier(&published)? != definition.tier {
+            return Err(CatalogError::InvalidTier);
+        }
+    }
     Ok(())
+}
+
+/// Le type interdit déjà un tier absent ou hors des quatre valeurs. La forme
+/// publiée, elle, est une chaîne: c'est là que l'état invalide redevient
+/// représentable, donc c'est là que la validation porte. L'erreur est fermée et
+/// n'échoit ni la valeur lue, ni un chemin, ni une séquence d'échappement.
+#[cfg(test)]
+fn published_tier(definition: &Value) -> Result<RuleTier, CatalogError> {
+    definition
+        .get("tier")
+        .and_then(Value::as_str)
+        .and_then(RuleTier::parse)
+        .ok_or(CatalogError::InvalidTier)
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
+    use serde_json::json;
 
     use super::*;
     use crate::configuration::WorkspaceConfiguration;
@@ -189,6 +268,7 @@ mod tests {
         category: "correctness",
         producer: Producer::Clippy,
         default_level: RuleLevel::Warn,
+        tier: RuleTier::P2,
         help: "Synthetic authoring proof.",
     };
 
@@ -323,6 +403,70 @@ mod tests {
         assert_eq!(error, CatalogError::InvalidProducer);
         assert!(!rendered.contains("/private"));
         assert!(!rendered.contains('\u{1b}'));
+    }
+
+    /// Le tier est une valeur fermée sur la surface publiée.
+    ///
+    /// Dans le code, l'énumération rend un tier absent ou hors des quatre
+    /// valeurs impossible à construire. Dans le rapport, le tier est une
+    /// chaîne: c'est la seule surface où l'état invalide existe, donc c'est
+    /// celle que la validation ferme.
+    #[test]
+    fn an_absent_or_unknown_published_tier_fails_with_a_closed_error() {
+        for definition in CATALOG {
+            let published = serde_json::to_value(definition).unwrap();
+            assert_eq!(published_tier(&published), Ok(definition.tier));
+        }
+
+        for hostile in [
+            json!({ "id": "clippy::dbg_macro" }),
+            json!({ "id": "clippy::dbg_macro", "tier": null }),
+            json!({ "id": "clippy::dbg_macro", "tier": "P4" }),
+            json!({ "id": "clippy::dbg_macro", "tier": "p0" }),
+            json!({ "id": "clippy::dbg_macro", "tier": 0 }),
+            json!({ "id": "clippy::dbg_macro", "tier": "/private/secret\u{1b}[31m" }),
+        ] {
+            let error = published_tier(&hostile).unwrap_err();
+            let rendered = format!("{error:?}");
+            assert_eq!(error, CatalogError::InvalidTier);
+            assert!(!rendered.contains("/private"));
+            assert!(!rendered.contains('\u{1b}'));
+        }
+
+        assert_eq!(
+            RuleTier::ALL.map(RuleTier::as_str),
+            ["P0", "P1", "P2", "P3"]
+        );
+        assert!(RuleTier::ALL.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// Le tier ne recopie pas le niveau par défaut et ne le remplace pas.
+    ///
+    /// Les douze règles partagent `RuleLevel::Warn` mais couvrent quatre tiers,
+    /// donc aucune fonction du score ne peut déduire l'un de l'autre.
+    #[test]
+    fn the_tier_is_independent_from_the_default_level() {
+        assert!(
+            CATALOG
+                .iter()
+                .all(|definition| definition.default_level == RuleLevel::Warn)
+        );
+        let tiers: BTreeSet<_> = CATALOG.iter().map(|definition| definition.tier).collect();
+        assert_eq!(tiers.len(), 4);
+
+        let blocking: Vec<_> = CATALOG
+            .iter()
+            .filter(|definition| definition.tier == RuleTier::P0)
+            .map(|definition| definition.id)
+            .collect();
+        assert_eq!(
+            blocking,
+            [
+                "rust_doctor::source::disabled_tls_verification",
+                "rust_doctor::source::dynamic_shell_command",
+            ],
+            "l'ensemble P0 reste restreint aux détecteurs de sécurité exploitables",
+        );
     }
 
     #[test]

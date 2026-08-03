@@ -19,17 +19,20 @@ mod terminal_text;
 mod workspace_path;
 
 pub use audit::{
-    Audit, AuditCategory, AuditCategoryName, AuditScore, ScoreDimensions, ScoreLabel, ShareError,
+    Audit, AuditCategory, AuditCategoryName, AuditScore, ScoreDimensions, ScoreLabel,
+    SeverityCounts, ShareError,
 };
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, RuleLevel, RuleLevelSource, RuleOverride,
+    RuleTier,
 };
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
-    ProjectReport, ReportError, ScanReport, Severity, Status, Summary, ToolchainReport,
+    ProjectReport, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status, Summary,
+    ToolchainReport,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {

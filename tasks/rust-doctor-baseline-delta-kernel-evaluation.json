@@ -172,8 +172,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 6,
+          "unknown": 0,
+          "warnings": 6
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 12,
+          "unknown": 0,
+          "warnings": 12
+        },
         "total": 6,
         "unknown": 0,
         "warnings": 6
@@ -210,8 +224,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 7,
+          "unknown": 0,
+          "warnings": 7
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 14,
+          "unknown": 0,
+          "warnings": 14
+        },
         "total": 7,
         "unknown": 0,
         "warnings": 7
@@ -248,8 +276,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 8,
+          "unknown": 0,
+          "warnings": 8
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 16,
+          "unknown": 0,
+          "warnings": 16
+        },
         "total": 8,
         "unknown": 0,
         "warnings": 8
@@ -286,8 +328,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 9,
+          "unknown": 0,
+          "warnings": 9
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 18,
+          "unknown": 0,
+          "warnings": 18
+        },
         "total": 9,
         "unknown": 0,
         "warnings": 9
@@ -324,8 +380,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 9,
+          "unknown": 0,
+          "warnings": 9
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 18,
+          "unknown": 0,
+          "warnings": 18
+        },
         "total": 9,
         "unknown": 0,
         "warnings": 9
@@ -362,8 +432,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 10,
+          "unknown": 0,
+          "warnings": 10
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 20,
+          "unknown": 0,
+          "warnings": 20
+        },
         "total": 10,
         "unknown": 0,
         "warnings": 10
@@ -400,8 +484,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 10,
+          "unknown": 0,
+          "warnings": 10
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 20,
+          "unknown": 0,
+          "warnings": 20
+        },
         "total": 10,
         "unknown": 0,
         "warnings": 10
@@ -438,8 +536,22 @@
       },
       "runs": 30,
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 5,
+          "unknown": 0,
+          "warnings": 5
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 10,
+          "unknown": 0,
+          "warnings": 10
+        },
         "total": 5,
         "unknown": 0,
         "warnings": 5

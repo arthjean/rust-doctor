@@ -9,6 +9,7 @@ use crate::configuration::WorkspaceConfiguration;
 
 mod catalog;
 
+pub use catalog::RuleTier;
 use catalog::find_in;
 pub(crate) use catalog::{
     CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, CATALOG, CATEGORIES, Producer, RuleDefinition,

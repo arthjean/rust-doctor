@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use cargo_metadata::Metadata;
 
 use crate::execution::ScanExecution;
+use crate::policy::RuleTier;
 use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceScan;
 
@@ -27,7 +28,7 @@ pub(crate) fn source_file_inventory(
     source_inventory::collect(metadata, scan, source)
 }
 
-pub const SCORE_MODEL: &str = "core-v1";
+pub const SCORE_MODEL: &str = "core-v2";
 const SHARE_BASE_URL: &str = "https://rust-doctor.vercel.app/share";
 const MAX_SHARED_COUNT: usize = 1_000_000;
 
@@ -38,13 +39,61 @@ pub struct Audit {
     pub score: Option<AuditScore>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AuditCategory {
-    pub name: AuditCategoryName,
+/// Comptage par sévérité d'une seule grandeur.
+///
+/// Le rapport publie deux grandeurs distinctes: le nombre de diagnostics
+/// distincts et le nombre d'occurrences. Chaque surface expose les deux sous
+/// des noms explicites, et `total` est toujours la somme des quatre sévérités.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct SeverityCounts {
     pub errors: usize,
     pub warnings: usize,
     pub info: usize,
     pub unknown: usize,
+    pub total: usize,
+}
+
+impl SeverityCounts {
+    pub(crate) fn add(&mut self, severity: Severity, count: usize) {
+        let bucket = match severity {
+            Severity::Error => &mut self.errors,
+            Severity::Warning => &mut self.warnings,
+            Severity::Info => &mut self.info,
+            Severity::Unknown => &mut self.unknown,
+        };
+        *bucket = bucket.saturating_add(count);
+        self.total = self.total.saturating_add(count);
+    }
+
+    const fn is_coherent(self) -> bool {
+        self.errors
+            .saturating_add(self.warnings)
+            .saturating_add(self.info)
+            .saturating_add(self.unknown)
+            == self.total
+    }
+
+    /// Une occurrence par diagnostic distinct au minimum, jamais l'inverse.
+    const fn covers(self, distinct: Self) -> bool {
+        self.errors >= distinct.errors
+            && self.warnings >= distinct.warnings
+            && self.info >= distinct.info
+            && self.unknown >= distinct.unknown
+            && self.total >= distinct.total
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuditCategory {
+    pub name: AuditCategoryName,
+    /// Alias historique de `occurrences.errors`, conservé pour les consommateurs
+    /// du schema précédent.
+    pub errors: usize,
+    pub warnings: usize,
+    pub info: usize,
+    pub unknown: usize,
+    pub distinct: SeverityCounts,
+    pub occurrences: SeverityCounts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -54,6 +103,10 @@ pub enum AuditCategoryName {
     Performance,
     Dependencies,
     Maintainability,
+    /// Diagnostic sans catégorie catalogue, une erreur de compilation par
+    /// exemple. Le bucket existe pour qu'aucun diagnostic ne disparaisse entre
+    /// `summary` et `audit.categories`.
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -63,6 +116,13 @@ pub struct AuditScore {
     pub label: ScoreLabel,
     pub authoritative: bool,
     pub dimensions: ScoreDimensions,
+    /// Pire tier observé toutes dimensions confondues, ou `null` si aucune
+    /// règle scorée n'est catalogée.
+    pub worst_tier: Option<RuleTier>,
+    /// Plafond global effectivement appliqué à `value`, ou `null` quand le pire
+    /// tier n'en impose aucun. Publié pour qu'une chute de note soit explicable
+    /// sans recalcul.
+    pub applied_ceiling: Option<u8>,
     pub projected_after_top_three: Option<u8>,
     pub projected_rule_ids: Vec<String>,
 }
@@ -119,6 +179,8 @@ pub(crate) struct RuleAggregate {
     scored_severity: Option<Severity>,
     pub(crate) category: Option<AuditCategoryName>,
     dimension: Option<ScoreDimension>,
+    tier: Option<RuleTier>,
+    occurrences: usize,
 }
 
 #[derive(Debug)]
@@ -135,6 +197,8 @@ struct PendingRule {
     dimension: Option<ScoreDimension>,
     scored_severity: Option<Severity>,
     mapping_conflict: bool,
+    tier: Option<RuleTier>,
+    occurrences: usize,
 }
 
 impl Audit {
@@ -205,17 +269,31 @@ impl Audit {
             let position = category_position(category.name);
             let ordered = previous.is_none_or(|previous| previous < position);
             previous = Some(position);
-            ordered
-                && category
-                    .errors
-                    .saturating_add(category.warnings)
-                    .saturating_add(category.info)
-                    .saturating_add(category.unknown)
-                    > 0
+            ordered && category.is_valid()
         });
         categories_are_valid
             && (self.source_files > 0) == self.score.is_some()
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
+    }
+
+    /// Les deux grandeurs agrégées sur toutes les catégories du bloc.
+    pub fn totals(&self) -> (SeverityCounts, SeverityCounts) {
+        self.categories.iter().fold(
+            (SeverityCounts::default(), SeverityCounts::default()),
+            |(mut distinct, mut occurrences), category| {
+                for (target, source) in [
+                    (&mut distinct, category.distinct),
+                    (&mut occurrences, category.occurrences),
+                ] {
+                    target.errors = target.errors.saturating_add(source.errors);
+                    target.warnings = target.warnings.saturating_add(source.warnings);
+                    target.info = target.info.saturating_add(source.info);
+                    target.unknown = target.unknown.saturating_add(source.unknown);
+                    target.total = target.total.saturating_add(source.total);
+                }
+                (distinct, occurrences)
+            },
+        )
     }
 }
 
@@ -235,10 +313,37 @@ impl Serialize for Audit {
     }
 }
 
+impl AuditCategory {
+    fn empty(name: AuditCategoryName) -> Self {
+        Self {
+            name,
+            errors: 0,
+            warnings: 0,
+            info: 0,
+            unknown: 0,
+            distinct: SeverityCounts::default(),
+            occurrences: SeverityCounts::default(),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        self.distinct.total > 0
+            && self.distinct.is_coherent()
+            && self.occurrences.is_coherent()
+            && self.occurrences.covers(self.distinct)
+            && self.errors == self.occurrences.errors
+            && self.warnings == self.occurrences.warnings
+            && self.info == self.occurrences.info
+            && self.unknown == self.occurrences.unknown
+    }
+}
+
 impl AuditScore {
     pub fn is_valid(&self) -> bool {
         self.model == SCORE_MODEL
             && self.value <= 100
+            && self.applied_ceiling == self.worst_tier.and_then(tier_overall_ceiling)
+            && self.value == capped(weighted_score(self.dimensions), self.applied_ceiling)
             && self.label == score_label(self.value)
             && self
                 .dimensions
@@ -322,9 +427,19 @@ impl AuditCategoryName {
             Self::Performance => "Performance",
             Self::Dependencies => "Dependencies",
             Self::Maintainability => "Maintainability",
+            Self::Other => "Other",
         }
     }
 }
+
+const ORDERED_CATEGORIES: [AuditCategoryName; 6] = [
+    AuditCategoryName::Security,
+    AuditCategoryName::Bugs,
+    AuditCategoryName::Performance,
+    AuditCategoryName::Dependencies,
+    AuditCategoryName::Maintainability,
+    AuditCategoryName::Other,
+];
 
 const fn category_position(category: AuditCategoryName) -> u8 {
     match category {
@@ -333,6 +448,7 @@ const fn category_position(category: AuditCategoryName) -> u8 {
         AuditCategoryName::Performance => 2,
         AuditCategoryName::Dependencies => 3,
         AuditCategoryName::Maintainability => 4,
+        AuditCategoryName::Other => 5,
     }
 }
 
@@ -361,6 +477,67 @@ pub(crate) fn category_mapping(category: &str) -> Option<(AuditCategoryName, Sco
     }
 }
 
+/// Tout diagnostic tombe dans exactement un bucket, y compris ceux qu'aucune
+/// catégorie du catalogue ne couvre. Sans cela, `summary` et `audit.categories`
+/// compteraient des populations différentes.
+pub(crate) fn category_bucket(category: Option<&str>) -> AuditCategoryName {
+    category
+        .and_then(category_mapping)
+        .map_or(AuditCategoryName::Other, |(name, _)| name)
+}
+
+/// Plafond imposé à une dimension par le pire tier qu'elle contient.
+pub(crate) const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
+    match tier {
+        RuleTier::P0 => Some(20),
+        RuleTier::P1 => Some(50),
+        RuleTier::P2 => Some(75),
+        RuleTier::P3 => None,
+    }
+}
+
+/// Plafond imposé à la note globale par le pire tier toutes dimensions
+/// confondues.
+pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
+    match tier {
+        RuleTier::P0 => Some(40),
+        RuleTier::P1 => Some(65),
+        RuleTier::P2 | RuleTier::P3 => None,
+    }
+}
+
+/// Paliers d'occurrences appliqués à la pénalité d'une règle, publiés comme
+/// bornes hautes inclusives.
+pub(crate) const OCCURRENCE_STEPS: [(usize, u64); 4] = [(1, 1), (5, 2), (20, 3), (usize::MAX, 4)];
+
+/// Multiplicateur saturant: une règle ne peut jamais dépasser le dernier
+/// palier, quel que soit son nombre d'occurrences.
+pub(crate) const fn occurrence_multiplier(occurrences: usize) -> u64 {
+    let mut index = 0;
+    while index < OCCURRENCE_STEPS.len() {
+        if occurrences <= OCCURRENCE_STEPS[index].0 {
+            return OCCURRENCE_STEPS[index].1;
+        }
+        index += 1;
+    }
+    OCCURRENCE_STEPS[OCCURRENCE_STEPS.len() - 1].1
+}
+
+const fn capped(value: u8, ceiling: Option<u8>) -> u8 {
+    match ceiling {
+        Some(ceiling) if ceiling < value => ceiling,
+        _ => value,
+    }
+}
+
+/// Le pire tier est le minimum, `P0` étant déclaré en premier.
+fn worse_tier(current: Option<RuleTier>, candidate: Option<RuleTier>) -> Option<RuleTier> {
+    match (current, candidate) {
+        (Some(current), Some(candidate)) => Some(current.min(candidate)),
+        (current, candidate) => current.or(candidate),
+    }
+}
+
 pub(crate) const fn severity_penalty_quarters(severity: Severity) -> u64 {
     match severity {
         Severity::Error => 6,
@@ -381,13 +558,28 @@ pub(crate) const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 }
 
 impl RuleAggregate {
-    pub(crate) const fn contribution(&self) -> u64 {
-        match (self.scored_severity, self.dimension) {
-            (Some(severity), Some(dimension)) => {
-                severity_penalty_quarters(severity) * dimension_weight_twice(dimension)
-            }
-            _ => 0,
+    /// Pénalité en quarts de point, sévérité scorée fois palier d'occurrences.
+    pub(crate) const fn penalty_quarters(&self) -> u64 {
+        match self.scored_severity {
+            Some(severity) => severity_penalty_quarters(severity)
+                .saturating_mul(occurrence_multiplier(self.occurrences)),
+            None => 0,
         }
+    }
+
+    pub(crate) const fn contribution(&self) -> u64 {
+        match self.dimension {
+            Some(dimension) => self
+                .penalty_quarters()
+                .saturating_mul(dimension_weight_twice(dimension)),
+            None => 0,
+        }
+    }
+
+    /// Une règle non scorable ne plafonne rien: un tier ne peut pas agir sans
+    /// dimension ni sévérité retenue.
+    const fn scoring_tier(&self) -> Option<RuleTier> {
+        if self.is_scorable() { self.tier } else { None }
     }
 
     const fn is_scorable(&self) -> bool {
@@ -398,40 +590,31 @@ impl RuleAggregate {
 fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
     let mut tallies = BTreeMap::<AuditCategoryName, AuditCategory>::new();
     for diagnostic in diagnostics {
-        let Some((name, _)) = diagnostic.category.as_deref().and_then(category_mapping) else {
-            continue;
-        };
-        let tally = tallies.entry(name).or_insert(AuditCategory {
-            name,
-            errors: 0,
-            warnings: 0,
-            info: 0,
-            unknown: 0,
-        });
-        let count = diagnostic.occurrences;
-        match diagnostic.severity {
-            Severity::Error => tally.errors = tally.errors.saturating_add(count),
-            Severity::Warning => tally.warnings = tally.warnings.saturating_add(count),
-            Severity::Info => tally.info = tally.info.saturating_add(count),
-            Severity::Unknown => tally.unknown = tally.unknown.saturating_add(count),
-        }
+        let name = category_bucket(diagnostic.category.as_deref());
+        let tally = tallies
+            .entry(name)
+            .or_insert_with(|| AuditCategory::empty(name));
+        tally.distinct.add(diagnostic.severity, 1);
+        tally
+            .occurrences
+            .add(diagnostic.severity, diagnostic.occurrences);
     }
 
-    [
-        AuditCategoryName::Security,
-        AuditCategoryName::Bugs,
-        AuditCategoryName::Performance,
-        AuditCategoryName::Dependencies,
-        AuditCategoryName::Maintainability,
-    ]
-    .into_iter()
-    .filter_map(|name| tallies.remove(&name))
-    .collect()
+    ORDERED_CATEGORIES
+        .into_iter()
+        .filter_map(|name| tallies.remove(&name))
+        .map(|mut tally| {
+            tally.errors = tally.occurrences.errors;
+            tally.warnings = tally.occurrences.warnings;
+            tally.info = tally.occurrences.info;
+            tally.unknown = tally.occurrences.unknown;
+            tally
+        })
+        .collect()
 }
 
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
-    let dimensions = calculate_dimensions(&aggregation.rules, &BTreeSet::new());
-    let value = weighted_score(dimensions);
+    let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new());
 
     let mut projected_rules: Vec<_> = aggregation
         .rules
@@ -453,7 +636,7 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
     let projected_after_top_three = (authoritative && !projected_rule_ids.is_empty()).then(|| {
         let removed: BTreeSet<_> = projected_rule_ids.iter().cloned().collect();
-        weighted_score(calculate_dimensions(&aggregation.rules, &removed))
+        ScoredState::of(&aggregation.rules, &removed).value
     });
     let projected_rule_ids = if authoritative {
         projected_rule_ids
@@ -463,12 +646,39 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
 
     AuditScore {
         model: SCORE_MODEL.to_owned(),
-        value,
-        label: score_label(value),
+        value: scored.value,
+        label: score_label(scored.value),
         authoritative,
-        dimensions,
+        dimensions: scored.dimensions,
+        worst_tier: scored.worst_tier,
+        applied_ceiling: scored.applied_ceiling,
         projected_after_top_three,
         projected_rule_ids,
+    }
+}
+
+/// Note plafonnée et sa cause, pour un ensemble de règles donné.
+struct ScoredState {
+    dimensions: ScoreDimensions,
+    worst_tier: Option<RuleTier>,
+    applied_ceiling: Option<u8>,
+    value: u8,
+}
+
+impl ScoredState {
+    fn of(rules: &[RuleAggregate], removed: &BTreeSet<String>) -> Self {
+        let dimensions = calculate_dimensions(rules, removed);
+        let worst_tier = rules
+            .iter()
+            .filter(|rule| !removed.contains(&rule.id))
+            .fold(None, |worst, rule| worse_tier(worst, rule.scoring_tier()));
+        let applied_ceiling = worst_tier.and_then(tier_overall_ceiling);
+        Self {
+            dimensions,
+            worst_tier,
+            applied_ceiling,
+            value: capped(weighted_score(dimensions), applied_ceiling),
+        }
     }
 }
 
@@ -494,7 +704,10 @@ pub(crate) fn aggregate_rules<'a>(
             dimension: None,
             scored_severity: None,
             mapping_conflict: false,
+            tier: crate::policy::find(rule_id).map(|definition| definition.tier),
+            occurrences: 0,
         });
+        rule.occurrences = rule.occurrences.saturating_add(diagnostic.occurrences);
         if diagnostic.severity.rank() < rule.severity.rank() {
             rule.severity = diagnostic.severity;
         }
@@ -531,6 +744,8 @@ pub(crate) fn aggregate_rules<'a>(
                 dimension: (!rule.mapping_conflict && rule.scored_severity.is_some())
                     .then_some(rule.dimension)
                     .flatten(),
+                tier: rule.tier,
+                occurrences: rule.occurrences,
             })
             .collect(),
         diagnostics_are_authoritative,
@@ -538,20 +753,27 @@ pub(crate) fn aggregate_rules<'a>(
 }
 
 fn calculate_dimensions(rules: &[RuleAggregate], removed: &BTreeSet<String>) -> ScoreDimensions {
-    let penalty_for = |dimension| {
-        rules
+    let score_for = |dimension| {
+        let (penalty, worst) = rules
             .iter()
             .filter(|rule| rule.dimension == Some(dimension) && !removed.contains(&rule.id))
-            .fold(0u64, |penalty, rule| {
-                penalty.saturating_add(rule.scored_severity.map_or(0, severity_penalty_quarters))
-            })
+            .fold((0u64, None), |(penalty, worst), rule| {
+                (
+                    penalty.saturating_add(rule.penalty_quarters()),
+                    worse_tier(worst, rule.scoring_tier()),
+                )
+            });
+        capped(
+            dimension_score(penalty),
+            worst.and_then(tier_dimension_ceiling),
+        )
     };
     ScoreDimensions {
-        security: dimension_score(penalty_for(ScoreDimension::Security)),
-        reliability: dimension_score(penalty_for(ScoreDimension::Reliability)),
-        maintainability: dimension_score(penalty_for(ScoreDimension::Maintainability)),
-        performance: dimension_score(penalty_for(ScoreDimension::Performance)),
-        dependencies: dimension_score(penalty_for(ScoreDimension::Dependencies)),
+        security: score_for(ScoreDimension::Security),
+        reliability: score_for(ScoreDimension::Reliability),
+        maintainability: score_for(ScoreDimension::Maintainability),
+        performance: score_for(ScoreDimension::Performance),
+        dependencies: score_for(ScoreDimension::Dependencies),
     }
 }
 
@@ -629,11 +851,28 @@ mod tests {
     struct Oracle {
         schema_version: u8,
         model: String,
+        uncategorized_bucket: String,
         category_mappings: BTreeMap<String, CategoryExpectation>,
+        rule_tiers: BTreeMap<String, String>,
+        tier_ceilings: Vec<TierCeilingExpectation>,
+        occurrence_steps: Vec<OccurrenceStepExpectation>,
         score_boundaries: Vec<ScoreBoundaryExpectation>,
         rounding_cases: Vec<RoundingExpectation>,
         score_cases: Vec<ScoreCase>,
         share_cases: Vec<ShareCase>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TierCeilingExpectation {
+        tier: String,
+        dimension: Option<u8>,
+        overall: Option<u8>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct OccurrenceStepExpectation {
+        occurrences: usize,
+        multiplier: u64,
     }
 
     #[derive(Debug, Deserialize)]
@@ -687,7 +926,7 @@ mod tests {
 
     fn oracle() -> Oracle {
         serde_json::from_str(include_str!(
-            "../tests/fixtures/local-cli-experience/audit-core-v1.json"
+            "../tests/fixtures/local-cli-experience/audit-core-v2.json"
         ))
         .expect("audit oracle should be valid")
     }
@@ -728,12 +967,57 @@ mod tests {
     #[test]
     fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
         let oracle = oracle();
-        assert_eq!(oracle.schema_version, 1);
+        assert_eq!(oracle.schema_version, 2);
         assert_eq!(oracle.model, SCORE_MODEL);
         for (category, expected) in oracle.category_mappings {
             let (display, dimension) = category_mapping(&category).expect("mapped category");
             assert_eq!(display.to_string(), expected.display, "{category}");
             assert_eq!(format!("{dimension:?}"), expected.dimension, "{category}");
+            assert_eq!(category_bucket(Some(&category)), display, "{category}");
+        }
+        for unmapped in [None, Some("future"), Some(""), Some("style")] {
+            assert_eq!(
+                category_bucket(unmapped).to_string(),
+                oracle.uncategorized_bucket
+            );
+        }
+
+        let tiers: BTreeMap<_, _> = CATALOG
+            .iter()
+            .map(|definition| {
+                (
+                    definition.id.to_owned(),
+                    definition.tier.as_str().to_owned(),
+                )
+            })
+            .collect();
+        assert_eq!(tiers, oracle.rule_tiers);
+
+        let mut previous: Option<(u8, u8)> = None;
+        for expected in oracle.tier_ceilings {
+            let tier = RuleTier::parse(&expected.tier).expect("published tier should be known");
+            assert_eq!(tier_dimension_ceiling(tier), expected.dimension, "{tier:?}");
+            assert_eq!(tier_overall_ceiling(tier), expected.overall, "{tier:?}");
+            let current = (
+                expected.dimension.unwrap_or(100),
+                expected.overall.unwrap_or(100),
+            );
+            if let Some(previous) = previous {
+                assert!(
+                    previous.0 < current.0 && previous.1 <= current.1,
+                    "les plafonds doivent décroître strictement en gravité: {previous:?} puis {current:?}",
+                );
+            }
+            previous = Some(current);
+        }
+
+        for expected in oracle.occurrence_steps {
+            assert_eq!(
+                occurrence_multiplier(expected.occurrences),
+                expected.multiplier,
+                "{} occurrences",
+                expected.occurrences
+            );
         }
         for expected in oracle.score_boundaries {
             assert_eq!(
@@ -834,6 +1118,8 @@ mod tests {
                     performance: 100,
                     dependencies: 100,
                 },
+                worst_tier: None,
+                applied_ceiling: None,
                 projected_after_top_three: None,
                 projected_rule_ids: Vec::new(),
             }),
@@ -848,21 +1134,8 @@ mod tests {
         );
     }
 
-    /// Borne structurelle de `core-v1` face au catalogue réel.
-    ///
-    /// L'oracle `audit-core-v1.json` valide la formule sur des dimensions injectées,
-    /// y compris via les catégories `performance`, `cargo` et `future` que
-    /// `validate_catalog` refuse. Il ne peut donc pas révéler ce que le catalogue
-    /// produit réellement. Ce test ferme l'écart: il part de `CATALOG` et mesure le
-    /// pire cas atteignable.
-    ///
-    /// La borne haute est la conséquence assumée du risque 1 du PRD local-cli-experience
-    /// (pénalité absolue calibrée pour un large catalogue, appliquée à 12 règles). Ce test
-    /// ne la corrige pas, il la rend visible et force une revue explicite dès que le
-    /// catalogue ou le barème bouge.
-    #[test]
-    fn the_catalog_cannot_drive_the_score_out_of_its_top_label() {
-        let diagnostics: Vec<Diagnostic> = CATALOG
+    fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
+        CATALOG
             .iter()
             .enumerate()
             .map(|(index, definition)| Diagnostic {
@@ -878,21 +1151,258 @@ mod tests {
                 target: None,
                 path: None,
                 span: None,
-                occurrences: 1,
+                occurrences,
             })
-            .collect();
+            .collect()
+    }
 
+    /// Ce que le catalogue réel produit, par opposition aux dimensions injectées
+    /// de l'oracle.
+    ///
+    /// Sous `core-v1`, saturer les douze règles laissait la note à 96, label
+    /// `Great`: le barème additif était structurellement incapable de descendre.
+    /// Sous `core-v2` le pire tier observé plafonne la note, donc le même
+    /// catalogue atteint la bande `Critical`.
+    #[test]
+    fn the_catalog_drives_the_score_out_of_its_top_label() {
+        let diagnostics = catalog_diagnostics(1);
         let audit = Audit::build(1, Status::Complete, &diagnostics);
         let score = audit.score.expect("a scored audit should exist");
 
-        assert_eq!(score.value, 96);
-        assert_eq!(score.label, ScoreLabel::Great);
+        assert_eq!(score.value, 40);
+        assert_eq!(score.label, ScoreLabel::Critical);
+        assert_eq!(score.worst_tier, Some(RuleTier::P0));
+        assert_eq!(score.applied_ceiling, Some(40));
         assert!(score.authoritative);
 
+        assert_eq!(score.dimensions.security, 20);
+        assert_eq!(score.dimensions.reliability, 50);
+        assert_eq!(score.dimensions.maintainability, 99);
         // Aucune règle du catalogue ne porte une catégorie mappée sur Performance
-        // ou Dependencies, donc 2.0 des 6.5 points de poids restent figés à 100.
+        // ou Dependencies: EP-024 lève cette limite, pas EP-022.
         assert_eq!(score.dimensions.performance, 100);
         assert_eq!(score.dimensions.dependencies, 100);
+    }
+
+    fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
+        rules
+            .iter()
+            .enumerate()
+            .map(
+                |(index, (code, category, severity, occurrences))| Diagnostic {
+                    id: format!("finding-{index}"),
+                    source: DiagnosticSource::Clippy,
+                    code: Some((*code).to_owned()),
+                    base_severity: *severity,
+                    severity: *severity,
+                    category: Some((*category).to_owned()),
+                    message: format!("finding {index}"),
+                    help: None,
+                    package: None,
+                    target: None,
+                    path: None,
+                    span: None,
+                    occurrences: *occurrences,
+                },
+            )
+            .collect()
+    }
+
+    fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
+        Audit::build(1, Status::Complete, &diagnostics_for(rules))
+            .score
+            .expect("a scored audit should exist")
+    }
+
+    /// Une codebase propre ne subit aucun plafond, et un plafond ne s'invente
+    /// pas depuis une règle hors catalogue.
+    #[test]
+    fn a_clean_codebase_scores_one_hundred_without_any_ceiling() {
+        let clean = Audit::build(1, Status::Complete, &[])
+            .score
+            .expect("a scored audit should exist");
+        assert_eq!(clean.value, 100);
+        assert_eq!(clean.worst_tier, None);
+        assert_eq!(clean.applied_ceiling, None);
+
+        let uncatalogued = scored(&[("clippy::unknown_rule", "security", Severity::Error, 1)]);
+        assert_eq!(uncatalogued.worst_tier, None);
+        assert_eq!(uncatalogued.applied_ceiling, None);
+    }
+
+    /// Un tier ne plafonne que s'il agit: une règle éteinte par la policy porte
+    /// une sévérité inconnue, donc ni pénalité ni plafond.
+    #[test]
+    fn a_disabled_rule_neither_penalizes_nor_caps() {
+        let disabled = scored(&[(
+            "rust_doctor::source::dynamic_shell_command",
+            "security",
+            Severity::Unknown,
+            1,
+        )]);
+        assert_eq!(disabled.value, 100);
+        assert_eq!(disabled.worst_tier, None);
+        assert_eq!(disabled.applied_ceiling, None);
+        assert_eq!(disabled.dimensions.security, 100);
+    }
+
+    /// Le pire tier d'une dimension écrase les autres, et un tier plus grave
+    /// dans une autre dimension descend quand même la note globale.
+    #[test]
+    fn only_the_worst_tier_applies_per_dimension_and_overall() {
+        let mixed = scored(&[
+            ("clippy::todo", "correctness", Severity::Warning, 1),
+            ("clippy::unimplemented", "correctness", Severity::Warning, 1),
+            ("clippy::dbg_macro", "maintainability", Severity::Warning, 1),
+            (
+                "rust_doctor::source::disabled_tls_verification",
+                "security",
+                Severity::Warning,
+                1,
+            ),
+        ]);
+
+        assert_eq!(mixed.dimensions.reliability, 50, "P1 écrase P2");
+        assert_eq!(mixed.dimensions.security, 20, "P0 plafonne sa dimension");
+        assert!(mixed.dimensions.maintainability > 75, "P3 ne plafonne pas");
+        assert_eq!(mixed.worst_tier, Some(RuleTier::P0));
+        assert_eq!(mixed.applied_ceiling, Some(40));
+        assert_eq!(mixed.value, 40);
+    }
+
+    /// Les paliers distinguent une occurrence isolée d'une pratique
+    /// systématique, sans qu'une règle seule puisse saturer sa dimension.
+    #[test]
+    fn occurrence_steps_grow_then_saturate_without_panicking() {
+        let single = scored(&[("clippy::stepped", "security", Severity::Error, 1)]);
+        let fifty = scored(&[("clippy::stepped", "security", Severity::Error, 50)]);
+        assert!(
+            fifty.value < single.value,
+            "{} devrait être sous {}",
+            fifty.value,
+            single.value
+        );
+
+        let thousand = scored(&[("clippy::stepped", "security", Severity::Error, 1_000)]);
+        let saturated = scored(&[("clippy::stepped", "security", Severity::Error, usize::MAX)]);
+        assert_eq!(thousand.dimensions.security, fifty.dimensions.security);
+        assert_eq!(saturated.dimensions.security, fifty.dimensions.security);
+        assert!(
+            saturated.dimensions.security > 0,
+            "un palier borné ne peut pas saturer une dimension à lui seul",
+        );
+
+        let ceiling = severity_penalty_quarters(Severity::Error)
+            * OCCURRENCE_STEPS[OCCURRENCE_STEPS.len() - 1].1;
+        assert_eq!(dimension_score(ceiling), saturated.dimensions.security);
+    }
+
+    /// La taille de la codebase n'entre pas dans le barème: même profil de
+    /// règles et mêmes occurrences, même note.
+    #[test]
+    fn the_score_is_invariant_to_codebase_size() {
+        let rules = [
+            ("clippy::todo", "correctness", Severity::Warning, 12),
+            ("clippy::dbg_macro", "maintainability", Severity::Warning, 3),
+        ];
+        let small = Audit::build(4, Status::Complete, &diagnostics_for(&rules));
+        let large = Audit::build(4_000, Status::Complete, &diagnostics_for(&rules));
+        assert_eq!(
+            small.score.map(|score| score.value),
+            large.score.map(|score| score.value)
+        );
+    }
+
+    /// La pénalité d'une règle se recalcule depuis les seuls champs publiés:
+    /// sévérité, occurrences, catégorie et tier.
+    #[test]
+    fn a_rule_penalty_is_reproducible_from_published_fields() {
+        let rules = [
+            ("clippy::todo", "correctness", Severity::Warning, 7),
+            (
+                "rust_doctor::source::dynamic_shell_command",
+                "security",
+                Severity::Error,
+                2,
+            ),
+        ];
+        let diagnostics = diagnostics_for(&rules);
+        let aggregation = aggregate_rules(&diagnostics);
+
+        for (code, _, severity, occurrences) in rules {
+            let aggregate = aggregation
+                .rules
+                .iter()
+                .find(|rule| rule.id == code)
+                .expect("the rule should be aggregated");
+            let expected = severity_penalty_quarters(severity) * occurrence_multiplier(occurrences);
+            assert_eq!(aggregate.penalty_quarters(), expected, "{code}");
+        }
+    }
+
+    /// Un scan incomplet reste plafonné et reste non autoritaire.
+    #[test]
+    fn an_incomplete_scan_is_capped_and_stays_non_authoritative() {
+        let diagnostics = diagnostics_for(&[(
+            "rust_doctor::source::dynamic_shell_command",
+            "security",
+            Severity::Warning,
+            1,
+        )]);
+        let audit = Audit::build(1, Status::Incomplete, &diagnostics);
+        let score = audit.score.expect("a scored audit should exist");
+
+        assert_eq!(score.value, 40);
+        assert_eq!(score.applied_ceiling, Some(40));
+        assert!(!score.authoritative);
+        assert_eq!(score.projected_after_top_three, None);
+        assert!(score.projected_rule_ids.is_empty());
+    }
+
+    /// Un diagnostic sans catégorie catalogue reste compté: les deux grandeurs
+    /// des catégories reconstituent exactement la population du rapport.
+    #[test]
+    fn every_diagnostic_lands_in_exactly_one_bucket() {
+        let mut diagnostics = diagnostics_for(&[
+            ("clippy::todo", "correctness", Severity::Warning, 3),
+            ("clippy::dbg_macro", "maintainability", Severity::Info, 1),
+        ]);
+        diagnostics.push(Diagnostic {
+            id: "compiler".to_owned(),
+            source: DiagnosticSource::Rustc,
+            code: Some("E0433".to_owned()),
+            base_severity: Severity::Error,
+            severity: Severity::Error,
+            category: None,
+            message: "unresolved import".to_owned(),
+            help: None,
+            package: None,
+            target: None,
+            path: None,
+            span: None,
+            occurrences: 2,
+        });
+
+        let audit = Audit::build(1, Status::Incomplete, &diagnostics);
+        let (distinct, occurrences) = audit.totals();
+
+        assert_eq!(distinct.total, 3);
+        assert_eq!(occurrences.total, 6);
+        assert_eq!(distinct.errors, 1);
+        assert_eq!(occurrences.errors, 2);
+        assert_eq!(
+            audit
+                .categories
+                .iter()
+                .map(|category| category.name)
+                .collect::<Vec<_>>(),
+            [
+                AuditCategoryName::Bugs,
+                AuditCategoryName::Maintainability,
+                AuditCategoryName::Other,
+            ]
+        );
+        assert!(audit.is_valid());
     }
 
     #[test]

@@ -99,7 +99,7 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
         let output = inspect_json(&fixture(name));
         assert_eq!(output.status.code(), Some(exit_code), "{name}");
         let report = parse_report(&output);
-        assert_eq!(report["schema_version"], 8, "{name}");
+        assert_eq!(report["schema_version"], 9, "{name}");
         assert!(report["diagnostics"].as_array().is_some_and(|diagnostics| {
             diagnostics.iter().all(|diagnostic| {
                 diagnostic.get("category").is_some() && diagnostic.get("help").is_some()
@@ -234,7 +234,7 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
     let output = inspect_json(&kernel_fixture("dbg-macro"));
     let report = parse_report(&output);
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(report["schema_version"], 8);
+    assert_eq!(report["schema_version"], 9);
     assert_eq!(report["status"], "complete");
     assert_eq!(
         report["scan"]["command"],
@@ -290,7 +290,7 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
             .count(),
         3
     );
-    assert!(terminal.contains("All 6 issues"));
+    assert!(terminal.contains("All 6 occurrences across 3 findings"));
 
     let denied_output = inspect_json(&kernel_fixture("denied"));
     let denied = parse_report(&denied_output);

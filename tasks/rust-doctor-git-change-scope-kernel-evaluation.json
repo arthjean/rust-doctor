@@ -30,8 +30,22 @@
         "mode": "full"
       },
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 7,
+          "unknown": 0,
+          "warnings": 7
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 10,
+          "unknown": 0,
+          "warnings": 10
+        },
         "total": 7,
         "unknown": 0,
         "warnings": 7
@@ -70,8 +84,22 @@
         "mode": "files"
       },
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 0,
+          "unknown": 0,
+          "warnings": 0
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 0,
+          "unknown": 0,
+          "warnings": 0
+        },
         "total": 0,
         "unknown": 0,
         "warnings": 0
@@ -112,8 +140,22 @@
         "mode": "files"
       },
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 5,
+          "unknown": 0,
+          "warnings": 5
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 8,
+          "unknown": 0,
+          "warnings": 8
+        },
         "total": 5,
         "unknown": 0,
         "warnings": 5
@@ -154,8 +196,22 @@
         "mode": "files"
       },
       "summary": {
+        "distinct": {
+          "errors": 0,
+          "info": 0,
+          "total": 2,
+          "unknown": 0,
+          "warnings": 2
+        },
         "errors": 0,
         "info": 0,
+        "occurrences": {
+          "errors": 0,
+          "info": 0,
+          "total": 2,
+          "unknown": 0,
+          "warnings": 2
+        },
         "total": 2,
         "unknown": 0,
         "warnings": 2
