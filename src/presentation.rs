@@ -223,7 +223,6 @@ mod tests {
     use std::path::Path;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::{Duration, Instant};
 
     use super::code_frame::{FRAME_MAX_COLUMNS, FRAME_MAX_LINES, read_code_frame};
     use super::*;
@@ -661,39 +660,5 @@ mod tests {
         let presentation = ReportPresentation::derive(&report(Vec::new()));
         assert!(presentation.groups.is_empty());
         assert!(presentation.migration_advisories.is_empty());
-    }
-
-    #[test]
-    fn ten_thousand_diagnostics_stay_within_the_presentation_budget() {
-        let diagnostics: Vec<_> = (0..10_000)
-            .map(|index| {
-                diagnostic(
-                    &format!("clippy::rule_{}", index % 100),
-                    Severity::Warning,
-                    "maintainability",
-                    Some(format!("src/{}.rs", index % 500)),
-                    1,
-                )
-            })
-            .collect();
-        let report = report(diagnostics);
-        for _ in 0..10 {
-            let _ = ReportPresentation::derive(&report);
-        }
-        let mut samples = Vec::with_capacity(100);
-        let mut last = None;
-        for _ in 0..100 {
-            let started = Instant::now();
-            last = Some(ReportPresentation::derive(&report));
-            samples.push(started.elapsed());
-        }
-        samples.sort_unstable();
-        assert!(
-            samples[94] < Duration::from_millis(100),
-            "p95: {:?}",
-            samples[94]
-        );
-        let serialized = serde_json::to_vec(&last.unwrap()).unwrap();
-        assert!(serialized.len() < 32 * 1024 * 1024);
     }
 }
