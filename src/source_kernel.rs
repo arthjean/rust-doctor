@@ -603,7 +603,7 @@ fn analyze_unit(
             }
             insert_candidate(
                 candidates,
-                SOURCE_DISABLED_TLS,
+                &SOURCE_DISABLED_TLS,
                 message,
                 package.clone(),
                 target.clone(),
@@ -627,7 +627,7 @@ fn analyze_unit(
             };
             insert_candidate(
                 candidates,
-                SOURCE_DYNAMIC_SHELL,
+                &SOURCE_DYNAMIC_SHELL,
                 "A dynamic value is interpolated into a shell command string.",
                 package.clone(),
                 target.clone(),

@@ -1860,7 +1860,7 @@ mod tests {
             .into(),
             source: Some(crate::source_kernel::SourceScan {
                 candidates: vec![crate::source_kernel::Candidate {
-                    definition: crate::policy::SOURCE_DYNAMIC_SHELL,
+                    definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
                     message,
                     package: Some("example".to_owned()),
                     target: Some("example".to_owned()),
@@ -2103,7 +2103,7 @@ mod tests {
         );
         let source = source_kernel::SourceScan {
             candidates: vec![source_kernel::Candidate {
-                definition: crate::policy::SOURCE_DYNAMIC_SHELL,
+                definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
                 message: "A dynamic value is interpolated into a shell command string.",
                 package: Some("example".to_owned()),
                 target: None,

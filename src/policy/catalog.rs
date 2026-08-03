@@ -81,39 +81,34 @@ pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     help: "Wait on the child process or otherwise reap it before the handle is dropped.",
 };
-static CARGO_UNBOUNDED_REGISTRY_DEFINITION: RuleDefinition = RuleDefinition {
+pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unbounded_registry_dependency",
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
     help: "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
 };
-static CARGO_UNPINNED_GIT_DEFINITION: RuleDefinition = RuleDefinition {
+pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unpinned_git_dependency",
     category: "security",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
     help: "Set rev to the full 40-character commit SHA intended by the project.",
 };
-static SOURCE_DISABLED_TLS_DEFINITION: RuleDefinition = RuleDefinition {
+pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::disabled_tls_verification",
     category: "security",
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     help: "Keep TLS verification enabled and configure the required trust roots or server name instead.",
 };
-static SOURCE_DYNAMIC_SHELL_DEFINITION: RuleDefinition = RuleDefinition {
+pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::dynamic_shell_command",
     category: "security",
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
-
-pub(crate) const CARGO_UNBOUNDED_REGISTRY: &RuleDefinition = &CARGO_UNBOUNDED_REGISTRY_DEFINITION;
-pub(crate) const CARGO_UNPINNED_GIT: &RuleDefinition = &CARGO_UNPINNED_GIT_DEFINITION;
-pub(crate) const SOURCE_DISABLED_TLS: &RuleDefinition = &SOURCE_DISABLED_TLS_DEFINITION;
-pub(crate) const SOURCE_DYNAMIC_SHELL: &RuleDefinition = &SOURCE_DYNAMIC_SHELL_DEFINITION;
 
 pub(crate) const CATALOG: [&RuleDefinition; 12] = [
     &CLIPPY_DBG_MACRO,
@@ -124,10 +119,10 @@ pub(crate) const CATALOG: [&RuleDefinition; 12] = [
     &CLIPPY_TODO,
     &CLIPPY_UNIMPLEMENTED,
     &CLIPPY_ZOMBIE_PROCESSES,
-    CARGO_UNBOUNDED_REGISTRY,
-    CARGO_UNPINNED_GIT,
-    SOURCE_DISABLED_TLS,
-    SOURCE_DYNAMIC_SHELL,
+    &CARGO_UNBOUNDED_REGISTRY,
+    &CARGO_UNPINNED_GIT,
+    &SOURCE_DISABLED_TLS,
+    &SOURCE_DYNAMIC_SHELL,
 ];
 
 pub(crate) fn find(id: &str) -> Option<&'static RuleDefinition> {
@@ -207,10 +202,10 @@ mod tests {
         &CLIPPY_TODO,
         &CLIPPY_UNIMPLEMENTED,
         &CLIPPY_ZOMBIE_PROCESSES,
-        CARGO_UNBOUNDED_REGISTRY,
-        CARGO_UNPINNED_GIT,
-        SOURCE_DISABLED_TLS,
-        SOURCE_DYNAMIC_SHELL,
+        &CARGO_UNBOUNDED_REGISTRY,
+        &CARGO_UNPINNED_GIT,
+        &SOURCE_DISABLED_TLS,
+        &SOURCE_DYNAMIC_SHELL,
     ];
 
     fn historical_oracle() -> Value {
