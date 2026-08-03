@@ -30,10 +30,12 @@
     {
       "id": "EP-024",
       "title": "Catalogue élargi et dimensions vivantes",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03"
     },
     {
       "id": "EP-025",
@@ -171,71 +173,71 @@
       "id": "US-072",
       "title": "Ouvrir les catégories performance et dependencies",
       "epic": "EP-024",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
         "US-067"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": "2026-08-03"
     },
     {
       "id": "US-073",
       "title": "Admettre le pack panique et placeholders",
       "epic": "EP-024",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-072"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": "2026-08-03"
     },
     {
       "id": "US-074",
       "title": "Admettre le pack performance",
       "epic": "EP-024",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-072"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": "2026-08-03"
     },
     {
       "id": "US-075",
       "title": "Admettre le pack concurrence et asynchrone",
       "epic": "EP-024",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-072"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": "2026-08-03"
     },
     {
       "id": "US-076",
       "title": "Admettre le pack santé locale des dépendances",
       "epic": "EP-024",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-072"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": "2026-08-03"
     },
     {
       "id": "US-077",

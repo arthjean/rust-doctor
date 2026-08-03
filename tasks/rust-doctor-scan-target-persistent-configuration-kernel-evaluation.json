@@ -134,9 +134,9 @@
       "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
       "diagnostics": 7,
       "entry_output_hashes": {
-        "member-manifest": "7515f5c2ef948817ea8386322854befaa870c485dfb2b5346e670509c7946a04",
-        "member-subdirectory": "7515f5c2ef948817ea8386322854befaa870c485dfb2b5346e670509c7946a04",
-        "workspace": "d1ca34feb6a629e4d68d141daba46f93c3b1fe7eccb2b1116e0eb76013e60adf"
+        "member-manifest": "13efbb43f2c0b1d497286cdf2fe4b9dce2c813e0a1d6a6dcc09a5497b40ca4e4",
+        "member-subdirectory": "13efbb43f2c0b1d497286cdf2fe4b9dce2c813e0a1d6a6dcc09a5497b40ca4e4",
+        "workspace": "f0037d2818b3274fb12742b902ca0a4f79fe67b76e9d177419d202ed48137c53"
       },
       "gate": {
         "blocking": "error",
@@ -152,46 +152,284 @@
         "config_file": null,
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           }
         ]
       },
@@ -210,9 +448,9 @@
       "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
       "diagnostics": 7,
       "entry_output_hashes": {
-        "member-manifest": "2ed693c0428a4fd0551923d211e80137a614e45734c384fab56cb299d1bf13a2",
-        "member-subdirectory": "2ed693c0428a4fd0551923d211e80137a614e45734c384fab56cb299d1bf13a2",
-        "workspace": "b16fff1af231be532dfb320bf1346f49f06dfde73f76ae49baeffcf06e44e24a"
+        "member-manifest": "55329fa5e831a7fa28a25f93855af5ed773ea5d2d57b45563c233d90d09ad7f4",
+        "member-subdirectory": "55329fa5e831a7fa28a25f93855af5ed773ea5d2d57b45563c233d90d09ad7f4",
+        "workspace": "db1db4c3851a5f802ebe05e01442812e9afaccd57e9ca2942fdfaa89783ec8f8"
       },
       "gate": {
         "blocking": "error",
@@ -228,46 +466,284 @@
         "config_file": "rust-doctor.toml",
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           }
         ]
       },
@@ -286,9 +762,9 @@
       "diagnostic_id_hash": "f1d67c301a2a1fa353bf631b244e95c42077aa7fcec0ec9b308c31412a933fd9",
       "diagnostics": 5,
       "entry_output_hashes": {
-        "member-manifest": "5ff773b9121054341de624bc7ee964d66eddca470d722a54e864c423491221f6",
-        "member-subdirectory": "5ff773b9121054341de624bc7ee964d66eddca470d722a54e864c423491221f6",
-        "workspace": "fe3cad515aab832d22d3b1dbcbdb65fc53f8d9dec831d0c597712074056e5a5e"
+        "member-manifest": "8b543263f50b2afa9d0664c964dc7b37826feba96aa9d253ae510c3540b1b84a",
+        "member-subdirectory": "8b543263f50b2afa9d0664c964dc7b37826feba96aa9d253ae510c3540b1b84a",
+        "workspace": "c19bd0ebc44da27423a9ec0dce14f19003fef904166ce3584053755f7a9788d2"
       },
       "gate": {
         "blocking": "error",
@@ -304,46 +780,284 @@
         "config_file": "rust-doctor.toml",
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "off",
+            "source": "config-category",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "off",
-            "source": "config-category"
+            "source": "config-category",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "off",
-            "source": "config-category"
+            "source": "config-category",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "error",
-            "source": "config-rule"
+            "source": "config-rule",
+            "tier": "P0"
           }
         ]
       },
@@ -365,9 +1079,9 @@
       "diagnostic_id_hash": "f1d67c301a2a1fa353bf631b244e95c42077aa7fcec0ec9b308c31412a933fd9",
       "diagnostics": 5,
       "entry_output_hashes": {
-        "member-manifest": "528f7759156e77d2c3701fb316b647db75c6519f991741753d668969af06be85",
-        "member-subdirectory": "528f7759156e77d2c3701fb316b647db75c6519f991741753d668969af06be85",
-        "workspace": "f5fe1e9f95194da4c6d304a2528e6c3289c1fcd24eb08860855fcf8397a14fdd"
+        "member-manifest": "e49d9a88f70d232aca42b904def17d2f520c8a3aa34645bdc006a6657d8d5e47",
+        "member-subdirectory": "e49d9a88f70d232aca42b904def17d2f520c8a3aa34645bdc006a6657d8d5e47",
+        "workspace": "e9ec64088377e10cc756f3d55df78de1d77b34790afb84c61b801eaf1533e046"
       },
       "gate": {
         "blocking": "error",
@@ -383,46 +1097,284 @@
         "config_file": "rust-doctor.toml",
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "off",
+            "source": "config-category",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "off",
-            "source": "config-category"
+            "source": "config-category",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "off",
-            "source": "config-category"
+            "source": "config-category",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "error",
-            "source": "request-rule"
+            "source": "request-rule",
+            "tier": "P0"
           }
         ]
       },
@@ -444,9 +1396,9 @@
       "diagnostic_id_hash": "51f0ca0e2a50214cfa9b7a4cb7008c32fc2ed482459f118ff3740285b5b9d32e",
       "diagnostics": 5,
       "entry_output_hashes": {
-        "member-manifest": "4a8a45634365a27b40821c4e546a9535c2ea39d067ea4b6219c7531e3b98c25a",
-        "member-subdirectory": "4a8a45634365a27b40821c4e546a9535c2ea39d067ea4b6219c7531e3b98c25a",
-        "workspace": "6494ae429b7451a1acdcf200c069375317f1455dc09eb1707b3fbd7760e661e3"
+        "member-manifest": "658f3fb4e2605c96bc8b88a00c732f3e5b4eb63c78d9c9b943504ce6215f5a2a",
+        "member-subdirectory": "658f3fb4e2605c96bc8b88a00c732f3e5b4eb63c78d9c9b943504ce6215f5a2a",
+        "workspace": "0c42132c48455db2b34c7bbf1ee113ff4abae897d55494b51b7fb8bb6cd6c559"
       },
       "gate": {
         "blocking": "error",
@@ -462,46 +1414,284 @@
         "config_file": "rust-doctor.toml",
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "off",
-            "source": "request-category"
+            "source": "request-category",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "off",
-            "source": "request-category"
+            "source": "request-category",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "off",
+            "source": "request-category",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           }
         ]
       },
@@ -523,9 +1713,9 @@
       "diagnostic_id_hash": "dc1a90a01c2139e7987869e9132af25dbd4508088eba881f9167551ec802a1e0",
       "diagnostics": 7,
       "entry_output_hashes": {
-        "member-manifest": "c323b454d085d4ac5b595a9cea0c2e1c8d6220e71aafb7afcc48fed3f807ee1b",
-        "member-subdirectory": "c323b454d085d4ac5b595a9cea0c2e1c8d6220e71aafb7afcc48fed3f807ee1b",
-        "workspace": "0d91a78b805877a7216f55cd275894af1e1bd01e6d1e3ffbf3116fd7841f990a"
+        "member-manifest": "69a920ff875ecdf9e5ce7c4e2bb11531e44f30677e6373257e758b8bd98ed376",
+        "member-subdirectory": "69a920ff875ecdf9e5ce7c4e2bb11531e44f30677e6373257e758b8bd98ed376",
+        "workspace": "e2b53765ca1059f1cc7a9626068775a05a44454785a47576f79e0baf3391438f"
       },
       "gate": {
         "blocking": "none",
@@ -541,46 +1731,284 @@
         "config_file": "rust-doctor.toml",
         "rules": [
           {
+            "category": "correctness",
+            "id": "clippy::arc_with_non_send_sync",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::await_holding_refcell_ref",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
             "category": "maintainability",
             "id": "clippy::dbg_macro",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::exit",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::expect_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::format_collect",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::indexing_slicing",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::large_types_passed_by_value",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::manual_memcpy",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::mem_forget",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::mut_mutex_lock",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::non_send_fields_in_send_ty",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::panic",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::panic_in_result_fn",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "security",
+            "id": "clippy::permissions_set_readonly_false",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stderr",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::print_stdout",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::rc_buffer",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::rc_mutex",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::redundant_allocation",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::stable_sort_primitive",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::string_slice",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::suspicious_command_arg_space",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::todo",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P2"
           },
           {
             "category": "correctness",
             "id": "clippy::unimplemented",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::unnecessary_to_owned",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "correctness",
+            "id": "clippy::unreachable",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "maintainability",
+            "id": "clippy::unused_async",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::unwrap_used",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::useless_vec",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "performance",
+            "id": "clippy::vec_init_then_push",
+            "level": "warn",
+            "source": "default",
+            "tier": "P3"
+          },
+          {
+            "category": "reliability",
+            "id": "clippy::zombie_processes",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "level": "warn",
+            "source": "default",
+            "tier": "P2"
+          },
+          {
+            "category": "dependencies",
+            "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+            "level": "warn",
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "reliability",
             "id": "rust_doctor::cargo::unbounded_registry_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P3"
           },
           {
             "category": "security",
             "id": "rust_doctor::cargo::unpinned_git_dependency",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P1"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::disabled_tls_verification",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           },
           {
             "category": "security",
             "id": "rust_doctor::source::dynamic_shell_command",
             "level": "warn",
-            "source": "default"
+            "source": "default",
+            "tier": "P0"
           }
         ]
       },
