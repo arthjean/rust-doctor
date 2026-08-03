@@ -622,6 +622,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+    use crate::policy::CATALOG;
     use crate::report::{DiagnosticSource, DiagnosticSpan};
 
     #[derive(Debug, Deserialize)]
@@ -840,10 +841,58 @@ mod tests {
 
         assert!(!audit.is_valid());
         assert_eq!(audit.share_url(), Err(ShareError::InvalidPayload));
+        assert!(serde_json::to_vec(&audit).is_err());
         assert_eq!(
             build_share_url(100, 1_000_001, 0, 0, 1),
             Err(ShareError::InvalidPayload)
         );
+    }
+
+    /// Borne structurelle de `core-v1` face au catalogue réel.
+    ///
+    /// L'oracle `audit-core-v1.json` valide la formule sur des dimensions injectées,
+    /// y compris via les catégories `performance`, `cargo` et `future` que
+    /// `validate_catalog` refuse. Il ne peut donc pas révéler ce que le catalogue
+    /// produit réellement. Ce test ferme l'écart: il part de `CATALOG` et mesure le
+    /// pire cas atteignable.
+    ///
+    /// La borne haute est la conséquence assumée du risque 1 du PRD local-cli-experience
+    /// (pénalité absolue calibrée pour un large catalogue, appliquée à 12 règles). Ce test
+    /// ne la corrige pas, il la rend visible et force une revue explicite dès que le
+    /// catalogue ou le barème bouge.
+    #[test]
+    fn the_catalog_cannot_drive_the_score_out_of_its_top_label() {
+        let diagnostics: Vec<Diagnostic> = CATALOG
+            .iter()
+            .enumerate()
+            .map(|(index, definition)| Diagnostic {
+                id: format!("finding-{index}"),
+                source: DiagnosticSource::Clippy,
+                code: Some(definition.id.to_owned()),
+                base_severity: Severity::Error,
+                severity: Severity::Error,
+                category: Some(definition.category.to_owned()),
+                message: "worst case".to_owned(),
+                help: None,
+                package: None,
+                target: None,
+                path: None,
+                span: None,
+                occurrences: 1,
+            })
+            .collect();
+
+        let audit = Audit::build(1, Status::Complete, &diagnostics);
+        let score = audit.score.expect("a scored audit should exist");
+
+        assert_eq!(score.value, 96);
+        assert_eq!(score.label, ScoreLabel::Great);
+        assert!(score.authoritative);
+
+        // Aucune règle du catalogue ne porte une catégorie mappée sur Performance
+        // ou Dependencies, donc 2.0 des 6.5 points de poids restent figés à 100.
+        assert_eq!(score.dimensions.performance, 100);
+        assert_eq!(score.dimensions.dependencies, 100);
     }
 
     #[test]
