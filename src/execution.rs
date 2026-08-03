@@ -7,6 +7,7 @@ use cargo_metadata::{Message, Metadata};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
 use crate::policy::{PolicyPlan, Producer};
 use crate::scan_target::{self, ResolvedScanTarget};
@@ -27,6 +28,7 @@ pub(crate) struct ExecutionResult {
     pub(crate) toolchain: ToolchainProvenance,
     pub(crate) scan: ClippyExecution,
     pub(crate) source: Option<SourceScan>,
+    pub(crate) cargo_health: Option<CargoHealthScan>,
     pub(crate) error: Option<InternalError>,
 }
 
@@ -38,6 +40,7 @@ impl ExecutionResult {
             toolchain: ToolchainProvenance::default(),
             scan: ClippyExecution::NotRun,
             source: None,
+            cargo_health: None,
             error: None,
         }
     }
@@ -291,6 +294,19 @@ fn execute_target(
     result.metadata = Some(metadata);
     result.toolchain = toolchain;
 
+    // Le pack dépendances lit le graphe résolu sur disque, donc il produit des
+    // erreurs bornées comme le noyau source: il est exécuté ici, pas pendant la
+    // normalisation, pour que ses erreurs rejoignent celles du scan.
+    //
+    // Il passe avant Clippy: `cargo clippy` crée ou réécrit `Cargo.lock`, donc
+    // le lire après mesurerait le graphe que l'outil vient d'écrire au lieu de
+    // celui que le dépôt versionne.
+    if plan.active_rules(Producer::CargoHealth).next().is_some() {
+        result.cargo_health = result
+            .metadata
+            .as_ref()
+            .map(|metadata| cargo_health::inspect(metadata, plan));
+    }
     if plan.active_rules(Producer::Clippy).next().is_none() {
         result.scan = ClippyExecution::Disabled;
     } else {

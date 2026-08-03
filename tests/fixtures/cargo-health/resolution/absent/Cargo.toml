@@ -1,0 +1,9 @@
+[package]
+name = "absent-resolution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "absent-resolution"
+path = "src/main.rs"

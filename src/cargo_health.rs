@@ -1,6 +1,24 @@
-use cargo_metadata::{Dependency, Metadata};
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
-use crate::policy::{CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, PolicyPlan, RuleDefinition};
+use cargo_metadata::{Dependency, Metadata, Package, TargetKind};
+use serde::Deserialize;
+
+use crate::policy::{
+    CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
+    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT,
+    PolicyPlan, RuleDefinition,
+};
+
+/// Nom du graphe résolu hors ligne. `cargo metadata` tourne en `--no-deps`,
+/// donc `metadata.resolve` est toujours absent: le seul graphe consultable sans
+/// index de registre ni réseau est le fichier de verrouillage.
+const LOCKFILE: &str = "Cargo.lock";
+
+/// Borne le travail du pack sur un fichier de verrouillage hostile ou
+/// gigantesque. Au-delà, le pack s'abstient au lieu de charger le fichier.
+const MAX_LOCKFILE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
@@ -10,9 +28,18 @@ pub(crate) struct Candidate {
     pub(crate) manifest_path: Option<String>,
 }
 
+/// Erreur bornée du pack: un code fermé et un message figé, sans chemin, sans
+/// variable d'environnement et sans séquence d'échappement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CargoHealthError {
+    pub(crate) code: &'static str,
+    pub(crate) message: &'static str,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct CargoHealthScan {
     pub(crate) candidates: Vec<Candidate>,
+    pub(crate) errors: Vec<CargoHealthError>,
     #[allow(dead_code)]
     pub(crate) counters: CargoHealthCounters,
 }
@@ -22,22 +49,52 @@ pub(crate) struct CargoHealthCounters {
     pub(crate) dependencies_evaluated: usize,
     pub(crate) unbounded_registry_predicates: usize,
     pub(crate) unpinned_git_predicates: usize,
+    pub(crate) resolved_packages: usize,
+}
+
+/// Forme minimale du fichier de verrouillage: seule la liste résolue compte,
+/// et tout le reste du document est ignoré sans le rendre invalide.
+#[derive(Debug, Deserialize)]
+struct LockDocument {
+    package: Option<Vec<LockPackage>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LockPackage {
+    name: Option<String>,
+    version: Option<String>,
+}
+
+/// État du graphe résolu tel que le pack peut l'observer hors ligne.
+#[derive(Debug, PartialEq, Eq)]
+enum Resolution {
+    /// Aucun fichier de verrouillage: c'est un fait constaté, pas une erreur.
+    Absent,
+    /// Le fichier existe mais sa section de résolution est inexploitable.
+    Unusable(CargoHealthError),
+    /// Paires (nom, version) du graphe résolu, dans l'ordre du fichier.
+    Packages(Vec<(String, String)>),
 }
 
 pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan {
     let unbounded_registry = plan.is_active(CARGO_UNBOUNDED_REGISTRY.id);
     let unpinned_git = plan.is_active(CARGO_UNPINNED_GIT.id);
-    if !unbounded_registry && !unpinned_git {
+    let outside_path = plan.is_active(CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id);
+    let missing_lockfile = plan.is_active(CARGO_MISSING_LOCKFILE.id);
+    let duplicate_majors = plan.is_active(CARGO_DUPLICATE_MAJOR_VERSIONS.id);
+    if !unbounded_registry
+        && !unpinned_git
+        && !outside_path
+        && !missing_lockfile
+        && !duplicate_majors
+    {
         return CargoHealthScan::default();
     }
 
     let mut scan = CargoHealthScan::default();
+    let workspace_root = metadata.workspace_root.as_std_path();
 
-    for package in metadata
-        .packages
-        .iter()
-        .filter(|package| metadata.workspace_members.contains(&package.id))
-    {
+    for package in workspace_packages(metadata) {
         let manifest_path = package
             .manifest_path
             .strip_prefix(&metadata.workspace_root)
@@ -73,10 +130,185 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                     manifest_path: manifest_path.clone(),
                 });
             }
+            if outside_path && leaves_workspace(dependency, workspace_root) {
+                scan.candidates.push(Candidate {
+                    definition: &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
+                    message: format!("Path dependency \"{key}\" resolves outside the workspace."),
+                    package: package.name.to_string(),
+                    manifest_path: manifest_path.clone(),
+                });
+            }
+        }
+    }
+
+    if !missing_lockfile && !duplicate_majors {
+        return scan;
+    }
+
+    match read_resolution(workspace_root) {
+        Resolution::Absent if missing_lockfile => {
+            for package in workspace_packages(metadata).filter(|package| produces_a_binary(package))
+            {
+                scan.candidates.push(Candidate {
+                    definition: &CARGO_MISSING_LOCKFILE,
+                    // Le pack observe le disque, pas l'index du gestionnaire de
+                    // versions: le message dit donc ce qui est mesuré, l'absence
+                    // du fichier, et l'aide de la règle porte la remédiation.
+                    message: format!(
+                        "Package \"{}\" produces a binary but no {LOCKFILE} sits next to its workspace manifest.",
+                        package.name
+                    ),
+                    package: package.name.to_string(),
+                    manifest_path: package
+                        .manifest_path
+                        .strip_prefix(&metadata.workspace_root)
+                        .ok()
+                        .map(|path| path.as_str().to_owned()),
+                });
+            }
+        }
+        Resolution::Absent => {}
+        Resolution::Unusable(error) => scan.errors.push(error),
+        Resolution::Packages(packages) => {
+            scan.counters.resolved_packages = packages.len();
+            if duplicate_majors {
+                let owner = resolution_owner(metadata);
+                for (name, versions) in duplicate_major_versions(&packages) {
+                    scan.candidates.push(Candidate {
+                        definition: &CARGO_DUPLICATE_MAJOR_VERSIONS,
+                        message: format!(
+                            "Crate \"{name}\" is resolved with incompatible major versions {versions}."
+                        ),
+                        package: owner.clone(),
+                        manifest_path: Some(LOCKFILE.to_owned()),
+                    });
+                }
+            }
         }
     }
 
     scan
+}
+
+fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
+    metadata
+        .packages
+        .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+}
+
+fn produces_a_binary(package: &Package) -> bool {
+    package
+        .targets
+        .iter()
+        .any(|target| target.kind.contains(&TargetKind::Bin))
+}
+
+/// Le graphe résolu appartient au workspace, pas à un membre. Le diagnostic est
+/// donc rattaché au paquet racine quand il existe, sinon au premier membre par
+/// ordre de nom, ce qui reste déterministe sur un workspace virtuel.
+fn resolution_owner(metadata: &Metadata) -> String {
+    let root_manifest = metadata.workspace_root.join("Cargo.toml");
+    if let Some(root) = workspace_packages(metadata)
+        .find(|package| package.manifest_path == root_manifest)
+        .or_else(|| workspace_packages(metadata).min_by_key(|package| package.name.to_string()))
+    {
+        return root.name.to_string();
+    }
+    metadata
+        .workspace_root
+        .file_name()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn leaves_workspace(dependency: &Dependency, workspace_root: &Path) -> bool {
+    dependency
+        .path
+        .as_ref()
+        .is_some_and(|path| !path.as_std_path().starts_with(workspace_root))
+}
+
+fn read_resolution(workspace_root: &Path) -> Resolution {
+    let path = workspace_root.join(LOCKFILE);
+    let Ok(metadata) = fs::metadata(&path) else {
+        return Resolution::Absent;
+    };
+    if !metadata.is_file() || metadata.len() > MAX_LOCKFILE_BYTES {
+        return Resolution::Unusable(CargoHealthError {
+            code: "lockfile-unreadable",
+            message: "the lockfile is not a readable regular file within the published size limit",
+        });
+    }
+    let Ok(contents) = fs::read_to_string(&path) else {
+        return Resolution::Unusable(CargoHealthError {
+            code: "lockfile-unreadable",
+            message: "the lockfile could not be read as UTF-8 text",
+        });
+    };
+    let Ok(document) = toml::from_str::<LockDocument>(&contents) else {
+        return Resolution::Unusable(CargoHealthError {
+            code: "lockfile-invalid",
+            message: "the lockfile is not valid TOML",
+        });
+    };
+    let Some(entries) = document.package else {
+        return Resolution::Unusable(CargoHealthError {
+            code: "lockfile-resolution-absent",
+            message: "the lockfile carries no resolved package section",
+        });
+    };
+
+    let packages: Vec<_> = entries
+        .iter()
+        .filter_map(|entry| Some((entry.name.clone()?, entry.version.clone()?)))
+        .collect();
+    if packages.len() != entries.len() {
+        return Resolution::Unusable(CargoHealthError {
+            code: "lockfile-resolution-absent",
+            message: "the lockfile carries a resolved package without a name or a version",
+        });
+    }
+    Resolution::Packages(packages)
+}
+
+/// Deux versions d'une même crate dont le numéro majeur diffère ne sont pas
+/// interchangeables: leurs types ne s'unifient pas et le binaire embarque les
+/// deux copies. Les préversions et les métadonnées de build sont ignorées,
+/// seule la partie majeure du triplet est comparée.
+fn duplicate_major_versions(packages: &[(String, String)]) -> Vec<(String, String)> {
+    let mut majors = BTreeMap::<&str, Vec<&str>>::new();
+    for (name, version) in packages {
+        let entry = majors.entry(name.as_str()).or_default();
+        if !entry.contains(&version.as_str()) {
+            entry.push(version.as_str());
+        }
+    }
+
+    majors
+        .into_iter()
+        .filter_map(|(name, mut versions)| {
+            versions.sort_unstable();
+            let distinct: Vec<_> = versions
+                .iter()
+                .filter_map(|version| major_of(version))
+                .collect();
+            let mut unique = distinct.clone();
+            unique.sort_unstable();
+            unique.dedup();
+            (unique.len() > 1).then(|| (name.to_owned(), versions.join(", ")))
+        })
+        .collect()
+}
+
+fn major_of(version: &str) -> Option<&str> {
+    let major = version
+        .split(['+', '-'])
+        .next()?
+        .split('.')
+        .next()
+        .filter(|major| !major.is_empty() && major.bytes().all(|byte| byte.is_ascii_digit()))?;
+    Some(major)
 }
 
 fn is_unbounded_registry(dependency: &Dependency) -> bool {
@@ -230,14 +462,28 @@ mod tests {
     }
 
     #[test]
-    fn producer_uses_the_two_canonical_catalog_entries() {
+    fn producer_uses_its_canonical_catalog_entries() {
         let definitions: Vec<_> = PolicyPlan::default()
             .active_rules(crate::policy::Producer::CargoHealth)
             .map(|(definition, _)| definition.id)
             .collect();
         assert_eq!(
             definitions,
-            [CARGO_UNBOUNDED_REGISTRY.id, CARGO_UNPINNED_GIT.id]
+            [
+                CARGO_DUPLICATE_MAJOR_VERSIONS.id,
+                CARGO_MISSING_LOCKFILE.id,
+                CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id,
+                CARGO_UNBOUNDED_REGISTRY.id,
+                CARGO_UNPINNED_GIT.id,
+            ]
+        );
+        assert!(
+            definitions
+                .iter()
+                .filter_map(|id| crate::policy::find(id))
+                .filter(|definition| definition.category == "dependencies")
+                .count()
+                >= 3
         );
     }
 
@@ -553,9 +799,12 @@ mod tests {
     #[test]
     fn policy_prunes_the_producer_and_each_inactive_predicate() {
         let (metadata, _) = protocol_metadata();
-        let all_off = PolicyInput::default()
-            .with_rule(CARGO_UNBOUNDED_REGISTRY.id, RuleLevel::Off)
-            .with_rule(CARGO_UNPINNED_GIT.id, RuleLevel::Off);
+        let all_off = PolicyPlan::default()
+            .active_rules(crate::policy::Producer::CargoHealth)
+            .map(|(definition, _)| definition.id)
+            .fold(PolicyInput::default(), |input, id| {
+                input.with_rule(id, RuleLevel::Off)
+            });
         let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
         let scan = super::inspect(&metadata, &all_off);
         assert!(scan.candidates.is_empty());
@@ -563,7 +812,10 @@ mod tests {
         assert_eq!(scan.counters.unbounded_registry_predicates, 0);
         assert_eq!(scan.counters.unpinned_git_predicates, 0);
 
-        let git_off = PolicyInput::default().with_rule(CARGO_UNPINNED_GIT.id, RuleLevel::Off);
+        let git_off = PolicyInput::default()
+            .with_rule(CARGO_UNPINNED_GIT.id, RuleLevel::Off)
+            .with_rule(CARGO_DUPLICATE_MAJOR_VERSIONS.id, RuleLevel::Off)
+            .with_rule(CARGO_MISSING_LOCKFILE.id, RuleLevel::Off);
         let git_off = PolicyPlan::compile(&git_off).expect("policy should compile");
         let scan = super::inspect(&metadata, &git_off);
         assert!(scan.counters.dependencies_evaluated > 0);
@@ -667,5 +919,147 @@ mod tests {
             .iter_mut()
             .find(|dependency| dependency.rename.as_deref().unwrap_or(&dependency.name) == key)
             .expect("protocol dependency should exist")
+    }
+
+    fn resolution_fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/cargo-health/resolution")
+            .join(name)
+    }
+
+    /// `cargo metadata --no-deps` ne résout rien, donc il n'écrit jamais de
+    /// fichier de verrouillage: les fixtures de résolution restent intactes.
+    fn resolution_scan(name: &str) -> CargoHealthScan {
+        let root = resolution_fixture(name);
+        let before = fixture_hashes(&root);
+        let (metadata, _) = offline_metadata(&root, &format!("resolution-{name}"));
+        let scan = super::inspect(&metadata, &PolicyPlan::default());
+        assert_eq!(fixture_hashes(&root), before, "{name} was mutated");
+        scan
+    }
+
+    fn candidates_for(scan: &CargoHealthScan, definition: &RuleDefinition) -> Vec<String> {
+        scan.candidates
+            .iter()
+            .filter(|candidate| candidate.definition.id == definition.id)
+            .map(|candidate| candidate.message.clone())
+            .collect()
+    }
+
+    /// US-076: deux versions majeures d'une même crate dans le graphe résolu
+    /// sont nommées, versions comprises, et une divergence mineure ne l'est pas.
+    #[test]
+    fn duplicate_major_versions_are_named_with_their_versions() {
+        let scan = resolution_scan("duplicate");
+        assert!(scan.errors.is_empty(), "{:?}", scan.errors);
+        assert_eq!(scan.counters.resolved_packages, 5);
+
+        assert_eq!(
+            candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS),
+            ["Crate \"shared\" is resolved with incompatible major versions 1.4.2, 2.0.0."]
+        );
+        let candidate = scan
+            .candidates
+            .iter()
+            .find(|candidate| candidate.definition.id == CARGO_DUPLICATE_MAJOR_VERSIONS.id)
+            .expect("the duplicate candidate should exist");
+        assert_eq!(candidate.package, "duplicate-resolution");
+        assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.lock"));
+        assert_eq!(candidate.definition.category, "dependencies");
+
+        // La fixture porte aussi deux versions mineures d'une même crate: elles
+        // restent compatibles, donc elles ne sont pas signalées.
+        assert!(!candidate.message.contains("aligned"));
+        assert!(candidates_for(&scan, &CARGO_MISSING_LOCKFILE).is_empty());
+    }
+
+    /// US-076: un workspace propre sur ces critères ne produit aucun diagnostic.
+    #[test]
+    fn a_clean_resolution_produces_no_candidate() {
+        let scan = resolution_scan("clean");
+        assert!(scan.candidates.is_empty(), "{:?}", scan.candidates);
+        assert!(scan.errors.is_empty(), "{:?}", scan.errors);
+        assert_eq!(scan.counters.resolved_packages, 2);
+    }
+
+    /// US-076: un binaire sans fichier de verrouillage est signalé, en nommant
+    /// le paquet et son manifeste.
+    #[test]
+    fn a_binary_without_a_lockfile_is_named() {
+        let scan = resolution_scan("absent");
+        assert!(scan.errors.is_empty(), "{:?}", scan.errors);
+        assert_eq!(
+            candidates_for(&scan, &CARGO_MISSING_LOCKFILE),
+            [
+                "Package \"absent-resolution\" produces a binary but no Cargo.lock sits next to its workspace manifest."
+            ]
+        );
+        let candidate = &scan.candidates[0];
+        assert_eq!(candidate.package, "absent-resolution");
+        assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.toml"));
+        assert!(candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS).is_empty());
+    }
+
+    /// US-076: une section de résolution absente fait s'abstenir le pack avec
+    /// une erreur bornée, et le scan reste utilisable.
+    #[test]
+    fn an_unusable_resolution_abstains_with_a_bounded_error() {
+        let scan = resolution_scan("unusable");
+        assert!(scan.candidates.is_empty(), "{:?}", scan.candidates);
+        assert_eq!(
+            scan.errors,
+            [CargoHealthError {
+                code: "lockfile-resolution-absent",
+                message: "the lockfile carries no resolved package section",
+            }]
+        );
+        for error in &scan.errors {
+            assert!(!error.message.contains('/'));
+            assert!(!error.message.contains('\u{1b}'));
+        }
+    }
+
+    /// US-076: une dépendance de chemin qui quitte le workspace est signalée
+    /// sans publier le chemin absolu qu'elle vise.
+    #[test]
+    fn a_path_dependency_leaving_the_workspace_is_named_without_its_path() {
+        let scan = resolution_scan("outside-path");
+        assert_eq!(
+            candidates_for(&scan, &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE),
+            ["Path dependency \"outside-crate\" resolves outside the workspace."]
+        );
+        let candidate = &scan.candidates[0];
+        assert_eq!(candidate.package, "outside-path");
+        assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.toml"));
+        assert!(!candidate.message.contains(env!("CARGO_MANIFEST_DIR")));
+        assert!(!candidate.message.contains(".."));
+    }
+
+    /// Le classement des versions majeures est indépendant de l'ordre du
+    /// fichier et ignore préversions et métadonnées de build.
+    #[test]
+    fn major_comparison_is_order_independent_and_ignores_prerelease_metadata() {
+        let packages = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(name, version)| ((*name).to_owned(), (*version).to_owned()))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            duplicate_major_versions(&packages(&[("a", "2.0.0"), ("a", "1.0.0")])),
+            [("a".to_owned(), "1.0.0, 2.0.0".to_owned())]
+        );
+        assert!(
+            duplicate_major_versions(&packages(&[("a", "1.0.0-rc.1"), ("a", "1.0.0+build")]))
+                .is_empty()
+        );
+        assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("b", "2.0.0")])).is_empty());
+        assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("a", "1.0.0")])).is_empty());
+        // Une version illisible ne peut pas être comparée, donc elle ne peut pas
+        // fonder un verdict de duplication.
+        assert!(duplicate_major_versions(&packages(&[("a", "x.0.0"), ("a", "1.0.0")])).is_empty());
+        assert_eq!(major_of("10.2.3"), Some("10"));
+        assert_eq!(major_of(""), None);
     }
 }

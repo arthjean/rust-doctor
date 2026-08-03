@@ -676,6 +676,7 @@ fn diagnostics_from_execution(
                 .unwrap_or_default(),
             workspace_root,
             result.metadata.as_ref(),
+            result.cargo_health.as_ref(),
             home,
             plan,
         ),
@@ -888,6 +889,13 @@ fn report_errors(
             message: sanitize_text(&error.message, workspace_root, home),
         }));
     }
+    if let Some(cargo_health) = result.cargo_health.as_ref() {
+        errors.extend(cargo_health.errors.iter().map(|error| ReportError {
+            stage: "dependencies".to_owned(),
+            code: error.code.to_owned(),
+            message: error.message.to_owned(),
+        }));
+    }
     errors.sort_by(|left, right| {
         (&left.stage, &left.code, &left.message).cmp(&(&right.stage, &right.code, &right.message))
     });
@@ -911,6 +919,7 @@ fn normalize_diagnostics_with_plan(
     messages: &[CapturedMessage],
     workspace_root: Option<&Path>,
     metadata: Option<&Metadata>,
+    cargo_health: Option<&cargo_health::CargoHealthScan>,
     home: &HomePaths,
     plan: &PolicyPlan,
 ) -> Vec<Diagnostic> {
@@ -919,9 +928,10 @@ fn normalize_diagnostics_with_plan(
     };
     let mut diagnostics = BTreeMap::<String, Diagnostic>::new();
 
-    if let Some(metadata) = metadata {
-        for candidate in cargo_health::inspect(metadata, plan).candidates {
-            let diagnostic = normalize_cargo_health_candidate(candidate, workspace_root, home);
+    if let Some(scan) = cargo_health {
+        for candidate in &scan.candidates {
+            let diagnostic =
+                normalize_cargo_health_candidate(candidate.clone(), workspace_root, home);
             merge_diagnostic(&mut diagnostics, diagnostic);
         }
     }
@@ -962,12 +972,15 @@ fn normalize_diagnostics(
     metadata: Option<&Metadata>,
     home: &HomePaths,
 ) -> Vec<Diagnostic> {
+    let plan = PolicyPlan::default();
+    let cargo_health = metadata.map(|metadata| cargo_health::inspect(metadata, &plan));
     normalize_diagnostics_with_plan(
         messages,
         workspace_root,
         metadata,
+        cargo_health.as_ref(),
         home,
-        &PolicyPlan::default(),
+        &plan,
     )
 }
 
@@ -1920,6 +1933,13 @@ mod tests {
         }
     }
 
+    /// Le pack dépendances tourne désormais dans l'exécution, comme le noyau
+    /// source. Les constructeurs de test reproduisent ce câblage plutôt que de
+    /// laisser la normalisation le relancer.
+    fn cargo_health_scan(metadata: &Metadata) -> Option<cargo_health::CargoHealthScan> {
+        Some(cargo_health::inspect(metadata, &PolicyPlan::default()))
+    }
+
     fn complete_analysis_side(
         metadata: Metadata,
         message: &'static str,
@@ -1931,6 +1951,7 @@ mod tests {
             .into_std_path_buf();
         ExecutionResult {
             manifest_path: Some(manifest_path),
+            cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(
@@ -2102,6 +2123,7 @@ mod tests {
         let expected_command = scan(Vec::new(), 0, true, true).command;
         let complete = from_execution(ExecutionResult {
             manifest_path: Some(manifest_path.clone()),
+            cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata.clone()),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(Vec::new(), 0, true, true)).into(),
@@ -2116,6 +2138,7 @@ mod tests {
 
         let incomplete = from_execution(ExecutionResult {
             manifest_path: Some(manifest_path),
+            cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(
@@ -2149,6 +2172,7 @@ mod tests {
         let failed = from_execution(ExecutionResult {
             manifest_path: None,
             metadata: None,
+            cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: None.into(),
             source: None,
@@ -2211,6 +2235,7 @@ mod tests {
         };
         let report = from_execution(ExecutionResult {
             manifest_path: Some(workspace.join("Cargo.toml")),
+            cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(compiler_messages, 0, true, true)).into(),
@@ -2539,6 +2564,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -2581,6 +2607,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -2629,6 +2656,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],

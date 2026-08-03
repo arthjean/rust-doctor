@@ -1,0 +1,3 @@
+# Fichier de verrouillage sans section de résolution: le pack doit s'abstenir
+# et signaler une erreur bornée plutôt que de deviner un graphe.
+version = 4

@@ -1,0 +1,9 @@
+[package]
+name = "unusable-resolution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "unusable-resolution"
+path = "src/main.rs"

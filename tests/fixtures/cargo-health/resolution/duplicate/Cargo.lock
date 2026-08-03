@@ -1,0 +1,23 @@
+# Graphe résolu figé à la main: la fixture n'a aucune dépendance réelle, seule
+# la forme du fichier de verrouillage est sous test.
+version = 4
+
+[[package]]
+name = "duplicate-resolution"
+version = "0.1.0"
+
+[[package]]
+name = "shared"
+version = "1.4.2"
+
+[[package]]
+name = "shared"
+version = "2.0.0"
+
+[[package]]
+name = "aligned"
+version = "0.3.1"
+
+[[package]]
+name = "aligned"
+version = "0.3.4"
