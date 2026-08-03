@@ -12,8 +12,9 @@ mod catalog;
 pub use catalog::RuleTier;
 use catalog::find_in;
 pub(crate) use catalog::{
-    CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, CATALOG, CATEGORIES, Producer, RuleDefinition,
-    SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL, find,
+    CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
+    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, CATALOG,
+    CATEGORIES, Producer, RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL, find,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
@@ -221,8 +222,22 @@ struct PlannedRule {
     restamp: bool,
 }
 
+/// `serde` n'implémente `Serialize` que jusqu'aux tableaux de 32 éléments. Le
+/// plan en porte autant que le catalogue, donc la sérialisation passe par la
+/// tranche: même forme publiée, sans borne sur la taille du catalogue.
+fn serialize_planned_rules<S>(
+    rules: &[PlannedRule; CATALOG.len()],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    rules.as_slice().serialize(serializer)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct PolicyPlan {
+    #[serde(serialize_with = "serialize_planned_rules")]
     rules: [PlannedRule; CATALOG.len()],
     blocking: BlockingLevel,
     blocking_source: BlockingLevelSource,

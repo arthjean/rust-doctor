@@ -69,9 +69,43 @@ pub(crate) struct RuleDefinition {
     pub(crate) help: &'static str,
 }
 
-pub(crate) const CATEGORIES: [&str; 4] =
-    ["correctness", "maintainability", "reliability", "security"];
+/// Catégories admissibles, triées: `find`/`validate_catalog` les cherchent par
+/// dichotomie. Chacune est mappée vers une dimension de score par
+/// `audit::category_mapping`, donc ouvrir une catégorie rend sa dimension
+/// atteignable.
+pub(crate) const CATEGORIES: [&str; 6] = [
+    "correctness",
+    "dependencies",
+    "maintainability",
+    "performance",
+    "reliability",
+    "security",
+];
 
+pub(crate) static CLIPPY_ARC_WITH_NON_SEND_SYNC: RuleDefinition = RuleDefinition {
+    id: "clippy::arc_with_non_send_sync",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Use Rc for single-threaded sharing, or make the inner value Send and Sync before sharing it across threads.",
+};
+pub(crate) static CLIPPY_AWAIT_HOLDING_LOCK: RuleDefinition = RuleDefinition {
+    id: "clippy::await_holding_lock",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Drop the guard before the await point, or use a lock designed to be held across await.",
+};
+pub(crate) static CLIPPY_AWAIT_HOLDING_REFCELL_REF: RuleDefinition = RuleDefinition {
+    id: "clippy::await_holding_refcell_ref",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Copy the borrowed value and drop the borrow before the await point.",
+};
 pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     id: "clippy::dbg_macro",
     category: "maintainability",
@@ -79,6 +113,54 @@ pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P3,
     help: "Remove dbg! or replace it with intentional logging.",
+};
+pub(crate) static CLIPPY_EXIT: RuleDefinition = RuleDefinition {
+    id: "clippy::exit",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Return an error to the caller and let the entry point decide the exit status.",
+};
+pub(crate) static CLIPPY_EXPECT_USED: RuleDefinition = RuleDefinition {
+    id: "clippy::expect_used",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Propagate the error with ? or handle the missing value explicitly instead of panicking.",
+};
+pub(crate) static CLIPPY_FORMAT_COLLECT: RuleDefinition = RuleDefinition {
+    id: "clippy::format_collect",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Write into one String with write! or push_str instead of allocating one String per item.",
+};
+pub(crate) static CLIPPY_INDEXING_SLICING: RuleDefinition = RuleDefinition {
+    id: "clippy::indexing_slicing",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Use get or get_mut and handle the absent element instead of indexing, which panics out of bounds.",
+};
+pub(crate) static CLIPPY_LARGE_TYPES_PASSED_BY_VALUE: RuleDefinition = RuleDefinition {
+    id: "clippy::large_types_passed_by_value",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Pass the large value by reference to avoid copying it at every call.",
+};
+pub(crate) static CLIPPY_MANUAL_MEMCPY: RuleDefinition = RuleDefinition {
+    id: "clippy::manual_memcpy",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Use copy_from_slice or clone_from_slice instead of copying element by element.",
 };
 pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     id: "clippy::mem_forget",
@@ -88,6 +170,14 @@ pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Avoid leaking a value with drop semantics; use an explicit ownership or lifetime strategy.",
 };
+pub(crate) static CLIPPY_MUT_MUTEX_LOCK: RuleDefinition = RuleDefinition {
+    id: "clippy::mut_mutex_lock",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Use get_mut when the mutex is already exclusively borrowed; locking it again can deadlock.",
+};
 pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefinition {
     id: "clippy::non_send_fields_in_send_ty",
     category: "correctness",
@@ -96,6 +186,22 @@ pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefini
     tier: RuleTier::P1,
     help: "Remove the unsafe Send implementation or ensure every field is safe to send between threads.",
 };
+pub(crate) static CLIPPY_PANIC: RuleDefinition = RuleDefinition {
+    id: "clippy::panic",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Return an error instead of aborting the process on an input the caller can recover from.",
+};
+pub(crate) static CLIPPY_PANIC_IN_RESULT_FN: RuleDefinition = RuleDefinition {
+    id: "clippy::panic_in_result_fn",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "A function that already returns Result should report the failure as Err instead of panicking.",
+};
 pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDefinition {
     id: "clippy::permissions_set_readonly_false",
     category: "security",
@@ -103,6 +209,62 @@ pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDe
     default_level: RuleLevel::Warn,
     tier: RuleTier::P1,
     help: "Set explicit Unix permission bits instead of clearing readonly on Unix.",
+};
+pub(crate) static CLIPPY_PRINT_STDERR: RuleDefinition = RuleDefinition {
+    id: "clippy::print_stderr",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Write to a caller-provided writer or a logger instead of hard-wiring stderr.",
+};
+pub(crate) static CLIPPY_PRINT_STDOUT: RuleDefinition = RuleDefinition {
+    id: "clippy::print_stdout",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Write to a caller-provided writer or a logger instead of hard-wiring stdout.",
+};
+pub(crate) static CLIPPY_RC_BUFFER: RuleDefinition = RuleDefinition {
+    id: "clippy::rc_buffer",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Share the slice itself with Rc<str> or Rc<[T]> instead of wrapping an owned buffer.",
+};
+pub(crate) static CLIPPY_RC_MUTEX: RuleDefinition = RuleDefinition {
+    id: "clippy::rc_mutex",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Use RefCell inside Rc for single-threaded sharing, or Arc<Mutex<T>> when the value really crosses threads.",
+};
+pub(crate) static CLIPPY_REDUNDANT_ALLOCATION: RuleDefinition = RuleDefinition {
+    id: "clippy::redundant_allocation",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Remove the inner allocation; one pointer indirection is enough.",
+};
+pub(crate) static CLIPPY_STABLE_SORT_PRIMITIVE: RuleDefinition = RuleDefinition {
+    id: "clippy::stable_sort_primitive",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Use sort_unstable on primitives; stability carries no meaning and costs an allocation.",
+};
+pub(crate) static CLIPPY_STRING_SLICE: RuleDefinition = RuleDefinition {
+    id: "clippy::string_slice",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Use get on the string range and handle the absent slice; byte indexing panics inside a UTF-8 character.",
 };
 pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefinition {
     id: "clippy::suspicious_command_arg_space",
@@ -128,6 +290,54 @@ pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Implement this code path or remove the reachable placeholder.",
 };
+pub(crate) static CLIPPY_UNNECESSARY_TO_OWNED: RuleDefinition = RuleDefinition {
+    id: "clippy::unnecessary_to_owned",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Pass the borrowed value directly; the callee never needs the owned copy.",
+};
+pub(crate) static CLIPPY_UNREACHABLE: RuleDefinition = RuleDefinition {
+    id: "clippy::unreachable",
+    category: "correctness",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Make the remaining case explicit or return an error; an unreachable! that is reached aborts the process.",
+};
+pub(crate) static CLIPPY_UNUSED_ASYNC: RuleDefinition = RuleDefinition {
+    id: "clippy::unused_async",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Remove the async marker, or await the work the function was meant to drive.",
+};
+pub(crate) static CLIPPY_UNWRAP_USED: RuleDefinition = RuleDefinition {
+    id: "clippy::unwrap_used",
+    category: "reliability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Propagate the error with ? or provide a default instead of panicking on the absent value.",
+};
+pub(crate) static CLIPPY_USELESS_VEC: RuleDefinition = RuleDefinition {
+    id: "clippy::useless_vec",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Use an array or a slice literal; this value never needs a heap allocation.",
+};
+pub(crate) static CLIPPY_VEC_INIT_THEN_PUSH: RuleDefinition = RuleDefinition {
+    id: "clippy::vec_init_then_push",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Build the vector with the vec! literal so it is allocated once at its final size.",
+};
 pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     id: "clippy::zombie_processes",
     category: "reliability",
@@ -135,6 +345,30 @@ pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
     help: "Wait on the child process or otherwise reap it before the handle is dropped.",
+};
+pub(crate) static CARGO_DUPLICATE_MAJOR_VERSIONS: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::duplicate_major_versions",
+    category: "dependencies",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Align the requirements so one major version of the crate is resolved; duplicates ship twice and their types do not interoperate.",
+};
+pub(crate) static CARGO_MISSING_LOCKFILE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::missing_lockfile",
+    category: "dependencies",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Commit Cargo.lock next to the manifest so every build of this binary resolves the same dependency versions.",
+};
+pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::path_dependency_outside_workspace",
+    category: "dependencies",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Vendor the crate inside the workspace or publish it; a path leaving the workspace only resolves on the author's machine.",
 };
 pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unbounded_registry_dependency",
@@ -169,15 +403,43 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 12] = [
+pub(crate) const CATALOG: [&RuleDefinition; 40] = [
+    &CLIPPY_ARC_WITH_NON_SEND_SYNC,
+    &CLIPPY_AWAIT_HOLDING_LOCK,
+    &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
     &CLIPPY_DBG_MACRO,
+    &CLIPPY_EXIT,
+    &CLIPPY_EXPECT_USED,
+    &CLIPPY_FORMAT_COLLECT,
+    &CLIPPY_INDEXING_SLICING,
+    &CLIPPY_LARGE_TYPES_PASSED_BY_VALUE,
+    &CLIPPY_MANUAL_MEMCPY,
     &CLIPPY_MEM_FORGET,
+    &CLIPPY_MUT_MUTEX_LOCK,
     &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
+    &CLIPPY_PANIC,
+    &CLIPPY_PANIC_IN_RESULT_FN,
     &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
+    &CLIPPY_PRINT_STDERR,
+    &CLIPPY_PRINT_STDOUT,
+    &CLIPPY_RC_BUFFER,
+    &CLIPPY_RC_MUTEX,
+    &CLIPPY_REDUNDANT_ALLOCATION,
+    &CLIPPY_STABLE_SORT_PRIMITIVE,
+    &CLIPPY_STRING_SLICE,
     &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
     &CLIPPY_TODO,
     &CLIPPY_UNIMPLEMENTED,
+    &CLIPPY_UNNECESSARY_TO_OWNED,
+    &CLIPPY_UNREACHABLE,
+    &CLIPPY_UNUSED_ASYNC,
+    &CLIPPY_UNWRAP_USED,
+    &CLIPPY_USELESS_VEC,
+    &CLIPPY_VEC_INIT_THEN_PUSH,
     &CLIPPY_ZOMBIE_PROCESSES,
+    &CARGO_DUPLICATE_MAJOR_VERSIONS,
+    &CARGO_MISSING_LOCKFILE,
+    &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
     &CARGO_UNBOUNDED_REGISTRY,
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
@@ -257,6 +519,8 @@ fn published_tier(definition: &Value) -> Result<RuleTier, CatalogError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use serde_json::json;
 
     use super::*;
@@ -272,16 +536,44 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 13] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 41] = [
+        &CLIPPY_ARC_WITH_NON_SEND_SYNC,
+        &CLIPPY_AWAIT_HOLDING_LOCK,
+        &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
         &CLIPPY_DBG_MACRO,
+        &CLIPPY_EXIT,
+        &CLIPPY_EXPECT_USED,
+        &CLIPPY_FORMAT_COLLECT,
+        &CLIPPY_INDEXING_SLICING,
+        &CLIPPY_LARGE_TYPES_PASSED_BY_VALUE,
+        &CLIPPY_MANUAL_MEMCPY,
         &CLIPPY_MEM_FORGET,
+        &CLIPPY_MUT_MUTEX_LOCK,
         &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
+        &CLIPPY_PANIC,
+        &CLIPPY_PANIC_IN_RESULT_FN,
         &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
+        &CLIPPY_PRINT_STDERR,
+        &CLIPPY_PRINT_STDOUT,
+        &CLIPPY_RC_BUFFER,
+        &CLIPPY_RC_MUTEX,
+        &CLIPPY_REDUNDANT_ALLOCATION,
+        &CLIPPY_STABLE_SORT_PRIMITIVE,
+        &CLIPPY_STRING_SLICE,
         &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
         &SYNTHETIC_CLIPPY_RULE,
         &CLIPPY_TODO,
         &CLIPPY_UNIMPLEMENTED,
+        &CLIPPY_UNNECESSARY_TO_OWNED,
+        &CLIPPY_UNREACHABLE,
+        &CLIPPY_UNUSED_ASYNC,
+        &CLIPPY_UNWRAP_USED,
+        &CLIPPY_USELESS_VEC,
+        &CLIPPY_VEC_INIT_THEN_PUSH,
         &CLIPPY_ZOMBIE_PROCESSES,
+        &CARGO_DUPLICATE_MAJOR_VERSIONS,
+        &CARGO_MISSING_LOCKFILE,
+        &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
         &CARGO_UNBOUNDED_REGISTRY,
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
@@ -293,49 +585,75 @@ mod tests {
             .expect("policy oracle should be valid JSON")
     }
 
+    /// Identifiants publiés par l'oracle historique, dans l'ordre du catalogue.
+    /// Le catalogue s'élargit, l'oracle ne bouge pas: la comparaison porte donc
+    /// sur ce sous-ensemble figé, pas sur un filtre par exclusion.
+    const HISTORICAL_IDS: [&str; 7] = [
+        "clippy::dbg_macro",
+        "clippy::todo",
+        "clippy::unimplemented",
+        "rust_doctor::cargo::unbounded_registry_dependency",
+        "rust_doctor::cargo::unpinned_git_dependency",
+        "rust_doctor::source::disabled_tls_verification",
+        "rust_doctor::source::dynamic_shell_command",
+    ];
+
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 12);
+        assert_eq!(CATALOG.len(), 40);
         assert_eq!(
             CATEGORIES,
-            ["correctness", "maintainability", "reliability", "security"]
+            [
+                "correctness",
+                "dependencies",
+                "maintainability",
+                "performance",
+                "reliability",
+                "security",
+            ]
         );
 
         let historical: Vec<_> = CATALOG
             .iter()
-            .filter(|definition| {
-                !matches!(
-                    definition.id,
-                    "clippy::mem_forget"
-                        | "clippy::non_send_fields_in_send_ty"
-                        | "clippy::permissions_set_readonly_false"
-                        | "clippy::suspicious_command_arg_space"
-                        | "clippy::zombie_processes"
-                )
-            })
+            .filter(|definition| HISTORICAL_IDS.contains(&definition.id))
             .copied()
             .collect();
+        assert_eq!(historical.len(), HISTORICAL_IDS.len());
         assert_eq!(
             serde_json::to_value(historical).expect("historical catalog should serialize"),
             historical_oracle()["catalog"]
         );
-        assert_eq!(
-            CATALOG
+
+        let clippy_ids: Vec<_> = CATALOG
+            .iter()
+            .filter(|definition| definition.producer == Producer::Clippy)
+            .map(|definition| definition.id)
+            .collect();
+        assert_eq!(clippy_ids.len(), 33);
+        assert!(
+            clippy_ids
                 .iter()
-                .filter(|definition| definition.producer == Producer::Clippy)
-                .map(|definition| definition.id)
-                .collect::<Vec<_>>(),
-            [
-                "clippy::dbg_macro",
-                "clippy::mem_forget",
-                "clippy::non_send_fields_in_send_ty",
-                "clippy::permissions_set_readonly_false",
-                "clippy::suspicious_command_arg_space",
-                "clippy::todo",
-                "clippy::unimplemented",
-                "clippy::zombie_processes",
-            ]
+                .all(|id| id
+                    .strip_prefix("clippy::")
+                    .is_some_and(|lint| !lint.is_empty()
+                        && lint
+                            .bytes()
+                            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')))
+        );
+
+        // Chaque dimension du score possède au moins trois règles, sans quoi
+        // elle resterait figée à 100 et son poids serait inerte.
+        let mut per_dimension = BTreeMap::new();
+        for definition in CATALOG {
+            let (_, dimension) = crate::audit::category_mapping(definition.category)
+                .expect("every catalogued category should map to a dimension");
+            *per_dimension.entry(dimension).or_insert(0_usize) += 1;
+        }
+        assert_eq!(per_dimension.len(), 5);
+        assert!(
+            per_dimension.values().all(|count| *count >= 3),
+            "{per_dimension:?}"
         );
     }
 
@@ -349,8 +667,8 @@ mod tests {
         }
 
         let plan = PolicyPlan::default();
-        assert_eq!(plan.active_rules(Producer::Clippy).count(), 8);
-        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 2);
+        assert_eq!(plan.active_rules(Producer::Clippy).count(), 33);
+        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
     }
 
@@ -366,7 +684,10 @@ mod tests {
 
         static EMPTY_HELP: RuleDefinition = RuleDefinition {
             help: "",
-            ..CLIPPY_DBG_MACRO
+            // Dérivé de la première entrée du catalogue: la substitution se
+            // fait en position 0, donc l'identifiant doit rester celui-là pour
+            // qu'un seul défaut à la fois soit sous test.
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut empty = CATALOG;
         empty[0] = &EMPTY_HELP;
@@ -374,7 +695,10 @@ mod tests {
 
         static UNKNOWN_CATEGORY: RuleDefinition = RuleDefinition {
             category: "style",
-            ..CLIPPY_DBG_MACRO
+            // Dérivé de la première entrée du catalogue: la substitution se
+            // fait en position 0, donc l'identifiant doit rester celui-là pour
+            // qu'un seul défaut à la fois soit sous test.
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut category = CATALOG;
         category[0] = &UNKNOWN_CATEGORY;
@@ -385,7 +709,10 @@ mod tests {
 
         static INVALID_PRODUCER: RuleDefinition = RuleDefinition {
             producer: Producer::SourceKernel,
-            ..CLIPPY_DBG_MACRO
+            // Dérivé de la première entrée du catalogue: la substitution se
+            // fait en position 0, donc l'identifiant doit rester celui-là pour
+            // qu'un seul défaut à la fois soit sous test.
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut producer = CATALOG;
         producer[0] = &INVALID_PRODUCER;
@@ -396,7 +723,10 @@ mod tests {
 
         static HOSTILE_DEFINITION: RuleDefinition = RuleDefinition {
             id: "/private/secret\u{1b}[31m",
-            ..CLIPPY_DBG_MACRO
+            // Dérivé de la première entrée du catalogue: la substitution se
+            // fait en position 0, donc l'identifiant doit rester celui-là pour
+            // qu'un seul défaut à la fois soit sous test.
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let error = validate_catalog(&[&HOSTILE_DEFINITION]).unwrap_err();
         let rendered = format!("{error:?}");
@@ -505,14 +835,79 @@ mod tests {
                 "-W",
                 "clippy::dbg_macro",
                 "-W",
+                "clippy::exit",
+                "-W",
+                "clippy::expect_used",
+                "-W",
+                "clippy::format_collect",
+                "-W",
+                "clippy::indexing_slicing",
+                "-W",
+                "clippy::large_types_passed_by_value",
+                "-W",
+                "clippy::manual_memcpy",
+                "-W",
                 "clippy::mem_forget",
+                "-W",
+                "clippy::panic",
                 "-W",
                 "clippy::permissions_set_readonly_false",
                 "-W",
+                "clippy::print_stderr",
+                "-W",
+                "clippy::print_stdout",
+                "-W",
+                "clippy::rc_buffer",
+                "-W",
+                "clippy::redundant_allocation",
+                "-W",
+                "clippy::stable_sort_primitive",
+                "-W",
+                "clippy::string_slice",
+                "-W",
                 "clippy::synthetic_rule",
+                "-W",
+                "clippy::unnecessary_to_owned",
+                "-W",
+                "clippy::unused_async",
+                "-W",
+                "clippy::unwrap_used",
+                "-W",
+                "clippy::useless_vec",
+                "-W",
+                "clippy::vec_init_then_push",
                 "-W",
                 "clippy::zombie_processes",
             ]
         );
+    }
+
+    /// US-072: un override de catégorie porte sur toutes les règles de la
+    /// catégorie ouverte, `performance` comme les autres.
+    #[test]
+    fn a_category_override_reaches_every_rule_of_an_opened_category() {
+        for category in ["performance", "dependencies"] {
+            let input = PolicyInput::default().with_category(category, RuleLevel::Off);
+            let rules = compile_rules(&CATALOG, &input, &WorkspaceConfiguration::default())
+                .expect("an opened category should compile");
+            let targeted: Vec<_> = rules
+                .iter()
+                .filter(|rule| rule.definition.category == category)
+                .collect();
+
+            assert!(targeted.len() >= 3, "{category}");
+            assert!(
+                targeted.iter().all(|rule| rule.level == RuleLevel::Off
+                    && rule.source == RuleLevelSource::RequestCategory),
+                "{category}"
+            );
+            assert!(
+                rules
+                    .iter()
+                    .filter(|rule| rule.definition.category != category)
+                    .all(|rule| rule.level == RuleLevel::Warn),
+                "{category}"
+            );
+        }
     }
 }

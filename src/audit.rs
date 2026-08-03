@@ -1177,11 +1177,20 @@ mod tests {
 
         assert_eq!(score.dimensions.security, 20);
         assert_eq!(score.dimensions.reliability, 50);
-        assert_eq!(score.dimensions.maintainability, 99);
-        // Aucune règle du catalogue ne porte une catégorie mappée sur Performance
-        // ou Dependencies: EP-024 lève cette limite, pas EP-022.
-        assert_eq!(score.dimensions.performance, 100);
-        assert_eq!(score.dimensions.dependencies, 100);
+        assert_eq!(score.dimensions.maintainability, 94);
+        // EP-024 ouvre `performance` et `dependencies`: aucune dimension ne
+        // reste figée à 100, donc aucun poids du barème n'est plus inerte.
+        assert_eq!(score.dimensions.performance, 75);
+        assert_eq!(score.dimensions.dependencies, 50);
+        assert!(
+            score
+                .dimensions
+                .values()
+                .into_iter()
+                .all(|value| value < 100),
+            "{:?}",
+            score.dimensions
+        );
     }
 
     fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
