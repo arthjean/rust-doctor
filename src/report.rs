@@ -425,6 +425,14 @@ impl BaselineAnalysis {
             &delta,
             current.gate.blocking,
         );
+        let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
+        let scoped: Vec<_> = current
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| introduced.contains(diagnostic.id.as_str()))
+            .cloned()
+            .collect();
+        current.audit = current.audit.rebuild_for_scope(current.status, &scoped);
         current.delta = Some(delta);
         current
     }

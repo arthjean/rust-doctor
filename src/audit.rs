@@ -168,6 +168,16 @@ impl Audit {
         }
     }
 
+    pub(crate) fn rebuild_for_scope(&self, status: Status, diagnostics: &[Diagnostic]) -> Self {
+        let inventory_is_authoritative =
+            self.score.as_ref().is_some_and(|score| score.authoritative);
+        Self::build_with_authority(
+            self.source_files,
+            status == Status::Complete && inventory_is_authoritative,
+            diagnostics,
+        )
+    }
+
     pub fn share_url(&self) -> Result<String, ShareError> {
         let score = self.score.as_ref().ok_or(ShareError::ScoreUnavailable)?;
         if !score.authoritative {

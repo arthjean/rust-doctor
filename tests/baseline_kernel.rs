@@ -352,6 +352,41 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     assert_eq!(baseline["delta"]["summary"]["pre_existing"], 4);
     assert_eq!(baseline["delta"]["summary"]["fixed"], 0);
     assert_eq!(baseline["policy"]["config_file"], "rust-doctor.toml");
+    let audit_issues: u64 = baseline["audit"]["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|category| ["errors", "warnings", "info", "unknown"].map(|key| &category[key]))
+        .map(|count| count.as_u64().unwrap())
+        .sum();
+    let introduced: BTreeSet<_> = baseline["delta"]["introduced"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
+    let introduced_occurrences: u64 = baseline["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| {
+            introduced.contains(diagnostic["id"].as_str().unwrap())
+                && matches!(
+                    diagnostic["category"].as_str(),
+                    Some(
+                        "security"
+                            | "correctness"
+                            | "reliability"
+                            | "performance"
+                            | "cargo"
+                            | "dependencies"
+                            | "maintainability"
+                    )
+                )
+        })
+        .map(|diagnostic| diagnostic["occurrences"].as_u64().unwrap())
+        .sum();
+    assert_eq!(audit_issues, introduced_occurrences);
 
     let paths: BTreeSet<_> = baseline["diagnostics"]
         .as_array()
