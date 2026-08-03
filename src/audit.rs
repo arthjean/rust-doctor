@@ -445,7 +445,9 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     }
 }
 
-pub(crate) fn aggregate_rules(diagnostics: &[Diagnostic]) -> RuleAggregation {
+pub(crate) fn aggregate_rules<'a>(
+    diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
+) -> RuleAggregation {
     let mut diagnostics_are_authoritative = true;
     let mut rules = BTreeMap::<String, PendingRule>::new();
     for diagnostic in diagnostics {

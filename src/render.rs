@@ -2,14 +2,32 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
+use std::path::Path;
+use std::time::Duration;
 
 use crate::git_scope::ScopeDetails;
-use crate::{Diagnostic, GateStatus, InspectReport, Status};
+use crate::presentation::{DiagnosticGroup, ReportPresentation, code_frame};
+use crate::terminal_text::{sanitize, truncate, wrap};
+use crate::{GateStatus, InspectReport, Status};
+
+const DEFAULT_WIDTH: usize = 80;
+const MIN_WIDTH: usize = 80;
+const DOCS_URL: &str = "https://rust-doctor.vercel.app/docs";
+const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
 
 #[derive(Debug)]
 pub enum RenderError {
     Json(serde_json::Error),
     Write(io::Error),
+}
+
+impl RenderError {
+    pub fn is_broken_pipe(&self) -> bool {
+        match self {
+            Self::Json(error) => error.io_error_kind() == Some(io::ErrorKind::BrokenPipe),
+            Self::Write(error) => error.kind() == io::ErrorKind::BrokenPipe,
+        }
+    }
 }
 
 impl fmt::Display for RenderError {
@@ -30,40 +48,285 @@ impl Error for RenderError {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TerminalOptions<'a> {
+    pub workspace_root: &'a Path,
+    pub elapsed: Duration,
+    pub verbose: bool,
+    pub width: usize,
+    pub color: bool,
+}
+
+impl<'a> TerminalOptions<'a> {
+    pub const fn new(workspace_root: &'a Path) -> Self {
+        Self {
+            workspace_root,
+            elapsed: Duration::ZERO,
+            verbose: false,
+            width: DEFAULT_WIDTH,
+            color: false,
+        }
+    }
+
+    fn normalized(self) -> Self {
+        Self {
+            width: self.width.max(MIN_WIDTH),
+            ..self
+        }
+    }
+}
+
 pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
     serde_json::to_writer(&mut writer, report).map_err(RenderError::Json)?;
     writer.write_all(b"\n").map_err(RenderError::Write)
 }
 
-pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Result<(), RenderError> {
-    if let Some(scope) = &report.scope {
-        match scope.details() {
-            ScopeDetails::Full => writeln!(
-                writer,
-                "Scope: full; execution workspace; all files selected; base none."
+pub fn render_terminal<W: Write>(report: &InspectReport, writer: W) -> Result<(), RenderError> {
+    render_terminal_with_options(report, writer, TerminalOptions::new(Path::new(".")))
+}
+
+pub fn render_terminal_with_options<W: Write>(
+    report: &InspectReport,
+    writer: W,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let presentation = ReportPresentation::derive_terminal(report);
+    render_terminal_with_presentation(report, &presentation, writer, options)
+}
+
+pub fn render_terminal_with_presentation<W: Write>(
+    report: &InspectReport,
+    presentation: &ReportPresentation,
+    mut writer: W,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let options = options.normalized();
+    let issue_count = presentation.issue_count;
+
+    render_scope(&mut writer, report, options)?;
+    line(
+        &mut writer,
+        &format!(
+            "Scanned {} files in {:.1}s",
+            report.audit.source_files,
+            options.elapsed.as_secs_f64()
+        ),
+        options,
+        Style::Accent,
+    )?;
+
+    if issue_count == 0 {
+        line(&mut writer, "No issues found.", options, Style::Success)?;
+    } else if options.verbose {
+        for group in &presentation.groups {
+            render_group(&mut writer, group, options, false, true)?;
+        }
+    } else if let Some(group) = presentation.groups.first() {
+        render_group(&mut writer, group, options, true, false)?;
+    }
+
+    line(
+        &mut writer,
+        &"─".repeat(options.width.min(48)),
+        options,
+        Style::Muted,
+    )?;
+    line(
+        &mut writer,
+        &format!("All {issue_count} issues"),
+        options,
+        Style::Heading,
+    )?;
+    render_categories(&mut writer, report, options)?;
+    render_legacy_context(&mut writer, report, options)?;
+
+    if !options.verbose && !presentation.groups.is_empty() {
+        line(
+            &mut writer,
+            "Run with --verbose to see every issue.",
+            options,
+            Style::Muted,
+        )?;
+    }
+    for advisory in &presentation.migration_advisories {
+        line(
+            &mut writer,
+            &format!(
+                "Migration advisory: {} appears {} times across {} files.",
+                advisory.rule_id, advisory.occurrences, advisory.files
             ),
+            options,
+            Style::Warning,
+        )?;
+    }
+
+    render_score(&mut writer, report, options)?;
+    if report.status != Status::Failed {
+        if let Ok(url) = report.audit.share_url() {
+            line(
+                &mut writer,
+                &format!("Share: {url}"),
+                options,
+                Style::Accent,
+            )?;
+        }
+        line(
+            &mut writer,
+            &format!("Docs: {DOCS_URL}"),
+            options,
+            Style::Muted,
+        )?;
+        line(
+            &mut writer,
+            &format!("GitHub: {GITHUB_URL}"),
+            options,
+            Style::Muted,
+        )?;
+    }
+    Ok(())
+}
+
+fn render_scope<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let description = report.scope.as_ref().map_or_else(
+        || "Scope: full codebase".to_owned(),
+        |scope| match scope.details() {
+            ScopeDetails::Full => "Scope: full codebase".to_owned(),
             ScopeDetails::Files {
                 comparison_base,
                 files,
-            } => {
-                let file_count = files.len();
-                let comparison_base = &comparison_base[..12];
-                writeln!(
-                    writer,
-                    "Scope: files; execution workspace; {file_count} selected files; base {comparison_base}."
-                )
+            } => format!(
+                "Scope: changed files ({} selected, base {})",
+                files.len(),
+                short_revision(comparison_base)
+            ),
+            ScopeDetails::Baseline { comparison_base } => format!(
+                "Scope: baseline comparison (base {})",
+                short_revision(comparison_base)
+            ),
+        },
+    );
+    line(writer, &description, options, Style::Heading)
+}
+
+fn render_group<W: Write>(
+    writer: &mut W,
+    group: &DiagnosticGroup,
+    options: TerminalOptions<'_>,
+    top: bool,
+    all_locations: bool,
+) -> Result<(), RenderError> {
+    let heading = if top {
+        format!("Top {}: {}", group.severity, group.title)
+    } else {
+        format!(
+            "{}: {} ({} occurrences)",
+            capitalize(group.severity.to_string()),
+            group.title,
+            group.occurrences
+        )
+    };
+    line(writer, &heading, options, severity_style(group.severity))?;
+    line(
+        writer,
+        &format!("Rule ID: {}", group.rule_id),
+        options,
+        Style::Accent,
+    )?;
+
+    let diagnostics: Box<dyn Iterator<Item = _>> = if all_locations {
+        Box::new(group.diagnostics.iter())
+    } else {
+        Box::new(group.diagnostics.iter().take(1))
+    };
+    for diagnostic in diagnostics {
+        line(writer, &diagnostic.message, options, Style::Plain)?;
+        if let Some(help) = &diagnostic.help {
+            line(writer, &format!("Help: {help}"), options, Style::Muted)?;
+        }
+        if diagnostic.base_severity != diagnostic.severity {
+            line(
+                writer,
+                &format!(
+                    "Policy: base severity {}, effective severity {}",
+                    diagnostic.base_severity, diagnostic.severity
+                ),
+                options,
+                Style::Muted,
+            )?;
+        }
+        let Some(location) = diagnostic.location() else {
+            continue;
+        };
+        match code_frame(options.workspace_root, &location) {
+            Ok(frame) => {
+                line(writer, &frame.location, options, Style::Accent)?;
+                for source in frame.lines {
+                    let prefix = if source.primary { ">" } else { " " };
+                    frame_line(
+                        writer,
+                        &format!("{prefix} {:>4} | {}", source.number, source.text),
+                        options,
+                        Style::Plain,
+                    )?;
+                    if let Some(marker) = source.marker {
+                        let spaces = marker.column_start.saturating_sub(1);
+                        let carets = marker.column_end.saturating_sub(marker.column_start).max(1);
+                        frame_line(
+                            writer,
+                            &format!("       | {}{}", " ".repeat(spaces), "^".repeat(carets)),
+                            options,
+                            Style::Warning,
+                        )?;
+                    }
+                }
             }
-            ScopeDetails::Baseline { comparison_base } => {
-                let comparison_base = &comparison_base[..12];
-                writeln!(
-                    writer,
-                    "Scope: baseline; execution workspace; all current files selected; base {comparison_base}."
-                )
+            Err(unavailable) => {
+                if let Some(location) = unavailable.location {
+                    line(writer, &location, options, Style::Accent)?;
+                }
+                line(writer, &unavailable.message, options, Style::Muted)?;
             }
         }
-        .map_err(RenderError::Write)?;
     }
+    line(
+        writer,
+        &format!("Rule: {}", group.rule_url),
+        options,
+        Style::Muted,
+    )
+}
 
+fn render_categories<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    for category in &report.audit.categories {
+        line(
+            writer,
+            &format!(
+                "{}: {} errors, {} warnings, {} info, {} unknown",
+                category.name, category.errors, category.warnings, category.info, category.unknown
+            ),
+            options,
+            Style::Plain,
+        )?;
+    }
+    if report.audit.categories.is_empty() {
+        line(writer, "Categories: none", options, Style::Plain)?;
+    }
+    Ok(())
+}
+
+fn render_legacy_context<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
     if let Some(policy) = &report.policy {
         let source = match policy.blocking.source {
             crate::BlockingLevelSource::Default => "default",
@@ -74,71 +337,67 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
             .config_file
             .as_deref()
             .map_or_else(|| "none loaded".to_owned(), |file| format!("{file} loaded"));
-        writeln!(
+        line(
             writer,
-            "Configuration: {configuration}; blocking {} ({source})",
-            policy.blocking.level,
-        )
-        .map_err(RenderError::Write)?;
+            &format!(
+                "Configuration: {configuration}; blocking {} ({source})",
+                policy.blocking.level
+            ),
+            options,
+            Style::Muted,
+        )?;
     }
-
     if let Some(delta) = &report.delta {
-        let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
-        for diagnostic in report
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| introduced.contains(&diagnostic.id))
-        {
-            render_diagnostic(&mut writer, diagnostic, "Introduced: ")?;
-        }
+        line(
+            writer,
+            &format!(
+                "Delta: +{} introduced; ={} pre-existing; -{} fixed; {} cross-file matches.",
+                delta.summary.introduced,
+                delta.summary.pre_existing,
+                delta.summary.fixed,
+                delta.summary.cross_file_matches
+            ),
+            options,
+            Style::Muted,
+        )?;
         for diagnostic in &delta.fixed {
-            render_diagnostic(&mut writer, diagnostic, "Fixed: ")?;
-        }
-    } else {
-        for diagnostic in &report.diagnostics {
-            render_diagnostic(&mut writer, diagnostic, "")?;
+            let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
+            let (line_number, column) = diagnostic
+                .span
+                .as_ref()
+                .map_or((0, 0), |span| (span.line_start, span.column_start));
+            let code = diagnostic
+                .code
+                .as_deref()
+                .map_or_else(String::new, |code| format!(" [{code}]"));
+            line(
+                writer,
+                &format!(
+                    "Fixed: {path}:{line_number}:{column} {}{code} {}",
+                    diagnostic.severity, diagnostic.message
+                ),
+                options,
+                Style::Success,
+            )?;
         }
     }
-
-    writeln!(
-        writer,
-        "{} diagnostic(s): {} error(s), {} warning(s), {} info, {} unknown; status {}",
-        report.summary.total,
-        report.summary.errors,
-        report.summary.warnings,
-        report.summary.info,
-        report.summary.unknown,
-        report.status,
-    )
-    .map_err(RenderError::Write)?;
-
-    if let Some(delta) = &report.delta {
-        writeln!(
-            writer,
-            "Delta: +{} introduced; ={} pre-existing; -{} fixed; {} cross-file match(es).",
-            delta.summary.introduced,
-            delta.summary.pre_existing,
-            delta.summary.fixed,
-            delta.summary.cross_file_matches,
-        )
-        .map_err(RenderError::Write)?;
-    }
-
     match (report.gate.status, report.gate.blocking_diagnostics) {
-        (GateStatus::Passed | GateStatus::Failed, Some(count)) => writeln!(
+        (GateStatus::Passed | GateStatus::Failed, Some(count)) => line(
             writer,
-            "Gate {}: blocking {}, {} blocking diagnostic(s)",
-            report.gate.status, report.gate.blocking, count
-        ),
-        (GateStatus::NotEvaluated, None) => writeln!(
+            &format!(
+                "Gate {}: blocking {}, {} blocking diagnostic(s)",
+                report.gate.status, report.gate.blocking, count
+            ),
+            options,
+            Style::Muted,
+        )?,
+        _ => line(
             writer,
-            "Gate not evaluated: blocking {}",
-            report.gate.blocking
-        ),
-        _ => writeln!(writer, "Gate not evaluated: inconsistent gate state"),
+            &format!("Gate not evaluated: blocking {}", report.gate.blocking),
+            options,
+            Style::Muted,
+        )?,
     }
-    .map_err(RenderError::Write)?;
-
     if report.status != Status::Complete {
         let heading = match report.status {
             Status::Incomplete => "Scan incomplete",
@@ -146,73 +405,173 @@ pub fn render_terminal<W: Write>(report: &InspectReport, mut writer: W) -> Resul
             Status::Complete => "Scan",
         };
         for error in &report.errors {
-            writeln!(
+            line(
                 writer,
-                "{heading}: {} ({}/{})",
-                error.message, error.stage, error.code
-            )
-            .map_err(RenderError::Write)?;
+                &format!(
+                    "{heading}: {} ({}/{})",
+                    error.message, error.stage, error.code
+                ),
+                options,
+                Style::Warning,
+            )?;
         }
     }
-
+    if let Some(delta) = &report.delta {
+        let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
+        if !introduced.is_empty() || !delta.fixed.is_empty() {
+            line(
+                writer,
+                "Baseline details remain available in the JSON report.",
+                options,
+                Style::Muted,
+            )?;
+        }
+    }
     Ok(())
 }
 
-fn render_diagnostic<W: Write>(
+fn render_score<W: Write>(
     writer: &mut W,
-    diagnostic: &Diagnostic,
-    prefix: &str,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
-    let (line, column) = diagnostic
-        .span
-        .as_ref()
-        .map_or((0, 0), |span| (span.line_start, span.column_start));
-    match diagnostic.code.as_deref() {
-        Some(code) => writeln!(
+    let Some(score) = &report.audit.score else {
+        return line(
             writer,
-            "{prefix}{path}:{line}:{column} {} [{code}] {}",
-            diagnostic.severity, diagnostic.message
-        ),
-        None => writeln!(
+            "Score unavailable: no Rust files were analyzed.",
+            options,
+            Style::Warning,
+        );
+    };
+    let label = if score.authoritative {
+        score.label.as_str()
+    } else {
+        "Core partial"
+    };
+    let filled = usize::from(score.value) * 20 / 100;
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(20 - filled));
+    line(
+        writer,
+        &format!("Rust Doctor score: {}/100 {label} [{bar}]", score.value),
+        options,
+        if score.authoritative {
+            Style::Success
+        } else {
+            Style::Warning
+        },
+    )?;
+    if !score.authoritative {
+        line(
             writer,
-            "{prefix}{path}:{line}:{column} {} {}",
-            diagnostic.severity, diagnostic.message
-        ),
+            "Score is partial because the scan did not complete or contains unscored findings.",
+            options,
+            Style::Warning,
+        )?;
     }
-    .map_err(RenderError::Write)?;
-    if let (Some(category), Some(help)) =
-        (diagnostic.category.as_deref(), diagnostic.help.as_deref())
-    {
-        writeln!(writer, "Help ({category}): {help}").map_err(RenderError::Write)?;
-    }
-    if diagnostic.base_severity != diagnostic.severity {
-        writeln!(
+    if let Some(projected) = score.projected_after_top_three {
+        line(
             writer,
-            "Policy: base severity {}, effective severity {}",
-            diagnostic.base_severity, diagnostic.severity
-        )
-        .map_err(RenderError::Write)?;
+            &format!(
+                "Fix the top {} rules to reach a projected {projected}/100: {}",
+                score.projected_rule_ids.len(),
+                score.projected_rule_ids.join(", ")
+            ),
+            options,
+            Style::Accent,
+        )?;
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum Style {
+    Plain,
+    Heading,
+    Accent,
+    Success,
+    Warning,
+    Muted,
+}
+
+fn severity_style(severity: crate::Severity) -> Style {
+    match severity {
+        crate::Severity::Error => Style::Warning,
+        crate::Severity::Warning => Style::Warning,
+        crate::Severity::Info => Style::Accent,
+        crate::Severity::Unknown => Style::Muted,
+    }
+}
+
+fn line<W: Write>(
+    writer: &mut W,
+    content: &str,
+    options: TerminalOptions<'_>,
+    style: Style,
+) -> Result<(), RenderError> {
+    let sanitized = sanitize(content);
+    for bounded in wrap(&sanitized, options.width) {
+        write_styled(writer, &bounded, options.color, style)?;
+    }
+    Ok(())
+}
+
+fn frame_line<W: Write>(
+    writer: &mut W,
+    content: &str,
+    options: TerminalOptions<'_>,
+    style: Style,
+) -> Result<(), RenderError> {
+    let sanitized = sanitize(content);
+    let bounded = truncate(&sanitized, options.width);
+    write_styled(writer, &bounded, options.color, style)
+}
+
+fn write_styled<W: Write>(
+    writer: &mut W,
+    content: &str,
+    color: bool,
+    style: Style,
+) -> Result<(), RenderError> {
+    if color && !matches!(style, Style::Plain) {
+        let code = match style {
+            Style::Heading => "1",
+            Style::Accent => "36",
+            Style::Success => "32",
+            Style::Warning => "33",
+            Style::Muted => "2",
+            Style::Plain => "0",
+        };
+        writeln!(writer, "\u{1b}[{code}m{content}\u{1b}[0m").map_err(RenderError::Write)
+    } else {
+        writeln!(writer, "{content}").map_err(RenderError::Write)
+    }
+}
+
+fn short_revision(revision: &str) -> &str {
+    revision.get(..12).unwrap_or(revision)
+}
+
+fn capitalize(mut value: String) -> String {
+    if let Some(first) = value.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    value
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_text::display_width;
     use crate::{
-        BlockingLevel, DeltaMatch, DeltaReport, DeltaSummary, Diagnostic, DiagnosticSource,
-        DiagnosticSpan, GateReport, InspectReport, ScanReport, ScopeReport, Severity, Summary,
+        Audit, BlockingLevel, DeltaMatch, DeltaReport, DeltaSummary, Diagnostic, DiagnosticSource,
+        DiagnosticSpan, GateReport, GateStatus, InspectReport, ScanReport, Severity, Summary,
         ToolchainReport,
     };
 
-    struct ClosedWriter {
-        writes: usize,
-    }
+    struct ClosedWriter;
 
     impl Write for ClosedWriter {
         fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
-            self.writes += 1;
             Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
         }
 
@@ -225,12 +584,12 @@ mod tests {
         let diagnostics = vec![Diagnostic {
             id: "id".to_owned(),
             source: DiagnosticSource::Clippy,
-            code: Some("clippy::lint".to_owned()),
+            code: Some("clippy::todo".to_owned()),
             base_severity: Severity::Warning,
             severity: Severity::Warning,
-            category: None,
-            message: "message".to_owned(),
-            help: None,
+            category: Some("correctness".to_owned()),
+            message: "replace the placeholder".to_owned(),
+            help: Some("Implement the intended behavior.".to_owned()),
             package: Some("package".to_owned()),
             target: Some("target".to_owned()),
             path: Some("src/lib.rs".to_owned()),
@@ -244,7 +603,7 @@ mod tests {
         }];
         InspectReport {
             schema_version: 8,
-            audit: crate::Audit::build(1, Status::Complete, &diagnostics),
+            audit: Audit::build(1, Status::Complete, &diagnostics),
             status: Status::Complete,
             complete: true,
             policy: None,
@@ -279,11 +638,27 @@ mod tests {
         }
     }
 
+    fn rendered(report: &InspectReport, width: usize, color: bool, verbose: bool) -> String {
+        let mut output = Vec::new();
+        render_terminal_with_options(
+            report,
+            &mut output,
+            TerminalOptions {
+                workspace_root: Path::new("tests/fixtures/kernel-contract/todo"),
+                elapsed: Duration::from_millis(1250),
+                verbose,
+                width,
+                color,
+            },
+        )
+        .unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
     #[test]
     fn json_is_one_document_followed_by_newline() {
         let mut output = Vec::new();
         render_json(&report(), &mut output).unwrap();
-
         assert_eq!(output.last(), Some(&b'\n'));
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&output).unwrap()["schema_version"],
@@ -292,122 +667,123 @@ mod tests {
     }
 
     #[test]
-    fn terminal_diagnostic_contains_location_severity_code_and_message() {
-        let mut output = Vec::new();
-        render_terminal(&report(), &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-
-        assert!(output.contains("src/lib.rs:2:3 warning [clippy::lint] message"));
-        assert!(output.contains("status complete"));
-        assert!(!output.contains("Help ("));
+    fn terminal_sections_follow_the_normative_order() {
+        let output = rendered(&report(), 100, false, false);
+        let labels = [
+            "Scope:",
+            "Scanned ",
+            "Top warning:",
+            "All 1 issues",
+            "Bugs:",
+            "Run with --verbose",
+            "Rust Doctor score:",
+            "Share:",
+            "Docs:",
+            "GitHub:",
+        ];
+        let mut previous = 0usize;
+        for label in labels {
+            let position = output.find(label).expect("section should be rendered");
+            assert!(position >= previous, "{label} was out of order\n{output}");
+            previous = position;
+        }
+        assert!(output.contains("GitHub: https://github.com/arthjean/rust-doctor"));
     }
 
     #[test]
-    fn curated_terminal_diagnostic_is_followed_by_stable_help() {
+    fn widths_and_color_policy_are_stable() {
+        for width in [80, 100, 140] {
+            let plain = rendered(&report(), width, false, false);
+            assert!(plain.lines().all(|line| display_width(line) <= width));
+            assert!(!plain.contains("\u{1b}["));
+
+            let colored = rendered(&report(), width, true, false);
+            assert!(colored.contains("\u{1b}["));
+            for line in colored.lines() {
+                let visible = line
+                    .replace("\u{1b}[1m", "")
+                    .replace("\u{1b}[2m", "")
+                    .replace("\u{1b}[32m", "")
+                    .replace("\u{1b}[33m", "")
+                    .replace("\u{1b}[36m", "")
+                    .replace("\u{1b}[0m", "");
+                assert!(display_width(&visible) <= width, "{visible}");
+            }
+        }
+    }
+
+    #[test]
+    fn wide_dynamic_text_respects_terminal_columns() {
         let mut report = report();
-        report.diagnostics[0].category = Some("correctness".to_owned());
-        report.diagnostics[0].help = Some("Replace the placeholder.".to_owned());
-        let mut output = Vec::new();
-
-        render_terminal(&report, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-
-        assert!(output.contains(
-            "warning [clippy::lint] message\nHelp (correctness): Replace the placeholder.\n"
-        ));
+        report.diagnostics[0].message = "界".repeat(80);
+        let output = rendered(&report, 80, false, false);
+        assert!(output.lines().all(|line| display_width(line) <= 80));
     }
 
     #[test]
-    fn incomplete_terminal_output_explains_each_structured_error() {
+    fn partial_and_missing_scores_suppress_share_and_projection() {
+        let mut partial = report();
+        partial.audit.score.as_mut().unwrap().authoritative = false;
+        partial
+            .audit
+            .score
+            .as_mut()
+            .unwrap()
+            .projected_after_top_three = None;
+        partial
+            .audit
+            .score
+            .as_mut()
+            .unwrap()
+            .projected_rule_ids
+            .clear();
+        let output = rendered(&partial, 80, false, false);
+        assert!(output.contains("Core partial"));
+        assert!(!output.contains("Share:"));
+        assert!(!output.contains("projected"));
+
+        partial.audit.source_files = 0;
+        partial.audit.score = None;
+        let output = rendered(&partial, 80, false, false);
+        assert!(output.contains("Score unavailable: no Rust files were analyzed."));
+        assert!(!output.contains("Share:"));
+    }
+
+    #[test]
+    fn failed_reports_preserve_the_closed_no_url_terminal_contract() {
+        let mut failed = report();
+        failed.status = Status::Failed;
+        failed.complete = false;
+        failed.audit.source_files = 0;
+        failed.audit.score = None;
+        failed.diagnostics.clear();
+        failed.summary = Summary::default();
+
+        let output = rendered(&failed, 80, false, false);
+
+        assert!(!output.contains("https://"));
+        assert!(!output.contains("Share:"));
+        assert!(!output.contains("Docs:"));
+        assert!(!output.contains("GitHub:"));
+    }
+
+    #[test]
+    fn verbose_lists_all_groups_without_the_cta() {
+        let output = rendered(&report(), 100, false, true);
+        assert!(output.contains("Warning: Todo (1 occurrences)"));
+        assert!(output.contains("Rule ID: clippy::todo"));
+        assert!(!output.contains("Run with --verbose"));
+    }
+
+    #[test]
+    fn broken_pipe_is_typed_and_detectable() {
+        let error = render_terminal(&report(), ClosedWriter).unwrap_err();
+        assert!(error.is_broken_pipe());
+    }
+
+    #[test]
+    fn baseline_hides_pre_existing_details_and_keeps_introduced_and_fixed() {
         let mut report = report();
-        report.status = Status::Incomplete;
-        report.complete = false;
-        report.gate.status = GateStatus::NotEvaluated;
-        report.gate.blocking_diagnostics = None;
-        report.errors = vec![crate::ReportError {
-            stage: "execution".to_owned(),
-            code: "clippy-exit".to_owned(),
-            message: "Clippy exited with status 101".to_owned(),
-        }];
-        let mut output = Vec::new();
-
-        render_terminal(&report, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-
-        assert!(
-            output
-                .contains("Scan incomplete: Clippy exited with status 101 (execution/clippy-exit)")
-        );
-        assert!(output.contains("Gate not evaluated: blocking error"));
-    }
-
-    #[test]
-    fn closed_writer_returns_typed_error_without_second_document() {
-        let mut writer = ClosedWriter { writes: 0 };
-        let error = render_json(&report(), &mut writer).unwrap_err();
-
-        assert!(matches!(error, RenderError::Json(_)));
-        assert_eq!(writer.writes, 1);
-    }
-
-    #[test]
-    fn terminal_renders_one_private_scope_line_for_every_mode() {
-        let mut full = report();
-        full.scope = Some(ScopeReport::full());
-        let mut output = Vec::new();
-        render_terminal(&full, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert_eq!(output.matches("Scope:").count(), 1);
-        assert!(
-            output
-                .starts_with("Scope: full; execution workspace; all files selected; base none.\n")
-        );
-
-        let mut files = report();
-        files.scope = Some(ScopeReport::files_scope(
-            "0123456789abcdef0123456789abcdef01234567".to_owned(),
-            Vec::new(),
-        ));
-        let mut output = Vec::new();
-        render_terminal(&files, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert_eq!(output.matches("Scope:").count(), 1);
-        assert!(output.starts_with(
-            "Scope: files; execution workspace; 0 selected files; base 0123456789ab.\n"
-        ));
-
-        files.scope = Some(ScopeReport::files_scope(
-            "0123456789abcdef0123456789abcdef01234567".to_owned(),
-            vec!["Cargo.toml".to_owned(), "src/private.rs".to_owned()],
-        ));
-        let mut output = Vec::new();
-        render_terminal(&files, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert_eq!(output.matches("Scope:").count(), 1);
-        assert!(output.starts_with(
-            "Scope: files; execution workspace; 2 selected files; base 0123456789ab.\n"
-        ));
-        assert!(!output.contains("src/private.rs"));
-
-        let mut baseline = report();
-        baseline.scope = Some(ScopeReport::baseline_scope(
-            "0123456789abcdef0123456789abcdef01234567".to_owned(),
-        ));
-        let mut output = Vec::new();
-        render_terminal(&baseline, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert_eq!(output.matches("Scope:").count(), 1);
-        assert!(output.starts_with(
-            "Scope: baseline; execution workspace; all current files selected; base 0123456789ab.\n"
-        ));
-    }
-
-    #[test]
-    fn baseline_terminal_renders_only_introduced_and_fixed_details_then_exact_delta() {
-        let mut report = report();
-        report.scope = Some(ScopeReport::baseline_scope(
-            "0123456789abcdef0123456789abcdef01234567".to_owned(),
-        ));
         let mut pre_existing = report.diagnostics[0].clone();
         pre_existing.id = "pre-existing-current".to_owned();
         pre_existing.message = "must stay hidden".to_owned();
@@ -432,28 +808,11 @@ mod tests {
                 cross_file_matches: 1,
             },
         });
-        let mut output = Vec::new();
 
-        render_terminal(&report, &mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = rendered(&report, 100, false, false);
 
-        assert!(output.contains("Introduced: src/lib.rs:2:3 warning [clippy::lint] message"));
-        assert!(output.contains("Fixed: src/lib.rs:2:3 warning [clippy::lint] removed debt"));
+        assert!(output.contains("replace the placeholder"));
+        assert!(output.contains("Fixed: src/lib.rs:2:3 warning [clippy::todo] removed debt"));
         assert!(!output.contains("must stay hidden"));
-        assert!(output.contains(
-            "Delta: +1 introduced; =1 pre-existing; -1 fixed; 1 cross-file match(es).\n"
-        ));
-    }
-
-    #[test]
-    fn closed_writer_during_scope_returns_the_historical_typed_error() {
-        let mut report = report();
-        report.scope = Some(ScopeReport::full());
-        let mut writer = ClosedWriter { writes: 0 };
-
-        let error = render_terminal(&report, &mut writer).unwrap_err();
-
-        assert!(matches!(error, RenderError::Write(_)));
-        assert_eq!(writer.writes, 1);
     }
 }

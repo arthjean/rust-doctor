@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::GroupLocation;
+use crate::terminal_text::{skip_c1_sequence, skip_escape_sequence};
 use crate::workspace_path;
 
 const FRAME_MAX_BYTES: u64 = 8 * 1024;
@@ -274,48 +275,6 @@ fn sanitize_line(source: &str) -> SanitizedLine {
         width: output_width,
         truncated: !accepting_output,
     }
-}
-
-fn skip_escape_sequence(characters: &[char], start: usize) -> usize {
-    let Some(kind) = characters.get(start + 1).copied() else {
-        return characters.len();
-    };
-    match kind {
-        '[' => skip_control_sequence(characters, start + 2),
-        ']' | 'P' | 'X' | '^' | '_' => skip_string_sequence(characters, start + 2),
-        _ => (start + 2).min(characters.len()),
-    }
-}
-
-fn skip_c1_sequence(characters: &[char], start: usize) -> usize {
-    if characters[start] == '\u{009b}' {
-        skip_control_sequence(characters, start + 1)
-    } else {
-        skip_string_sequence(characters, start + 1)
-    }
-}
-
-fn skip_control_sequence(characters: &[char], mut index: usize) -> usize {
-    while let Some(character) = characters.get(index) {
-        index += 1;
-        if ('@'..='~').contains(character) {
-            break;
-        }
-    }
-    index
-}
-
-fn skip_string_sequence(characters: &[char], mut index: usize) -> usize {
-    while let Some(character) = characters.get(index) {
-        if *character == '\u{0007}' {
-            return index + 1;
-        }
-        if *character == '\u{001b}' && characters.get(index + 1) == Some(&'\\') {
-            return index + 2;
-        }
-        index += 1;
-    }
-    index
 }
 
 fn format_location(location: &GroupLocation) -> String {

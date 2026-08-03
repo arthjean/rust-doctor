@@ -20,6 +20,7 @@ ra_ap_syntax = "=0.0.343"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 toml = { version = "=1.1.4", default-features = false, features = ["parse", "serde", "std"] }
+unicode-width = "=0.2.2"
 
 [lints.clippy]
 panic = "deny"

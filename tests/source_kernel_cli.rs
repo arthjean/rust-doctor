@@ -188,18 +188,9 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     let terminal_b = inspect(&project, false, &cargo_home, &target);
     assert_eq!(terminal_a.status.code(), Some(0));
     assert_eq!(terminal_a.stdout, terminal_b.stdout);
-    assert_eq!(
-        String::from_utf8_lossy(&terminal_a.stdout)
-            .matches(TLS)
-            .count(),
-        1
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&terminal_a.stdout)
-            .matches(SHELL)
-            .count(),
-        1
-    );
+    let terminal = String::from_utf8_lossy(&terminal_a.stdout);
+    assert!(terminal.contains(&format!("Rule ID: {TLS}")));
+    assert!(!terminal.contains(&format!("Rule ID: {SHELL}")));
     assert_private(&terminal_a, &project);
 
     let source = project.join("app/src/lib.rs");

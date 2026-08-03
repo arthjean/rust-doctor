@@ -235,14 +235,23 @@ fn precision_matrix_matches_all_positive_and_negative_oracles_without_mutation()
 
 #[test]
 fn one_inspection_drives_json_and_terminal_for_the_same_diagnostics() {
-    let report = rust_doctor::inspect(rust_doctor::InspectRequest::new(fixture(
-        "precision-matrix",
-    )));
+    let workspace = fixture("precision-matrix");
+    let report = rust_doctor::inspect(rust_doctor::InspectRequest::new(&workspace));
     let mut json = Vec::new();
     let mut terminal = Vec::new();
     rust_doctor::render::render_json(&report, &mut json).expect("JSON rendering should succeed");
-    rust_doctor::render::render_terminal(&report, &mut terminal)
-        .expect("terminal rendering should succeed");
+    rust_doctor::render::render_terminal_with_options(
+        &report,
+        &mut terminal,
+        rust_doctor::render::TerminalOptions {
+            workspace_root: &workspace,
+            elapsed: std::time::Duration::ZERO,
+            verbose: true,
+            width: 140,
+            color: false,
+        },
+    )
+    .expect("terminal rendering should succeed");
 
     let rendered: Value = serde_json::from_slice(&json).expect("rendered JSON should parse");
     let rendered_ids = diagnostic_ids(&rendered, false);
@@ -260,15 +269,9 @@ fn one_inspection_drives_json_and_terminal_for_the_same_diagnostics() {
             .span
             .as_ref()
             .map_or((0, 0), |span| (span.line_start, span.column_start));
-        let code = diagnostic
-            .code
-            .as_deref()
-            .map_or_else(String::new, |code| format!(" [{code}]"));
-        let rendered_line = format!(
-            "{path}:{line}:{column} {}{code} {}",
-            diagnostic.severity, diagnostic.message
-        );
-        assert_eq!(terminal.matches(&rendered_line).count(), 1);
+        let location = format!("{path}:{line}:{column}");
+        assert!(terminal.contains(&location), "missing {location}");
+        assert!(terminal.contains(&diagnostic.message));
     }
 }
 

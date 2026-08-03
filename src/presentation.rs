@@ -14,6 +14,10 @@ pub use code_frame::{
     code_frame,
 };
 
+pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
+    crate::policy::find(rule_id).map(|definition| definition.help)
+}
+
 const RULE_BASE_URL: &str = "https://rust-doctor.vercel.app/rules/";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
 
@@ -21,6 +25,7 @@ const MIGRATION_FILE_THRESHOLD: usize = 40;
 pub struct ReportPresentation {
     pub groups: Vec<DiagnosticGroup>,
     pub migration_advisories: Vec<MigrationAdvisory>,
+    pub issue_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -38,6 +43,8 @@ pub struct DiagnosticGroup {
 pub struct GroupDiagnostic {
     pub message: String,
     pub help: Option<String>,
+    pub base_severity: Severity,
+    pub severity: Severity,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
     pub occurrences: usize,
@@ -70,17 +77,39 @@ impl GroupDiagnostic {
 
 impl ReportPresentation {
     pub fn derive(report: &InspectReport) -> Self {
-        let groups = diagnostic_groups(&report.diagnostics);
+        Self::from_diagnostics(&report.diagnostics)
+    }
+
+    pub fn derive_terminal(report: &InspectReport) -> Self {
+        let Some(delta) = &report.delta else {
+            return Self::derive(report);
+        };
+        let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
+        Self::from_diagnostics(
+            report
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| introduced.contains(diagnostic.id.as_str())),
+        )
+    }
+
+    fn from_diagnostics<'a>(diagnostics: impl IntoIterator<Item = &'a Diagnostic>) -> Self {
+        let diagnostics: Vec<_> = diagnostics.into_iter().collect();
+        let issue_count = diagnostics.iter().fold(0usize, |total, diagnostic| {
+            total.saturating_add(diagnostic.occurrences)
+        });
+        let groups = diagnostic_groups(&diagnostics);
         let migration_advisories = migration_advisories(&groups);
         Self {
             groups,
             migration_advisories,
+            issue_count,
         }
     }
 }
 
-fn diagnostic_groups(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGroup> {
-    let mut aggregates: BTreeMap<_, _> = aggregate_rules(diagnostics)
+fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
+    let mut aggregates: BTreeMap<_, _> = aggregate_rules(diagnostics.iter().copied())
         .rules
         .into_iter()
         .map(|aggregate| (aggregate.id.clone(), aggregate))
@@ -112,6 +141,8 @@ fn diagnostic_groups(diagnostics: &[Diagnostic]) -> Vec<DiagnosticGroup> {
             .map(|diagnostic| GroupDiagnostic {
                 message: diagnostic.message.clone(),
                 help: diagnostic.help.clone(),
+                base_severity: diagnostic.base_severity,
+                severity: diagnostic.severity,
                 path: diagnostic
                     .path
                     .as_deref()
@@ -198,7 +229,8 @@ mod tests {
     use super::*;
     use crate::audit::Audit;
     use crate::{
-        BlockingLevel, GateReport, GateStatus, ScanReport, Status, Summary, ToolchainReport,
+        BlockingLevel, DeltaReport, DeltaSummary, GateReport, GateStatus, ScanReport, Status,
+        Summary, ToolchainReport,
     };
 
     static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
@@ -394,6 +426,45 @@ mod tests {
             presentation.groups[0].category,
             Some(AuditCategoryName::Maintainability)
         );
+    }
+
+    #[test]
+    fn terminal_presentation_is_the_canonical_baseline_view() {
+        let introduced = diagnostic(
+            "clippy::introduced",
+            Severity::Warning,
+            "maintainability",
+            Some("src/new.rs".to_owned()),
+            2,
+        );
+        let pre_existing = diagnostic(
+            "clippy::pre_existing",
+            Severity::Error,
+            "security",
+            Some("src/old.rs".to_owned()),
+            5,
+        );
+        let mut report = report(vec![introduced.clone(), pre_existing]);
+        report.delta = Some(DeltaReport {
+            fingerprint_version: 1,
+            base_diagnostics: 1,
+            current_diagnostics: 2,
+            introduced: vec![introduced.id],
+            pre_existing: Vec::new(),
+            fixed: Vec::new(),
+            summary: DeltaSummary {
+                introduced: 2,
+                pre_existing: 5,
+                fixed: 0,
+                cross_file_matches: 0,
+            },
+        });
+
+        let terminal = ReportPresentation::derive_terminal(&report);
+        assert_eq!(terminal.issue_count, 2);
+        assert_eq!(terminal.groups.len(), 1);
+        assert_eq!(terminal.groups[0].rule_id, "clippy::introduced");
+        assert_eq!(ReportPresentation::derive(&report).groups.len(), 2);
     }
 
     #[test]

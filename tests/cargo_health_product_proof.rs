@@ -335,13 +335,9 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     );
     assert_eq!(terminal.status.code(), Some(0));
     let terminal = String::from_utf8(terminal.stdout).expect("terminal output should be UTF-8");
-    assert_eq!(terminal.matches(REGISTRY_CODE).count(), 1);
-    assert_eq!(
-        terminal
-            .matches("Help (reliability): Replace the unbounded version requirement with the minimum compatible version intended by the project.")
-            .count(),
-        1
-    );
+    assert!(terminal.contains(&format!("Rule ID: {REGISTRY_CODE}")));
+    assert!(terminal.contains("Help: Replace the unbounded version requirement with the minimum"));
+    assert!(terminal.contains("version intended by the project."));
     assert_eq!(content_hashes(&fixture), before);
     fs::remove_dir_all(root).expect("registry proof workspace should be removable");
 }
