@@ -1,0 +1,293 @@
+{
+  "prd": {
+    "file": "tasks/prd-rust-doctor-score-credibility-kernel.md",
+    "title": "Rust Doctor - Score Credibility Kernel and Generic Source Detectors",
+    "created_at": "2026-08-03",
+    "status": "IN_PROGRESS",
+    "updated_at": "2026-08-03"
+  },
+  "epics": [
+    {
+      "id": "EP-022",
+      "title": "Modèle de score core-v2 à criticité plafonnante",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 5,
+      "stories_done": 5,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03"
+    },
+    {
+      "id": "EP-023",
+      "title": "Noyau source générique et résolution d'alias",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 4,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-024",
+      "title": "Catalogue élargi et dimensions vivantes",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 5,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-025",
+      "title": "Corpus d'évaluation et gate de précision",
+      "status": "TODO",
+      "priority": "P1",
+      "stories_total": 4,
+      "stories_done": 0
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-063",
+      "title": "Attribuer un tier de criticité indépendant de la sévérité",
+      "epic": "EP-022",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": null
+    },
+    {
+      "id": "US-064",
+      "title": "Plafonner la note par dimension et globalement selon le pire tier",
+      "epic": "EP-022",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-063"
+      ],
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": null
+    },
+    {
+      "id": "US-065",
+      "title": "Pondérer la pénalité additive par des paliers d'occurrences",
+      "epic": "EP-022",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-063"
+      ],
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": null
+    },
+    {
+      "id": "US-066",
+      "title": "Réconcilier les comptages du rapport",
+      "epic": "EP-022",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": null
+    },
+    {
+      "id": "US-067",
+      "title": "Publier le contrat core-v2 et prouver l'invariance des baselines",
+      "epic": "EP-022",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-064",
+        "US-065",
+        "US-066"
+      ],
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
+      "reviewed_at": null
+    },
+    {
+      "id": "US-068",
+      "title": "Construire la carte d'alias d'imports par unité source",
+      "epic": "EP-023",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-069",
+      "title": "Faire résoudre les détecteurs natifs par la carte d'alias",
+      "epic": "EP-023",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-068"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-070",
+      "title": "Enregistrer les détecteurs dans un registre à parcours unique",
+      "epic": "EP-023",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-068"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-071",
+      "title": "Retirer le couplage de règle dans la reachability",
+      "epic": "EP-023",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-069"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-072",
+      "title": "Ouvrir les catégories performance et dependencies",
+      "epic": "EP-024",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [
+        "US-067"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-073",
+      "title": "Admettre le pack panique et placeholders",
+      "epic": "EP-024",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-072"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-074",
+      "title": "Admettre le pack performance",
+      "epic": "EP-024",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-072"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-075",
+      "title": "Admettre le pack concurrence et asynchrone",
+      "epic": "EP-024",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-072"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-076",
+      "title": "Admettre le pack santé locale des dépendances",
+      "epic": "EP-024",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-072"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-077",
+      "title": "Figer un manifeste de corpus par révision",
+      "epic": "EP-025",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-078",
+      "title": "Exécuter le corpus par un harness reproductible et confiné",
+      "epic": "EP-025",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-077"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-079",
+      "title": "Publier la précision par règle après adjudication",
+      "epic": "EP-025",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-078"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-080",
+      "title": "Opposer un seuil d'admission fondé sur la précision mesurée",
+      "epic": "EP-025",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-079"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    }
+  ]
+}
