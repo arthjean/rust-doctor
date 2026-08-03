@@ -20,10 +20,12 @@
     {
       "id": "EP-023",
       "title": "Noyau source générique et résolution d'alias",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 4,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03"
     },
     {
       "id": "EP-024",
@@ -115,54 +117,54 @@
       "id": "US-068",
       "title": "Construire la carte d'alias d'imports par unité source",
       "epic": "EP-023",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
       "reviewed_at": null
     },
     {
       "id": "US-069",
       "title": "Faire résoudre les détecteurs natifs par la carte d'alias",
       "epic": "EP-023",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-068"
       ],
-      "started_at": null,
-      "completed_at": null,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
       "reviewed_at": null
     },
     {
       "id": "US-070",
       "title": "Enregistrer les détecteurs dans un registre à parcours unique",
       "epic": "EP-023",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-068"
       ],
-      "started_at": null,
-      "completed_at": null,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
       "reviewed_at": null
     },
     {
       "id": "US-071",
       "title": "Retirer le couplage de règle dans la reachability",
       "epic": "EP-023",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-069"
       ],
-      "started_at": null,
-      "completed_at": null,
+      "started_at": "2026-08-03",
+      "completed_at": "2026-08-03",
       "reviewed_at": null
     },
     {
