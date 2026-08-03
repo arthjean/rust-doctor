@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Generic native source detection
+
+- Native detectors no longer compare a written path to a string. Each source unit gets an alias map built from its `use` trees, and a detector matches a target crate and item segments against the resolved provenance of the call it inspects. The idiomatic imported form is now reported like the fully qualified one: `use std::process::Command;` followed by `Command::new("sh")`, a renamed import such as `use reqwest::Client as Http;`, and nested groups all resolve.
+- Provenance that cannot be decided produces no diagnostic. A glob import, a locally declared item or generic parameter with the same name, a `crate`, `self` or `super` prefix, and a saturated alias map all make the detector abstain. Re-exports, trait methods and `Self` stay out of reach by design.
+- A source unit whose alias map crosses the published binding limit reports a bounded `limit-exceeded` error naming `alias-bindings` and keeps the unit analyzable in indeterminate mode.
+- Detectors are registered rather than hard-coded: the CST is traversed once per unit and each detector is solicited on the node kind it declares, so adding one changes no analysis signature. A policy that disables every native rule still loads no source unit at all.
+- The targeted crate is resolved from the manifest, renames included, instead of a dedicated field on the traversal structure. A workspace that does not depend on the targeted crate emits nothing and reports no error.
+- Report schema, rule identifiers, severities and delta fingerprints are unchanged. Workspaces that were writing the imported form will see new true positives on the two existing security rules.
+
 ### Report schema v9
 
 - The score model becomes `core-v2`. Every catalog rule carries a `tier` among `P0`, `P1`, `P2` and `P3`, published in `policy.rules[]` and independent from `default_level` and from diagnostic severity. Rule IDs, `base_severity` and delta fingerprints are unchanged, so no recorded baseline is invalidated.
