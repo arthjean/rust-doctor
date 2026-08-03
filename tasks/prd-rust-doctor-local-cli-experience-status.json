@@ -17,10 +17,10 @@
     {
       "id": "EP-020",
       "title": "Parcours terminal et handoff agent",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 3,
-      "stories_done": 0
+      "stories_done": 3
     },
     {
       "id": "EP-021",
@@ -76,43 +76,43 @@
       "id": "US-057",
       "title": "Exposer la commande racine et résoudre l'interactivité",
       "epic": "EP-020",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-056"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T08:02:12+02:00",
+      "completed_at": "2026-08-03T08:44:22+02:00",
+      "reviewed_at": "2026-08-03T08:44:22+02:00"
     },
     {
       "id": "US-058",
       "title": "Rendre le report dans la hiérarchie React Doctor",
       "epic": "EP-020",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-057"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T08:02:12+02:00",
+      "completed_at": "2026-08-03T08:44:22+02:00",
+      "reviewed_at": "2026-08-03T08:44:22+02:00"
     },
     {
       "id": "US-059",
       "title": "Partager le score et remettre les top issues à un agent",
       "epic": "EP-020",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-058"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-03T08:02:12+02:00",
+      "completed_at": "2026-08-03T08:44:22+02:00",
+      "reviewed_at": "2026-08-03T08:44:22+02:00"
     },
     {
       "id": "US-060",
