@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Pinned evaluation corpus and precision gate
+
+- Ten Rust repositories are pinned by full commit in `tasks/rust-doctor-score-credibility-corpus.json`, each with the reason it is in the corpus: a binary, a library, a ten-member workspace, a procedural macro crate and two asynchronous projects. No corpus code is committed. The harness reads a local cache named by `RUST_DOCTOR_CORPUS_DIR`, refuses to run while one revision is missing rather than measuring a partial corpus, and writes only under `RUST_DOCTOR_CORPUS_ARTIFACTS`: each revision is materialised through a temporary index, so the cache stays read-only.
+- The Clippy leg of a corpus scan is a declared trusted boundary, since Cargo runs build scripts and procedural macros. The native detectors are not: replaying the corpus with every Clippy rule switched off proves no corpus build script runs at all.
+- First measurement, on 1855 findings: 16 rules fired, all of them at a measured false-positive rate of 0 %, and 24 of the 40 rules active by default never fired. A corpus of healthy repositories measures precision, never recall: `dtolnay`, `BurntSushi` and `tokio-rs` do not commit the defects those 24 rules target, so silence there proves nothing either way. The catalog is unchanged, but the 24 are now named one by one in a frozen admission debt, and that is where the threshold becomes opposable: the suite fails the moment a rule joins the default catalog without measured precision, the moment a rule measured above 5 % stays active by default, and the moment a debt entry no longer matches an active rule. The debt only shrinks. Proving those 24 needs pinned adversarial fixtures, which is a separate slice.
+- Two of the ten scans are published as incomplete, and five of the ten scores as non-authoritative. `--all-targets` compiles the benches of `bytes` and `ripgrep`, which need `#![feature]` on nightly, so Cargo reports a failed build after Clippy has already linted the crates themselves. Each observation carries its own status, exit code and authority rather than hiding behind the ten-repository count.
+- Every finding carries a verdict and a justification. The trigger of each one is re-verified inside its reported span at the pinned revision on every corpus run, and the two contested sites are recorded as individually adjudicated exceptions.
+- The corpus score distribution is published: ten healthy codebases land between 90 and 94, with no tier ceiling applied. The artifact states both halves of the answer plainly, `collapsed_into_one_band` and `collapsed_into_one_value`: every repository does fall in the single `Great` band, while the values keep a five-point spread. Separating bands is what the adversarial reference fixture, capped at 40, is there to prove.
+
 ### Wider catalog and live score dimensions
 
 - The catalog grows from 12 to 40 contracted rules, 33 of them Clippy lints against the 8 exploited before. Rule identifiers, severities, help text and delta fingerprints of the existing rules are unchanged, so no recorded baseline is invalidated. Every scanned workspace will see new true positives.
