@@ -50,8 +50,6 @@ pub(crate) enum GateVerdict {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RefusalReason {
-    FalsePositiveRateAboveThreshold,
-    PrecisionNotMeasured,
     ZeroToleranceTierWithFalsePositive,
 }
 
@@ -182,47 +180,83 @@ pub(crate) struct ScoreObservation {
     pub(crate) worst_tier: Option<String>,
 }
 
+/// Adjudication en deux grandeurs volontairement distinctes.
+///
+/// `trigger_verification` est mécanique et couvre 100 % des findings: elle
+/// prouve seulement que le motif de la règle est présent là où elle a signalé,
+/// donc qu'aucun span n'est corrompu. Confirmer un motif ne dit rien de sa
+/// valeur: le lint qui cherche `.unwrap()` trouve toujours un `.unwrap()`.
+///
+/// `reviewed` porte la seule grandeur dont la précision est dérivée: des sites
+/// réellement relus, chacun jugé sur la question « ce site doit-il être corrigé »
+/// et non « le motif est-il présent ». Le taux publié est celui de cet
+/// échantillon, jamais celui de la population.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Adjudication {
     pub(crate) criterion: String,
-    pub(crate) groups: Vec<AdjudicationGroup>,
-    /// Ce qu'un humain a réellement relu, par-dessus la vérification mécanique
-    /// du déclencheur sur la totalité des findings.
-    pub(crate) manual_review: String,
+    pub(crate) reviewed: Vec<ReviewedSite>,
+    pub(crate) sampling: String,
+    pub(crate) trigger_verification: TriggerVerification,
 }
 
-/// Verdict porté par tous les findings d'une règle sur un dépôt, sauf ceux que
-/// `exceptions` adjudique individuellement.
+/// Garde-fou mécanique: le motif adjudiqué est présent dans le span signalé.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct AdjudicationGroup {
-    /// Déclencheur vérifié dans le span signalé, à la révision épinglée.
-    pub(crate) evidence: String,
-    pub(crate) exceptions: Vec<AdjudicationException>,
+pub(crate) struct TriggerVerification {
+    pub(crate) confirmed: u64,
     pub(crate) findings: u64,
+    pub(crate) method: String,
+    pub(crate) triggers: Vec<RuleTrigger>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuleTrigger {
+    pub(crate) evidence: String,
+    pub(crate) rule: String,
+}
+
+/// Où vit le site relu. Le contexte n'emporte aucun verdict par lui-même, mais
+/// il rend visible la cause dominante d'un taux élevé: une règle qui vise les
+/// paniques de production, appliquée à un test ou à un script de construction,
+/// y signale un motif qui n'y est pas un défaut.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SiteContext {
+    BuildScript,
+    Example,
+    Production,
+    Tests,
+}
+
+/// Un site du corpus réellement relu, avec son verdict de valeur.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReviewedSite {
+    pub(crate) context: SiteContext,
     pub(crate) justification: String,
+    pub(crate) line: u64,
+    pub(crate) path: String,
     pub(crate) repository: String,
     pub(crate) rule: String,
     pub(crate) verdict: Verdict,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct AdjudicationException {
-    pub(crate) justification: String,
-    pub(crate) line: u64,
-    pub(crate) path: String,
-    pub(crate) verdict: Verdict,
-}
+/// Taille minimale d'échantillon relu pour qu'un taux soit publiable, sauf
+/// lorsque la population entière est plus petite et intégralement relue.
+pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RulePrecision {
     pub(crate) false_positive_rate_basis_points: Option<u64>,
     pub(crate) false_positives: Option<u64>,
+    /// Population observée sur le corpus. N'est jamais le dénominateur du taux.
     pub(crate) findings: u64,
     pub(crate) id: String,
+    /// Sites réellement relus. C'est le dénominateur du taux publié.
+    pub(crate) reviewed: u64,
     pub(crate) status: PrecisionStatus,
     pub(crate) tier: String,
     pub(crate) true_positives: Option<u64>,
@@ -231,7 +265,16 @@ pub(crate) struct RulePrecision {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GateOutcome {
+    /// Règles actives par défaut que le gate ne refuse pas. Une règle bruyante
+    /// ou non prouvée y figure: les deux listes suivantes l'annotent, elles ne
+    /// la disqualifient pas.
     pub(crate) admitted: Vec<String>,
+    /// Règles dont le taux de bruit sur code sain dépasse le seuil publié.
+    /// Nommées pour que leur contribution au score soit tranchée, jamais pour
+    /// leur retirer l'activation par défaut: le corpus mesure ce qu'elles
+    /// coûtent sur du code sain, pas ce qu'elles valent sur du code qui ne l'est
+    /// pas.
+    pub(crate) noisy_on_healthy_code: Vec<String>,
     pub(crate) refused: Vec<GateRefusal>,
     pub(crate) threshold_basis_points: u64,
     pub(crate) unproven: Vec<String>,
@@ -303,7 +346,7 @@ pub(crate) const CACHE_DIRECTORY_ENV: &str = "RUST_DOCTOR_CORPUS_DIR";
 pub(crate) const ARTIFACTS_DIRECTORY_ENV: &str = "RUST_DOCTOR_CORPUS_ARTIFACTS";
 
 pub(crate) fn artifact_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tasks/rust-doctor-score-credibility-corpus.json")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus.json")
 }
 
 pub(crate) fn artifact() -> CorpusArtifact {
@@ -705,10 +748,16 @@ pub(crate) fn digest(findings: &[Finding<'_>]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-/// Précision par règle, dérivée des seules grandeurs publiées.
+/// Précision par règle, dérivée des seuls sites réellement relus.
 ///
-/// Une règle dont un seul finding échappe à l'adjudication est incomplète: son
-/// taux n'est pas publié, et le gate la refuse comme non prouvée.
+/// Le dénominateur du taux est la taille de l'échantillon relu, jamais la
+/// population observée: rapporter des verdicts de valeur à une population qui
+/// n'a pas été relue publierait une précision que personne n'a mesurée. Une
+/// règle dont l'échantillon est plus petit que `MINIMUM_REVIEWED_SITES`, sans
+/// que sa population entière soit relue, reste incomplète et le gate la refuse.
+///
+/// Un site relu qui ne correspond à aucun finding observé rend la règle
+/// incomplète: l'échantillon a dérivé de la population qu'il prétend décrire.
 pub(crate) fn precision(
     catalog: &[CatalogRule],
     observations: &[Observation],
@@ -723,87 +772,98 @@ pub(crate) fn precision(
         }
     }
 
-    let mut groups: BTreeMap<(&str, &str), &AdjudicationGroup> = BTreeMap::new();
+    let mut sites: BTreeMap<&str, Vec<&ReviewedSite>> = BTreeMap::new();
     let mut duplicated: BTreeSet<&str> = BTreeSet::new();
-    for group in &adjudication.groups {
-        let key = (group.repository.as_str(), group.rule.as_str());
-        if groups.insert(key, group).is_some() {
-            duplicated.insert(group.rule.as_str());
+    let mut seen: BTreeSet<(&str, &str, &str, u64)> = BTreeSet::new();
+    for site in &adjudication.reviewed {
+        let identity = (
+            site.rule.as_str(),
+            site.repository.as_str(),
+            site.path.as_str(),
+            site.line,
+        );
+        if !seen.insert(identity) {
+            duplicated.insert(site.rule.as_str());
         }
+        sites.entry(site.rule.as_str()).or_default().push(site);
     }
-    let stale: BTreeSet<&str> = groups
-        .keys()
-        .filter(|key| !observed.contains_key(*key))
-        .map(|key| key.1)
+    let stale: BTreeSet<&str> = adjudication
+        .reviewed
+        .iter()
+        .filter(|site| !observed.contains_key(&(site.repository.as_str(), site.rule.as_str())))
+        .map(|site| site.rule.as_str())
         .collect();
 
     catalog
         .iter()
         .map(|rule| {
             let id = rule.id.as_str();
-            let pairs: Vec<_> = observed
+            let findings: u64 = observed
                 .iter()
                 .filter(|((_, observed_rule), _)| *observed_rule == id)
-                .collect();
-            let findings: u64 = pairs.iter().map(|(_, count)| **count).sum();
+                .map(|(_, count)| *count)
+                .sum();
             if findings == 0 {
                 return RulePrecision {
                     false_positive_rate_basis_points: None,
                     false_positives: None,
                     findings: 0,
                     id: id.to_owned(),
+                    reviewed: 0,
                     status: PrecisionStatus::Unobserved,
                     tier: rule.tier.clone(),
                     true_positives: None,
                 };
             }
 
-            let mut false_positives = 0;
-            let mut complete = !duplicated.contains(id) && !stale.contains(id);
-            for (key, count) in pairs {
-                match groups.get(key) {
-                    Some(group) if group.findings == *count && group.exceptions.len() as u64 <= *count => {
-                        let exceptions = group.exceptions.len() as u64;
-                        false_positives += group
-                            .exceptions
-                            .iter()
-                            .filter(|exception| exception.verdict == Verdict::FalsePositive)
-                            .count() as u64;
-                        if group.verdict == Verdict::FalsePositive {
-                            false_positives += count - exceptions;
-                        }
-                    }
-                    _ => complete = false,
-                }
-            }
-
-            if !complete {
+            let reviewed = sites.get(id).map(Vec::as_slice).unwrap_or_default();
+            let count = reviewed.len() as u64;
+            let publishable = count >= MINIMUM_REVIEWED_SITES.min(findings)
+                && count <= findings
+                && !duplicated.contains(id)
+                && !stale.contains(id);
+            if !publishable {
                 return RulePrecision {
                     false_positive_rate_basis_points: None,
                     false_positives: None,
                     findings,
                     id: id.to_owned(),
+                    reviewed: count,
                     status: PrecisionStatus::Incomplete,
                     tier: rule.tier.clone(),
                     true_positives: None,
                 };
             }
 
+            let false_positives = reviewed
+                .iter()
+                .filter(|site| site.verdict == Verdict::FalsePositive)
+                .count() as u64;
             RulePrecision {
-                false_positive_rate_basis_points: Some(false_positives.saturating_mul(10_000) / findings),
+                false_positive_rate_basis_points: Some(
+                    false_positives.saturating_mul(10_000) / count,
+                ),
                 false_positives: Some(false_positives),
                 findings,
                 id: id.to_owned(),
+                reviewed: count,
                 status: PrecisionStatus::Measured,
                 tier: rule.tier.clone(),
-                true_positives: Some(findings - false_positives),
+                true_positives: Some(count - false_positives),
             }
         })
         .collect()
 }
 
-/// Gate d'admission: une règle active par défaut doit porter une précision
-/// mesurée sous le seuil, et zéro faux positif lorsque son tier est `P0`.
+/// Gate d'admission.
+///
+/// Le seul refus est celui d'un tier zéro tolérance présentant un faux positif:
+/// un `P0` plafonne la note entière, donc une seule fausse alarme sur du code
+/// sain y coûte tout le score. Le reste est publié, pas refusé. Un taux de bruit
+/// élevé sur code sain ne dit rien de la valeur d'une règle sur du code qui ne
+/// l'est pas, et une règle jamais observée sur dix dépôts sains n'est pas
+/// imprécise: les deux sont nommées pour que la décision soit prise en le
+/// sachant, jamais opposées à l'activation par défaut.
 pub(crate) fn gate(
     catalog: &[CatalogRule],
     precision: &[RulePrecision],
@@ -812,45 +872,33 @@ pub(crate) fn gate(
     let measured: BTreeMap<&str, &RulePrecision> =
         precision.iter().map(|rule| (rule.id.as_str(), rule)).collect();
     let mut admitted = Vec::new();
+    let mut noisy_on_healthy_code = Vec::new();
     let mut refused = Vec::new();
     let mut unproven = Vec::new();
 
     for rule in catalog.iter().filter(|rule| rule.default_level != "off") {
         let id = rule.id.as_str();
-        let Some(measure) = measured.get(id) else {
+        let measure = measured.get(id).copied();
+        let observed = measure.filter(|measure| measure.status == PrecisionStatus::Measured);
+        let Some(measure) = observed else {
             unproven.push(id.to_owned());
-            refused.push(GateRefusal {
-                id: id.to_owned(),
-                reason: RefusalReason::PrecisionNotMeasured,
-            });
+            admitted.push(id.to_owned());
             continue;
         };
-        match measure.status {
-            PrecisionStatus::Unobserved | PrecisionStatus::Incomplete => {
-                unproven.push(id.to_owned());
-                refused.push(GateRefusal {
-                    id: id.to_owned(),
-                    reason: RefusalReason::PrecisionNotMeasured,
-                });
-            }
-            PrecisionStatus::Measured => {
-                let false_positives = measure.false_positives.unwrap_or_default();
-                let rate = measure.false_positive_rate_basis_points.unwrap_or_default();
-                if rule.tier == "P0" && false_positives > 0 {
-                    refused.push(GateRefusal {
-                        id: id.to_owned(),
-                        reason: RefusalReason::ZeroToleranceTierWithFalsePositive,
-                    });
-                } else if rate > threshold_basis_points {
-                    refused.push(GateRefusal {
-                        id: id.to_owned(),
-                        reason: RefusalReason::FalsePositiveRateAboveThreshold,
-                    });
-                } else {
-                    admitted.push(id.to_owned());
-                }
-            }
+
+        let false_positives = measure.false_positives.unwrap_or_default();
+        let rate = measure.false_positive_rate_basis_points.unwrap_or_default();
+        if rule.tier == "P0" && false_positives > 0 {
+            refused.push(GateRefusal {
+                id: id.to_owned(),
+                reason: RefusalReason::ZeroToleranceTierWithFalsePositive,
+            });
+            continue;
         }
+        if rate > threshold_basis_points {
+            noisy_on_healthy_code.push(id.to_owned());
+        }
+        admitted.push(id.to_owned());
     }
 
     GateOutcome {
@@ -860,6 +908,7 @@ pub(crate) fn gate(
             GateVerdict::Failed
         },
         admitted,
+        noisy_on_healthy_code,
         refused,
         threshold_basis_points,
         unproven,

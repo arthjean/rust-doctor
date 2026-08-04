@@ -1,0 +1,1909 @@
+{
+  "adjudication": {
+    "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect.",
+    "reviewed": [
+      {
+        "context": "build_script",
+        "justification": "A build script has no caller to return an error to: its main returns unit, and terminating the process is how Cargo is told the build failed.",
+        "line": 106,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "clippy::exit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "cargo_env_var is written to diverge when a Cargo-provided variable is missing, inside a build script that exposes no Result surface to propagate through.",
+        "line": 192,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "clippy::exit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Reached only when writing to stderr itself failed, inside the binary's own message macro: no channel remains to report an error through, and the two codes separate a broken pipe from a real failure.",
+        "line": 54,
+        "path": "crates/core/messages.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::exit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Same macro, writeln branch: the condition being handled is the loss of stderr, so returning an error would have nowhere to surface.",
+        "line": 61,
+        "path": "crates/core/messages.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::exit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "Cleanup failure of the probe directory in a build script; exiting is the sanctioned way for a build script to fail.",
+        "line": 172,
+        "path": "build.rs",
+        "repository": "thiserror",
+        "rule": "clippy::exit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The backtrace is captured when the Error is built and the accessor returns a reference, so there is no error value to propagate; the comment bounds the residual risk to a nondeterministic Error impl.",
+        "line": 963,
+        "path": "src/error.rs",
+        "repository": "anyhow",
+        "rule": "clippy::expect_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "path_absolute_form calls env::current_dir, which fails at runtime when the working directory is removed or unreadable; the closure can already report through print_error and return WalkState::Continue instead of aborting the walk.",
+        "line": 528,
+        "path": "src/walk.rs",
+        "repository": "fd",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The closure runs only on the branch where to_str returned None, so the lossy conversion necessarily contains a replacement codepoint.",
+        "line": 53,
+        "path": "crates/cli/src/pattern.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::expect_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The count is the size of an ngram set built from the compile-time flag table, which cannot approach u32::MAX.",
+        "line": 455,
+        "path": "crates/core/flags/parse.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::expect_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "SummaryBuilder::build allocates Stats whenever kind.requires_stats(), which holds for CountMatches, so the option is Some by construction of this sink.",
+        "line": 767,
+        "path": "crates/printer/src/summary.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::expect_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "slice_at comes from SIZE.checked_sub on the line above, whose None arm diverges, and buf is [0; SIZE], so the range is in bounds.",
+        "line": 67,
+        "path": "src/buf/buf_impl.rs",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "idx iterates 0..LOG_LEVEL_NAMES.len(), so the index is in bounds by construction of the loop.",
+        "line": 670,
+        "path": "src/lib.rs",
+        "repository": "log",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "i is the offset memchr just returned for this slice, so it is a valid index into it.",
+        "line": 28,
+        "path": "crates/matcher/src/interpolate.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "midx advances only while midx + 1 < matches.len(), and the sink_slow_multi_line family already indexes matches[0] unguarded because this path runs only for a sunk line that carries matches.",
+        "line": 1085,
+        "path": "crates/printer/src/standard.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The range is bounded by the searcher's line-visiting invariant, last_line_visited <= upto <= buf.len(), which the same function relies on a few lines above; get would create an error path for a state only a bug can produce.",
+        "line": 254,
+        "path": "crates/searcher/src/searcher/core.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The compare-exchange lost the race, so the buffer now belongs to the winning Shared; forgetting the moved-out value suppresses Shared::drop, which would dealloc a buffer this thread no longer owns, while the Box still frees its own allocation.",
+        "line": 1532,
+        "path": "src/bytes.rs",
+        "repository": "bytes",
+        "rule": "clippy::mem_forget",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "reserve mirrors Vec::reserve, whose documented contract is to panic on capacity overflow; the non-allocating path one line above already returns false instead.",
+        "line": 700,
+        "path": "src/bytes_mut.rs",
+        "repository": "bytes",
+        "rule": "clippy::panic",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "panic_advance is a cold diverging helper whose only purpose is to format the message of the panicking API; the fallible twin is published next to it as try_get with TryGetError.",
+        "line": 207,
+        "path": "src/lib.rs",
+        "repository": "bytes",
+        "rule": "clippy::panic",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Reports a build configuration mistake, key-values passed without the kv feature; nothing here is an input the caller can recover from at runtime.",
+        "line": 67,
+        "path": "src/__private_api.rs",
+        "repository": "log",
+        "rule": "clippy::panic",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "NoError is the error type of infallible matchers and its Display is documented, three lines above, as panicking.",
+        "line": 507,
+        "path": "crates/matcher/src/lib.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "std::ops::Index requires panicking on an absent index, and serde_json publishes Value::get for the fallible path.",
+        "line": 72,
+        "path": "src/value/index.rs",
+        "repository": "serde_json",
+        "rule": "clippy::panic",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The assertion states the parser contract that a switch flag receives a switch value; reporting it as Err would surface an internal bug as a user-facing error.",
+        "line": 669,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Same shape as the rest of the flag table: the assertion guards the parser contract, not the argument being parsed.",
+        "line": 3629,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "assert! rules out an affirmative switch that this flag definition never declares; the value branch below is the only reachable user input path.",
+        "line": 5530,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The assertion restates that --vimgrep declares no negation, a property of the flag table rather than of the parsed argument.",
+        "line": 7387,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Display for NoError returns fmt::Result only because the trait demands it; the type is documented as never being formatted.",
+        "line": 506,
+        "path": "crates/matcher/src/lib.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "stderr is the channel Cargo reads build script diagnostics from, and a build script has no caller-provided writer.",
+        "line": 105,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "clippy::print_stderr",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "Cleanup diagnostic of a build script, emitted on the only channel Cargo offers it.",
+        "line": 167,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "clippy::print_stderr",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "This is fd's single centralised error printer in a binary crate: hard-wiring stderr in one named function is the abstraction the rule asks for, not the absence of one.",
+        "line": 2,
+        "path": "src/error.rs",
+        "repository": "fd",
+        "rule": "clippy::print_stderr",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Emitted from fn main immediately before exit(1); the entry point is exactly where a binary is expected to choose the output channel.",
+        "line": 461,
+        "path": "src/main.rs",
+        "repository": "hexyl",
+        "rule": "clippy::print_stderr",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "Cleanup diagnostic of a build script, on Cargo's channel.",
+        "line": 171,
+        "path": "build.rs",
+        "repository": "thiserror",
+        "rule": "clippy::print_stderr",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Arc<PathBuf> costs two indirections to reach the path bytes; the field is set once at construction, so Arc<Path> applies directly.",
+        "line": 111,
+        "path": "crates/ignore/src/dir.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "explicit_ignores is filled by the builder and only read afterwards, so Arc<[Gitignore]> removes the Vec header and one dereference per access.",
+        "line": 149,
+        "path": "crates/ignore/src/dir.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "custom_ignore_filenames is never mutated behind the Arc, so Arc<[OsString]> applies without changing the sharing model.",
+        "line": 151,
+        "path": "crates/ignore/src/dir.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The separator is assembled once in the builder and shared read-only across printers; Arc<[u8]> avoids one allocation and one indirection on a per-match path.",
+        "line": 53,
+        "path": "crates/printer/src/standard.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Same field family as separator_field_match, built once and read on every context line; Arc<[u8]> applies identically.",
+        "line": 54,
+        "path": "crates/printer/src/standard.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The vector holds usize indices and is deduplicated on the next line, so stability carries no meaning; sort_unstable drops the auxiliary allocation on a per-candidate path.",
+        "line": 454,
+        "path": "crates/globset/src/lib.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::stable_sort_primitive",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "other[..] is the full range of the String, which cannot fall inside a UTF-8 character.",
+        "line": 862,
+        "path": "src/bytes.rs",
+        "repository": "bytes",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m is an aho-corasick match over the same string whose patterns are all ASCII braces, so its end offset is a character boundary.",
+        "line": 82,
+        "path": "src/fmt/mod.rs",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "offset comes from str::find on the same string, which returns a character boundary.",
+        "line": 26,
+        "path": "crates/core/flags/doc/mod.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The slice skips a leading '/' whose presence was checked with starts_with on the line above, so index 1 is a boundary.",
+        "line": 495,
+        "path": "crates/ignore/src/gitignore.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The offsets were produced by scanning the ASCII digits of a message this module formatted itself.",
+        "line": 527,
+        "path": "src/error.rs",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A bare unreachable! with no message, enumerating the ids of a pattern list built 140 lines away; adding a placeholder to that list turns a compile-time omission into a runtime abort.",
+        "line": 209,
+        "path": "src/fmt/mod.rs",
+        "repository": "fd",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The flag declares that it takes a value, so the parser never hands it an affirmative switch, and the message states that invariant.",
+        "line": 1634,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unreachable",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The man page generator is documented as required to panic on malformed markup; its input is ripgrep's own source, not user data.",
+        "line": 80,
+        "path": "crates/core/flags/doc/man.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unreachable",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "unwrap_value documents four lines above that calling it on a switch is a bug and that panicking is the intended response.",
+        "line": 297,
+        "path": "crates/core/flags/mod.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unreachable",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The Io code was destructured away by the if let three lines above, so classify cannot return the Io category in this branch.",
+        "line": 222,
+        "path": "src/error.rs",
+        "repository": "serde_json",
+        "rule": "clippy::unreachable",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "build_script",
+        "justification": "The iterator ends with chain(iter::once(rustc)) on the line above, so next() always yields a value.",
+        "line": 117,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "clippy::unwrap_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Every Level discriminant is a valid LevelFilter, so from_usize is total over the values this method can pass it.",
+        "line": 555,
+        "path": "src/lib.rs",
+        "repository": "log",
+        "rule": "clippy::unwrap_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The branch is entered only when branches is neither empty nor longer than one, so pop yields the single element.",
+        "line": 602,
+        "path": "crates/globset/src/glob.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unwrap_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Match::offset carries a Panics section stating that an overflowing offset panics; the behaviour is the published contract of the method.",
+        "line": 140,
+        "path": "crates/matcher/src/lib.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unwrap_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Both sequences were shown finite by the two min_literal_len guards above, as the comment on the previous line states.",
+        "line": 613,
+        "path": "crates/regex/src/literal.rs",
+        "repository": "ripgrep",
+        "rule": "clippy::unwrap_used",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The lockfile resolves bitflags 1.3.2 and 2.11.0 side by side; both are compiled into the binary and their types do not interoperate.",
+        "line": 0,
+        "path": "Cargo.lock",
+        "repository": "fd",
+        "rule": "rust_doctor::cargo::duplicate_major_versions",
+        "verdict": "true_positive"
+      }
+    ],
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold.",
+    "trigger_verification": {
+      "confirmed": 534,
+      "findings": 534,
+      "method": "Mechanical: the rule's trigger is searched inside the reported span at the pinned revision. This is a guard against corrupted spans only. It cannot measure precision, because the lint that looks for a pattern always finds that pattern.",
+      "triggers": [
+        {
+          "evidence": "process::exit(",
+          "rule": "clippy::exit"
+        },
+        {
+          "evidence": ".expect(",
+          "rule": "clippy::expect_used"
+        },
+        {
+          "evidence": "[",
+          "rule": "clippy::indexing_slicing"
+        },
+        {
+          "evidence": "mem::forget(",
+          "rule": "clippy::mem_forget"
+        },
+        {
+          "evidence": "panic!",
+          "rule": "clippy::panic"
+        },
+        {
+          "evidence": "fn ",
+          "rule": "clippy::panic_in_result_fn"
+        },
+        {
+          "evidence": "eprintln!",
+          "rule": "clippy::print_stderr"
+        },
+        {
+          "evidence": "Arc<",
+          "rule": "clippy::rc_buffer"
+        },
+        {
+          "evidence": ".sort()",
+          "rule": "clippy::stable_sort_primitive"
+        },
+        {
+          "evidence": "[",
+          "rule": "clippy::string_slice"
+        },
+        {
+          "evidence": "unreachable!",
+          "rule": "clippy::unreachable"
+        },
+        {
+          "evidence": ".unwrap",
+          "rule": "clippy::unwrap_used"
+        },
+        {
+          "evidence": "bitflags",
+          "rule": "rust_doctor::cargo::duplicate_major_versions"
+        }
+      ]
+    }
+  },
+  "artifact": "rust-doctor-score-credibility-corpus",
+  "catalog": [
+    {
+      "default_level": "warn",
+      "id": "clippy::arc_with_non_send_sync",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::await_holding_lock",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::await_holding_refcell_ref",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::dbg_macro",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::exit",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::expect_used",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::format_collect",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::indexing_slicing",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::large_types_passed_by_value",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::manual_memcpy",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::mem_forget",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::mut_mutex_lock",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::non_send_fields_in_send_ty",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::panic",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::panic_in_result_fn",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::permissions_set_readonly_false",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::print_stderr",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::print_stdout",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::rc_buffer",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::rc_mutex",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::redundant_allocation",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::stable_sort_primitive",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::string_slice",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::suspicious_command_arg_space",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::todo",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unimplemented",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unnecessary_to_owned",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unreachable",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unused_async",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unwrap_used",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::useless_vec",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::vec_init_then_push",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::zombie_processes",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::duplicate_major_versions",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::missing_lockfile",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "tier": "P0"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "tier": "P0"
+    }
+  ],
+  "epic": "EP-025",
+  "gate": {
+    "admitted": [
+      "clippy::arc_with_non_send_sync",
+      "clippy::await_holding_lock",
+      "clippy::await_holding_refcell_ref",
+      "clippy::dbg_macro",
+      "clippy::exit",
+      "clippy::expect_used",
+      "clippy::format_collect",
+      "clippy::indexing_slicing",
+      "clippy::large_types_passed_by_value",
+      "clippy::manual_memcpy",
+      "clippy::mem_forget",
+      "clippy::mut_mutex_lock",
+      "clippy::non_send_fields_in_send_ty",
+      "clippy::panic",
+      "clippy::panic_in_result_fn",
+      "clippy::permissions_set_readonly_false",
+      "clippy::print_stderr",
+      "clippy::print_stdout",
+      "clippy::rc_buffer",
+      "clippy::rc_mutex",
+      "clippy::redundant_allocation",
+      "clippy::stable_sort_primitive",
+      "clippy::string_slice",
+      "clippy::suspicious_command_arg_space",
+      "clippy::todo",
+      "clippy::unimplemented",
+      "clippy::unnecessary_to_owned",
+      "clippy::unreachable",
+      "clippy::unused_async",
+      "clippy::unwrap_used",
+      "clippy::useless_vec",
+      "clippy::vec_init_then_push",
+      "clippy::zombie_processes",
+      "rust_doctor::cargo::duplicate_major_versions",
+      "rust_doctor::cargo::missing_lockfile",
+      "rust_doctor::cargo::path_dependency_outside_workspace",
+      "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unpinned_git_dependency",
+      "rust_doctor::source::disabled_tls_verification",
+      "rust_doctor::source::dynamic_shell_command"
+    ],
+    "noisy_on_healthy_code": [
+      "clippy::exit",
+      "clippy::expect_used",
+      "clippy::indexing_slicing",
+      "clippy::mem_forget",
+      "clippy::panic",
+      "clippy::panic_in_result_fn",
+      "clippy::print_stderr",
+      "clippy::string_slice",
+      "clippy::unreachable",
+      "clippy::unwrap_used"
+    ],
+    "refused": [],
+    "threshold_basis_points": 500,
+    "unproven": [
+      "clippy::arc_with_non_send_sync",
+      "clippy::await_holding_lock",
+      "clippy::await_holding_refcell_ref",
+      "clippy::dbg_macro",
+      "clippy::format_collect",
+      "clippy::large_types_passed_by_value",
+      "clippy::manual_memcpy",
+      "clippy::mut_mutex_lock",
+      "clippy::non_send_fields_in_send_ty",
+      "clippy::permissions_set_readonly_false",
+      "clippy::print_stdout",
+      "clippy::rc_mutex",
+      "clippy::redundant_allocation",
+      "clippy::suspicious_command_arg_space",
+      "clippy::todo",
+      "clippy::unimplemented",
+      "clippy::unnecessary_to_owned",
+      "clippy::unused_async",
+      "clippy::useless_vec",
+      "clippy::vec_init_then_push",
+      "clippy::zombie_processes",
+      "rust_doctor::cargo::missing_lockfile",
+      "rust_doctor::cargo::path_dependency_outside_workspace",
+      "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unpinned_git_dependency",
+      "rust_doctor::source::disabled_tls_verification",
+      "rust_doctor::source::dynamic_shell_command"
+    ],
+    "verdict": "passed"
+  },
+  "generated_at": "2026-08-04",
+  "harness": {
+    "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
+    "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
+    "failed": 0,
+    "processed": 10,
+    "scan_arguments": [
+      "--json",
+      "--yes"
+    ],
+    "skipped": 0
+  },
+  "manifest": {
+    "repositories": [
+      {
+        "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
+        "name": "anyhow",
+        "rationale": "Narrowly scoped error-handling library from the dtolnay organization, carried by a build script and a large trait-heavy test suite: it exercises the panic pack outside any binary entry point.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "1.0.104",
+        "url": "https://github.com/dtolnay/anyhow.git"
+      },
+      {
+        "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
+        "name": "async-channel",
+        "rationale": "Asynchronous channel primitive from the smol-rs organization, built on futures-core: it is the smallest corpus entry able to reach the await-holding rules of the correctness dimension.",
+        "shape": {
+          "asynchronous": true,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v2.5.0",
+        "url": "https://github.com/smol-rs/async-channel.git"
+      },
+      {
+        "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
+        "name": "bytes",
+        "rationale": "Buffer library from the tokio-rs organization, unsafe-heavy and indexing-heavy: it stresses the reliability pack on code whose slicing is deliberate rather than accidental.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v1.12.1",
+        "url": "https://github.com/tokio-rs/bytes.git"
+      },
+      {
+        "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
+        "name": "fd",
+        "rationale": "Command-line binary from the sharkdp organization with a wide dependency graph: it is the corpus entry able to observe the dependency dimension on a real resolved graph.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": false,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v10.4.2",
+        "url": "https://github.com/sharkdp/fd.git"
+      },
+      {
+        "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+        "name": "hexyl",
+        "rationale": "Small binary carrying its own library from the sharkdp organization: it exercises the terminal-output rules on a program whose printing is its purpose.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v0.16.0",
+        "url": "https://github.com/sharkdp/hexyl.git"
+      },
+      {
+        "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+        "name": "log",
+        "rationale": "Logging facade maintained by the rust-lang organization, dependency-free and macro-heavy: it is the lowest-noise reference of the corpus and its findings are the hardest to dismiss as incidental.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "0.4.33",
+        "url": "https://github.com/rust-lang/log.git"
+      },
+      {
+        "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+        "name": "ripgrep",
+        "rationale": "Ten-member workspace from the BurntSushi organization mixing a binary and eight libraries: it is the corpus entry that proves the scan holds across a real multi-member workspace, and its nightly benches make it the entry whose scan legitimately stays incomplete.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 10
+        },
+        "tag": "15.2.0",
+        "url": "https://github.com/BurntSushi/ripgrep.git"
+      },
+      {
+        "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+        "name": "serde_json",
+        "rationale": "Serialization library from the serde-rs organization whose test suite is larger than its source: it is the corpus entry that measures how the panic pack behaves on deliberate test-target panics.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v1.0.145",
+        "url": "https://github.com/serde-rs/json.git"
+      },
+      {
+        "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
+        "name": "smol",
+        "rationale": "Asynchronous runtime from the smol-rs organization composing eight async crates: it is the corpus entry whose execution model is asynchronous from end to end.",
+        "shape": {
+          "asynchronous": true,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v2.0.2",
+        "url": "https://github.com/smol-rs/smol.git"
+      },
+      {
+        "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
+        "name": "thiserror",
+        "rationale": "Three-member workspace from the dtolnay organization carrying a procedural macro crate: it is the corpus entry that proves generated code does not leak spurious findings into the catalog.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": true,
+          "workspace_members": 3
+        },
+        "tag": "2.0.19",
+        "url": "https://github.com/dtolnay/thiserror.git"
+      }
+    ]
+  },
+  "network_in_automated_tests": false,
+  "observations": [
+    {
+      "authoritative": true,
+      "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
+      "distinct": 9,
+      "exit_code": 0,
+      "findings_digest": "aee692e350c9585205b033c3ee4be76c16d331994e7071055b0b04448bdad05d",
+      "name": "anyhow",
+      "occurrences": 9,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::exit",
+          "occurrences": 3
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::expect_used",
+          "occurrences": 1
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::print_stderr",
+          "occurrences": 3
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unwrap_used",
+          "occurrences": 2
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 100,
+        "worst_tier": "P3"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
+      "distinct": 1,
+      "exit_code": 0,
+      "findings_digest": "77db7f7ca0ae0e06d10e3d25f6d61806793461ed7ee71d961a6928a07e165249",
+      "name": "async-channel",
+      "occurrences": 1,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 1,
+          "id": "clippy::unwrap_used",
+          "occurrences": 1
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 100,
+        "worst_tier": "P3"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
+      "distinct": 41,
+      "exit_code": 0,
+      "findings_digest": "3d1f6e3211007f389a2f1b023e8532ed31e82d24624fe30db3af457d47d8dcc2",
+      "name": "bytes",
+      "occurrences": 53,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 3
+        },
+        {
+          "distinct": 29,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 41
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::mem_forget",
+          "occurrences": 1
+        },
+        {
+          "distinct": 4,
+          "id": "clippy::panic",
+          "occurrences": 4
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::string_slice",
+          "occurrences": 2
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unwrap_used",
+          "occurrences": 2
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
+      "distinct": 40,
+      "exit_code": 0,
+      "findings_digest": "b226d813ca1973c8f02edd00295662ef2f65777e6824f3fa643eddae18c6eaa1",
+      "name": "fd",
+      "occurrences": 40,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 1,
+          "id": "clippy::expect_used",
+          "occurrences": 1
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 8
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::print_stderr",
+          "occurrences": 2
+        },
+        {
+          "distinct": 12,
+          "id": "clippy::string_slice",
+          "occurrences": 12
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unreachable",
+          "occurrences": 2
+        },
+        {
+          "distinct": 14,
+          "id": "clippy::unwrap_used",
+          "occurrences": 14
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::cargo::duplicate_major_versions",
+          "occurrences": 1
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 90,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "distinct": 18,
+      "exit_code": 0,
+      "findings_digest": "a12728449c15c837d9b2049a63b9fd8ab6bdc2485b87c85bf32935e4890a2df3",
+      "name": "hexyl",
+      "occurrences": 18,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 3
+        },
+        {
+          "distinct": 10,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 10
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::print_stderr",
+          "occurrences": 1
+        },
+        {
+          "distinct": 4,
+          "id": "clippy::unwrap_used",
+          "occurrences": 4
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 99,
+        "worst_tier": "P3"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+      "distinct": 11,
+      "exit_code": 0,
+      "findings_digest": "22c618da4e00f85e8e9e44676f7c672dd285c0dd60de7ce5e3f0bc1b81aea30c",
+      "name": "log",
+      "occurrences": 11,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 4,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 4
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::panic",
+          "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::unreachable",
+          "occurrences": 1
+        },
+        {
+          "distinct": 5,
+          "id": "clippy::unwrap_used",
+          "occurrences": 5
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+      "distinct": 329,
+      "exit_code": 0,
+      "findings_digest": "6d1afb7be760ea251c170eb21e990aca9d3e9a2b8aca900eed073369b7974e40",
+      "name": "ripgrep",
+      "occurrences": 349,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 4,
+          "id": "clippy::exit",
+          "occurrences": 24
+        },
+        {
+          "distinct": 11,
+          "id": "clippy::expect_used",
+          "occurrences": 11
+        },
+        {
+          "distinct": 164,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 164
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::panic",
+          "occurrences": 3
+        },
+        {
+          "distinct": 46,
+          "id": "clippy::panic_in_result_fn",
+          "occurrences": 46
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::rc_buffer",
+          "occurrences": 6
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::stable_sort_primitive",
+          "occurrences": 1
+        },
+        {
+          "distinct": 14,
+          "id": "clippy::string_slice",
+          "occurrences": 14
+        },
+        {
+          "distinct": 13,
+          "id": "clippy::unreachable",
+          "occurrences": 13
+        },
+        {
+          "distinct": 67,
+          "id": "clippy::unwrap_used",
+          "occurrences": 67
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "distinct": 45,
+      "exit_code": 0,
+      "findings_digest": "e0d1055a545d0e3166c2a83ffd3de0a13400f8c04b6d171f54762a29aedb9f16",
+      "name": "serde_json",
+      "occurrences": 45,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 3
+        },
+        {
+          "distinct": 22,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 22
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::panic",
+          "occurrences": 3
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::string_slice",
+          "occurrences": 8
+        },
+        {
+          "distinct": 5,
+          "id": "clippy::unreachable",
+          "occurrences": 5
+        },
+        {
+          "distinct": 4,
+          "id": "clippy::unwrap_used",
+          "occurrences": 4
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
+      "distinct": 1,
+      "exit_code": 0,
+      "findings_digest": "1470ed97f5a653152def39b0676229dee708267c3f606505af8e0c2f22e3741d",
+      "name": "smol",
+      "occurrences": 1,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 1,
+          "id": "clippy::expect_used",
+          "occurrences": 1
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 100,
+        "worst_tier": "P3"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
+      "distinct": 39,
+      "exit_code": 0,
+      "findings_digest": "6261817df6c0805852d85a172e5c3e996a1d9ae4f0d9cb165d65d5e114315500",
+      "name": "thiserror",
+      "occurrences": 68,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::exit",
+          "occurrences": 3
+        },
+        {
+          "distinct": 9,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 18
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::print_stderr",
+          "occurrences": 3
+        },
+        {
+          "distinct": 4,
+          "id": "clippy::string_slice",
+          "occurrences": 8
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unreachable",
+          "occurrences": 4
+        },
+        {
+          "distinct": 18,
+          "id": "clippy::unwrap_used",
+          "occurrences": 32
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    }
+  ],
+  "precision": [
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::arc_with_non_send_sync",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::await_holding_lock",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::await_holding_refcell_ref",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::dbg_macro",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 10,
+      "id": "clippy::exit",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": 8000,
+      "false_positives": 4,
+      "findings": 23,
+      "id": "clippy::expect_used",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::format_collect",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 246,
+      "id": "clippy::indexing_slicing",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::large_types_passed_by_value",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::manual_memcpy",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 1,
+      "findings": 1,
+      "id": "clippy::mem_forget",
+      "reviewed": 1,
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::mut_mutex_lock",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::non_send_fields_in_send_ty",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 11,
+      "id": "clippy::panic",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 46,
+      "id": "clippy::panic_in_result_fn",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::permissions_set_readonly_false",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 9,
+      "id": "clippy::print_stderr",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::print_stdout",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 6,
+      "id": "clippy::rc_buffer",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 5
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::rc_mutex",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::redundant_allocation",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 1,
+      "id": "clippy::stable_sort_primitive",
+      "reviewed": 1,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 40,
+      "id": "clippy::string_slice",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::suspicious_command_arg_space",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::todo",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unimplemented",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unnecessary_to_owned",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 8000,
+      "false_positives": 4,
+      "findings": 23,
+      "id": "clippy::unreachable",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unused_async",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 117,
+      "id": "clippy::unwrap_used",
+      "reviewed": 5,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::useless_vec",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::vec_init_then_push",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::zombie_processes",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 1,
+      "id": "rust_doctor::cargo::duplicate_major_versions",
+      "reviewed": 1,
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::missing_lockfile",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P0",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P0",
+      "true_positives": null
+    }
+  ],
+  "schema_version": 1,
+  "score_distribution": {
+    "bands": [
+      {
+        "label": "Great",
+        "repositories": 10
+      }
+    ],
+    "ceilings_applied": 0,
+    "collapsed_into_one_band": true,
+    "collapsed_into_one_value": false,
+    "maximum": 100,
+    "minimum": 90,
+    "values": [
+      {
+        "label": "Great",
+        "name": "anyhow",
+        "value": 100
+      },
+      {
+        "label": "Great",
+        "name": "async-channel",
+        "value": 100
+      },
+      {
+        "label": "Great",
+        "name": "bytes",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "fd",
+        "value": 90
+      },
+      {
+        "label": "Great",
+        "name": "hexyl",
+        "value": 99
+      },
+      {
+        "label": "Great",
+        "name": "log",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "ripgrep",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "serde_json",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "smol",
+        "value": 100
+      },
+      {
+        "label": "Great",
+        "name": "thiserror",
+        "value": 94
+      }
+    ]
+  },
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  "trust_boundary": {
+    "clippy_executes_corpus_build_code": true,
+    "corpus_materialised_outside_repository": true,
+    "native_detectors_compile_corpus_code": false,
+    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. The native detectors parse source text and never compile or execute corpus code, which the harness proves by replaying the corpus with every Clippy rule switched off."
+  }
+}

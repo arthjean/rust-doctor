@@ -20,10 +20,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde_json::Value;
 
 use support::corpus::{
-    ARTIFACTS_DIRECTORY_ENV, Adjudication, AdjudicationException, AdjudicationGroup, CACHE_DIRECTORY_ENV,
-    CatalogRule, EXPECTED_REPOSITORIES, GateVerdict, HarnessPaths, Manifest, ManifestEntry, Observation,
-    PrecisionStatus, RefusalReason, RepositoryOutcome, RepositoryShape, RuleObservation, THRESHOLD_BASIS_POINTS,
-    Verdict, artifact, catalog_from_report, curated_findings, evidence_holds, gate, manifest_defects,
+    ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
+    GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, Manifest, ManifestEntry, Observation,
+    PrecisionStatus, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite, RuleObservation,
+    RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict, artifact,
+    catalog_from_report, curated_findings, evidence_holds, gate, manifest_defects,
     missing_repositories, precision, run, score_distribution,
 };
 
@@ -422,8 +423,10 @@ fn the_harness_publishes_processed_skipped_and_failed_counts() {
 // US-079: précision par règle après adjudication
 // ---------------------------------------------------------------------------
 
+/// Chaque site relu porte un verdict, une justification et un contexte, et
+/// désigne un finding que le corpus a réellement produit.
 #[test]
-fn every_corpus_finding_carries_a_verdict_and_a_justification() {
+fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     let artifact = artifact();
     let mut observed: BTreeMap<(&str, &str), u64> = BTreeMap::new();
     for observation in &artifact.observations {
@@ -431,44 +434,41 @@ fn every_corpus_finding_carries_a_verdict_and_a_justification() {
             observed.insert((observation.name.as_str(), rule.id.as_str()), rule.distinct);
         }
     }
-    let adjudicated: BTreeMap<(&str, &str), &AdjudicationGroup> = artifact
-        .adjudication
-        .groups
-        .iter()
-        .map(|group| ((group.repository.as_str(), group.rule.as_str()), group))
-        .collect();
 
-    assert_eq!(adjudicated.len(), artifact.adjudication.groups.len());
-    assert_eq!(observed.keys().collect::<Vec<_>>(), adjudicated.keys().collect::<Vec<_>>());
-    for (key, count) in &observed {
-        let group = adjudicated[key];
-        assert_eq!(group.findings, *count, "{key:?}");
-        assert!(!group.justification.trim().is_empty(), "{key:?}");
-        assert!(!group.evidence.is_empty(), "{key:?}");
-        assert!(group.exceptions.len() as u64 <= group.findings, "{key:?}");
-        for exception in &group.exceptions {
-            assert!(!exception.justification.trim().is_empty(), "{key:?}");
-        }
+    assert!(!artifact.adjudication.reviewed.is_empty());
+    let mut identities: BTreeSet<(&str, &str, &str, u64)> = BTreeSet::new();
+    for site in &artifact.adjudication.reviewed {
+        assert!(!site.justification.trim().is_empty(), "{site:?}");
+        assert!(!site.path.is_empty(), "{site:?}");
+        assert!(
+            observed.contains_key(&(site.repository.as_str(), site.rule.as_str())),
+            "site relu sans finding correspondant: {site:?}"
+        );
+        assert!(
+            identities.insert((
+                site.rule.as_str(),
+                site.repository.as_str(),
+                site.path.as_str(),
+                site.line
+            )),
+            "site relu deux fois: {site:?}"
+        );
     }
+
     assert!(artifact.adjudication.criterion.len() > 80);
-    assert!(artifact.adjudication.manual_review.len() > 80);
-    assert_eq!(
-        artifact
-            .adjudication
-            .groups
-            .iter()
-            .map(|group| group.findings)
-            .sum::<u64>(),
-        artifact
-            .observations
-            .iter()
-            .map(|observation| observation.distinct)
-            .sum::<u64>()
-    );
+    assert!(artifact.adjudication.sampling.len() > 80);
+    assert!(artifact.adjudication.trigger_verification.method.len() > 80);
+    assert!(!artifact.adjudication.trigger_verification.triggers.is_empty());
+    for trigger in &artifact.adjudication.trigger_verification.triggers {
+        assert!(!trigger.evidence.is_empty(), "{trigger:?}");
+    }
 }
 
+/// Le taux publié est celui de l'échantillon relu. Rapporter des verdicts de
+/// valeur à une population non relue publierait une précision que personne n'a
+/// mesurée: c'est le défaut que ce test verrouille.
 #[test]
-fn the_precision_report_publishes_true_and_false_positives_per_rule() {
+fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population() {
     let artifact = artifact();
     let computed = precision(&artifact.catalog, &artifact.observations, &artifact.adjudication);
     assert_eq!(computed, artifact.precision);
@@ -481,14 +481,31 @@ fn the_precision_report_publishes_true_and_false_positives_per_rule() {
     for rule in measured {
         let true_positives = rule.true_positives.unwrap();
         let false_positives = rule.false_positives.unwrap();
-        assert_eq!(true_positives + false_positives, rule.findings, "{}", rule.id);
+        assert_eq!(true_positives + false_positives, rule.reviewed, "{}", rule.id);
+        assert!(rule.reviewed <= rule.findings, "{}", rule.id);
+        assert!(
+            rule.reviewed >= MINIMUM_REVIEWED_SITES.min(rule.findings),
+            "{}",
+            rule.id
+        );
         assert_eq!(
             rule.false_positive_rate_basis_points.unwrap(),
-            false_positives * 10_000 / rule.findings,
+            false_positives * 10_000 / rule.reviewed,
             "{}",
             rule.id
         );
     }
+
+    // Une population large dont seul un échantillon est relu ne peut pas
+    // publier un taux calculé sur la population.
+    let sampled = computed
+        .iter()
+        .find(|rule| rule.status == PrecisionStatus::Measured && rule.findings > rule.reviewed);
+    let sampled = sampled.expect("le corpus contient au moins une règle échantillonnée");
+    assert_ne!(
+        sampled.false_positive_rate_basis_points.unwrap(),
+        sampled.false_positives.unwrap() * 10_000 / sampled.findings
+    );
 }
 
 #[test]
@@ -517,49 +534,45 @@ fn a_rule_without_any_corpus_finding_is_listed_as_unobserved() {
 }
 
 #[test]
-fn an_unadjudicated_finding_marks_its_rule_incomplete_and_withholds_its_rate() {
+fn an_undersized_sample_marks_its_rule_incomplete_and_withholds_its_rate() {
     let artifact = artifact();
     let target = artifact
-        .adjudication
-        .groups
+        .precision
         .iter()
-        .find(|group| group.findings > 1)
-        .unwrap()
+        .find(|rule| rule.status == PrecisionStatus::Measured && rule.reviewed >= MINIMUM_REVIEWED_SITES)
+        .expect("le corpus contient une règle mesurée sur un échantillon complet")
+        .id
         .clone();
 
+    // Retirer un seul site relu fait passer l'échantillon sous le minimum
+    // publiable: le taux est retenu plutôt qu'extrapolé.
     let mut adjudication = artifact.adjudication.clone();
-    for group in &mut adjudication.groups {
-        if group.repository == target.repository && group.rule == target.rule {
-            group.findings -= 1;
-        }
-    }
+    let mut removed = false;
+    adjudication.reviewed.retain(|site| {
+        let drop = site.rule == target && !removed;
+        removed |= drop;
+        !drop
+    });
     let computed = precision(&artifact.catalog, &artifact.observations, &adjudication);
-    let rule = computed.iter().find(|rule| rule.id == target.rule).unwrap();
+    let rule = computed.iter().find(|rule| rule.id == target).unwrap();
     assert_eq!(rule.status, PrecisionStatus::Incomplete);
     assert_eq!(rule.false_positive_rate_basis_points, None);
     assert_eq!(rule.true_positives, None);
     assert!(rule.findings > 0);
 
     let mut dropped = artifact.adjudication.clone();
-    dropped
-        .groups
-        .retain(|group| group.repository != target.repository || group.rule != target.rule);
+    dropped.reviewed.retain(|site| site.rule != target);
     let computed = precision(&artifact.catalog, &artifact.observations, &dropped);
     assert_eq!(
-        computed.iter().find(|rule| rule.id == target.rule).unwrap().status,
+        computed.iter().find(|rule| rule.id == target).unwrap().status,
         PrecisionStatus::Incomplete
     );
 
-    // Une règle incomplète est refusée à l'activation par défaut, au même titre
-    // qu'une règle jamais observée.
+    // Une règle incomplète rejoint les non prouvées, au même titre qu'une règle
+    // jamais observée: son taux est retenu, son activation reste éditoriale.
     let outcome = gate(&artifact.catalog, &computed, THRESHOLD_BASIS_POINTS);
-    assert!(outcome.unproven.contains(&target.rule));
-    assert!(
-        outcome
-            .refused
-            .iter()
-            .any(|refusal| refusal.id == target.rule && refusal.reason == RefusalReason::PrecisionNotMeasured)
-    );
+    assert!(outcome.unproven.contains(&target));
+    assert!(!outcome.noisy_on_healthy_code.contains(&target));
 }
 
 #[test]
@@ -609,31 +622,47 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
     }]
 }
 
-fn adjudication_of(id: &str, findings: u64, false_positives: u64) -> Adjudication {
+/// Adjudication synthétique: `reviewed` sites relus dont `false_positives`
+/// jugés faux positifs. Le taux dérive de cet échantillon, pas de `findings`.
+fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudication {
     Adjudication {
         criterion: "probe".to_owned(),
-        manual_review: "probe".to_owned(),
-        groups: vec![AdjudicationGroup {
-            evidence: "probe".to_owned(),
-            exceptions: (0..false_positives)
-                .map(|index| AdjudicationException {
-                    justification: "probe".to_owned(),
-                    line: index + 1,
-                    path: "src/lib.rs".to_owned(),
-                    verdict: Verdict::FalsePositive,
-                })
-                .collect(),
-            findings,
-            justification: "probe".to_owned(),
-            repository: "probe".to_owned(),
-            rule: id.to_owned(),
-            verdict: Verdict::TruePositive,
-        }],
+        sampling: "probe".to_owned(),
+        trigger_verification: TriggerVerification {
+            confirmed: reviewed,
+            findings: reviewed,
+            method: "probe".to_owned(),
+            triggers: vec![RuleTrigger {
+                evidence: "probe".to_owned(),
+                rule: id.to_owned(),
+            }],
+        },
+        reviewed: (0..reviewed)
+            .map(|index| ReviewedSite {
+                context: SiteContext::Production,
+                justification: "probe".to_owned(),
+                line: index + 1,
+                path: "src/lib.rs".to_owned(),
+                repository: "probe".to_owned(),
+                rule: id.to_owned(),
+                verdict: if index < false_positives {
+                    Verdict::FalsePositive
+                } else {
+                    Verdict::TruePositive
+                },
+            })
+            .collect(),
     }
 }
 
+/// Le bruit sur code sain nomme une règle, il ne la disqualifie pas.
+///
+/// Mesurer qu'une règle signale beaucoup de non-défauts sur dix dépôts choisis
+/// pour leur santé ne dit rien de ce qu'elle vaut sur du code qui ne l'est pas.
+/// La liste publiée sert à trancher sa contribution au score, pas son niveau
+/// par défaut.
 #[test]
-fn a_rule_above_the_false_positive_threshold_is_refused_and_named() {
+fn a_noisy_rule_is_named_without_losing_its_default_activation() {
     let catalog = catalog_of("clippy::probe", "P2");
     let measured = precision(
         &catalog,
@@ -643,13 +672,13 @@ fn a_rule_above_the_false_positive_threshold_is_refused_and_named() {
     assert_eq!(measured[0].false_positive_rate_basis_points, Some(600));
 
     let outcome = gate(&catalog, &measured, THRESHOLD_BASIS_POINTS);
-    assert_eq!(outcome.verdict, GateVerdict::Failed);
-    assert_eq!(outcome.refused[0].id, "clippy::probe");
-    assert_eq!(outcome.refused[0].reason, RefusalReason::FalsePositiveRateAboveThreshold);
-    assert!(outcome.admitted.is_empty());
+    assert_eq!(outcome.verdict, GateVerdict::Passed);
+    assert!(outcome.refused.is_empty());
+    assert_eq!(outcome.noisy_on_healthy_code, vec!["clippy::probe".to_owned()]);
+    assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
 
-    // Exactement au seuil publié, la règle reste admise: le refus vise ce qui
-    // dépasse 5 %, pas ce qui l'atteint.
+    // Exactement au seuil publié, la règle n'est pas nommée bruyante: le repère
+    // vise ce qui dépasse 5 %, pas ce qui l'atteint.
     let at_threshold = precision(
         &catalog,
         &observations_of("clippy::probe", 100),
@@ -657,6 +686,7 @@ fn a_rule_above_the_false_positive_threshold_is_refused_and_named() {
     );
     let outcome = gate(&catalog, &at_threshold, THRESHOLD_BASIS_POINTS);
     assert_eq!(outcome.verdict, GateVerdict::Passed);
+    assert!(outcome.noisy_on_healthy_code.is_empty());
     assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
 }
 
@@ -703,15 +733,18 @@ fn a_catalog_whose_rules_all_satisfy_the_threshold_passes_and_publishes_every_ra
 }
 
 #[test]
-fn an_unobserved_rule_is_unproven_and_refused_by_default() {
+fn an_unobserved_rule_is_named_unproven_without_being_refused() {
     let catalog = catalog_of("clippy::probe", "P2");
     let measured = precision(&catalog, &[], &adjudication_of("clippy::probe", 0, 0));
     assert_eq!(measured[0].status, PrecisionStatus::Unobserved);
 
+    // Le silence d'un corpus sain sur une règle mesure l'absence du défaut
+    // qu'elle vise, pas la règle. Elle est nommée, jamais refusée pour ça.
     let outcome = gate(&catalog, &measured, THRESHOLD_BASIS_POINTS);
-    assert_eq!(outcome.verdict, GateVerdict::Failed);
+    assert_eq!(outcome.verdict, GateVerdict::Passed);
     assert_eq!(outcome.unproven, vec!["clippy::probe".to_owned()]);
-    assert_eq!(outcome.refused[0].reason, RefusalReason::PrecisionNotMeasured);
+    assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
+    assert!(outcome.refused.is_empty());
 
     // Une règle désactivée par défaut n'est pas soumise au gate: le gate porte
     // sur l'activation par défaut, pas sur l'existence d'une règle.
@@ -770,22 +803,41 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
         refused.len() + admitted.len(),
         artifact.catalog.iter().filter(|rule| rule.default_level != "off").count()
     );
+
+    // Les deux listes annotent l'ensemble admis, elles ne le réduisent pas.
+    for annotated in [&artifact.gate.noisy_on_healthy_code, &artifact.gate.unproven] {
+        assert!(annotated.iter().all(|rule| admitted.contains(rule.as_str())));
+    }
+    let noisy: BTreeSet<&str> = artifact.gate.noisy_on_healthy_code.iter().map(String::as_str).collect();
+    let unproven: BTreeSet<&str> = artifact.gate.unproven.iter().map(String::as_str).collect();
+    assert!(noisy.is_disjoint(&unproven), "une règle mesurée n'est pas non prouvée");
 }
 
 /// Dette d'admission figée: les règles actives par défaut que le corpus n'a pas
 /// pu prouver, parce qu'un dépôt sain ne commet pas le défaut qu'elles visent.
 /// Inscription nominative et sens unique: une règle prouvée en sort, aucune n'y
 /// entre sans que la validation le dise.
-const ADMISSION_DEBT: [&str; 24] = [
+///
+/// Trois entrées ont été ajoutées le 2026-08-04, ce que le sens unique interdit
+/// normalement. Elles ne couvrent pas une règle admise sans preuve: elles
+/// couvrent le retrait d'une mesure qui n'a jamais été valide. `dbg_macro`,
+/// `print_stdout` et `useless_vec` n'avaient de population que dans `tests/` et
+/// `examples/`, hors du code livré, et le retour aux cibles par défaut de Cargo
+/// les a rendues muettes. Leur silence dit ce que les 24 autres disent déjà:
+/// `fd`, `hexyl` et `ripgrep` écrivent tous dans un `stdout` verrouillé plutôt
+/// qu'avec `println!`, et aucun ne laisse de `dbg!` dans ce qu'il publie.
+const ADMISSION_DEBT: [&str; 27] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
+    "clippy::dbg_macro",
     "clippy::format_collect",
     "clippy::large_types_passed_by_value",
     "clippy::manual_memcpy",
     "clippy::mut_mutex_lock",
     "clippy::non_send_fields_in_send_ty",
     "clippy::permissions_set_readonly_false",
+    "clippy::print_stdout",
     "clippy::rc_mutex",
     "clippy::redundant_allocation",
     "clippy::suspicious_command_arg_space",
@@ -793,6 +845,7 @@ const ADMISSION_DEBT: [&str; 24] = [
     "clippy::unimplemented",
     "clippy::unnecessary_to_owned",
     "clippy::unused_async",
+    "clippy::useless_vec",
     "clippy::vec_init_then_push",
     "clippy::zombie_processes",
     "rust_doctor::cargo::missing_lockfile",
@@ -823,15 +876,13 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
         .collect();
     assert!(unnamed.is_empty(), "active by default without proof: {unnamed:?}");
 
-    // La dette est à sens unique: une règle prouvée depuis doit en sortir.
-    let settled: Vec<&str> = artifact
-        .gate
-        .admitted
-        .iter()
-        .map(String::as_str)
-        .filter(|rule| debt.contains(rule))
-        .collect();
-    assert!(settled.is_empty(), "proven, remove from the debt: {settled:?}");
+    // La dette est à sens unique: une règle que le corpus a fini par observer
+    // en sort. Le critère est la mesure, pas l'admission: depuis que le gate
+    // n'oppose plus rien à une règle non prouvée, toutes les actives par défaut
+    // sont admises, et lire l'admission ferait sortir la dette entière.
+    let unproven: BTreeSet<&str> = artifact.gate.unproven.iter().map(String::as_str).collect();
+    let settled: Vec<&str> = debt.difference(&unproven).copied().collect();
+    assert!(settled.is_empty(), "observed since, remove from the debt: {settled:?}");
 
     // Une entrée qui ne correspond plus à aucune règle active par défaut
     // masquerait la disparition de la règle qu'elle couvrait.
@@ -844,17 +895,52 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let stale: Vec<&str> = debt.difference(&active).copied().collect();
     assert!(stale.is_empty(), "stale debt entry: {stale:?}");
 
-    // La dette couvre l'absence de mesure, jamais une mesure mauvaise: aucune
-    // règle active par défaut ne peut dépasser le seuil ni porter un faux
-    // positif en tier zéro tolérance.
-    for refusal in &outcome.refused {
-        assert_eq!(
-            refusal.reason,
-            RefusalReason::PrecisionNotMeasured,
-            "{} is active by default despite its measured precision",
-            refusal.id
-        );
-    }
+    // Le seul refus opposable est le tier zéro tolérance portant un faux
+    // positif: un `P0` plafonne la note entière, donc une fausse alarme sur du
+    // code sain y coûte tout le score.
+    let measured: BTreeMap<&str, &support::corpus::RulePrecision> = artifact
+        .precision
+        .iter()
+        .map(|rule| (rule.id.as_str(), rule))
+        .collect();
+    let refused: Vec<String> = outcome
+        .refused
+        .iter()
+        .map(|refusal| {
+            let rule = measured[refusal.id.as_str()];
+            format!(
+                "{} ({:?}, {} FP sur {} relus, population {})",
+                refusal.id,
+                refusal.reason,
+                rule.false_positives.unwrap_or_default(),
+                rule.reviewed,
+                rule.findings
+            )
+        })
+        .collect();
+    assert!(
+        refused.is_empty(),
+        "tier zéro tolérance avec faux positif, actif par défaut:\n  {}",
+        refused.join("\n  ")
+    );
+
+    // La liste des bruyantes est publiée en entier: elle nomme exactement les
+    // règles mesurées au-dessus du repère, ni plus ni moins. Y figurer ne retire
+    // rien; l'omission, elle, cacherait ce que la règle coûte sur du code sain.
+    let expected_noisy: Vec<&str> = artifact
+        .precision
+        .iter()
+        .filter(|rule| {
+            rule.status == PrecisionStatus::Measured
+                && rule.false_positive_rate_basis_points.unwrap_or_default() > THRESHOLD_BASIS_POINTS
+                && active.contains(rule.id.as_str())
+        })
+        .map(|rule| rule.id.as_str())
+        .collect();
+    assert_eq!(
+        artifact.gate.noisy_on_healthy_code,
+        expected_noisy.iter().map(|rule| (*rule).to_owned()).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -905,26 +991,53 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(replayed.observations, published.observations);
     assert_eq!(replayed.evidence(&SCAN_ARGUMENTS), published.harness);
 
-    // Chaque verdict est vérifiable: le déclencheur adjudiqué est présent dans
-    // le span signalé, à la révision épinglée.
-    for group in &published.adjudication.groups {
-        let root = artifacts.join("work").join(&group.repository);
-        let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", group.repository))).unwrap();
+    // Garde-fou mécanique: le déclencheur publié est présent dans chaque span
+    // signalé, à la révision épinglée. Cette vérification prouve seulement
+    // qu'aucun span n'est corrompu; elle ne dit rien de la valeur du site, et
+    // c'est pourquoi la précision est dérivée des sites relus, pas d'elle.
+    let triggers: BTreeMap<&str, &str> = published
+        .adjudication
+        .trigger_verification
+        .triggers
+        .iter()
+        .map(|trigger| (trigger.rule.as_str(), trigger.evidence.as_str()))
+        .collect();
+    let mut confirmed = 0u64;
+    for observation in &published.observations {
+        let root = artifacts.join("work").join(&observation.name);
+        let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", observation.name))).unwrap();
         let report: Value = serde_json::from_slice(&bytes).unwrap();
-        let findings: Vec<_> = curated_findings(&report)
-            .into_iter()
-            .filter(|finding| finding.rule == group.rule)
-            .collect();
-        assert_eq!(findings.len() as u64, group.findings, "{}", group.rule);
-        for finding in &findings {
+        for finding in curated_findings(&report) {
+            let Some(evidence) = triggers.get(finding.rule) else {
+                continue;
+            };
             assert!(
-                evidence_holds(&root, finding, &group.evidence),
+                evidence_holds(&root, &finding, evidence),
                 "{}/{} at {}:{}",
-                group.repository,
-                group.rule,
+                observation.name,
+                finding.rule,
                 finding.path,
                 finding.line
             );
+            confirmed += 1;
         }
+    }
+    assert_eq!(confirmed, published.adjudication.trigger_verification.confirmed);
+    assert_eq!(confirmed, published.adjudication.trigger_verification.findings);
+
+    // Chaque site relu correspond à un finding réellement produit par le corpus.
+    for site in &published.adjudication.reviewed {
+        let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
+        let report: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            curated_findings(&report).iter().any(|finding| {
+                finding.rule == site.rule && finding.path == site.path && finding.line == site.line
+            }),
+            "site relu introuvable dans le corpus: {}/{} at {}:{}",
+            site.repository,
+            site.rule,
+            site.path,
+            site.line
+        );
     }
 }
