@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub(crate) mod corpus;
 pub(crate) mod rule_scaling;
 
 use std::collections::BTreeMap;

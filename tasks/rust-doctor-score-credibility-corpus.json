@@ -1,0 +1,2042 @@
+{
+  "artifact": "rust-doctor-score-credibility-corpus",
+  "schema_version": 1,
+  "epic": "EP-025",
+  "generated_at": "2026-08-04",
+  "network_in_automated_tests": false,
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  "trust_boundary": {
+    "clippy_executes_corpus_build_code": true,
+    "corpus_materialised_outside_repository": true,
+    "native_detectors_compile_corpus_code": false,
+    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. The native detectors parse source text and never compile or execute corpus code, which the harness proves by replaying the corpus with every Clippy rule switched off."
+  },
+  "harness": {
+    "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
+    "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
+    "failed": 0,
+    "processed": 10,
+    "scan_arguments": [
+      "--json",
+      "--yes"
+    ],
+    "skipped": 0
+  },
+  "manifest": {
+    "repositories": [
+      {
+        "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
+        "name": "anyhow",
+        "rationale": "Narrowly scoped error-handling library from the dtolnay organization, carried by a build script and a large trait-heavy test suite: it exercises the panic pack outside any binary entry point.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "1.0.104",
+        "url": "https://github.com/dtolnay/anyhow.git"
+      },
+      {
+        "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
+        "name": "async-channel",
+        "rationale": "Asynchronous channel primitive from the smol-rs organization, built on futures-core: it is the smallest corpus entry able to reach the await-holding rules of the correctness dimension.",
+        "shape": {
+          "asynchronous": true,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v2.5.0",
+        "url": "https://github.com/smol-rs/async-channel.git"
+      },
+      {
+        "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
+        "name": "bytes",
+        "rationale": "Buffer library from the tokio-rs organization, unsafe-heavy and indexing-heavy: it stresses the reliability pack on code whose slicing is deliberate rather than accidental.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v1.12.1",
+        "url": "https://github.com/tokio-rs/bytes.git"
+      },
+      {
+        "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
+        "name": "fd",
+        "rationale": "Command-line binary from the sharkdp organization with a wide dependency graph: it is the corpus entry able to observe the dependency dimension on a real resolved graph.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": false,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v10.4.2",
+        "url": "https://github.com/sharkdp/fd.git"
+      },
+      {
+        "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+        "name": "hexyl",
+        "rationale": "Small binary carrying its own library from the sharkdp organization: it exercises the terminal-output rules on a program whose printing is its purpose.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v0.16.0",
+        "url": "https://github.com/sharkdp/hexyl.git"
+      },
+      {
+        "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+        "name": "log",
+        "rationale": "Logging facade maintained by the rust-lang organization, dependency-free and macro-heavy: it is the lowest-noise reference of the corpus and its findings are the hardest to dismiss as incidental.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "0.4.33",
+        "url": "https://github.com/rust-lang/log.git"
+      },
+      {
+        "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+        "name": "ripgrep",
+        "rationale": "Ten-member workspace from the BurntSushi organization mixing a binary and eight libraries: it is the corpus entry that proves the scan holds across a real multi-member workspace, and its nightly benches make it the entry whose scan legitimately stays incomplete.",
+        "shape": {
+          "asynchronous": false,
+          "binary": true,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 10
+        },
+        "tag": "15.2.0",
+        "url": "https://github.com/BurntSushi/ripgrep.git"
+      },
+      {
+        "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+        "name": "serde_json",
+        "rationale": "Serialization library from the serde-rs organization whose test suite is larger than its source: it is the corpus entry that measures how the panic pack behaves on deliberate test-target panics.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v1.0.145",
+        "url": "https://github.com/serde-rs/json.git"
+      },
+      {
+        "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
+        "name": "smol",
+        "rationale": "Asynchronous runtime from the smol-rs organization composing eight async crates: it is the corpus entry whose execution model is asynchronous from end to end.",
+        "shape": {
+          "asynchronous": true,
+          "binary": false,
+          "library": true,
+          "proc_macro": false,
+          "workspace_members": 1
+        },
+        "tag": "v2.0.2",
+        "url": "https://github.com/smol-rs/smol.git"
+      },
+      {
+        "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
+        "name": "thiserror",
+        "rationale": "Three-member workspace from the dtolnay organization carrying a procedural macro crate: it is the corpus entry that proves generated code does not leak spurious findings into the catalog.",
+        "shape": {
+          "asynchronous": false,
+          "binary": false,
+          "library": true,
+          "proc_macro": true,
+          "workspace_members": 3
+        },
+        "tag": "2.0.19",
+        "url": "https://github.com/dtolnay/thiserror.git"
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "default_level": "warn",
+      "id": "clippy::arc_with_non_send_sync",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::await_holding_lock",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::await_holding_refcell_ref",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::dbg_macro",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::exit",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::expect_used",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::format_collect",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::indexing_slicing",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::large_types_passed_by_value",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::manual_memcpy",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::mem_forget",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::mut_mutex_lock",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::non_send_fields_in_send_ty",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::panic",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::panic_in_result_fn",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::permissions_set_readonly_false",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::print_stderr",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::print_stdout",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::rc_buffer",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::rc_mutex",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::redundant_allocation",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::stable_sort_primitive",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::string_slice",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::suspicious_command_arg_space",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::todo",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unimplemented",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unnecessary_to_owned",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unreachable",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unused_async",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::unwrap_used",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::useless_vec",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::vec_init_then_push",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::zombie_processes",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::duplicate_major_versions",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::missing_lockfile",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "tier": "P0"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "tier": "P0"
+    }
+  ],
+  "observations": [
+    {
+      "authoritative": true,
+      "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
+      "distinct": 95,
+      "exit_code": 0,
+      "findings_digest": "e120abb8ed9251a6692e4e3ae42da16d7c7246a9fee10eaf73853fd057b07498",
+      "name": "anyhow",
+      "occurrences": 97,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::exit",
+          "occurrences": 3
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::expect_used",
+          "occurrences": 2
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::panic",
+          "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::panic_in_result_fn",
+          "occurrences": 1
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::print_stderr",
+          "occurrences": 3
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::print_stdout",
+          "occurrences": 1
+        },
+        {
+          "distinct": 85,
+          "id": "clippy::unwrap_used",
+          "occurrences": 86
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
+      "distinct": 72,
+      "exit_code": 0,
+      "findings_digest": "907bfd902acd27b1ee81fbb4c987b51dc8a07fd0de5dd174f0e4cf456e170978",
+      "name": "async-channel",
+      "occurrences": 73,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 4,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 4
+        },
+        {
+          "distinct": 68,
+          "id": "clippy::unwrap_used",
+          "occurrences": 69
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
+      "distinct": 133,
+      "exit_code": 1,
+      "findings_digest": "899e1024f2a8c3f13ae3921ef663998fc00c9a315a48e8e1a42d8167cae6b5ca",
+      "name": "bytes",
+      "occurrences": 286,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 6
+        },
+        {
+          "distinct": 86,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 227
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::mem_forget",
+          "occurrences": 2
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::panic",
+          "occurrences": 12
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::print_stderr",
+          "occurrences": 8
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::string_slice",
+          "occurrences": 10
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::unreachable",
+          "occurrences": 6
+        },
+        {
+          "distinct": 13,
+          "id": "clippy::unwrap_used",
+          "occurrences": 15
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "incomplete"
+    },
+    {
+      "authoritative": false,
+      "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
+      "distinct": 136,
+      "exit_code": 0,
+      "findings_digest": "8f5ef0658ba4d3f6d3afc524d96b59ecdc1a00c67238c3b2b2b0d9ff7124f906",
+      "name": "fd",
+      "occurrences": 175,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 14,
+          "id": "clippy::expect_used",
+          "occurrences": 15
+        },
+        {
+          "distinct": 8,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 16
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::panic",
+          "occurrences": 6
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::print_stderr",
+          "occurrences": 4
+        },
+        {
+          "distinct": 12,
+          "id": "clippy::string_slice",
+          "occurrences": 24
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unreachable",
+          "occurrences": 4
+        },
+        {
+          "distinct": 91,
+          "id": "clippy::unwrap_used",
+          "occurrences": 105
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::cargo::duplicate_major_versions",
+          "occurrences": 1
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 90,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
+      "distinct": 33,
+      "exit_code": 0,
+      "findings_digest": "bb89d9f29eb8be8954ee0c2d9e0f4730f8cd10fe04cccadd1bf6985a5ce3ca11",
+      "name": "hexyl",
+      "occurrences": 51,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 6
+        },
+        {
+          "distinct": 10,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 20
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::print_stderr",
+          "occurrences": 2
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::print_stdout",
+          "occurrences": 2
+        },
+        {
+          "distinct": 17,
+          "id": "clippy::unwrap_used",
+          "occurrences": 21
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+      "distinct": 16,
+      "exit_code": 0,
+      "findings_digest": "402bc79f4241c6208675c3fbcb52a24f60b9a2ec4c7ebacf4f86570bf47c9fae",
+      "name": "log",
+      "occurrences": 27,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 4,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 8
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::panic",
+          "occurrences": 2
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::unreachable",
+          "occurrences": 2
+        },
+        {
+          "distinct": 10,
+          "id": "clippy::unwrap_used",
+          "occurrences": 15
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": false,
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+      "distinct": 940,
+      "exit_code": 1,
+      "findings_digest": "b98c45cb697c3a43a8fb35c0571fa4b5cfd1fd510d4fa7c1c45d18de5c630e2b",
+      "name": "ripgrep",
+      "occurrences": 1186,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 11,
+          "id": "clippy::expect_used",
+          "occurrences": 19
+        },
+        {
+          "distinct": 327,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 480
+        },
+        {
+          "distinct": 9,
+          "id": "clippy::panic",
+          "occurrences": 12
+        },
+        {
+          "distinct": 16,
+          "id": "clippy::panic_in_result_fn",
+          "occurrences": 29
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::print_stderr",
+          "occurrences": 1
+        },
+        {
+          "distinct": 5,
+          "id": "clippy::print_stdout",
+          "occurrences": 5
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::rc_buffer",
+          "occurrences": 12
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::stable_sort_primitive",
+          "occurrences": 3
+        },
+        {
+          "distinct": 11,
+          "id": "clippy::string_slice",
+          "occurrences": 21
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unreachable",
+          "occurrences": 4
+        },
+        {
+          "distinct": 512,
+          "id": "clippy::unwrap_used",
+          "occurrences": 562
+        },
+        {
+          "distinct": 38,
+          "id": "clippy::useless_vec",
+          "occurrences": 38
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 93,
+        "worst_tier": "P2"
+      },
+      "status": "incomplete"
+    },
+    {
+      "authoritative": true,
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
+      "distinct": 314,
+      "exit_code": 0,
+      "findings_digest": "ea887c8d1342f7530b4abf3cea19995ccaa987d65ded0e093a2f7f9c4b710c5f",
+      "name": "serde_json",
+      "occurrences": 357,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::expect_used",
+          "occurrences": 6
+        },
+        {
+          "distinct": 68,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 90
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::panic",
+          "occurrences": 6
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::print_stdout",
+          "occurrences": 2
+        },
+        {
+          "distinct": 10,
+          "id": "clippy::string_slice",
+          "occurrences": 18
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::unreachable",
+          "occurrences": 11
+        },
+        {
+          "distinct": 222,
+          "id": "clippy::unwrap_used",
+          "occurrences": 224
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
+      "distinct": 61,
+      "exit_code": 0,
+      "findings_digest": "8173c5c676f3f06f516b683147eb333da4f24e4de0803cf89e3164cd9e68b76a",
+      "name": "smol",
+      "occurrences": 62,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 2,
+          "id": "clippy::dbg_macro",
+          "occurrences": 2
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::expect_used",
+          "occurrences": 2
+        },
+        {
+          "distinct": 52,
+          "id": "clippy::print_stdout",
+          "occurrences": 52
+        },
+        {
+          "distinct": 6,
+          "id": "clippy::unwrap_used",
+          "occurrences": 6
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    },
+    {
+      "authoritative": true,
+      "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
+      "distinct": 55,
+      "exit_code": 0,
+      "findings_digest": "b2ee428e62e7c56b4b58c612048ee424510ef829a3bf0b661c833419e774b298",
+      "name": "thiserror",
+      "occurrences": 113,
+      "outcome": "processed",
+      "rules": [
+        {
+          "distinct": 3,
+          "id": "clippy::exit",
+          "occurrences": 3
+        },
+        {
+          "distinct": 9,
+          "id": "clippy::indexing_slicing",
+          "occurrences": 27
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::print_stderr",
+          "occurrences": 3
+        },
+        {
+          "distinct": 4,
+          "id": "clippy::string_slice",
+          "occurrences": 12
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::unreachable",
+          "occurrences": 6
+        },
+        {
+          "distinct": 34,
+          "id": "clippy::unwrap_used",
+          "occurrences": 62
+        }
+      ],
+      "score": {
+        "applied_ceiling": null,
+        "label": "Great",
+        "value": 94,
+        "worst_tier": "P2"
+      },
+      "status": "complete"
+    }
+  ],
+  "adjudication": {
+    "criterion": "A finding is a true positive when the code at the flagged location really exhibits the pattern the rule targets, judged at the pinned revision and under the published scope of the rule; it is a false positive when the pattern is absent, when the reported location is wrong, or when the scope of the rule excludes that site. Every group records the trigger verified inside the flagged span, and the harness re-verifies that trigger against the pinned revision on every run for which the corpus cache is available.",
+    "groups": [
+      {
+        "evidence": "process::exit(",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span calls process::exit inside a build-script helper that returns a value to its caller, so the process dies where the caller expected a result rather than at the entry point.",
+        "repository": "anyhow",
+        "rule": "clippy::exit",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "anyhow",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "anyhow",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "fn ",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged function returns Result and can still abort the process through a panicking macro instead of reporting the failure as Err.",
+        "repository": "anyhow",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "anyhow",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "println!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span writes to the process standard output stream instead of a caller-provided writer.",
+        "repository": "anyhow",
+        "rule": "clippy::print_stdout",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap",
+        "exceptions": [],
+        "findings": 85,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "anyhow",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 4,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "async-channel",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap()",
+        "exceptions": [],
+        "findings": 68,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "async-channel",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "bytes",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 86,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "mem::forget(",
+        "exceptions": [
+          {
+            "justification": "Contested site kept as a true positive: the leak is deliberate inside an unsafe reference-count transfer, and the rule reports the leaked destructor rather than judging the intent.",
+            "line": 1532,
+            "path": "src/bytes.rs",
+            "verdict": "true_positive"
+          }
+        ],
+        "findings": 1,
+        "justification": "The flagged span calls mem::forget on a reference count, deliberately leaking the destructor of a value that owns memory.",
+        "repository": "bytes",
+        "rule": "clippy::mem_forget",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 8,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "bytes",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 8,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "bytes",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 8,
+        "justification": "Each flagged span slices a string by byte range, which panics inside a UTF-8 character.",
+        "repository": "bytes",
+        "rule": "clippy::string_slice",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 6,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "bytes",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap",
+        "exceptions": [],
+        "findings": 13,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "bytes",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 14,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "fd",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 8,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "fd",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 6,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "fd",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "fd",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 12,
+        "justification": "Each flagged span slices a string by byte range, which panics inside a UTF-8 character.",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "fd",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap()",
+        "exceptions": [],
+        "findings": 91,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "fd",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "bitflags",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "The resolved graph of the pinned revision carries bitflags 1.3.2 and 2.11.0 side by side, so both are compiled and their types do not interoperate.",
+        "repository": "fd",
+        "rule": "rust_doctor::cargo::duplicate_major_versions",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "hexyl",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 10,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "hexyl",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "hexyl",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "println!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span writes to the process standard output stream instead of a caller-provided writer. The sites sit in a test target of a program whose purpose is writing to standard output; the rule still reports the direct stream write, which is the pattern it targets.",
+        "repository": "hexyl",
+        "rule": "clippy::print_stdout",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap",
+        "exceptions": [],
+        "findings": 17,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "hexyl",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 4,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "log",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "log",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "log",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap()",
+        "exceptions": [],
+        "findings": 10,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "log",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 11,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "ripgrep",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 327,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 9,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "ripgrep",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "fn ",
+        "exceptions": [
+          {
+            "justification": "Contested site kept as a true positive: Display::fmt for the uninhabited NoError returns std::fmt::Result and panics on a documented bug guard, which is exactly the pattern the rule reports.",
+            "line": 506,
+            "path": "crates/matcher/src/lib.rs",
+            "verdict": "true_positive"
+          }
+        ],
+        "findings": 16,
+        "justification": "Each flagged function returns Result and can still abort the process through a panicking macro instead of reporting the failure as Err.",
+        "repository": "ripgrep",
+        "rule": "clippy::panic_in_result_fn",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "ripgrep",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "print",
+        "exceptions": [],
+        "findings": 5,
+        "justification": "Each flagged span writes to the process standard output stream instead of a caller-provided writer.",
+        "repository": "ripgrep",
+        "rule": "clippy::print_stdout",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "Arc<",
+        "exceptions": [],
+        "findings": 6,
+        "justification": "Each flagged type wraps an owned buffer inside a reference-counted pointer instead of sharing the slice itself.",
+        "repository": "ripgrep",
+        "rule": "clippy::rc_buffer",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".sort()",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span sorts a primitive collection with the stable sort, which allocates for a stability that carries no meaning.",
+        "repository": "ripgrep",
+        "rule": "clippy::stable_sort_primitive",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 11,
+        "justification": "Each flagged span slices a string by byte range, which panics inside a UTF-8 character.",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "ripgrep",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap",
+        "exceptions": [],
+        "findings": 512,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "ripgrep",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "vec!",
+        "exceptions": [],
+        "findings": 38,
+        "justification": "Each flagged span builds a heap-allocated vector where an array or slice literal would do.",
+        "repository": "ripgrep",
+        "rule": "clippy::useless_vec",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "serde_json",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 68,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "serde_json",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "panic!",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span is a literal panic! call.",
+        "repository": "serde_json",
+        "rule": "clippy::panic",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "println!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span writes to the process standard output stream instead of a caller-provided writer.",
+        "repository": "serde_json",
+        "rule": "clippy::print_stdout",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 10,
+        "justification": "Each flagged span slices a string by byte range, which panics inside a UTF-8 character.",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 6,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "serde_json",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap",
+        "exceptions": [],
+        "findings": 222,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value. Every site sits in a test target, which the published scope of the rule covers because allow-unwrap-in-tests defaults to false in the scanned workspace.",
+        "repository": "serde_json",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "dbg!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span is a literal dbg! call left in shipped example code.",
+        "repository": "smol",
+        "rule": "clippy::dbg_macro",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".expect(",
+        "exceptions": [],
+        "findings": 1,
+        "justification": "Each flagged span is a literal expect() call that panics on the absent value.",
+        "repository": "smol",
+        "rule": "clippy::expect_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "print",
+        "exceptions": [],
+        "findings": 52,
+        "justification": "Each flagged span writes to the process standard output stream instead of a caller-provided writer. Every site sits in an example program, where printing is the demonstration itself; the rule still reports the direct stream write.",
+        "repository": "smol",
+        "rule": "clippy::print_stdout",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap()",
+        "exceptions": [],
+        "findings": 6,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "smol",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "process::exit(",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span calls process::exit inside a build-script helper that returns a value to its caller, so the process dies where the caller expected a result rather than at the entry point.",
+        "repository": "thiserror",
+        "rule": "clippy::exit",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 9,
+        "justification": "Each flagged span indexes or slices a collection without a bounds check, which panics when the index is out of range.",
+        "repository": "thiserror",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "eprintln!",
+        "exceptions": [],
+        "findings": 3,
+        "justification": "Each flagged span writes to the process standard error stream instead of a caller-provided writer.",
+        "repository": "thiserror",
+        "rule": "clippy::print_stderr",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "[",
+        "exceptions": [],
+        "findings": 4,
+        "justification": "Each flagged span slices a string by byte range, which panics inside a UTF-8 character.",
+        "repository": "thiserror",
+        "rule": "clippy::string_slice",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": "unreachable!",
+        "exceptions": [],
+        "findings": 2,
+        "justification": "Each flagged span is a literal unreachable! call whose reachable form aborts the process.",
+        "repository": "thiserror",
+        "rule": "clippy::unreachable",
+        "verdict": "true_positive"
+      },
+      {
+        "evidence": ".unwrap()",
+        "exceptions": [],
+        "findings": 34,
+        "justification": "Each flagged span is a literal unwrap() or unwrap_err() call that panics on the absent value.",
+        "repository": "thiserror",
+        "rule": "clippy::unwrap_used",
+        "verdict": "true_positive"
+      }
+    ],
+    "manual_review": "The trigger of every one of the 1855 findings was verified mechanically against the source at the pinned revision. On top of that, every finding of clippy::dbg_macro, clippy::exit, clippy::mem_forget, clippy::panic_in_result_fn, clippy::rc_buffer and clippy::stable_sort_primitive, the single native finding, and a sample of clippy::print_stdout, clippy::string_slice and clippy::useless_vec sites were read by hand. Two contested sites are recorded as individually adjudicated exceptions with their reasoning."
+  },
+  "precision": [
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::arc_with_non_send_sync",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::await_holding_lock",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::await_holding_refcell_ref",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 2,
+      "id": "clippy::dbg_macro",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 2
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 6,
+      "id": "clippy::exit",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 6
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 36,
+      "id": "clippy::expect_used",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 36
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::format_collect",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 516,
+      "id": "clippy::indexing_slicing",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 516
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::large_types_passed_by_value",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::manual_memcpy",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 1,
+      "id": "clippy::mem_forget",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::mut_mutex_lock",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::non_send_fields_in_send_ty",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 28,
+      "id": "clippy::panic",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 28
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 17,
+      "id": "clippy::panic_in_result_fn",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 17
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::permissions_set_readonly_false",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 18,
+      "id": "clippy::print_stderr",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 18
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 62,
+      "id": "clippy::print_stdout",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 62
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 6,
+      "id": "clippy::rc_buffer",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 6
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::rc_mutex",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::redundant_allocation",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 2,
+      "id": "clippy::stable_sort_primitive",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 2
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 45,
+      "id": "clippy::string_slice",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 45
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::suspicious_command_arg_space",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::todo",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unimplemented",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unnecessary_to_owned",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 19,
+      "id": "clippy::unreachable",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 19
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::unused_async",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 1058,
+      "id": "clippy::unwrap_used",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 1058
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 38,
+      "id": "clippy::useless_vec",
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 38
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::vec_init_then_push",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::zombie_processes",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 1,
+      "id": "rust_doctor::cargo::duplicate_major_versions",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::missing_lockfile",
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "status": "unobserved",
+      "tier": "P0",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "status": "unobserved",
+      "tier": "P0",
+      "true_positives": null
+    }
+  ],
+  "score_distribution": {
+    "bands": [
+      {
+        "label": "Great",
+        "repositories": 10
+      }
+    ],
+    "ceilings_applied": 0,
+    "collapsed_into_one_band": true,
+    "collapsed_into_one_value": false,
+    "maximum": 94,
+    "minimum": 90,
+    "values": [
+      {
+        "label": "Great",
+        "name": "anyhow",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "async-channel",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "bytes",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "fd",
+        "value": 90
+      },
+      {
+        "label": "Great",
+        "name": "hexyl",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "log",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "ripgrep",
+        "value": 93
+      },
+      {
+        "label": "Great",
+        "name": "serde_json",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "smol",
+        "value": 94
+      },
+      {
+        "label": "Great",
+        "name": "thiserror",
+        "value": 94
+      }
+    ]
+  },
+  "gate": {
+    "admitted": [
+      "clippy::dbg_macro",
+      "clippy::exit",
+      "clippy::expect_used",
+      "clippy::indexing_slicing",
+      "clippy::mem_forget",
+      "clippy::panic",
+      "clippy::panic_in_result_fn",
+      "clippy::print_stderr",
+      "clippy::print_stdout",
+      "clippy::rc_buffer",
+      "clippy::stable_sort_primitive",
+      "clippy::string_slice",
+      "clippy::unreachable",
+      "clippy::unwrap_used",
+      "clippy::useless_vec",
+      "rust_doctor::cargo::duplicate_major_versions"
+    ],
+    "refused": [
+      {
+        "id": "clippy::arc_with_non_send_sync",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::await_holding_lock",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::await_holding_refcell_ref",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::format_collect",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::large_types_passed_by_value",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::manual_memcpy",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::mut_mutex_lock",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::non_send_fields_in_send_ty",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::permissions_set_readonly_false",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::rc_mutex",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::redundant_allocation",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::suspicious_command_arg_space",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::todo",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::unimplemented",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::unnecessary_to_owned",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::unused_async",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::vec_init_then_push",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "clippy::zombie_processes",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::cargo::missing_lockfile",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::cargo::unbounded_registry_dependency",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::cargo::unpinned_git_dependency",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::source::disabled_tls_verification",
+        "reason": "precision_not_measured"
+      },
+      {
+        "id": "rust_doctor::source::dynamic_shell_command",
+        "reason": "precision_not_measured"
+      }
+    ],
+    "threshold_basis_points": 500,
+    "unproven": [
+      "clippy::arc_with_non_send_sync",
+      "clippy::await_holding_lock",
+      "clippy::await_holding_refcell_ref",
+      "clippy::format_collect",
+      "clippy::large_types_passed_by_value",
+      "clippy::manual_memcpy",
+      "clippy::mut_mutex_lock",
+      "clippy::non_send_fields_in_send_ty",
+      "clippy::permissions_set_readonly_false",
+      "clippy::rc_mutex",
+      "clippy::redundant_allocation",
+      "clippy::suspicious_command_arg_space",
+      "clippy::todo",
+      "clippy::unimplemented",
+      "clippy::unnecessary_to_owned",
+      "clippy::unused_async",
+      "clippy::vec_init_then_push",
+      "clippy::zombie_processes",
+      "rust_doctor::cargo::missing_lockfile",
+      "rust_doctor::cargo::path_dependency_outside_workspace",
+      "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unpinned_git_dependency",
+      "rust_doctor::source::disabled_tls_verification",
+      "rust_doctor::source::dynamic_shell_command"
+    ],
+    "verdict": "failed"
+  }
+}
