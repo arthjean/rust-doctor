@@ -419,7 +419,7 @@ Mesurer la précision réelle des règles sur des dépôts Rust épinglés, seul
 - [ ] Given une règle de tier `P0` présentant au moins un faux positif, when le gate est évalué, then il échoue quel que soit son taux global
 - [ ] Given un catalogue dont toutes les règles satisfont le seuil, when le gate est évalué, then il passe et publie le taux mesuré de chaque règle
 - [ ] Given le plafonnement par tier appliqué au corpus, when la distribution des notes est examinée, then elle est publiée et permet de constater si les notes s'effondrent toutes dans une même bande
-- [ ] Given une règle non observée sur le corpus, when le gate est évalué, then elle est signalée comme non prouvée et son activation par défaut est refusée
+- [ ] Given une règle non observée sur le corpus, when le gate est évalué, then elle est signalée comme non prouvée, et son activation par défaut n'est tolérée que par une inscription nominative dans la dette d'admission publiée, qui ne peut que rétrécir
 
 ## Functional Requirements
 
@@ -437,7 +437,7 @@ Mesurer la précision réelle des règles sur des dépôts Rust épinglés, seul
 - FR-12: Le système doit détecter hors ligne la présence de plusieurs versions majeures d'une même crate dans le graphe résolu.
 - FR-13: Le système ne doit exécuter aucun appel réseau pendant un scan.
 - FR-14: Le harness d'évaluation doit refuser de s'exécuter sur un corpus incomplet et ne doit écrire que dans un répertoire d'artefacts déclaré hors du dépôt.
-- FR-15: Le gate d'admission doit refuser l'activation par défaut de toute règle dont la précision n'est pas mesurée ou dont le taux de faux positifs dépasse le seuil publié.
+- FR-15: Le gate d'admission doit interdire l'activation par défaut de toute règle dont le taux de faux positifs mesuré dépasse le seuil publié, et nommer comme non prouvée toute règle dont la précision n'est pas mesurée. Une règle non prouvée ne peut rester active par défaut que par une inscription nominative dans la dette d'admission, qui ne peut que rétrécir et dont toute entrée périmée fait échouer la validation.
 
 ## Non-Functional Requirements
 
@@ -446,7 +446,7 @@ Mesurer la précision réelle des règles sur des dépôts Rust épinglés, seul
 - **Déterminisme:** deux exécutions consécutives du même scan sur le même code produisent des rapports JSON identiques octet pour octet, hors champs de durée. Le harness d'évaluation produit des sorties identiques sur deux exécutions.
 - **Mémoire:** la carte d'alias reste sous 64 Ko par unité source. Les limites existantes du noyau source, octets par fichier, octets totaux, nombre d'unités et profondeur de module, restent inchangées.
 - **Compatibilité:** 100 % des identifiants de règle existants sont conservés. 0 baseline invalidée par la migration `core-v1` vers `core-v2`, prouvé par un scope `baseline` à delta vide.
-- **Précision:** taux de faux positifs mesuré au plus 5 % par règle sur le corpus, et 0 % pour toute règle de tier `P0`. Toute règle non observée sur le corpus est refusée à l'activation par défaut.
+- **Précision:** taux de faux positifs mesuré au plus 5 % par règle sur le corpus, et 0 % pour toute règle de tier `P0`. Une règle non observée sur un corpus de dépôts sains n'est pas imprécise, elle est non prouvée: son activation par défaut exige une inscription nominative dans la dette d'admission, et cette dette ne peut que rétrécir.
 - **Fiabilité:** un dépôt du corpus en échec n'invalide pas les 9 autres. Un dépassement arithmétique dans le calcul de pénalité sature sans panique.
 
 ## Edge Cases & Error States
@@ -491,6 +491,7 @@ Explicit boundaries. What this version does NOT include:
 - **Score calculé à distance.** Un service de score permettrait de recalibrer sans publier de binaire, mais contredit la contrainte hors ligne et ajoute une dépendance d'exécution. Le modèle reste local et versionné.
 - **Scan de secrets sur fichiers bruts.** Détecter une clé d'API dans un fichier non source demande un producteur qui parcourt l'arbre de fichiers hors des unités Rust. Reporté avec l'intégration RustSec.
 - **Détection de code mort et de dépendances déclarées jamais importées.** La seconde exige de croiser la carte d'alias avec le graphe résolu, ce qui n'est possible qu'une fois EP-023 livré. Candidat naturel pour la tranche suivante.
+- **Preuve positive par fixtures adverses.** Un corpus de dépôts sains mesure le taux de faux positifs, jamais le rappel: il ne peut pas prouver une règle qui vise un défaut que ces dépôts ne commettent pas. Prouver les 24 règles non observées demande des fixtures adverses épinglées, adjudiquées comme le corpus, et un rappel mesuré à côté de la précision. Reporté à une tranche dédiée; d'ici là le gate verrouille la dette au lieu de la laisser grossir.
 - **Recalibration du seuil de label.** Les bornes `Great` à 75 et `NeedsWork` à 50 restent inchangées: le plafonnement suffit à faire chuter la note dans la bande correcte, et déplacer les bornes en même temps rendrait l'effet de chaque changement indissociable.
 
 ## Files NOT to Modify
@@ -537,7 +538,7 @@ Frame as questions for engineering input, not mandates:
 
 - Quelles règles exactement composent l'ensemble `P0` ? La réponse conditionne la crédibilité entière du plafonnement. À trancher par le mainteneur avant US-064, sur la base des candidats de EP-024 et de la distribution mesurée en US-080.
 - Les plafonds proposés, 20 et 40 pour `P0`, sont-ils trop sévères pour une codebase par ailleurs saine ? À trancher après US-080, qui publie la distribution des notes du corpus. Bloque l'activation par défaut des tiers.
-- Le corpus de 10 dépôts suffit-il à observer chaque règle au moins une fois ? Les règles non observées sont refusées à l'activation par défaut, donc un corpus trop petit bloquerait l'élargissement. À mesurer dès US-079, avant d'admettre les packs de EP-024.
+- ~~Le corpus de 10 dépôts suffit-il à observer chaque règle au moins une fois ?~~ Tranché par la mesure de US-079: non, et aucun corpus de dépôts sains ne le pourrait. 16 règles sur 40 ont tiré, toutes à 0 % de faux positifs mesuré; les 24 autres visent des défauts que `dtolnay`, `BurntSushi` ou `tokio-rs` ne commettent pas. Elles sont inscrites nominativement dans la dette d'admission, que le gate verrouille contre toute croissance. La preuve positive de ces 24 règles demande des fixtures adverses épinglées, source de preuve distincte du corpus sain, reportée à une tranche dédiée.
 - Faut-il exposer le plafond appliqué dans le rapport, ou seulement la note plafonnée ? Un agent qui voit la note sans la cause ne peut pas expliquer la chute. À trancher avec US-067.
 - Le pack performance dépend-il du profil de compilation pour certains lints ? Si oui, le verdict doit être figé sur un profil déclaré. À trancher pendant US-074.
 [/PRD]
