@@ -3,8 +3,8 @@
     "file": "tasks/prd-rust-doctor-score-credibility-kernel.md",
     "title": "Rust Doctor - Score Credibility Kernel and Generic Source Detectors",
     "created_at": "2026-08-03",
-    "status": "IN_PROGRESS",
-    "updated_at": "2026-08-03"
+    "status": "DONE",
+    "updated_at": "2026-08-04"
   },
   "epics": [
     {
@@ -40,10 +40,12 @@
     {
       "id": "EP-025",
       "title": "Corpus d'évaluation et gate de précision",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 4,
+      "started_at": "2026-08-04",
+      "completed_at": "2026-08-04"
     }
   ],
   "stories": [
@@ -243,55 +245,55 @@
       "id": "US-077",
       "title": "Figer un manifeste de corpus par révision",
       "epic": "EP-025",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-04",
+      "completed_at": "2026-08-04",
+      "reviewed_at": "2026-08-04"
     },
     {
       "id": "US-078",
       "title": "Exécuter le corpus par un harness reproductible et confiné",
       "epic": "EP-025",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-077"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-04",
+      "completed_at": "2026-08-04",
+      "reviewed_at": "2026-08-04"
     },
     {
       "id": "US-079",
       "title": "Publier la précision par règle après adjudication",
       "epic": "EP-025",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-078"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-04",
+      "completed_at": "2026-08-04",
+      "reviewed_at": "2026-08-04"
     },
     {
       "id": "US-080",
       "title": "Opposer un seuil d'admission fondé sur la précision mesurée",
       "epic": "EP-025",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-079"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-04",
+      "completed_at": "2026-08-04",
+      "reviewed_at": "2026-08-04"
     }
   ]
 }
