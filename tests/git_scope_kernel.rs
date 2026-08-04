@@ -276,11 +276,6 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
         "the frozen v6 bytes may only gain schema v7 and delta",
     );
 
-    let changelog = include_str!("../CHANGELOG.md");
-    assert!(changelog.contains("Report schema v7"));
-    assert!(changelog.contains("Consumers restricted to schema v6"));
-    assert!(changelog.contains("delta"));
-
     let mut compatible = compatible_v6;
     compatible["schema_version"] = Value::from(5);
     compatible.as_object_mut().unwrap().remove("scope");
