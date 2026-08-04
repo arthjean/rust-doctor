@@ -259,6 +259,7 @@ mod tests {
         occurrences: usize,
     ) -> Diagnostic {
         Diagnostic {
+            context: None,
             id: format!("{rule}-{occurrences}"),
             source: crate::DiagnosticSource::Clippy,
             code: Some(rule.to_owned()),

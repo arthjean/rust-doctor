@@ -656,6 +656,7 @@ mod tests {
 
     fn report() -> InspectReport {
         let diagnostics = vec![Diagnostic {
+            context: None,
             id: "id".to_owned(),
             source: DiagnosticSource::Clippy,
             code: Some("clippy::todo".to_owned()),

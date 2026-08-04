@@ -139,7 +139,7 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         assert!(!rendered.contains(private), "{name} leaked {private:?}");
     }
     let report: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(report["schema_version"], 9);
+    assert_eq!(report["schema_version"], 10);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["scope"]["mode"], "baseline");
     assert_eq!(report["delta"]["fingerprint_version"], 1);
@@ -637,19 +637,22 @@ fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
             "measured local artifact field {key:?} differs",
         );
     }
-    // Les deux grandeurs sont publiées séparément et restent cohérentes: chaque
-    // diagnostic de la fixture est émis par la cible lib et par la cible test,
-    // donc une occurrence sur deux est un doublon de cible et non un finding.
+    // Les deux grandeurs sont publiées séparément et restent cohérentes. Le
+    // scan porte sur les cibles par défaut, donc chaque unité n'est compilée
+    // qu'une fois et une occurrence correspond à un site réel. Sous
+    // `--all-targets`, la même fixture publiait deux occurrences par
+    // diagnostic, dont une n'était qu'un doublon de cible.
     for state in artifact["matrix"].as_array().unwrap() {
         let summary = &state["summary"];
         assert_eq!(summary["distinct"]["total"], summary["total"]);
         assert_eq!(
             summary["occurrences"]["total"].as_u64().unwrap(),
-            summary["distinct"]["total"].as_u64().unwrap() * 2,
+            summary["distinct"]["total"].as_u64().unwrap(),
             "state {}",
             state["name"]
         );
     }
+
     assert_eq!(artifact["public_repositories"].as_array().unwrap().len(), 3);
     assert_eq!(artifact["performance"]["measured"], true);
     assert_eq!(artifact["performance"]["verdict"], "pass");

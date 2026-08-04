@@ -19,6 +19,7 @@ fn root(name: &str) -> PathBuf {
 
 fn diagnostic(id: &str, path: Option<&str>, span: Option<DiagnosticSpan>) -> Diagnostic {
     Diagnostic {
+        context: None,
         id: id.to_owned(),
         source: DiagnosticSource::Clippy,
         code: Some("clippy::todo".to_owned()),

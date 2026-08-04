@@ -127,7 +127,7 @@ pub(crate) static CLIPPY_EXPECT_USED: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
+    tier: RuleTier::P3,
     help: "Propagate the error with ? or handle the missing value explicitly instead of panicking.",
 };
 pub(crate) static CLIPPY_FORMAT_COLLECT: RuleDefinition = RuleDefinition {
@@ -143,7 +143,7 @@ pub(crate) static CLIPPY_INDEXING_SLICING: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
+    tier: RuleTier::P3,
     help: "Use get or get_mut and handle the absent element instead of indexing, which panics out of bounds.",
 };
 pub(crate) static CLIPPY_LARGE_TYPES_PASSED_BY_VALUE: RuleDefinition = RuleDefinition {
@@ -191,7 +191,7 @@ pub(crate) static CLIPPY_PANIC: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
+    tier: RuleTier::P3,
     help: "Return an error instead of aborting the process on an input the caller can recover from.",
 };
 pub(crate) static CLIPPY_PANIC_IN_RESULT_FN: RuleDefinition = RuleDefinition {
@@ -263,7 +263,7 @@ pub(crate) static CLIPPY_STRING_SLICE: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
+    tier: RuleTier::P3,
     help: "Use get on the string range and handle the absent slice; byte indexing panics inside a UTF-8 character.",
 };
 pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefinition {
@@ -319,7 +319,7 @@ pub(crate) static CLIPPY_UNWRAP_USED: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::Clippy,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
+    tier: RuleTier::P3,
     help: "Propagate the error with ? or provide a default instead of panicking on the absent value.",
 };
 pub(crate) static CLIPPY_USELESS_VEC: RuleDefinition = RuleDefinition {
@@ -828,7 +828,6 @@ mod tests {
             [
                 "clippy",
                 "--workspace",
-                "--all-targets",
                 "--no-deps",
                 "--message-format=json",
                 "--",

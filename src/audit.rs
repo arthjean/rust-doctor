@@ -224,7 +224,15 @@ impl Audit {
         diagnostics: &[Diagnostic],
     ) -> Self {
         let categories = category_tallies(diagnostics);
-        let aggregation = aggregate_rules(diagnostics);
+        // Les deux grandeurs comptent tout ce que le rapport publie, FR-06
+        // exige leur égalité avec `summary`. Seule la note écarte les
+        // diagnostics hors production: ils restent visibles et comptés, ils
+        // cessent de coûter des points.
+        let aggregation = aggregate_rules(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| crate::report::DiagnosticContext::weighs(diagnostic)),
+        );
         let score = (source_files > 0).then(|| score(&aggregation, analysis_is_authoritative));
         Self {
             source_files,
@@ -933,6 +941,7 @@ mod tests {
 
     fn diagnostic(input: &OracleDiagnostic, index: usize) -> Diagnostic {
         Diagnostic {
+            context: None,
             id: format!("finding-{index}"),
             source: DiagnosticSource::Clippy,
             code: input.rule_id.clone(),
@@ -1139,6 +1148,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, definition)| Diagnostic {
+                context: None,
                 id: format!("finding-{index}"),
                 source: DiagnosticSource::Clippy,
                 code: Some(definition.id.to_owned()),
@@ -1199,6 +1209,7 @@ mod tests {
             .enumerate()
             .map(
                 |(index, (code, category, severity, occurrences))| Diagnostic {
+                    context: None,
                     id: format!("finding-{index}"),
                     source: DiagnosticSource::Clippy,
                     code: Some((*code).to_owned()),
@@ -1377,6 +1388,7 @@ mod tests {
             ("clippy::dbg_macro", "maintainability", Severity::Info, 1),
         ]);
         diagnostics.push(Diagnostic {
+            context: None,
             id: "compiler".to_owned(),
             source: DiagnosticSource::Rustc,
             code: Some("E0433".to_owned()),

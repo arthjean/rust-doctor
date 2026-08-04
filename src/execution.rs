@@ -95,6 +95,14 @@ pub(crate) struct CompilerMessageData {
 #[derive(Debug, Deserialize)]
 pub(crate) struct CapturedTarget {
     pub(crate) name: String,
+    /// Nature de la cible telle que Cargo la déclare: `lib`, `bin`, `test`,
+    /// `bench`, `example`, `custom-build`. C'est le système de compilation qui
+    /// répond, pas une heuristique de chemin, et il reste exact quand
+    /// `target.test` ne l'est pas: sous `--all-targets`, Cargo marque `test`
+    /// vrai jusque sur un binaire sans aucun test, mais `kind` continue de
+    /// séparer ce que le projet livre de ce qu'il compile pour se vérifier.
+    #[serde(default)]
+    pub(crate) kind: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -660,7 +668,6 @@ mod tests {
         let expected: Vec<String> = [
             "clippy",
             "--workspace",
-            "--all-targets",
             "--no-deps",
             "--message-format=json",
             "--",
@@ -674,7 +681,7 @@ mod tests {
                 .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
         )
         .collect();
-        assert_eq!(expected.len(), 6 + 2 * 33);
+        assert_eq!(expected.len(), 5 + 2 * 33);
         assert_eq!(
             arguments,
             expected
@@ -894,7 +901,7 @@ mod tests {
                 )
                 .collect::<Vec<_>>()
         );
-        assert_eq!(scan.command.len(), 1 + 6 + 2 * 33);
+        assert_eq!(scan.command.len(), 1 + 5 + 2 * 33);
         assert_eq!(scan.exit_code, Some(0));
         assert_eq!(scan.exit_success, Some(true));
         assert_eq!(scan.build_finished, Some(true));

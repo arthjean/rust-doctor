@@ -187,7 +187,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 9);
+    assert_eq!(full.schema_version, 10);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -229,11 +229,16 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
 
     let mut current_wire = Vec::new();
     rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
+    // La commande est comparée à part: elle a délibérément perdu
+    // `--all-targets`, et elle gagne un `-W` à chaque règle admise au
+    // catalogue. Le reste des octets v7 doit rester identique.
+    let frozen = compact_json_fixture(include_str!(
+        "fixtures/rule-scaling-kernel/v7-full-report.json"
+    ));
+    assert_ne!(support::project_v10_wire_to_v7(&current_wire), frozen);
     assert_eq!(
-        support::project_v9_wire_to_v7(&current_wire),
-        compact_json_fixture(include_str!(
-            "fixtures/rule-scaling-kernel/v7-full-report.json"
-        ))
+        support::project_v10_wire_to_v7(&current_wire),
+        support::drop_scan_command(&frozen)
     );
 
     let frozen_v7_source = include_str!("fixtures/git-scope/v7-full-report.json");
@@ -242,15 +247,22 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     let current = project_legacy_report(current, &oracle());
     assert_eq!(current["schema_version"], 7);
     assert!(current["delta"].is_null());
-    let frozen_v7: Value =
+    let mut frozen_v7: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v7-full-report.json")).unwrap();
+    // Même règle que pour les octets: la commande est le relevé de ce qui a
+    // tourné, pas une clause du contrat de schéma.
+    assert_ne!(current["scan"]["command"], frozen_v7["scan"]["command"]);
+    let mut current = current;
+    current["scan"].as_object_mut().unwrap().remove("command");
+    frozen_v7["scan"].as_object_mut().unwrap().remove("command");
     assert_eq!(current, frozen_v7);
 
     let mut compatible_v6 = current.clone();
     compatible_v6["schema_version"] = Value::from(6);
     compatible_v6.as_object_mut().unwrap().remove("delta");
-    let frozen_v6: Value =
+    let mut frozen_v6: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v6-full-report.json")).unwrap();
+    frozen_v6["scan"].as_object_mut().unwrap().remove("command");
     assert_eq!(compatible_v6, frozen_v6);
     let projected_v6 = frozen_v7_source
         .replacen("\"schema_version\": 7", "\"schema_version\": 6", 1)
@@ -272,8 +284,9 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     let mut compatible = compatible_v6;
     compatible["schema_version"] = Value::from(5);
     compatible.as_object_mut().unwrap().remove("scope");
-    let frozen: Value =
+    let mut frozen: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v5-full-report.json")).unwrap();
+    frozen["scan"].as_object_mut().unwrap().remove("command");
 
     assert_eq!(compatible, frozen);
 }
@@ -294,11 +307,16 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
     let normalized_wire = String::from_utf8(output.stdout)
         .unwrap()
         .replace(comparison_base, "0123456789abcdef0123456789abcdef01234567");
+    let frozen_baseline = compact_json_fixture(include_str!(
+        "fixtures/rule-scaling-kernel/v7-baseline-report.json"
+    ));
+    assert_ne!(
+        support::project_v10_wire_to_v7(normalized_wire.as_bytes()),
+        frozen_baseline
+    );
     assert_eq!(
-        support::project_v9_wire_to_v7(normalized_wire.as_bytes()),
-        compact_json_fixture(include_str!(
-            "fixtures/rule-scaling-kernel/v7-baseline-report.json"
-        )),
+        support::project_v10_wire_to_v7(normalized_wire.as_bytes()),
+        support::drop_scan_command(&frozen_baseline),
     );
 
     let mut normalized = production;
@@ -307,8 +325,12 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
     project_v9_value_to_v7(&mut normalized);
     let normalized = project_legacy_report(normalized, &oracle());
 
-    let baseline: Value =
+    let mut baseline: Value =
         serde_json::from_str(include_str!("fixtures/baseline/v7-baseline-report.json")).unwrap();
+    let mut normalized = normalized;
+    assert_ne!(normalized["scan"]["command"], baseline["scan"]["command"]);
+    normalized["scan"].as_object_mut().unwrap().remove("command");
+    baseline["scan"].as_object_mut().unwrap().remove("command");
     assert_eq!(normalized, baseline);
     assert_eq!(baseline["schema_version"], 7);
     assert_eq!(baseline["scope"]["mode"], "baseline");
@@ -513,7 +535,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 9);
+        assert_eq!(report.schema_version, 10);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

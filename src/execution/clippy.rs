@@ -1,10 +1,23 @@
 use super::ScanExecution;
 use crate::policy::{PolicyPlan, Producer, RuleDefinition, RuleLevel};
 
-const BASE_ARGS: [&str; 5] = [
+/// Cibles par défaut de Cargo: bibliothèques et binaires, c'est-à-dire ce que
+/// le projet publie.
+///
+/// `--all-targets` compilait aussi tests, benchs, exemples et scripts de
+/// construction. Mesuré sur le corpus le 2026-08-04, 69,9 % des findings du
+/// pack venaient de là, et 1252 des 1279 findings du self-scan. Un `.unwrap()`
+/// sous `#[cfg(test)]` est le mécanisme d'échec attendu du test, un `println!`
+/// dans `build.rs` est le canal imposé par Cargo, un `dbg!` sous `examples/`
+/// est la démonstration: aucun n'est un défaut de la codebase livrée, donc
+/// aucun n'a sa place dans une note qui la juge.
+///
+/// Le filtrage ne peut pas se faire après coup: Cargo étiquette `test: true`
+/// tous les messages sous `--all-targets`, y compris ceux d'un binaire sans
+/// aucun test. La portée se règle donc ici, à la source.
+const BASE_ARGS: [&str; 4] = [
     "clippy",
     "--workspace",
-    "--all-targets",
     "--no-deps",
     "--message-format=json",
 ];
@@ -110,7 +123,6 @@ mod tests {
             [
                 "clippy",
                 "--workspace",
-                "--all-targets",
                 "--no-deps",
                 "--message-format=json",
                 "--",

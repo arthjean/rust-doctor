@@ -65,7 +65,6 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
         "cargo",
         "clippy",
         "--workspace",
-        "--all-targets",
         "--no-deps",
         "--message-format=json",
         "--",
@@ -104,17 +103,21 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-/// Ramène un rapport v9 sur les octets figés de v7.
+/// Ramène un rapport v10 sur les octets figés de v7.
 ///
-/// v8 avait ajouté le bloc `audit`, v9 ajoute le `tier` de chaque règle de
-/// policy et les deux grandeurs nommées de `summary`. Aucun champ historique
-/// n'est retiré ni retypé, donc la projection consiste uniquement à enlever les
-/// membres ajoutés depuis.
-pub(crate) fn project_v9_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":9,\"audit\":";
+/// v8 avait ajouté le bloc `audit`, v9 le `tier` de chaque règle de policy et
+/// les deux grandeurs nommées de `summary`, v10 le `context` de chaque
+/// diagnostic. Aucun champ historique n'est retiré ni retypé, donc la
+/// projection consiste uniquement à enlever les membres ajoutés depuis.
+///
+/// C'est la condition qui rend une archive gelée durable: un schéma qui ajoute
+/// se projette, un schéma qui déplace la valeur d'un champ existant ne se
+/// projette pas.
+pub(crate) fn project_v10_wire_to_v7(output: &[u8]) -> Vec<u8> {
+    const PREFIX: &[u8] = b"{\"schema_version\":10,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
-        .expect("schema v9 should start with its audit member");
+        .expect("schema v10 should start with its audit member");
     let suffix = &payload[value_end(payload, 0)..];
     let mut projected = Vec::with_capacity(output.len());
     projected.extend_from_slice(b"{\"schema_version\":7");
@@ -127,7 +130,26 @@ pub(crate) fn project_v9_wire_to_v7(output: &[u8]) -> Vec<u8> {
     while let Some(rule) = find(&projected, 0, b"\"tier\":") {
         projected = remove_member(&projected, rule, "tier");
     }
-    projected
+    while let Some(diagnostic) = find(&projected, 0, b"\"context\":") {
+        projected = remove_member(&projected, diagnostic, "context");
+    }
+    drop_scan_command(&projected)
+}
+
+/// Retire `scan.command` d'un rapport sérialisé.
+///
+/// Une archive gelée prouve qu'aucun champ lu par un consommateur d'une version
+/// passée n'a disparu ni changé de type. La commande, elle, est le relevé de ce
+/// qui a réellement tourné: elle change dès que le catalogue s'élargit ou que
+/// le périmètre bouge, deux choses que ce PRD fait exprès. La figer octet pour
+/// octet reviendrait à jurer que la policy ne bougera plus, ce qui contredit
+/// l'objectif de passer de 12 à 40 règles. Les tests qui tiennent à la commande
+/// l'affirment séparément, sur sa forme et sur ce qu'elle a délibérément perdu.
+pub(crate) fn drop_scan_command(wire: &[u8]) -> Vec<u8> {
+    match find(wire, 0, b"\"scan\":{") {
+        Some(scan) => remove_member(wire, scan, "command"),
+        None => wire.to_vec(),
+    }
 }
 
 fn find(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {

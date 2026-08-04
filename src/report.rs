@@ -24,7 +24,7 @@ use crate::policy::{
 use crate::source_kernel;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 9;
+pub const SCHEMA_VERSION: u8 = 10;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -267,9 +267,62 @@ pub struct Diagnostic {
     pub help: Option<String>,
     pub package: Option<String>,
     pub target: Option<String>,
+    /// Cible hors production d'où vient le diagnostic, absente sinon.
+    ///
+    /// Le code livré n'est pas marqué: son absence de marque est ce qui le
+    /// désigne, exactement comme le `fileContext` de react-doctor, qui ne
+    /// stampille que `test` et `story`. Un diagnostic marqué reste publié et
+    /// compté, mais cesse de peser sur la note et de bloquer: un `println!`
+    /// dans `build.rs` est le canal imposé par Cargo, pas un défaut de la
+    /// codebase livrée.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<DiagnosticContext>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
     pub occurrences: usize,
+}
+
+/// Cible hors production d'où vient un diagnostic, dérivée de la nature de la
+/// cible que Cargo déclare. Une bibliothèque ou un binaire ne sont pas
+/// représentés: ils sont la production, et un diagnostic qui en vient ne porte
+/// simplement pas ce champ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiagnosticContext {
+    /// Cible de test intégrée, sous `tests/`.
+    Tests,
+    /// Banc de mesure, sous `benches/`.
+    Benchmark,
+    /// Démonstration, sous `examples/`.
+    Example,
+    /// Script de construction exécuté par Cargo.
+    BuildScript,
+}
+
+impl DiagnosticContext {
+    /// Lecture fermée d'une nature de cible Cargo. Une bibliothèque, un binaire
+    /// et une valeur inconnue ne sont pas marqués: dans le doute, le diagnostic
+    /// compte, parce que taire un défaut du code livré est la seule erreur que
+    /// ce champ puisse rendre coûteuse.
+    pub(crate) fn from_target_kinds(kinds: &[String]) -> Option<Self> {
+        kinds.iter().find_map(|kind| match kind.as_str() {
+            "test" => Some(Self::Tests),
+            "bench" => Some(Self::Benchmark),
+            "example" => Some(Self::Example),
+            "custom-build" => Some(Self::BuildScript),
+            _ => None,
+        })
+    }
+
+    /// Un diagnostic pèse-t-il sur la note et sur le gate ?
+    ///
+    /// C'est la décision que react-doctor prend dans `filterForSurface`: un
+    /// diagnostic estampillé d'un contexte hors production sort des surfaces
+    /// `score` et `ciFailure`, et reste dans `cli`. Il n'est pas supprimé, il
+    /// cesse de coûter.
+    pub(crate) const fn weighs(diagnostic: &Diagnostic) -> bool {
+        diagnostic.context.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1009,6 +1062,8 @@ fn normalize_cargo_health_candidate(
     Diagnostic {
         id,
         source,
+        // Diagnostic natif: aucune cible Cargo ne le porte.
+        context: None,
         code,
         base_severity: canonical_severity(definition.default_level),
         severity: canonical_severity(definition.default_level),
@@ -1068,6 +1123,8 @@ fn normalize_source_candidate(
     Diagnostic {
         id,
         source,
+        // Diagnostic natif: aucune cible Cargo ne le porte.
+        context: None,
         code,
         base_severity: canonical_severity(definition.default_level),
         severity: canonical_severity(definition.default_level),
@@ -1088,6 +1145,7 @@ fn merge_diagnostic(diagnostics: &mut BTreeMap<String, Diagnostic>, diagnostic: 
             existing.occurrences += 1;
             merge_optional_context(&mut existing.package, diagnostic.package);
             merge_optional_context(&mut existing.target, diagnostic.target);
+            merge_optional_context(&mut existing.context, diagnostic.context);
         }
         None => {
             diagnostics.insert(diagnostic.id.clone(), diagnostic);
@@ -1126,6 +1184,7 @@ fn normalize_diagnostic(
             .map(|package| package.name.to_string())
     });
     let target = Some(normalize_text(&captured.target.name));
+    let context = DiagnosticContext::from_target_kinds(&captured.target.kind);
     let id = fingerprint(
         source,
         code.as_deref(),
@@ -1141,6 +1200,7 @@ fn normalize_diagnostic(
         code,
         base_severity: severity,
         severity,
+        context,
         category: rule.map(|rule| rule.category.to_owned()),
         message,
         help: rule.map(|rule| rule.help.to_owned()),
@@ -1152,7 +1212,10 @@ fn normalize_diagnostic(
     }
 }
 
-fn merge_optional_context(existing: &mut Option<String>, incoming: Option<String>) {
+/// Deux occurrences d'un même diagnostic qui ne s'accordent pas sur un champ
+/// facultatif le laissent vide: publier l'une des deux valeurs affirmerait une
+/// provenance que les occurrences contredisent.
+fn merge_optional_context<T: PartialEq>(existing: &mut Option<T>, incoming: Option<T>) {
     if existing.as_ref() != incoming.as_ref() {
         *existing = None;
     }
@@ -1202,7 +1265,7 @@ fn evaluate_gate(
 
     let blocking_diagnostics = diagnostics
         .iter()
-        .filter(|diagnostic| is_blocking(diagnostic, blocking))
+        .filter(|diagnostic| DiagnosticContext::weighs(diagnostic) && is_blocking(diagnostic, blocking))
         .count();
     evaluated_gate(blocking, blocking_diagnostics)
 }
@@ -1497,6 +1560,7 @@ mod tests {
         CapturedMessage::Compiler(CompilerMessageData {
             package_id: "opaque-package-id".to_owned(),
             target: CapturedTarget {
+                kind: vec!["lib".to_owned()],
                 name: "example".to_owned(),
             },
             message: CapturedDiagnostic {
@@ -1531,6 +1595,7 @@ mod tests {
             CapturedMessage::Compiler(message) => CapturedMessage::Compiler(CompilerMessageData {
                 package_id: message.package_id.clone(),
                 target: CapturedTarget {
+                    kind: vec!["lib".to_owned()],
                     name: message.target.name.clone(),
                 },
                 message: CapturedDiagnostic {
@@ -1919,7 +1984,6 @@ mod tests {
                 "cargo".to_owned(),
                 "clippy".to_owned(),
                 "--workspace".to_owned(),
-                "--all-targets".to_owned(),
                 "--no-deps".to_owned(),
                 "--message-format=json".to_owned(),
             ],

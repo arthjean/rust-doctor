@@ -18,7 +18,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
         "tests/fixtures/projects/clean",
     )));
     let value = serde_json::to_value(&clean).unwrap();
-    assert_eq!(clean.schema_version, 9);
+    assert_eq!(clean.schema_version, 10);
     assert_eq!(clean.status, Status::Complete);
     assert_eq!(clean.audit.source_files, 1);
     assert!(clean.audit.categories.is_empty());
@@ -181,8 +181,11 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.projected_rule_ids, ["clippy::todo"]);
     assert_eq!(score.projected_after_top_three, Some(100));
     assert_eq!(report.audit.categories[0].name.to_string(), "Bugs");
-    assert_eq!(report.audit.categories[0].warnings, 6);
-    assert_eq!(report.audit.categories[0].occurrences.total, 6);
+    // Les cibles par défaut ne compilent chaque unité qu'une fois: une
+    // occurrence par diagnostic distinct, là où `--all-targets` en produisait
+    // deux pour un même site.
+    assert_eq!(report.audit.categories[0].warnings, 3);
+    assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
     // `clippy::todo` est de tier P2: la dimension Reliability est plafonnée à 75
     // et la note globale ne subit aucun plafond global.
@@ -192,7 +195,7 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.value, 94);
     assert_eq!(
         report.audit.share_url().unwrap(),
-        "https://rust-doctor.vercel.app/share?s=94&w=6&f=1"
+        "https://rust-doctor.vercel.app/share?s=94&w=3&f=1"
     );
 }
 

@@ -30,7 +30,6 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         "cargo",
         "clippy",
         "--workspace",
-        "--all-targets",
         "--no-deps",
         "--message-format=json",
         "--",
@@ -45,8 +44,28 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
             .flat_map(|rule| ["-W".to_owned(), rule.id.clone()]),
     )
     .collect();
-    assert_eq!(expected.len(), 7 + 2 * 33);
+    // Six arguments de base depuis que le périmètre est celui des cibles par
+    // défaut de Cargo, puis un `-W` par règle Clippy active de la policy. Le
+    // compte est dérivé de la policy publiée, jamais figé, pour qu'un
+    // élargissement du catalogue ne demande pas d'éditer ce test.
+    assert_eq!(
+        expected.len(),
+        6 + 2 * policy
+            .rules
+            .iter()
+            .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)
+            .count()
+    );
     assert_eq!(command, &expected);
+
+    // Un seul argument historique a été retiré, et il est nommé ici plutôt que
+    // gommé de l'oracle: `--all-targets` compilait tests, benchs, exemples et
+    // scripts de construction, dont 69,9 % des findings du pack provenaient.
+    // Le périmètre est désormais celui des cibles par défaut de Cargo. Le test
+    // prouve donc deux choses: tout le reste de la commande historique survit
+    // dans l'ordre, et ce retrait-là est délibéré et non une dérive.
+    const WITHDRAWN: &str = "--all-targets";
+    assert!(!command.iter().any(|argument| argument == WITHDRAWN));
 
     let mut remaining_command = command.iter();
     for historical_argument in oracle["clippy_command"]
@@ -56,6 +75,9 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         let historical_argument = historical_argument
             .as_str()
             .expect("historical command arguments should be strings");
+        if historical_argument == WITHDRAWN {
+            continue;
+        }
         assert!(
             remaining_command.any(|argument| argument == historical_argument),
             "historical argument {historical_argument} should remain in order"

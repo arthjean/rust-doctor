@@ -326,7 +326,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let (default_exit, default) = &reports["default"];
     assert_eq!(*default_exit, 0);
-    assert_eq!(default["schema_version"], 9);
+    assert_eq!(default["schema_version"], 10);
     assert_eq!(default["status"], "complete");
     assert_eq!(default["summary"]["warnings"], 7);
     assert_eq!(default["summary"]["total"], 7);
@@ -704,7 +704,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         for added in ["distinct", "occurrences"] {
             summary
                 .remove(added)
-                .expect("schema v9 should publish both magnitudes");
+                .expect("schema v10 should publish both magnitudes");
         }
     }
     fs::remove_dir_all(&fixture.root).unwrap();

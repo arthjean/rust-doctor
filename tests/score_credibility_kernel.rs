@@ -282,16 +282,23 @@ fn both_magnitudes_are_named_and_reconciled() {
         assert_eq!(category["warnings"], category["occurrences"]["warnings"]);
     }
 
-    // Un diagnostic remonté par deux cibles de compilation compte pour un
-    // diagnostic distinct et deux occurrences.
-    let repeated = report["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|diagnostic| diagnostic["code"] == "clippy::todo")
-        .expect("the fixture should carry a repeated finding");
-    assert_eq!(repeated["occurrences"], 2);
-    assert!(summary["occurrences"]["total"].as_u64() > summary["distinct"]["total"].as_u64());
+    // Les occurrences couvrent toujours les distincts, et chaque diagnostic
+    // publié en porte au moins une.
+    //
+    // La multiplicité elle-même, un diagnostic remonté deux fois qui compte
+    // pour un distinct et deux occurrences, est prouvée en unitaire sur deux
+    // messages compilateur identiques, dans
+    // `report::tests::normalizes_text_paths_severity_and_deduplicates`. Elle y
+    // est indépendante du périmètre de compilation, alors qu'ici elle
+    // dépendrait de ce que Cargo choisit de compiler: sous les cibles par
+    // défaut une bibliothèque n'est plus lintée deux fois, et l'invariant
+    // cesserait d'être observable sans cesser d'être vrai.
+    assert!(
+        summary["occurrences"]["total"].as_u64() >= summary["distinct"]["total"].as_u64()
+    );
+    for diagnostic in report["diagnostics"].as_array().unwrap() {
+        assert!(diagnostic["occurrences"].as_u64().unwrap() >= 1);
+    }
 }
 
 /// US-066: un rapport dont les comptages divergent n'est pas publiable.
@@ -313,7 +320,7 @@ fn diverging_counts_fail_to_serialize() {
 fn an_inconsistent_model_is_rejected_before_publication() {
     let mut report = inspect(InspectRequest::new(adversarial()));
     assert_eq!(report.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 9);
+    assert_eq!(SCHEMA_VERSION, 10);
 
     let score = report.audit.score.as_mut().unwrap();
     score.applied_ceiling = None;

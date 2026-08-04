@@ -76,6 +76,7 @@ fn reset_peak() -> usize {
 fn fixture_report() -> InspectReport {
     let diagnostics: Vec<_> = (0..DIAGNOSTICS)
         .map(|index| Diagnostic {
+            context: None,
             id: format!("diagnostic-{index}"),
             source: DiagnosticSource::Clippy,
             code: Some(format!("clippy::rule_{}", index % 100)),
@@ -93,7 +94,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 9,
+        schema_version: 10,
         audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
