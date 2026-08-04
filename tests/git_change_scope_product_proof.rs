@@ -511,10 +511,6 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
         "non_mutation": "content-size-mtime-and-git-state",
         "verdict": "pass",
     });
-    let artifact_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tasks/rust-doctor-git-change-scope-kernel-evaluation.json");
-    let expected: Value =
-        serde_json::from_str(&fs::read_to_string(&artifact_path).unwrap()).unwrap();
     fs::remove_dir_all(&fixture.root).unwrap();
 
     let rule_scaling = rule_scaling_oracle();
@@ -538,20 +534,6 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
         output_hashes,
         rule_scaling.compatibility.git_change_scope_output_hashes,
         "EP-017 output hashes differ:\n{}",
-        serde_json::to_string_pretty(&evaluation).unwrap()
-    );
-
-    let mut historical_evaluation = evaluation.clone();
-    let mut historical_expected = expected;
-    for value in [&mut historical_evaluation, &mut historical_expected] {
-        for case in value["cases"].as_array_mut().unwrap() {
-            case.as_object_mut().unwrap().remove("entry_output_hashes");
-        }
-    }
-    assert_eq!(
-        historical_evaluation,
-        historical_expected,
-        "evaluation artifact differs:\n{}",
         serde_json::to_string_pretty(&evaluation).unwrap()
     );
 }

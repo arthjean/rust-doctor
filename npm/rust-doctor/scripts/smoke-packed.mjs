@@ -23,7 +23,7 @@ import {
   sha256,
 } from "./pack-local.mjs";
 
-const artifactPath = join(repositoryRoot, "tasks/rust-doctor-local-cli-dogfood.json");
+const artifactPath = join(repositoryRoot, "target/local-cli-dogfood.json");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

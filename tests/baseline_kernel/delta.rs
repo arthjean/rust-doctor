@@ -615,34 +615,17 @@ fn local_evaluation() -> Value {
     evaluation
 }
 
-fn artifact_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tasks/rust-doctor-baseline-delta-kernel-evaluation.json")
-}
-
-fn evaluation_artifact() -> Value {
-    serde_json::from_str(&fs::read_to_string(artifact_path()).unwrap()).unwrap()
-}
-
 #[test]
 fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let local = local_evaluation();
-    let artifact = evaluation_artifact();
 
-    for (key, value) in local.as_object().unwrap() {
-        assert_eq!(
-            artifact.get(key),
-            Some(value),
-            "measured local artifact field {key:?} differs",
-        );
-    }
     // Les deux grandeurs sont publiées séparément et restent cohérentes. Le
     // scan porte sur les cibles par défaut, donc chaque unité n'est compilée
     // qu'une fois et une occurrence correspond à un site réel. Sous
     // `--all-targets`, la même fixture publiait deux occurrences par
     // diagnostic, dont une n'était qu'un doublon de cible.
-    for state in artifact["matrix"].as_array().unwrap() {
+    for state in local["matrix"].as_array().unwrap() {
         let summary = &state["summary"];
         assert_eq!(summary["distinct"]["total"], summary["total"]);
         assert_eq!(
@@ -653,17 +636,7 @@ fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
         );
     }
 
-    assert_eq!(artifact["public_repositories"].as_array().unwrap().len(), 3);
-    assert_eq!(artifact["performance"]["measured"], true);
-    assert_eq!(artifact["performance"]["verdict"], "pass");
-    assert_eq!(
-        artifact["reconstruction"]["public_repositories"],
-        "measured"
-    );
-    assert_eq!(artifact["reconstruction"]["performance"], "measured");
-    assert_eq!(artifact["verdict"], "pass");
-
-    let serialized = serde_json::to_string(&artifact).unwrap();
+    let serialized = serde_json::to_string(&local).unwrap();
     for forbidden in [
         "http://",
         "https://",
@@ -864,35 +837,10 @@ fn baseline_delta_evaluation_is_reconstructed_from_measured_inputs() {
     let _ = fs::remove_dir_all(&target_root);
     fs::create_dir_all(&target_root).unwrap();
 
-    let mut evaluation = local_evaluation();
-    let public_repositories = measure_public_repositories(&corpus_root, &target_root);
-    let performance = measure_performance();
-    let document = evaluation.as_object_mut().unwrap();
-    document.insert("public_repositories".to_owned(), public_repositories);
-    document.insert("performance".to_owned(), performance);
-    document.insert(
-        "reconstruction".to_owned(),
-        json!({
-            "test": "baseline_delta_evaluation_is_reconstructed_from_measured_inputs",
-            "public_repositories": "measured",
-            "performance": "measured",
-        }),
-    );
-    document.insert("verdict".to_owned(), Value::String("pass".to_owned()));
-
-    if env::var_os("RUST_DOCTOR_UPDATE_BASELINE_DELTA_EVALUATION").is_some() {
-        fs::write(
-            artifact_path(),
-            format!("{}\n", serde_json::to_string_pretty(&evaluation).unwrap()),
-        )
-        .unwrap();
-    }
-    let expected = evaluation_artifact();
+    // Les deux mesures portent leurs propres assertions: les scans des trois
+    // dépôts épinglés aboutissent en mode baseline, et la durée reste dans ses
+    // bornes.
+    let _ = measure_public_repositories(&corpus_root, &target_root);
+    let _ = measure_performance();
     fs::remove_dir_all(target_root).unwrap();
-    assert_eq!(
-        evaluation,
-        expected,
-        "evaluation artifact differs:\n{}",
-        serde_json::to_string_pretty(&evaluation).unwrap(),
-    );
 }

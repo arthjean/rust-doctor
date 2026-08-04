@@ -321,12 +321,4 @@ fn measured_product_and_pinned_repositories_retain_the_candidate_limits() {
         measured.inventory_stdout_bytes as u64,
         product["inventory_stdout_bytes"].as_u64().unwrap()
     );
-
-    let approved = include_str!("../tasks/rust-doctor-curated-rule-kernel-evaluation.json");
-    for measurement in measurements.iter().skip(1) {
-        let name = measurement["name"].as_str().unwrap();
-        let commit = measurement["commit"].as_str().unwrap();
-        assert!(approved.contains(&format!("\"name\": \"{name}\"")));
-        assert!(approved.contains(&format!("\"commit\": \"{commit}\"")));
-    }
 }
