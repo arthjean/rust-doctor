@@ -56,10 +56,15 @@ pub(crate) const CATEGORIES: [&str; 6] = [
 
 /// Clippy command expected for a published policy.
 ///
-/// Le catalogue grandit d'une tranche à l'autre, donc figer la liste dans
-/// chaque test la rendrait fausse à chaque élargissement. La commande reste
-/// néanmoins contrainte exactement: base, séparateur unique, puis un `-W` par
-/// règle Clippy active de `policy.rules`, dans l'ordre publié.
+/// The catalog grows from one slice to the next, so freezing the list in every
+/// test would make it wrong at each widening. The command nevertheless stays
+/// exactly constrained: base, single separator, the silencing of everything
+/// Clippy warns about by default, then one `-W` per active Clippy rule of
+/// `policy.rules`, in published order.
+///
+/// `-A clippy::all` opens the lint section and never closes it: a `-W` that
+/// follows wins, so the raised rules are exactly the catalogued ones and no
+/// other lint reaches the report without a category, a tier and a help.
 pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String> {
     let base = [
         "cargo",
@@ -68,6 +73,8 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
         "--no-deps",
         "--message-format=json",
         "--",
+        "-A",
+        "clippy::all",
     ];
     base.into_iter()
         .map(str::to_owned)

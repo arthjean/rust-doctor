@@ -832,6 +832,8 @@ mod tests {
                 "--no-deps",
                 "--message-format=json",
                 "--",
+                "-A",
+                "clippy::all",
                 "-W",
                 "clippy::dbg_macro",
                 "-W",

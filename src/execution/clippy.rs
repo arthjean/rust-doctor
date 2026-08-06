@@ -22,6 +22,21 @@ const BASE_ARGS: [&str; 4] = [
     "--message-format=json",
 ];
 
+/// Silences everything Clippy warns about by default, so the only lints left
+/// are the ones the catalog names right after it.
+///
+/// A lint the catalog does not know still reaches the report otherwise:
+/// `report::diagnostics` only drops a diagnostic whose rule is catalogued and
+/// inactive. It arrives with no category, no tier and no help, it cannot weigh
+/// on the score, and its mere presence costs the score its authoritative flag.
+/// Measured on four corpus repositories on 2026-08-06: 9 findings out of 164
+/// came from there, and they were enough to disqualify three of the four
+/// reports. Dropping them makes every finding one the tool can explain.
+///
+/// Order matters, `-W` after `-A` wins, so this stays the first argument of the
+/// lint section.
+const SILENCE_UNCATALOGUED: [&str; 2] = ["-A", "clippy::all"];
+
 pub(super) fn arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
     arguments_for_rules(plan.active_rules(Producer::Clippy))
 }
@@ -29,9 +44,11 @@ pub(super) fn arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
 pub(crate) fn arguments_for_rules<'a>(
     rules: impl IntoIterator<Item = (&'a RuleDefinition, RuleLevel)>,
 ) -> Vec<&'static str> {
-    let mut arguments = Vec::with_capacity(BASE_ARGS.len() + 1 + 16);
+    let mut arguments =
+        Vec::with_capacity(BASE_ARGS.len() + 1 + SILENCE_UNCATALOGUED.len() + 16);
     arguments.extend(BASE_ARGS);
     arguments.push("--");
+    arguments.extend(SILENCE_UNCATALOGUED);
     for (definition, level) in rules {
         if let Some(flag) = level.clippy_flag() {
             arguments.extend([flag, definition.id]);
@@ -110,8 +127,9 @@ mod tests {
         );
         assert!(!arguments.contains(&"-D"));
 
-        // Éteindre chaque catégorie éteint chaque règle, quel que soit le
-        // volume du catalogue: la commande retombe alors sur ses seules bases.
+        // Turning off every category turns off every rule, whatever the
+        // catalog volume: the command then carries the silencing alone, so the
+        // scan reports nothing rather than everything Clippy warns about.
         let all_off = crate::policy::CATEGORIES
             .iter()
             .fold(PolicyInput::default(), |input, category| {
@@ -126,6 +144,8 @@ mod tests {
                 "--no-deps",
                 "--message-format=json",
                 "--",
+                "-A",
+                "clippy::all",
             ]
         );
     }

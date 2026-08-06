@@ -208,9 +208,9 @@ fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
         .expect("rust-doctor should start");
     let terminal_stdout = String::from_utf8_lossy(&terminal.stdout);
     assert_eq!(terminal.status.code(), Some(0));
-    assert!(terminal_stdout.contains("Top warning: Needless return"));
-    assert!(terminal_stdout.contains("Rule ID: clippy::needless_return"));
-    assert!(terminal_stdout.contains("src/lib.rs:4:5"));
+    assert!(terminal_stdout.contains("Top warning: Unwrap used"));
+    assert!(terminal_stdout.contains("Rule ID: clippy::unwrap_used"));
+    assert!(terminal_stdout.contains("src/lib.rs:8:5"));
     assert!(terminal_stdout.contains("/ 100 "));
 
     let help = binary()
@@ -300,17 +300,38 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
     }));
 }
 
+/// A diagnostic the catalog cannot explain never arrives from Clippy, and
+/// arrives stripped from rustc.
+///
+/// `-A clippy::all` closes the Clippy channel at the source: the fixture
+/// carries a `needless_return` next to its catalogued `unwrap_used`, and only
+/// the second one is published. rustc is not a Clippy lint group, so its own
+/// diagnostics still reach the report, with no category and no help since no
+/// rule of the catalog describes them.
 #[test]
-fn non_curated_clippy_and_rustc_diagnostics_remain_null_enriched() {
-    for name in ["clippy-warning", "compile-error"] {
-        let report = parse_report(&inspect_json(&fixture(name)));
-        assert!(report["diagnostics"].as_array().is_some_and(|diagnostics| {
-            !diagnostics.is_empty()
-                && diagnostics.iter().all(|diagnostic| {
-                    diagnostic["category"].is_null() && diagnostic["help"].is_null()
-                })
-        }));
-    }
+fn diagnostics_outside_the_catalog_are_silenced_or_null_enriched() {
+    let silenced = parse_report(&inspect_json(&fixture("clippy-warning")));
+    assert_eq!(
+        silenced["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array")
+            .iter()
+            .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>(),
+        ["clippy::unwrap_used"]
+    );
+
+    let stripped = parse_report(&inspect_json(&fixture("compile-error")));
+    assert!(
+        stripped["diagnostics"]
+            .as_array()
+            .is_some_and(|diagnostics| {
+                !diagnostics.is_empty()
+                    && diagnostics.iter().all(|diagnostic| {
+                        diagnostic["category"].is_null() && diagnostic["help"].is_null()
+                    })
+            })
+    );
 }
 
 #[test]

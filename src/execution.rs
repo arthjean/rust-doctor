@@ -671,6 +671,8 @@ mod tests {
             "--no-deps",
             "--message-format=json",
             "--",
+            "-A",
+            "clippy::all",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -681,7 +683,7 @@ mod tests {
                 .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
         )
         .collect();
-        assert_eq!(expected.len(), 5 + 2 * 33);
+        assert_eq!(expected.len(), 7 + 2 * 33);
         assert_eq!(
             arguments,
             expected
@@ -689,9 +691,20 @@ mod tests {
                 .map(|argument| OsStr::new(argument.as_str()))
                 .collect::<Vec<_>>()
         );
-        for forbidden in ["clippy::restriction", "clippy::all", "--force-warn", "-D"] {
+        for forbidden in ["clippy::restriction", "--force-warn", "-D"] {
             assert!(!arguments.contains(&OsStr::new(forbidden)));
         }
+        // `clippy::all` appears once, and only to be switched off: raising the
+        // whole group would flood the report with rules the catalog cannot
+        // explain.
+        assert_eq!(
+            arguments
+                .windows(2)
+                .filter(|pair| pair[1] == OsStr::new("clippy::all"))
+                .map(|pair| pair[0])
+                .collect::<Vec<_>>(),
+            [OsStr::new("-A")]
+        );
         assert_eq!(
             arguments
                 .iter()
@@ -901,7 +914,7 @@ mod tests {
                 )
                 .collect::<Vec<_>>()
         );
-        assert_eq!(scan.command.len(), 1 + 5 + 2 * 33);
+        assert_eq!(scan.command.len(), 1 + 7 + 2 * 33);
         assert_eq!(scan.exit_code, Some(0));
         assert_eq!(scan.exit_success, Some(true));
         assert_eq!(scan.build_finished, Some(true));

@@ -33,6 +33,8 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         "--no-deps",
         "--message-format=json",
         "--",
+        "-A",
+        "clippy::all",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -44,13 +46,14 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
             .flat_map(|rule| ["-W".to_owned(), rule.id.clone()]),
     )
     .collect();
-    // Six arguments de base depuis que le périmètre est celui des cibles par
-    // défaut de Cargo, puis un `-W` par règle Clippy active de la policy. Le
-    // compte est dérivé de la policy publiée, jamais figé, pour qu'un
-    // élargissement du catalogue ne demande pas d'éditer ce test.
+    // Six base arguments since the scope is Cargo's default targets, then the
+    // two that silence everything Clippy warns about by default, then one `-W`
+    // per active Clippy rule of the policy. The count is derived from the
+    // published policy, never frozen, so that widening the catalog does not
+    // require editing this test.
     assert_eq!(
         expected.len(),
-        6 + 2 * policy
+        8 + 2 * policy
             .rules
             .iter()
             .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)
