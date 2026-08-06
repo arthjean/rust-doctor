@@ -683,7 +683,7 @@ mod tests {
                 .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
         )
         .collect();
-        assert_eq!(expected.len(), 7 + 2 * 33);
+        assert_eq!(expected.len(), 7 + 2 * 36);
         assert_eq!(
             arguments,
             expected
@@ -914,7 +914,7 @@ mod tests {
                 )
                 .collect::<Vec<_>>()
         );
-        assert_eq!(scan.command.len(), 1 + 7 + 2 * 33);
+        assert_eq!(scan.command.len(), 1 + 7 + 2 * 36);
         assert_eq!(scan.exit_code, Some(0));
         assert_eq!(scan.exit_success, Some(true));
         assert_eq!(scan.build_finished, Some(true));

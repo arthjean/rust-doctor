@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 40] = [
+const RULES: [&str; 43] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -27,6 +27,7 @@ const RULES: [&str; 40] = [
     "clippy::large_types_passed_by_value",
     "clippy::manual_memcpy",
     "clippy::mem_forget",
+    "clippy::missing_safety_doc",
     "clippy::mut_mutex_lock",
     "clippy::non_send_fields_in_send_ty",
     "clippy::panic",
@@ -34,6 +35,7 @@ const RULES: [&str; 40] = [
     "clippy::permissions_set_readonly_false",
     "clippy::print_stderr",
     "clippy::print_stdout",
+    "clippy::ptr_arg",
     "clippy::rc_buffer",
     "clippy::rc_mutex",
     "clippy::redundant_allocation",
@@ -41,6 +43,7 @@ const RULES: [&str; 40] = [
     "clippy::string_slice",
     "clippy::suspicious_command_arg_space",
     "clippy::todo",
+    "clippy::too_many_arguments",
     "clippy::unimplemented",
     "clippy::unnecessary_to_owned",
     "clippy::unreachable",
@@ -407,7 +410,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 10);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 40);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 43);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()

@@ -170,6 +170,14 @@ pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Avoid leaking a value with drop semantics; use an explicit ownership or lifetime strategy.",
 };
+pub(crate) static CLIPPY_MISSING_SAFETY_DOC: RuleDefinition = RuleDefinition {
+    id: "clippy::missing_safety_doc",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Document in a `# Safety` section the invariants the caller must uphold before calling.",
+};
 pub(crate) static CLIPPY_MUT_MUTEX_LOCK: RuleDefinition = RuleDefinition {
     id: "clippy::mut_mutex_lock",
     category: "correctness",
@@ -226,6 +234,14 @@ pub(crate) static CLIPPY_PRINT_STDOUT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Write to a caller-provided writer or a logger instead of hard-wiring stdout.",
 };
+pub(crate) static CLIPPY_PTR_ARG: RuleDefinition = RuleDefinition {
+    id: "clippy::ptr_arg",
+    category: "performance",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Take &[T] or &str so callers can pass any borrowed slice without owning one first.",
+};
 pub(crate) static CLIPPY_RC_BUFFER: RuleDefinition = RuleDefinition {
     id: "clippy::rc_buffer",
     category: "performance",
@@ -281,6 +297,14 @@ pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
     help: "Replace todo! with the intended implementation or remove the reachable placeholder.",
+};
+pub(crate) static CLIPPY_TOO_MANY_ARGUMENTS: RuleDefinition = RuleDefinition {
+    id: "clippy::too_many_arguments",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Group the related parameters into a struct so the signature names what it takes.",
 };
 pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     id: "clippy::unimplemented",
@@ -403,7 +427,7 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 40] = [
+pub(crate) const CATALOG: [&RuleDefinition; 43] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -415,6 +439,7 @@ pub(crate) const CATALOG: [&RuleDefinition; 40] = [
     &CLIPPY_LARGE_TYPES_PASSED_BY_VALUE,
     &CLIPPY_MANUAL_MEMCPY,
     &CLIPPY_MEM_FORGET,
+    &CLIPPY_MISSING_SAFETY_DOC,
     &CLIPPY_MUT_MUTEX_LOCK,
     &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
     &CLIPPY_PANIC,
@@ -422,6 +447,7 @@ pub(crate) const CATALOG: [&RuleDefinition; 40] = [
     &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
     &CLIPPY_PRINT_STDERR,
     &CLIPPY_PRINT_STDOUT,
+    &CLIPPY_PTR_ARG,
     &CLIPPY_RC_BUFFER,
     &CLIPPY_RC_MUTEX,
     &CLIPPY_REDUNDANT_ALLOCATION,
@@ -429,6 +455,7 @@ pub(crate) const CATALOG: [&RuleDefinition; 40] = [
     &CLIPPY_STRING_SLICE,
     &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
     &CLIPPY_TODO,
+    &CLIPPY_TOO_MANY_ARGUMENTS,
     &CLIPPY_UNIMPLEMENTED,
     &CLIPPY_UNNECESSARY_TO_OWNED,
     &CLIPPY_UNREACHABLE,
@@ -562,7 +589,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 41] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 44] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -574,6 +601,7 @@ mod tests {
         &CLIPPY_LARGE_TYPES_PASSED_BY_VALUE,
         &CLIPPY_MANUAL_MEMCPY,
         &CLIPPY_MEM_FORGET,
+        &CLIPPY_MISSING_SAFETY_DOC,
         &CLIPPY_MUT_MUTEX_LOCK,
         &CLIPPY_NON_SEND_FIELDS_IN_SEND_TY,
         &CLIPPY_PANIC,
@@ -581,6 +609,7 @@ mod tests {
         &CLIPPY_PERMISSIONS_SET_READONLY_FALSE,
         &CLIPPY_PRINT_STDERR,
         &CLIPPY_PRINT_STDOUT,
+        &CLIPPY_PTR_ARG,
         &CLIPPY_RC_BUFFER,
         &CLIPPY_RC_MUTEX,
         &CLIPPY_REDUNDANT_ALLOCATION,
@@ -589,6 +618,7 @@ mod tests {
         &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
         &SYNTHETIC_CLIPPY_RULE,
         &CLIPPY_TODO,
+        &CLIPPY_TOO_MANY_ARGUMENTS,
         &CLIPPY_UNIMPLEMENTED,
         &CLIPPY_UNNECESSARY_TO_OWNED,
         &CLIPPY_UNREACHABLE,
@@ -627,7 +657,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 40);
+        assert_eq!(CATALOG.len(), 43);
         assert_eq!(
             CATEGORIES,
             [
@@ -656,7 +686,7 @@ mod tests {
             .filter(|definition| definition.producer == Producer::Clippy)
             .map(|definition| definition.id)
             .collect();
-        assert_eq!(clippy_ids.len(), 33);
+        assert_eq!(clippy_ids.len(), 36);
         assert!(
             clippy_ids
                 .iter()
@@ -693,7 +723,7 @@ mod tests {
         }
 
         let plan = PolicyPlan::default();
-        assert_eq!(plan.active_rules(Producer::Clippy).count(), 33);
+        assert_eq!(plan.active_rules(Producer::Clippy).count(), 36);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
     }
@@ -901,6 +931,8 @@ mod tests {
                 "-W",
                 "clippy::mem_forget",
                 "-W",
+                "clippy::missing_safety_doc",
+                "-W",
                 "clippy::panic",
                 "-W",
                 "clippy::permissions_set_readonly_false",
@@ -908,6 +940,8 @@ mod tests {
                 "clippy::print_stderr",
                 "-W",
                 "clippy::print_stdout",
+                "-W",
+                "clippy::ptr_arg",
                 "-W",
                 "clippy::rc_buffer",
                 "-W",
@@ -918,6 +952,8 @@ mod tests {
                 "clippy::string_slice",
                 "-W",
                 "clippy::synthetic_rule",
+                "-W",
+                "clippy::too_many_arguments",
                 "-W",
                 "clippy::unnecessary_to_owned",
                 "-W",

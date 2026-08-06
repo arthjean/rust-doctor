@@ -72,7 +72,7 @@ rust-doctor --scope baseline --base main  # only findings your change introduced
 
 ## Rules
 
-40 rules today: 33 selected Clippy lints and 7 native detectors.
+43 rules today: 36 selected Clippy lints and 7 native detectors.
 
 The Clippy lints are curated, not the whole `restriction` group. They cover panic paths (`unwrap_used`, `indexing_slicing`, `panic_in_result_fn`), async and concurrency hazards (`await_holding_lock`, `arc_with_non_send_sync`, `rc_mutex`), and allocation waste (`redundant_allocation`, `unnecessary_to_owned`, `useless_vec`).
 

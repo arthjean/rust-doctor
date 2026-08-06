@@ -148,6 +148,24 @@
       },
       {
         "context": "production",
+        "justification": "The trait is unsafe because an implementor must guarantee that chunk_mut exposes writable capacity and that remaining_mut does not overstate it, and the trait documentation never states that obligation: the only # Safety section of the file sits on advance_mut, which binds the caller rather than the implementor.",
+        "line": 30,
+        "path": "src/buf/buf_mut.rs",
+        "repository": "bytes",
+        "rule": "clippy::missing_safety_doc",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The prose states one of the two obligations, that the caller initialize the data, and omits the other: len <= cap is only debug_assert!ed, so a release caller can set a length past the capacity and expose uninitialized memory through the slice. The contract is both unsectioned and partial.",
+        "line": 544,
+        "path": "src/bytes_mut.rs",
+        "repository": "bytes",
+        "rule": "clippy::missing_safety_doc",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
         "justification": "reserve mirrors Vec::reserve, whose documented contract is to panic on capacity overflow; the non-allocating path one line above already returns false instead.",
         "line": 700,
         "path": "src/bytes_mut.rs",
@@ -283,6 +301,15 @@
       },
       {
         "context": "production",
+        "justification": "The body only calls len and reverses a subrange, both available on a mutable slice, and the single caller passes &mut buf on a local Vec, which coerces without a change at the call site. Taking &mut [u8] widens the signature at no cost.",
+        "line": 588,
+        "path": "src/lib.rs",
+        "repository": "hexyl",
+        "rule": "clippy::ptr_arg",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
         "justification": "Arc<PathBuf> costs two indirections to reach the path bytes; the field is set once at construction, so Arc<Path> applies directly.",
         "line": 111,
         "path": "crates/ignore/src/dir.rs",
@@ -378,6 +405,15 @@
         "path": "src/error.rs",
         "repository": "serde_json",
         "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "PrinterBuilder already is the configuration struct the lint asks for: it holds the same ten options and build() is the single caller of this private constructor, which the scan sees because the three other call sites are tests. The public boundary never exposes the eleven positions.",
+        "line": 320,
+        "path": "src/lib.rs",
+        "repository": "hexyl",
+        "rule": "clippy::too_many_arguments",
         "verdict": "false_positive"
       },
       {
@@ -482,8 +518,8 @@
     ],
     "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold.",
     "trigger_verification": {
-      "confirmed": 534,
-      "findings": 534,
+      "confirmed": 538,
+      "findings": 538,
       "method": "Mechanical: the rule's trigger is searched inside the reported span at the pinned revision. This is a guard against corrupted spans only. It cannot measure precision, because the lint that looks for a pattern always finds that pattern.",
       "triggers": [
         {
@@ -503,6 +539,10 @@
           "rule": "clippy::mem_forget"
         },
         {
+          "evidence": "unsafe",
+          "rule": "clippy::missing_safety_doc"
+        },
+        {
           "evidence": "panic!",
           "rule": "clippy::panic"
         },
@@ -515,6 +555,10 @@
           "rule": "clippy::print_stderr"
         },
         {
+          "evidence": "&mut Vec<",
+          "rule": "clippy::ptr_arg"
+        },
+        {
           "evidence": "Arc<",
           "rule": "clippy::rc_buffer"
         },
@@ -525,6 +569,10 @@
         {
           "evidence": "[",
           "rule": "clippy::string_slice"
+        },
+        {
+          "evidence": "fn new(",
+          "rule": "clippy::too_many_arguments"
         },
         {
           "evidence": "unreachable!",
@@ -600,6 +648,11 @@
     },
     {
       "default_level": "warn",
+      "id": "clippy::missing_safety_doc",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
       "id": "clippy::mut_mutex_lock",
       "tier": "P2"
     },
@@ -631,6 +684,11 @@
     {
       "default_level": "warn",
       "id": "clippy::print_stdout",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::ptr_arg",
       "tier": "P3"
     },
     {
@@ -667,6 +725,11 @@
       "default_level": "warn",
       "id": "clippy::todo",
       "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::too_many_arguments",
+      "tier": "P3"
     },
     {
       "default_level": "warn",
@@ -758,6 +821,7 @@
       "clippy::large_types_passed_by_value",
       "clippy::manual_memcpy",
       "clippy::mem_forget",
+      "clippy::missing_safety_doc",
       "clippy::mut_mutex_lock",
       "clippy::non_send_fields_in_send_ty",
       "clippy::panic",
@@ -765,6 +829,7 @@
       "clippy::permissions_set_readonly_false",
       "clippy::print_stderr",
       "clippy::print_stdout",
+      "clippy::ptr_arg",
       "clippy::rc_buffer",
       "clippy::rc_mutex",
       "clippy::redundant_allocation",
@@ -772,6 +837,7 @@
       "clippy::string_slice",
       "clippy::suspicious_command_arg_space",
       "clippy::todo",
+      "clippy::too_many_arguments",
       "clippy::unimplemented",
       "clippy::unnecessary_to_owned",
       "clippy::unreachable",
@@ -797,6 +863,7 @@
       "clippy::panic_in_result_fn",
       "clippy::print_stderr",
       "clippy::string_slice",
+      "clippy::too_many_arguments",
       "clippy::unreachable",
       "clippy::unwrap_used"
     ],
@@ -1055,13 +1122,13 @@
       "status": "complete"
     },
     {
-      "authoritative": false,
+      "authoritative": true,
       "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
-      "distinct": 41,
+      "distinct": 43,
       "exit_code": 0,
-      "findings_digest": "3d1f6e3211007f389a2f1b023e8532ed31e82d24624fe30db3af457d47d8dcc2",
+      "findings_digest": "bbc1d4cec18eb4e329810337df1fcc6ab39b43b4287f9203b0065d8d524736cd",
       "name": "bytes",
-      "occurrences": 53,
+      "occurrences": 55,
       "outcome": "processed",
       "rules": [
         {
@@ -1078,6 +1145,11 @@
           "distinct": 1,
           "id": "clippy::mem_forget",
           "occurrences": 1
+        },
+        {
+          "distinct": 2,
+          "id": "clippy::missing_safety_doc",
+          "occurrences": 2
         },
         {
           "distinct": 4,
@@ -1104,7 +1176,7 @@
       "status": "complete"
     },
     {
-      "authoritative": false,
+      "authoritative": true,
       "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
       "distinct": 40,
       "exit_code": 0,
@@ -1158,13 +1230,13 @@
       "status": "complete"
     },
     {
-      "authoritative": false,
+      "authoritative": true,
       "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
-      "distinct": 18,
+      "distinct": 20,
       "exit_code": 0,
-      "findings_digest": "a12728449c15c837d9b2049a63b9fd8ab6bdc2485b87c85bf32935e4890a2df3",
+      "findings_digest": "7c959f203299405c876248921cc244a39689a1aed30c8bc4bbfb7b321c13c772",
       "name": "hexyl",
-      "occurrences": 18,
+      "occurrences": 20,
       "outcome": "processed",
       "rules": [
         {
@@ -1183,6 +1255,16 @@
           "occurrences": 1
         },
         {
+          "distinct": 1,
+          "id": "clippy::ptr_arg",
+          "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::too_many_arguments",
+          "occurrences": 1
+        },
+        {
           "distinct": 4,
           "id": "clippy::unwrap_used",
           "occurrences": 4
@@ -1197,7 +1279,7 @@
       "status": "complete"
     },
     {
-      "authoritative": false,
+      "authoritative": true,
       "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
       "distinct": 11,
       "exit_code": 0,
@@ -1236,7 +1318,7 @@
       "status": "complete"
     },
     {
-      "authoritative": false,
+      "authoritative": true,
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
       "distinct": 329,
       "exit_code": 0,
@@ -1539,6 +1621,16 @@
       "true_positives": 0
     },
     {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
+      "findings": 2,
+      "id": "clippy::missing_safety_doc",
+      "reviewed": 2,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 2
+    },
+    {
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
@@ -1611,6 +1703,16 @@
     {
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
+      "findings": 1,
+      "id": "clippy::ptr_arg",
+      "reviewed": 1,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 1
+    },
+    {
+      "false_positive_rate_basis_points": 0,
+      "false_positives": 0,
       "findings": 6,
       "id": "clippy::rc_buffer",
       "reviewed": 5,
@@ -1677,6 +1779,16 @@
       "status": "unobserved",
       "tier": "P2",
       "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 1,
+      "findings": 1,
+      "id": "clippy::too_many_arguments",
+      "reviewed": 1,
+      "status": "measured",
+      "tier": "P3",
+      "true_positives": 0
     },
     {
       "false_positive_rate_basis_points": null,

@@ -231,56 +231,56 @@
   "compatibility": {
     "git_change_scope_output_hashes": {
       "full": {
-        "member-manifest": "91f5950708d995d2b7f3ad04978f8c97957ac9d9213e42cb9ea76cfd1782d195",
-        "member-subdirectory": "91f5950708d995d2b7f3ad04978f8c97957ac9d9213e42cb9ea76cfd1782d195",
-        "workspace": "a9cffb3826e9c44dce2ce700c6ceb229f56322ada702d89e9ef78a5d4fae7d8f"
+        "member-manifest": "f207077c079fd07d28f4ac329cab4656f699191f857c81189b312d454894385d",
+        "member-subdirectory": "f207077c079fd07d28f4ac329cab4656f699191f857c81189b312d454894385d",
+        "workspace": "31db80e4f97b19539f094fdd1ec51cad4b815b66d6a3c104612dfaae7bad3fa4"
       },
       "files-empty": {
-        "member-manifest": "32629183091c2badf8cea9a0fb056d823c92a82efd6aefb8bf95fd9ecd519a15",
-        "member-subdirectory": "32629183091c2badf8cea9a0fb056d823c92a82efd6aefb8bf95fd9ecd519a15",
-        "workspace": "2b97d66f0fd1edf474f04b0ddab240b11129cfca4d63214b713231959a72b395"
+        "member-manifest": "0c7e3c516326115570bb313b4f538cf2bf536af7de4b23bd1900db7c691abec3",
+        "member-subdirectory": "0c7e3c516326115570bb313b4f538cf2bf536af7de4b23bd1900db7c691abec3",
+        "workspace": "9679a209daf5268d59cf94d5ac5b77e24592a508de4040f0fa37e3ad3de1699f"
       },
       "files-source": {
-        "member-manifest": "82ce6f4c4c522f4dacb8fb4cf7c42f742b5d2a83b810c56c0e5418411c8e3fd6",
-        "member-subdirectory": "82ce6f4c4c522f4dacb8fb4cf7c42f742b5d2a83b810c56c0e5418411c8e3fd6",
-        "workspace": "f6389d61dcab14a46fe5e9496b210e35d60c261d492ba6a11edf9bac57a00c0a"
+        "member-manifest": "8835ea75bb691544ee8cd4370472084293aaee3b8f6c167f3bc7a56cf7a94ca6",
+        "member-subdirectory": "8835ea75bb691544ee8cd4370472084293aaee3b8f6c167f3bc7a56cf7a94ca6",
+        "workspace": "15f1da176721dc096d6da3d0adcfb5a074ca2e134c74fc57dcfc3304b0d836db"
       },
       "files-manifest": {
-        "member-manifest": "c2d87b212c08b94048997379cae86d17e1d56bbeeb15629b8662960e4b2623ef",
-        "member-subdirectory": "c2d87b212c08b94048997379cae86d17e1d56bbeeb15629b8662960e4b2623ef",
-        "workspace": "ed02d88348a5a7e59602f4a735a5d51b4e255159eff04f6d6b4cd20df3dc4b38"
+        "member-manifest": "befebd4e798b2243ae761f2b1abcb0d3ceb2c608443251c552bef6e594b74bd9",
+        "member-subdirectory": "befebd4e798b2243ae761f2b1abcb0d3ceb2c608443251c552bef6e594b74bd9",
+        "workspace": "741154b3a893c308e9af0ad2dc37673ad97cb6ffeb178cf89052f45bd8c23d6b"
       }
     },
     "persistent_configuration_output_hashes": {
       "absent": {
-        "member-manifest": "10b869351f35523d63c6f230cac7efa4f0ebe4916e1219c1ad113622d009f73c",
-        "member-subdirectory": "10b869351f35523d63c6f230cac7efa4f0ebe4916e1219c1ad113622d009f73c",
-        "workspace": "699bad08144d7e971322f4d8dfb4937cad2138b612f6427dbde60b7e329df96c"
+        "member-manifest": "29d01371291fc8470b4996d62cdf062cb553fb970d54f8b265c507b230f2b60a",
+        "member-subdirectory": "29d01371291fc8470b4996d62cdf062cb553fb970d54f8b265c507b230f2b60a",
+        "workspace": "2cb36e1b66a520515d7bdf4ab922f86d57a9c7bb635970b7f00c1d9542eb4b69"
       },
       "empty": {
-        "member-manifest": "488d85a3f3790eb24800a37ef3a2ea33a5a2a7058a42163ff19f37040f9f299d",
-        "member-subdirectory": "488d85a3f3790eb24800a37ef3a2ea33a5a2a7058a42163ff19f37040f9f299d",
-        "workspace": "fcb93becf0137f1ea34ecaa09da9b19b6797f927d04884540f73d5aa13626e8d"
+        "member-manifest": "48dd6d532eff01f133d6fe545fbee0a05161d1b24971b36c9306bdad330f6cc3",
+        "member-subdirectory": "48dd6d532eff01f133d6fe545fbee0a05161d1b24971b36c9306bdad330f6cc3",
+        "workspace": "d1e472501dd11e1e6de27e480860901b2d7f72dba2ad1365d5ee9b006848c406"
       },
       "config-rule": {
-        "member-manifest": "670bd0f156fe2ca9486357b0be4bcb1a83eeca0562a2aa4269bebc4639b52d79",
-        "member-subdirectory": "670bd0f156fe2ca9486357b0be4bcb1a83eeca0562a2aa4269bebc4639b52d79",
-        "workspace": "fba9b2ffee33c357d7219ee66578e393ee502852ceb75434a77ff77c064f9079"
+        "member-manifest": "9b9c64af8073735fe5011cbd9a9116c2f87225535595df122941dba609a913ba",
+        "member-subdirectory": "9b9c64af8073735fe5011cbd9a9116c2f87225535595df122941dba609a913ba",
+        "workspace": "1ba315cdc69f7f3b0b7b52bb4c283f90d508196195e8e5fbac6eae51d5493c36"
       },
       "shell-reactivated": {
-        "member-manifest": "28e40dcd28df53b93bc8692010109a2fac025776cc6d26077fcbcfbb8e84ba05",
-        "member-subdirectory": "28e40dcd28df53b93bc8692010109a2fac025776cc6d26077fcbcfbb8e84ba05",
-        "workspace": "2e8128627e91d7e7c8cd505f9b6838931ca37fe25b9f45e35e1e77579d72f509"
+        "member-manifest": "53094a19144a76c4aabcd6b98528da090ca886e924fc4a94ec994a0a6f4eaa6f",
+        "member-subdirectory": "53094a19144a76c4aabcd6b98528da090ca886e924fc4a94ec994a0a6f4eaa6f",
+        "workspace": "2bb6defda5632042f36c55560488cc0c00e19360c4e94785b628b295e4b25190"
       },
       "request-category-off": {
-        "member-manifest": "a134c8aad66b5d69fb3beadc3e2b88788728cca818e18f6845e1ea0eae7a430c",
-        "member-subdirectory": "a134c8aad66b5d69fb3beadc3e2b88788728cca818e18f6845e1ea0eae7a430c",
-        "workspace": "2196045dd7161812d811d05b402959d7d1ad6f8d76f3b89d1f3ed06c02cc9f98"
+        "member-manifest": "1288fbb62ae74f96c3e956cb6eae24230345ea732947ba0de651597c5433211f",
+        "member-subdirectory": "1288fbb62ae74f96c3e956cb6eae24230345ea732947ba0de651597c5433211f",
+        "workspace": "2ea2880cc971f3cf137fc845b8e68f7193884a9134835ccd848f353300c766a5"
       },
       "request-blocking": {
-        "member-manifest": "fbf0cf13c7d0d68912e1f8a607c88a1d0adcfdc169e168909363f690d47501cf",
-        "member-subdirectory": "fbf0cf13c7d0d68912e1f8a607c88a1d0adcfdc169e168909363f690d47501cf",
-        "workspace": "50aa506c6594e88ca88fe544095c0b2ce7ad9e28e822eb968e1cc63c2be17594"
+        "member-manifest": "4aed39dd08da6ffaa156fa5bf3b21c8e5d4fffbf4e9b1329a1cd7dd57805712a",
+        "member-subdirectory": "4aed39dd08da6ffaa156fa5bf3b21c8e5d4fffbf4e9b1329a1cd7dd57805712a",
+        "workspace": "fa9101800dcbc36db88c713591ade5b5e18cb16d4c513947680dc9df4e38f6d4"
       }
     },
     "policy_disabled_clippy_rules": {
@@ -308,6 +308,7 @@
         "clippy::large_types_passed_by_value",
         "clippy::manual_memcpy",
         "clippy::mem_forget",
+        "clippy::missing_safety_doc",
         "clippy::mut_mutex_lock",
         "clippy::non_send_fields_in_send_ty",
         "clippy::panic",
@@ -315,6 +316,7 @@
         "clippy::permissions_set_readonly_false",
         "clippy::print_stderr",
         "clippy::print_stdout",
+        "clippy::ptr_arg",
         "clippy::rc_buffer",
         "clippy::rc_mutex",
         "clippy::redundant_allocation",
@@ -322,6 +324,7 @@
         "clippy::string_slice",
         "clippy::suspicious_command_arg_space",
         "clippy::todo",
+        "clippy::too_many_arguments",
         "clippy::unimplemented",
         "clippy::unnecessary_to_owned",
         "clippy::unreachable",

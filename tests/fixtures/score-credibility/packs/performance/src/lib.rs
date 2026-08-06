@@ -81,3 +81,8 @@ pub fn positive_private_signatures(
 fn borrowed_length(value: &str) -> usize {
     value.len()
 }
+
+/// clippy::ptr_arg
+pub fn positive_ptr_arg(values: &Vec<u8>) -> usize {
+    values.len()
+}

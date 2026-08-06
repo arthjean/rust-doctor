@@ -136,3 +136,14 @@ pub fn negative_allowed_private_signatures(
 fn borrowed_length(value: &str) -> usize {
     value.len()
 }
+
+/// negative_ptr_arg
+pub fn negative_ptr_arg(values: &[u8]) -> usize {
+    values.len()
+}
+
+/// negative_allowed_ptr_arg
+#[allow(clippy::ptr_arg)]
+pub fn negative_allowed_ptr_arg(values: &Vec<u8>) -> usize {
+    values.len()
+}

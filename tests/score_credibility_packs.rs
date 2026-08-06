@@ -442,7 +442,7 @@ fn no_catalogued_clippy_rule_is_denied_by_default() {
         .filter_map(|rule| rule["id"].as_str())
         .filter(|id| id.starts_with("clippy::"))
         .collect();
-    assert_eq!(catalogued.len(), 33);
+    assert_eq!(catalogued.len(), 36);
     for id in catalogued {
         let level = defaults.get(id).map(String::as_str).unwrap_or_default();
         assert!(

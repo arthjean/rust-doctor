@@ -1186,9 +1186,9 @@ mod tests {
 
         assert_eq!(score.dimensions.security, 20);
         assert_eq!(score.dimensions.reliability, 50);
-        assert_eq!(score.dimensions.maintainability, 94);
-        // EP-024 ouvre `performance` et `dependencies`: aucune dimension ne
-        // reste figée à 100, donc aucun poids du barème n'est plus inerte.
+        assert_eq!(score.dimensions.maintainability, 91);
+        // EP-024 opens `performance` and `dependencies`: no dimension stays
+        // frozen at 100, so no weight of the scale is inert any more.
         assert_eq!(score.dimensions.performance, 75);
         assert_eq!(score.dimensions.dependencies, 50);
         assert!(

@@ -83,7 +83,15 @@
       "tier": "P2",
       "path": "src/lib.rs",
       "line": 67,
-      "occurrences": 2
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::ptr_arg",
+      "category": "performance",
+      "tier": "P3",
+      "path": "src/lib.rs",
+      "line": 86,
+      "occurrences": 1
     }
   ],
   "negative": [
@@ -157,6 +165,14 @@
     },
     {
       "marker": "negative_allowed_redundant_allocation",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_ptr_arg",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_allowed_ptr_arg",
       "kind": "allow"
     }
   ],

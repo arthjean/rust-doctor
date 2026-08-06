@@ -76,6 +76,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::missing_safety_doc",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::mut_mutex_lock",
         "category": "correctness",
         "level": "warn",
@@ -118,6 +124,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::ptr_arg",
+        "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::rc_buffer",
         "category": "performance",
         "level": "warn",
@@ -156,6 +168,12 @@
       {
         "id": "clippy::todo",
         "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::too_many_arguments",
+        "category": "maintainability",
         "level": "warn",
         "source": "default"
       },
