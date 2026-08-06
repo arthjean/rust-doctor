@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "criterion": "A rule ships only when one trigger of it is recorded where a test replays it: a frozen oracle that names the rule in an observed position, or a named test that scans a fixture and asserts the finding. The record proves the rule fires on the pattern it claims to catch. Precision on the corpus answers the opposite question, how often the rule is wrong on healthy code, and says nothing when the corpus never triggers it. `catches` states that pattern in one line, and for a Clippy rule it is the description the toolchain publishes, so a lint whose meaning shifts upstream stops matching its own contract.",
+  "evidence": [
+    {
+      "catches": "using `Arc` with a type that does not implement `Send` and `Sync`",
+      "id": "clippy::arc_with_non_send_sync",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "inside an async function, holding a `MutexGuard` while calling `await`",
+      "id": "clippy::await_holding_lock",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "inside an async function, holding a `RefCell` ref while calling `await`",
+      "id": "clippy::await_holding_refcell_ref",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "`dbg!` macro is intended as a debugging tool",
+      "id": "clippy::dbg_macro",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "detects `std::process::exit` calls outside of `main`",
+      "id": "clippy::exit",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "using `.expect()` on `Result` or `Option`, which might be better handled",
+      "id": "clippy::expect_used",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "`format!`ing every element in a collection, then collecting the strings into a new `String`",
+      "id": "clippy::format_collect",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "indexing/slicing usage",
+      "id": "clippy::indexing_slicing",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "functions taking large arguments by value",
+      "id": "clippy::large_types_passed_by_value",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "manually copying items between slices",
+      "id": "clippy::manual_memcpy",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "`mem::forget` usage on `Drop` types, likely to cause memory leaks",
+      "id": "clippy::mem_forget",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "`pub unsafe fn` without `# Safety` docs",
+      "id": "clippy::missing_safety_doc",
+      "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
+      "catches": "`&mut Mutex::lock` does unnecessary locking",
+      "id": "clippy::mut_mutex_lock",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "there is a field that is not safe to be sent to another thread in a `Send` struct",
+      "id": "clippy::non_send_fields_in_send_ty",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "usage of the `panic!` macro",
+      "id": "clippy::panic",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "functions of type `Result<..>` that contain `panic!()` or assertion",
+      "id": "clippy::panic_in_result_fn",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "Checks for calls to `std::fs::Permissions.set_readonly` with argument `false`",
+      "id": "clippy::permissions_set_readonly_false",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "printing on stderr",
+      "id": "clippy::print_stderr",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "printing on stdout",
+      "id": "clippy::print_stdout",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "fn arguments of the type `&Vec<...>` or `&String`, suggesting to use `&[...]` or `&str` instead, respectively",
+      "id": "clippy::ptr_arg",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "shared ownership of a buffer type",
+      "id": "clippy::rc_buffer",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "usage of `Rc<Mutex<T>>`",
+      "id": "clippy::rc_mutex",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "redundant allocation",
+      "id": "clippy::redundant_allocation",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "use of sort() when sort_unstable() is equivalent",
+      "id": "clippy::stable_sort_primitive",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "slicing a string",
+      "id": "clippy::string_slice",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "single command line argument that looks like it should be multiple arguments",
+      "id": "clippy::suspicious_command_arg_space",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "`todo!` should not be present in production code",
+      "id": "clippy::todo",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "functions with too many arguments",
+      "id": "clippy::too_many_arguments",
+      "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
+      "catches": "`unimplemented!` should not be present in production code",
+      "id": "clippy::unimplemented",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "unnecessary calls to `to_owned`-like functions",
+      "id": "clippy::unnecessary_to_owned",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "usage of the `unreachable!` macro",
+      "id": "clippy::unreachable",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "finds async functions with no await statements",
+      "id": "clippy::unused_async",
+      "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "using `.unwrap()` on `Result` or `Option`, which should at least get a better message using `expect()`",
+      "id": "clippy::unwrap_used",
+      "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "useless `vec!`",
+      "id": "clippy::useless_vec",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "`push` immediately after `Vec` creation",
+      "id": "clippy::vec_init_then_push",
+      "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "not waiting on a spawned child process",
+      "id": "clippy::zombie_processes",
+      "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "two incompatible major versions of the same crate resolved into one dependency graph",
+      "id": "rust_doctor::cargo::duplicate_major_versions",
+      "test": "tests/score_credibility_packs.rs::the_dependency_pack_reaches_the_report_and_its_own_dimension"
+    },
+    {
+      "catches": "a binary crate whose Cargo.lock is absent from the manifest directory",
+      "id": "rust_doctor::cargo::missing_lockfile",
+      "test": "tests/score_credibility_packs.rs::the_dependency_pack_reaches_the_report_and_its_own_dimension"
+    },
+    {
+      "catches": "a path dependency resolving outside the scanned workspace",
+      "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "test": "src/cargo_health.rs::a_path_dependency_leaving_the_workspace_is_named_without_its_path"
+    },
+    {
+      "catches": "a registry dependency whose version requirement admits any version",
+      "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "oracle": "cargo-health/precision/oracle.json"
+    },
+    {
+      "catches": "a git dependency pinned by branch or tag instead of a full commit revision",
+      "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "oracle": "cargo-health/precision/oracle.json"
+    },
+    {
+      "catches": "a client builder that turns certificate or hostname verification off",
+      "id": "rust_doctor::source::disabled_tls_verification",
+      "oracle": "source-kernel/precision/oracle.json"
+    },
+    {
+      "catches": "a shell invocation whose command string is built from a runtime value",
+      "id": "rust_doctor::source::dynamic_shell_command",
+      "oracle": "source-kernel/precision/oracle.json"
+    }
+  ]
+}

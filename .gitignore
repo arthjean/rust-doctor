@@ -8,6 +8,7 @@
 /tests/fixtures/source-kernel/*/target/
 /tests/fixtures/configuration-kernel/workspace/Cargo.lock
 /tests/fixtures/configuration-kernel/workspace/target/
+/tests/fixtures/rule-admission/*/target/
 /tests/fixtures/rule-scaling-kernel/*/target/
 /tests/fixtures/score-credibility/*/target/
 /tests/fixtures/score-credibility/packs/*/target/
