@@ -466,7 +466,25 @@ enum CatalogError {
     UnknownCategory,
     InvalidProducer,
     InvalidTier,
+    TierOutsideCategoryWindow,
 }
+
+/// Severity window each category admits, from its worst admissible tier to its
+/// mildest. The category bounds how bad the defect can be: a maintainability
+/// finding is never a `P0`, a security finding is never a `P3`.
+///
+/// These are the windows the shipped rules occupy. Widening one is a decision
+/// about what the score means, so it is made here, once, instead of drifting
+/// one rule at a time as the catalog grows.
+#[cfg(test)]
+const TIER_WINDOWS: [(&str, RuleTier, RuleTier); CATEGORIES.len()] = [
+    ("correctness", RuleTier::P1, RuleTier::P2),
+    ("dependencies", RuleTier::P1, RuleTier::P2),
+    ("maintainability", RuleTier::P3, RuleTier::P3),
+    ("performance", RuleTier::P2, RuleTier::P3),
+    ("reliability", RuleTier::P2, RuleTier::P3),
+    ("security", RuleTier::P0, RuleTier::P1),
+];
 
 #[cfg(test)]
 fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
@@ -499,6 +517,13 @@ fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
         let published = serde_json::to_value(definition).map_err(|_| CatalogError::InvalidTier)?;
         if published_tier(&published)? != definition.tier {
             return Err(CatalogError::InvalidTier);
+        }
+        let (_, worst, mildest) = TIER_WINDOWS
+            .iter()
+            .find(|(category, _, _)| *category == definition.category)
+            .ok_or(CatalogError::UnknownCategory)?;
+        if definition.tier < *worst || definition.tier > *mildest {
+            return Err(CatalogError::TierOutsideCategoryWindow);
         }
     }
     Ok(())
@@ -706,6 +731,31 @@ mod tests {
         assert_eq!(
             validate_catalog(&category),
             Err(CatalogError::UnknownCategory)
+        );
+
+        static TIER_TOO_MILD: RuleDefinition = RuleDefinition {
+            tier: RuleTier::P3,
+            // Derived from the first catalog entry: the substitution happens at
+            // position 0, so the identifier must stay that one for a single
+            // defect at a time to be under test.
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        };
+        let mut mild = CATALOG;
+        mild[0] = &TIER_TOO_MILD;
+        assert_eq!(
+            validate_catalog(&mild),
+            Err(CatalogError::TierOutsideCategoryWindow)
+        );
+
+        static TIER_TOO_SEVERE: RuleDefinition = RuleDefinition {
+            tier: RuleTier::P0,
+            ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        };
+        let mut severe = CATALOG;
+        severe[0] = &TIER_TOO_SEVERE;
+        assert_eq!(
+            validate_catalog(&severe),
+            Err(CatalogError::TierOutsideCategoryWindow)
         );
 
         static INVALID_PRODUCER: RuleDefinition = RuleDefinition {
