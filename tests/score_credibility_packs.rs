@@ -272,14 +272,16 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
 /// US-073 AC-3, settled one step earlier than it used to be: a test file in the
 /// Cargo sense reaches the report through no lint at all.
 ///
-/// L'exemption n'est pas une propriété du lint: elle est gouvernée par le
-/// `clippy.toml` du workspace scanné, que Clippy cherche en remontant les
-/// répertoires parents. Sans configuration propre, la fixture hériterait de
-/// celle du dépôt et l'oracle figerait une propriété de son emplacement. Ce
-/// test exige donc que chaque verdict soit adossé à l'option qui le produit,
-/// déclarée dans la fixture elle-même.
+/// The exemption was the interesting question while the scan compiled test
+/// targets, and it was not a property of the lint: it was governed by the
+/// `clippy.toml` of the scanned workspace, which Clippy looks for by walking up
+/// the parent directories. The fixture still pins the four options and
+/// `tests/exemptions.rs` still carries one usage per lint, two of them exempt
+/// and two of them not. The scope decides before any of that: the scan compiles
+/// Cargo's default targets, so the whole file stays out of the report whatever
+/// the options say, and the oracle records the empty verdict.
 #[test]
-fn the_test_context_exemption_is_the_documented_one() {
+fn no_cargo_test_target_reaches_the_report() {
     let oracle = oracle("panic");
     let configuration = pack_root("panic").join(
         oracle["test_context_configuration"]
@@ -288,7 +290,16 @@ fn the_test_context_exemption_is_the_documented_one() {
     );
     let configuration =
         fs::read_to_string(&configuration).expect("the panic pack should carry that configuration");
-    for case in oracle["test_context_exemptions"].as_array().unwrap() {
+    let usages = fs::read_to_string(pack_root("panic").join("tests/exemptions.rs"))
+        .expect("the panic pack should carry its test file");
+
+    let documented = oracle["test_context_exemptions"]
+        .as_array()
+        .expect("the panic pack should document its exemptions");
+    assert!(!documented.is_empty());
+    let mut verdicts = BTreeSet::new();
+    for case in documented {
+        let code = case["code"].as_str().unwrap();
         let option = case["clippy_option"]
             .as_str()
             .expect("every exemption should name the option that governs it");
@@ -297,32 +308,15 @@ fn the_test_context_exemption_is_the_documented_one() {
             configuration.contains(&format!("{option} = {exempt}")),
             "{option} is not pinned by the fixture"
         );
+        let marker = format!("exemption_{}", code.trim_start_matches("clippy::"));
+        assert!(usages.contains(&marker), "the fixture lost {marker}");
+        verdicts.insert(exempt);
     }
+    // Both verdicts are represented, so the emptiness below cannot be read as
+    // the fixture only holding lints Clippy would have exempted anyway.
+    assert_eq!(verdicts, BTreeSet::from([false, true]));
 
     let report = report(InspectRequest::new(pack_root("panic")));
-    let in_tests: BTreeSet<_> = curated(&report)
-        .into_iter()
-        .filter(|diagnostic| {
-            diagnostic["path"]
-                .as_str()
-                .is_some_and(|path| path.starts_with("tests/"))
-        })
-        .map(|diagnostic| diagnostic["code"].as_str().unwrap().to_owned())
-        .collect();
-
-    let documented = oracle["test_context_exemptions"]
-        .as_array()
-        .expect("the panic pack should document its exemptions");
-    assert!(!documented.is_empty());
-    for case in documented {
-        let code = case["code"].as_str().unwrap();
-        let exempt = case["exempt_in_cargo_tests"].as_bool().unwrap();
-        assert_eq!(
-            !in_tests.contains(code),
-            exempt,
-            "{code} does not match its documented exemption"
-        );
-    }
     assert_eq!(
         observed(&report)
             .into_iter()

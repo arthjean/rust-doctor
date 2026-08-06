@@ -498,18 +498,34 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
             &support::expected_clippy_command(&published["policy"]),
             "{id}"
         );
-        // La règle éteinte disparaît de la commande, et seulement elle: la
-        // commande figée d'EP-018 privée de cette règle reste une sous-suite
-        // ordonnée de la commande courante.
+        // The rule turned off disappears from the command, and only it: the
+        // frozen command of EP-018 minus that rule stays an ordered subsequence
+        // of the current command. `--all-targets` is the one other argument
+        // that left, when the scope became Cargo's default targets, and it is
+        // named here rather than erased from the oracle.
+        const WITHDRAWN: &str = "--all-targets";
         let mut current = report.scan.command.as_ref().unwrap().iter();
         for historical in
             clippy_command_without_rules(&rule_scaling.clippy_command, &[id.to_owned()])
         {
+            if historical == WITHDRAWN {
+                continue;
+            }
             assert!(
                 current.any(|argument| *argument == historical),
                 "{id} dropped {historical}"
             );
         }
+        assert!(
+            !report
+                .scan
+                .command
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|argument| argument == WITHDRAWN),
+            "{id}"
+        );
         for historical in ["clippy::dbg_macro", "clippy::todo", "clippy::unimplemented"] {
             assert!(
                 report

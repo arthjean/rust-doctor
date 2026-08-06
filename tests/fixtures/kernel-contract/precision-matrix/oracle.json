@@ -6,7 +6,7 @@
       "code": "clippy::dbg_macro",
       "path": "src/précision.rs",
       "line": 2,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "case": "todo-direct-library",
@@ -14,7 +14,7 @@
       "code": "clippy::todo",
       "path": "src/précision.rs",
       "line": 6,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "case": "unimplemented-direct-library",
@@ -22,7 +22,7 @@
       "code": "clippy::unimplemented",
       "path": "src/précision.rs",
       "line": 10,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "case": "dbg-qualified-binary",
@@ -30,7 +30,7 @@
       "code": "clippy::dbg_macro",
       "path": "src/main.rs",
       "line": 2,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "case": "todo-qualified-binary",
@@ -38,7 +38,7 @@
       "code": "clippy::todo",
       "path": "src/main.rs",
       "line": 6,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "case": "unimplemented-qualified-binary",
@@ -46,15 +46,17 @@
       "code": "clippy::unimplemented",
       "path": "src/main.rs",
       "line": 10,
-      "occurrences": 2
-    },
+      "occurrences": 1
+    }
+  ],
+  "out_of_scope": [
     {
       "case": "dbg-aliased-test",
       "form": "aliased",
       "code": "clippy::dbg_macro",
       "path": "tests/aliases.rs",
       "line": 4,
-      "occurrences": 1
+      "marker": "aliased_dbg!(value)"
     },
     {
       "case": "todo-aliased-test",
@@ -62,7 +64,7 @@
       "code": "clippy::todo",
       "path": "tests/aliases.rs",
       "line": 8,
-      "occurrences": 1
+      "marker": "aliased_todo!(\"aliased\")"
     },
     {
       "case": "unimplemented-aliased-test",
@@ -70,7 +72,7 @@
       "code": "clippy::unimplemented",
       "path": "tests/aliases.rs",
       "line": 12,
-      "occurrences": 1
+      "marker": "aliased_unimplemented!(\"aliased\")"
     }
   ],
   "negative": [

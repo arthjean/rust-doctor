@@ -136,7 +136,9 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
                 .expect("occurrences should be numeric")
         })
         .sum();
-    assert_eq!(captured_occurrences, 4);
+    // Two rustc diagnostics, one occurrence each: the scope is Cargo's default
+    // targets, so the library is compiled once and no message is counted twice.
+    assert_eq!(captured_occurrences, 2);
     assert_eq!(compile_error["scan"]["exit_code"], 101);
     assert_eq!(compile_error["scan"]["build_finished"], false);
     assert!(compile_error["errors"].as_array().is_some_and(|errors| {
@@ -273,7 +275,9 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
             .count(),
         3
     );
-    assert!(terminal.contains("All 6 occurrences across 3 findings"));
+    // Three findings, one occurrence each: the library is compiled once, so a
+    // single site is no longer counted twice.
+    assert!(terminal.contains("All 3 occurrences across 3 findings"));
 
     let denied_output = inspect_json(&kernel_fixture("denied"));
     let denied = parse_report(&denied_output);

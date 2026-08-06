@@ -620,11 +620,11 @@ fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let local = local_evaluation();
 
-    // Les deux grandeurs sont publiées séparément et restent cohérentes. Le
-    // scan porte sur les cibles par défaut, donc chaque unité n'est compilée
-    // qu'une fois et une occurrence correspond à un site réel. Sous
-    // `--all-targets`, la même fixture publiait deux occurrences par
-    // diagnostic, dont une n'était qu'un doublon de cible.
+    // Both quantities are published separately and stay consistent. The scan
+    // bears on the default targets, so each unit is compiled only once and an
+    // occurrence matches a real site. Under `--all-targets`, the same fixture
+    // published two occurrences per diagnostic, one of which was only a target
+    // duplicate.
     for state in local["matrix"].as_array().unwrap() {
         let summary = &state["summary"];
         assert_eq!(summary["distinct"]["total"], summary["total"]);

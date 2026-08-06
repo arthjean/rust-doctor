@@ -189,12 +189,18 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     assert_eq!(terminal_a.status.code(), Some(0));
     assert_eq!(terminal_a.stdout, terminal_b.stdout);
     let terminal = String::from_utf8_lossy(&terminal_a.stdout);
-    // Le rendu par défaut n'expose qu'un groupe, celui de plus forte
-    // contribution: `clippy::todo` y passe devant les findings source parce que
-    // le barème pondère désormais les occurrences. Les deux règles P0 restent
-    // nommées comme cause du plafond de la note.
-    assert!(!terminal.contains(&format!("Rule ID: {TLS}")), "{terminal}");
-    assert!(!terminal.contains(&format!("Rule ID: {SHELL}")));
+    // The default rendering exposes a single group, the one with the strongest
+    // contribution. Every finding weighs one occurrence, since the scan
+    // compiles the library once, so the tie the scale used to break on volume
+    // is now broken on tier and the P0 security finding leads. Both P0 rules
+    // stay named as the cause of the score cap, including the one left
+    // undeveloped.
+    assert_eq!(terminal.matches("Rule ID: ").count(), 1, "{terminal}");
+    assert!(terminal.contains(&format!("Rule ID: {TLS}")), "{terminal}");
+    assert!(
+        !terminal.contains(&format!("Rule ID: {SHELL}")),
+        "{terminal}"
+    );
     assert!(
         terminal.contains("Capped at 40/100 by a P0 finding"),
         "{terminal}"

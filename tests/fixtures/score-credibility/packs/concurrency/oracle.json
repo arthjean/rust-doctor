@@ -19,7 +19,7 @@
       "tier": "P1",
       "path": "src/lib.rs",
       "line": 30,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::await_holding_lock",
@@ -27,7 +27,7 @@
       "tier": "P1",
       "path": "src/lib.rs",
       "line": 36,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::await_holding_refcell_ref",
@@ -35,7 +35,7 @@
       "tier": "P1",
       "path": "src/lib.rs",
       "line": 42,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::mut_mutex_lock",
@@ -43,7 +43,7 @@
       "tier": "P2",
       "path": "src/lib.rs",
       "line": 49,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::unused_async",
@@ -51,7 +51,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 53,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::rc_mutex",
@@ -59,7 +59,7 @@
       "tier": "P2",
       "path": "src/lib.rs",
       "line": 59,
-      "occurrences": 2
+      "occurrences": 1
     }
   ],
   "negative": [

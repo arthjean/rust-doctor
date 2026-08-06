@@ -1,13 +1,17 @@
-# Contrat d'exemption du pack panique, gouverné par la fixture elle-même.
+# Exemption contract of the panic pack, governed by the fixture itself.
 #
-# Clippy remonte les répertoires parents jusqu'à trouver une configuration.
-# Sans ce fichier, la fixture hériterait du `clippy.toml` de la racine du dépôt
-# Rust Doctor et l'oracle figerait une propriété de son emplacement au lieu du
-# comportement des lints. Mesuré: la même fixture copiée hors du dépôt émet
-# `unwrap_used` et `expect_used` dans `tests/exemptions.rs`.
+# Clippy walks up the parent directories until it finds a configuration.
+# Without this file the fixture would inherit the one at the root of the Rust
+# Doctor repository, and the oracle would freeze a property of its location
+# instead of the behaviour of the lints. Measured: the same fixture copied
+# outside the repository emits `unwrap_used` and `expect_used` in
+# `tests/exemptions.rs`.
 #
-# Les quatre options sont déclarées explicitement, y compris celles à leur
-# valeur par défaut, parce que chacune est l'origine d'un verdict de l'oracle.
+# The four options are declared explicitly, including those at their default
+# value, because each one is the origin of a verdict of the oracle. The scan
+# no longer compiles Cargo test targets, so none of them decides anything about
+# the report any more: they are what the file would produce if it were in
+# scope, and the oracle asserts that it is not.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = false

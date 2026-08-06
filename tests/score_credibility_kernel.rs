@@ -286,14 +286,14 @@ fn both_magnitudes_are_named_and_reconciled() {
     // Occurrences always cover the distinct ones, and every published
     // diagnostic carries at least one.
     //
-    // La multiplicité elle-même, un diagnostic remonté deux fois qui compte
-    // pour un distinct et deux occurrences, est prouvée en unitaire sur deux
-    // messages compilateur identiques, dans
-    // `report::tests::normalizes_text_paths_severity_and_deduplicates`. Elle y
-    // est indépendante du périmètre de compilation, alors qu'ici elle
-    // dépendrait de ce que Cargo choisit de compiler: sous les cibles par
-    // défaut une bibliothèque n'est plus lintée deux fois, et l'invariant
-    // cesserait d'être observable sans cesser d'être vrai.
+    // Multiplicity itself, a diagnostic reported twice that counts as one
+    // distinct and two occurrences, is proven in unit tests on two identical
+    // compiler messages, in
+    // `report::tests::normalizes_text_paths_severity_and_deduplicates`. There
+    // it is independent of the compilation scope, whereas here it would depend
+    // on what Cargo chooses to compile: under the default targets a library is
+    // no longer linted twice, and the invariant would stop being observable
+    // without ceasing to be true.
     assert!(
         summary["occurrences"]["total"].as_u64() >= summary["distinct"]["total"].as_u64()
     );

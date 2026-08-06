@@ -19,7 +19,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 21,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::manual_memcpy",
@@ -27,7 +27,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 27,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::stable_sort_primitive",
@@ -35,7 +35,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 34,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::unnecessary_to_owned",
@@ -43,7 +43,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 39,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::useless_vec",
@@ -51,7 +51,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 44,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::vec_init_then_push",
@@ -59,7 +59,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 50,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::large_types_passed_by_value",
@@ -67,7 +67,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 57,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::rc_buffer",
@@ -75,7 +75,7 @@
       "tier": "P3",
       "path": "src/lib.rs",
       "line": 62,
-      "occurrences": 2
+      "occurrences": 1
     },
     {
       "code": "clippy::redundant_allocation",

@@ -201,7 +201,27 @@ fn precision_matrix_matches_all_positive_and_negative_oracles_without_mutation()
     expected.sort();
     observed.sort();
     assert_eq!(observed, expected);
-    assert_eq!(observed.len(), 9);
+    assert_eq!(observed.len(), 6);
+
+    // The three aliased forms are written in a Cargo test target, which the
+    // scan no longer compiles. The oracle keeps them rather than erasing them:
+    // they are the proof that a catalogued lint firing outside what the
+    // workspace ships produces nothing, not the proof that the alias escapes
+    // detection.
+    let out_of_scope = oracle["out_of_scope"]
+        .as_array()
+        .expect("out of scope oracle should be an array");
+    assert_eq!(out_of_scope.len(), 3);
+    for case in out_of_scope {
+        let path = case["path"].as_str().expect("oracle path");
+        let marker = case["marker"].as_str().expect("oracle marker");
+        let source = fs::read_to_string(root.join(path)).expect("out of scope case should exist");
+        assert!(source.contains(marker), "{path} lost {marker}");
+        assert!(
+            observed.iter().all(|(_, observed, _, _)| observed != path),
+            "{path} reached the report"
+        );
+    }
 
     let negatives = oracle["negative"]
         .as_array()
@@ -309,7 +329,7 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
         .difference(&targeted_ids)
         .cloned()
         .collect();
-    assert_eq!(targeted_ids.len(), 9);
+    assert_eq!(targeted_ids.len(), 6);
 
     replace_in_file(
         &corrected.join("src/précision.rs"),

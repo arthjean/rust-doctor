@@ -420,16 +420,37 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
         baseline.scan.command.as_deref().unwrap(),
         support::expected_clippy_command(&published["policy"])
     );
-    // La commande figée d'EP-018 reste une sous-suite ordonnée de la commande
-    // courante: aucun élargissement du catalogue n'a retiré ni déplacé une
-    // règle déjà admise.
+    // The frozen command of EP-018 stays an ordered subsequence of the current
+    // command, minus one argument: no widening of the catalog removed or moved
+    // a rule already admitted, and the single withdrawal is named here rather
+    // than erased from the oracle. `--all-targets` compiled tests, benches,
+    // examples and build scripts, and the scope is now Cargo's default targets.
+    const WITHDRAWN: &str = "--all-targets";
     let mut current = baseline.scan.command.as_deref().unwrap().iter();
     for historical in &oracle.clippy_command {
+        if historical == WITHDRAWN {
+            continue;
+        }
         assert!(
             current.any(|argument| argument == historical),
             "{historical} left the command"
         );
     }
+    assert!(
+        oracle
+            .clippy_command
+            .iter()
+            .any(|argument| argument == WITHDRAWN)
+    );
+    assert!(
+        !baseline
+            .scan
+            .command
+            .as_deref()
+            .unwrap()
+            .iter()
+            .any(|argument| argument == WITHDRAWN)
+    );
     assert_eq!(
         baseline
             .scan

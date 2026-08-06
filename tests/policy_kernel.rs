@@ -61,12 +61,12 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
     );
     assert_eq!(command, &expected);
 
-    // Un seul argument historique a été retiré, et il est nommé ici plutôt que
-    // gommé de l'oracle: `--all-targets` compilait tests, benchs, exemples et
-    // scripts de construction, dont 69,9 % des findings du pack provenaient.
-    // Le périmètre est désormais celui des cibles par défaut de Cargo. Le test
-    // prouve donc deux choses: tout le reste de la commande historique survit
-    // dans l'ordre, et ce retrait-là est délibéré et non une dérive.
+    // A single historical argument was removed, and it is named here rather
+    // than erased from the oracle: `--all-targets` compiled tests, benches,
+    // examples and build scripts, from which 69.9% of the pack findings came.
+    // The scope is now Cargo's default targets. The test therefore proves two
+    // things: all the rest of the historical command survives in order, and
+    // that removal is deliberate rather than a drift.
     const WITHDRAWN: &str = "--all-targets";
     assert!(!command.iter().any(|argument| argument == WITHDRAWN));
 

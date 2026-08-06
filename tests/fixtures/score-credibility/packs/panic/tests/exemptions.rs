@@ -1,15 +1,17 @@
-//! Comportement d'exemption du pack dans un fichier de test au sens Cargo.
+//! What a test file in the Cargo sense would produce, and no longer does.
 //!
-//! L'exemption n'est pas une propriété du lint: elle est gouvernée par le
-//! `clippy.toml` du workspace scanné. Celui de cette fixture pose
-//! `allow-unwrap-in-tests` et `allow-expect-in-tests` à `true`,
-//! `allow-panic-in-tests` et `allow-print-in-tests` à `false`, donc `unwrap` et
-//! `expect` restent muets ici pendant que `panic` et `println` sont signalés.
-//! L'oracle fige ce verdict et nomme l'option qui le produit.
+//! The exemption is not a property of the lint: it is governed by the
+//! `clippy.toml` of the scanned workspace. The one of this fixture sets
+//! `allow-unwrap-in-tests` and `allow-expect-in-tests` to `true`,
+//! `allow-panic-in-tests` and `allow-print-in-tests` to `false`, so `unwrap`
+//! and `expect` would stay silent here while `panic` and `println` would be
+//! reported. Both verdicts are represented on purpose: the scan compiles
+//! Cargo's default targets, so this file reaches the report through neither of
+//! them, and the oracle freezes that emptiness.
 //!
-//! Les usages sont écrits hors de toute macro: Clippy ne signale pas ce qui
-//! provient d'une expansion, donc un `assert_eq!(value.unwrap(), ..)` mesurerait
-//! l'expansion et non l'exemption.
+//! The usages are written outside any macro: Clippy does not report what comes
+//! from an expansion, so an `assert_eq!(value.unwrap(), ..)` would measure the
+//! expansion and not the exemption.
 
 fn parsed(value: &str) -> Option<u8> {
     value.parse().ok()

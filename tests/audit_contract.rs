@@ -181,9 +181,9 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.projected_rule_ids, ["clippy::todo"]);
     assert_eq!(score.projected_after_top_three, Some(100));
     assert_eq!(report.audit.categories[0].name.to_string(), "Bugs");
-    // Les cibles par défaut ne compilent chaque unité qu'une fois: une
-    // occurrence par diagnostic distinct, là où `--all-targets` en produisait
-    // deux pour un même site.
+    // The default targets compile each unit only once: one occurrence per
+    // distinct diagnostic, where `--all-targets` produced two for the same
+    // site.
     assert_eq!(report.audit.categories[0].warnings, 3);
     assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
