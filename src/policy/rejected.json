@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "criterion": "A lint of the toolchain is rejected when a scan should never carry it, for a reason that holds whatever workspace is being scanned. A rejection is a decision, not a backlog: a lint nobody has looked at yet stays in the candidate queue instead of being turned down here.",
+  "rejected": [
+    {
+      "class": "style-only",
+      "id": "clippy::assertions_on_constants",
+      "reason": "Asserts on a literal true or false: the first is dead code the compiler removes, the second is a panic written the long way, and neither changes what a user should fix."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::assign_op_pattern",
+      "reason": "Rewrites a = a + b as a += b, which is shorter and identical in behaviour."
+    },
+    {
+      "class": "deny-by-default",
+      "id": "clippy::async_yields_async",
+      "reason": "Denied by default in the toolchain: dropping its -W restores Clippy's refusal, so carrying it would turn a scan into a compilation failure instead of a report."
+    },
+    {
+      "class": "out-of-scope",
+      "id": "clippy::await_holding_invalid_type",
+      "reason": "Fires only against a list of types configured in the scanned workspace's own clippy.toml, which a scan neither provides nor should impose."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::bind_instead_of_map",
+      "reason": "Rewrites and_then returning Some or Ok as map, which is shorter and identical in behaviour."
+    },
+    {
+      "class": "out-of-scope",
+      "id": "clippy::blanket_clippy_restriction_lints",
+      "reason": "Judges the lint configuration a workspace declares for itself, not the code that workspace ships."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::blocks_in_conditions",
+      "reason": "A block inside a condition is harder to read, which is a matter of taste rather than a defect."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::bool_assert_comparison",
+      "reason": "Rewrites assert_eq against a boolean literal as a plain assert, which is shorter and identical in behaviour."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::bool_comparison",
+      "reason": "Rewrites x == true as x, which is shorter and identical in behaviour."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::borrow_deref_ref",
+      "reason": "Removes a dereference immediately followed by a borrow, which the compiler already collapses."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::borrowed_box",
+      "reason": "Taking a reference to a Box forces the caller to allocate first, which narrows an API without breaking anything it does."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::box_default",
+      "reason": "Rewrites Box::new(Default::default()) as Box::default(), which is shorter and identical in behaviour."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::byte_char_slices",
+      "reason": "Rewrites a slice of byte literals as a byte string, which reads better and compiles to the same bytes."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::bytes_count_to_len",
+      "reason": "Rewrites bytes().count() as len(); Clippy files it under complexity because the optimiser usually erases the difference."
+    },
+    {
+      "class": "style-only",
+      "id": "clippy::bytes_nth",
+      "reason": "Rewrites bytes().nth() as as_bytes().get(), which reads better and avoids walking the iterator."
+    },
+    {
+      "class": "deny-by-default",
+      "id": "clippy::unused_io_amount",
+      "reason": "Denied by default in the toolchain: the same refusal applies, and a scan has no way to lower a denied lint back to a warning."
+    }
+  ]
+}

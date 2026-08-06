@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::configuration::WorkspaceConfiguration;
 
 mod catalog;
+#[cfg(test)]
+mod coverage;
 
 pub use catalog::RuleTier;
 use catalog::find_in;
