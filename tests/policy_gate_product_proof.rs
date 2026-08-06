@@ -647,9 +647,8 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
             )
         })
         .collect();
-    // La commande de la policy par défaut est la référence vivante: chaque
-    // autre policy doit en être exactement la commande privée des règles
-    // qu'elle éteint.
+    // The command of the default policy is the living reference: every other
+    // policy must be exactly that command minus the rules it turns off.
     let default_command = scan_commands
         .get("default")
         .expect("the default policy should publish its command")

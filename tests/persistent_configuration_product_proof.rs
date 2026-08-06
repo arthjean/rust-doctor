@@ -505,12 +505,12 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             .collect::<Vec<_>>(),
         support::expected_clippy_command(&absent["policy"])
     );
-    // La commande figée d'EP-018 reste une sous-suite ordonnée de la commande
-    // courante: aucun élargissement du catalogue n'a retiré ni déplacé une
-    // règle déjà admise.
-    // Un seul argument est parti, nommé ici plutôt que gommé de l'oracle:
-    // `--all-targets` compilait tests, benchs, exemples et scripts de
-    // construction, désormais hors du périmètre scanné.
+    // The frozen command of EP-018 stays an ordered subsequence of the current
+    // command: no widening of the catalog removed or moved a rule already
+    // admitted.
+    // A single argument left, named here rather than erased from the oracle:
+    // `--all-targets` compiled tests, benches, examples and build scripts, now
+    // outside the scanned scope.
     const WITHDRAWN: &str = "--all-targets";
     assert!(
         !absent["scan"]["command"]
@@ -529,8 +529,8 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             "{historical_argument} left the command"
         );
     }
-    // Le `summary` publie les deux grandeurs nommées en plus de ses champs
-    // historiques.
+    // The `summary` publishes both named quantities on top of its historical
+    // fields.
     let summary = absent["summary"]
         .as_object()
         .expect("a result should carry a summary");

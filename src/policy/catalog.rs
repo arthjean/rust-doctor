@@ -15,15 +15,15 @@ pub(crate) enum Producer {
     SourceKernel,
 }
 
-/// Criticité d'une règle, indépendante de `default_level` et de la sévérité
-/// effective d'un diagnostic.
+/// Criticality of a rule, independent of `default_level` and of the effective
+/// severity of a diagnostic.
 ///
-/// Le tier ne pilote que le score `core-v2`: il impose un plafond à la
-/// dimension concernée et à la note globale. Il n'entre ni dans `base_severity`
-/// ni dans `fingerprint()`, donc il ne déplace aucune baseline.
+/// The tier only drives the `core-v2` score: it imposes a cap on the dimension
+/// concerned and on the overall score. It enters neither `base_severity` nor
+/// `fingerprint()`, so it moves no baseline.
 ///
-/// L'ordre déclaré va du plus grave au moins grave: `P0 < P1 < P2 < P3`, donc
-/// le pire tier d'un ensemble est son minimum.
+/// The declared order runs from gravest to least grave: `P0 < P1 < P2 < P3`, so
+/// the worst tier of a set is its minimum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum RuleTier {
     P0,
@@ -45,8 +45,8 @@ impl RuleTier {
         }
     }
 
-    /// Lecture fermée d'un tier publié. Toute autre valeur est refusée sans
-    /// écho de l'entrée.
+    /// Closed reading of a published tier. Any other value is refused without
+    /// echoing the input.
     #[cfg(test)]
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
@@ -69,10 +69,10 @@ pub(crate) struct RuleDefinition {
     pub(crate) help: &'static str,
 }
 
-/// Catégories admissibles, triées: `find`/`validate_catalog` les cherchent par
-/// dichotomie. Chacune est mappée vers une dimension de score par
-/// `audit::category_mapping`, donc ouvrir une catégorie rend sa dimension
-/// atteignable.
+/// Admissible categories, sorted: `find`/`validate_catalog` look them up by
+/// binary search. Each maps to a score dimension through
+/// `audit::category_mapping`, so opening a category makes its dimension
+/// reachable.
 pub(crate) const CATEGORIES: [&str; 6] = [
     "correctness",
     "dependencies",
@@ -504,10 +504,11 @@ fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
     Ok(())
 }
 
-/// Le type interdit déjà un tier absent ou hors des quatre valeurs. La forme
-/// publiée, elle, est une chaîne: c'est là que l'état invalide redevient
-/// représentable, donc c'est là que la validation porte. L'erreur est fermée et
-/// n'échoit ni la valeur lue, ni un chemin, ni une séquence d'échappement.
+/// The type already forbids a missing tier or one outside the four values. The
+/// published form, however, is a string: that is where the invalid state
+/// becomes representable again, so that is where the validation applies. The
+/// error is closed and echoes neither the read value, nor a path, nor an escape
+/// sequence.
 #[cfg(test)]
 fn published_tier(definition: &Value) -> Result<RuleTier, CatalogError> {
     definition
@@ -585,9 +586,9 @@ mod tests {
             .expect("policy oracle should be valid JSON")
     }
 
-    /// Identifiants publiés par l'oracle historique, dans l'ordre du catalogue.
-    /// Le catalogue s'élargit, l'oracle ne bouge pas: la comparaison porte donc
-    /// sur ce sous-ensemble figé, pas sur un filtre par exclusion.
+    /// Identifiers published by the historical oracle, in catalog order. The
+    /// catalog grows, the oracle does not move: the comparison therefore bears
+    /// on this frozen subset, not on a filter by exclusion.
     const HISTORICAL_IDS: [&str; 7] = [
         "clippy::dbg_macro",
         "clippy::todo",
@@ -642,8 +643,8 @@ mod tests {
                             .all(|byte| byte.is_ascii_lowercase() || byte == b'_')))
         );
 
-        // Chaque dimension du score possède au moins trois règles, sans quoi
-        // elle resterait figée à 100 et son poids serait inerte.
+        // Every score dimension owns at least three rules, without which it
+        // would stay frozen at 100 and its weight would be inert.
         let mut per_dimension = BTreeMap::new();
         for definition in CATALOG {
             let (_, dimension) = crate::audit::category_mapping(definition.category)
@@ -684,9 +685,9 @@ mod tests {
 
         static EMPTY_HELP: RuleDefinition = RuleDefinition {
             help: "",
-            // Dérivé de la première entrée du catalogue: la substitution se
-            // fait en position 0, donc l'identifiant doit rester celui-là pour
-            // qu'un seul défaut à la fois soit sous test.
+            // Derived from the first catalog entry: the substitution happens at
+            // position 0, so the identifier must stay that one for a single
+            // defect at a time to be under test.
             ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut empty = CATALOG;
@@ -695,9 +696,9 @@ mod tests {
 
         static UNKNOWN_CATEGORY: RuleDefinition = RuleDefinition {
             category: "style",
-            // Dérivé de la première entrée du catalogue: la substitution se
-            // fait en position 0, donc l'identifiant doit rester celui-là pour
-            // qu'un seul défaut à la fois soit sous test.
+            // Derived from the first catalog entry: the substitution happens at
+            // position 0, so the identifier must stay that one for a single
+            // defect at a time to be under test.
             ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut category = CATALOG;
@@ -709,9 +710,9 @@ mod tests {
 
         static INVALID_PRODUCER: RuleDefinition = RuleDefinition {
             producer: Producer::SourceKernel,
-            // Dérivé de la première entrée du catalogue: la substitution se
-            // fait en position 0, donc l'identifiant doit rester celui-là pour
-            // qu'un seul défaut à la fois soit sous test.
+            // Derived from the first catalog entry: the substitution happens at
+            // position 0, so the identifier must stay that one for a single
+            // defect at a time to be under test.
             ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let mut producer = CATALOG;
@@ -723,9 +724,9 @@ mod tests {
 
         static HOSTILE_DEFINITION: RuleDefinition = RuleDefinition {
             id: "/private/secret\u{1b}[31m",
-            // Dérivé de la première entrée du catalogue: la substitution se
-            // fait en position 0, donc l'identifiant doit rester celui-là pour
-            // qu'un seul défaut à la fois soit sous test.
+            // Derived from the first catalog entry: the substitution happens at
+            // position 0, so the identifier must stay that one for a single
+            // defect at a time to be under test.
             ..CLIPPY_ARC_WITH_NON_SEND_SYNC
         };
         let error = validate_catalog(&[&HOSTILE_DEFINITION]).unwrap_err();
@@ -735,12 +736,12 @@ mod tests {
         assert!(!rendered.contains('\u{1b}'));
     }
 
-    /// Le tier est une valeur fermée sur la surface publiée.
+    /// The tier is a closed value on the published surface.
     ///
-    /// Dans le code, l'énumération rend un tier absent ou hors des quatre
-    /// valeurs impossible à construire. Dans le rapport, le tier est une
-    /// chaîne: c'est la seule surface où l'état invalide existe, donc c'est
-    /// celle que la validation ferme.
+    /// In the code, the enumeration makes a missing tier or one outside the
+    /// four values impossible to build. In the report, the tier is a string:
+    /// that is the only surface where the invalid state exists, so that is the
+    /// one the validation closes.
     #[test]
     fn an_absent_or_unknown_published_tier_fails_with_a_closed_error() {
         for definition in CATALOG {
@@ -770,10 +771,10 @@ mod tests {
         assert!(RuleTier::ALL.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
-    /// Le tier ne recopie pas le niveau par défaut et ne le remplace pas.
+    /// The tier neither copies the default level nor replaces it.
     ///
-    /// Les douze règles partagent `RuleLevel::Warn` mais couvrent quatre tiers,
-    /// donc aucune fonction du score ne peut déduire l'un de l'autre.
+    /// The twelve rules share `RuleLevel::Warn` but cover four tiers, so no
+    /// score function can deduce one from the other.
     #[test]
     fn the_tier_is_independent_from_the_default_level() {
         assert!(
@@ -795,7 +796,7 @@ mod tests {
                 "rust_doctor::source::disabled_tls_verification",
                 "rust_doctor::source::dynamic_shell_command",
             ],
-            "l'ensemble P0 reste restreint aux détecteurs de sécurité exploitables",
+            "the P0 set stays restricted to exploitable security detectors",
         );
     }
 
@@ -881,8 +882,8 @@ mod tests {
         );
     }
 
-    /// US-072: un override de catégorie porte sur toutes les règles de la
-    /// catégorie ouverte, `performance` comme les autres.
+    /// US-072: a category override bears on every rule of the opened category,
+    /// `performance` like the others.
     #[test]
     fn a_category_override_reaches_every_rule_of_an_opened_category() {
         for category in ["performance", "dependencies"] {

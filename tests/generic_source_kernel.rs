@@ -1,9 +1,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Preuves du noyau source générique: la forme importée est détectée au même
-//! titre que la forme pleinement qualifiée, aucun détecteur ne compare un
-//! chemin littéral, et la structure d'atteinte ne porte aucun champ propre à
-//! une crate.
+//! Proofs of the generic source kernel: the imported form is detected just like
+//! the fully qualified form, no detector compares a literal path, and the reach
+//! structure carries no field specific to a crate.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,8 +23,8 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/source-kernel/precision/oracle.json")).unwrap()
 }
 
-/// Bornes de lignes du corps de `symbol`, la fermeture étant la première ligne
-/// réduite à `}`.
+/// Line bounds of the body of `symbol`, the closing being the first line
+/// reduced to `}`.
 fn symbol_lines(source: &str, symbol: &str) -> (usize, usize) {
     let lines: Vec<_> = source.lines().collect();
     let start = lines
@@ -40,7 +39,7 @@ fn symbol_lines(source: &str, symbol: &str) -> (usize, usize) {
     (start + 1, end + 1)
 }
 
-/// Chaînes littérales d'une ligne de code, commentaires exclus.
+/// Literal strings of a code line, comments excluded.
 fn string_literals(line: &str) -> Vec<String> {
     let code = line.split("//").next().unwrap_or_default();
     let mut literals = Vec::new();
@@ -68,8 +67,8 @@ fn string_literals(line: &str) -> Vec<String> {
     literals
 }
 
-/// US-069: la forme importée, renommée ou groupée est émise comme la forme
-/// pleinement qualifiée.
+/// US-069: the imported, renamed or grouped form is emitted like the fully
+/// qualified form.
 #[test]
 fn imported_forms_are_reported_like_fully_qualified_ones() {
     let report = inspect(InspectRequest::new(fixture("precision")));
@@ -102,7 +101,7 @@ fn imported_forms_are_reported_like_fully_qualified_ones() {
         }
     }
 
-    // La même unité porte les deux écritures: elles sont comptées séparément.
+    // The same unit carries both spellings: they are counted separately.
     let positives = fs::read_to_string(fixture("precision").join("app/src/positives.rs")).unwrap();
     let (qualified_start, qualified_end) = symbol_lines(&positives, "shell_sh");
     assert!(native.iter().any(|diagnostic| {
@@ -114,8 +113,8 @@ fn imported_forms_are_reported_like_fully_qualified_ones() {
     }));
 }
 
-/// US-069: aucune comparaison de chemin littéral ne subsiste dans les
-/// détecteurs. Ce test échoue si une chaîne de chemin qualifié y réapparaît.
+/// US-069: no literal path comparison survives in the detectors. This test
+/// fails if a qualified path string reappears in them.
 #[test]
 fn no_detector_compares_a_written_qualified_path() {
     let offending: Vec<_> = DETECTORS
@@ -133,14 +132,13 @@ fn no_detector_compares_a_written_qualified_path() {
         offending.is_empty(),
         "detectors must resolve provenance instead of comparing paths: {offending:?}"
     );
-    // Le détecteur reste bien celui qui décrit sa cible, sinon le test
-    // ci-dessus passerait sur un fichier vide de toute cible.
+    // The detector is indeed the one describing its target, otherwise the test
+    // above would pass on a file empty of any target.
     assert!(DETECTORS.contains("segments: &[\"process\", \"Command\"]"));
     assert!(DETECTORS.contains("krate: \"reqwest\""));
 }
 
-/// US-071: la reachability ne porte aucun champ nommé d'après une crate ou une
-/// règle.
+/// US-071: reachability carries no field named after a crate or a rule.
 #[test]
 fn reachability_carries_only_package_and_target_identity() {
     let declaration = KERNEL
@@ -166,8 +164,8 @@ fn reachability_carries_only_package_and_target_identity() {
     );
 }
 
-/// US-071: la crate visée est résolue par le manifeste, et son absence fait
-/// taire le détecteur sans erreur.
+/// US-071: the targeted crate is resolved through the manifest, and its absence
+/// silences the detector without an error.
 #[test]
 fn a_renamed_dependency_resolves_and_an_absent_one_stays_silent() {
     let report = inspect(InspectRequest::new(fixture("precision")));

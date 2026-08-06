@@ -1,7 +1,7 @@
-//! Fixture négative du pack performance.
+//! Negative fixture of the performance pack.
 //!
-//! Les négatifs des trois lints réservés aux items non exportés sont eux aussi
-//! privés, sans quoi leur silence ne prouverait rien.
+//! The negatives of the three lints reserved for non-exported items are private
+//! too, without which their silence would prove nothing.
 
 use std::rc::Rc;
 
@@ -56,7 +56,7 @@ fn negative_redundant_allocation(value: Rc<u64>) -> u64 {
     *value
 }
 
-/// Exerce les négatifs privés.
+/// Exercises the private negatives.
 pub fn negative_private_signatures(values: &[u64; 64], buffer: Rc<str>, boxed: Rc<u64>) -> u64 {
     let sizes = negative_large_types_passed_by_value(values) + negative_rc_buffer(buffer);
     negative_redundant_allocation(boxed) + sizes as u64
@@ -122,7 +122,7 @@ fn negative_allowed_redundant_allocation(value: Rc<Box<u64>>) -> u64 {
     **value
 }
 
-/// Exerce les négatifs privés neutralisés localement.
+/// Exercises the locally neutralized private negatives.
 pub fn negative_allowed_private_signatures(
     values: [u64; 64],
     buffer: Rc<String>,

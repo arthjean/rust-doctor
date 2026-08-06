@@ -43,8 +43,8 @@ pub(crate) struct ProcessHarness {
     log: PathBuf,
 }
 
-/// Catégories admissibles du catalogue, dans l'ordre publié. Les éteindre
-/// toutes éteint chaque producteur, quel que soit le volume du catalogue.
+/// Admissible categories of the catalog, in published order. Turning them all
+/// off turns off every producer, whatever the catalog volume.
 pub(crate) const CATEGORIES: [&str; 6] = [
     "correctness",
     "dependencies",
@@ -54,7 +54,7 @@ pub(crate) const CATEGORIES: [&str; 6] = [
     "security",
 ];
 
-/// Commande Clippy attendue pour une policy publiée.
+/// Clippy command expected for a published policy.
 ///
 /// Le catalogue grandit d'une tranche à l'autre, donc figer la liste dans
 /// chaque test la rendrait fausse à chaque élargissement. La commande reste
@@ -103,16 +103,15 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-/// Ramène un rapport v10 sur les octets figés de v7.
+/// Projects a v10 report back onto the frozen bytes of v7.
 ///
-/// v8 avait ajouté le bloc `audit`, v9 le `tier` de chaque règle de policy et
-/// les deux grandeurs nommées de `summary`, v10 le `context` de chaque
-/// diagnostic. Aucun champ historique n'est retiré ni retypé, donc la
-/// projection consiste uniquement à enlever les membres ajoutés depuis.
+/// v8 had added the `audit` block, v9 the `tier` of every policy rule and the
+/// two named quantities of `summary`, v10 the `context` of every diagnostic. No
+/// historical field is removed or retyped, so the projection consists solely of
+/// removing the members added since.
 ///
-/// C'est la condition qui rend une archive gelée durable: un schéma qui ajoute
-/// se projette, un schéma qui déplace la valeur d'un champ existant ne se
-/// projette pas.
+/// This is the condition that makes a frozen archive durable: a schema that
+/// adds projects, a schema that moves the value of an existing field does not.
 pub(crate) fn project_v10_wire_to_v7(output: &[u8]) -> Vec<u8> {
     const PREFIX: &[u8] = b"{\"schema_version\":10,\"audit\":";
     let payload = output
@@ -136,15 +135,15 @@ pub(crate) fn project_v10_wire_to_v7(output: &[u8]) -> Vec<u8> {
     drop_scan_command(&projected)
 }
 
-/// Retire `scan.command` d'un rapport sérialisé.
+/// Removes `scan.command` from a serialized report.
 ///
-/// Une archive gelée prouve qu'aucun champ lu par un consommateur d'une version
-/// passée n'a disparu ni changé de type. La commande, elle, est le relevé de ce
-/// qui a réellement tourné: elle change dès que le catalogue s'élargit ou que
-/// le périmètre bouge, deux choses que ce PRD fait exprès. La figer octet pour
-/// octet reviendrait à jurer que la policy ne bougera plus, ce qui contredit
-/// l'objectif de passer de 12 à 40 règles. Les tests qui tiennent à la commande
-/// l'affirment séparément, sur sa forme et sur ce qu'elle a délibérément perdu.
+/// A frozen archive proves that no field read by a consumer of a past version
+/// disappeared or changed type. The command, however, is the record of what
+/// actually ran: it changes as soon as the catalog widens or the scope moves,
+/// two things this PRD does on purpose. Freezing it byte for byte would amount
+/// to swearing the policy will never move again, which contradicts the goal of
+/// going from 12 to 40 rules. The tests that care about the command assert it
+/// separately, on its shape and on what it deliberately lost.
 pub(crate) fn drop_scan_command(wire: &[u8]) -> Vec<u8> {
     match find(wire, 0, b"\"scan\":{") {
         Some(scan) => remove_member(wire, scan, "command"),
@@ -159,7 +158,7 @@ fn find(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .map(|position| from + position)
 }
 
-/// Fin du premier document JSON présent à `from`, offsets d'octets compris.
+/// End of the first JSON document present at `from`, byte offsets included.
 fn value_end(wire: &[u8], from: usize) -> usize {
     let mut values =
         serde_json::Deserializer::from_slice(&wire[from..]).into_iter::<serde_json::Value>();
@@ -170,8 +169,8 @@ fn value_end(wire: &[u8], from: usize) -> usize {
     from + values.byte_offset()
 }
 
-/// Retire le premier membre `member` rencontré à partir de `from`, avec la
-/// virgule qui le rattache à son objet.
+/// Removes the first `member` encountered from `from` onwards, along with the
+/// comma that attaches it to its object.
 fn remove_member(wire: &[u8], from: usize, member: &str) -> Vec<u8> {
     let key = format!("\"{member}\":").into_bytes();
     let start = find(wire, from, &key).expect("the projected member should exist");

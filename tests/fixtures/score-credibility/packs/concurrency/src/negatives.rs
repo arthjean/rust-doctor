@@ -1,15 +1,15 @@
-//! Fixture négative du pack concurrence et asynchrone.
+//! Negative fixture of the concurrency and asynchronous pack.
 //!
-//! Le négatif de `rc_mutex` est privé comme son positif, sans quoi son silence
-//! ne prouverait rien.
+//! The negative of `rc_mutex` is private like its positive, without which its
+//! silence would prove nothing.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-/// Futur trivial partagé par les cas du pack. Il n'attend rien, donc il vise
-/// `unused_async`: le lint est neutralisé ici pour que seul le cas positif
-/// dédié le déclenche.
+/// Trivial future shared by the cases of the pack. It awaits nothing, so it
+/// aims at `unused_async`: the lint is neutralized here so that only the
+/// dedicated positive case triggers it.
 #[allow(clippy::unused_async)]
 async fn ready(value: u8) -> u8 {
     value
@@ -49,7 +49,7 @@ fn negative_rc_mutex(guarded: Rc<RefCell<u8>>) -> u8 {
     *guarded.borrow()
 }
 
-/// Exerce le négatif privé.
+/// Exercises the private negative.
 pub fn negative_private_signatures(guarded: Rc<RefCell<u8>>) -> u8 {
     negative_rc_mutex(guarded)
 }
@@ -92,7 +92,7 @@ fn negative_allowed_rc_mutex(guarded: Rc<Mutex<u8>>) -> u8 {
     *guarded.lock().unwrap()
 }
 
-/// Exerce le négatif privé neutralisé localement.
+/// Exercises the locally neutralized private negative.
 pub fn negative_allowed_private_signatures(guarded: Rc<Mutex<u8>>) -> u8 {
     negative_allowed_rc_mutex(guarded)
 }

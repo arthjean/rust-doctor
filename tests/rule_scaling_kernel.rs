@@ -443,8 +443,8 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     );
 
     assert_eq!(oracle.historical_rules.len(), 7);
-    // Règles admises après EP-018 qui trouvent quelque chose sur cette fixture:
-    // le `expect()` du cas `zombie_processes` en fait partie depuis EP-024.
+    // Rules admitted after EP-018 that find something on this fixture: the
+    // `expect()` of the `zombie_processes` case is one of them since EP-024.
     const ADMITTED_AFTER_EP018: [&str; 1] = ["clippy::expect_used"];
     assert_eq!(
         baseline.diagnostics.len(),

@@ -58,8 +58,8 @@ pub(crate) struct SourceCounters {
     pub(crate) files_parsed: usize,
     pub(crate) bytes_read: u64,
     pub(crate) nodes_visited: usize,
-    /// Sollicitations par règle. Le registre porte N détecteurs, donc le
-    /// compteur est indexé par identifiant plutôt que par champ nommé.
+    /// Solicitations per rule. The registry carries N detectors, so the
+    /// counter is indexed by identifier rather than by named field.
     pub(crate) predicates: BTreeMap<&'static str, usize>,
 }
 
@@ -93,10 +93,9 @@ struct Identity {
     edition: Edition,
 }
 
-/// Identité de l'atteinte d'une unité. Elle ne porte que l'identité du paquet
-/// et de la cible: les alias de crates vivent dans une table indexée par
-/// paquet, donc ajouter un détecteur visant une autre crate n'élargit pas
-/// cette structure partagée.
+/// Identity of a unit's reach. It carries only the identity of the package and
+/// of the target: crate aliases live in a table indexed by package, so adding
+/// a detector aimed at another crate does not widen this shared structure.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Reachability {
     package_id: String,
@@ -586,8 +585,8 @@ fn module_directory_for_file(path: &Path) -> PathBuf {
     }
 }
 
-/// Parcourt le CST une seule fois et sollicite chaque détecteur actif sur les
-/// nœuds du type qu'il a déclaré.
+/// Walks the CST exactly once and solicits every active detector on the nodes
+/// of the kind it declared.
 fn analyze_unit(
     unit: &SourceUnit,
     detectors: &[&'static Detector],
@@ -649,8 +648,8 @@ fn literal_string(expression: ast::Expr) -> Option<String> {
     string.value().ok().map(|value| value.into_owned())
 }
 
-/// Contexte d'émission d'une unité. Il porte ce qu'un candidat doit reprendre
-/// de son unité, donc l'ajout d'un détecteur n'ajoute aucun paramètre.
+/// Emission context of a unit. It carries what a candidate must take back from
+/// its unit, so adding a detector adds no parameter.
 struct Emitter<'a> {
     package: Option<String>,
     target: Option<String>,
@@ -873,8 +872,8 @@ mod tests {
         help: "Synthetic registry proof.",
     };
 
-    /// Détecteur enregistré qui n'émet jamais: il prouve qu'un détecteur muet
-    /// coûte une sollicitation et rien d'autre.
+    /// A registered detector that never emits: it proves that a silent
+    /// detector costs one solicitation and nothing else.
     static SILENT: Detector = Detector {
         definition: &SILENT_RULE,
         node: SyntaxKind::SOURCE_FILE,
@@ -887,7 +886,7 @@ mod tests {
         None
     }
 
-    /// Unité synthétique: le registre s'analyse sans passer par le disque.
+    /// Synthetic unit: the registry is exercised without touching the disk.
     fn synthetic_unit(source: &str) -> SourceUnit {
         let parse = SourceFile::parse(source, Edition::Edition2024);
         SourceUnit {
@@ -1026,8 +1025,8 @@ mod tests {
         );
     }
 
-    /// La forme importée et la forme pleinement qualifiée passent par le même
-    /// mécanisme, et une provenance non décidable fait taire le détecteur.
+    /// The imported form and the fully qualified form go through the same
+    /// mechanism, and an undecidable provenance silences the detector.
     #[test]
     fn detectors_resolve_written_paths_through_the_alias_map() {
         let both = "use std::process::Command;
@@ -1061,9 +1060,9 @@ fn build() { let _ = Client::builder().danger_accept_invalid_certs(true); }",
         }
     }
 
-    /// Le parcours est unique et indépendant du registre: le nombre de nœuds
-    /// visités ne dépend ni du nombre de détecteurs, ni de leur ordre, et un
-    /// détecteur muet ne change pas le résultat.
+    /// The walk is single and independent of the registry: the number of
+    /// visited nodes depends neither on the number of detectors nor on their
+    /// order, and a silent detector does not change the result.
     #[test]
     fn the_registry_shares_one_traversal_and_stays_order_independent() {
         let source = "use std::process::Command;
@@ -1103,15 +1102,15 @@ fn run(user: &str) {
         assert_eq!(single.1.nodes_visited, nodes);
         assert_eq!(single.1.solicitations(SOURCE_DYNAMIC_SHELL.id), 0);
 
-        // Un détecteur enregistré qui n'émet rien laisse le résultat inchangé.
+        // A registered detector that emits nothing leaves the result unchanged.
         let with_silent = analyze(source, &[REGISTERED[0], &SILENT, REGISTERED[1]]);
         assert_eq!(with_silent.0, expected);
         assert_eq!(with_silent.1.nodes_visited, nodes);
         assert_eq!(with_silent.1.solicitations(SILENT_RULE.id), 1);
     }
 
-    /// Une unité dont la carte d'alias sature reste analysée, mais aucune
-    /// provenance n'y est plus décidable.
+    /// A unit whose alias map saturates is still analysed, but no provenance
+    /// is decidable in it any more.
     #[test]
     fn a_saturated_alias_map_reports_a_bounded_error_and_abstains() {
         let source = "use std::process::Command;

@@ -20,8 +20,8 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         .command
         .as_ref()
         .expect("complete scan should expose its command");
-    // Le catalogue est la seule source de la liste publiée: la commande doit
-    // porter chaque règle Clippy active de la policy, dans l'ordre publié.
+    // The catalog is the only source of the published list: the command must
+    // carry every active Clippy rule of the policy, in published order.
     let policy = report
         .policy
         .as_ref()

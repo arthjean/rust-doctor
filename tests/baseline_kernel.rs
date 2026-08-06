@@ -365,8 +365,8 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
         .iter()
         .map(|id| id.as_str().unwrap())
         .collect();
-    // Aucun diagnostic introduit ne disparaît des catégories, y compris celui
-    // qu'aucune catégorie du catalogue ne couvre: il tombe dans `Other`.
+    // No introduced diagnostic disappears from the categories, including the
+    // one no catalog category covers: it falls into `Other`.
     let introduced_diagnostics: Vec<_> = baseline["diagnostics"]
         .as_array()
         .unwrap()
@@ -669,8 +669,8 @@ fn disabled_clippy_producer_starts_no_scan_on_either_side() {
             "baseline",
             "--base",
             SELECTOR,
-            // Éteindre chaque catégorie éteint chaque producteur, sans lier le
-            // test au volume du catalogue.
+            // Turning off every category turns off every producer, without
+            // tying the test to the catalog volume.
             "--category",
             "correctness=off",
             "--category",

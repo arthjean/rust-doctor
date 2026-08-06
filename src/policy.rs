@@ -222,9 +222,9 @@ struct PlannedRule {
     restamp: bool,
 }
 
-/// `serde` n'implémente `Serialize` que jusqu'aux tableaux de 32 éléments. Le
-/// plan en porte autant que le catalogue, donc la sérialisation passe par la
-/// tranche: même forme publiée, sans borne sur la taille du catalogue.
+/// `serde` only implements `Serialize` up to arrays of 32 elements. The plan
+/// carries as many as the catalog does, so serialization goes through the
+/// slice: same published shape, with no bound on the catalog size.
 fn serialize_planned_rules<S>(
     rules: &[PlannedRule; CATALOG.len()],
     serializer: S,

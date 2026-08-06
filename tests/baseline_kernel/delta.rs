@@ -837,9 +837,9 @@ fn baseline_delta_evaluation_is_reconstructed_from_measured_inputs() {
     let _ = fs::remove_dir_all(&target_root);
     fs::create_dir_all(&target_root).unwrap();
 
-    // Les deux mesures portent leurs propres assertions: les scans des trois
-    // dépôts épinglés aboutissent en mode baseline, et la durée reste dans ses
-    // bornes.
+    // Both measurements carry their own assertions: the scans of the three
+    // pinned repositories succeed in baseline mode, and the duration stays
+    // within its bounds.
     let _ = measure_public_repositories(&corpus_root, &target_root);
     let _ = measure_performance();
     fs::remove_dir_all(target_root).unwrap();

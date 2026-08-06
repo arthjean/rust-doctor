@@ -95,12 +95,12 @@ pub(crate) struct CompilerMessageData {
 #[derive(Debug, Deserialize)]
 pub(crate) struct CapturedTarget {
     pub(crate) name: String,
-    /// Nature de la cible telle que Cargo la déclare: `lib`, `bin`, `test`,
-    /// `bench`, `example`, `custom-build`. C'est le système de compilation qui
-    /// répond, pas une heuristique de chemin, et il reste exact quand
-    /// `target.test` ne l'est pas: sous `--all-targets`, Cargo marque `test`
-    /// vrai jusque sur un binaire sans aucun test, mais `kind` continue de
-    /// séparer ce que le projet livre de ce qu'il compile pour se vérifier.
+    /// Target kind as Cargo declares it: `lib`, `bin`, `test`, `bench`,
+    /// `example`, `custom-build`. The build system answers, not a path
+    /// heuristic, and it stays exact where `target.test` does not: under
+    /// `--all-targets`, Cargo marks `test` true even on a binary with no test
+    /// at all, while `kind` keeps separating what the project ships from what
+    /// it compiles to check itself.
     #[serde(default)]
     pub(crate) kind: Vec<String>,
 }
@@ -302,13 +302,13 @@ fn execute_target(
     result.metadata = Some(metadata);
     result.toolchain = toolchain;
 
-    // Le pack dépendances lit le graphe résolu sur disque, donc il produit des
-    // erreurs bornées comme le noyau source: il est exécuté ici, pas pendant la
-    // normalisation, pour que ses erreurs rejoignent celles du scan.
+    // The dependency pack reads the resolved graph from disk, so it produces
+    // bounded errors like the source kernel: it runs here, not during
+    // normalization, so that its errors join those of the scan.
     //
-    // Il passe avant Clippy: `cargo clippy` crée ou réécrit `Cargo.lock`, donc
-    // le lire après mesurerait le graphe que l'outil vient d'écrire au lieu de
-    // celui que le dépôt versionne.
+    // It runs before Clippy: `cargo clippy` creates or rewrites `Cargo.lock`,
+    // so reading it afterwards would measure the graph the tool just wrote
+    // instead of the one the repository commits.
     if plan.active_rules(Producer::CargoHealth).next().is_some() {
         result.cargo_health = result
             .metadata
@@ -663,8 +663,8 @@ mod tests {
         let arguments: Vec<_> = command.get_args().collect();
 
         assert_eq!(command.get_program(), OsStr::new("cargo"));
-        // Le catalogue est la seule source de la liste: la commande doit porter
-        // chaque règle Clippy active, dans l'ordre du catalogue, sous `-W`.
+        // The catalog is the only source of the list: the command must carry
+        // every active Clippy rule, in catalog order, under `-W`.
         let expected: Vec<String> = [
             "clippy",
             "--workspace",

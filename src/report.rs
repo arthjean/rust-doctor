@@ -163,12 +163,12 @@ impl Status {
 }
 
 impl InspectReport {
-    /// Un rapport n'est publiable que si ses comptages concordent.
+    /// A report is publishable only when its counts agree.
     ///
-    /// `summary` décrit l'ensemble des diagnostics du rapport. `audit` décrit la
-    /// portée du score: le rapport complet, ou les seuls diagnostics introduits
-    /// quand un delta est présent. Les deux grandeurs, diagnostics distincts et
-    /// occurrences, sont vérifiées séparément.
+    /// `summary` describes the whole set of diagnostics of the report. `audit`
+    /// describes the score scope: the complete report, or the introduced
+    /// diagnostics alone when a delta is present. Both quantities, distinct
+    /// diagnostics and occurrences, are checked separately.
     pub fn is_valid(&self) -> bool {
         if self.schema_version != SCHEMA_VERSION || !self.audit.is_valid() {
             return false;
@@ -267,14 +267,13 @@ pub struct Diagnostic {
     pub help: Option<String>,
     pub package: Option<String>,
     pub target: Option<String>,
-    /// Cible hors production d'où vient le diagnostic, absente sinon.
+    /// Non-production target the diagnostic comes from, absent otherwise.
     ///
-    /// Le code livré n'est pas marqué: son absence de marque est ce qui le
-    /// désigne, exactement comme le `fileContext` de react-doctor, qui ne
-    /// stampille que `test` et `story`. Un diagnostic marqué reste publié et
-    /// compté, mais cesse de peser sur la note et de bloquer: un `println!`
-    /// dans `build.rs` est le canal imposé par Cargo, pas un défaut de la
-    /// codebase livrée.
+    /// Shipped code is not marked: its lack of a mark is what designates it,
+    /// exactly like react-doctor's `fileContext`, which stamps only `test` and
+    /// `story`. A marked diagnostic stays published and counted, but stops
+    /// weighing on the score and stops blocking: a `println!` in `build.rs` is
+    /// the channel Cargo imposes, not a defect of the shipped codebase.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<DiagnosticContext>,
     pub path: Option<String>,
@@ -282,28 +281,28 @@ pub struct Diagnostic {
     pub occurrences: usize,
 }
 
-/// Cible hors production d'où vient un diagnostic, dérivée de la nature de la
-/// cible que Cargo déclare. Une bibliothèque ou un binaire ne sont pas
-/// représentés: ils sont la production, et un diagnostic qui en vient ne porte
-/// simplement pas ce champ.
+/// Non-production target a diagnostic comes from, derived from the target kind
+/// Cargo declares. A library or a binary are not represented: they are the
+/// production, and a diagnostic coming from them simply does not carry this
+/// field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticContext {
-    /// Cible de test intégrée, sous `tests/`.
+    /// Integration test target, under `tests/`.
     Tests,
-    /// Banc de mesure, sous `benches/`.
+    /// Measurement bench, under `benches/`.
     Benchmark,
-    /// Démonstration, sous `examples/`.
+    /// Demonstration, under `examples/`.
     Example,
-    /// Script de construction exécuté par Cargo.
+    /// Build script executed by Cargo.
     BuildScript,
 }
 
 impl DiagnosticContext {
-    /// Lecture fermée d'une nature de cible Cargo. Une bibliothèque, un binaire
-    /// et une valeur inconnue ne sont pas marqués: dans le doute, le diagnostic
-    /// compte, parce que taire un défaut du code livré est la seule erreur que
-    /// ce champ puisse rendre coûteuse.
+    /// Closed reading of a Cargo target kind. A library, a binary and an
+    /// unknown value are not marked: when in doubt, the diagnostic counts,
+    /// because silencing a defect of the shipped code is the only mistake this
+    /// field can make expensive.
     pub(crate) fn from_target_kinds(kinds: &[String]) -> Option<Self> {
         kinds.iter().find_map(|kind| match kind.as_str() {
             "test" => Some(Self::Tests),
@@ -314,12 +313,12 @@ impl DiagnosticContext {
         })
     }
 
-    /// Un diagnostic pèse-t-il sur la note et sur le gate ?
+    /// Does a diagnostic weigh on the score and on the gate?
     ///
-    /// C'est la décision que react-doctor prend dans `filterForSurface`: un
-    /// diagnostic estampillé d'un contexte hors production sort des surfaces
-    /// `score` et `ciFailure`, et reste dans `cli`. Il n'est pas supprimé, il
-    /// cesse de coûter.
+    /// This is the decision react-doctor makes in `filterForSurface`: a
+    /// diagnostic stamped with a non-production context leaves the `score` and
+    /// `ciFailure` surfaces, and stays in `cli`. It is not removed, it stops
+    /// costing.
     pub(crate) const fn weighs(diagnostic: &Diagnostic) -> bool {
         diagnostic.context.is_none()
     }
@@ -400,11 +399,11 @@ pub struct ReportError {
     pub message: String,
 }
 
-/// Comptages du rapport, publiés sous deux grandeurs explicites.
+/// Counts of the report, published under two explicit quantities.
 ///
-/// Les cinq champs plats sont l'alias historique de `distinct`: un diagnostic
-/// remonté par deux cibles de compilation compte pour un diagnostic distinct et
-/// deux occurrences.
+/// The five flat fields are the historical alias of `distinct`: a diagnostic
+/// reported by two compilation targets counts as one distinct diagnostic and
+/// two occurrences.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub errors: usize,
@@ -417,8 +416,8 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// Seule dérivation admise des comptages: un rapport dont le `summary`
-    /// s'écarte de cette fonction est refusé à la sérialisation.
+    /// The only admitted derivation of the counts: a report whose `summary`
+    /// departs from this function is refused at serialization.
     pub fn from_diagnostics(diagnostics: &[Diagnostic]) -> Self {
         let mut distinct = SeverityCounts::default();
         let mut occurrences = SeverityCounts::default();
@@ -1062,7 +1061,7 @@ fn normalize_cargo_health_candidate(
     Diagnostic {
         id,
         source,
-        // Diagnostic natif: aucune cible Cargo ne le porte.
+        // Native diagnostic: no Cargo target carries it.
         context: None,
         code,
         base_severity: canonical_severity(definition.default_level),
@@ -1123,7 +1122,7 @@ fn normalize_source_candidate(
     Diagnostic {
         id,
         source,
-        // Diagnostic natif: aucune cible Cargo ne le porte.
+        // Native diagnostic: no Cargo target carries it.
         context: None,
         code,
         base_severity: canonical_severity(definition.default_level),
@@ -1212,9 +1211,9 @@ fn normalize_diagnostic(
     }
 }
 
-/// Deux occurrences d'un même diagnostic qui ne s'accordent pas sur un champ
-/// facultatif le laissent vide: publier l'une des deux valeurs affirmerait une
-/// provenance que les occurrences contredisent.
+/// Two occurrences of the same diagnostic that disagree on an optional field
+/// leave it empty: publishing either of the two values would assert a
+/// provenance the occurrences contradict.
 fn merge_optional_context<T: PartialEq>(existing: &mut Option<T>, incoming: Option<T>) {
     if existing.as_ref() != incoming.as_ref() {
         *existing = None;
@@ -1997,9 +1996,9 @@ mod tests {
         }
     }
 
-    /// Le pack dépendances tourne désormais dans l'exécution, comme le noyau
-    /// source. Les constructeurs de test reproduisent ce câblage plutôt que de
-    /// laisser la normalisation le relancer.
+    /// The dependency pack now runs inside the execution, like the source
+    /// kernel. The test constructors reproduce that wiring rather than letting
+    /// normalization run it again.
     fn cargo_health_scan(metadata: &Metadata) -> Option<cargo_health::CargoHealthScan> {
         Some(cargo_health::inspect(metadata, &PolicyPlan::default()))
     }

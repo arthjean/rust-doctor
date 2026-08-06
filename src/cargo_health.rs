@@ -11,13 +11,13 @@ use crate::policy::{
     PolicyPlan, RuleDefinition,
 };
 
-/// Nom du graphe résolu hors ligne. `cargo metadata` tourne en `--no-deps`,
-/// donc `metadata.resolve` est toujours absent: le seul graphe consultable sans
-/// index de registre ni réseau est le fichier de verrouillage.
+/// Name of the offline resolved graph. `cargo metadata` runs with `--no-deps`,
+/// so `metadata.resolve` is always absent: the only graph readable without a
+/// registry index and without the network is the lockfile.
 const LOCKFILE: &str = "Cargo.lock";
 
-/// Borne le travail du pack sur un fichier de verrouillage hostile ou
-/// gigantesque. Au-delà, le pack s'abstient au lieu de charger le fichier.
+/// Bounds the pack's work on a hostile or gigantic lockfile. Beyond it, the
+/// pack abstains instead of loading the file.
 const MAX_LOCKFILE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,8 +28,8 @@ pub(crate) struct Candidate {
     pub(crate) manifest_path: Option<String>,
 }
 
-/// Erreur bornée du pack: un code fermé et un message figé, sans chemin, sans
-/// variable d'environnement et sans séquence d'échappement.
+/// Bounded error of the pack: a closed code and a frozen message, with no
+/// path, no environment variable and no escape sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CargoHealthError {
     pub(crate) code: &'static str,
@@ -52,8 +52,8 @@ pub(crate) struct CargoHealthCounters {
     pub(crate) resolved_packages: usize,
 }
 
-/// Forme minimale du fichier de verrouillage: seule la liste résolue compte,
-/// et tout le reste du document est ignoré sans le rendre invalide.
+/// Minimal shape of the lockfile: only the resolved list matters, and all the
+/// rest of the document is ignored without making it invalid.
 #[derive(Debug, Deserialize)]
 struct LockDocument {
     package: Option<Vec<LockPackage>>,
@@ -65,14 +65,14 @@ struct LockPackage {
     version: Option<String>,
 }
 
-/// État du graphe résolu tel que le pack peut l'observer hors ligne.
+/// State of the resolved graph as the pack can observe it offline.
 #[derive(Debug, PartialEq, Eq)]
 enum Resolution {
-    /// Aucun fichier de verrouillage: c'est un fait constaté, pas une erreur.
+    /// No lockfile: this is an observed fact, not an error.
     Absent,
-    /// Le fichier existe mais sa section de résolution est inexploitable.
+    /// The file exists but its resolution section is unusable.
     Unusable(CargoHealthError),
-    /// Paires (nom, version) du graphe résolu, dans l'ordre du fichier.
+    /// (name, version) pairs of the resolved graph, in file order.
     Packages(Vec<(String, String)>),
 }
 
@@ -151,9 +151,9 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
             {
                 scan.candidates.push(Candidate {
                     definition: &CARGO_MISSING_LOCKFILE,
-                    // Le pack observe le disque, pas l'index du gestionnaire de
-                    // versions: le message dit donc ce qui est mesuré, l'absence
-                    // du fichier, et l'aide de la règle porte la remédiation.
+                    // The pack observes the disk, not the version control
+                    // index: the message therefore states what is measured,
+                    // the missing file, and the rule help carries the fix.
                     message: format!(
                         "Package \"{}\" produces a binary but no {LOCKFILE} sits next to its workspace manifest.",
                         package.name
@@ -204,9 +204,10 @@ fn produces_a_binary(package: &Package) -> bool {
         .any(|target| target.kind.contains(&TargetKind::Bin))
 }
 
-/// Le graphe résolu appartient au workspace, pas à un membre. Le diagnostic est
-/// donc rattaché au paquet racine quand il existe, sinon au premier membre par
-/// ordre de nom, ce qui reste déterministe sur un workspace virtuel.
+/// The resolved graph belongs to the workspace, not to a member. The diagnostic
+/// is therefore attached to the root package when it exists, otherwise to the
+/// first member by name order, which stays deterministic on a virtual
+/// workspace.
 fn resolution_owner(metadata: &Metadata) -> String {
     let root_manifest = metadata.workspace_root.join("Cargo.toml");
     if let Some(root) = workspace_packages(metadata)
@@ -272,10 +273,10 @@ fn read_resolution(workspace_root: &Path) -> Resolution {
     Resolution::Packages(packages)
 }
 
-/// Deux versions d'une même crate dont le numéro majeur diffère ne sont pas
-/// interchangeables: leurs types ne s'unifient pas et le binaire embarque les
-/// deux copies. Les préversions et les métadonnées de build sont ignorées,
-/// seule la partie majeure du triplet est comparée.
+/// Two versions of the same crate whose major number differs are not
+/// interchangeable: their types do not unify and the binary embeds both copies.
+/// Pre-releases and build metadata are ignored, only the major part of the
+/// triplet is compared.
 fn duplicate_major_versions(packages: &[(String, String)]) -> Vec<(String, String)> {
     let mut majors = BTreeMap::<&str, Vec<&str>>::new();
     for (name, version) in packages {
@@ -927,8 +928,8 @@ mod tests {
             .join(name)
     }
 
-    /// `cargo metadata --no-deps` ne résout rien, donc il n'écrit jamais de
-    /// fichier de verrouillage: les fixtures de résolution restent intactes.
+    /// `cargo metadata --no-deps` resolves nothing, so it never writes a
+    /// lockfile: the resolution fixtures stay intact.
     fn resolution_scan(name: &str) -> CargoHealthScan {
         let root = resolution_fixture(name);
         let before = fixture_hashes(&root);
@@ -946,8 +947,8 @@ mod tests {
             .collect()
     }
 
-    /// US-076: deux versions majeures d'une même crate dans le graphe résolu
-    /// sont nommées, versions comprises, et une divergence mineure ne l'est pas.
+    /// US-076: two major versions of the same crate in the resolved graph are
+    /// named, versions included, and a minor divergence is not.
     #[test]
     fn duplicate_major_versions_are_named_with_their_versions() {
         let scan = resolution_scan("duplicate");
@@ -967,13 +968,13 @@ mod tests {
         assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.lock"));
         assert_eq!(candidate.definition.category, "dependencies");
 
-        // La fixture porte aussi deux versions mineures d'une même crate: elles
-        // restent compatibles, donc elles ne sont pas signalées.
+        // The fixture also carries two minor versions of the same crate: they
+        // stay compatible, so they are not reported.
         assert!(!candidate.message.contains("aligned"));
         assert!(candidates_for(&scan, &CARGO_MISSING_LOCKFILE).is_empty());
     }
 
-    /// US-076: un workspace propre sur ces critères ne produit aucun diagnostic.
+    /// US-076: a workspace clean on these criteria produces no diagnostic.
     #[test]
     fn a_clean_resolution_produces_no_candidate() {
         let scan = resolution_scan("clean");
@@ -982,8 +983,8 @@ mod tests {
         assert_eq!(scan.counters.resolved_packages, 2);
     }
 
-    /// US-076: un binaire sans fichier de verrouillage est signalé, en nommant
-    /// le paquet et son manifeste.
+    /// US-076: a binary with no lockfile is reported, naming the package and
+    /// its manifest.
     #[test]
     fn a_binary_without_a_lockfile_is_named() {
         let scan = resolution_scan("absent");
@@ -1000,8 +1001,8 @@ mod tests {
         assert!(candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS).is_empty());
     }
 
-    /// US-076: une section de résolution absente fait s'abstenir le pack avec
-    /// une erreur bornée, et le scan reste utilisable.
+    /// US-076: a missing resolution section makes the pack abstain with a
+    /// bounded error, and the scan stays usable.
     #[test]
     fn an_unusable_resolution_abstains_with_a_bounded_error() {
         let scan = resolution_scan("unusable");
@@ -1019,8 +1020,8 @@ mod tests {
         }
     }
 
-    /// US-076: une dépendance de chemin qui quitte le workspace est signalée
-    /// sans publier le chemin absolu qu'elle vise.
+    /// US-076: a path dependency that leaves the workspace is reported without
+    /// publishing the absolute path it points at.
     #[test]
     fn a_path_dependency_leaving_the_workspace_is_named_without_its_path() {
         let scan = resolution_scan("outside-path");
@@ -1035,8 +1036,8 @@ mod tests {
         assert!(!candidate.message.contains(".."));
     }
 
-    /// Le classement des versions majeures est indépendant de l'ordre du
-    /// fichier et ignore préversions et métadonnées de build.
+    /// The ordering of major versions is independent of file order and ignores
+    /// pre-releases and build metadata.
     #[test]
     fn major_comparison_is_order_independent_and_ignores_prerelease_metadata() {
         let packages = |pairs: &[(&str, &str)]| {
@@ -1056,8 +1057,8 @@ mod tests {
         );
         assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("b", "2.0.0")])).is_empty());
         assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("a", "1.0.0")])).is_empty());
-        // Une version illisible ne peut pas être comparée, donc elle ne peut pas
-        // fonder un verdict de duplication.
+        // An unreadable version cannot be compared, so it cannot ground a
+        // duplication verdict.
         assert!(duplicate_major_versions(&packages(&[("a", "x.0.0"), ("a", "1.0.0")])).is_empty());
         assert_eq!(major_of("10.2.3"), Some("10"));
         assert_eq!(major_of(""), None);

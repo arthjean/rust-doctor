@@ -101,10 +101,10 @@ fn copy_fixture(source: &Path, destination: &Path) {
         fs::copy(&source_path, destination_path).expect("fixture file should copy");
     }
 
-    // `collect_fixture_files` écarte le fichier de verrouillage de l'empreinte,
-    // mais la copie doit le porter: sans lui, le workspace copié produit un
-    // binaire sans graphe résolu et le pack dépendances le signale à juste
-    // titre, ce que ce test ne mesure pas.
+    // `collect_fixture_files` keeps the lockfile out of the fingerprint, but
+    // the copy must carry it: without it, the copied workspace produces a
+    // binary with no resolved graph and the dependency pack rightly reports it,
+    // which is not what this test measures.
     let lockfile = source.join("Cargo.lock");
     if lockfile.is_file() {
         fs::copy(lockfile, destination.join("Cargo.lock")).expect("lockfile should copy");

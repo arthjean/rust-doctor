@@ -277,9 +277,9 @@ fn run_case(
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
         let diagnostics = report["diagnostics"].as_array().unwrap();
         assert_eq!(diagnostics.len(), expected_diagnostics);
-        // Les deux grandeurs du rapport se recalculent depuis les diagnostics
-        // publiés: un finding remonté par deux cibles reste un diagnostic
-        // distinct et deux occurrences.
+        // Both quantities of the report recompute from the published
+        // diagnostics: a finding reported by two targets stays one distinct
+        // diagnostic and two occurrences.
         assert_eq!(
             report["summary"]["distinct"]["total"].as_u64().unwrap(),
             expected_diagnostics as u64

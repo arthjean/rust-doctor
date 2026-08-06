@@ -1,8 +1,8 @@
-//! Fixture négative du pack panique et placeholders.
+//! Negative fixture of the panic and placeholders pack.
 //!
-//! Le bloc `negative_*` est la forme idiomatique que le lint voisin ne doit pas
-//! signaler. Le bloc `negative_allowed_*` couvre la neutralisation locale par
-//! `#[allow]`, exigée par le contrat d'admission.
+//! The `negative_*` block is the idiomatic form the neighbouring lint must not
+//! report. The `negative_allowed_*` block covers local neutralization through
+//! `#[allow]`, required by the admission contract.
 
 use std::fmt::Write as _;
 

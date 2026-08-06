@@ -1,11 +1,11 @@
-//! Carte d'alias d'imports d'une unité source.
+//! Import alias map of a source unit.
 //!
-//! Elle répond à une seule question: à ce point du fichier, quel item désigne
-//! cet identifiant ? La réponse est fermée. Quand la provenance n'est pas
-//! décidable, ombrage local, import glob, mot-clé de chemin relatif ou carte
-//! saturée, la carte le dit et le détecteur s'abstient. Les ré-exports, les
-//! méthodes de trait et `Self` restent hors de portée: ils demanderaient une
-//! résolution sémantique complète, explicitement hors périmètre.
+//! It answers a single question: at this point of the file, which item does
+//! this identifier designate? The answer is closed. When the provenance is not
+//! decidable, be it local shadowing, a glob import, a relative path keyword or
+//! a saturated map, the map says so and the detector abstains. Re-exports,
+//! trait methods and `Self` stay out of reach: they would require a complete
+//! semantic resolution, explicitly out of scope.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,26 +14,26 @@ use ra_ap_syntax::{AstNode, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
 use super::intersects_errors;
 
-/// Nombre maximal de liaisons retenues par unité source.
+/// Maximum number of bindings retained per source unit.
 ///
-/// Chaque entrée coûte quelques dizaines d'octets, donc la limite borne la
-/// carte sous les 64 Ko par unité. Au-delà, la carte bascule en mode
-/// indéterminé: elle reste interrogeable et toute résolution s'abstient.
+/// Each entry costs a few dozen bytes, so the limit bounds the map under 64 KB
+/// per unit. Beyond it, the map switches to undetermined mode: it stays
+/// queryable and every resolution abstains.
 pub(super) const BINDING_LIMIT: usize = 1_024;
 
-/// Provenance d'un identifiant à un point donné du fichier.
+/// Provenance of an identifier at a given point of the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Provenance<'a> {
-    /// L'identifiant est lié par un `use` visible et désigne cet item.
+    /// The identifier is bound by a visible `use` and designates this item.
     Item(&'a [String]),
-    /// L'identifiant est lié localement, provient d'un glob, ou la carte est
-    /// saturée: la provenance n'est pas décidable.
+    /// The identifier is bound locally, comes from a glob, or the map is
+    /// saturated: the provenance is not decidable.
     Indeterminate,
-    /// Aucune liaison visible ne porte cet identifiant.
+    /// No visible binding carries this identifier.
     Unbound,
 }
 
-/// Nœuds susceptibles de lier un identifiant dans leur portée.
+/// Nodes liable to bind an identifier in their scope.
 const BINDING_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::USE,
     SyntaxKind::MODULE,
@@ -45,9 +45,9 @@ const BINDING_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::TYPE_ALIAS,
 ];
 
-/// Une portée est identifiée par les bornes de son nœud. Deux portées
-/// imbriquées ont des bornes distinctes, donc la clé est stable et ordonnable
-/// sans dépendre de l'identité d'un nœud rowan.
+/// A scope is identified by the bounds of its node. Two nested scopes have
+/// distinct bounds, so the key is stable and orderable without depending on
+/// the identity of a rowan node.
 type ScopeKey = (u32, u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +74,8 @@ pub(super) struct AliasMap {
 impl AliasMap {
     pub(super) fn build(tree: &SourceFile, error_ranges: &[TextRange], limit: usize) -> Self {
         let mut map = Self::default();
-        // Le filtre porte sur le type de nœud avant toute construction typée:
-        // la grande majorité des nœuds d'une unité ne lie aucun identifiant.
+        // The filter applies to the node kind before any typed construction:
+        // the vast majority of a unit's nodes bind no identifier at all.
         for node in tree
             .syntax()
             .descendants()
@@ -100,7 +100,7 @@ impl AliasMap {
         map
     }
 
-    /// Provenance de `name` au point du fichier occupé par `node`.
+    /// Provenance of `name` at the point of the file occupied by `node`.
     pub(super) fn provenance(&self, node: &SyntaxNode, name: &str) -> Provenance<'_> {
         if self.saturated || shadowed_by_generic_parameter(node, name) {
             return Provenance::Indeterminate;
@@ -112,9 +112,9 @@ impl AliasMap {
                     Binding::Opaque => Provenance::Indeterminate,
                 };
             }
-            // Un glob de la portée courante peut lier le nom sans que la carte
-            // sache lequel: il masque les portées englobantes plutôt que de les
-            // laisser répondre à sa place.
+            // A glob of the current scope may bind the name without the map
+            // knowing which one: it masks the enclosing scopes rather than
+            // letting them answer in its place.
             if self.globs.contains(&scope) {
                 return Provenance::Indeterminate;
             }
@@ -219,8 +219,8 @@ fn segments(path: &ast::Path) -> Vec<Segment> {
         .collect()
 }
 
-/// Un segment porteur d'arguments génériques ou d'un ancrage de type ne nomme
-/// pas seul un item: la carte refuse de le résoudre.
+/// A segment carrying generic arguments or a type anchor does not name an item
+/// on its own: the map refuses to resolve it.
 fn plain(segment: &ast::PathSegment) -> bool {
     let mut children = segment.syntax().children();
     children.next();
@@ -269,7 +269,7 @@ fn shadowed_by_generic_parameter(node: &SyntaxNode, name: &str) -> bool {
     })
 }
 
-/// Portée dans laquelle une liaison déclarée par `node` est visible.
+/// Scope in which a binding declared by `node` is visible.
 fn binding_scope(node: &SyntaxNode) -> Option<ScopeKey> {
     node.parent()?
         .ancestors()
@@ -277,9 +277,9 @@ fn binding_scope(node: &SyntaxNode) -> Option<ScopeKey> {
         .map(|scope| key(&scope))
 }
 
-/// Portées visibles depuis `node`, de la plus proche jusqu'au module englobant
-/// inclus. La chaîne s'arrête là: un `use` d'un module parent ne traverse pas
-/// la frontière d'un module enfant.
+/// Scopes visible from `node`, from the nearest up to and including the
+/// enclosing module. The chain stops there: a `use` of a parent module does not
+/// cross the boundary of a child module.
 fn visible_scopes(node: &SyntaxNode) -> Vec<ScopeKey> {
     let mut scopes = Vec::new();
     for ancestor in node.ancestors() {
@@ -322,8 +322,8 @@ mod tests {
         (map, parse)
     }
 
-    /// Résout `name` au point du premier appel de méthode du fichier, qui sert
-    /// de site d'interrogation à toutes les preuves.
+    /// Resolves `name` at the point of the first method call of the file,
+    /// which serves as the query site for every proof.
     fn provenance(source: &str, name: &str) -> Vec<String> {
         let (map, parse) = map(source);
         let call = parse
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(provenance(source, "Write"), unbound());
     }
 
-    /// NFR: la construction reste sous 2 ms par fichier de 1 000 lignes.
+    /// NFR: the construction stays under 2 ms per 1,000-line file.
     #[test]
     fn building_a_thousand_line_unit_stays_under_two_milliseconds() {
         use std::time::{Duration, Instant};
@@ -507,9 +507,9 @@ mod tests {
         }
         samples.sort_unstable();
         let p95 = samples[18];
-        // Le budget porte sur le binaire livré. Un build de test non optimisé
-        // paie le coût d'accès au CST, donc la borne y est desserrée sans
-        // cesser de mesurer la même construction.
+        // The budget applies to the shipped binary. An unoptimized test build
+        // pays the CST access cost, so the bound is loosened there without
+        // ceasing to measure the same construction.
         let budget = if cfg!(debug_assertions) {
             Duration::from_millis(20)
         } else {

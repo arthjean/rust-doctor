@@ -1,16 +1,16 @@
-//! Fixture adversariale de référence du modèle de score.
+//! Reference adversarial fixture of the score model.
 //!
-//! Elle rassemble les défauts que le PRD score-credibility-kernel mesure comme
-//! coexistant avec une note de 99 sous `core-v1`. Sous `core-v2`, l'injection de
-//! commande porte le tier `P0`, donc la note globale ne peut plus dépasser son
-//! plafond quelle que soit la moyenne des autres dimensions.
+//! It gathers the defects the score-credibility-kernel PRD measures as
+//! coexisting with a score of 99 under `core-v1`. Under `core-v2`, the command
+//! injection carries tier `P0`, so the overall score can no longer exceed its
+//! cap whatever the average of the other dimensions.
 //!
-//! Ce que le catalogue courant ne détecte pas encore, secret en dur,
-//! concaténation SQL, `unsafe` non justifié, `unwrap`, `panic!` et indexation
-//! non vérifiée, reste écrit ici volontairement: la fixture doit rester le point
-//! de mesure des tranches suivantes.
+//! What the current catalog does not detect yet, a hard-coded secret, SQL
+//! concatenation, unjustified `unsafe`, `unwrap`, `panic!` and unchecked
+//! indexing, stays written here on purpose: the fixture must remain the
+//! measurement point of the following slices.
 
-/// Détecté: `rust_doctor::source::dynamic_shell_command`, tier `P0`.
+/// Detected: `rust_doctor::source::dynamic_shell_command`, tier `P0`.
 pub fn run_user_command(user: &str) -> std::process::Output {
     std::process::Command::new("sh")
         .arg("-c")
@@ -19,41 +19,41 @@ pub fn run_user_command(user: &str) -> std::process::Output {
         .unwrap_or_else(|error| panic!("the shell should answer: {error}"))
 }
 
-/// Détecté: `clippy::unimplemented`, tier `P1`.
+/// Detected: `clippy::unimplemented`, tier `P1`.
 pub fn rotate_credentials() -> &'static str {
     unimplemented!()
 }
 
-/// Détecté: `clippy::todo`, tier `P2`.
+/// Detected: `clippy::todo`, tier `P2`.
 pub fn revoke_session(_token: &str) -> bool {
     todo!()
 }
 
-/// Détecté: `clippy::dbg_macro`, tier `P3`.
+/// Detected: `clippy::dbg_macro`, tier `P3`.
 pub fn trace_request(path: &str) -> usize {
     dbg!(path.len())
 }
 
-/// Non détecté par le catalogue courant: identifiant de paiement en dur.
+/// Not detected by the current catalog: hard-coded payment identifier.
 ///
-/// Le littéral ne reprend volontairement la forme d'aucun fournisseur réel: la
-/// protection de push de GitHub refuserait la fixture, et le scan de secrets
-/// sur fichiers bruts est explicitement hors périmètre de cette tranche. Ce
-/// qu'il documente ici, c'est la présence d'un identifiant en clair dans le
-/// code source.
+/// The literal deliberately takes the shape of no real provider: GitHub's push
+/// protection would refuse the fixture, and raw-file secret scanning is
+/// explicitly outside the scope of this slice. What it documents here is the
+/// presence of a plaintext identifier inside the source code, nothing about
+/// the format of any given issuer.
 pub const PAYMENT_KEY: &str = "PLACEHOLDER-PAYMENT-CREDENTIAL-DO-NOT-USE";
 
-/// Non détecté par le catalogue courant: concaténation SQL.
+/// Not detected by the current catalog: SQL concatenation.
 pub fn user_query(name: &str) -> String {
     format!("SELECT * FROM users WHERE name = '{name}'")
 }
 
-/// Non détecté par le catalogue courant: `unsafe` sans justification.
+/// Not detected by the current catalog: `unsafe` without justification.
 pub fn first_byte(bytes: &[u8]) -> u8 {
     unsafe { *bytes.get_unchecked(0) }
 }
 
-/// Non détecté par le catalogue courant: indexation non vérifiée et `unwrap`.
+/// Not detected by the current catalog: unchecked indexing and `unwrap`.
 pub fn third_field(line: &str) -> String {
     let fields: Vec<&str> = line.split(',').collect();
     let parsed: u8 = fields[2].parse().unwrap();

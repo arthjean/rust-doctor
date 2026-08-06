@@ -39,11 +39,11 @@ pub struct Audit {
     pub score: Option<AuditScore>,
 }
 
-/// Comptage par sévérité d'une seule grandeur.
+/// Per-severity count of a single quantity.
 ///
-/// Le rapport publie deux grandeurs distinctes: le nombre de diagnostics
-/// distincts et le nombre d'occurrences. Chaque surface expose les deux sous
-/// des noms explicites, et `total` est toujours la somme des quatre sévérités.
+/// The report publishes two distinct quantities: the number of distinct
+/// diagnostics and the number of occurrences. Every surface exposes both under
+/// explicit names, and `total` is always the sum of the four severities.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct SeverityCounts {
     pub errors: usize,
@@ -73,7 +73,7 @@ impl SeverityCounts {
             == self.total
     }
 
-    /// Une occurrence par diagnostic distinct au minimum, jamais l'inverse.
+    /// At least one occurrence per distinct diagnostic, never the reverse.
     const fn covers(self, distinct: Self) -> bool {
         self.errors >= distinct.errors
             && self.warnings >= distinct.warnings
@@ -86,8 +86,8 @@ impl SeverityCounts {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditCategory {
     pub name: AuditCategoryName,
-    /// Alias historique de `occurrences.errors`, conservé pour les consommateurs
-    /// du schema précédent.
+    /// Historical alias of `occurrences.errors`, kept for consumers of the
+    /// previous schema.
     pub errors: usize,
     pub warnings: usize,
     pub info: usize,
@@ -103,9 +103,9 @@ pub enum AuditCategoryName {
     Performance,
     Dependencies,
     Maintainability,
-    /// Diagnostic sans catégorie catalogue, une erreur de compilation par
-    /// exemple. Le bucket existe pour qu'aucun diagnostic ne disparaisse entre
-    /// `summary` et `audit.categories`.
+    /// Diagnostic with no catalog category, a compilation error for instance.
+    /// The bucket exists so that no diagnostic disappears between `summary`
+    /// and `audit.categories`.
     Other,
 }
 
@@ -116,12 +116,12 @@ pub struct AuditScore {
     pub label: ScoreLabel,
     pub authoritative: bool,
     pub dimensions: ScoreDimensions,
-    /// Pire tier observé toutes dimensions confondues, ou `null` si aucune
-    /// règle scorée n'est catalogée.
+    /// Worst tier observed across all dimensions, or `null` when no scored
+    /// rule is catalogued.
     pub worst_tier: Option<RuleTier>,
-    /// Plafond global effectivement appliqué à `value`, ou `null` quand le pire
-    /// tier n'en impose aucun. Publié pour qu'une chute de note soit explicable
-    /// sans recalcul.
+    /// Global cap effectively applied to `value`, or `null` when the worst tier
+    /// imposes none. Published so that a score drop can be explained without
+    /// recomputation.
     pub applied_ceiling: Option<u8>,
     pub projected_after_top_three: Option<u8>,
     pub projected_rule_ids: Vec<String>,
@@ -224,10 +224,10 @@ impl Audit {
         diagnostics: &[Diagnostic],
     ) -> Self {
         let categories = category_tallies(diagnostics);
-        // Les deux grandeurs comptent tout ce que le rapport publie, FR-06
-        // exige leur égalité avec `summary`. Seule la note écarte les
-        // diagnostics hors production: ils restent visibles et comptés, ils
-        // cessent de coûter des points.
+        // Both quantities count everything the report publishes, FR-06
+        // requires them to equal `summary`. Only the score sets aside
+        // non-production diagnostics: they stay visible and counted, they stop
+        // costing points.
         let aggregation = aggregate_rules(
             diagnostics
                 .iter()
@@ -284,7 +284,7 @@ impl Audit {
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
     }
 
-    /// Les deux grandeurs agrégées sur toutes les catégories du bloc.
+    /// Both quantities aggregated over every category of the block.
     pub fn totals(&self) -> (SeverityCounts, SeverityCounts) {
         self.categories.iter().fold(
             (SeverityCounts::default(), SeverityCounts::default()),
@@ -485,16 +485,16 @@ pub(crate) fn category_mapping(category: &str) -> Option<(AuditCategoryName, Sco
     }
 }
 
-/// Tout diagnostic tombe dans exactement un bucket, y compris ceux qu'aucune
-/// catégorie du catalogue ne couvre. Sans cela, `summary` et `audit.categories`
-/// compteraient des populations différentes.
+/// Every diagnostic falls into exactly one bucket, including those no catalog
+/// category covers. Without that, `summary` and `audit.categories` would count
+/// different populations.
 pub(crate) fn category_bucket(category: Option<&str>) -> AuditCategoryName {
     category
         .and_then(category_mapping)
         .map_or(AuditCategoryName::Other, |(name, _)| name)
 }
 
-/// Plafond imposé à une dimension par le pire tier qu'elle contient.
+/// Cap imposed on a dimension by the worst tier it contains.
 pub(crate) const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
     match tier {
         RuleTier::P0 => Some(20),
@@ -504,8 +504,7 @@ pub(crate) const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
     }
 }
 
-/// Plafond imposé à la note globale par le pire tier toutes dimensions
-/// confondues.
+/// Cap imposed on the overall score by the worst tier across all dimensions.
 pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
     match tier {
         RuleTier::P0 => Some(40),
@@ -514,12 +513,12 @@ pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
     }
 }
 
-/// Paliers d'occurrences appliqués à la pénalité d'une règle, publiés comme
-/// bornes hautes inclusives.
+/// Occurrence steps applied to a rule's penalty, published as inclusive upper
+/// bounds.
 pub(crate) const OCCURRENCE_STEPS: [(usize, u64); 4] = [(1, 1), (5, 2), (20, 3), (usize::MAX, 4)];
 
-/// Multiplicateur saturant: une règle ne peut jamais dépasser le dernier
-/// palier, quel que soit son nombre d'occurrences.
+/// Saturating multiplier: a rule can never go past the last step, whatever its
+/// occurrence count.
 pub(crate) const fn occurrence_multiplier(occurrences: usize) -> u64 {
     let mut index = 0;
     while index < OCCURRENCE_STEPS.len() {
@@ -538,7 +537,7 @@ const fn capped(value: u8, ceiling: Option<u8>) -> u8 {
     }
 }
 
-/// Le pire tier est le minimum, `P0` étant déclaré en premier.
+/// The worst tier is the minimum, `P0` being declared first.
 fn worse_tier(current: Option<RuleTier>, candidate: Option<RuleTier>) -> Option<RuleTier> {
     match (current, candidate) {
         (Some(current), Some(candidate)) => Some(current.min(candidate)),
@@ -566,7 +565,7 @@ pub(crate) const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 }
 
 impl RuleAggregate {
-    /// Pénalité en quarts de point, sévérité scorée fois palier d'occurrences.
+    /// Penalty in quarter points, scored severity times occurrence step.
     pub(crate) const fn penalty_quarters(&self) -> u64 {
         match self.scored_severity {
             Some(severity) => severity_penalty_quarters(severity)
@@ -584,8 +583,8 @@ impl RuleAggregate {
         }
     }
 
-    /// Une règle non scorable ne plafonne rien: un tier ne peut pas agir sans
-    /// dimension ni sévérité retenue.
+    /// A non-scorable rule caps nothing: a tier cannot act without a retained
+    /// dimension and severity.
     const fn scoring_tier(&self) -> Option<RuleTier> {
         if self.is_scorable() { self.tier } else { None }
     }
@@ -665,7 +664,7 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     }
 }
 
-/// Note plafonnée et sa cause, pour un ensemble de règles donné.
+/// Capped score and its cause, for a given set of rules.
 struct ScoredState {
     dimensions: ScoreDimensions,
     worst_tier: Option<RuleTier>,
@@ -1014,7 +1013,7 @@ mod tests {
             if let Some(previous) = previous {
                 assert!(
                     previous.0 < current.0 && previous.1 <= current.1,
-                    "les plafonds doivent décroître strictement en gravité: {previous:?} puis {current:?}",
+                    "caps must decrease strictly with gravity: {previous:?} then {current:?}",
                 );
             }
             previous = Some(current);
@@ -1166,13 +1165,13 @@ mod tests {
             .collect()
     }
 
-    /// Ce que le catalogue réel produit, par opposition aux dimensions injectées
-    /// de l'oracle.
+    /// What the real catalog produces, as opposed to the injected dimensions
+    /// of the oracle.
     ///
-    /// Sous `core-v1`, saturer les douze règles laissait la note à 96, label
-    /// `Great`: le barème additif était structurellement incapable de descendre.
-    /// Sous `core-v2` le pire tier observé plafonne la note, donc le même
-    /// catalogue atteint la bande `Critical`.
+    /// Under `core-v1`, saturating the twelve rules left the score at 96,
+    /// label `Great`: the additive scale was structurally unable to go down.
+    /// Under `core-v2` the worst observed tier caps the score, so the same
+    /// catalog reaches the `Critical` band.
     #[test]
     fn the_catalog_drives_the_score_out_of_its_top_label() {
         let diagnostics = catalog_diagnostics(1);
@@ -1234,8 +1233,8 @@ mod tests {
             .expect("a scored audit should exist")
     }
 
-    /// Une codebase propre ne subit aucun plafond, et un plafond ne s'invente
-    /// pas depuis une règle hors catalogue.
+    /// A clean codebase takes no cap, and a cap is not invented out of a rule
+    /// outside the catalog.
     #[test]
     fn a_clean_codebase_scores_one_hundred_without_any_ceiling() {
         let clean = Audit::build(1, Status::Complete, &[])
@@ -1250,8 +1249,8 @@ mod tests {
         assert_eq!(uncatalogued.applied_ceiling, None);
     }
 
-    /// Un tier ne plafonne que s'il agit: une règle éteinte par la policy porte
-    /// une sévérité inconnue, donc ni pénalité ni plafond.
+    /// A tier only caps when it acts: a rule switched off by the policy carries
+    /// an unknown severity, hence neither penalty nor cap.
     #[test]
     fn a_disabled_rule_neither_penalizes_nor_caps() {
         let disabled = scored(&[(
@@ -1266,8 +1265,8 @@ mod tests {
         assert_eq!(disabled.dimensions.security, 100);
     }
 
-    /// Le pire tier d'une dimension écrase les autres, et un tier plus grave
-    /// dans une autre dimension descend quand même la note globale.
+    /// The worst tier of a dimension overrides the others, and a graver tier in
+    /// another dimension still brings the overall score down.
     #[test]
     fn only_the_worst_tier_applies_per_dimension_and_overall() {
         let mixed = scored(&[
@@ -1282,23 +1281,23 @@ mod tests {
             ),
         ]);
 
-        assert_eq!(mixed.dimensions.reliability, 50, "P1 écrase P2");
-        assert_eq!(mixed.dimensions.security, 20, "P0 plafonne sa dimension");
-        assert!(mixed.dimensions.maintainability > 75, "P3 ne plafonne pas");
+        assert_eq!(mixed.dimensions.reliability, 50, "P1 overrides P2");
+        assert_eq!(mixed.dimensions.security, 20, "P0 caps its dimension");
+        assert!(mixed.dimensions.maintainability > 75, "P3 does not cap");
         assert_eq!(mixed.worst_tier, Some(RuleTier::P0));
         assert_eq!(mixed.applied_ceiling, Some(40));
         assert_eq!(mixed.value, 40);
     }
 
-    /// Les paliers distinguent une occurrence isolée d'une pratique
-    /// systématique, sans qu'une règle seule puisse saturer sa dimension.
+    /// The steps tell an isolated occurrence from a systematic practice,
+    /// without letting a single rule saturate its dimension.
     #[test]
     fn occurrence_steps_grow_then_saturate_without_panicking() {
         let single = scored(&[("clippy::stepped", "security", Severity::Error, 1)]);
         let fifty = scored(&[("clippy::stepped", "security", Severity::Error, 50)]);
         assert!(
             fifty.value < single.value,
-            "{} devrait être sous {}",
+            "{} should be under {}",
             fifty.value,
             single.value
         );
@@ -1309,7 +1308,7 @@ mod tests {
         assert_eq!(saturated.dimensions.security, fifty.dimensions.security);
         assert!(
             saturated.dimensions.security > 0,
-            "un palier borné ne peut pas saturer une dimension à lui seul",
+            "a bounded step cannot saturate a dimension on its own",
         );
 
         let ceiling = severity_penalty_quarters(Severity::Error)
@@ -1317,8 +1316,8 @@ mod tests {
         assert_eq!(dimension_score(ceiling), saturated.dimensions.security);
     }
 
-    /// La taille de la codebase n'entre pas dans le barème: même profil de
-    /// règles et mêmes occurrences, même note.
+    /// Codebase size does not enter the scale: same rule profile and same
+    /// occurrences, same score.
     #[test]
     fn the_score_is_invariant_to_codebase_size() {
         let rules = [
@@ -1333,8 +1332,8 @@ mod tests {
         );
     }
 
-    /// La pénalité d'une règle se recalcule depuis les seuls champs publiés:
-    /// sévérité, occurrences, catégorie et tier.
+    /// A rule's penalty recomputes from the published fields alone: severity,
+    /// occurrences, category and tier.
     #[test]
     fn a_rule_penalty_is_reproducible_from_published_fields() {
         let rules = [
@@ -1360,7 +1359,7 @@ mod tests {
         }
     }
 
-    /// Un scan incomplet reste plafonné et reste non autoritaire.
+    /// An incomplete scan stays capped and stays non-authoritative.
     #[test]
     fn an_incomplete_scan_is_capped_and_stays_non_authoritative() {
         let diagnostics = diagnostics_for(&[(
@@ -1379,8 +1378,8 @@ mod tests {
         assert!(score.projected_rule_ids.is_empty());
     }
 
-    /// Un diagnostic sans catégorie catalogue reste compté: les deux grandeurs
-    /// des catégories reconstituent exactement la population du rapport.
+    /// A diagnostic with no catalog category stays counted: both quantities of
+    /// the categories reconstitute the report population exactly.
     #[test]
     fn every_diagnostic_lands_in_exactly_one_bucket() {
         let mut diagnostics = diagnostics_for(&[

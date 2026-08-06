@@ -364,9 +364,9 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     current.as_object_mut().unwrap().remove("policy");
     current.as_object_mut().unwrap().remove("scope");
     current.as_object_mut().unwrap().remove("delta");
-    // Les deux grandeurs nommées sont ajoutées par le schema v9, le contexte de
-    // chaque diagnostic par le v10. Les cinq champs plats de v4 gardent leur
-    // nom, leur type et leur valeur.
+    // Both named quantities are added by schema v9, the context of every
+    // diagnostic by v10. The five flat fields of v4 keep their name, their type
+    // and their value.
     for added in ["distinct", "occurrences"] {
         assert!(
             current["summary"]
@@ -376,8 +376,8 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
                 .is_some()
         );
     }
-    // Le contexte n'est présent que hors production, donc la projection le
-    // retire quand il est là et ne l'exige jamais.
+    // The context is only present outside production, so the projection removes
+    // it when it is there and never requires it.
     for diagnostic in current["diagnostics"].as_array_mut().unwrap() {
         diagnostic.as_object_mut().unwrap().remove("context");
     }

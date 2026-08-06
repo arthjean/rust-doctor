@@ -474,10 +474,10 @@ pub(crate) fn clippy_command_without_rules(
     projected
 }
 
-/// Identifiants du catalogue historique EP-017, les seuls que portent les
-/// rapports v7 et v6 figés. Tout ce que les tranches suivantes ont admis est
-/// retiré par la projection, sans quoi chaque élargissement du catalogue
-/// déplacerait un octet gelé.
+/// Identifiers of the historical EP-017 catalog, the only ones the frozen v7
+/// and v6 reports carry. Everything the following slices admitted is removed by
+/// the projection, without which every widening of the catalog would move a
+/// frozen byte.
 pub(crate) const HISTORICAL_RULE_IDS: [&str; 7] = [
     "clippy::dbg_macro",
     "clippy::todo",

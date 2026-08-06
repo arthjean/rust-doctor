@@ -1,13 +1,13 @@
-//! Fixture positive du pack concurrence et asynchrone.
+//! Positive fixture of the concurrency and asynchronous pack.
 //!
-//! La fixture n'embarque aucun runtime asynchrone: les fonctions `async` sont
-//! compilées, jamais exécutées. Le verdict de chaque lint est donc figé par le
-//! seul toolchain normatif, sans dépendance à un exécuteur.
+//! The fixture embeds no asynchronous runtime: the `async` functions are
+//! compiled, never executed. The verdict of every lint is therefore frozen by
+//! the normative toolchain alone, with no dependency on an executor.
 //!
-//! `rc_mutex` ne vise que les items non exportés, comme les lints de signature
-//! du pack performance: Clippy refuse de proposer un changement de signature sur
-//! une API publique. La fixture le déclenche donc sur un item privé, exercé par
-//! un point d'entrée public.
+//! `rc_mutex` only aims at non-exported items, like the signature lints of the
+//! performance pack: Clippy refuses to propose a signature change on a public
+//! API. The fixture therefore triggers it on a private item, exercised by a
+//! public entry point.
 
 mod negatives;
 
@@ -17,9 +17,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-/// Futur trivial partagé par les cas du pack. Il n'attend rien, donc il vise
-/// `unused_async`: le lint est neutralisé ici pour que seul le cas positif
-/// dédié le déclenche.
+/// Trivial future shared by the cases of the pack. It awaits nothing, so it
+/// aims at `unused_async`: the lint is neutralized here so that only the
+/// dedicated positive case triggers it.
 #[allow(clippy::unused_async)]
 async fn ready(value: u8) -> u8 {
     value
@@ -60,7 +60,7 @@ fn positive_rc_mutex(guarded: Rc<Mutex<u8>>) -> u8 {
     *guarded.lock().unwrap()
 }
 
-/// Exerce le lint réservé aux items non exportés.
+/// Exercises the lint reserved for non-exported items.
 pub fn positive_private_signatures(guarded: Rc<Mutex<u8>>) -> u8 {
     positive_rc_mutex(guarded)
 }

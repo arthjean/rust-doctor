@@ -1,8 +1,8 @@
-//! Fixture positive du pack panique et placeholders.
+//! Positive fixture of the panic and placeholders pack.
 //!
-//! Chaque fonction déclenche exactement un lint du pack. Quand deux lints du
-//! pack visent la même expression, le lint voisin est neutralisé localement par
-//! `#[allow]` pour que le compte reste d'un diagnostic par lint.
+//! Every function triggers exactly one lint of the pack. When two lints of the
+//! pack aim at the same expression, the neighbouring lint is neutralized
+//! locally by `#[allow]` so that the count stays one diagnostic per lint.
 
 mod negatives;
 

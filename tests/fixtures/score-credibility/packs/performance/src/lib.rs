@@ -1,14 +1,14 @@
-//! Fixture positive du pack performance.
+//! Positive fixture of the performance pack.
 //!
-//! Chaque fonction déclenche exactement un lint du pack. Le verdict est figé
-//! sur le profil `dev` du toolchain normatif, celui qu'exécute `cargo clippy`:
-//! aucun lint dont le résultat dépend du niveau d'optimisation n'est admis dans
-//! le pack.
+//! Every function triggers exactly one lint of the pack. The verdict is frozen
+//! on the `dev` profile of the normative toolchain, the one `cargo clippy`
+//! runs: no lint whose result depends on the optimization level is admitted
+//! into the pack.
 //!
-//! Trois lints du pack, `large_types_passed_by_value`, `rc_buffer` et
-//! `redundant_allocation`, ne visent que les items non exportés: Clippy refuse
-//! de proposer un changement de signature sur une API publique. La fixture les
-//! déclenche donc sur des items privés, exercés par un point d'entrée public.
+//! Three lints of the pack, `large_types_passed_by_value`, `rc_buffer` and
+//! `redundant_allocation`, only aim at non-exported items: Clippy refuses to
+//! propose a signature change on a public API. The fixture therefore triggers
+//! them on private items, exercised by a public entry point.
 
 mod negatives;
 
@@ -68,7 +68,7 @@ fn positive_redundant_allocation(value: Rc<Box<u64>>) -> u64 {
     **value
 }
 
-/// Exerce les trois lints réservés aux items non exportés.
+/// Exercises the three lints reserved for non-exported items.
 pub fn positive_private_signatures(
     values: [u64; 64],
     buffer: Rc<String>,

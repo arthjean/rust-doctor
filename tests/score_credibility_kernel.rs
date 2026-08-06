@@ -1,7 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Preuves de bout en bout du modèle `core-v2`: plafonnement par tier, paliers
-//! d'occurrences, comptages réconciliés et contrat de schema.
+//! End-to-end proofs of the `core-v2` model: tier capping, occurrence steps,
+//! reconciled counts and schema contract.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +25,7 @@ fn json_report(path: &Path) -> Value {
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// US-064: un seul finding `P0` plafonne la note, quelle que soit la moyenne.
+/// US-064: a single `P0` finding caps the score, whatever the average.
 #[test]
 fn the_adversarial_fixture_cannot_reach_the_top_label() {
     let report = inspect(InspectRequest::new(adversarial()));
@@ -44,8 +44,8 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert_eq!(score.applied_ceiling, Some(40));
     assert_eq!(score.model, "core-v2");
 
-    // La dimension du finding P0 est plafonnée, celle du P1 aussi, et la
-    // dimension qui ne porte qu'un P3 garde sa note additive.
+    // The dimension of the P0 finding is capped, so is the P1 one, and the
+    // dimension carrying only a P3 keeps its additive score.
     assert_eq!(score.dimensions.security, 20);
     assert_eq!(score.dimensions.reliability, 50);
     assert!(score.dimensions.maintainability > 75);
@@ -69,7 +69,8 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert!(terminal.contains("40 / 100 Critical"), "{terminal}");
 }
 
-/// US-063: le tier est publié par règle et reste distinct du niveau effectif.
+/// US-063: the tier is published per rule and stays distinct from the effective
+/// level.
 #[test]
 fn every_published_rule_carries_a_closed_tier() {
     let report = json_report(&adversarial());
@@ -98,15 +99,15 @@ fn every_published_rule_carries_a_closed_tier() {
         ]
     );
 
-    // Les sévérités publiées ne bougent pas avec le tier: toutes les règles du
-    // catalogue restent en `warn` par défaut, donc en `warning` effectif.
+    // The published severities do not move with the tier: every catalog rule
+    // stays at `warn` by default, hence at effective `warning`.
     for diagnostic in report["diagnostics"].as_array().unwrap() {
         assert_eq!(diagnostic["base_severity"], "warning", "{diagnostic}");
         assert_eq!(diagnostic["severity"], "warning", "{diagnostic}");
     }
 }
 
-/// US-065: la pénalité de chaque règle se recalcule depuis le seul rapport.
+/// US-065: the penalty of every rule recomputes from the report alone.
 #[test]
 fn the_score_is_reproducible_from_the_published_report() {
     let report = json_report(&adversarial());
@@ -148,8 +149,8 @@ fn the_score_is_reproducible_from_the_published_report() {
         let dimension = dimensions[code];
         let entry = penalties.entry(dimension).or_insert((0, None));
         entry.0 += penalty;
-        // Le pire tier d'une dimension est le plus petit nom publié, `P0` en
-        // tête. Une règle hors catalogue n'en porte aucun et ne plafonne rien.
+        // The worst tier of a dimension is the smallest published name, `P0`
+        // first. A rule outside the catalog carries none and caps nothing.
         if let Some(tier) = tiers.get(code).map(String::as_str)
             && entry.1.is_none_or(|current| tier < current)
         {
@@ -244,7 +245,7 @@ fn overall_ceiling(tier: &str) -> Option<u64> {
     }
 }
 
-/// US-066: les deux grandeurs sont nommées et concordent entre les surfaces.
+/// US-066: both quantities are named and agree across the surfaces.
 #[test]
 fn both_magnitudes_are_named_and_reconciled() {
     let report = json_report(&adversarial());
@@ -274,16 +275,16 @@ fn both_magnitudes_are_named_and_reconciled() {
         }
     }
 
-    // Les champs plats historiques restent l'alias de la grandeur qu'ils
-    // publiaient déjà: diagnostics distincts pour `summary`, occurrences pour
-    // les catégories.
+    // The historical flat fields stay the alias of the quantity they already
+    // published: distinct diagnostics for `summary`, occurrences for the
+    // categories.
     assert_eq!(summary["total"], summary["distinct"]["total"]);
     for category in categories {
         assert_eq!(category["warnings"], category["occurrences"]["warnings"]);
     }
 
-    // Les occurrences couvrent toujours les distincts, et chaque diagnostic
-    // publié en porte au moins une.
+    // Occurrences always cover the distinct ones, and every published
+    // diagnostic carries at least one.
     //
     // La multiplicité elle-même, un diagnostic remonté deux fois qui compte
     // pour un distinct et deux occurrences, est prouvée en unitaire sur deux
@@ -301,7 +302,7 @@ fn both_magnitudes_are_named_and_reconciled() {
     }
 }
 
-/// US-066: un rapport dont les comptages divergent n'est pas publiable.
+/// US-066: a report whose counts diverge is not publishable.
 #[test]
 fn diverging_counts_fail_to_serialize() {
     let mut report = inspect(InspectRequest::new(adversarial()));
@@ -315,7 +316,7 @@ fn diverging_counts_fail_to_serialize() {
     assert!(rendered.is_empty());
 }
 
-/// US-067: le modèle publié doit rester cohérent avec la valeur publiée.
+/// US-067: the published model must stay consistent with the published value.
 #[test]
 fn an_inconsistent_model_is_rejected_before_publication() {
     let mut report = inspect(InspectRequest::new(adversarial()));
@@ -335,8 +336,8 @@ fn an_inconsistent_model_is_rejected_before_publication() {
     assert!(serde_json::to_vec(&report).is_err());
 }
 
-/// US-067: aucun champ historique du contrat de score n'a disparu ni changé de
-/// type entre `core-v1` et `core-v2`.
+/// US-067: no historical field of the score contract disappeared or changed
+/// type between `core-v1` and `core-v2`.
 #[test]
 fn the_core_v2_oracle_preserves_every_historical_field() {
     let previous: Value = serde_json::from_str(include_str!(

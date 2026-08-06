@@ -61,8 +61,8 @@ pub struct TerminalOptions<'a> {
     pub verbose: bool,
     pub width: usize,
     pub color: bool,
-    /// Autorise l'animation du bloc de score. Réservé à un vrai terminal
-    /// interactif: toute sortie capturée doit rester déterministe.
+    /// Allows the score block to animate. Reserved for a real interactive
+    /// terminal: any captured output must stay deterministic.
     pub animate: bool,
 }
 
@@ -449,8 +449,8 @@ fn render_legacy_context<W: Write>(
     Ok(())
 }
 
-/// Règles du pire tier présentes dans la portée du score, bornées pour tenir
-/// sur une ligne. Un plafond sans cause nommée n'est pas explicable.
+/// Rules of the worst tier present in the score scope, bounded to fit on one
+/// line. A cap with no named cause cannot be explained.
 fn capping_rule_ids(report: &InspectReport, tier: crate::RuleTier) -> Vec<String> {
     const MAX_NAMED_RULES: usize = 3;
     let scoped: Option<BTreeSet<_>> = report.delta.as_ref().map(|delta| {
@@ -766,8 +766,8 @@ mod tests {
             "All 1 occurrences across 1 findings",
             "Bugs:",
             "Run with --verbose",
-            // Bordure haute du bloc de score: le marqueur stable de la section
-            // depuis que la valeur se lit `N / 100 Label`.
+            // Top border of the score block: the stable marker of the section
+            // since the value reads `N / 100 Label`.
             "┌─────┐",
             "Share:",
             "Docs:",
@@ -792,9 +792,9 @@ mod tests {
             let colored = rendered(&report(), width, true, false);
             assert!(colored.contains("\u{1b}["));
             for line in colored.lines() {
-                // `sanitize` retire toute séquence d'échappement, y compris le
-                // truecolor de la barre d'un score parfait, que la liste de
-                // codes en dur d'origine ne couvrait pas.
+                // `sanitize` strips every escape sequence, including the
+                // truecolor of a perfect score's bar, which the original
+                // hard-coded code list did not cover.
                 let visible = sanitize(line);
                 assert!(display_width(&visible) <= width, "{visible}");
             }

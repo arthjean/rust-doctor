@@ -229,9 +229,9 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
 
     let mut current_wire = Vec::new();
     rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
-    // La commande est comparée à part: elle a délibérément perdu
-    // `--all-targets`, et elle gagne un `-W` à chaque règle admise au
-    // catalogue. Le reste des octets v7 doit rester identique.
+    // The command is compared separately: it deliberately lost `--all-targets`,
+    // and it gains a `-W` with every rule admitted into the catalog. The rest
+    // of the v7 bytes must stay identical.
     let frozen = compact_json_fixture(include_str!(
         "fixtures/rule-scaling-kernel/v7-full-report.json"
     ));
@@ -249,8 +249,8 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     assert!(current["delta"].is_null());
     let mut frozen_v7: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v7-full-report.json")).unwrap();
-    // Même règle que pour les octets: la commande est le relevé de ce qui a
-    // tourné, pas une clause du contrat de schéma.
+    // Same rule as for the bytes: the command is the record of what ran, not a
+    // clause of the schema contract.
     assert_ne!(current["scan"]["command"], frozen_v7["scan"]["command"]);
     let mut current = current;
     current["scan"].as_object_mut().unwrap().remove("command");

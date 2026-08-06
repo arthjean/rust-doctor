@@ -459,9 +459,9 @@ fn terminal_color_enabled(
     stdout_is_terminal && no_color.is_none() && term != Some(OsStr::new("dumb"))
 }
 
-/// L'animation du score exige tout ce qu'exige la couleur, et en plus une
-/// session hors CI: un runner capture la sortie, où les frames intermédiaires
-/// ne seraient que du bruit.
+/// Animating the score requires everything colour requires, plus a session
+/// outside CI: a runner captures the output, where intermediate frames would
+/// be nothing but noise.
 fn terminal_animation_enabled(
     stdout_is_terminal: bool,
     no_color: Option<&OsStr>,

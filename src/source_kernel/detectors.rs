@@ -1,14 +1,14 @@
-//! Registre des détecteurs natifs.
+//! Registry of the native detectors.
 //!
-//! Un détecteur déclare la règle qu'il porte, le type de nœud qu'il inspecte et
-//! la fonction qui décide. Le noyau parcourt le CST une seule fois et sollicite
-//! chaque détecteur sur les nœuds qu'il a déclarés, donc ajouter un détecteur
-//! n'élargit aucune signature d'analyse.
+//! A detector declares the rule it carries, the node kind it inspects and the
+//! function that decides. The kernel walks the CST exactly once and solicits
+//! every detector on the nodes it declared, so adding a detector widens no
+//! analysis signature.
 //!
-//! Aucun détecteur ne compare un chemin écrit à une chaîne. Une cible est
-//! décrite par une crate et des segments, et la provenance de l'identifiant
-//! d'appel est résolue par la carte d'alias puis par les alias de dépendances
-//! du manifeste.
+//! No detector compares a written path against a string. A target is described
+//! by a crate and segments, and the provenance of the call identifier is
+//! resolved through the alias map, then through the dependency aliases of the
+//! manifest.
 
 use std::collections::BTreeMap;
 
@@ -19,16 +19,16 @@ use super::aliases::{AliasMap, Provenance};
 use super::{intersects_errors, literal_string};
 use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
 
-/// Alias de dépendances d'une unité: identifiant écrit dans le code vers nom
-/// canonique de la crate.
+/// Dependency aliases of a unit: identifier written in the code to canonical
+/// crate name.
 pub(super) type CrateAliases = BTreeMap<String, String>;
 
-/// Crates toujours disponibles sans déclaration de dépendance.
+/// Crates always available without a dependency declaration.
 const SYSROOT: [&str; 3] = ["alloc", "core", "std"];
 
-/// Item ciblé par un détecteur, décrit par segments plutôt que par un chemin
-/// écrit: c'est ce qui permet de reconnaître la forme importée et la forme
-/// pleinement qualifiée par le même mécanisme.
+/// Item targeted by a detector, described by segments rather than by a written
+/// path: that is what lets the imported form and the fully qualified form be
+/// recognized through the same mechanism.
 struct Item {
     krate: &'static str,
     segments: &'static [&'static str],
@@ -45,7 +45,7 @@ pub(super) struct Detection {
     pub(super) range: TextRange,
 }
 
-/// Ce qu'un détecteur connaît de l'unité analysée.
+/// What a detector knows about the analysed unit.
 pub(super) struct Context<'a> {
     pub(super) aliases: &'a AliasMap,
     pub(super) crates: &'a CrateAliases,
@@ -55,8 +55,8 @@ pub(super) struct Context<'a> {
 }
 
 impl Context<'_> {
-    /// Vrai quand `callee` désigne `item::member` une fois son premier
-    /// identifiant résolu.
+    /// True when `callee` designates `item::member` once its first identifier
+    /// is resolved.
     fn calls(&self, callee: &ast::Expr, item: &Item, member: &str) -> bool {
         let ast::Expr::PathExpr(expression) = callee else {
             return false;
@@ -446,9 +446,9 @@ fn format_fields(format: &str) -> Vec<String> {
     fields
 }
 
-/// Alias de dépendances d'un paquet: identifiant utilisable dans le code vers
-/// nom de crate. Un identifiant porté par deux dépendances différentes est
-/// retiré plutôt qu'arbitré.
+/// Dependency aliases of a package: identifier usable in the code to crate
+/// name. An identifier carried by two different dependencies is dropped rather
+/// than arbitrated.
 pub(super) fn crate_aliases(package: &cargo_metadata::Package) -> CrateAliases {
     let mut aliases = CrateAliases::new();
     let mut conflicting = Vec::new();
@@ -472,8 +472,8 @@ pub(super) fn crate_aliases(package: &cargo_metadata::Package) -> CrateAliases {
     aliases
 }
 
-/// Alias partagés par tous les paquets qui atteignent une unité. Un identifiant
-/// dont deux paquets ne s'accordent pas sur la crate est retiré.
+/// Aliases shared by every package that reaches a unit. An identifier whose
+/// crate two packages disagree on is dropped.
 pub(super) fn shared_crate_aliases<'a>(
     packages: impl Iterator<Item = Option<&'a CrateAliases>>,
 ) -> CrateAliases {

@@ -187,8 +187,8 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(report.audit.categories[0].warnings, 3);
     assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
-    // `clippy::todo` est de tier P2: la dimension Reliability est plafonnée à 75
-    // et la note globale ne subit aucun plafond global.
+    // `clippy::todo` is tier P2: the Reliability dimension is capped at 75 and
+    // the overall score takes no global cap.
     assert_eq!(score.dimensions.reliability, 75);
     assert_eq!(score.worst_tier, Some(RuleTier::P2));
     assert_eq!(score.applied_ceiling, None);

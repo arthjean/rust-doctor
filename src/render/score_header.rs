@@ -1,14 +1,14 @@
-//! Bloc de score à deux colonnes: visage à gauche, valeur, barre et branding à
-//! droite.
+//! Two-column score block: face on the left, value, bar and branding on the
+//! right.
 //!
-//! Transposition de `render-score-header.ts` de React Doctor: mêmes visages,
-//! même conversion OKLCH, mêmes cadences d'animation. Le compte à rebours est
-//! easé sur 40 frames, puis un score parfait fait défiler l'arc-en-ciel sur 16
-//! frames avant de se figer sur une barre colorée et un visage uni.
+//! Transposition of React Doctor's `render-score-header.ts`: same faces, same
+//! OKLCH conversion, same animation cadences. The count is eased over 40
+//! frames, then a perfect score scrolls the rainbow over 16 frames before
+//! freezing on a coloured bar and a plain face.
 //!
-//! L'animation n'existe que dans un vrai terminal coloré hors CI. Toute autre
-//! sortie reçoit directement la frame finale, ce qui garde les rendus capturés
-//! déterministes.
+//! The animation only exists in a real coloured terminal outside CI. Any other
+//! output receives the final frame directly, which keeps captured renders
+//! deterministic.
 
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
@@ -24,14 +24,14 @@ const FACE_BOTTOM: &str = "└─────┘";
 const INDENT: &str = "  ";
 const GAP: &str = "  ";
 
-/// Largeur de barre de la référence, rabotée par la place disponible.
+/// Bar width of the reference, trimmed down by the available room.
 const BAR_MAX_WIDTH: usize = 50;
 
-/// En dessous de cette largeur de barre le bloc ne vaut plus rien: l'appelant
-/// retombe sur la ligne unique historique.
+/// Below this bar width the block is worth nothing: the caller falls back on
+/// the historical single line.
 const BAR_MIN_WIDTH: usize = 10;
 
-/// Colonne laissée libre à droite, comme la référence.
+/// Column left free on the right, like the reference.
 const RIGHT_EDGE_SAFETY: usize = 1;
 
 const BRANDING_NAME: &str = "Rust Doctor";
@@ -52,9 +52,9 @@ const PERFECT_SCORE: u8 = 100;
 const DIM: &str = "2";
 const RESET: &str = "\u{1b}[0m";
 
-/// Efface la fin de ligne pour qu'une frame plus courte que la précédente ne
-/// laisse pas de résidu. La référence s'en passe; on le garde parce que la
-/// ligne de score s'allonge de `0 / 100` à `100 / 100` pendant le compte.
+/// Clears the end of the line so that a frame shorter than the previous one
+/// leaves no residue. The reference does without it; we keep it because the
+/// score line grows from `0 / 100` to `100 / 100` during the count.
 const CLEAR_TO_END: &str = "\u{1b}[K";
 
 fn face(label: ScoreLabel) -> [&'static str; 2] {
@@ -110,8 +110,8 @@ fn clamp_channel(value: f64) -> u8 {
     }
 }
 
-/// Portage direct de la conversion OKLCH de la référence. Les coefficients sont
-/// ceux de la matrice OKLab vers sRGB linéaire.
+/// Direct port of the reference's OKLCH conversion. The coefficients are those
+/// of the OKLab to linear sRGB matrix.
 fn oklch_to_rgb(lightness: f64, chroma: f64, hue: f64) -> (u8, u8, u8) {
     let radians = hue.to_radians();
     let lab_a = chroma * radians.cos();
@@ -133,9 +133,9 @@ fn oklch_to_rgb(lightness: f64, chroma: f64, hue: f64) -> (u8, u8, u8) {
     )
 }
 
-/// Colorise caractère par caractère en truecolor. `offset` décale le dégradé
-/// pour qu'il paraisse continuer depuis le bord gauche de la ligne, et `frame`
-/// le fait tourner: c'est ce décalage qui produit le défilement.
+/// Colours character by character in truecolor. `offset` shifts the gradient so
+/// that it seems to continue from the left edge of the line, and `frame` makes
+/// it rotate: that shift is what produces the scrolling.
 fn rainbow(content: &str, frame: u32, offset: usize) -> String {
     let mut colored = String::with_capacity(content.len() * 20);
     for (index, character) in content.chars().enumerate() {
@@ -157,8 +157,8 @@ fn ease_out_cubic(progress: f64) -> f64 {
     1.0 - (1.0 - progress).powi(3)
 }
 
-/// Valeur affichée à une frame du compte: départ à zéro, arrivée exacte sur la
-/// note, jamais de recul.
+/// Value displayed at one frame of the count: starts at zero, lands exactly on
+/// the score, never goes back.
 fn counted(value: u8, frame: u32) -> u8 {
     let progress = ease_out_cubic(f64::from(frame) / f64::from(ANIMATION_FRAME_COUNT));
     let counted = (f64::from(value) * progress).round();
@@ -178,8 +178,8 @@ fn bar(value: u8, width: usize) -> String {
     format!("{}{}", "█".repeat(filled), "░".repeat(width - filled))
 }
 
-/// Géométrie et contenus figés du bloc, calculés une fois par rendu pour que
-/// toutes les frames partagent exactement la même mise en page.
+/// Frozen geometry and contents of the block, computed once per render so that
+/// every frame shares exactly the same layout.
 struct Layout {
     faces: [String; 4],
     offset: usize,
@@ -197,9 +197,9 @@ impl Layout {
         width: usize,
     ) -> Option<Self> {
         let offset = INDENT.len() + display_width(FACE_TOP) + GAP.len();
-        // Une colonne de garde à droite: une ligne qui remplit exactement le
-        // terminal provoque un retour à la ligne implicite sur certains
-        // émulateurs, ce qui désynchroniserait le rembobinage de l'animation.
+        // One guard column on the right: a line that fills the terminal exactly
+        // triggers an implicit wrap on some emulators, which would desynchronize
+        // the rewind of the animation.
         let available = width.checked_sub(offset + RIGHT_EDGE_SAFETY)?;
         if available < BAR_MIN_WIDTH {
             return None;
@@ -253,8 +253,8 @@ impl Layout {
         format!("{INDENT}{}{separator}{right}", self.faces[index])
     }
 
-    /// Frame intégralement arc-en-ciel: visage compris. C'est l'état pendant
-    /// l'animation d'un score parfait.
+    /// Fully rainbow frame, face included. This is the state during the
+    /// animation of a perfect score.
     fn rainbow_frame(&self, value: u8, frame: u32) -> String {
         let mut output = String::new();
         for (index, right) in self.raw_right(value).iter().enumerate() {
@@ -264,7 +264,7 @@ impl Layout {
         output
     }
 
-    /// Frame finale d'un score parfait: visage uni, barre arc-en-ciel figée.
+    /// Final frame of a perfect score: plain face, frozen rainbow bar.
     fn perfect_frame(&self, value: u8, code: &str, frame: u32) -> String {
         let mut output = String::new();
         for (index, right) in self.raw_right(value).iter().enumerate() {
@@ -283,8 +283,8 @@ impl Layout {
         output
     }
 
-    /// Frame colorée d'un score imparfait: tout suit le style du label, sauf
-    /// `/ 100` et l'URL qui restent estompés.
+    /// Coloured frame of an imperfect score: everything follows the label
+    /// style, except `/ 100` and the URL which stay dimmed.
     fn styled_frame(&self, value: u8, code: &str) -> String {
         let mut output = String::new();
         for (index, right) in self.raw_right(value).iter().enumerate() {
@@ -299,9 +299,9 @@ impl Layout {
         output
     }
 
-    /// Colorise une ligne de la colonne de droite. La ligne de score sépare la
-    /// valeur du dénominateur, et le branding sépare le nom de l'URL, comme la
-    /// référence.
+    /// Colours a line of the right column. The score line separates the value
+    /// from the denominator, and the branding separates the name from the URL,
+    /// like the reference.
     fn paint_right(&self, index: usize, right: &str, code: &str) -> String {
         if right.is_empty() {
             return String::new();
@@ -330,11 +330,11 @@ impl Layout {
     }
 }
 
-/// Écrit le bloc à deux colonnes. Retourne `false` quand le terminal est trop
-/// étroit pour le porter, auquel cas l'appelant garde la ligne unique.
+/// Writes the two-column block. Returns `false` when the terminal is too narrow
+/// to carry it, in which case the caller keeps the single line.
 ///
-/// `allow_links` suit la règle des lignes Share, Docs et GitHub: un rapport en
-/// échec ne rend aucune URL, donc la ligne de branding perd la sienne.
+/// `allow_links` follows the rule of the Share, Docs and GitHub lines: a failed
+/// report renders no URL, so the branding line loses its own.
 pub(super) fn render<W: Write>(
     writer: &mut W,
     value: u8,
@@ -370,8 +370,8 @@ pub(super) fn render<W: Write>(
     write_frame(writer, &frame, false)
 }
 
-/// Une frame se termine par `\n\r`; on la réécrit en place en remontant de ses
-/// quatre lignes.
+/// A frame ends with `\n\r`; it is rewritten in place by going back up its four
+/// lines.
 fn write_frame<W: Write>(writer: &mut W, frame: &str, rewind: bool) -> Result<bool, RenderError> {
     let cursor = if rewind { "\u{1b}[4A\r" } else { "" };
     write!(writer, "{cursor}{frame}").map_err(RenderError::Write)?;
@@ -466,9 +466,9 @@ mod tests {
         assert!(!rendered(99, ScoreLabel::Great, 100, true).contains("\u{1b}[38;2;"));
     }
 
-    /// Le dégradé figé doit partir du cyan à gauche et finir sur l'orange à
-    /// droite, comme la frame finale de la référence. Un décalage de teinte nul
-    /// inverserait le sens.
+    /// The frozen gradient must start from cyan on the left and end on orange
+    /// on the right, like the final frame of the reference. A null hue shift
+    /// would reverse the direction.
     #[test]
     fn the_frozen_gradient_runs_from_cyan_to_orange() {
         let output = rendered(100, ScoreLabel::Great, 100, true);
@@ -559,8 +559,8 @@ mod tests {
         assert!(bar(1, 10).starts_with('█'));
     }
 
-    /// Le compte doit démarrer à zéro, arriver pile sur la valeur et ne jamais
-    /// reculer: c'est tout ce que l'easing garantit.
+    /// The count must start at zero, land exactly on the value and never go
+    /// back: that is all the easing guarantees.
     #[test]
     fn the_eased_count_up_starts_at_zero_and_lands_on_the_score() {
         for value in [1u8, 42, 99, 100] {
@@ -573,8 +573,8 @@ mod tests {
         }
     }
 
-    /// Une sortie animée doit rembobiner exactement la hauteur du bloc entre
-    /// deux frames, sinon elle empile les blocs au lieu de les remplacer.
+    /// An animated output must rewind exactly the height of the block between
+    /// two frames, otherwise it stacks blocks instead of replacing them.
     #[test]
     fn an_animated_render_rewinds_exactly_one_block_per_frame() {
         let mut output = Vec::new();
@@ -592,8 +592,8 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
         let rewinds = output.matches("\u{1b}[4A").count();
         assert_eq!(rewinds as u32, ANIMATION_FRAME_COUNT);
-        // La valeur et le label sont peints séparément, donc la ligne n'est
-        // lisible qu'une fois les séquences retirées.
+        // The value and the label are painted separately, so the line is only
+        // readable once the sequences are stripped.
         assert!(sanitize(&output).contains("60 / 100 Needs work"));
     }
 }

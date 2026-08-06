@@ -1,11 +1,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Preuves d'admission des packs de EP-024.
+//! Admission proofs of the EP-024 packs.
 //!
-//! Chaque pack possède une fixture unique portant ses positifs, ses négatifs
-//! idiomatiques et ses négatifs neutralisés par `#[allow]`. L'oracle fige le
-//! verdict observé sur le toolchain normatif: identifiant, catégorie, tier,
-//! chemin, ligne et nombre d'occurrences.
+//! Every pack owns a single fixture carrying its positives, its idiomatic
+//! negatives and its negatives neutralized by `#[allow]`. The oracle freezes
+//! the verdict observed on the normative toolchain: identifier, category, tier,
+//! path, line and occurrence count.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -41,7 +41,7 @@ fn report(request: InspectRequest) -> Value {
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// Diagnostics catalogués du rapport, dans l'ordre publié.
+/// Catalogued diagnostics of the report, in published order.
 fn curated(report: &Value) -> Vec<&Value> {
     report["diagnostics"]
         .as_array()
@@ -97,9 +97,9 @@ fn tiers(report: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// US-073, US-074, US-075 AC-1: chaque lint du pack produit exactement un
-/// diagnostic catalogué, avec son identifiant, sa catégorie, son tier et son
-/// aide.
+/// US-073, US-074, US-075 AC-1: every lint of the pack produces exactly one
+/// catalogued diagnostic, with its identifier, its category, its tier and its
+/// help.
 #[test]
 fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     for (pack, story) in PACKS {
@@ -154,8 +154,8 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     }
 }
 
-/// US-073, US-074, US-075 AC-2 et AC-4: aucune forme négative, idiomatique ou
-/// neutralisée par `#[allow]`, ne produit de diagnostic.
+/// US-073, US-074, US-075 AC-2 and AC-4: no negative form, idiomatic or
+/// neutralized by `#[allow]`, produces a diagnostic.
 #[test]
 fn no_negative_form_of_any_pack_produces_a_diagnostic() {
     for (pack, _) in PACKS {
@@ -178,8 +178,8 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
         }
         assert_eq!(kinds["idiomatic"], kinds["allow"], "{pack}");
 
-        // Les positifs vivent tous dans `src/lib.rs`: aucun diagnostic ne peut
-        // donc provenir du fichier des négatifs.
+        // The positives all live in `src/lib.rs`: no diagnostic can therefore
+        // come from the negatives file.
         let report = report(InspectRequest::new(pack_root(pack)));
         assert!(
             curated(&report)
@@ -190,12 +190,12 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
     }
 }
 
-/// Copie isolée d'une fixture de pack.
+/// Isolated copy of a pack fixture.
 ///
-/// Chaque politique change les arguments Clippy, donc chaque scan invalide
-/// l'empreinte du répertoire de compilation. Les faire tous dans la fixture
-/// partagée les mettrait en concurrence avec les autres tests du binaire, qui
-/// scannent la même fixture au même moment.
+/// Every policy changes the Clippy arguments, so every scan invalidates the
+/// fingerprint of the build directory. Running them all in the shared fixture
+/// would put them in competition with the other tests of the binary, which scan
+/// the same fixture at the same moment.
 fn isolated_pack(pack: &str) -> PathBuf {
     fn copy(source: &Path, destination: &Path) {
         fs::create_dir_all(destination).unwrap();
@@ -225,8 +225,8 @@ fn isolated_pack(pack: &str) -> PathBuf {
     destination
 }
 
-/// US-073 AC-5, US-074 et US-075: une règle mise à `off` disparaît de la
-/// commande Clippy et de tous les diagnostics, sans déplacer les autres.
+/// US-073 AC-5, US-074 and US-075: a rule set to `off` disappears from the
+/// Clippy command and from every diagnostic, without moving the others.
 #[test]
 fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     for (pack, _) in PACKS {
@@ -269,8 +269,8 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     }
 }
 
-/// US-073 AC-3: le comportement d'exemption dans un fichier de test au sens
-/// Cargo est documenté par lint et figé par la fixture.
+/// US-073 AC-3, settled one step earlier than it used to be: a test file in the
+/// Cargo sense reaches the report through no lint at all.
 ///
 /// L'exemption n'est pas une propriété du lint: elle est gouvernée par le
 /// `clippy.toml` du workspace scanné, que Clippy cherche en remontant les
@@ -334,8 +334,8 @@ fn the_test_context_exemption_is_the_documented_one() {
     );
 }
 
-/// US-074 AC-3 et EP-024: les cinq dimensions varient, et la dimension d'un
-/// pack déclenché descend strictement sous 100.
+/// US-074 AC-3 and EP-024: the five dimensions vary, and the dimension of a
+/// triggered pack drops strictly below 100.
 #[test]
 fn each_pack_moves_its_own_dimension_below_one_hundred() {
     for (pack, _) in PACKS {
@@ -367,8 +367,8 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
             );
         }
     }
-    // Le pack performance est celui qui prouve la dimension Performance, restée
-    // figée à 100 tant que `CATEGORIES` ne l'admettait pas.
+    // The performance pack is the one that proves the Performance dimension,
+    // which stayed frozen at 100 while `CATEGORIES` did not admit it.
     let performance = report(InspectRequest::new(pack_root("performance")));
     assert!(
         performance["audit"]["score"]["dimensions"]["performance"]
@@ -378,9 +378,9 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
     );
 }
 
-/// US-075 AC-3 et AC-5: un workspace sans runtime asynchrone reste silencieux
-/// sur les lints qui ne s'y appliquent pas, et le dépôt lui-même ne produit
-/// aucun diagnostic du pack concurrence.
+/// US-075 AC-3 and AC-5: a workspace with no asynchronous runtime stays silent
+/// on the lints that do not apply to it, and the repository itself produces no
+/// diagnostic of the concurrency pack.
 #[test]
 fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
     let pack_codes: BTreeSet<_> = oracle("concurrency")["positive"]
@@ -390,8 +390,8 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
         .map(|case| case["code"].as_str().unwrap().to_owned())
         .collect();
 
-    // La fixture du pack panique ne contient ni `async`, ni verrou, ni
-    // entrée-sortie: aucun lint du pack concurrence ne s'y applique.
+    // The panic pack fixture contains neither `async`, nor a lock, nor I/O: no
+    // lint of the concurrency pack applies to it.
     let synchronous = report(InspectRequest::new(pack_root("panic")));
     assert!(
         curated(&synchronous).iter().all(|diagnostic| !pack_codes
@@ -408,13 +408,13 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
     assert!(observed.is_empty(), "self-scan produced {observed:?}");
 }
 
-/// Contrat d'admission: aucune règle Clippy du catalogue n'est `deny` par
-/// défaut.
+/// Admission contract: no Clippy rule of the catalog is `deny` by default.
 ///
-/// Une règle `deny` par défaut ne peut pas être éteinte: retirer son `-W`
-/// rétablit le refus de Clippy et transforme le scan en échec de compilation.
-/// `clippy::async_yields_async` et `clippy::unused_io_amount` ont été écartés
-/// des packs pour cette raison, verdict mesuré sur le toolchain normatif.
+/// A rule that is `deny` by default cannot be switched off: removing its `-W`
+/// restores Clippy's refusal and turns the scan into a compilation failure.
+/// `clippy::async_yields_async` and `clippy::unused_io_amount` were set aside
+/// from the packs for that reason, a verdict measured on the normative
+/// toolchain.
 #[test]
 fn no_catalogued_clippy_rule_is_denied_by_default() {
     let help = std::process::Command::new("clippy-driver")
@@ -462,11 +462,10 @@ fn no_catalogued_clippy_rule_is_denied_by_default() {
     }
 }
 
-/// US-076: le pack santé locale des dépendances, de bout en bout.
+/// US-076: the local dependency health pack, end to end.
 ///
-/// Les scans se font sur une copie: `cargo clippy` crée ou réécrit
-/// `Cargo.lock`, donc scanner la fixture en place détruirait le graphe résolu
-/// qu'elle fige.
+/// The scans run on a copy: `cargo clippy` creates or rewrites `Cargo.lock`, so
+/// scanning the fixture in place would destroy the resolved graph it freezes.
 #[test]
 fn the_dependency_pack_reaches_the_report_and_its_own_dimension() {
     fn resolution(case: &str) -> PathBuf {
@@ -542,8 +541,8 @@ fn the_dependency_pack_reaches_the_report_and_its_own_dimension() {
         fs::remove_dir_all(&root).unwrap();
     }
 
-    // Un workspace propre sur ces critères ne produit aucun diagnostic du pack,
-    // et une résolution inexploitable fait s'abstenir le pack sans casser le
+    // A workspace clean on these criteria produces no diagnostic of the pack,
+    // and an unusable resolution makes the pack abstain without breaking the
     // scan.
     let clean = resolution("clean");
     let report = report(InspectRequest::new(&clean));

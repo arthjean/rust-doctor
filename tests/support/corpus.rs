@@ -1,11 +1,10 @@
-//! Corpus épinglé, harness d'exécution confiné et gate d'admission par précision.
+//! Pinned corpus, confined execution harness and precision admission gate.
 //!
-//! Le corpus n'est jamais commité: le harness lit un cache local dont le chemin
-//! est déclaré à l'appel, matérialise chaque révision épinglée sous son
-//! répertoire d'artefacts, et n'écrit nulle part ailleurs. La précision est une
-//! mesure adjudiquée, pas une impression: chaque finding porte un verdict, et le
-//! gate refuse l'activation par défaut d'une règle dont la précision n'est pas
-//! prouvée.
+//! The corpus is never committed: the harness reads a local cache whose path is
+//! declared at the call site, materialises every pinned revision under its
+//! artifact directory, and writes nowhere else. Precision is an adjudicated
+//! measurement, not an impression: every finding carries a verdict, and the
+//! gate refuses default activation for a rule whose precision is not proven.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -15,11 +14,11 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Seuil publié, en points de base. Le taux est calculé en arithmétique entière
-/// pour que deux exécutions du rapport produisent des octets identiques.
+/// Published threshold, in basis points. The rate is computed in integer
+/// arithmetic so that two runs of the report produce identical bytes.
 pub(crate) const THRESHOLD_BASIS_POINTS: u64 = 500;
 
-/// Nombre de dépôts que le manifeste doit épingler.
+/// Number of repositories the manifest must pin.
 pub(crate) const EXPECTED_REPOSITORIES: usize = 10;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -32,11 +31,11 @@ pub(crate) enum Verdict {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrecisionStatus {
-    /// Findings observés et intégralement adjudiqués: le taux est publié.
+    /// Findings observed and fully adjudicated: the rate is published.
     Measured,
-    /// Adjudication absente ou périmée: le taux reste retenu.
+    /// Adjudication missing or stale: the rate stays withheld.
     Incomplete,
-    /// Aucun finding sur le corpus: la règle n'est pas prouvée, pas parfaite.
+    /// No finding on the corpus: the rule is unproven, not perfect.
     Unobserved,
 }
 
@@ -56,11 +55,12 @@ pub(crate) enum RefusalReason {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RepositoryOutcome {
-    /// Rapport produit et exploitable.
+    /// Report produced and usable.
     Processed,
-    /// Révision matérialisée sans manifeste Cargo: rien à scanner.
+    /// Revision materialised with no Cargo manifest: nothing to scan.
     Skipped,
-    /// Scan sans rapport exploitable: l'échec est isolé sur ce dépôt.
+    /// Scan with no usable report: the failure stays isolated on this
+    /// repository.
     Failed,
 }
 
@@ -180,17 +180,17 @@ pub(crate) struct ScoreObservation {
     pub(crate) worst_tier: Option<String>,
 }
 
-/// Adjudication en deux grandeurs volontairement distinctes.
+/// Adjudication in two deliberately distinct quantities.
 ///
-/// `trigger_verification` est mécanique et couvre 100 % des findings: elle
-/// prouve seulement que le motif de la règle est présent là où elle a signalé,
-/// donc qu'aucun span n'est corrompu. Confirmer un motif ne dit rien de sa
-/// valeur: le lint qui cherche `.unwrap()` trouve toujours un `.unwrap()`.
+/// `trigger_verification` is mechanical and covers 100% of the findings: it
+/// only proves that the rule's pattern is present where it reported, hence
+/// that no span is corrupted. Confirming a pattern says nothing about its
+/// value: the lint looking for `.unwrap()` always finds an `.unwrap()`.
 ///
-/// `reviewed` porte la seule grandeur dont la précision est dérivée: des sites
-/// réellement relus, chacun jugé sur la question « ce site doit-il être corrigé »
-/// et non « le motif est-il présent ». Le taux publié est celui de cet
-/// échantillon, jamais celui de la population.
+/// `reviewed` carries the only quantity precision is derived from: sites
+/// actually read back, each judged on the question "should this site be
+/// changed" and not "is the pattern present". The published rate is that of
+/// this sample, never that of the population.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Adjudication {
@@ -200,7 +200,8 @@ pub(crate) struct Adjudication {
     pub(crate) trigger_verification: TriggerVerification,
 }
 
-/// Garde-fou mécanique: le motif adjudiqué est présent dans le span signalé.
+/// Mechanical guard rail: the adjudicated pattern is present in the reported
+/// span.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TriggerVerification {
@@ -217,10 +218,10 @@ pub(crate) struct RuleTrigger {
     pub(crate) rule: String,
 }
 
-/// Où vit le site relu. Le contexte n'emporte aucun verdict par lui-même, mais
-/// il rend visible la cause dominante d'un taux élevé: une règle qui vise les
-/// paniques de production, appliquée à un test ou à un script de construction,
-/// y signale un motif qui n'y est pas un défaut.
+/// Where the reviewed site lives. The context carries no verdict by itself, but
+/// it makes the dominant cause of a high rate visible: a rule aimed at
+/// production panics, applied to a test or to a build script, reports there a
+/// pattern that is not a defect there.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SiteContext {
@@ -230,7 +231,7 @@ pub(crate) enum SiteContext {
     Tests,
 }
 
-/// Un site du corpus réellement relu, avec son verdict de valeur.
+/// A corpus site actually read back, with its value verdict.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReviewedSite {
@@ -243,8 +244,8 @@ pub(crate) struct ReviewedSite {
     pub(crate) verdict: Verdict,
 }
 
-/// Taille minimale d'échantillon relu pour qu'un taux soit publiable, sauf
-/// lorsque la population entière est plus petite et intégralement relue.
+/// Minimum reviewed sample size for a rate to be publishable, except when the
+/// whole population is smaller and entirely reviewed.
 pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -252,10 +253,10 @@ pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 pub(crate) struct RulePrecision {
     pub(crate) false_positive_rate_basis_points: Option<u64>,
     pub(crate) false_positives: Option<u64>,
-    /// Population observée sur le corpus. N'est jamais le dénominateur du taux.
+    /// Population observed on the corpus. Never the denominator of the rate.
     pub(crate) findings: u64,
     pub(crate) id: String,
-    /// Sites réellement relus. C'est le dénominateur du taux publié.
+    /// Sites actually read back. This is the denominator of the published rate.
     pub(crate) reviewed: u64,
     pub(crate) status: PrecisionStatus,
     pub(crate) tier: String,
@@ -265,15 +266,14 @@ pub(crate) struct RulePrecision {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GateOutcome {
-    /// Règles actives par défaut que le gate ne refuse pas. Une règle bruyante
-    /// ou non prouvée y figure: les deux listes suivantes l'annotent, elles ne
-    /// la disqualifient pas.
+    /// Rules active by default that the gate does not refuse. A noisy or
+    /// unproven rule appears there: the two following lists annotate it, they
+    /// do not disqualify it.
     pub(crate) admitted: Vec<String>,
-    /// Règles dont le taux de bruit sur code sain dépasse le seuil publié.
-    /// Nommées pour que leur contribution au score soit tranchée, jamais pour
-    /// leur retirer l'activation par défaut: le corpus mesure ce qu'elles
-    /// coûtent sur du code sain, pas ce qu'elles valent sur du code qui ne l'est
-    /// pas.
+    /// Rules whose noise rate on healthy code exceeds the published threshold.
+    /// Named so that their contribution to the score can be decided, never to
+    /// remove their default activation: the corpus measures what they cost on
+    /// healthy code, not what they are worth on code that is not.
     pub(crate) noisy_on_healthy_code: Vec<String>,
     pub(crate) refused: Vec<GateRefusal>,
     pub(crate) threshold_basis_points: u64,
@@ -293,12 +293,12 @@ pub(crate) struct GateRefusal {
 pub(crate) struct ScoreDistribution {
     pub(crate) bands: Vec<ScoreBand>,
     pub(crate) ceilings_applied: usize,
-    /// Toutes les notes portent le même label. C'est la question exacte du
-    /// critère: un corpus dont chaque dépôt tombe dans la même bande ne prouve
-    /// rien de la capacité du score à séparer.
+    /// Every score carries the same label. This is the exact question of the
+    /// criterion: a corpus where every repository falls in the same band proves
+    /// nothing about the ability of the score to separate.
     pub(crate) collapsed_into_one_band: bool,
-    /// Toutes les notes valent la même chose, un effondrement plus dur encore
-    /// que la bande commune.
+    /// Every score is worth the same, a collapse harsher still than the shared
+    /// band.
     pub(crate) collapsed_into_one_value: bool,
     pub(crate) maximum: u64,
     pub(crate) minimum: u64,
@@ -320,7 +320,7 @@ pub(crate) struct ScoreValue {
     pub(crate) value: u64,
 }
 
-/// Résultat complet d'une exécution du harness.
+/// Complete result of a harness run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HarnessRun {
     pub(crate) failed: Vec<String>,
@@ -354,10 +354,10 @@ pub(crate) fn artifact() -> CorpusArtifact {
     serde_json::from_slice(&bytes).expect("the corpus artifact should match its typed schema")
 }
 
-/// Défauts fermés du manifeste, chacun nommant le dépôt concerné.
+/// Closed defects of the manifest, each naming the repository concerned.
 ///
-/// Un message ne cite ni chemin ni séquence d'échappement: il ne transporte que
-/// le nom déclaré du dépôt et la nature du défaut.
+/// A message cites neither a path nor an escape sequence: it carries only the
+/// declared name of the repository and the nature of the defect.
 pub(crate) fn manifest_defects(manifest: &Manifest) -> Vec<String> {
     let mut defects = Vec::new();
     if manifest.repositories.len() != EXPECTED_REPOSITORIES {
@@ -418,14 +418,14 @@ pub(crate) fn manifest_defects(manifest: &Manifest) -> Vec<String> {
     defects
 }
 
-/// Une révision est immuable lorsqu'elle est un identifiant d'objet complet.
-/// Un tag, une branche ou un préfixe abrégé reste déplaçable.
+/// A revision is immutable when it is a complete object identifier. A tag, a
+/// branch or an abbreviated prefix stays movable.
 fn is_immutable_revision(commit: &str) -> bool {
     commit.len() == 40 && commit.chars().all(|value| value.is_ascii_hexdigit() && !value.is_ascii_uppercase())
 }
 
-/// Dépôts du manifeste absents du cache local ou épinglés sur une autre
-/// révision. L'évaluation ne démarre pas tant que la liste n'est pas vide.
+/// Manifest repositories missing from the local cache or pinned on another
+/// revision. The evaluation does not start while the list is not empty.
 pub(crate) fn missing_repositories(cache: &Path, manifest: &Manifest) -> Vec<String> {
     manifest
         .repositories
@@ -457,12 +457,12 @@ pub(crate) struct HarnessPaths<'a> {
     pub(crate) cache: &'a Path,
 }
 
-/// Rejoue le catalogue complet sur le corpus.
+/// Replays the complete catalog on the corpus.
 ///
-/// L'exécution est refusée tant qu'un dépôt manque: un corpus partiel
-/// produirait une précision mesurée sur un échantillon inconnu. Chaque dépôt est
-/// matérialisé depuis sa révision épinglée sous `artifacts`, jamais dans le
-/// cache, et chaque échec reste isolé sur son dépôt.
+/// The run is refused while a repository is missing: a partial corpus would
+/// produce a precision measured on an unknown sample. Every repository is
+/// materialised from its pinned revision under `artifacts`, never in the cache,
+/// and every failure stays isolated on its repository.
 pub(crate) fn run(
     paths: &HarnessPaths<'_>,
     manifest: &Manifest,
@@ -523,8 +523,8 @@ pub(crate) fn run(
     Ok(run)
 }
 
-/// Matérialise la révision épinglée dans `work` par un index temporaire tenu
-/// sous les artefacts: le cache reste en lecture seule, index compris.
+/// Materialises the pinned revision into `work` through a temporary index kept
+/// under the artifacts: the cache stays read-only, index included.
 fn materialise(repository: &Path, commit: &str, artifacts: &Path, work: &Path) {
     let index = fresh_directory(&artifacts.join("index")).join(
         work.file_name()
@@ -553,8 +553,8 @@ fn materialise(repository: &Path, commit: &str, artifacts: &Path, work: &Path) {
     assert!(checkout.status.success(), "checkout-index should materialise the pinned revision");
 }
 
-/// Un répertoire neuf à chaque exécution: aucun état partiel d'une exécution
-/// interrompue ne peut se mêler au résultat.
+/// A fresh directory on every run: no partial state of an interrupted run can
+/// mix into the result.
 fn fresh_directory(path: &Path) -> PathBuf {
     if path.exists() {
         fs::remove_dir_all(path).expect("a stale artifact directory should be removable");
@@ -659,8 +659,8 @@ fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observa
     }
 }
 
-/// Finding retenu pour la mesure: un diagnostic catégorisé, donc porté par une
-/// règle du catalogue.
+/// Finding retained for the measurement: a categorized diagnostic, hence
+/// carried by a catalog rule.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Finding<'a> {
     pub(crate) column: u64,
@@ -693,9 +693,9 @@ pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
     findings
 }
 
-/// Texte source exact couvert par le span d'un finding, à la révision
-/// matérialisée. C'est la pièce qui rend un verdict d'adjudication vérifiable
-/// plutôt que déclaratif.
+/// Exact source text covered by the span of a finding, at the materialised
+/// revision. This is the piece that makes an adjudication verdict verifiable
+/// rather than declarative.
 pub(crate) fn span_text(root: &Path, finding: &Finding<'_>) -> Option<String> {
     if finding.line == 0 {
         return None;
@@ -722,10 +722,10 @@ pub(crate) fn span_text(root: &Path, finding: &Finding<'_>) -> Option<String> {
     Some(text)
 }
 
-/// Le déclencheur adjudiqué est présent là où la règle a signalé le défaut.
+/// The adjudicated trigger is present where the rule reported the defect.
 ///
-/// Un finding sans span porte sur un fichier entier, un manifeste ou un
-/// verrou: la preuve est alors cherchée dans le fichier signalé.
+/// A finding with no span bears on a whole file, a manifest or a lockfile: the
+/// evidence is then looked for in the reported file.
 pub(crate) fn evidence_holds(root: &Path, finding: &Finding<'_>, evidence: &str) -> bool {
     match span_text(root, finding) {
         Some(text) => text.contains(evidence),
@@ -734,7 +734,7 @@ pub(crate) fn evidence_holds(root: &Path, finding: &Finding<'_>, evidence: &str)
     }
 }
 
-/// Empreinte canonique de l'ensemble des findings d'un dépôt.
+/// Canonical fingerprint of the whole finding set of a repository.
 pub(crate) fn digest(findings: &[Finding<'_>]) -> String {
     let mut hasher = blake3::Hasher::new();
     for finding in findings {
@@ -748,16 +748,16 @@ pub(crate) fn digest(findings: &[Finding<'_>]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-/// Précision par règle, dérivée des seuls sites réellement relus.
+/// Per-rule precision, derived from the actually reviewed sites alone.
 ///
-/// Le dénominateur du taux est la taille de l'échantillon relu, jamais la
-/// population observée: rapporter des verdicts de valeur à une population qui
-/// n'a pas été relue publierait une précision que personne n'a mesurée. Une
-/// règle dont l'échantillon est plus petit que `MINIMUM_REVIEWED_SITES`, sans
-/// que sa population entière soit relue, reste incomplète et le gate la refuse.
+/// The denominator of the rate is the size of the reviewed sample, never the
+/// observed population: relating value verdicts to a population that was not
+/// reviewed would publish a precision nobody measured. A rule whose sample is
+/// smaller than `MINIMUM_REVIEWED_SITES`, without its whole population being
+/// reviewed, stays incomplete and the gate refuses it.
 ///
-/// Un site relu qui ne correspond à aucun finding observé rend la règle
-/// incomplète: l'échantillon a dérivé de la population qu'il prétend décrire.
+/// A reviewed site matching no observed finding makes the rule incomplete: the
+/// sample has drifted from the population it claims to describe.
 pub(crate) fn precision(
     catalog: &[CatalogRule],
     observations: &[Observation],
@@ -855,15 +855,15 @@ pub(crate) fn precision(
         .collect()
 }
 
-/// Gate d'admission.
+/// Admission gate.
 ///
-/// Le seul refus est celui d'un tier zéro tolérance présentant un faux positif:
-/// un `P0` plafonne la note entière, donc une seule fausse alarme sur du code
-/// sain y coûte tout le score. Le reste est publié, pas refusé. Un taux de bruit
-/// élevé sur code sain ne dit rien de la valeur d'une règle sur du code qui ne
-/// l'est pas, et une règle jamais observée sur dix dépôts sains n'est pas
-/// imprécise: les deux sont nommées pour que la décision soit prise en le
-/// sachant, jamais opposées à l'activation par défaut.
+/// The only refusal is that of a zero-tolerance tier showing a false positive:
+/// a `P0` caps the whole score, so a single false alarm on healthy code costs
+/// all of it there. The rest is published, not refused. A high noise rate on
+/// healthy code says nothing about the value of a rule on code that is not
+/// healthy, and a rule never observed on ten healthy repositories is not
+/// imprecise: both are named so that the decision is taken knowingly, never
+/// held against default activation.
 pub(crate) fn gate(
     catalog: &[CatalogRule],
     precision: &[RulePrecision],
@@ -915,8 +915,8 @@ pub(crate) fn gate(
     }
 }
 
-/// Distribution des notes du corpus, publiée pour constater si le plafonnement
-/// par tier écrase toutes les notes dans une même bande.
+/// Distribution of the corpus scores, published to observe whether tier capping
+/// crushes every score into a single band.
 pub(crate) fn score_distribution(observations: &[Observation]) -> ScoreDistribution {
     let values: Vec<_> = observations
         .iter()
@@ -965,7 +965,8 @@ pub(crate) fn score_distribution(observations: &[Observation]) -> ScoreDistribut
     }
 }
 
-/// Catalogue publié par un rapport, réduit aux grandeurs dont dépend le gate.
+/// Catalog published by a report, reduced to the quantities the gate depends
+/// on.
 pub(crate) fn catalog_from_report(report: &Value) -> Vec<CatalogRule> {
     report["policy"]["rules"]
         .as_array()

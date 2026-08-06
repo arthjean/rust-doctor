@@ -1,20 +1,20 @@
 use super::ScanExecution;
 use crate::policy::{PolicyPlan, Producer, RuleDefinition, RuleLevel};
 
-/// Cibles par défaut de Cargo: bibliothèques et binaires, c'est-à-dire ce que
-/// le projet publie.
+/// Cargo's default targets: libraries and binaries, that is, what the project
+/// publishes.
 ///
-/// `--all-targets` compilait aussi tests, benchs, exemples et scripts de
-/// construction. Mesuré sur le corpus le 2026-08-04, 69,9 % des findings du
-/// pack venaient de là, et 1252 des 1279 findings du self-scan. Un `.unwrap()`
-/// sous `#[cfg(test)]` est le mécanisme d'échec attendu du test, un `println!`
-/// dans `build.rs` est le canal imposé par Cargo, un `dbg!` sous `examples/`
-/// est la démonstration: aucun n'est un défaut de la codebase livrée, donc
-/// aucun n'a sa place dans une note qui la juge.
+/// `--all-targets` also compiled tests, benches, examples and build scripts.
+/// Measured on the corpus on 2026-08-04, 69.9% of the pack findings came from
+/// there, along with 1252 of the 1279 findings of the self-scan. An
+/// `.unwrap()` under `#[cfg(test)]` is the expected failure mechanism of the
+/// test, a `println!` in `build.rs` is the channel Cargo imposes, a `dbg!`
+/// under `examples/` is the demonstration: none of them is a defect of the
+/// shipped codebase, so none belongs in a score that judges it.
 ///
-/// Le filtrage ne peut pas se faire après coup: Cargo étiquette `test: true`
-/// tous les messages sous `--all-targets`, y compris ceux d'un binaire sans
-/// aucun test. La portée se règle donc ici, à la source.
+/// The filtering cannot happen afterwards: Cargo labels `test: true` on every
+/// message under `--all-targets`, including those of a binary with no test at
+/// all. The scope is therefore set here, at the source.
 const BASE_ARGS: [&str; 4] = [
     "clippy",
     "--workspace",

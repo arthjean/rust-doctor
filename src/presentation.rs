@@ -25,9 +25,9 @@ const MIGRATION_FILE_THRESHOLD: usize = 40;
 pub struct ReportPresentation {
     pub groups: Vec<DiagnosticGroup>,
     pub migration_advisories: Vec<MigrationAdvisory>,
-    /// Nombre d'occurrences, la grandeur publiée par `summary.occurrences.total`.
+    /// Occurrence count, the quantity published by `summary.occurrences.total`.
     pub issue_count: usize,
-    /// Nombre de diagnostics distincts, la grandeur publiée par `summary.total`.
+    /// Distinct diagnostic count, the quantity published by `summary.total`.
     pub finding_count: usize,
 }
 

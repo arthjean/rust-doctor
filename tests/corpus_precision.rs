@@ -1,12 +1,12 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Corpus épinglé, harness confiné, précision adjudiquée et gate d'admission.
+//! Pinned corpus, confined harness, adjudicated precision and admission gate.
 //!
-//! Les preuves du harness portent sur un corpus synthétique construit à
-//! l'exécution: elles restent déterministes et hors ligne. Les preuves de
-//! mesure portent sur l'artefact publié, reproductible depuis le cache local
-//! par `RUST_DOCTOR_CORPUS_DIR`.
+//! The harness proofs bear on a synthetic corpus built at run time: they stay
+//! deterministic and offline. The measurement proofs bear on the published
+//! artifact, reproducible from the local cache through
+//! `RUST_DOCTOR_CORPUS_DIR`.
 
 mod support;
 
@@ -121,9 +121,9 @@ const BINARY_SHAPE: RepositoryShape = RepositoryShape {
     workspace_members: 1,
 };
 
-/// Corpus synthétique: une bibliothèque qui déclenche une règle, un binaire
-/// dont le script de construction laisse une trace, un dépôt dont le manifeste
-/// est illisible et un dépôt sans manifeste Cargo.
+/// Synthetic corpus: a library that triggers a rule, a binary whose build
+/// script leaves a trace, a repository whose manifest is unreadable and a
+/// repository with no Cargo manifest.
 fn synthetic_corpus(label: &str) -> (PathBuf, PathBuf, Manifest) {
     let root = scope(label);
     let cache = root.join("cache");
@@ -211,7 +211,7 @@ fn report_of(artifacts: &Path, name: &str) -> Value {
 }
 
 // ---------------------------------------------------------------------------
-// US-077: manifeste épinglé par révision
+// US-077: manifest pinned by revision
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -301,7 +301,7 @@ fn a_missing_corpus_repository_stops_the_run_before_any_scan() {
 }
 
 // ---------------------------------------------------------------------------
-// US-078: harness reproductible et confiné
+// US-078: reproducible and confined harness
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -331,8 +331,8 @@ fn the_harness_writes_only_inside_its_declared_artifacts_directory() {
         assert!(artifacts.join("reports").join(format!("{repository}.json")).is_file());
         assert!(artifacts.join("work").join(repository).is_dir());
     }
-    // Le script de construction du corpus n'écrit que dans l'arbre matérialisé,
-    // qui vit lui-même sous les artefacts.
+    // The build script of the corpus only writes into the materialised tree,
+    // which itself lives under the artifacts.
     assert!(artifacts.join("work/beta-bin/build-code-ran").is_file());
     assert!(!cache.join("beta-bin/build-code-ran").exists());
 }
@@ -388,8 +388,8 @@ fn an_interrupted_run_leaves_no_partial_state_behind() {
     let paths = paths(&cache, &artifacts, &binary);
     let reference = run(&paths, &manifest, &SCAN_ARGUMENTS).unwrap();
 
-    // État partiel d'une exécution interrompue: un rapport périmé, un arbre
-    // matérialisé tronqué et un fichier de transit resté en place.
+    // Partial state of an interrupted run: a stale report, a truncated
+    // materialised tree and a transit file left in place.
     write(&artifacts.join("reports/alpha-lib.json"), "{\"status\":\"stale\"}");
     write(&artifacts.join("reports/alpha-lib.json.partial"), "truncated");
     write(&artifacts.join("work/beta-bin/src/main.rs"), "fn main() { }\n");
@@ -420,11 +420,11 @@ fn the_harness_publishes_processed_skipped_and_failed_counts() {
 }
 
 // ---------------------------------------------------------------------------
-// US-079: précision par règle après adjudication
+// US-079: per-rule precision after adjudication
 // ---------------------------------------------------------------------------
 
-/// Chaque site relu porte un verdict, une justification et un contexte, et
-/// désigne un finding que le corpus a réellement produit.
+/// Every reviewed site carries a verdict, a justification and a context, and
+/// designates a finding the corpus actually produced.
 #[test]
 fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     let artifact = artifact();
@@ -464,9 +464,9 @@ fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     }
 }
 
-/// Le taux publié est celui de l'échantillon relu. Rapporter des verdicts de
-/// valeur à une population non relue publierait une précision que personne n'a
-/// mesurée: c'est le défaut que ce test verrouille.
+/// The published rate is that of the reviewed sample. Relating value verdicts
+/// to an unreviewed population would publish a precision nobody measured: that
+/// is the defect this test locks down.
 #[test]
 fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population() {
     let artifact = artifact();
@@ -496,12 +496,12 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
         );
     }
 
-    // Une population large dont seul un échantillon est relu ne peut pas
-    // publier un taux calculé sur la population.
+    // A large population of which only a sample is reviewed cannot publish a
+    // rate computed on the population.
     let sampled = computed
         .iter()
         .find(|rule| rule.status == PrecisionStatus::Measured && rule.findings > rule.reviewed);
-    let sampled = sampled.expect("le corpus contient au moins une règle échantillonnée");
+    let sampled = sampled.expect("the corpus contains at least one sampled rule");
     assert_ne!(
         sampled.false_positive_rate_basis_points.unwrap(),
         sampled.false_positives.unwrap() * 10_000 / sampled.findings
@@ -540,12 +540,12 @@ fn an_undersized_sample_marks_its_rule_incomplete_and_withholds_its_rate() {
         .precision
         .iter()
         .find(|rule| rule.status == PrecisionStatus::Measured && rule.reviewed >= MINIMUM_REVIEWED_SITES)
-        .expect("le corpus contient une règle mesurée sur un échantillon complet")
+        .expect("the corpus contains a rule measured on a complete sample")
         .id
         .clone();
 
-    // Retirer un seul site relu fait passer l'échantillon sous le minimum
-    // publiable: le taux est retenu plutôt qu'extrapolé.
+    // Removing a single reviewed site takes the sample below the publishable
+    // minimum: the rate is withheld rather than extrapolated.
     let mut adjudication = artifact.adjudication.clone();
     let mut removed = false;
     adjudication.reviewed.retain(|site| {
@@ -568,8 +568,8 @@ fn an_undersized_sample_marks_its_rule_incomplete_and_withholds_its_rate() {
         PrecisionStatus::Incomplete
     );
 
-    // Une règle incomplète rejoint les non prouvées, au même titre qu'une règle
-    // jamais observée: son taux est retenu, son activation reste éditoriale.
+    // An incomplete rule joins the unproven ones, just like a rule never
+    // observed: its rate is withheld, its activation stays editorial.
     let outcome = gate(&artifact.catalog, &computed, THRESHOLD_BASIS_POINTS);
     assert!(outcome.unproven.contains(&target));
     assert!(!outcome.noisy_on_healthy_code.contains(&target));
@@ -591,7 +591,7 @@ fn two_computations_of_the_precision_report_are_identical() {
 }
 
 // ---------------------------------------------------------------------------
-// US-080: gate d'admission opposable
+// US-080: enforceable admission gate
 // ---------------------------------------------------------------------------
 
 fn catalog_of(id: &str, tier: &str) -> Vec<CatalogRule> {
@@ -622,8 +622,9 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
     }]
 }
 
-/// Adjudication synthétique: `reviewed` sites relus dont `false_positives`
-/// jugés faux positifs. Le taux dérive de cet échantillon, pas de `findings`.
+/// Synthetic adjudication: `reviewed` reviewed sites of which
+/// `false_positives` are judged false positives. The rate derives from this
+/// sample, not from `findings`.
 fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudication {
     Adjudication {
         criterion: "probe".to_owned(),
@@ -655,12 +656,12 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
     }
 }
 
-/// Le bruit sur code sain nomme une règle, il ne la disqualifie pas.
+/// Noise on healthy code names a rule, it does not disqualify it.
 ///
-/// Mesurer qu'une règle signale beaucoup de non-défauts sur dix dépôts choisis
-/// pour leur santé ne dit rien de ce qu'elle vaut sur du code qui ne l'est pas.
-/// La liste publiée sert à trancher sa contribution au score, pas son niveau
-/// par défaut.
+/// Measuring that a rule reports many non-defects on ten repositories chosen
+/// for their health says nothing about what it is worth on code that is not
+/// healthy. The published list serves to decide its contribution to the score,
+/// not its default level.
 #[test]
 fn a_noisy_rule_is_named_without_losing_its_default_activation() {
     let catalog = catalog_of("clippy::probe", "P2");
@@ -677,8 +678,8 @@ fn a_noisy_rule_is_named_without_losing_its_default_activation() {
     assert_eq!(outcome.noisy_on_healthy_code, vec!["clippy::probe".to_owned()]);
     assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
 
-    // Exactement au seuil publié, la règle n'est pas nommée bruyante: le repère
-    // vise ce qui dépasse 5 %, pas ce qui l'atteint.
+    // Exactly at the published threshold, the rule is not named noisy: the mark
+    // aims at what goes past 5%, not at what reaches it.
     let at_threshold = precision(
         &catalog,
         &observations_of("clippy::probe", 100),
@@ -738,16 +739,16 @@ fn an_unobserved_rule_is_named_unproven_without_being_refused() {
     let measured = precision(&catalog, &[], &adjudication_of("clippy::probe", 0, 0));
     assert_eq!(measured[0].status, PrecisionStatus::Unobserved);
 
-    // Le silence d'un corpus sain sur une règle mesure l'absence du défaut
-    // qu'elle vise, pas la règle. Elle est nommée, jamais refusée pour ça.
+    // The silence of a healthy corpus on a rule measures the absence of the
+    // defect it aims at, not the rule. It is named, never refused for that.
     let outcome = gate(&catalog, &measured, THRESHOLD_BASIS_POINTS);
     assert_eq!(outcome.verdict, GateVerdict::Passed);
     assert_eq!(outcome.unproven, vec!["clippy::probe".to_owned()]);
     assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
     assert!(outcome.refused.is_empty());
 
-    // Une règle désactivée par défaut n'est pas soumise au gate: le gate porte
-    // sur l'activation par défaut, pas sur l'existence d'une règle.
+    // A rule disabled by default is not subject to the gate: the gate bears on
+    // default activation, not on the existence of a rule.
     let disabled = vec![CatalogRule {
         default_level: "off".to_owned(),
         id: "clippy::probe".to_owned(),
@@ -804,28 +805,28 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
         artifact.catalog.iter().filter(|rule| rule.default_level != "off").count()
     );
 
-    // Les deux listes annotent l'ensemble admis, elles ne le réduisent pas.
+    // Both lists annotate the admitted set, they do not reduce it.
     for annotated in [&artifact.gate.noisy_on_healthy_code, &artifact.gate.unproven] {
         assert!(annotated.iter().all(|rule| admitted.contains(rule.as_str())));
     }
     let noisy: BTreeSet<&str> = artifact.gate.noisy_on_healthy_code.iter().map(String::as_str).collect();
     let unproven: BTreeSet<&str> = artifact.gate.unproven.iter().map(String::as_str).collect();
-    assert!(noisy.is_disjoint(&unproven), "une règle mesurée n'est pas non prouvée");
+    assert!(noisy.is_disjoint(&unproven), "a measured rule is not unproven");
 }
 
-/// Dette d'admission figée: les règles actives par défaut que le corpus n'a pas
-/// pu prouver, parce qu'un dépôt sain ne commet pas le défaut qu'elles visent.
-/// Inscription nominative et sens unique: une règle prouvée en sort, aucune n'y
-/// entre sans que la validation le dise.
+/// Frozen admission debt: the rules active by default that the corpus could not
+/// prove, because a healthy repository does not commit the defect they aim at.
+/// Registration is nominative and one-way: a proven rule leaves it, none enters
+/// without the validation saying so.
 ///
-/// Trois entrées ont été ajoutées le 2026-08-04, ce que le sens unique interdit
-/// normalement. Elles ne couvrent pas une règle admise sans preuve: elles
-/// couvrent le retrait d'une mesure qui n'a jamais été valide. `dbg_macro`,
-/// `print_stdout` et `useless_vec` n'avaient de population que dans `tests/` et
-/// `examples/`, hors du code livré, et le retour aux cibles par défaut de Cargo
-/// les a rendues muettes. Leur silence dit ce que les 24 autres disent déjà:
-/// `fd`, `hexyl` et `ripgrep` écrivent tous dans un `stdout` verrouillé plutôt
-/// qu'avec `println!`, et aucun ne laisse de `dbg!` dans ce qu'il publie.
+/// Three entries were added on 2026-08-04, which the one-way rule normally
+/// forbids. They do not cover a rule admitted without evidence: they cover the
+/// withdrawal of a measurement that was never valid. `dbg_macro`,
+/// `print_stdout` and `useless_vec` had a population only in `tests/` and
+/// `examples/`, outside the shipped code, and the return to Cargo's default
+/// targets made them silent. Their silence says what the 24 others already say:
+/// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
+/// with `println!`, and none leaves a `dbg!` in what it publishes.
 const ADMISSION_DEBT: [&str; 27] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
@@ -856,9 +857,9 @@ const ADMISSION_DEBT: [&str; 27] = [
     "rust_doctor::source::dynamic_shell_command",
 ];
 
-/// Le seuil est opposable ici, et nulle part ailleurs: ce test échoue dès
-/// qu'une règle rejoint le catalogue par défaut sans précision mesurée, et dès
-/// qu'une règle mesurée au-dessus du seuil y reste.
+/// The threshold is enforceable here, and nowhere else: this test fails as soon
+/// as a rule joins the default catalog without a measured precision, and as
+/// soon as a rule measured above the threshold stays in it.
 #[test]
 fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let artifact = artifact();
@@ -866,8 +867,8 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let debt: BTreeSet<&str> = ADMISSION_DEBT.iter().copied().collect();
     assert_eq!(debt.len(), ADMISSION_DEBT.len(), "the debt names a rule twice");
 
-    // Une règle non prouvée qui n'est pas nommée dans la dette est un
-    // élargissement silencieux du catalogue.
+    // An unproven rule that is not named in the debt is a silent widening of
+    // the catalog.
     let unnamed: Vec<&str> = outcome
         .unproven
         .iter()
@@ -876,16 +877,16 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
         .collect();
     assert!(unnamed.is_empty(), "active by default without proof: {unnamed:?}");
 
-    // La dette est à sens unique: une règle que le corpus a fini par observer
-    // en sort. Le critère est la mesure, pas l'admission: depuis que le gate
-    // n'oppose plus rien à une règle non prouvée, toutes les actives par défaut
-    // sont admises, et lire l'admission ferait sortir la dette entière.
+    // The debt is one-way: a rule the corpus ended up observing leaves it. The
+    // criterion is the measurement, not the admission: since the gate no longer
+    // opposes anything to an unproven rule, every rule active by default is
+    // admitted, and reading the admission would empty the whole debt.
     let unproven: BTreeSet<&str> = artifact.gate.unproven.iter().map(String::as_str).collect();
     let settled: Vec<&str> = debt.difference(&unproven).copied().collect();
     assert!(settled.is_empty(), "observed since, remove from the debt: {settled:?}");
 
-    // Une entrée qui ne correspond plus à aucune règle active par défaut
-    // masquerait la disparition de la règle qu'elle couvrait.
+    // An entry matching no rule active by default any more would mask the
+    // disappearance of the rule it covered.
     let active: BTreeSet<&str> = artifact
         .catalog
         .iter()
@@ -895,9 +896,9 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let stale: Vec<&str> = debt.difference(&active).copied().collect();
     assert!(stale.is_empty(), "stale debt entry: {stale:?}");
 
-    // Le seul refus opposable est le tier zéro tolérance portant un faux
-    // positif: un `P0` plafonne la note entière, donc une fausse alarme sur du
-    // code sain y coûte tout le score.
+    // The only enforceable refusal is the zero-tolerance tier carrying a false
+    // positive: a `P0` caps the whole score, so a false alarm on healthy code
+    // costs all of it there.
     let measured: BTreeMap<&str, &support::corpus::RulePrecision> = artifact
         .precision
         .iter()
@@ -924,9 +925,9 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
         refused.join("\n  ")
     );
 
-    // La liste des bruyantes est publiée en entier: elle nomme exactement les
-    // règles mesurées au-dessus du repère, ni plus ni moins. Y figurer ne retire
-    // rien; l'omission, elle, cacherait ce que la règle coûte sur du code sain.
+    // The noisy list is published in full: it names exactly the rules measured
+    // above the mark, no more and no less. Appearing in it removes nothing;
+    // omission would hide what the rule costs on healthy code.
     let expected_noisy: Vec<&str> = artifact
         .precision
         .iter()
@@ -953,7 +954,7 @@ fn the_published_catalog_matches_the_shipped_policy() {
 }
 
 // ---------------------------------------------------------------------------
-// Reproduction du corpus épinglé, quand le cache local est disponible
+// Reproduction of the pinned corpus, when the local cache is available
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -991,10 +992,10 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(replayed.observations, published.observations);
     assert_eq!(replayed.evidence(&SCAN_ARGUMENTS), published.harness);
 
-    // Garde-fou mécanique: le déclencheur publié est présent dans chaque span
-    // signalé, à la révision épinglée. Cette vérification prouve seulement
-    // qu'aucun span n'est corrompu; elle ne dit rien de la valeur du site, et
-    // c'est pourquoi la précision est dérivée des sites relus, pas d'elle.
+    // Mechanical guard rail: the published trigger is present in every reported
+    // span, at the pinned revision. This check only proves that no span is
+    // corrupted; it says nothing about the value of the site, and that is why
+    // precision is derived from the reviewed sites, not from it.
     let triggers: BTreeMap<&str, &str> = published
         .adjudication
         .trigger_verification
@@ -1025,7 +1026,7 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(confirmed, published.adjudication.trigger_verification.confirmed);
     assert_eq!(confirmed, published.adjudication.trigger_verification.findings);
 
-    // Chaque site relu correspond à un finding réellement produit par le corpus.
+    // Every reviewed site matches a finding the corpus actually produced.
     for site in &published.adjudication.reviewed {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
         let report: Value = serde_json::from_slice(&bytes).unwrap();
