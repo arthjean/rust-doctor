@@ -13,4 +13,5 @@
 /tests/fixtures/score-credibility/packs/*/target/
 /npm/rust-doctor/node_modules/
 /npm/rust-doctor/*.tgz
-/.claude/
+/.claude/.paneflow-hook-leases
+/.claude/settings.local.json
