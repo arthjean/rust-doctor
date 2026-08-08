@@ -17,10 +17,10 @@
     {
       "id": "EP-002",
       "title": "Duplicate function detection",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5
     },
     {
       "id": "EP-003",
@@ -106,71 +106,71 @@
       "id": "US-005",
       "title": "AST normalization of function bodies",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-001"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-08",
+      "reviewed_at": "2026-08-08"
     },
     {
       "id": "US-006",
       "title": "Exact clone grouping by structural fingerprint",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-005"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-08",
+      "reviewed_at": "2026-08-08"
     },
     {
       "id": "US-007",
       "title": "Near-duplicate detection by structural similarity",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-006"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-08",
+      "reviewed_at": "2026-08-08"
     },
     {
       "id": "US-008",
       "title": "Test, bench, example and build-script context handling",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-006"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-08",
+      "reviewed_at": "2026-08-08"
     },
     {
       "id": "US-009",
       "title": "Duplication pass performance budget",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-007"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-08",
+      "reviewed_at": "2026-08-08"
     },
     {
       "id": "US-010",
