@@ -110,7 +110,7 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     assert_eq!(rule["level"], "warn");
 
     let findings = structural(&report);
-    assert_eq!(findings.len(), 3, "{findings:#?}");
+    assert_eq!(findings.len(), 4, "{findings:#?}");
     for finding in &findings {
         assert_eq!(finding["source"], "rust-doctor");
         assert_eq!(finding["category"], rule["category"]);
@@ -169,12 +169,24 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     assert!(within.get("context").is_none());
     assert!(across.get("context").is_none());
 
+    // US-014: the crate-level form is counted like the item-level one, and the
+    // integration test crate that carries it is named by a Cargo target kind,
+    // so the finding is marked without any path being read as a context.
+    let crate_level = findings[3];
+    assert_eq!(crate_level["path"], "tests/crate_level.rs");
+    assert_eq!(crate_level["context"], "tests");
+    assert_eq!(crate_level["occurrences"], 1);
+    assert_eq!(
+        crate_level["message"],
+        "#![allow(dead_code)] switches a lint off without a stated reason."
+    );
+
     // The findings are scored: the dimension the category maps to leaves 100.
-    // The marked family is excluded from that arithmetic, the two others are
+    // The marked families are excluded from that arithmetic, the two others are
     // not, which is what makes the mark observable rather than declarative.
     assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 99);
     assert_eq!(report["audit"]["categories"][0]["name"], "Maintainability");
-    assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 3);
+    assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
 
     // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();
@@ -248,13 +260,13 @@ fn the_policy_switches_a_structural_rule_off_and_raises_it_to_error() {
     assert_eq!(raised.status, Status::Complete, "{:?}", raised.errors);
     let raised = serde_json::to_value(&raised).unwrap();
     let findings = structural(&raised);
-    assert_eq!(findings.len(), 3);
+    assert_eq!(findings.len(), 4);
     for finding in &findings {
         assert_eq!(finding["severity"], "error");
         assert_eq!(finding["base_severity"], "warning");
     }
     assert_eq!(raised["gate"]["status"], "failed");
-    // The marked family stays published and stops blocking, exactly as a
+    // The marked families stay published and stop blocking, exactly as a
     // `println!` in a build script does.
     assert_eq!(raised["gate"]["blocking_diagnostics"], 2);
 }
