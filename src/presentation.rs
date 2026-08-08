@@ -50,6 +50,9 @@ pub struct GroupDiagnostic {
     pub severity: Severity,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
+    /// Every other site a structural finding spans, in the order the report
+    /// published them.
+    pub related: Vec<GroupLocation>,
     pub occurrences: usize,
 }
 
@@ -154,6 +157,17 @@ fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
                     .filter(|path| workspace_path::decode_normalized_relative(path).is_some())
                     .map(str::to_owned),
                 span: diagnostic.span.clone(),
+                related: diagnostic
+                    .related
+                    .iter()
+                    .filter(|location| {
+                        workspace_path::decode_normalized_relative(&location.path).is_some()
+                    })
+                    .map(|location| GroupLocation {
+                        path: location.path.clone(),
+                        span: location.span.clone(),
+                    })
+                    .collect(),
                 occurrences: diagnostic.occurrences,
             })
             .collect();
@@ -277,6 +291,7 @@ mod tests {
                 line_end: 3,
                 column_end: 8,
             }),
+            related: Vec::new(),
             occurrences,
         }
     }

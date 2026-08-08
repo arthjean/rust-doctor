@@ -15,6 +15,7 @@ pub mod render;
 mod report;
 mod scan_target;
 mod source_kernel;
+mod structure;
 mod terminal_text;
 mod workspace_path;
 
@@ -31,8 +32,8 @@ pub use policy::{
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
-    ProjectReport, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status, Summary,
-    ToolchainReport,
+    ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
+    Summary, ToolchainReport,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {

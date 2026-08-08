@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 43] = [
+const RULES: [&str; 44] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -59,6 +59,7 @@ const RULES: [&str; 43] = [
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
+    "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
@@ -260,7 +261,7 @@ fn normalized_for_entry(report: &Value) -> Value {
 }
 
 fn v5_compatible_output(output: &[u8]) -> Vec<u8> {
-    let projected = support::project_v10_wire_to_v7(output);
+    let projected = support::project_v11_wire_to_v7(output);
     let output = std::str::from_utf8(&projected).unwrap();
     let output = output.replacen("\"schema_version\":7", "\"schema_version\":5", 1);
     output
@@ -408,9 +409,9 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 10);
+            assert_eq!(report["schema_version"], 11);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 43);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 44);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -599,7 +600,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 10);
+        assert_eq!(report["schema_version"], 11);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

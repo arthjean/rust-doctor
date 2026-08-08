@@ -75,7 +75,7 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
 fn every_published_rule_carries_a_closed_tier() {
     let report = json_report(&adversarial());
     let rules = report["policy"]["rules"].as_array().expect("policy rules");
-    assert_eq!(rules.len(), 43);
+    assert_eq!(rules.len(), 44);
 
     let mut blocking = Vec::new();
     for rule in rules {
@@ -321,7 +321,7 @@ fn diverging_counts_fail_to_serialize() {
 fn an_inconsistent_model_is_rejected_before_publication() {
     let mut report = inspect(InspectRequest::new(adversarial()));
     assert_eq!(report.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 10);
+    assert_eq!(SCHEMA_VERSION, 11);
 
     let score = report.audit.score.as_mut().unwrap();
     score.applied_ceiling = None;

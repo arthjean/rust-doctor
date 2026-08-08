@@ -266,6 +266,12 @@
         "category": "security",
         "level": "warn",
         "source": "default"
+      },
+      {
+        "id": "rust_doctor::structure::unreasoned_allow_attribute",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
       }
     ]
   },

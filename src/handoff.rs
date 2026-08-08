@@ -570,6 +570,7 @@ mod tests {
                 line_end: 4,
                 column_end: 10,
             }),
+            related: Vec::new(),
             occurrences: 2,
         }];
         let summary = Summary::from_diagnostics(&diagnostics);

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::git_scope::ScopeDetails;
-use crate::presentation::{DiagnosticGroup, ReportPresentation, code_frame};
+use crate::presentation::{DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame};
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
@@ -277,6 +277,7 @@ fn render_group<W: Write>(
                 Style::Muted,
             )?;
         }
+        render_related(writer, diagnostic, options, all_locations)?;
         let Some(location) = diagnostic.location() else {
             continue;
         };
@@ -317,6 +318,44 @@ fn render_group<W: Write>(
         options,
         Style::Muted,
     )
+}
+
+/// Other sites a structural finding spans.
+///
+/// The list is bounded here and complete in `--json`: a function cloned two
+/// hundred times is one finding, and printing two hundred references would bury
+/// every other finding under it.
+fn render_related<W: Write>(
+    writer: &mut W,
+    diagnostic: &GroupDiagnostic,
+    options: TerminalOptions<'_>,
+    all_locations: bool,
+) -> Result<(), RenderError> {
+    const MAX_RELATED: usize = 3;
+    if !all_locations || diagnostic.related.is_empty() {
+        return Ok(());
+    }
+    for location in diagnostic.related.iter().take(MAX_RELATED) {
+        line(
+            writer,
+            &format!(
+                "Also at: {}:{}:{}",
+                location.path, location.span.line_start, location.span.column_start
+            ),
+            options,
+            Style::Accent,
+        )?;
+    }
+    let remaining = diagnostic.related.len().saturating_sub(MAX_RELATED);
+    if remaining > 0 {
+        line(
+            writer,
+            &format!("and {remaining} more locations"),
+            options,
+            Style::Muted,
+        )?;
+    }
+    Ok(())
 }
 
 fn render_categories<W: Write>(
@@ -674,6 +713,7 @@ mod tests {
                 line_end: 2,
                 column_end: 4,
             }),
+            related: Vec::new(),
             occurrences: 1,
         }];
         let summary = Summary::from_diagnostics(&diagnostics);

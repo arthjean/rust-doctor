@@ -22,9 +22,10 @@ use crate::policy::{
     PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
 };
 use crate::source_kernel;
+use crate::structure;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 10;
+pub const SCHEMA_VERSION: u8 = 11;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -278,14 +279,29 @@ pub struct Diagnostic {
     pub context: Option<DiagnosticContext>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
+    /// Every other site the finding spans, workspace-relative.
+    ///
+    /// A structural finding is a family: reporting one member per diagnostic
+    /// would turn a helper cloned six times into six unrelated spans. The key
+    /// is absent rather than empty when a finding names a single site, so a
+    /// per-site diagnostic serializes exactly as it did before this field
+    /// existed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related: Vec<RelatedLocation>,
     pub occurrences: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelatedLocation {
+    pub path: String,
+    pub span: DiagnosticSpan,
 }
 
 /// Non-production target a diagnostic comes from, derived from the target kind
 /// Cargo declares. A library or a binary are not represented: they are the
 /// production, and a diagnostic coming from them simply does not carry this
 /// field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticContext {
     /// Integration test target, under `tests/`.
@@ -738,6 +754,11 @@ fn diagnostics_from_execution(
     {
         merge_source_candidates(&mut diagnostics, source, workspace_root, home);
     }
+    if status != Status::Failed
+        && let Some(structure) = result.structure.as_ref()
+    {
+        merge_structure_findings(&mut diagnostics, structure, workspace_root, home);
+    }
     apply_policy(&mut diagnostics, plan);
     if let Some(scope) = scope {
         project_diagnostics(&mut diagnostics, scope);
@@ -941,6 +962,13 @@ fn report_errors(
             message: sanitize_text(&error.message, workspace_root, home),
         }));
     }
+    if let Some(structure) = result.structure.as_ref() {
+        errors.extend(structure.errors.iter().map(|error| ReportError {
+            stage: "structure".to_owned(),
+            code: error.code.to_owned(),
+            message: sanitize_text(&error.message, workspace_root, home),
+        }));
+    }
     if let Some(cargo_health) = result.cargo_health.as_ref() {
         errors.extend(cargo_health.errors.iter().map(|error| ReportError {
             stage: "dependencies".to_owned(),
@@ -1073,6 +1101,7 @@ fn normalize_cargo_health_candidate(
         target: None,
         path,
         span: None,
+        related: Vec::new(),
         occurrences: 1,
     }
 }
@@ -1134,14 +1163,93 @@ fn normalize_source_candidate(
         target: candidate.target.as_deref().map(normalize_text),
         path,
         span,
+        related: Vec::new(),
         occurrences: 1,
+    }
+}
+
+/// Structural findings enter the report on the path the native detectors
+/// already take. What differs is their identity: `fingerprint` reads the
+/// structural hash the pass computed instead of the span and the message, so
+/// inserting fifty lines above a finding renames nothing.
+fn merge_structure_findings(
+    diagnostics: &mut Vec<Diagnostic>,
+    scan: &structure::StructureScan,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) {
+    let mut merged: BTreeMap<_, _> = diagnostics
+        .drain(..)
+        .map(|diagnostic| (diagnostic.id.clone(), diagnostic))
+        .collect();
+    for finding in &scan.findings {
+        let diagnostic = normalize_structure_finding(finding, workspace_root, home);
+        merge_diagnostic(&mut merged, diagnostic);
+    }
+    diagnostics.extend(merged.into_values());
+    diagnostics.sort_by(compare_diagnostics);
+}
+
+fn normalize_structure_finding(
+    finding: &structure::StructureFinding,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) -> Diagnostic {
+    let definition = finding.definition;
+    let source = DiagnosticSource::RustDoctor;
+    let code = Some(definition.id.to_owned());
+    let path = workspace_path::normalize_relative(Path::new(&finding.path));
+    let span = Some(DiagnosticSpan {
+        line_start: finding.span.line_start,
+        column_start: finding.span.column_start,
+        line_end: finding.span.line_end,
+        column_end: finding.span.column_end,
+    });
+    let message = sanitize_text(&finding.message, workspace_root, home);
+    let id = fingerprint_of(
+        source,
+        code.as_deref(),
+        path.as_deref(),
+        canonical_severity(definition.default_level),
+        &FingerprintBody::Structure(&finding.structure),
+    );
+    Diagnostic {
+        id,
+        source,
+        context: finding.context,
+        code,
+        base_severity: canonical_severity(definition.default_level),
+        severity: canonical_severity(definition.default_level),
+        category: Some(definition.category.to_owned()),
+        message,
+        help: Some(definition.help.to_owned()),
+        package: finding.package.as_deref().map(normalize_text),
+        target: finding.target.as_deref().map(normalize_text),
+        path,
+        span,
+        related: finding
+            .related
+            .iter()
+            .filter_map(|location| {
+                Some(RelatedLocation {
+                    path: workspace_path::normalize_relative(Path::new(&location.path))?,
+                    span: DiagnosticSpan {
+                        line_start: location.span.line_start,
+                        column_start: location.span.column_start,
+                        line_end: location.span.line_end,
+                        column_end: location.span.column_end,
+                    },
+                })
+            })
+            .collect(),
+        occurrences: finding.occurrences,
     }
 }
 
 fn merge_diagnostic(diagnostics: &mut BTreeMap<String, Diagnostic>, diagnostic: Diagnostic) {
     match diagnostics.get_mut(&diagnostic.id) {
         Some(existing) => {
-            existing.occurrences += 1;
+            existing.occurrences += diagnostic.occurrences;
             merge_optional_context(&mut existing.package, diagnostic.package);
             merge_optional_context(&mut existing.target, diagnostic.target);
             merge_optional_context(&mut existing.context, diagnostic.context);
@@ -1207,6 +1315,7 @@ fn normalize_diagnostic(
         target,
         path,
         span,
+        related: Vec::new(),
         occurrences: 1,
     }
 }
@@ -1385,6 +1494,48 @@ fn span_coordinates(span: Option<&DiagnosticSpan>) -> (usize, usize, usize, usiz
     })
 }
 
+/// What identifies a finding beyond its rule and its file.
+///
+/// A per-site diagnostic is identified by where it is and what it says. A
+/// structural finding cannot be: its position moves whenever anything above it
+/// moves, and it spans several sites at once, so it is identified by the
+/// normalized content the pass hashed. Both go through one definition, so there
+/// is one fingerprint to freeze in an oracle rather than two.
+enum FingerprintBody<'a> {
+    Position {
+        span: Option<&'a DiagnosticSpan>,
+        message: &'a str,
+    },
+    Structure(&'a str),
+}
+
+impl FingerprintBody<'_> {
+    /// Fields the tuple carries after the path, severity included, so the
+    /// historical order `span, base_severity, message` stays byte for byte
+    /// what it was.
+    fn render(&self, base_severity: Severity) -> String {
+        let severity = json_string(base_severity.as_str());
+        match self {
+            Self::Position { span, message } => {
+                let span = span.map_or_else(
+                    || "null".to_owned(),
+                    |span| {
+                        format!(
+                            concat!(
+                                "{{\"line_start\":{},\"column_start\":{},",
+                                "\"line_end\":{},\"column_end\":{}}}"
+                            ),
+                            span.line_start, span.column_start, span.line_end, span.column_end
+                        )
+                    },
+                );
+                format!("{span},{severity},{}", json_string(message))
+            }
+            Self::Structure(hash) => format!("{},{severity}", json_string(hash)),
+        }
+    }
+}
+
 fn fingerprint(
     source: DiagnosticSource,
     code: Option<&str>,
@@ -1393,26 +1544,28 @@ fn fingerprint(
     base_severity: Severity,
     message: &str,
 ) -> String {
-    let span = span.map_or_else(
-        || "null".to_owned(),
-        |span| {
-            format!(
-                concat!(
-                    "{{\"line_start\":{},\"column_start\":{},",
-                    "\"line_end\":{},\"column_end\":{}}}"
-                ),
-                span.line_start, span.column_start, span.line_end, span.column_end
-            )
-        },
-    );
+    fingerprint_of(
+        source,
+        code,
+        path,
+        base_severity,
+        &FingerprintBody::Position { span, message },
+    )
+}
+
+fn fingerprint_of(
+    source: DiagnosticSource,
+    code: Option<&str>,
+    path: Option<&str>,
+    base_severity: Severity,
+    body: &FingerprintBody<'_>,
+) -> String {
     let tuple = format!(
-        "[{},{},{},{},{},{}]",
+        "[{},{},{},{}]",
         json_string(source.as_str()),
         json_optional_string(code),
         json_optional_string(path),
-        span,
-        json_string(base_severity.as_str()),
-        json_string(message),
+        body.render(base_severity),
     );
     blake3::hash(tuple.as_bytes()).to_hex().to_string()
 }
@@ -2014,6 +2167,7 @@ mod tests {
             .into_std_path_buf();
         ExecutionResult {
             manifest_path: Some(manifest_path),
+            structure: None,
             cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
@@ -2186,6 +2340,7 @@ mod tests {
         let expected_command = scan(Vec::new(), 0, true, true).command;
         let complete = from_execution(ExecutionResult {
             manifest_path: Some(manifest_path.clone()),
+            structure: None,
             cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata.clone()),
             toolchain: ToolchainProvenance::default(),
@@ -2201,6 +2356,7 @@ mod tests {
 
         let incomplete = from_execution(ExecutionResult {
             manifest_path: Some(manifest_path),
+            structure: None,
             cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
@@ -2235,6 +2391,7 @@ mod tests {
         let failed = from_execution(ExecutionResult {
             manifest_path: None,
             metadata: None,
+            structure: None,
             cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: None.into(),
@@ -2298,6 +2455,7 @@ mod tests {
         };
         let report = from_execution(ExecutionResult {
             manifest_path: Some(workspace.join("Cargo.toml")),
+            structure: None,
             cargo_health: cargo_health_scan(&metadata),
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
@@ -2627,6 +2785,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            structure: None,
             cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
@@ -2670,6 +2829,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            structure: None,
             cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
@@ -2719,6 +2879,7 @@ mod tests {
         let result = ExecutionResult {
             manifest_path: None,
             metadata: None,
+            structure: None,
             cargo_health: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {

@@ -117,9 +117,17 @@ fn temporary_fixture(label: &str) -> PathBuf {
         .join(format!("{label}-{}", std::process::id()))
 }
 
+/// Silences the three targeted lints at crate level.
+///
+/// The exemption states its reason, because since schema 11 an unreasoned one
+/// is itself a finding: what this test measures is which identifiers a
+/// suppression removes, not what the census makes of the suppression.
 fn prepend_crate_allow(path: &Path) {
     let source = fs::read_to_string(path).expect("copied fixture source should be readable");
-    let allow = "#![allow(clippy::dbg_macro, clippy::todo, clippy::unimplemented)]\n\n";
+    let allow = concat!(
+        "#![allow(clippy::dbg_macro, clippy::todo, clippy::unimplemented,",
+        " reason = \"the rescan measures what a suppression removes\")]\n\n"
+    );
     fs::write(path, format!("{allow}{source}")).expect("copied fixture source should be writable");
 }
 

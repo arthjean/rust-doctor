@@ -12,6 +12,7 @@ use crate::configuration::{self, WorkspaceConfiguration};
 use crate::policy::{PolicyPlan, Producer};
 use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceScan};
+use crate::structure::{self, StructureScan};
 
 mod baseline;
 mod clippy;
@@ -28,6 +29,7 @@ pub(crate) struct ExecutionResult {
     pub(crate) toolchain: ToolchainProvenance,
     pub(crate) scan: ClippyExecution,
     pub(crate) source: Option<SourceScan>,
+    pub(crate) structure: Option<StructureScan>,
     pub(crate) cargo_health: Option<CargoHealthScan>,
     pub(crate) error: Option<InternalError>,
 }
@@ -40,6 +42,7 @@ impl ExecutionResult {
             toolchain: ToolchainProvenance::default(),
             scan: ClippyExecution::NotRun,
             source: None,
+            structure: None,
             cargo_health: None,
             error: None,
         }
@@ -56,6 +59,10 @@ impl ExecutionResult {
                 .source
                 .as_ref()
                 .is_none_or(|source| source.errors.is_empty())
+            && self
+                .structure
+                .as_ref()
+                .is_none_or(|structure| structure.errors.is_empty())
     }
 }
 
@@ -329,11 +336,21 @@ fn execute_target(
             Err(error) => result.fail(error),
         }
     }
-    if result.error.is_none() && plan.active_rules(Producer::SourceKernel).next().is_some() {
-        result.source = result
-            .metadata
-            .as_ref()
-            .map(|metadata| source_kernel::inspect(metadata, plan));
+    // One walk feeds both producers that read source text. The source kernel
+    // decides per call site, the structural pass decides per family, and
+    // enumerating the workspace twice for that would double the only expensive
+    // part of either.
+    if result.error.is_none()
+        && source_kernel::enumeration_required(plan)
+        && let Some(metadata) = result.metadata.as_ref()
+    {
+        let enumeration = source_kernel::enumerate(metadata);
+        if plan.active_rules(Producer::SourceKernel).next().is_some() {
+            result.source = Some(source_kernel::inspect(&enumeration, plan));
+        }
+        if plan.active_rules(Producer::Structure).next().is_some() {
+            result.structure = Some(structure::analyze(&enumeration, plan));
+        }
     }
 
     result

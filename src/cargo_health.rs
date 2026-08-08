@@ -40,7 +40,7 @@ pub(crate) struct CargoHealthError {
 pub(crate) struct CargoHealthScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<CargoHealthError>,
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: CargoHealthCounters,
 }
 

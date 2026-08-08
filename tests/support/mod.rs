@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, reason = "each test crate uses its own subset of these helpers")]
 
 pub(crate) mod corpus;
 pub(crate) mod rule_scaling;
@@ -110,20 +110,21 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-/// Projects a v10 report back onto the frozen bytes of v7.
+/// Projects a v11 report back onto the frozen bytes of v7.
 ///
 /// v8 had added the `audit` block, v9 the `tier` of every policy rule and the
-/// two named quantities of `summary`, v10 the `context` of every diagnostic. No
+/// two named quantities of `summary`, v10 the `context` of every diagnostic,
+/// v11 the `related` locations of a finding that spans several sites. No
 /// historical field is removed or retyped, so the projection consists solely of
 /// removing the members added since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
-pub(crate) fn project_v10_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":10,\"audit\":";
+pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
+    const PREFIX: &[u8] = b"{\"schema_version\":11,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
-        .expect("schema v10 should start with its audit member");
+        .expect("schema v11 should start with its audit member");
     let suffix = &payload[value_end(payload, 0)..];
     let mut projected = Vec::with_capacity(output.len());
     projected.extend_from_slice(b"{\"schema_version\":7");
@@ -138,6 +139,9 @@ pub(crate) fn project_v10_wire_to_v7(output: &[u8]) -> Vec<u8> {
     }
     while let Some(diagnostic) = find(&projected, 0, b"\"context\":") {
         projected = remove_member(&projected, diagnostic, "context");
+    }
+    while let Some(diagnostic) = find(&projected, 0, b"\"related\":") {
+        projected = remove_member(&projected, diagnostic, "related");
     }
     drop_scan_command(&projected)
 }

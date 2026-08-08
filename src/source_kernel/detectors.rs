@@ -16,7 +16,7 @@ use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SyntaxKind, SyntaxNode, TextRange};
 
 use super::aliases::{AliasMap, Provenance};
-use super::{intersects_errors, literal_string};
+use super::{compact, intersects_errors, literal_string};
 use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
 
 /// Dependency aliases of a unit: identifier written in the code to canonical
@@ -235,14 +235,6 @@ fn literal_bool(expression: &ast::Expr, expected: bool) -> bool {
         expression,
         ast::Expr::Literal(literal) if literal.kind() == LiteralKind::Bool(expected)
     )
-}
-
-fn compact(node: &SyntaxNode) -> String {
-    node.descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia())
-        .map(|token| token.text().to_string())
-        .collect()
 }
 
 fn plain_segments(path: &ast::Path) -> Option<Vec<String>> {

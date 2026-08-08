@@ -1,4 +1,4 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, reason = "the measurement installs its own global allocator")]
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -89,12 +89,13 @@ fn fixture_report() -> InspectReport {
             target: None,
             path: None,
             span: None,
+            related: Vec::new(),
             occurrences: 1,
         })
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 10,
+        schema_version: 11,
         audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,

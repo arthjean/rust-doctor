@@ -13,6 +13,7 @@ pub(crate) enum Producer {
     Clippy,
     CargoHealth,
     SourceKernel,
+    Structure,
 }
 
 /// Criticality of a rule, independent of `default_level` and of the effective
@@ -426,8 +427,16 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     tier: RuleTier::P0,
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
+pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::unreasoned_allow_attribute",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Fix what the lint reports, or keep the allow and state why with reason = \"...\" so the exemption survives review.",
+};
 
-pub(crate) const CATALOG: [&RuleDefinition; 43] = [
+pub(crate) const CATALOG: [&RuleDefinition; 44] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -471,6 +480,7 @@ pub(crate) const CATALOG: [&RuleDefinition; 43] = [
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
+    &STRUCTURE_UNREASONED_ALLOW,
 ];
 
 pub(crate) fn find(id: &str) -> Option<&'static RuleDefinition> {
@@ -537,6 +547,7 @@ fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
         Producer::Clippy => definition.id.starts_with("clippy::"),
         Producer::CargoHealth => definition.id.starts_with("rust_doctor::cargo::"),
         Producer::SourceKernel => definition.id.starts_with("rust_doctor::source::"),
+        Producer::Structure => definition.id.starts_with("rust_doctor::structure::"),
     }) {
         return Err(CatalogError::InvalidProducer);
     }
@@ -589,7 +600,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 44] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 45] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -634,6 +645,7 @@ mod tests {
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
+        &STRUCTURE_UNREASONED_ALLOW,
     ];
 
     fn historical_oracle() -> Value {
@@ -657,7 +669,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 43);
+        assert_eq!(CATALOG.len(), 44);
         assert_eq!(
             CATEGORIES,
             [
@@ -726,6 +738,7 @@ mod tests {
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 36);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
+        assert_eq!(plan.active_rules(Producer::Structure).count(), 1);
     }
 
     #[test]

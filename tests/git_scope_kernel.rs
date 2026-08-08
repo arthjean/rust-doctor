@@ -187,7 +187,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 10);
+    assert_eq!(full.schema_version, 11);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -235,9 +235,9 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     let frozen = compact_json_fixture(include_str!(
         "fixtures/rule-scaling-kernel/v7-full-report.json"
     ));
-    assert_ne!(support::project_v10_wire_to_v7(&current_wire), frozen);
+    assert_ne!(support::project_v11_wire_to_v7(&current_wire), frozen);
     assert_eq!(
-        support::project_v10_wire_to_v7(&current_wire),
+        support::project_v11_wire_to_v7(&current_wire),
         support::drop_scan_command(&frozen)
     );
 
@@ -306,11 +306,11 @@ fn frozen_v7_baseline_fixture_has_the_unambiguous_delta_shape() {
         "fixtures/rule-scaling-kernel/v7-baseline-report.json"
     ));
     assert_ne!(
-        support::project_v10_wire_to_v7(normalized_wire.as_bytes()),
+        support::project_v11_wire_to_v7(normalized_wire.as_bytes()),
         frozen_baseline
     );
     assert_eq!(
-        support::project_v10_wire_to_v7(normalized_wire.as_bytes()),
+        support::project_v11_wire_to_v7(normalized_wire.as_bytes()),
         support::drop_scan_command(&frozen_baseline),
     );
 
@@ -530,7 +530,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 10);
+        assert_eq!(report.schema_version, 11);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

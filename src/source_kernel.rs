@@ -5,9 +5,10 @@ use std::path::{Component, Path, PathBuf};
 
 use cargo_metadata::Metadata;
 use ra_ap_syntax::ast::{self, HasAttrs, HasName, LiteralKind};
-use ra_ap_syntax::{AstNode, Edition, SourceFile, TextRange};
+use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxNode, TextRange};
 
-use crate::policy::{PolicyPlan, RuleDefinition};
+use crate::policy::{PolicyPlan, Producer, RuleDefinition};
+use crate::report::DiagnosticContext;
 
 mod aliases;
 mod detectors;
@@ -48,7 +49,7 @@ pub(crate) struct SourceError {
 pub(crate) struct SourceScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<SourceError>,
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: SourceCounters,
 }
 
@@ -114,7 +115,7 @@ struct WorkItem {
 }
 
 #[derive(Debug)]
-struct SourceUnit {
+pub(crate) struct SourceUnit {
     source: String,
     parse: ra_ap_syntax::Parse<SourceFile>,
     edition: Edition,
@@ -122,6 +123,77 @@ struct SourceUnit {
     relative_path: String,
     reachability: BTreeSet<Reachability>,
     traversals: BTreeSet<(Reachability, PathBuf)>,
+}
+
+impl SourceUnit {
+    pub(crate) fn relative_path(&self) -> &str {
+        &self.relative_path
+    }
+
+    pub(crate) fn tree(&self) -> SourceFile {
+        self.parse.tree()
+    }
+
+    pub(crate) fn parses_cleanly(&self) -> bool {
+        self.error_ranges.is_empty()
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub(crate) fn package(&self) -> Option<String> {
+        unique_package(&self.reachability)
+    }
+
+    pub(crate) fn target(&self) -> Option<String> {
+        unique_target(&self.reachability)
+    }
+
+    /// Non-production context of the unit, when every target that reaches it
+    /// agrees on one. A file the library and an integration test both reach is
+    /// left unmarked, because silencing shipped code is the expensive mistake.
+    pub(crate) fn context(
+        &self,
+        contexts: &BTreeMap<String, Option<DiagnosticContext>>,
+    ) -> Option<DiagnosticContext> {
+        let mut marks = self
+            .reachability
+            .iter()
+            .map(|reach| contexts.get(&reach.target_key).copied().flatten());
+        let first = marks.next().flatten()?;
+        marks.all(|mark| mark == Some(first)).then_some(first)
+    }
+}
+
+/// Files the workspace reaches, read and parsed once for every producer that
+/// analyses source text. The walk is the expensive part, so it happens here and
+/// the producers only read the result.
+#[derive(Debug, Default)]
+pub(crate) struct Enumeration {
+    units: BTreeMap<Identity, SourceUnit>,
+    tables: BTreeMap<String, CrateAliases>,
+    contexts: BTreeMap<String, Option<DiagnosticContext>>,
+    errors: Vec<SourceError>,
+    counters: SourceCounters,
+}
+
+impl Enumeration {
+    pub(crate) fn units(&self) -> impl Iterator<Item = &SourceUnit> {
+        self.units.values()
+    }
+
+    pub(crate) const fn contexts(&self) -> &BTreeMap<String, Option<DiagnosticContext>> {
+        &self.contexts
+    }
+}
+
+/// Does any producer reading source text still have an active rule? When none
+/// does, the workspace is never walked at all.
+pub(crate) fn enumeration_required(plan: &PolicyPlan) -> bool {
+    [Producer::SourceKernel, Producer::Structure]
+        .into_iter()
+        .any(|producer| plan.active_rules(producer).next().is_some())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -132,33 +204,20 @@ struct CandidateKey {
     message: &'static str,
 }
 
-pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> SourceScan {
-    inspect_with_limits_for_plan(metadata, LIMITS, plan)
+pub(crate) fn enumerate(metadata: &Metadata) -> Enumeration {
+    enumerate_with_limits(metadata, LIMITS)
 }
 
-fn inspect_with_limits_for_plan(
-    metadata: &Metadata,
-    limits: Limits,
-    plan: &PolicyPlan,
-) -> SourceScan {
-    let detectors: Vec<&'static Detector> = DETECTORS
-        .iter()
-        .copied()
-        .filter(|detector| plan.is_active(detector.definition.id))
-        .collect();
-    if detectors.is_empty() {
-        return SourceScan::default();
-    }
-
+fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enumeration {
     let workspace_root = match metadata.workspace_root.as_std_path().canonicalize() {
         Ok(root) => root,
         Err(_) => {
-            return SourceScan {
+            return Enumeration {
                 errors: vec![SourceError {
                     code: "read-failed",
                     message: "Workspace source root could not be resolved.".to_owned(),
                 }],
-                ..SourceScan::default()
+                ..Enumeration::default()
             };
         }
     };
@@ -246,13 +305,46 @@ fn inspect_with_limits_for_plan(
         queue.extend(requests);
     }
 
-    let tables = crate_alias_tables(metadata);
+    Enumeration {
+        units,
+        tables: crate_alias_tables(metadata),
+        contexts: target_contexts(metadata),
+        errors,
+        counters,
+    }
+}
+
+pub(crate) fn inspect(enumeration: &Enumeration, plan: &PolicyPlan) -> SourceScan {
+    inspect_with_limits(enumeration, LIMITS, plan)
+}
+
+fn inspect_with_limits(
+    enumeration: &Enumeration,
+    limits: Limits,
+    plan: &PolicyPlan,
+) -> SourceScan {
+    let detectors: Vec<&'static Detector> = DETECTORS
+        .iter()
+        .copied()
+        .filter(|detector| plan.is_active(detector.definition.id))
+        .collect();
+    if detectors.is_empty() {
+        return SourceScan::default();
+    }
+
+    let mut errors = enumeration.errors.clone();
+    let mut counters = SourceCounters {
+        files_read: enumeration.counters.files_read,
+        files_parsed: enumeration.counters.files_parsed,
+        bytes_read: enumeration.counters.bytes_read,
+        ..SourceCounters::default()
+    };
     let mut candidates = BTreeMap::<CandidateKey, Candidate>::new();
-    for unit in units.values() {
+    for unit in enumeration.units.values() {
         analyze_unit(
             unit,
             &detectors,
-            &tables,
+            &enumeration.tables,
             &limits,
             &mut candidates,
             &mut counters,
@@ -316,6 +408,31 @@ fn crate_alias_tables(metadata: &Metadata) -> BTreeMap<String, CrateAliases> {
         .iter()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| (package.id.repr.clone(), detectors::crate_aliases(package)))
+        .collect()
+}
+
+/// Non-production mark of every workspace target, keyed the way `Reachability`
+/// names it. The kind comes from Cargo, so a producer never guesses a context
+/// from a path.
+fn target_contexts(metadata: &Metadata) -> BTreeMap<String, Option<DiagnosticContext>> {
+    metadata
+        .packages
+        .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+        .flat_map(|package| {
+            package
+                .targets
+                .iter()
+                .enumerate()
+                .map(move |(target_index, target)| {
+                    let kinds: Vec<String> =
+                        target.kind.iter().map(ToString::to_string).collect();
+                    (
+                        format!("{}:{target_index}", package.id.repr),
+                        DiagnosticContext::from_target_kinds(&kinds),
+                    )
+                })
+        })
         .collect()
 }
 
@@ -725,6 +842,16 @@ fn unique_target(reachability: &BTreeSet<Reachability>) -> Option<String> {
     }
 }
 
+/// Text of a node with every trivia token dropped, so an attribute written
+/// across three lines compares equal to the same attribute written on one.
+pub(crate) fn compact(node: &SyntaxNode) -> String {
+    node.descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| !token.kind().is_trivia())
+        .map(|token| token.text().to_string())
+        .collect()
+}
+
 fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
     let start = u32::from(range.start());
     let end = u32::from(range.end());
@@ -739,7 +866,7 @@ fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
     })
 }
 
-fn line_starts(source: &str) -> Vec<usize> {
+pub(crate) fn line_starts(source: &str) -> Vec<usize> {
     std::iter::once(0)
         .chain(
             source
@@ -750,7 +877,7 @@ fn line_starts(source: &str) -> Vec<usize> {
         .collect()
 }
 
-fn source_span(range: TextRange, line_starts: &[usize], source: &str) -> SourceSpan {
+pub(crate) fn source_span(range: TextRange, line_starts: &[usize], source: &str) -> SourceSpan {
     let (line_start, column_start) = source_position(range.start().into(), line_starts, source);
     let (line_end, column_end) = source_position(range.end().into(), line_starts, source);
     SourceSpan {
@@ -835,16 +962,31 @@ mod tests {
     use super::*;
     use crate::policy::{
         PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
+        STRUCTURE_UNREASONED_ALLOW,
     };
     use cargo_metadata::MetadataCommand;
     use ra_ap_syntax::{SyntaxKind, SyntaxNode};
 
     fn inspect(metadata: &Metadata) -> SourceScan {
-        super::inspect(metadata, &PolicyPlan::default())
+        inspect_for_plan(metadata, &PolicyPlan::default())
+    }
+
+    /// Reproduces the gate `execution` applies: the workspace is walked only
+    /// when a producer reading source text still has an active rule, so a
+    /// pruned policy proves an absence of IO rather than an empty result.
+    fn inspect_for_plan(metadata: &Metadata, plan: &PolicyPlan) -> SourceScan {
+        if !enumeration_required(plan) {
+            return SourceScan::default();
+        }
+        super::inspect(&enumerate(metadata), plan)
     }
 
     fn inspect_with_limits(metadata: &Metadata, limits: Limits) -> SourceScan {
-        inspect_with_limits_for_plan(metadata, limits, &PolicyPlan::default())
+        super::inspect_with_limits(
+            &enumerate_with_limits(metadata, limits),
+            limits,
+            &PolicyPlan::default(),
+        )
     }
 
     fn fixture(name: &str) -> PathBuf {
@@ -990,9 +1132,11 @@ mod tests {
         let metadata = metadata("precision");
         let all_off = PolicyInput::default()
             .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)
-            .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
+            .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_UNREASONED_ALLOW.id, RuleLevel::Off);
         let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-        let scan = super::inspect(&metadata, &all_off);
+        assert!(!enumeration_required(&all_off));
+        let scan = inspect_for_plan(&metadata, &all_off);
         assert!(scan.candidates.is_empty());
         assert!(scan.errors.is_empty());
         assert_eq!(scan.counters.files_read, 0);
@@ -1003,7 +1147,7 @@ mod tests {
 
         let shell_off = PolicyInput::default().with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
         let shell_off = PolicyPlan::compile(&shell_off).expect("policy should compile");
-        let scan = super::inspect(&metadata, &shell_off);
+        let scan = inspect_for_plan(&metadata, &shell_off);
         assert!(scan.counters.files_read > 0);
         assert!(scan.counters.solicitations(SOURCE_DISABLED_TLS.id) > 0);
         assert_eq!(scan.counters.solicitations(SOURCE_DYNAMIC_SHELL.id), 0);
@@ -1015,7 +1159,7 @@ mod tests {
 
         let tls_off = PolicyInput::default().with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off);
         let tls_off = PolicyPlan::compile(&tls_off).expect("policy should compile");
-        let scan = super::inspect(&metadata, &tls_off);
+        let scan = inspect_for_plan(&metadata, &tls_off);
         assert_eq!(scan.counters.solicitations(SOURCE_DISABLED_TLS.id), 0);
         assert!(scan.counters.solicitations(SOURCE_DYNAMIC_SHELL.id) > 0);
         assert!(

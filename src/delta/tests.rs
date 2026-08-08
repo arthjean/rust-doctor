@@ -32,6 +32,7 @@ fn diagnostic(id: &str, path: Option<&str>, span: Option<DiagnosticSpan>) -> Dia
         target: Some("fixture".to_owned()),
         path: path.map(str::to_owned),
         span,
+        related: Vec::new(),
         occurrences: 1,
     }
 }

@@ -12,6 +12,7 @@
 /tests/fixtures/rule-scaling-kernel/*/target/
 /tests/fixtures/score-credibility/*/target/
 /tests/fixtures/score-credibility/packs/*/target/
+/tests/fixtures/structure/*/target/
 /npm/rust-doctor/node_modules/
 /npm/rust-doctor/*.tgz
 /.claude/.paneflow-hook-leases

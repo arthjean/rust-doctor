@@ -805,6 +805,11 @@
       "default_level": "warn",
       "id": "rust_doctor::source::dynamic_shell_command",
       "tier": "P0"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "tier": "P3"
     }
   ],
   "epic": "EP-025",
@@ -852,7 +857,8 @@
       "rust_doctor::cargo::unbounded_registry_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::source::disabled_tls_verification",
-      "rust_doctor::source::dynamic_shell_command"
+      "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::structure::unreasoned_allow_attribute"
     ],
     "noisy_on_healthy_code": [
       "clippy::exit",
@@ -896,7 +902,8 @@
       "rust_doctor::cargo::unbounded_registry_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::source::disabled_tls_verification",
-      "rust_doctor::source::dynamic_shell_command"
+      "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::structure::unreasoned_allow_attribute"
     ],
     "verdict": "passed"
   },
@@ -1938,6 +1945,16 @@
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P0",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
       "true_positives": null
     }
   ],

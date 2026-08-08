@@ -216,6 +216,11 @@
       "catches": "a shell invocation whose command string is built from a runtime value",
       "id": "rust_doctor::source::dynamic_shell_command",
       "oracle": "source-kernel/precision/oracle.json"
+    },
+    {
+      "catches": "an #[allow] attribute that switches a lint off without a reason argument",
+      "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "test": "tests/structure_kernel.rs::the_structural_pass_publishes_one_diagnostic_per_family"
     }
   ]
 }
