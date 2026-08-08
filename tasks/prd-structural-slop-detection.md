@@ -370,6 +370,24 @@ Detect the structural failure modes that exist in Rust specifically and that no 
 **Priority:** P2
 **Size:** M (3 pts)
 **Dependencies:** Blocked by US-015
+**Status:** CANCELLED on 2026-08-08 by its own first acceptance criterion.
+
+**Story notes (2026-08-08):** cargo-shear already covers this. Its README lists
+"**Misplaced dependencies** (dev/build dependencies in wrong sections)" as one of
+three things it detects, alongside unused dependencies and, as of the same
+release, "**Unlinked source files** (Rust files not reachable from any module
+tree)". Its stated limitation is narrow: "Misplaced dependency detection only
+works for integration tests, benchmarks, and examples. Unit tests dependencies
+within `#[cfg(test)]` cannot be detected as misplaced." The scenario this story
+specifies, a crate used only from `#[cfg(test)]` code *and* `tests/`, is reached
+through the `tests/` half, so cargo-shear reports it. The first acceptance
+criterion says to cancel rather than implement in that case, and that is what
+was done. Source: `github.com/Boshen/cargo-shear`, README read 2026-08-08.
+
+This also dates the PRD's competitive section, which credits cargo-shear with
+unused-dependency detection only. It now overlaps US-013 as well. US-013 shipped
+regardless, because the differentiator this PRD names is aggregation: one score,
+one gate, one baseline, not a fourth point tool.
 
 **Acceptance Criteria:**
 - [ ] Before implementation, cargo-shear and cargo-machete are checked for this capability and the finding is recorded in the story notes; if either already covers it, the story is CANCELLED rather than implemented

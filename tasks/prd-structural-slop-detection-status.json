@@ -33,10 +33,10 @@
     {
       "id": "EP-004",
       "title": "Rust-native slop signals",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 3
     },
     {
       "id": "EP-005",
@@ -218,55 +218,55 @@
       "id": "US-013",
       "title": "Orphan module files",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-001"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-09",
+      "reviewed_at": "2026-08-09"
     },
     {
       "id": "US-014",
       "title": "Allow-attribute census",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-001"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-09",
+      "reviewed_at": "2026-08-09"
     },
     {
       "id": "US-015",
       "title": "Feature flag inventory",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-001"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-08",
+      "completed_at": "2026-08-09",
+      "reviewed_at": "2026-08-09"
     },
     {
       "id": "US-016",
       "title": "Dependency and dev-dependency misclassification",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "CANCELLED",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-015"
       ],
-      "started_at": null,
+      "started_at": "2026-08-08",
       "completed_at": null,
       "reviewed_at": null
     },
