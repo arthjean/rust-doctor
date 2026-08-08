@@ -307,6 +307,14 @@ pub(crate) static CLIPPY_TOO_MANY_ARGUMENTS: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Group the related parameters into a struct so the signature names what it takes.",
 };
+pub(crate) static CLIPPY_TYPE_COMPLEXITY: RuleDefinition = RuleDefinition {
+    id: "clippy::type_complexity",
+    category: "maintainability",
+    producer: Producer::Clippy,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Name the nested type with a type alias or a dedicated struct so signatures say what they carry.",
+};
 pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     id: "clippy::unimplemented",
     category: "correctness",
@@ -427,6 +435,14 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     tier: RuleTier::P0,
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
+pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::complex_function",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Split the branching into smaller functions, or flatten it with early returns, so one reading holds the whole path.",
+};
 pub(crate) static STRUCTURE_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::duplicate_function_body",
     category: "maintainability",
@@ -443,6 +459,14 @@ pub(crate) static STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleD
     tier: RuleTier::P3,
     help: "Factor the shared shape into one function and pass what differs, or keep both and record why they must stay apart.",
 };
+pub(crate) static STRUCTURE_OVERSIZED_UNIT: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::oversized_unit",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Split the file, function, impl block or module along its responsibilities before growth makes the split harder.",
+};
 pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::unreasoned_allow_attribute",
     category: "maintainability",
@@ -452,7 +476,7 @@ pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     help: "Fix what the lint reports, or keep the allow and state why with reason = \"...\" so the exemption survives review.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 46] = [
+pub(crate) const CATALOG: [&RuleDefinition; 49] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -481,6 +505,7 @@ pub(crate) const CATALOG: [&RuleDefinition; 46] = [
     &CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE,
     &CLIPPY_TODO,
     &CLIPPY_TOO_MANY_ARGUMENTS,
+    &CLIPPY_TYPE_COMPLEXITY,
     &CLIPPY_UNIMPLEMENTED,
     &CLIPPY_UNNECESSARY_TO_OWNED,
     &CLIPPY_UNREACHABLE,
@@ -496,8 +521,10 @@ pub(crate) const CATALOG: [&RuleDefinition; 46] = [
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
+    &STRUCTURE_COMPLEX_FUNCTION,
     &STRUCTURE_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
+    &STRUCTURE_OVERSIZED_UNIT,
     &STRUCTURE_UNREASONED_ALLOW,
 ];
 
@@ -618,7 +645,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 47] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 50] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -648,6 +675,7 @@ mod tests {
         &SYNTHETIC_CLIPPY_RULE,
         &CLIPPY_TODO,
         &CLIPPY_TOO_MANY_ARGUMENTS,
+        &CLIPPY_TYPE_COMPLEXITY,
         &CLIPPY_UNIMPLEMENTED,
         &CLIPPY_UNNECESSARY_TO_OWNED,
         &CLIPPY_UNREACHABLE,
@@ -663,8 +691,10 @@ mod tests {
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
+        &STRUCTURE_COMPLEX_FUNCTION,
         &STRUCTURE_DUPLICATE_FUNCTION_BODY,
         &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
+        &STRUCTURE_OVERSIZED_UNIT,
         &STRUCTURE_UNREASONED_ALLOW,
     ];
 
@@ -689,7 +719,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 46);
+        assert_eq!(CATALOG.len(), 49);
         assert_eq!(
             CATEGORIES,
             [
@@ -718,7 +748,7 @@ mod tests {
             .filter(|definition| definition.producer == Producer::Clippy)
             .map(|definition| definition.id)
             .collect();
-        assert_eq!(clippy_ids.len(), 36);
+        assert_eq!(clippy_ids.len(), 37);
         assert!(
             clippy_ids
                 .iter()
@@ -755,10 +785,10 @@ mod tests {
         }
 
         let plan = PolicyPlan::default();
-        assert_eq!(plan.active_rules(Producer::Clippy).count(), 36);
+        assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
-        assert_eq!(plan.active_rules(Producer::Structure).count(), 3);
+        assert_eq!(plan.active_rules(Producer::Structure).count(), 5);
     }
 
     #[test]
@@ -987,6 +1017,8 @@ mod tests {
                 "clippy::synthetic_rule",
                 "-W",
                 "clippy::too_many_arguments",
+                "-W",
+                "clippy::type_complexity",
                 "-W",
                 "clippy::unnecessary_to_owned",
                 "-W",

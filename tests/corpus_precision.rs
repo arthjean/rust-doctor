@@ -834,7 +834,7 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-const ADMISSION_DEBT: [&str; 30] = [
+const ADMISSION_DEBT: [&str; 33] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -850,6 +850,7 @@ const ADMISSION_DEBT: [&str; 30] = [
     "clippy::redundant_allocation",
     "clippy::suspicious_command_arg_space",
     "clippy::todo",
+    "clippy::type_complexity",
     "clippy::unimplemented",
     "clippy::unnecessary_to_owned",
     "clippy::unused_async",
@@ -862,8 +863,10 @@ const ADMISSION_DEBT: [&str; 30] = [
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::structure::complex_function",
     "rust_doctor::structure::duplicate_function_body",
     "rust_doctor::structure::near_duplicate_function_body",
+    "rust_doctor::structure::oversized_unit",
     "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 

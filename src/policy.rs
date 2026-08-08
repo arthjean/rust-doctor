@@ -17,8 +17,9 @@ pub(crate) use catalog::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
     CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT, CATALOG,
     CATEGORIES, Producer, RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
-    STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
-    STRUCTURE_UNREASONED_ALLOW, find,
+    STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_DUPLICATE_FUNCTION_BODY,
+    STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_UNREASONED_ALLOW,
+    find,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
@@ -595,6 +596,7 @@ mod tests {
                     RuleLevel::Error,
                 ),
             ]),
+            structure: crate::structure::StructureSettings::default(),
         };
         let request = PolicyInput::default()
             .with_category("correctness", RuleLevel::Warn)

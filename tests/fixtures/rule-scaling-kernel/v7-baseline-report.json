@@ -178,6 +178,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::type_complexity",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::unimplemented",
         "category": "correctness",
         "level": "warn",
@@ -268,6 +274,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::structure::complex_function",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::structure::duplicate_function_body",
         "category": "maintainability",
         "level": "warn",
@@ -275,6 +287,12 @@
       },
       {
         "id": "rust_doctor::structure::near_duplicate_function_body",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::structure::oversized_unit",
         "category": "maintainability",
         "level": "warn",
         "source": "default"

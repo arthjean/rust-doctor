@@ -23,7 +23,7 @@ use super::{CATALOG, Producer};
 
 /// Lowest number of universe lints this repository has decided, admitted or
 /// rejected. Every triage batch raises it; nothing may lower it.
-const DECIDED_FLOOR: usize = 52;
+const DECIDED_FLOOR: usize = 56;
 
 /// Level a lint carries in the toolchain, read from the `-W help` table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -135,6 +135,7 @@
   "clippy::suspicious_command_arg_space": "P2",
   "clippy::todo": "P2",
   "clippy::too_many_arguments": "P3",
+  "clippy::type_complexity": "P3",
   "clippy::unimplemented": "P1",
   "clippy::unnecessary_to_owned": "P3",
   "clippy::unreachable": "P2",
@@ -150,8 +151,10 @@
   "rust_doctor::cargo::unpinned_git_dependency": "P1",
   "rust_doctor::source::disabled_tls_verification": "P0",
   "rust_doctor::source::dynamic_shell_command": "P0",
+  "rust_doctor::structure::complex_function": "P3",
   "rust_doctor::structure::duplicate_function_body": "P3",
   "rust_doctor::structure::near_duplicate_function_body": "P3",
+  "rust_doctor::structure::oversized_unit": "P3",
   "rust_doctor::structure::unreasoned_allow_attribute": "P3"
  },
  "schema_version": 2,

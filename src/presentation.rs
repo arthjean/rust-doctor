@@ -293,6 +293,7 @@ mod tests {
             }),
             related: Vec::new(),
             similarity_basis_points: None,
+            complexity: None,
             occurrences,
         }
     }

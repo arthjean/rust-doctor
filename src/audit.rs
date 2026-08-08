@@ -960,6 +960,7 @@ mod tests {
             }),
             related: Vec::new(),
             similarity_basis_points: None,
+            complexity: None,
             occurrences: input.occurrences,
         }
     }
@@ -1164,6 +1165,7 @@ mod tests {
                 span: None,
                 related: Vec::new(),
                 similarity_basis_points: None,
+                complexity: None,
                 occurrences,
             })
             .collect()
@@ -1190,7 +1192,7 @@ mod tests {
 
         assert_eq!(score.dimensions.security, 20);
         assert_eq!(score.dimensions.reliability, 50);
-        assert_eq!(score.dimensions.maintainability, 87);
+        assert_eq!(score.dimensions.maintainability, 82);
         // EP-024 opens `performance` and `dependencies`: no dimension stays
         // frozen at 100, so no weight of the scale is inert any more.
         assert_eq!(score.dimensions.performance, 75);
@@ -1227,6 +1229,7 @@ mod tests {
                     span: None,
                     related: Vec::new(),
                     similarity_basis_points: None,
+                    complexity: None,
                     occurrences: *occurrences,
                 },
             )
@@ -1408,6 +1411,7 @@ mod tests {
             span: None,
             related: Vec::new(),
             similarity_basis_points: None,
+            complexity: None,
             occurrences: 2,
         });
 

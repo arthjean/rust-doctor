@@ -246,10 +246,12 @@ fn execute_with_plan(
         Ok(toolchain) => toolchain,
         Err(error) => return prepared.fail(error),
     };
+    let settings = prepared.configuration.structure;
     execute_target(
         prepared.target,
         programs,
         plan,
+        &settings,
         toolchain,
         None,
         &environment,
@@ -296,6 +298,7 @@ fn execute_target(
     target: ResolvedScanTarget,
     programs: &Programs,
     plan: &PolicyPlan,
+    settings: &structure::StructureSettings,
     toolchain: ToolchainProvenance,
     target_dir: Option<&Path>,
     environment: &CommandEnvironment,
@@ -349,7 +352,7 @@ fn execute_target(
             result.source = Some(source_kernel::inspect(&enumeration, plan));
         }
         if plan.active_rules(Producer::Structure).next().is_some() {
-            result.structure = Some(structure::analyze(&enumeration, plan));
+            result.structure = Some(structure::analyze(&enumeration, plan, settings));
         }
     }
 
@@ -700,7 +703,7 @@ mod tests {
                 .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
         )
         .collect();
-        assert_eq!(expected.len(), 7 + 2 * 36);
+        assert_eq!(expected.len(), 7 + 2 * 37);
         assert_eq!(
             arguments,
             expected
@@ -931,7 +934,7 @@ mod tests {
                 )
                 .collect::<Vec<_>>()
         );
-        assert_eq!(scan.command.len(), 1 + 7 + 2 * 36);
+        assert_eq!(scan.command.len(), 1 + 7 + 2 * 37);
         assert_eq!(scan.exit_code, Some(0));
         assert_eq!(scan.exit_success, Some(true));
         assert_eq!(scan.build_finished, Some(true));

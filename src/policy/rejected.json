@@ -78,6 +78,21 @@
       "reason": "Rewrites bytes().nth() as as_bytes().get(), which reads better and avoids walking the iterator."
     },
     {
+      "class": "covered",
+      "id": "clippy::cognitive_complexity",
+      "reason": "rust_doctor::structure::complex_function reports the same defect with the same nesting-weighted score, publishes both figures on the diagnostic, and keeps its thresholds under rust-doctor.toml instead of the scanned workspace's clippy.toml."
+    },
+    {
+      "class": "covered",
+      "id": "clippy::excessive_nesting",
+      "reason": "Inert on an unconfigured workspace: its threshold defaults to zero in the scanned workspace's own clippy.toml, which a scan neither provides nor should impose, and deep nesting already drives the nesting-weighted score of rust_doctor::structure::complex_function."
+    },
+    {
+      "class": "covered",
+      "id": "clippy::too_many_lines",
+      "reason": "rust_doctor::structure::oversized_unit reports the same defect and also names the oversized files, impl blocks and modules that a per-function lint cannot see."
+    },
+    {
       "class": "deny-by-default",
       "id": "clippy::unused_io_amount",
       "reason": "Denied by default in the toolchain: the same refusal applies, and a scan has no way to lower a denied lint back to a warning."

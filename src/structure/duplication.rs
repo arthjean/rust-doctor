@@ -131,7 +131,7 @@ pub(super) fn shapes(functions: &[Function]) -> usize {
 }
 
 /// Every function of one unit worth comparing, with its canonical form.
-pub(super) fn observe(unit: &Unit<'_>, path: &str) -> Vec<Function> {
+pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
     unit.tree
         .syntax()
         .descendants()
@@ -140,7 +140,7 @@ pub(super) fn observe(unit: &Unit<'_>, path: &str) -> Vec<Function> {
             let normalized = normalize::normalize(&function)?;
             (normalized.nodes >= MINIMUM_NODES).then(|| Function {
                 member: Member {
-                    path: path.to_owned(),
+                    path: unit.path.to_owned(),
                     span: unit.span(function.syntax()),
                     // A test helper repeated per case is often deliberate, so
                     // the family it forms is marked and stops weighing on the
@@ -516,12 +516,13 @@ mod tests {
             tree: SourceFile::parse(source, Edition::Edition2024).tree(),
             source,
             line_starts: line_starts(source),
+            path: "src/lib.rs",
             context: None,
         }
     }
 
     fn families(source: &str, active: Active) -> Vec<Group> {
-        let functions = observe(&unit(source), "src/lib.rs");
+        let functions = observe(&unit(source));
         groups(functions, active, &Deadline::new(Duration::from_secs(60))).groups
     }
 
@@ -725,7 +726,7 @@ mod tests {
             sizeable("first", "total", "0"),
             sizeable("second", "sum", "1")
         );
-        let functions = observe(&unit(&source), "src/lib.rs");
+        let functions = observe(&unit(&source));
         let stopped = groups(functions, BOTH, &Deadline::new(Duration::ZERO));
         assert_eq!(stopped.groups.len(), 1);
         assert_eq!(stopped.comparisons, 0);

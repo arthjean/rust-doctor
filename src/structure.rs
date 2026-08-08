@@ -20,10 +20,11 @@ use ra_ap_syntax::ast::{self, HasAttrs};
 use ra_ap_syntax::{AstNode, SyntaxNode};
 
 use crate::policy::{PolicyPlan, RuleDefinition, STRUCTURE_UNREASONED_ALLOW};
-use crate::report::DiagnosticContext;
+use crate::report::{ComplexityFigures, DiagnosticContext};
 use crate::source_kernel::{Enumeration, SourceSpan, compact, line_starts, source_span};
 
 mod duplication;
+mod hotspots;
 mod normalize;
 
 const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-fingerprint-v1";
@@ -36,6 +37,33 @@ const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-fingerprint-v1";
 /// under the `structure` stage, which is what makes the score stop calling
 /// itself authoritative.
 const TIME_BUDGET: Duration = Duration::from_secs(10);
+
+/// Thresholds the complexity detector reads, overridable through the
+/// `[structure]` table of `rust-doctor.toml`.
+///
+/// The defaults are measured rather than inherited. Over the 1461 functions of
+/// this repository on 2026-08-08, they name 9, every one a function its own
+/// author would call the hard part, and lowering either bound by five starts
+/// naming the ordinary ones. The cognitive bound is also the default Clippy
+/// ships for `cognitive_complexity`; SonarSource gates at 15, which fits a
+/// linter that restyles the norm, not a hotspot detector that reports the
+/// tail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StructureSettings {
+    /// Cyclomatic complexity a function reaches before it is reported.
+    pub(crate) cyclomatic_threshold: u32,
+    /// Cognitive complexity a function reaches before it is reported.
+    pub(crate) cognitive_threshold: u32,
+}
+
+impl Default for StructureSettings {
+    fn default() -> Self {
+        Self {
+            cyclomatic_threshold: 20,
+            cognitive_threshold: 25,
+        }
+    }
+}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct StructureScan {
@@ -89,6 +117,9 @@ pub(crate) struct StructureFinding {
     /// How alike the members of the family are, in basis points, when the rule
     /// grouped them on a similarity rather than on an equality.
     pub(crate) similarity: Option<u16>,
+    /// Cyclomatic and cognitive complexity of the reported function, when the
+    /// rule measured them.
+    pub(crate) complexity: Option<ComplexityFigures>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -115,6 +146,7 @@ struct Observation {
     subject: String,
     span: SourceSpan,
     context: Option<DiagnosticContext>,
+    complexity: Option<ComplexityFigures>,
 }
 
 /// A detector declares the rule it carries and the function that reads a unit.
@@ -122,7 +154,7 @@ struct Observation {
 /// sorts or names a family itself.
 struct Detector {
     definition: &'static RuleDefinition,
-    observe: fn(&Unit<'_>) -> Vec<Observation>,
+    observe: fn(&Unit<'_>, &StructureSettings) -> Vec<Observation>,
 }
 
 /// What a detector knows about the unit under analysis.
@@ -130,6 +162,8 @@ struct Unit<'a> {
     tree: ast::SourceFile,
     source: &'a str,
     line_starts: Vec<usize>,
+    /// Workspace-relative path, for the detectors whose family is per-file.
+    path: &'a str,
     /// Non-production mark the Cargo targets reaching this unit agree on.
     context: Option<DiagnosticContext>,
 }
@@ -153,6 +187,7 @@ struct Family {
     members: Vec<Member>,
     subject: String,
     similarity: Option<u16>,
+    complexity: Option<ComplexityFigures>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -186,13 +221,18 @@ impl Deadline {
     }
 }
 
-pub(crate) fn analyze(enumeration: &Enumeration, plan: &PolicyPlan) -> StructureScan {
-    analyze_within(enumeration, plan, TIME_BUDGET)
+pub(crate) fn analyze(
+    enumeration: &Enumeration,
+    plan: &PolicyPlan,
+    settings: &StructureSettings,
+) -> StructureScan {
+    analyze_within(enumeration, plan, settings, TIME_BUDGET)
 }
 
 fn analyze_within(
     enumeration: &Enumeration,
     plan: &PolicyPlan,
+    settings: &StructureSettings,
     budget: Duration,
 ) -> StructureScan {
     let detectors: Vec<&'static Detector> = DETECTORS
@@ -201,7 +241,8 @@ fn analyze_within(
         .filter(|detector| plan.is_active(detector.definition.id))
         .collect();
     let duplication = duplication::Active::of(plan);
-    if detectors.is_empty() && !duplication.any() {
+    let hotspots = hotspots::Active::of(plan);
+    if detectors.is_empty() && !duplication.any() && !hotspots.any() {
         return StructureScan::default();
     }
 
@@ -227,32 +268,38 @@ fn analyze_within(
             });
             continue;
         }
+        // A generated file is nobody's writing: its size, its repetition and
+        // its exemptions describe the generator, so no structural detector
+        // reads it. It is skipped silently, because there is nothing its
+        // author should act on.
+        if is_generated(unit.source()) {
+            continue;
+        }
         let analysed = Unit {
             tree: unit.tree(),
             source: unit.source(),
             line_starts: line_starts(unit.source()),
+            path: unit.relative_path(),
             context: unit.context(enumeration.contexts()),
         };
         for detector in &detectors {
-            for observation in (detector.observe)(&analysed) {
-                let family = families
-                    .entry((detector.definition.id, observation.key))
-                    .or_default();
-                family.members.push(Member {
-                    path: unit.relative_path().to_owned(),
-                    span: observation.span,
-                    context: observation.context,
-                });
-                if family.subject.is_empty() {
-                    family.subject = observation.subject;
-                }
+            for observation in (detector.observe)(&analysed, settings) {
+                record(&mut families, detector.definition.id, unit.relative_path(), observation);
+            }
+        }
+        if hotspots.any() {
+            // The two hotspot rules share one traversal: the pass runs under a
+            // wall-clock budget, so a detector that can piggyback on a walk
+            // must not start its own.
+            for (definition, observation) in hotspots::observe(&analysed, settings, hotspots) {
+                record(&mut families, definition.id, unit.relative_path(), observation);
             }
         }
         if duplication.any() {
             // Only the canonical form of each function is retained, never the
             // tree it was read from, so the walk stays linear in memory
             // whatever the size of the workspace.
-            functions.extend(duplication::observe(&analysed, unit.relative_path()));
+            functions.extend(duplication::observe(&analysed));
         }
     }
 
@@ -270,6 +317,7 @@ fn analyze_within(
                     members: group.members,
                     subject: group.subject,
                     similarity: group.similarity,
+                    complexity: None,
                 },
             );
         }
@@ -288,6 +336,25 @@ fn analyze_within(
         findings: findings(families, enumeration),
         errors,
         counters,
+    }
+}
+
+/// One observation joins the family its rule and key designate.
+fn record(
+    families: &mut BTreeMap<(&'static str, String), Family>,
+    rule: &'static str,
+    path: &str,
+    observation: Observation,
+) {
+    let family = families.entry((rule, observation.key)).or_default();
+    family.members.push(Member {
+        path: path.to_owned(),
+        span: observation.span,
+        context: observation.context,
+    });
+    if family.subject.is_empty() {
+        family.subject = observation.subject;
+        family.complexity = observation.complexity;
     }
 }
 
@@ -328,6 +395,7 @@ fn findings(
                 occurrences: family.members.len(),
                 structure: structural_hash(rule, &key),
                 similarity: family.similarity,
+                complexity: family.complexity,
             })
         })
         .collect()
@@ -341,6 +409,22 @@ fn unanimous_context(members: &[Member]) -> Option<DiagnosticContext> {
     let mut contexts = members.iter().map(|member| member.context);
     let first = contexts.next().flatten()?;
     contexts.all(|context| context == Some(first)).then_some(first)
+}
+
+/// Does a recognized generator header open this file?
+///
+/// The conventions are the ones generators actually write: the `@generated`
+/// marker Meta and prost use, the `DO NOT EDIT` banner protoc and bindgen
+/// write, and the "Automatically generated" sentence of older tools. Only the
+/// opening lines are read: a file that merely documents these markers, as this
+/// one does, is not carrying them as a header.
+fn is_generated(source: &str) -> bool {
+    source.lines().take(10).any(|line| {
+        line.contains("@generated")
+            || line.contains("DO NOT EDIT")
+            || line.contains("Automatically generated")
+            || line.contains("automatically generated")
+    })
 }
 
 /// Identity of a family: its rule and its normalized key, never its position.
@@ -359,7 +443,7 @@ fn structural_hash(rule: &str, key: &str) -> String {
 /// so it expires by itself and needs no census. `#[cfg_attr(..., allow(...))]`
 /// is out of reach here, because the attribute it produces does not exist in
 /// the syntax tree.
-fn unreasoned_allow(unit: &Unit<'_>) -> Vec<Observation> {
+fn unreasoned_allow(unit: &Unit<'_>, _settings: &StructureSettings) -> Vec<Observation> {
     let mut observations = Vec::new();
     for attribute in unit.tree.syntax().descendants().filter_map(ast::Attr::cast) {
         // Only the `allow(...)` form is a census subject: `#[expect]` carries
@@ -405,6 +489,7 @@ fn unreasoned_allow(unit: &Unit<'_>) -> Vec<Observation> {
             subject: format!("{written} switches a lint off without a stated reason."),
             span: unit.span(attribute.syntax()),
             context: test_context(attribute.syntax()).or(unit.context),
+            complexity: None,
         });
     }
     observations
@@ -527,9 +612,10 @@ mod tests {
                 tree: unit.tree(),
                 source: unit.source(),
                 line_starts: line_starts(unit.source()),
+                path: unit.relative_path(),
                 context: unit.context(enumeration.contexts()),
             };
-            functions.extend(duplication::observe(&analysed, unit.relative_path()));
+            functions.extend(duplication::observe(&analysed));
         }
 
         let (exhaustive, kept) = duplication::nomination_recall(functions);
@@ -547,7 +633,11 @@ mod tests {
     /// there is nothing to be partial about.
     #[test]
     fn an_empty_enumeration_produces_neither_finding_nor_error() {
-        let scan = analyze(&Enumeration::default(), &PolicyPlan::default());
+        let scan = analyze(
+            &Enumeration::default(),
+            &PolicyPlan::default(),
+            &StructureSettings::default(),
+        );
         assert_eq!(scan, StructureScan::default());
     }
 
@@ -556,7 +646,11 @@ mod tests {
     #[test]
     fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
         let enumeration = enumerate(&metadata("source-kernel/errors"));
-        let scan = analyze(&enumeration, &PolicyPlan::default());
+        let scan = analyze(
+            &enumeration,
+            &PolicyPlan::default(),
+            &StructureSettings::default(),
+        );
 
         let skipped: Vec<&str> = scan
             .errors
@@ -590,7 +684,12 @@ mod tests {
     #[test]
     fn an_exhausted_budget_stops_the_pass_and_says_so() {
         let enumeration = enumerate(&metadata("structure/duplicate-function"));
-        let stopped = analyze_within(&enumeration, &PolicyPlan::default(), Duration::ZERO);
+        let stopped = analyze_within(
+            &enumeration,
+            &PolicyPlan::default(),
+            &StructureSettings::default(),
+            Duration::ZERO,
+        );
         assert_eq!(
             stopped
                 .errors
@@ -611,7 +710,11 @@ mod tests {
 
         // The same workspace under the shipped budget finishes, so the stop
         // above is the budget and not the workspace.
-        let complete = analyze(&enumeration, &PolicyPlan::default());
+        let complete = analyze(
+            &enumeration,
+            &PolicyPlan::default(),
+            &StructureSettings::default(),
+        );
         assert!(complete.errors.is_empty(), "{:?}", complete.errors);
         assert!(!complete.findings.is_empty());
     }
@@ -624,14 +727,22 @@ mod tests {
         let input =
             crate::policy::PolicyInput::default().with_rule(STRUCTURE_UNREASONED_ALLOW.id, crate::policy::RuleLevel::Off);
         let plan = PolicyPlan::compile(&input).expect("policy should compile");
-        assert_eq!(
-            analyze(&enumeration, &plan),
-            StructureScan::default(),
+        assert!(
+            analyze(&enumeration, &plan, &StructureSettings::default())
+                .findings
+                .iter()
+                .all(|finding| finding.definition.id != STRUCTURE_UNREASONED_ALLOW.id),
             "an inactive structural rule still produced a finding"
         );
-        assert!(!analyze(&enumeration, &PolicyPlan::default())
+        assert!(
+            !analyze(
+                &enumeration,
+                &PolicyPlan::default(),
+                &StructureSettings::default()
+            )
             .findings
-            .is_empty());
+            .is_empty()
+        );
     }
 
     fn observe(source: &str, context: Option<DiagnosticContext>) -> Vec<Observation> {
@@ -639,9 +750,10 @@ mod tests {
             tree: SourceFile::parse(source, Edition::Edition2024).tree(),
             source,
             line_starts: line_starts(source),
+            path: "src/lib.rs",
             context,
         };
-        unreasoned_allow(&unit)
+        unreasoned_allow(&unit, &StructureSettings::default())
     }
 
     #[test]
@@ -942,6 +1054,7 @@ mod benchmark {
             scan = analyze_within(
                 &enumeration,
                 &PolicyPlan::default(),
+                &StructureSettings::default(),
                 TIME_BUDGET * allowance(),
             );
             pass = pass.min(started.elapsed());

@@ -10,6 +10,7 @@ use crate::policy::{
     BlockingLevel, CATEGORIES, RuleLevel, find, validate_category_selector, validate_rule_selector,
 };
 use crate::scan_target::ResolvedScanTarget;
+use crate::structure::StructureSettings;
 
 pub(crate) const CONFIG_FILE_NAME: &str = "rust-doctor.toml";
 const MAX_CONFIG_BYTES: u64 = 65_536;
@@ -21,6 +22,7 @@ pub(crate) struct WorkspaceConfiguration {
     pub(crate) blocking: Option<BlockingLevel>,
     pub(crate) categories: BTreeMap<String, RuleLevel>,
     pub(crate) rules: BTreeMap<String, RuleLevel>,
+    pub(crate) structure: StructureSettings,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +33,17 @@ struct ConfigurationDocument {
     categories: BTreeMap<String, RuleLevel>,
     #[serde(default)]
     rules: BTreeMap<String, RuleLevel>,
+    structure: Option<StructureDocument>,
+}
+
+/// The `[structure]` table: thresholds the complexity detector reads. A key
+/// left out keeps its shipped default; a key written must be usable, so zero,
+/// which would report every function, is refused rather than interpreted.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct StructureDocument {
+    cyclomatic_threshold: Option<u32>,
+    cognitive_threshold: Option<u32>,
 }
 
 pub(crate) fn load(target: &ResolvedScanTarget) -> Result<WorkspaceConfiguration, InternalError> {
@@ -79,11 +92,22 @@ fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalError> {
         .map_err(|error| invalid_document(&document, error.span().map(|span| span.start)))?;
     validate_document(&parsed)?;
 
+    let mut structure = StructureSettings::default();
+    if let Some(thresholds) = &parsed.structure {
+        if let Some(threshold) = thresholds.cyclomatic_threshold {
+            structure.cyclomatic_threshold = threshold;
+        }
+        if let Some(threshold) = thresholds.cognitive_threshold {
+            structure.cognitive_threshold = threshold;
+        }
+    }
+
     Ok(WorkspaceConfiguration {
         file_name: Some(CONFIG_FILE_NAME),
         blocking: parsed.blocking,
         categories: parsed.categories,
         rules: parsed.rules,
+        structure,
     })
 }
 
@@ -103,6 +127,18 @@ fn validate_document(document: &ConfigurationDocument) -> Result<(), InternalErr
         if CATEGORIES.binary_search(&selector.as_str()).is_err() {
             return Err(configuration_selector_error("unknown-category"));
         }
+    }
+    if let Some(structure) = &document.structure
+        && [structure.cyclomatic_threshold, structure.cognitive_threshold]
+            .iter()
+            .flatten()
+            .any(|threshold| !(1..=10_000).contains(threshold))
+    {
+        return Err(InternalError::new(
+            "configuration",
+            "config-invalid-threshold",
+            "Structure thresholds in rust-doctor.toml must be between 1 and 10000.",
+        ));
     }
     Ok(())
 }

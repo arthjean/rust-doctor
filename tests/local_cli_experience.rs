@@ -80,7 +80,7 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout.last(), Some(&b'\n'));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 12);
+    assert_eq!(report["schema_version"], 13);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
     let rejected = binary()

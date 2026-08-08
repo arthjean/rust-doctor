@@ -171,7 +171,7 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     assert_eq!(content_hashes(&project), before_scan);
 
     let initial_report = initial_report.unwrap();
-    assert_eq!(initial_report["schema_version"], 12);
+    assert_eq!(initial_report["schema_version"], 13);
     assert_eq!(initial_report["status"], "complete");
     let findings = source_findings(&initial_report);
     assert_eq!(findings.len(), 2);

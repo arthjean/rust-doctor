@@ -55,10 +55,14 @@ pub(crate) fn execute(
         Ok(toolchain) => toolchain,
         Err(error) => return Err(Box::new(prepared.fail(error))),
     };
+    // Both sides are measured under the current configuration: a threshold
+    // moved between the two commits must not report the move as a finding.
+    let settings = prepared.configuration.structure;
     let baseline = execute_target(
         baseline_target,
         &programs,
         plan,
+        &settings,
         toolchain.clone(),
         Some(baseline_target_dir),
         &environment,
@@ -72,6 +76,7 @@ pub(crate) fn execute(
         prepared.target,
         &programs,
         plan,
+        &settings,
         toolchain,
         None,
         &environment,

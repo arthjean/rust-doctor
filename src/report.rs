@@ -25,7 +25,7 @@ use crate::source_kernel;
 use crate::structure;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 12;
+pub const SCHEMA_VERSION: u8 = 13;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -296,6 +296,12 @@ pub struct Diagnostic {
     /// distinguishes "these are the same" from "these are 87 % the same".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub similarity_basis_points: Option<u16>,
+    /// Cyclomatic and cognitive complexity of the reported function, when the
+    /// rule measured them. Absent on every other diagnostic, so a report that
+    /// carries no hotspot serializes exactly as it did before this field
+    /// existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<ComplexityFigures>,
     pub occurrences: usize,
 }
 
@@ -303,6 +309,15 @@ pub struct Diagnostic {
 pub struct RelatedLocation {
     pub path: String,
     pub span: DiagnosticSpan,
+}
+
+/// Both complexity figures of one function, published together because each
+/// answers what the other cannot: cyclomatic counts the paths a test suite has
+/// to cover, cognitive weights the nesting a reader has to hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ComplexityFigures {
+    pub cyclomatic: u32,
+    pub cognitive: u32,
 }
 
 /// Non-production target a diagnostic comes from, derived from the target kind
@@ -1111,6 +1126,7 @@ fn normalize_cargo_health_candidate(
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        complexity: None,
         occurrences: 1,
     }
 }
@@ -1174,6 +1190,7 @@ fn normalize_source_candidate(
         span,
         related: Vec::new(),
         similarity_basis_points: None,
+        complexity: None,
         occurrences: 1,
     }
 }
@@ -1253,6 +1270,7 @@ fn normalize_structure_finding(
             })
             .collect(),
         similarity_basis_points: finding.similarity,
+        complexity: finding.complexity,
         occurrences: finding.occurrences,
     }
 }
@@ -1328,6 +1346,7 @@ fn normalize_diagnostic(
         span,
         related: Vec::new(),
         similarity_basis_points: None,
+        complexity: None,
         occurrences: 1,
     }
 }

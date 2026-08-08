@@ -603,3 +603,186 @@ fn a_clone_family_keeps_its_identity_across_an_insertion() {
         "the family survived an edit to one of its members"
     );
 }
+
+// ---------------------------------------------------------------------------
+// EP-003: complexity and size hotspots
+// ---------------------------------------------------------------------------
+
+const COMPLEX: &str = "rust_doctor::structure::complex_function";
+const OVERSIZED: &str = "rust_doctor::structure::oversized_unit";
+
+/// US-010: the complexity rule, end to end.
+///
+/// This is the trigger `tests/rule_evidence.json` names for the rule. The
+/// fixture is scanned through the same `inspect` a user runs, and the quiet
+/// function next to the dense one is the recorded silence that proves the rule
+/// was checked for over-reach.
+#[test]
+fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
+    let report = published(InspectRequest::new(fixture("complex-function")));
+    assert_eq!(report["schema_version"], SCHEMA_VERSION);
+
+    let rule = report["policy"]["rules"]
+        .as_array()
+        .expect("a scan publishes its rules")
+        .iter()
+        .find(|published| published["id"] == COMPLEX)
+        .expect("the complexity rule is in the shipped policy");
+    assert_eq!(rule["category"], "maintainability");
+    assert_eq!(rule["tier"], "P3");
+    assert_eq!(rule["level"], "warn");
+
+    let findings = rule_findings(&report, COMPLEX);
+    assert_eq!(findings.len(), 1, "{findings:#?}");
+    let hotspot = findings[0];
+    assert_eq!(hotspot["source"], "rust-doctor");
+    assert_eq!(hotspot["severity"], "warning");
+    assert_eq!(hotspot["occurrences"], 1);
+    assert!(hotspot.get("related").is_none());
+
+    // US-010: both figures appear in --json, on the diagnostic, and the
+    // message states them for the terminal reader.
+    assert_eq!(
+        hotspot["complexity"],
+        serde_json::json!({ "cyclomatic": 11, "cognitive": 30 })
+    );
+    let message = hotspot["message"].as_str().expect("a hotspot says what it measured");
+    assert!(
+        message.contains("schedule")
+            && message.contains("cyclomatic complexity 11")
+            && message.contains("cognitive complexity 30"),
+        "{message}"
+    );
+
+    // A diagnostic that is not a hotspot carries no complexity key at all.
+    for diagnostic in curated(&report) {
+        if diagnostic["code"] != COMPLEX {
+            assert!(diagnostic.get("complexity").is_none(), "{diagnostic:#?}");
+        }
+    }
+}
+
+/// US-010: the thresholds are read from `rust-doctor.toml`, in both
+/// directions, and `--rule` switches the rule off entirely.
+#[test]
+fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
+    let root = scratch("complexity-thresholds");
+    let project = root.join("project");
+    copy_fixture("complex-function", &project);
+
+    // Raised above what the fixture measures: nothing is reported.
+    fs::write(
+        project.join("rust-doctor.toml"),
+        "[structure]\ncyclomatic-threshold = 12\ncognitive-threshold = 31\n",
+    )
+    .unwrap();
+    let raised = published(InspectRequest::new(&project));
+    assert!(rule_findings(&raised, COMPLEX).is_empty(), "{raised:#?}");
+
+    // Lowered under the calm function: both functions are reported.
+    fs::write(
+        project.join("rust-doctor.toml"),
+        "[structure]\ncognitive-threshold = 2\n",
+    )
+    .unwrap();
+    let lowered = published(InspectRequest::new(&project));
+    assert_eq!(rule_findings(&lowered, COMPLEX).len(), 2, "{lowered:#?}");
+
+    // The existing --rule mechanism reaches the rule like any other.
+    let off = published(
+        InspectRequest::new(fixture("complex-function"))
+            .with_rule_override(RuleOverride::new(COMPLEX, RuleLevel::Off)),
+    );
+    assert!(rule_findings(&off, COMPLEX).is_empty(), "{off:#?}");
+}
+
+/// US-011: the oversized units, end to end, one diagnostic each.
+///
+/// This is the trigger `tests/rule_evidence.json` names for the rule. The
+/// workspace is generated rather than committed: a thousand committed filler
+/// lines would say nothing to a reader of this repository.
+#[test]
+fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
+    let root = scratch("oversized");
+    let project = root.join("project");
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        concat!(
+            "[package]\n",
+            "name = \"structure-oversized\"\n",
+            "version = \"0.1.0\"\n",
+            "edition = \"2024\"\n",
+            "publish = false\n\n",
+            "[lib]\n",
+            "path = \"src/lib.rs\"\n",
+        ),
+    )
+    .unwrap();
+
+    // One long function, one long impl block, one long module, in a file long
+    // enough to be a unit of its own.
+    let mut source = String::from("pub mod produced;\n\npub struct Wide;\n\n");
+    source.push_str("pub fn stretched() -> u64 {\n    let mut total: u64 = 0;\n");
+    for _ in 0..150 {
+        source.push_str("    total += 1;\n");
+    }
+    source.push_str("    total\n}\n\nimpl Wide {\n");
+    for index in 0..500 {
+        source.push_str(&format!("    pub fn slot_{index}(&self) {{}}\n"));
+    }
+    source.push_str("}\n\npub mod carried {\n");
+    for index in 0..500 {
+        source.push_str(&format!("    pub const SLOT_{index}: u16 = {index};\n"));
+    }
+    source.push_str("}\n");
+    fs::write(project.join("src/lib.rs"), &source).unwrap();
+
+    // The same size under a recognized generator header: excluded whole.
+    let mut produced = String::from("// @generated by a code generator. DO NOT EDIT.\n");
+    produced.push_str(&source.replace("pub mod produced;\n\n", "").replace("Wide", "Tall"));
+    fs::write(project.join("src/produced.rs"), produced).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg(&project)
+        .args(["--yes", "--json"])
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .output()
+        .unwrap();
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "complete", "{:#?}", report["errors"]);
+
+    let findings = rule_findings(&report, OVERSIZED);
+    let named: Vec<(&str, &str)> = findings
+        .iter()
+        .map(|finding| {
+            (
+                finding["path"].as_str().unwrap_or_default(),
+                finding["message"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    // One diagnostic per unit: the file, the function, the impl block and the
+    // module, and nothing from the generated file next to them.
+    assert_eq!(findings.len(), 4, "{named:#?}");
+    assert!(named.iter().all(|(path, _)| *path == "src/lib.rs"), "{named:#?}");
+    assert!(
+        named.iter().any(|(_, message)| message.starts_with("src/lib.rs is ")
+            && message.ends_with(" lines long.")),
+        "{named:#?}"
+    );
+    assert!(
+        named
+            .iter()
+            .any(|(_, message)| message.starts_with("Function stretched spans ")),
+        "{named:#?}"
+    );
+    assert!(
+        named.iter().any(|(_, message)| message.starts_with("Impl block Wide spans ")),
+        "{named:#?}"
+    );
+    assert!(
+        named.iter().any(|(_, message)| message.starts_with("Module carried spans ")),
+        "{named:#?}"
+    );
+}

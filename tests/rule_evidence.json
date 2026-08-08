@@ -143,6 +143,11 @@
       "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
     },
     {
+      "catches": "usage of very complex types that might be better factored into `type` definitions",
+      "id": "clippy::type_complexity",
+      "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
       "catches": "`unimplemented!` should not be present in production code",
       "id": "clippy::unimplemented",
       "oracle": "rule-scaling-kernel/oracle.json"
@@ -218,6 +223,11 @@
       "oracle": "source-kernel/precision/oracle.json"
     },
     {
+      "catches": "a function whose cyclomatic or cognitive complexity crosses its configured threshold",
+      "id": "rust_doctor::structure::complex_function",
+      "test": "tests/structure_kernel.rs::the_complexity_pass_names_the_functions_too_tangled_to_review"
+    },
+    {
       "catches": "two or more functions whose bodies are identical once names and literals are set aside",
       "id": "rust_doctor::structure::duplicate_function_body",
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
@@ -226,6 +236,11 @@
       "catches": "two or more functions whose bodies are alike above a similarity threshold once names and literals are set aside",
       "id": "rust_doctor::structure::near_duplicate_function_body",
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
+    },
+    {
+      "catches": "a file, function, impl block or module grown past the line count a reviewer holds in one sitting",
+      "id": "rust_doctor::structure::oversized_unit",
+      "test": "tests/structure_kernel.rs::the_oversized_units_reach_the_report_and_the_generated_file_does_not"
     },
     {
       "catches": "an #[allow] attribute that switches a lint off without a reason argument",

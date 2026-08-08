@@ -150,7 +150,7 @@ fn semantic_policy_failures_are_single_private_v7_reports_before_discovery() {
         ]);
         assert_eq!(output.status.code(), Some(2), "{selector:?}");
         let report = json_report(&output);
-        assert_eq!(report["schema_version"], 12);
+        assert_eq!(report["schema_version"], 13);
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["gate"]["status"], "not-evaluated");

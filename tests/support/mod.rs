@@ -110,18 +110,19 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-/// Projects a v11 report back onto the frozen bytes of v7.
+/// Projects a current report back onto the frozen bytes of v7.
 ///
 /// v8 had added the `audit` block, v9 the `tier` of every policy rule and the
 /// two named quantities of `summary`, v10 the `context` of every diagnostic,
-/// v11 the `related` locations of a finding that spans several sites. No
-/// historical field is removed or retyped, so the projection consists solely of
-/// removing the members added since.
+/// v11 the `related` locations of a finding that spans several sites, v12 the
+/// `similarity_basis_points` of a near-duplicate family, v13 the `complexity`
+/// figures of a hotspot. No historical field is removed or retyped, so the
+/// projection consists solely of removing the members added since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
 pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":12,\"audit\":";
+    const PREFIX: &[u8] = b"{\"schema_version\":13,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
         .expect("schema v11 should start with its audit member");
@@ -145,6 +146,9 @@ pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
     }
     while let Some(diagnostic) = find(&projected, 0, b"\"similarity_basis_points\":") {
         projected = remove_member(&projected, diagnostic, "similarity_basis_points");
+    }
+    while let Some(diagnostic) = find(&projected, 0, b"\"complexity\":") {
+        projected = remove_member(&projected, diagnostic, "complexity");
     }
     drop_scan_command(&projected)
 }
