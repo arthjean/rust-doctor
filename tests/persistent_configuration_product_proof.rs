@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 44] = [
+const RULES: [&str; 46] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -59,6 +59,8 @@ const RULES: [&str; 44] = [
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
+    "rust_doctor::structure::duplicate_function_body",
+    "rust_doctor::structure::near_duplicate_function_body",
     "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 
@@ -409,9 +411,9 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 11);
+            assert_eq!(report["schema_version"], 12);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 44);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 46);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -600,7 +602,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 11);
+        assert_eq!(report["schema_version"], 12);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

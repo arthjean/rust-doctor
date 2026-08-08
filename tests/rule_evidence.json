@@ -218,6 +218,16 @@
       "oracle": "source-kernel/precision/oracle.json"
     },
     {
+      "catches": "two or more functions whose bodies are identical once names and literals are set aside",
+      "id": "rust_doctor::structure::duplicate_function_body",
+      "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
+    },
+    {
+      "catches": "two or more functions whose bodies are alike above a similarity threshold once names and literals are set aside",
+      "id": "rust_doctor::structure::near_duplicate_function_body",
+      "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
+    },
+    {
       "catches": "an #[allow] attribute that switches a lint off without a reason argument",
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
       "test": "tests/structure_kernel.rs::the_structural_pass_publishes_one_diagnostic_per_family"

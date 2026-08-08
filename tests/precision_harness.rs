@@ -7,6 +7,8 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 
+const DUPLICATE_FUNCTION_BODY: &str = "rust_doctor::structure::duplicate_function_body";
+
 fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
@@ -139,6 +141,28 @@ fn replace_in_file(path: &Path, replacements: &[(&str, &str)]) {
     fs::write(path, source).expect("copied fixture source should be writable");
 }
 
+/// Identities of the curated diagnostics a Clippy lint produced. They are the
+/// ones an exemption or a rewrite of the flagged site can remove.
+fn clippy_ids(report: &Value) -> BTreeSet<String> {
+    report["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .filter(|diagnostic| {
+            !diagnostic["category"].is_null()
+                && diagnostic["code"]
+                    .as_str()
+                    .is_some_and(|code| code.starts_with("clippy::"))
+        })
+        .map(|diagnostic| {
+            diagnostic["id"]
+                .as_str()
+                .expect("diagnostic id should be a string")
+                .to_owned()
+        })
+        .collect()
+}
+
 fn diagnostic_ids(report: &Value, curated_only: bool) -> BTreeSet<String> {
     report["diagnostics"]
         .as_array()
@@ -209,7 +233,7 @@ fn precision_matrix_matches_all_positive_and_negative_oracles_without_mutation()
     expected.sort();
     observed.sort();
     assert_eq!(observed, expected);
-    assert_eq!(observed.len(), 6);
+    assert_eq!(observed.len(), 7);
 
     // The three aliased forms are written in a Cargo test target, which the
     // scan no longer compiles. The oracle keeps them rather than erasing them:
@@ -324,7 +348,20 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     let allowed_output = inspect_json(&allowed);
     let allowed_report = parse_report(&allowed_output);
     assert_eq!(allowed_output.status.code(), Some(0));
-    assert!(curated(&allowed_report).is_empty());
+    // The exemption names three Clippy lints and removes exactly those three.
+    // What it leaves is the structural family, and that is not an oversight: a
+    // native rule is not a lint the compiler carries, so no attribute written
+    // in the source reaches it. Switching one off goes through `--rule` or
+    // through `rust-doctor.toml`, and nowhere else.
+    assert_eq!(
+        curated(&allowed_report)
+            .iter()
+            .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        [DUPLICATE_FUNCTION_BODY],
+        "{:#?}",
+        curated(&allowed_report)
+    );
     fs::remove_dir_all(&allowed).expect("allowed fixture copy should be removable");
 
     let corrected = temporary_fixture("precision-matrix-corrected");
@@ -332,7 +369,11 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     let initial_output = inspect_json(&corrected);
     let initial = parse_report(&initial_output);
     assert_eq!(initial_output.status.code(), Some(0));
-    let targeted_ids = diagnostic_ids(&initial, true);
+    // Targeted means "removable by the corrections below": the six macro
+    // sites. The structural family is not one of them, because rewriting a
+    // macro body leaves the two functions the same two functions, so it joins
+    // the diagnostics the rescan must preserve.
+    let targeted_ids = clippy_ids(&initial);
     let untargeted_ids: BTreeSet<_> = diagnostic_ids(&initial, false)
         .difference(&targeted_ids)
         .cloned()
@@ -371,7 +412,15 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     let rescanned_output = inspect_json(&corrected);
     let rescanned = parse_report(&rescanned_output);
     assert_eq!(rescanned_output.status.code(), Some(0));
-    assert!(curated(&rescanned).is_empty());
+    assert_eq!(
+        curated(&rescanned)
+            .iter()
+            .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        [DUPLICATE_FUNCTION_BODY],
+        "{:#?}",
+        curated(&rescanned)
+    );
     let rescanned_ids = diagnostic_ids(&rescanned, false);
     assert!(targeted_ids.is_disjoint(&rescanned_ids));
     assert_eq!(rescanned_ids, untargeted_ids);

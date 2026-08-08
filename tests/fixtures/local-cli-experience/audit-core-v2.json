@@ -150,6 +150,8 @@
   "rust_doctor::cargo::unpinned_git_dependency": "P1",
   "rust_doctor::source::disabled_tls_verification": "P0",
   "rust_doctor::source::dynamic_shell_command": "P0",
+  "rust_doctor::structure::duplicate_function_body": "P3",
+  "rust_doctor::structure::near_duplicate_function_body": "P3",
   "rust_doctor::structure::unreasoned_allow_attribute": "P3"
  },
  "schema_version": 2,

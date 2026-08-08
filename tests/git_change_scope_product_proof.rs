@@ -272,7 +272,7 @@ fn run_case(
                 .to_string(),
         );
         let report: Value = serde_json::from_slice(&output).unwrap();
-        assert_eq!(report["schema_version"], 11);
+        assert_eq!(report["schema_version"], 12);
         assert_eq!(report["project"]["workspace_root"], ".");
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
         let diagnostics = report["diagnostics"].as_array().unwrap();

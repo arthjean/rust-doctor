@@ -962,6 +962,7 @@ mod tests {
     use super::*;
     use crate::policy::{
         PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
+        STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
         STRUCTURE_UNREASONED_ALLOW,
     };
     use cargo_metadata::MetadataCommand;
@@ -1133,7 +1134,9 @@ mod tests {
         let all_off = PolicyInput::default()
             .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)
             .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off)
-            .with_rule(STRUCTURE_UNREASONED_ALLOW.id, RuleLevel::Off);
+            .with_rule(STRUCTURE_UNREASONED_ALLOW.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off);
         let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
         assert!(!enumeration_required(&all_off));
         let scan = inspect_for_plan(&metadata, &all_off);

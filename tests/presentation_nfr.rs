@@ -90,12 +90,13 @@ fn fixture_report() -> InspectReport {
             path: None,
             span: None,
             related: Vec::new(),
+            similarity_basis_points: None,
             occurrences: 1,
         })
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 11,
+        schema_version: 12,
         audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,

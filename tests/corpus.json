@@ -808,6 +808,16 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::structure::duplicate_function_body",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::structure::near_duplicate_function_body",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
       "tier": "P3"
     }
@@ -858,6 +868,8 @@
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::structure::duplicate_function_body",
+      "rust_doctor::structure::near_duplicate_function_body",
       "rust_doctor::structure::unreasoned_allow_attribute"
     ],
     "noisy_on_healthy_code": [
@@ -903,11 +915,13 @@
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::structure::duplicate_function_body",
+      "rust_doctor::structure::near_duplicate_function_body",
       "rust_doctor::structure::unreasoned_allow_attribute"
     ],
     "verdict": "passed"
   },
-  "generated_at": "2026-08-04",
+  "generated_at": "2026-08-08",
   "harness": {
     "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
     "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
@@ -1068,11 +1082,11 @@
     {
       "authoritative": true,
       "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
-      "distinct": 9,
+      "distinct": 53,
       "exit_code": 0,
-      "findings_digest": "aee692e350c9585205b033c3ee4be76c16d331994e7071055b0b04448bdad05d",
+      "findings_digest": "8741e1cf1f3d7500c2da5e563efdfbd11b67fb535dd875225df22a4719969fcf",
       "name": "anyhow",
-      "occurrences": 9,
+      "occurrences": 97,
       "outcome": "processed",
       "rules": [
         {
@@ -1094,12 +1108,27 @@
           "distinct": 2,
           "id": "clippy::unwrap_used",
           "occurrences": 2
+        },
+        {
+          "distinct": 9,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 27
+        },
+        {
+          "distinct": 17,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 37
+        },
+        {
+          "distinct": 18,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 24
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 100,
+        "value": 99,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -1107,23 +1136,38 @@
     {
       "authoritative": true,
       "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
-      "distinct": 1,
+      "distinct": 26,
       "exit_code": 0,
-      "findings_digest": "77db7f7ca0ae0e06d10e3d25f6d61806793461ed7ee71d961a6928a07e165249",
+      "findings_digest": "a97fa5004ef41dadcdb23e387cf137c9f6b3428270f01d7ab9f37b8604e5aeda",
       "name": "async-channel",
-      "occurrences": 1,
+      "occurrences": 64,
       "outcome": "processed",
       "rules": [
         {
           "distinct": 1,
           "id": "clippy::unwrap_used",
           "occurrences": 1
+        },
+        {
+          "distinct": 11,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 29
+        },
+        {
+          "distinct": 13,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 32
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 2
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 100,
+        "value": 99,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -1131,11 +1175,11 @@
     {
       "authoritative": true,
       "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
-      "distinct": 43,
+      "distinct": 139,
       "exit_code": 0,
-      "findings_digest": "bbc1d4cec18eb4e329810337df1fcc6ab39b43b4287f9203b0065d8d524736cd",
+      "findings_digest": "41ef54d1959eba80b83dd3cb9c8ca3bfd9d0e0e48c6501de0fcd997d93112db9",
       "name": "bytes",
-      "occurrences": 55,
+      "occurrences": 283,
       "outcome": "processed",
       "rules": [
         {
@@ -1172,12 +1216,27 @@
           "distinct": 2,
           "id": "clippy::unwrap_used",
           "occurrences": 2
+        },
+        {
+          "distinct": 57,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 141
+        },
+        {
+          "distinct": 37,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 83
+        },
+        {
+          "distinct": 2,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 4
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 94,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1185,11 +1244,11 @@
     {
       "authoritative": true,
       "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
-      "distinct": 40,
+      "distinct": 61,
       "exit_code": 0,
-      "findings_digest": "b226d813ca1973c8f02edd00295662ef2f65777e6824f3fa643eddae18c6eaa1",
+      "findings_digest": "550e9a8ca3285e5b9a64e664fccf500244a2524137bde97e6ca8e07bcba89c74",
       "name": "fd",
-      "occurrences": 40,
+      "occurrences": 91,
       "outcome": "processed",
       "rules": [
         {
@@ -1226,6 +1285,21 @@
           "distinct": 1,
           "id": "rust_doctor::cargo::duplicate_major_versions",
           "occurrences": 1
+        },
+        {
+          "distinct": 9,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 23
+        },
+        {
+          "distinct": 9,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 25
+        },
+        {
+          "distinct": 3,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 3
         }
       ],
       "score": {
@@ -1239,11 +1313,11 @@
     {
       "authoritative": true,
       "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
-      "distinct": 20,
+      "distinct": 42,
       "exit_code": 0,
-      "findings_digest": "7c959f203299405c876248921cc244a39689a1aed30c8bc4bbfb7b321c13c772",
+      "findings_digest": "668e64ebe905579fdfe61ff6b1e0b2db1fe35f432b1ce2e4b5b8975d73d1aee3",
       "name": "hexyl",
-      "occurrences": 20,
+      "occurrences": 88,
       "outcome": "processed",
       "rules": [
         {
@@ -1275,12 +1349,22 @@
           "distinct": 4,
           "id": "clippy::unwrap_used",
           "occurrences": 4
+        },
+        {
+          "distinct": 16,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 54
+        },
+        {
+          "distinct": 6,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 14
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 99,
+        "value": 98,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -1288,11 +1372,11 @@
     {
       "authoritative": true,
       "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
-      "distinct": 11,
+      "distinct": 105,
       "exit_code": 0,
-      "findings_digest": "22c618da4e00f85e8e9e44676f7c672dd285c0dd60de7ce5e3f0bc1b81aea30c",
+      "findings_digest": "b03b8048c374de2a15819206b2d837c5ac00f64e6edaf5dd199f5aba1a8b837b",
       "name": "log",
-      "occurrences": 11,
+      "occurrences": 239,
       "outcome": "processed",
       "rules": [
         {
@@ -1314,12 +1398,27 @@
           "distinct": 5,
           "id": "clippy::unwrap_used",
           "occurrences": 5
+        },
+        {
+          "distinct": 54,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 145
+        },
+        {
+          "distinct": 34,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 75
+        },
+        {
+          "distinct": 6,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 8
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 94,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1327,11 +1426,11 @@
     {
       "authoritative": true,
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
-      "distinct": 329,
+      "distinct": 592,
       "exit_code": 0,
-      "findings_digest": "6d1afb7be760ea251c170eb21e990aca9d3e9a2b8aca900eed073369b7974e40",
+      "findings_digest": "176cc1a5b81d22c86b30f12e8318e199bd209668e682612ea289aab0c8ab9e48",
       "name": "ripgrep",
-      "occurrences": 349,
+      "occurrences": 1215,
       "outcome": "processed",
       "rules": [
         {
@@ -1383,12 +1482,27 @@
           "distinct": 67,
           "id": "clippy::unwrap_used",
           "occurrences": 67
+        },
+        {
+          "distinct": 167,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 537
+        },
+        {
+          "distinct": 92,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 312
+        },
+        {
+          "distinct": 4,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 17
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 94,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1396,11 +1510,11 @@
     {
       "authoritative": true,
       "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
-      "distinct": 45,
+      "distinct": 260,
       "exit_code": 0,
-      "findings_digest": "e0d1055a545d0e3166c2a83ffd3de0a13400f8c04b6d171f54762a29aedb9f16",
+      "findings_digest": "e8d7bc1c22f9441d8c0abb638989eb71f00c2489d35216ebe67d7c75e1bc211b",
       "name": "serde_json",
-      "occurrences": 45,
+      "occurrences": 687,
       "outcome": "processed",
       "rules": [
         {
@@ -1432,12 +1546,27 @@
           "distinct": 4,
           "id": "clippy::unwrap_used",
           "occurrences": 4
+        },
+        {
+          "distinct": 123,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 423
+        },
+        {
+          "distinct": 75,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 202
+        },
+        {
+          "distinct": 17,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 17
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 94,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1445,17 +1574,27 @@
     {
       "authoritative": true,
       "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
-      "distinct": 1,
+      "distinct": 13,
       "exit_code": 0,
-      "findings_digest": "1470ed97f5a653152def39b0676229dee708267c3f606505af8e0c2f22e3741d",
+      "findings_digest": "ca24e95a16c6fb9a6e661d599dea99891b8d40e4346488e22ed005987a57b5a2",
       "name": "smol",
-      "occurrences": 1,
+      "occurrences": 31,
       "outcome": "processed",
       "rules": [
         {
           "distinct": 1,
           "id": "clippy::expect_used",
           "occurrences": 1
+        },
+        {
+          "distinct": 7,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 19
+        },
+        {
+          "distinct": 5,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 11
         }
       ],
       "score": {
@@ -1469,11 +1608,11 @@
     {
       "authoritative": true,
       "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
-      "distinct": 39,
+      "distinct": 64,
       "exit_code": 0,
-      "findings_digest": "6261817df6c0805852d85a172e5c3e996a1d9ae4f0d9cb165d65d5e114315500",
+      "findings_digest": "7c5c13692a243f94144b67bf15675e70e7205d0918d31da9a05d62ff20f976f2",
       "name": "thiserror",
-      "occurrences": 68,
+      "occurrences": 113,
       "outcome": "processed",
       "rules": [
         {
@@ -1505,12 +1644,27 @@
           "distinct": 18,
           "id": "clippy::unwrap_used",
           "occurrences": 32
+        },
+        {
+          "distinct": 6,
+          "id": "rust_doctor::structure::duplicate_function_body",
+          "occurrences": 18
+        },
+        {
+          "distinct": 2,
+          "id": "rust_doctor::structure::near_duplicate_function_body",
+          "occurrences": 4
+        },
+        {
+          "distinct": 17,
+          "id": "rust_doctor::structure::unreasoned_allow_attribute",
+          "occurrences": 23
         }
       ],
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 94,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1950,10 +2104,30 @@
     {
       "false_positive_rate_basis_points": null,
       "false_positives": null,
-      "findings": 0,
+      "findings": 459,
+      "id": "rust_doctor::structure::duplicate_function_body",
+      "reviewed": 0,
+      "status": "incomplete",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 290,
+      "id": "rust_doctor::structure::near_duplicate_function_body",
+      "reviewed": 0,
+      "status": "incomplete",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
       "reviewed": 0,
-      "status": "unobserved",
+      "status": "incomplete",
       "tier": "P3",
       "true_positives": null
     }
@@ -1975,17 +2149,17 @@
       {
         "label": "Great",
         "name": "anyhow",
-        "value": 100
+        "value": 99
       },
       {
         "label": "Great",
         "name": "async-channel",
-        "value": 100
+        "value": 99
       },
       {
         "label": "Great",
         "name": "bytes",
-        "value": 94
+        "value": 93
       },
       {
         "label": "Great",
@@ -1995,22 +2169,22 @@
       {
         "label": "Great",
         "name": "hexyl",
-        "value": 99
+        "value": 98
       },
       {
         "label": "Great",
         "name": "log",
-        "value": 94
+        "value": 93
       },
       {
         "label": "Great",
         "name": "ripgrep",
-        "value": 94
+        "value": 93
       },
       {
         "label": "Great",
         "name": "serde_json",
-        "value": 94
+        "value": 93
       },
       {
         "label": "Great",
@@ -2020,7 +2194,7 @@
       {
         "label": "Great",
         "name": "thiserror",
-        "value": 94
+        "value": 93
       }
     ]
   },

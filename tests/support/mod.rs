@@ -121,7 +121,7 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
 pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":11,\"audit\":";
+    const PREFIX: &[u8] = b"{\"schema_version\":12,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
         .expect("schema v11 should start with its audit member");
@@ -142,6 +142,9 @@ pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
     }
     while let Some(diagnostic) = find(&projected, 0, b"\"related\":") {
         projected = remove_member(&projected, diagnostic, "related");
+    }
+    while let Some(diagnostic) = find(&projected, 0, b"\"similarity_basis_points\":") {
+        projected = remove_member(&projected, diagnostic, "similarity_basis_points");
     }
     drop_scan_command(&projected)
 }

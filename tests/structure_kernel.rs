@@ -1,9 +1,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! EP-001: the structural pass, end to end.
+//! EP-001 and EP-002: the structural pass, end to end.
 //!
 //! Every proof here starts at `inspect` or at the built binary, because the
-//! question this epic answers is not whether a detector fires but whether what
+//! question these epics answer is not whether a detector fires but whether what
 //! it finds reaches the score, the gate, the render and the baseline on the
 //! path the native detectors already take.
 
@@ -19,6 +19,8 @@ use serde_json::Value;
 mod support;
 
 const RULE: &str = "rust_doctor::structure::unreasoned_allow_attribute";
+const DUPLICATE: &str = "rust_doctor::structure::duplicate_function_body";
+const NEAR_DUPLICATE: &str = "rust_doctor::structure::near_duplicate_function_body";
 
 fn repository() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -77,9 +79,13 @@ fn curated(report: &Value) -> Vec<&Value> {
 }
 
 fn structural(report: &Value) -> Vec<&Value> {
+    rule_findings(report, RULE)
+}
+
+fn rule_findings<'a>(report: &'a Value, rule: &str) -> Vec<&'a Value> {
     curated(report)
         .into_iter()
-        .filter(|diagnostic| diagnostic["code"] == RULE)
+        .filter(|diagnostic| diagnostic["code"] == rule)
         .collect()
 }
 
@@ -418,6 +424,12 @@ fn an_unparseable_unit_is_reported_under_the_structure_stage() {
     assert!(message.contains("src/broken.rs"), "{message}");
     assert!(!message.contains(repository().to_str().unwrap()), "{message}");
 
+    // FR-10, FR-11: what the pass could not cover takes the authoritative flag
+    // off the score rather than being reported as a complete answer. The time
+    // budget stops the pass through this same error path.
+    assert_eq!(report["status"], "incomplete");
+    assert_eq!(report["audit"]["score"]["authoritative"], false);
+
     // The unreadable unit is the only one dropped: the exemption in the file
     // next to it still reaches the report.
     assert_eq!(
@@ -428,5 +440,166 @@ fn an_unparseable_unit_is_reported_under_the_structure_stage() {
         ["src/lib.rs"],
         "{:#?}",
         report["diagnostics"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// EP-002: duplicate function detection
+// ---------------------------------------------------------------------------
+
+/// US-006, US-007, US-008: the two duplication rules, end to end.
+///
+/// This is the trigger `tests/rule_evidence.json` names for both of them. The
+/// fixture is scanned through the same `inspect` a user runs, so the category,
+/// the tier and the help are read back off the shipped policy, and the forms
+/// the rules must leave alone are in the same crate as the forms they report.
+#[test]
+fn the_duplication_pass_publishes_one_family_per_shape() {
+    let report = published(InspectRequest::new(fixture("duplicate-function")));
+
+    for rule in [DUPLICATE, NEAR_DUPLICATE] {
+        let published = report["policy"]["rules"]
+            .as_array()
+            .expect("a scan publishes its rules")
+            .iter()
+            .find(|entry| entry["id"] == rule)
+            .expect("the rule is in the shipped policy");
+        assert_eq!(published["category"], "maintainability");
+        assert_eq!(published["tier"], "P3");
+        assert_eq!(published["level"], "warn");
+    }
+
+    // US-006: the two exact copies are one finding of two occurrences, pointing
+    // at the first in sorted order and naming the second. The pair of one-line
+    // predicates below the node floor and the function of comparable size doing
+    // something else are both left alone, which is what proves the rule was
+    // checked for over-reach.
+    let exact = rule_findings(&report, DUPLICATE);
+    let shipped = exact
+        .iter()
+        .find(|finding| finding["path"] == "src/lib.rs" && finding["context"].is_null())
+        .expect("the shipped clone family is missing");
+    assert_eq!(shipped["occurrences"], 2);
+    assert_eq!(shipped["source"], "rust-doctor");
+    assert_eq!(shipped["severity"], "warning");
+    assert_eq!(shipped["span"]["line_start"], 19);
+    assert_eq!(
+        shipped["related"],
+        serde_json::json!([{
+            "path": "src/lib.rs",
+            "span": {
+                "line_start": 31,
+                "column_start": 1,
+                "line_end": 41,
+                "column_end": 2,
+            },
+        }])
+    );
+    assert!(
+        shipped.get("similarity_basis_points").is_none(),
+        "an exact family published a similarity it did not measure"
+    );
+
+    // US-007: the copy edited after the fact is a near family, scored, and the
+    // pair already published as an exact family is not published again here.
+    let near = rule_findings(&report, NEAR_DUPLICATE);
+    assert_eq!(near.len(), 1, "{near:#?}");
+    assert_eq!(near[0]["occurrences"], 2);
+    let similarity = near[0]["similarity_basis_points"]
+        .as_u64()
+        .expect("a near family publishes its score in --json");
+    assert!((8_000..10_000).contains(&similarity), "{similarity}");
+    assert_eq!(near[0]["path"], "src/edited.rs");
+    assert_eq!(near[0]["related"][0]["path"], "src/lib.rs");
+
+    // US-008: the family inside `#[cfg(test)]` and the one inside the build
+    // script are marked, stay published, and stay counted. Only the two shipped
+    // families weigh, which is what keeps the score at 100 with four findings.
+    let marks: Vec<&str> = exact
+        .iter()
+        .map(|finding| finding["context"].as_str().unwrap_or("shipped"))
+        .collect();
+    assert_eq!(marks, ["build-script", "shipped", "tests"], "{exact:#?}");
+    assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
+    assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 8);
+    assert_eq!(report["audit"]["score"]["value"], 100);
+    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 97);
+
+    // Nothing published names a path outside the workspace.
+    let rendered = serde_json::to_string(&report).unwrap();
+    assert!(!rendered.contains(repository().to_str().unwrap()));
+}
+
+/// US-006, US-007: switching a duplication rule off removes its findings and
+/// leaves the other one untouched.
+#[test]
+fn each_duplication_rule_is_switched_off_on_its_own() {
+    let without_exact = published(
+        InspectRequest::new(fixture("duplicate-function"))
+            .with_rule_override(RuleOverride::new(DUPLICATE, RuleLevel::Off)),
+    );
+    assert!(rule_findings(&without_exact, DUPLICATE).is_empty());
+    assert_eq!(rule_findings(&without_exact, NEAR_DUPLICATE).len(), 1);
+
+    let without_near = published(
+        InspectRequest::new(fixture("duplicate-function"))
+            .with_rule_override(RuleOverride::new(NEAR_DUPLICATE, RuleLevel::Off)),
+    );
+    assert_eq!(rule_findings(&without_near, DUPLICATE).len(), 3);
+    assert!(rule_findings(&without_near, NEAR_DUPLICATE).is_empty());
+
+    // With both off the score is computed without them, and the dimension they
+    // were the only occupants of returns to its untouched value.
+    let neither = published(
+        InspectRequest::new(fixture("duplicate-function"))
+            .with_rule_override(RuleOverride::new(DUPLICATE, RuleLevel::Off))
+            .with_rule_override(RuleOverride::new(NEAR_DUPLICATE, RuleLevel::Off)),
+    );
+    assert!(rule_findings(&neither, DUPLICATE).is_empty());
+    assert!(rule_findings(&neither, NEAR_DUPLICATE).is_empty());
+    assert_eq!(neither["audit"]["score"]["dimensions"]["maintainability"], 100);
+}
+
+/// US-003, US-006: a clone family keeps its identity when unrelated code moves
+/// above it, and loses it when the shape itself is edited.
+#[test]
+fn a_clone_family_keeps_its_identity_across_an_insertion() {
+    let root = scratch("duplication-fingerprint");
+    let project = root.join("project");
+    copy_fixture("duplicate-function", &project);
+    let source = project.join("src/lib.rs");
+
+    let identities = |report: &Value| -> Vec<String> {
+        rule_findings(report, DUPLICATE)
+            .into_iter()
+            .map(|finding| finding["id"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    };
+    let before = published(InspectRequest::new(&project));
+    let original = fs::read_to_string(&source).unwrap();
+
+    fs::write(&source, format!("{}{original}", "// shifted\n".repeat(50))).unwrap();
+    let shifted = published(InspectRequest::new(&project));
+    assert_ne!(
+        rule_findings(&before, DUPLICATE)[1]["span"],
+        rule_findings(&shifted, DUPLICATE)[1]["span"],
+        "the insertion did not move the family"
+    );
+    assert_eq!(
+        identities(&before),
+        identities(&shifted),
+        "a clone family was renamed by an unrelated insertion"
+    );
+
+    // Editing one member out of the shape dissolves the family it belonged to.
+    fs::write(&source, original.replace("sum -= bound;", "sum -= bound + 1;")).unwrap();
+    let edited = published(InspectRequest::new(&project));
+    assert_eq!(
+        rule_findings(&edited, DUPLICATE)
+            .iter()
+            .filter(|finding| finding["context"].is_null())
+            .count(),
+        0,
+        "the family survived an edit to one of its members"
     );
 }

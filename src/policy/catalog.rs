@@ -427,6 +427,22 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     tier: RuleTier::P0,
     help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
 };
+pub(crate) static STRUCTURE_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::duplicate_function_body",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Keep one definition and call it from the other sites, or make what differs between them a parameter.",
+};
+pub(crate) static STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::near_duplicate_function_body",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Factor the shared shape into one function and pass what differs, or keep both and record why they must stay apart.",
+};
 pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::unreasoned_allow_attribute",
     category: "maintainability",
@@ -436,7 +452,7 @@ pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     help: "Fix what the lint reports, or keep the allow and state why with reason = \"...\" so the exemption survives review.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 44] = [
+pub(crate) const CATALOG: [&RuleDefinition; 46] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -480,6 +496,8 @@ pub(crate) const CATALOG: [&RuleDefinition; 44] = [
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
+    &STRUCTURE_DUPLICATE_FUNCTION_BODY,
+    &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_UNREASONED_ALLOW,
 ];
 
@@ -600,7 +618,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 45] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 47] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -645,6 +663,8 @@ mod tests {
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
+        &STRUCTURE_DUPLICATE_FUNCTION_BODY,
+        &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
         &STRUCTURE_UNREASONED_ALLOW,
     ];
 
@@ -669,7 +689,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 44);
+        assert_eq!(CATALOG.len(), 46);
         assert_eq!(
             CATEGORIES,
             [
@@ -738,7 +758,7 @@ mod tests {
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 36);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
-        assert_eq!(plan.active_rules(Producer::Structure).count(), 1);
+        assert_eq!(plan.active_rules(Producer::Structure).count(), 3);
     }
 
     #[test]

@@ -325,7 +325,7 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     let baseline = report(&output);
     let baseline_events = fixture.processes.events();
 
-    assert_eq!(baseline["schema_version"], 11);
+    assert_eq!(baseline["schema_version"], 12);
     assert_eq!(baseline["status"], "complete");
     assert_eq!(baseline["complete"], true);
     assert_eq!(baseline["scope"]["mode"], "baseline");

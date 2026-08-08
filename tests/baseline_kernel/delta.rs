@@ -139,7 +139,7 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         assert!(!rendered.contains(private), "{name} leaked {private:?}");
     }
     let report: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(report["schema_version"], 11);
+    assert_eq!(report["schema_version"], 12);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["scope"]["mode"], "baseline");
     assert_eq!(report["delta"]["fingerprint_version"], 1);

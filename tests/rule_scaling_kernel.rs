@@ -412,7 +412,7 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     let oracle = oracle();
     let path = fixture("oracle");
     let baseline = inspect(InspectRequest::new(&path));
-    assert_eq!(baseline.schema_version, 11);
+    assert_eq!(baseline.schema_version, 12);
     assert_eq!(baseline.status, Status::Complete);
     assert!(baseline.complete);
     let published = serde_json::to_value(&baseline).expect("a valid report should serialize");
@@ -464,21 +464,30 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     );
 
     assert_eq!(oracle.historical_rules.len(), 7);
-    // Rules admitted after EP-018 that find something on this fixture: the
-    // `expect()` of the `zombie_processes` case is one of them since EP-024.
-    const ADMITTED_AFTER_EP018: [&str; 1] = ["clippy::expect_used"];
+    // Rules admitted after EP-018 that find something on this fixture, with
+    // the number of findings each contributes. The `expect()` of the
+    // `zombie_processes` case is one of them since EP-024. The two families
+    // `duplicate_function_body` reports since EP-002 are the fixture's own
+    // shape: it repeats the same pair of cases three times over, once per
+    // written form of the same call, which is exactly the repetition the rule
+    // exists to name.
+    const ADMITTED_AFTER_EP018: [(&str, usize); 2] = [
+        ("clippy::expect_used", 1),
+        ("rust_doctor::structure::duplicate_function_body", 2),
+    ];
+    let admitted_after_ep018: usize = ADMITTED_AFTER_EP018.iter().map(|(_, count)| count).sum();
     assert_eq!(
         baseline.diagnostics.len(),
-        oracle.rules.len() + oracle.historical_rules.len() + ADMITTED_AFTER_EP018.len()
+        oracle.rules.len() + oracle.historical_rules.len() + admitted_after_ep018
     );
-    for code in ADMITTED_AFTER_EP018 {
+    for (code, expected) in ADMITTED_AFTER_EP018 {
         assert_eq!(
             baseline
                 .diagnostics
                 .iter()
                 .filter(|diagnostic| diagnostic.code.as_deref() == Some(code))
                 .count(),
-            1,
+            expected,
             "{code}"
         );
     }
@@ -638,7 +647,7 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
 fn denied_candidate_is_retained_in_an_incomplete_report_and_hostile_policy_stops_early() {
     let oracle = oracle();
     let denied = inspect(InspectRequest::new(fixture("denied")));
-    assert_eq!(denied.schema_version, 11);
+    assert_eq!(denied.schema_version, 12);
     assert_eq!(denied.status, Status::Incomplete);
     assert!(!denied.complete);
     assert_eq!(denied.gate.status, GateStatus::NotEvaluated);

@@ -47,6 +47,14 @@
       "path": "src/main.rs",
       "line": 10,
       "occurrences": 1
+    },
+    {
+      "case": "duplicate-binary-entry-and-test-root",
+      "form": "structural",
+      "code": "rust_doctor::structure::duplicate_function_body",
+      "path": "src/main.rs",
+      "line": 13,
+      "occurrences": 2
     }
   ],
   "out_of_scope": [

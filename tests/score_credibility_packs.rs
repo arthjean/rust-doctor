@@ -35,6 +35,27 @@ fn oracle(pack: &str) -> Value {
     .expect("pack oracle should be valid JSON")
 }
 
+/// Scan of a pack fixture, with the duplication rules switched off.
+///
+/// A pack is written as a positive and its negative twin: the same function
+/// twice, once in the form the lint reports and once in the form it must leave
+/// alone. That makes a pack duplicated code by construction, so
+/// `duplicate_function_body` and its near twin would report the method rather
+/// than a defect, on every pack, forever. They are proven on their own fixture
+/// and measured on the pinned corpus; here they would only stand between the
+/// oracle and what it freezes.
+fn pack_request(root: impl Into<PathBuf>) -> InspectRequest {
+    InspectRequest::new(root)
+        .with_rule_override(RuleOverride::new(
+            "rust_doctor::structure::duplicate_function_body",
+            RuleLevel::Off,
+        ))
+        .with_rule_override(RuleOverride::new(
+            "rust_doctor::structure::near_duplicate_function_body",
+            RuleLevel::Off,
+        ))
+}
+
 fn report(request: InspectRequest) -> Value {
     let report = inspect(request);
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
@@ -105,7 +126,7 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     for (pack, story) in PACKS {
         let oracle = oracle(pack);
         assert_eq!(oracle["story"], story, "{pack}");
-        let report = report(InspectRequest::new(pack_root(pack)));
+        let report = report(pack_request(pack_root(pack)));
         let tiers = tiers(&report);
 
         let production: Vec<_> = curated(&report)
@@ -180,7 +201,7 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
 
         // The positives all live in `src/lib.rs`: no diagnostic can therefore
         // come from the negatives file.
-        let report = report(InspectRequest::new(pack_root(pack)));
+        let report = report(pack_request(pack_root(pack)));
         assert!(
             curated(&report)
                 .iter()
@@ -232,7 +253,7 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     for (pack, _) in PACKS {
         let oracle = oracle(pack);
         let root = isolated_pack(pack);
-        let baseline = report(InspectRequest::new(&root));
+        let baseline = report(pack_request(&root));
         let baseline_codes: BTreeSet<_> = observed(&baseline)
             .iter()
             .map(|case| case["code"].as_str().unwrap().to_owned())
@@ -241,8 +262,7 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
         for case in oracle["positive"].as_array().unwrap() {
             let code = case["code"].as_str().unwrap();
             let report = report(
-                InspectRequest::new(&root)
-                    .with_rule_override(RuleOverride::new(code, RuleLevel::Off)),
+                pack_request(&root).with_rule_override(RuleOverride::new(code, RuleLevel::Off)),
             );
             let command: Vec<String> = report["scan"]["command"]
                 .as_array()
@@ -316,7 +336,7 @@ fn no_cargo_test_target_reaches_the_report() {
     // the fixture only holding lints Clippy would have exempted anyway.
     assert_eq!(verdicts, BTreeSet::from([false, true]));
 
-    let report = report(InspectRequest::new(pack_root("panic")));
+    let report = report(pack_request(pack_root("panic")));
     assert_eq!(
         observed(&report)
             .into_iter()
@@ -334,7 +354,7 @@ fn no_cargo_test_target_reaches_the_report() {
 fn each_pack_moves_its_own_dimension_below_one_hundred() {
     for (pack, _) in PACKS {
         let oracle = oracle(pack);
-        let report = report(InspectRequest::new(pack_root(pack)));
+        let report = report(pack_request(pack_root(pack)));
         let dimensions = &report["audit"]["score"]["dimensions"];
         assert_eq!(dimensions, &oracle["score"]["dimensions"], "{pack}");
         assert_eq!(
@@ -363,7 +383,7 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
     }
     // The performance pack is the one that proves the Performance dimension,
     // which stayed frozen at 100 while `CATEGORIES` did not admit it.
-    let performance = report(InspectRequest::new(pack_root("performance")));
+    let performance = report(pack_request(pack_root("performance")));
     assert!(
         performance["audit"]["score"]["dimensions"]["performance"]
             .as_u64()
@@ -386,7 +406,7 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
 
     // The panic pack fixture contains neither `async`, nor a lock, nor I/O: no
     // lint of the concurrency pack applies to it.
-    let synchronous = report(InspectRequest::new(pack_root("panic")));
+    let synchronous = report(pack_request(pack_root("panic")));
     assert!(
         curated(&synchronous).iter().all(|diagnostic| !pack_codes
             .contains(diagnostic["code"].as_str().unwrap_or_default())),
@@ -434,7 +454,7 @@ fn no_catalogued_clippy_rule_is_denied_by_default() {
         .collect();
     assert!(defaults.len() > 500, "{} lints listed", defaults.len());
 
-    let report = report(InspectRequest::new(pack_root("panic")));
+    let report = report(pack_request(pack_root("panic")));
     let catalogued: Vec<_> = report["policy"]["rules"]
         .as_array()
         .unwrap()

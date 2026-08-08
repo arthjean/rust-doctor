@@ -814,10 +814,17 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
     assert!(noisy.is_disjoint(&unproven), "a measured rule is not unproven");
 }
 
-/// Frozen admission debt: the rules active by default that the corpus could not
-/// prove, because a healthy repository does not commit the defect they aim at.
-/// Registration is nominative and one-way: a proven rule leaves it, none enters
-/// without the validation saying so.
+/// Frozen admission debt: the rules active by default whose precision the
+/// corpus does not publish. Registration is nominative and one-way: a proven
+/// rule leaves it, none enters without the validation saying so.
+///
+/// Two reasons put a rule here, and the second is not the first. Most of these
+/// names are `unobserved`: the corpus never triggered them, because a healthy
+/// repository does not commit the defect they aim at. The three structural
+/// rules are `incomplete`, which is the opposite situation: the corpus triggers
+/// them 459, 290 and 68 times, and not one of those sites has been adjudicated
+/// yet. The rate is withheld rather than assumed, and EP-005 is where it gets
+/// measured.
 ///
 /// Three entries were added on 2026-08-04, which the one-way rule normally
 /// forbids. They do not cover a rule admitted without evidence: they cover the
@@ -827,7 +834,7 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-const ADMISSION_DEBT: [&str; 28] = [
+const ADMISSION_DEBT: [&str; 30] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -855,6 +862,8 @@ const ADMISSION_DEBT: [&str; 28] = [
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::structure::duplicate_function_body",
+    "rust_doctor::structure::near_duplicate_function_body",
     "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 

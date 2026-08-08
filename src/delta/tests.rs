@@ -33,6 +33,7 @@ fn diagnostic(id: &str, path: Option<&str>, span: Option<DiagnosticSpan>) -> Dia
         path: path.map(str::to_owned),
         span,
         related: Vec::new(),
+        similarity_basis_points: None,
         occurrences: 1,
     }
 }

@@ -25,7 +25,7 @@ use crate::source_kernel;
 use crate::structure;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 11;
+pub const SCHEMA_VERSION: u8 = 12;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -288,6 +288,14 @@ pub struct Diagnostic {
     /// existed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<RelatedLocation>,
+    /// How alike the sites of the finding are, in basis points, when the rule
+    /// grouped them on a similarity rather than on an equality.
+    ///
+    /// A finding whose members are exactly equal does not carry it: publishing
+    /// 10000 on every exact family would say nothing, and absence is what
+    /// distinguishes "these are the same" from "these are 87 % the same".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub similarity_basis_points: Option<u16>,
     pub occurrences: usize,
 }
 
@@ -1102,6 +1110,7 @@ fn normalize_cargo_health_candidate(
         path,
         span: None,
         related: Vec::new(),
+        similarity_basis_points: None,
         occurrences: 1,
     }
 }
@@ -1164,6 +1173,7 @@ fn normalize_source_candidate(
         path,
         span,
         related: Vec::new(),
+        similarity_basis_points: None,
         occurrences: 1,
     }
 }
@@ -1242,6 +1252,7 @@ fn normalize_structure_finding(
                 })
             })
             .collect(),
+        similarity_basis_points: finding.similarity,
         occurrences: finding.occurrences,
     }
 }
@@ -1316,6 +1327,7 @@ fn normalize_diagnostic(
         path,
         span,
         related: Vec::new(),
+        similarity_basis_points: None,
         occurrences: 1,
     }
 }

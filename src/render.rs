@@ -714,6 +714,7 @@ mod tests {
                 column_end: 4,
             }),
             related: Vec::new(),
+            similarity_basis_points: None,
             occurrences: 1,
         }];
         let summary = Summary::from_diagnostics(&diagnostics);
