@@ -72,7 +72,7 @@ rust-doctor --scope baseline --base main  # only findings your change introduced
 
 ## Rules
 
-44 rules today: 36 selected Clippy lints, 7 native detectors and 1 structural rule.
+46 rules today: 36 selected Clippy lints, 7 native detectors and 3 structural rules.
 
 The Clippy lints are curated, not the whole `restriction` group. They cover panic paths (`unwrap_used`, `indexing_slicing`, `panic_in_result_fn`), async and concurrency hazards (`await_holding_lock`, `arc_with_non_send_sync`, `rc_mutex`), and allocation waste (`redundant_allocation`, `unnecessary_to_owned`, `useless_vec`).
 
@@ -87,7 +87,11 @@ The native detectors find what Clippy does not:
 | `rust_doctor::cargo::duplicate_major_versions` | one crate resolved at incompatible majors |
 | `rust_doctor::cargo::missing_lockfile` | a binary shipped without `Cargo.lock` |
 | `rust_doctor::cargo::path_dependency_outside_workspace` | a path that only resolves on your machine |
+| `rust_doctor::structure::duplicate_function_body` | functions with identical bodies under other names |
+| `rust_doctor::structure::near_duplicate_function_body` | functions alike above a similarity threshold |
 | `rust_doctor::structure::unreasoned_allow_attribute` | a lint switched off with no `reason` given |
+
+The structural rules read the same syntax tree, but ask what the codebase does as a whole rather than what a call site does. A duplication is reported as one family naming every site, never one finding per site, and its identity is the shape rather than the position, so inserting lines above it leaves a baseline comparison unmoved.
 
 Native detectors parse the syntax tree with `ra_ap_syntax` and resolve call provenance through the manifest's dependency aliases, so a renamed import or a fully qualified path is recognized the same way. They never match a written path against a string.
 
