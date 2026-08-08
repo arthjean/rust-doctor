@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! EP-001 and EP-002: the structural pass, end to end.
+//! EP-001 to EP-004: the structural pass, end to end.
 //!
 //! Every proof here starts at `inspect` or at the built binary, because the
 //! question these epics answer is not whether a detector fires but whether what
@@ -21,6 +21,8 @@ mod support;
 const RULE: &str = "rust_doctor::structure::unreasoned_allow_attribute";
 const DUPLICATE: &str = "rust_doctor::structure::duplicate_function_body";
 const NEAR_DUPLICATE: &str = "rust_doctor::structure::near_duplicate_function_body";
+const ORPHAN: &str = "rust_doctor::structure::orphan_module_file";
+const FEATURE: &str = "rust_doctor::structure::unreferenced_feature";
 
 fn repository() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -797,4 +799,209 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
         named.iter().any(|(_, message)| message.starts_with("Module carried spans ")),
         "{named:#?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// EP-004: Rust-native slop signals
+// ---------------------------------------------------------------------------
+
+/// US-013: the orphan module rule, end to end.
+///
+/// This is the trigger `tests/rule_evidence.json` names for the rule. The
+/// fixture is scanned through the same `inspect` a user runs, and every other
+/// way of reaching a file sits in the same crate as the unreached one, which is
+/// what proves the rule was checked for over-reach.
+#[test]
+fn the_orphan_rule_names_the_file_cargo_never_compiles() {
+    let report = published(InspectRequest::new(fixture("orphan-module")));
+
+    let rule = report["policy"]["rules"]
+        .as_array()
+        .expect("a scan publishes its rules")
+        .iter()
+        .find(|published| published["id"] == ORPHAN)
+        .expect("the orphan rule is in the shipped policy");
+    assert_eq!(rule["category"], "maintainability");
+    assert_eq!(rule["tier"], "P3");
+    assert_eq!(rule["level"], "warn");
+
+    // One finding, and only one: the ordinary `mod`, the `#[path]` attribute,
+    // the `mod` gated on another platform, the `include!`, the build script,
+    // the file that build script names, and the integration test root are all
+    // ways of reaching a file, and the generated file next to the orphan is
+    // read by no structural detector.
+    let findings = rule_findings(&report, ORPHAN);
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding["path"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["src/orphan.rs"],
+        "{findings:#?}"
+    );
+    let orphan = findings[0];
+    assert_eq!(orphan["source"], "rust-doctor");
+    assert_eq!(orphan["severity"], "warning");
+    assert_eq!(orphan["occurrences"], 1);
+    assert!(orphan.get("related").is_none());
+    assert!(orphan.get("context").is_none());
+    assert_eq!(orphan["span"]["line_start"], 1);
+    let message = orphan["message"].as_str().expect("an orphan says what it is");
+    assert!(
+        message.contains("src/orphan.rs") && message.contains("structure-orphan-module"),
+        "{message}"
+    );
+
+    // The rule is reached by the policy like any other, and the score is
+    // computed without it once it is off.
+    let off = published(
+        InspectRequest::new(fixture("orphan-module"))
+            .with_rule_override(RuleOverride::new(ORPHAN, RuleLevel::Off)),
+    );
+    assert!(rule_findings(&off, ORPHAN).is_empty(), "{off:#?}");
+    assert_eq!(off["audit"]["score"]["dimensions"]["maintainability"], 100);
+
+    let rendered = serde_json::to_string(&report).unwrap();
+    assert!(!rendered.contains(repository().to_str().unwrap()));
+}
+
+/// US-013: a file the module tree stops reaching becomes an orphan, and the
+/// finding keeps its identity while the file keeps its name.
+#[test]
+fn a_file_becomes_an_orphan_when_its_declaration_goes() {
+    let root = scratch("orphan-declaration");
+    let project = root.join("project");
+    copy_fixture("orphan-module", &project);
+    let source = project.join("src/lib.rs");
+
+    let orphans = |report: &Value| -> Vec<(String, String)> {
+        rule_findings(report, ORPHAN)
+            .into_iter()
+            .map(|finding| {
+                (
+                    finding["path"].as_str().unwrap_or_default().to_owned(),
+                    finding["id"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
+    };
+    let before = published(InspectRequest::new(&project));
+    let original = fs::read_to_string(&source).unwrap();
+
+    // Dropping the declaration of a reached module makes its file an orphan.
+    fs::write(&source, original.replace("pub mod reached;", "")).unwrap();
+    let after = published(InspectRequest::new(&project));
+    let paths: Vec<String> = orphans(&after).into_iter().map(|(path, _)| path).collect();
+    assert_eq!(paths, ["src/orphan.rs", "src/reached.rs"], "{paths:?}");
+
+    // US-003: the identity of the file that was already an orphan is unchanged
+    // by an edit elsewhere, because a structural fingerprint carries no
+    // position.
+    let unchanged = orphans(&before)[0].clone();
+    assert!(
+        orphans(&after).contains(&unchanged),
+        "the untouched orphan was renamed by an edit above it"
+    );
+}
+
+/// US-013: reachability is answered per package, and being compiled is not.
+///
+/// A member reaching into its neighbour with `#[path]` compiles a file the
+/// module tree of the package holding it never names. The walk stays per
+/// package, so the finding names the package whose directory holds the file,
+/// but what exempts a candidate is the reach of the whole workspace: a file
+/// Cargo compiles must never be published as compiled by nothing.
+#[test]
+fn a_file_another_package_compiles_is_not_an_orphan() {
+    let report = published(InspectRequest::new(fixture("orphan-across-packages")));
+
+    let findings = rule_findings(&report, ORPHAN);
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding["path"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["engine/src/stray.rs"],
+        "{findings:#?}"
+    );
+    assert!(
+        findings[0]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("orphan-across-engine"),
+        "{findings:#?}"
+    );
+}
+
+/// US-015: the feature inventory, end to end.
+///
+/// This is the trigger `tests/rule_evidence.json` names for the rule. The
+/// fixture is a workspace of two packages, because the question the rule
+/// answers is per package: the same feature name is declared by one member and
+/// read by the other, and only the reader that does not declare it is a
+/// finding.
+#[test]
+fn the_feature_inventory_reports_both_sides_of_the_disagreement() {
+    let report = published(InspectRequest::new(fixture("feature-inventory")));
+
+    let rule = report["policy"]["rules"]
+        .as_array()
+        .expect("a scan publishes its rules")
+        .iter()
+        .find(|published| published["id"] == FEATURE)
+        .expect("the feature rule is in the shipped policy");
+    assert_eq!(rule["category"], "maintainability");
+    assert_eq!(rule["tier"], "P3");
+    assert_eq!(rule["level"], "warn");
+
+    let findings = rule_findings(&report, FEATURE);
+    let named: Vec<(&str, u64, &str)> = findings
+        .iter()
+        .map(|finding| {
+            (
+                finding["path"].as_str().unwrap_or_default(),
+                finding["span"]["line_start"].as_u64().unwrap_or_default(),
+                finding["message"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(findings.len(), 3, "{named:#?}");
+
+    // A feature nothing reads and that activates nothing, pointed at the line
+    // of the manifest that declares it. `default`, the feature a gate reads
+    // through an `all(...)`, and the one that activates another are silent.
+    assert_eq!(named[0].0, "app/Cargo.toml");
+    assert_eq!(named[0].1, 18);
+    assert!(
+        named[0].2.contains("declares feature \"unused\""),
+        "{:?}",
+        named[0]
+    );
+
+    // A gate naming a feature no manifest declares, pointed at the gate.
+    assert_eq!(named[1].0, "app/src/lib.rs");
+    assert!(
+        named[1].2.contains("cfg(feature = \"absent\")"),
+        "{:?}",
+        named[1]
+    );
+
+    // A gate naming a feature the neighbouring package declares and this one
+    // does not: resolution is per package, not over the workspace.
+    assert_eq!(named[2].0, "app/src/lib.rs");
+    assert!(
+        named[2].2.contains("cfg(feature = \"engine-only\")"),
+        "{:?}",
+        named[2]
+    );
+
+    let off = published(
+        InspectRequest::new(fixture("feature-inventory"))
+            .with_rule_override(RuleOverride::new(FEATURE, RuleLevel::Off)),
+    );
+    assert!(rule_findings(&off, FEATURE).is_empty(), "{off:#?}");
+    assert_eq!(off["audit"]["score"]["dimensions"]["maintainability"], 100);
+
+    let rendered = serde_json::to_string(&report).unwrap();
+    assert!(!rendered.contains(repository().to_str().unwrap()));
 }

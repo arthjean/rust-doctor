@@ -57,7 +57,10 @@ fn repository(scope: &str) -> PathBuf {
     git(&root, &["branch", "baseline"]);
     fs::write(
         root.join("member/src/lib.rs"),
-        "pub fn configuration_kernel_fixture() -> bool {\n    false\n}\n",
+        // The module declaration is kept: dropping it would leave
+        // `member/src/nested/mod.rs` reached by nothing, which is a structural
+        // finding of its own and not the change this fixture is about.
+        "pub mod nested;\n\npub fn configuration_kernel_fixture() -> bool {\n    false\n}\n",
     )
     .unwrap();
     root

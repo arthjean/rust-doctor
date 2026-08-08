@@ -459,6 +459,14 @@ pub(crate) static STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleD
     tier: RuleTier::P3,
     help: "Factor the shared shape into one function and pass what differs, or keep both and record why they must stay apart.",
 };
+pub(crate) static STRUCTURE_ORPHAN_MODULE_FILE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::orphan_module_file",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Declare the file with a mod declaration, or delete it: Cargo compiles no file the module tree does not reach.",
+};
 pub(crate) static STRUCTURE_OVERSIZED_UNIT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::oversized_unit",
     category: "maintainability",
@@ -475,8 +483,16 @@ pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Fix what the lint reports, or keep the allow and state why with reason = \"...\" so the exemption survives review.",
 };
+pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::unreferenced_feature",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Delete the feature nothing reads, or declare the one a cfg already gates; switch this rule off for a stub deliberately kept as published surface.",
+};
 
-pub(crate) const CATALOG: [&RuleDefinition; 49] = [
+pub(crate) const CATALOG: [&RuleDefinition; 51] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -524,8 +540,10 @@ pub(crate) const CATALOG: [&RuleDefinition; 49] = [
     &STRUCTURE_COMPLEX_FUNCTION,
     &STRUCTURE_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
+    &STRUCTURE_ORPHAN_MODULE_FILE,
     &STRUCTURE_OVERSIZED_UNIT,
     &STRUCTURE_UNREASONED_ALLOW,
+    &STRUCTURE_UNREFERENCED_FEATURE,
 ];
 
 pub(crate) fn find(id: &str) -> Option<&'static RuleDefinition> {
@@ -645,7 +663,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 50] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 52] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -694,8 +712,10 @@ mod tests {
         &STRUCTURE_COMPLEX_FUNCTION,
         &STRUCTURE_DUPLICATE_FUNCTION_BODY,
         &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
+        &STRUCTURE_ORPHAN_MODULE_FILE,
         &STRUCTURE_OVERSIZED_UNIT,
         &STRUCTURE_UNREASONED_ALLOW,
+        &STRUCTURE_UNREFERENCED_FEATURE,
     ];
 
     fn historical_oracle() -> Value {
@@ -719,7 +739,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 49);
+        assert_eq!(CATALOG.len(), 51);
         assert_eq!(
             CATEGORIES,
             [
@@ -788,7 +808,7 @@ mod tests {
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
-        assert_eq!(plan.active_rules(Producer::Structure).count(), 5);
+        assert_eq!(plan.active_rules(Producer::Structure).count(), 7);
     }
 
     #[test]

@@ -292,6 +292,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::structure::orphan_module_file",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::structure::oversized_unit",
         "category": "maintainability",
         "level": "warn",
@@ -299,6 +305,12 @@
       },
       {
         "id": "rust_doctor::structure::unreasoned_allow_attribute",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::structure::unreferenced_feature",
         "category": "maintainability",
         "level": "warn",
         "source": "default"

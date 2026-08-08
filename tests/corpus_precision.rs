@@ -834,7 +834,7 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-const ADMISSION_DEBT: [&str; 33] = [
+const ADMISSION_DEBT: [&str; 35] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -866,8 +866,10 @@ const ADMISSION_DEBT: [&str; 33] = [
     "rust_doctor::structure::complex_function",
     "rust_doctor::structure::duplicate_function_body",
     "rust_doctor::structure::near_duplicate_function_body",
+    "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::oversized_unit",
     "rust_doctor::structure::unreasoned_allow_attribute",
+    "rust_doctor::structure::unreferenced_feature",
 ];
 
 /// The threshold is enforceable here, and nowhere else: this test fails as soon

@@ -371,6 +371,7 @@ mod tests {
             line_starts: line_starts(source),
             path: "src/lib.rs",
             context: None,
+            packages: Vec::new(),
         }
     }
 
@@ -579,6 +580,7 @@ mod tests {
             .exec()
             .expect("this repository should describe itself");
         let scan = analyze(
+            &metadata,
             &enumerate(&metadata),
             &crate::policy::PolicyPlan::default(),
             &StructureSettings::default(),

@@ -154,8 +154,10 @@
   "rust_doctor::structure::complex_function": "P3",
   "rust_doctor::structure::duplicate_function_body": "P3",
   "rust_doctor::structure::near_duplicate_function_body": "P3",
+  "rust_doctor::structure::orphan_module_file": "P3",
   "rust_doctor::structure::oversized_unit": "P3",
-  "rust_doctor::structure::unreasoned_allow_attribute": "P3"
+  "rust_doctor::structure::unreasoned_allow_attribute": "P3",
+  "rust_doctor::structure::unreferenced_feature": "P3"
  },
  "schema_version": 2,
  "score_boundaries": [

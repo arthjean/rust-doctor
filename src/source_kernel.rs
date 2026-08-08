@@ -150,6 +150,17 @@ impl SourceUnit {
         unique_target(&self.reachability)
     }
 
+    /// Identifiers of the workspace packages whose targets reach this unit.
+    ///
+    /// `package` answers what to publish on a finding and abstains when several
+    /// packages disagree. This answers the other question, which module tree a
+    /// file belongs to, and a file two packages reach belongs to both.
+    pub(crate) fn package_ids(&self) -> impl Iterator<Item = &str> {
+        self.reachability
+            .iter()
+            .map(|reach| reach.package_id.as_str())
+    }
+
     /// Non-production context of the unit, when every target that reaches it
     /// agrees on one. A file the library and an integration test both reach is
     /// left unmarked, because silencing shipped code is the expensive mistake.
@@ -963,8 +974,8 @@ mod tests {
     use crate::policy::{
         PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
         STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_DUPLICATE_FUNCTION_BODY,
-        STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_OVERSIZED_UNIT,
-        STRUCTURE_UNREASONED_ALLOW,
+        STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_ORPHAN_MODULE_FILE,
+        STRUCTURE_OVERSIZED_UNIT, STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE,
     };
     use cargo_metadata::MetadataCommand;
     use ra_ap_syntax::{SyntaxKind, SyntaxNode};
@@ -1139,7 +1150,9 @@ mod tests {
             .with_rule(STRUCTURE_COMPLEX_FUNCTION.id, RuleLevel::Off)
             .with_rule(STRUCTURE_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off)
             .with_rule(STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off)
-            .with_rule(STRUCTURE_OVERSIZED_UNIT.id, RuleLevel::Off);
+            .with_rule(STRUCTURE_ORPHAN_MODULE_FILE.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_OVERSIZED_UNIT.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_UNREFERENCED_FEATURE.id, RuleLevel::Off);
         let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
         assert!(!enumeration_required(&all_off));
         let scan = inspect_for_plan(&metadata, &all_off);

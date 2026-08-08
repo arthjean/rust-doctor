@@ -71,7 +71,7 @@ fn root_member_manifest_and_subdirectory_keep_one_workspace_and_selected_manifes
         assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
         let policy = report.policy.as_ref().unwrap();
         assert!(policy.config_file.is_none());
-        assert_eq!(policy.rules.len(), 49);
+        assert_eq!(policy.rules.len(), 51);
         assert!(
             policy
                 .rules
@@ -136,11 +136,11 @@ fn v7_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
     assert_eq!(policy.config_file.as_deref(), Some("rust-doctor.toml"));
     assert_eq!(policy.blocking.level, BlockingLevel::Warning);
     assert_eq!(policy.blocking.source, BlockingLevelSource::Config);
-    assert_eq!(policy.rules.len(), 49);
+    assert_eq!(policy.rules.len(), 51);
     assert_eq!(policy.rules[0].id, "clippy::arc_with_non_send_sync");
     assert_eq!(
-        policy.rules[48].id,
-        "rust_doctor::structure::unreasoned_allow_attribute"
+        policy.rules[50].id,
+        "rust_doctor::structure::unreferenced_feature"
     );
 
     let levels: std::collections::BTreeMap<_, _> = policy

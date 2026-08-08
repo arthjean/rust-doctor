@@ -16,6 +16,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use cargo_metadata::Metadata;
 use ra_ap_syntax::ast::{self, HasAttrs};
 use ra_ap_syntax::{AstNode, SyntaxNode};
 
@@ -25,6 +26,7 @@ use crate::source_kernel::{Enumeration, SourceSpan, compact, line_starts, source
 
 mod duplication;
 mod hotspots;
+mod manifest;
 mod normalize;
 
 const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-fingerprint-v1";
@@ -166,6 +168,9 @@ struct Unit<'a> {
     path: &'a str,
     /// Non-production mark the Cargo targets reaching this unit agree on.
     context: Option<DiagnosticContext>,
+    /// Packages whose targets reach this unit, for the detectors whose answer
+    /// depends on which manifest describes the file.
+    packages: Vec<&'a str>,
 }
 
 impl Unit<'_> {
@@ -222,14 +227,16 @@ impl Deadline {
 }
 
 pub(crate) fn analyze(
+    metadata: &Metadata,
     enumeration: &Enumeration,
     plan: &PolicyPlan,
     settings: &StructureSettings,
 ) -> StructureScan {
-    analyze_within(enumeration, plan, settings, TIME_BUDGET)
+    analyze_within(metadata, enumeration, plan, settings, TIME_BUDGET)
 }
 
 fn analyze_within(
+    metadata: &Metadata,
     enumeration: &Enumeration,
     plan: &PolicyPlan,
     settings: &StructureSettings,
@@ -242,7 +249,8 @@ fn analyze_within(
         .collect();
     let duplication = duplication::Active::of(plan);
     let hotspots = hotspots::Active::of(plan);
-    if detectors.is_empty() && !duplication.any() && !hotspots.any() {
+    let manifest = manifest::Active::of(plan);
+    if detectors.is_empty() && !duplication.any() && !hotspots.any() && !manifest.any() {
         return StructureScan::default();
     }
 
@@ -251,6 +259,7 @@ fn analyze_within(
     let mut errors = Vec::new();
     let mut families = BTreeMap::<(&'static str, String), Family>::new();
     let mut functions = Vec::new();
+    let mut uses = manifest::Uses::default();
     for unit in enumeration.units() {
         if deadline.exceeded() {
             stopped = true;
@@ -281,6 +290,7 @@ fn analyze_within(
             line_starts: line_starts(unit.source()),
             path: unit.relative_path(),
             context: unit.context(enumeration.contexts()),
+            packages: unit.package_ids().collect(),
         };
         for detector in &detectors {
             for observation in (detector.observe)(&analysed, settings) {
@@ -300,6 +310,24 @@ fn analyze_within(
             // tree it was read from, so the walk stays linear in memory
             // whatever the size of the workspace.
             functions.extend(duplication::observe(&analysed));
+        }
+        if manifest.any() {
+            // The two manifest detectors decide after the walk, on the whole
+            // workspace: what they take from a unit is what it reaches and what
+            // it reads, never a finding.
+            manifest::observe(&analysed, manifest, &mut uses);
+        }
+    }
+
+    // The manifest detectors run on what the walk collected, and on the
+    // workspace description the walk never reads. A stopped pass leaves them
+    // out: an orphan is an absence of reachability, and half a walk cannot tell
+    // an unreached file from an unvisited one.
+    if manifest.any() && !stopped {
+        for (definition, path, observation) in
+            manifest::findings(metadata, enumeration, manifest, &uses)
+        {
+            record(&mut families, definition.id, &path, observation);
         }
     }
 
@@ -614,6 +642,7 @@ mod tests {
                 line_starts: line_starts(unit.source()),
                 path: unit.relative_path(),
                 context: unit.context(enumeration.contexts()),
+                packages: unit.package_ids().collect(),
             };
             functions.extend(duplication::observe(&analysed));
         }
@@ -634,6 +663,7 @@ mod tests {
     #[test]
     fn an_empty_enumeration_produces_neither_finding_nor_error() {
         let scan = analyze(
+            &metadata("structure/empty"),
             &Enumeration::default(),
             &PolicyPlan::default(),
             &StructureSettings::default(),
@@ -645,8 +675,10 @@ mod tests {
     /// completes over every other unit of the same workspace.
     #[test]
     fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
-        let enumeration = enumerate(&metadata("source-kernel/errors"));
+        let errors = metadata("source-kernel/errors");
+        let enumeration = enumerate(&errors);
         let scan = analyze(
+            &errors,
             &enumeration,
             &PolicyPlan::default(),
             &StructureSettings::default(),
@@ -683,8 +715,10 @@ mod tests {
     /// score.
     #[test]
     fn an_exhausted_budget_stops_the_pass_and_says_so() {
-        let enumeration = enumerate(&metadata("structure/duplicate-function"));
+        let duplicates = metadata("structure/duplicate-function");
+        let enumeration = enumerate(&duplicates);
         let stopped = analyze_within(
+            &duplicates,
             &enumeration,
             &PolicyPlan::default(),
             &StructureSettings::default(),
@@ -711,6 +745,7 @@ mod tests {
         // The same workspace under the shipped budget finishes, so the stop
         // above is the budget and not the workspace.
         let complete = analyze(
+            &duplicates,
             &enumeration,
             &PolicyPlan::default(),
             &StructureSettings::default(),
@@ -723,12 +758,13 @@ mod tests {
     /// costs nothing when it is.
     #[test]
     fn an_inactive_rule_leaves_the_pass_with_nothing_to_do() {
-        let enumeration = enumerate(&metadata("structure/unreasoned-allow"));
+        let allows = metadata("structure/unreasoned-allow");
+        let enumeration = enumerate(&allows);
         let input =
             crate::policy::PolicyInput::default().with_rule(STRUCTURE_UNREASONED_ALLOW.id, crate::policy::RuleLevel::Off);
         let plan = PolicyPlan::compile(&input).expect("policy should compile");
         assert!(
-            analyze(&enumeration, &plan, &StructureSettings::default())
+            analyze(&allows, &enumeration, &plan, &StructureSettings::default())
                 .findings
                 .iter()
                 .all(|finding| finding.definition.id != STRUCTURE_UNREASONED_ALLOW.id),
@@ -736,6 +772,7 @@ mod tests {
         );
         assert!(
             !analyze(
+                &allows,
                 &enumeration,
                 &PolicyPlan::default(),
                 &StructureSettings::default()
@@ -752,6 +789,7 @@ mod tests {
             line_starts: line_starts(source),
             path: "src/lib.rs",
             context,
+            packages: Vec::new(),
         };
         unreasoned_allow(&unit, &StructureSettings::default())
     }
@@ -1052,6 +1090,7 @@ mod benchmark {
         for _ in 0..if cfg!(debug_assertions) { 1 } else { 3 } {
             let started = Instant::now();
             scan = analyze_within(
+                &metadata,
                 &enumeration,
                 &PolicyPlan::default(),
                 &StructureSettings::default(),

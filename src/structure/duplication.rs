@@ -518,6 +518,7 @@ mod tests {
             line_starts: line_starts(source),
             path: "src/lib.rs",
             context: None,
+            packages: Vec::new(),
         }
     }
 

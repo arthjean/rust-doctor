@@ -352,7 +352,7 @@ fn execute_target(
             result.source = Some(source_kernel::inspect(&enumeration, plan));
         }
         if plan.active_rules(Producer::Structure).next().is_some() {
-            result.structure = Some(structure::analyze(&enumeration, plan, settings));
+            result.structure = Some(structure::analyze(metadata, &enumeration, plan, settings));
         }
     }
 

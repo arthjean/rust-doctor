@@ -1,0 +1,24 @@
+[package]
+name = "feature-inventory-app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Read by Cargo itself, never by a cfg: an empty default is not a dead feature.
+default = []
+# Read by a cfg of this package.
+read = []
+# Reads nothing, but turning it on turns something on.
+alias = ["read"]
+# Nothing reads it and it activates nothing.
+unused = []
+
+[lints.rust]
+# This fixture deliberately writes two cfg values the manifest does not
+# declare. Silencing the toolchain's own complaint keeps its report about the
+# rule under test.
+unexpected_cfgs = "allow"

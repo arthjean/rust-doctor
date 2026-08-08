@@ -828,12 +828,22 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::structure::orphan_module_file",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::structure::oversized_unit",
       "tier": "P3"
     },
     {
       "default_level": "warn",
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::structure::unreferenced_feature",
       "tier": "P3"
     }
   ],
@@ -887,8 +897,10 @@
       "rust_doctor::structure::complex_function",
       "rust_doctor::structure::duplicate_function_body",
       "rust_doctor::structure::near_duplicate_function_body",
+      "rust_doctor::structure::orphan_module_file",
       "rust_doctor::structure::oversized_unit",
-      "rust_doctor::structure::unreasoned_allow_attribute"
+      "rust_doctor::structure::unreasoned_allow_attribute",
+      "rust_doctor::structure::unreferenced_feature"
     ],
     "noisy_on_healthy_code": [
       "clippy::exit",
@@ -937,8 +949,10 @@
       "rust_doctor::structure::complex_function",
       "rust_doctor::structure::duplicate_function_body",
       "rust_doctor::structure::near_duplicate_function_body",
+      "rust_doctor::structure::orphan_module_file",
       "rust_doctor::structure::oversized_unit",
-      "rust_doctor::structure::unreasoned_allow_attribute"
+      "rust_doctor::structure::unreasoned_allow_attribute",
+      "rust_doctor::structure::unreferenced_feature"
     ],
     "verdict": "passed"
   },
@@ -1103,11 +1117,11 @@
     {
       "authoritative": true,
       "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
-      "distinct": 55,
+      "distinct": 56,
       "exit_code": 0,
-      "findings_digest": "763bad962d22e7a4ef2e470ec3e324b42478e1283367548ceacedaf2eb06a314",
+      "findings_digest": "620ca79634375bc723696292fdaca81cef252578e2f4bd9de1a5639482e6e978",
       "name": "anyhow",
-      "occurrences": 97,
+      "occurrences": 98,
       "outcome": "processed",
       "rules": [
         {
@@ -1149,6 +1163,11 @@
           "distinct": 18,
           "id": "rust_doctor::structure::unreasoned_allow_attribute",
           "occurrences": 24
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::structure::unreferenced_feature",
+          "occurrences": 1
         }
       ],
       "score": {
@@ -1487,11 +1506,11 @@
     {
       "authoritative": true,
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
-      "distinct": 639,
+      "distinct": 645,
       "exit_code": 0,
-      "findings_digest": "78a67b422b7732c20ceeed0ebfabab4a1b864dc45d482c2d2dec511747a54dca",
+      "findings_digest": "e76e81cd7e547a6d82d4e61d23e4fcee32edac84f1c754a3307be8887ab5a879",
       "name": "ripgrep",
-      "occurrences": 1256,
+      "occurrences": 1262,
       "outcome": "processed",
       "rules": [
         {
@@ -1573,6 +1592,11 @@
           "distinct": 4,
           "id": "rust_doctor::structure::unreasoned_allow_attribute",
           "occurrences": 17
+        },
+        {
+          "distinct": 6,
+          "id": "rust_doctor::structure::unreferenced_feature",
+          "occurrences": 6
         }
       ],
       "score": {
@@ -2240,6 +2264,16 @@
     {
       "false_positive_rate_basis_points": null,
       "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::structure::orphan_module_file",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
       "findings": 58,
       "id": "rust_doctor::structure::oversized_unit",
       "reviewed": 0,
@@ -2252,6 +2286,16 @@
       "false_positives": null,
       "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "reviewed": 0,
+      "status": "incomplete",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 7,
+      "id": "rust_doctor::structure::unreferenced_feature",
       "reviewed": 0,
       "status": "incomplete",
       "tier": "P3",

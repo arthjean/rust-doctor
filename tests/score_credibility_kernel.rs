@@ -75,7 +75,7 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
 fn every_published_rule_carries_a_closed_tier() {
     let report = json_report(&adversarial());
     let rules = report["policy"]["rules"].as_array().expect("policy rules");
-    assert_eq!(rules.len(), 49);
+    assert_eq!(rules.len(), 51);
 
     let mut blocking = Vec::new();
     for rule in rules {

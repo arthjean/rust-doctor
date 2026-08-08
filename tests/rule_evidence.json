@@ -238,6 +238,11 @@
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
     },
     {
+      "catches": "a Rust file no module declaration of its package reaches, which Cargo therefore never compiles",
+      "id": "rust_doctor::structure::orphan_module_file",
+      "test": "tests/structure_kernel.rs::the_orphan_rule_names_the_file_cargo_never_compiles"
+    },
+    {
       "catches": "a file, function, impl block or module grown past the line count a reviewer holds in one sitting",
       "id": "rust_doctor::structure::oversized_unit",
       "test": "tests/structure_kernel.rs::the_oversized_units_reach_the_report_and_the_generated_file_does_not"
@@ -246,6 +251,11 @@
       "catches": "an #[allow] attribute that switches a lint off without a reason argument",
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
       "test": "tests/structure_kernel.rs::the_structural_pass_publishes_one_diagnostic_per_family"
+    },
+    {
+      "catches": "a feature the manifest declares that no cfg reads and that activates nothing, or a cfg(feature = \"...\") naming a feature its own package does not declare",
+      "id": "rust_doctor::structure::unreferenced_feature",
+      "test": "tests/structure_kernel.rs::the_feature_inventory_reports_both_sides_of_the_disagreement"
     }
   ]
 }

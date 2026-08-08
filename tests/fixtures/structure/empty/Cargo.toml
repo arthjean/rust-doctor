@@ -1,0 +1,12 @@
+[package]
+name = "structure-empty"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# A manifest that describes a library whose source file does not exist yet.
+# Cargo still describes the package, the source kernel enumerates nothing, and
+# the structural pass has to return an empty result rather than report every
+# file of a workspace it never walked.
+[lib]
+path = "src/lib.rs"
