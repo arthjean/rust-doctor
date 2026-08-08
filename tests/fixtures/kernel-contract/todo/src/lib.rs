@@ -12,7 +12,7 @@ pub fn aliased() -> u8 {
     aliased_todo!()
 }
 
-#[allow(clippy::todo)]
+#[allow(clippy::todo, reason = "the fixture pairs a reported form with a silenced one")]
 pub fn allowed() -> u8 {
     todo!()
 }

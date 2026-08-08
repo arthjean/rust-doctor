@@ -22,7 +22,7 @@ pub fn positive_format_collect(values: &[u8]) -> String {
 }
 
 /// clippy::manual_memcpy
-#[allow(clippy::indexing_slicing)]
+#[allow(clippy::indexing_slicing, reason = "the admission contract requires a silent counterpart")]
 pub fn positive_manual_memcpy(source: &[u8], destination: &mut [u8]) {
     for index in 0..source.len() {
         destination[index] = source[index];

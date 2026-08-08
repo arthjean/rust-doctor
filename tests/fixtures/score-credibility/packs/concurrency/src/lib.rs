@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 /// Trivial future shared by the cases of the pack. It awaits nothing, so it
 /// aims at `unused_async`: the lint is neutralized here so that only the
 /// dedicated positive case triggers it.
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async, reason = "the admission contract requires a silent counterpart")]
 async fn ready(value: u8) -> u8 {
     value
 }
@@ -31,7 +31,7 @@ pub fn positive_arc_with_non_send_sync() -> Arc<RefCell<u8>> {
 }
 
 /// clippy::await_holding_lock
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub async fn positive_await_holding_lock(guarded: &Mutex<u8>) -> u8 {
     let value = guarded.lock().unwrap();
     ready(*value).await
@@ -44,7 +44,7 @@ pub async fn positive_await_holding_refcell_ref(guarded: &Rc<RefCell<u8>>) -> u8
 }
 
 /// clippy::mut_mutex_lock
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub fn positive_mut_mutex_lock(guarded: &mut Mutex<u8>) -> u8 {
     *guarded.lock().unwrap()
 }
@@ -55,7 +55,7 @@ pub async fn positive_unused_async(value: u8) -> u8 {
 }
 
 /// clippy::rc_mutex
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 fn positive_rc_mutex(guarded: Rc<Mutex<u8>>) -> u8 {
     *guarded.lock().unwrap()
 }

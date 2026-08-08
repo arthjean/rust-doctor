@@ -12,7 +12,7 @@ pub fn aliased(value: u8) -> u8 {
     aliased_dbg!(value)
 }
 
-#[allow(clippy::dbg_macro)]
+#[allow(clippy::dbg_macro, reason = "the fixture pairs a reported form with a silenced one")]
 pub fn allowed(value: u8) -> u8 {
     dbg!(value)
 }

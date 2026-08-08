@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 /// Trivial future shared by the cases of the pack. It awaits nothing, so it
 /// aims at `unused_async`: the lint is neutralized here so that only the
 /// dedicated positive case triggers it.
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async, reason = "the admission contract requires a silent counterpart")]
 async fn ready(value: u8) -> u8 {
     value
 }
@@ -21,7 +21,7 @@ pub fn negative_arc_with_non_send_sync() -> Arc<Mutex<u8>> {
 }
 
 /// negative_await_holding_lock
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub async fn negative_await_holding_lock(guarded: &Mutex<u8>) -> u8 {
     let value = *guarded.lock().unwrap();
     ready(value).await
@@ -44,7 +44,7 @@ pub async fn negative_unused_async(value: u8) -> u8 {
 }
 
 /// negative_rc_mutex
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 fn negative_rc_mutex(guarded: Rc<RefCell<u8>>) -> u8 {
     *guarded.borrow()
 }
@@ -55,39 +55,39 @@ pub fn negative_private_signatures(guarded: Rc<RefCell<u8>>) -> u8 {
 }
 
 /// negative_allowed_arc_with_non_send_sync
-#[allow(clippy::arc_with_non_send_sync)]
+#[allow(clippy::arc_with_non_send_sync, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_arc_with_non_send_sync() -> Arc<RefCell<u8>> {
     Arc::new(RefCell::new(0))
 }
 
 /// negative_allowed_await_holding_lock
-#[allow(clippy::await_holding_lock, clippy::unwrap_used)]
+#[allow(clippy::await_holding_lock, clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub async fn negative_allowed_await_holding_lock(guarded: &Mutex<u8>) -> u8 {
     let value = guarded.lock().unwrap();
     ready(*value).await
 }
 
 /// negative_allowed_await_holding_refcell_ref
-#[allow(clippy::await_holding_refcell_ref)]
+#[allow(clippy::await_holding_refcell_ref, reason = "the admission contract requires a silent counterpart")]
 pub async fn negative_allowed_await_holding_refcell_ref(guarded: &Rc<RefCell<u8>>) -> u8 {
     let value = guarded.borrow();
     ready(*value).await
 }
 
 /// negative_allowed_mut_mutex_lock
-#[allow(clippy::mut_mutex_lock, clippy::unwrap_used)]
+#[allow(clippy::mut_mutex_lock, clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_mut_mutex_lock(guarded: &mut Mutex<u8>) -> u8 {
     *guarded.lock().unwrap()
 }
 
 /// negative_allowed_unused_async
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async, reason = "the admission contract requires a silent counterpart")]
 pub async fn negative_allowed_unused_async(value: u8) -> u8 {
     value
 }
 
 /// negative_allowed_rc_mutex
-#[allow(clippy::rc_mutex, clippy::unwrap_used)]
+#[allow(clippy::rc_mutex, clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 fn negative_allowed_rc_mutex(guarded: Rc<Mutex<u8>>) -> u8 {
     *guarded.lock().unwrap()
 }

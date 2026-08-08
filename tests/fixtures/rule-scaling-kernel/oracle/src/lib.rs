@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, reason = "the fixture surface exists to be scanned, not linked")]
 
 #[cfg(not(any(feature = "allowed", feature = "denied", feature = "local-macro")))]
 mod direct {
@@ -65,8 +65,8 @@ mod direct {
     clippy::non_send_fields_in_send_ty,
     clippy::permissions_set_readonly_false,
     clippy::suspicious_command_arg_space,
-    clippy::zombie_processes
-)]
+    clippy::zombie_processes,
+    reason = "scanned, not linked")]
 mod allowed {
     use std::rc::Rc;
 

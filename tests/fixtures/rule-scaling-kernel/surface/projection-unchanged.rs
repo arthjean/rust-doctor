@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, reason = "the fixture surface exists to be scanned, not linked")]
 
 struct DropResource;
 

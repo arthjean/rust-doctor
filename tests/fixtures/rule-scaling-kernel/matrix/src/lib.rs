@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, reason = "the fixture surface exists to be scanned, not linked")]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod positives {
@@ -143,7 +143,7 @@ mod negatives {
     }
 
     // matrix-case:mem-forget-local-suppression
-    #[allow(clippy::mem_forget)]
+    #[allow(clippy::mem_forget, reason = "the fixture surface exists to be scanned, not linked")]
     pub fn suppressed_forget(value: String) {
         std::mem::forget(value);
     }
@@ -228,7 +228,7 @@ mod negatives {
     }
 
     // matrix-case:permissions-local-suppression
-    #[allow(clippy::permissions_set_readonly_false)]
+    #[allow(clippy::permissions_set_readonly_false, reason = "the fixture surface exists to be scanned, not linked")]
     pub fn suppressed_clear(mut permissions: std::fs::Permissions) {
         permissions.set_readonly(false);
     }
@@ -318,7 +318,7 @@ mod negatives {
     }
 
     // matrix-case:zombie-local-suppression
-    #[allow(clippy::zombie_processes)]
+    #[allow(clippy::zombie_processes, reason = "the fixture surface exists to be scanned, not linked")]
     pub fn suppressed_abandon() -> std::io::Result<()> {
         Command::new("true").spawn()?;
         Ok(())

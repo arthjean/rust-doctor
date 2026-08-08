@@ -53,7 +53,7 @@ pub fn positive_string_slice(value: &str) -> &str {
 }
 
 /// clippy::panic_in_result_fn
-#[allow(clippy::panic)]
+#[allow(clippy::panic, reason = "the admission contract requires a silent counterpart")]
 pub fn positive_panic_in_result_fn(value: u8) -> Result<u8, u8> {
     if value == 0 {
         panic!("the value must not be zero");

@@ -14,17 +14,17 @@ pub fn negative_strings() -> (&'static str, &'static str, &'static str) {
     )
 }
 
-#[allow(clippy::dbg_macro)]
+#[allow(clippy::dbg_macro, reason = "the fixture pairs a reported form with a silenced one")]
 pub fn negative_allowed_dbg(value: u8) -> u8 {
     dbg!(value)
 }
 
-#[allow(clippy::todo)]
+#[allow(clippy::todo, reason = "the fixture pairs a reported form with a silenced one")]
 pub fn negative_allowed_todo() -> u8 {
     todo!()
 }
 
-#[allow(clippy::unimplemented)]
+#[allow(clippy::unimplemented, reason = "the fixture pairs a reported form with a silenced one")]
 pub fn negative_allowed_unimplemented() -> u8 {
     unimplemented!()
 }

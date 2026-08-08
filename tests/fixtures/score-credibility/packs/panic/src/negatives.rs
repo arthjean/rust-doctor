@@ -65,25 +65,25 @@ pub fn negative_print_stderr(value: u8, sink: &mut String) {
 }
 
 /// negative_allowed_unwrap_used
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_unwrap_used(value: Option<u8>) -> u8 {
     value.unwrap()
 }
 
 /// negative_allowed_expect_used
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_expect_used(value: Option<u8>) -> u8 {
     value.expect("locally allowed")
 }
 
 /// negative_allowed_panic
-#[allow(clippy::panic)]
+#[allow(clippy::panic, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_panic() -> u8 {
     panic!("locally allowed")
 }
 
 /// negative_allowed_unreachable
-#[allow(clippy::unreachable)]
+#[allow(clippy::unreachable, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_unreachable(value: u8) -> u8 {
     match value {
         0..=254 => value,
@@ -92,25 +92,25 @@ pub fn negative_allowed_unreachable(value: u8) -> u8 {
 }
 
 /// negative_allowed_exit
-#[allow(clippy::exit)]
+#[allow(clippy::exit, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_exit() -> u8 {
     std::process::exit(1)
 }
 
 /// negative_allowed_indexing_slicing
-#[allow(clippy::indexing_slicing)]
+#[allow(clippy::indexing_slicing, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_indexing_slicing(values: &[u8]) -> u8 {
     values[0]
 }
 
 /// negative_allowed_string_slice
-#[allow(clippy::string_slice)]
+#[allow(clippy::string_slice, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_string_slice(value: &str) -> &str {
     &value[0..2]
 }
 
 /// negative_allowed_panic_in_result_fn
-#[allow(clippy::panic, clippy::panic_in_result_fn)]
+#[allow(clippy::panic, clippy::panic_in_result_fn, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_panic_in_result_fn(value: u8) -> Result<u8, u8> {
     if value == 0 {
         panic!("locally allowed");
@@ -119,13 +119,13 @@ pub fn negative_allowed_panic_in_result_fn(value: u8) -> Result<u8, u8> {
 }
 
 /// negative_allowed_print_stdout
-#[allow(clippy::print_stdout)]
+#[allow(clippy::print_stdout, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_print_stdout(value: u8) {
     println!("value: {value}");
 }
 
 /// negative_allowed_print_stderr
-#[allow(clippy::print_stderr)]
+#[allow(clippy::print_stderr, reason = "the admission contract requires a silent counterpart")]
 pub fn negative_allowed_print_stderr(value: u8) {
     eprintln!("value: {value}");
 }
