@@ -403,7 +403,7 @@ one gate, one baseline, not a fourth point tool.
 
 Measure what the structural rules actually do, on both healthy public Rust and on agent-generated Rust, and publish both numbers.
 
-**Definition of Done:** `tests/corpus.json` carries adjudicated precision for every structural rule on both populations, and the README states both figures.
+**Definition of Done:** `tests/corpus.json` carries adjudicated precision for every structural rule on the healthy population, per-rule findings and structural density for both populations, and the README states both figures. Adjudicating the agent population site by site is explicitly out of scope here, per US-020, and the README says so rather than implying a rate that was never read; it is future work, not silent debt.
 
 #### US-017: Structural rules measured on the existing pinned corpus
 **Description:** As a maintainer, I want the structural rules replayed against the ten pinned public repositories so that their noise rate on healthy Rust is published rather than asserted.
