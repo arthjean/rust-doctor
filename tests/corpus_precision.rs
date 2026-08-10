@@ -24,8 +24,8 @@ use support::corpus::{
     GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, Manifest, ManifestEntry, Observation,
     PrecisionStatus, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite, RuleObservation,
     RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict, artifact,
-    catalog_from_report, curated_findings, evidence_holds, gate, manifest_defects,
-    missing_repositories, precision, run, score_distribution,
+    catalog_from_report, curated_findings, density_milli, evidence_holds, gate, manifest_defects,
+    missing_repositories, precision, run, rust_line_count, score_distribution, structural_findings,
 };
 
 static NEXT_SCOPE: AtomicUsize = AtomicUsize::new(0);
@@ -268,8 +268,20 @@ fn a_truncated_or_mutable_revision_is_refused_and_named_without_leaking_a_path()
 
 #[test]
 fn no_corpus_repository_is_committed_in_this_repository() {
-    let manifest = artifact().manifest;
-    let names: BTreeSet<&str> = manifest.repositories.iter().map(|entry| entry.name.as_str()).collect();
+    let artifact = artifact();
+    let manifest = &artifact.manifest;
+    let names: BTreeSet<&str> = manifest
+        .repositories
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .chain(
+            artifact
+                .agent_population
+                .repositories
+                .iter()
+                .map(|entry| entry.name.as_str()),
+        )
+        .collect();
     let output = Command::new("git")
         .arg("-C")
         .arg(env!("CARGO_MANIFEST_DIR"))
@@ -506,6 +518,38 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
         sampled.false_positive_rate_basis_points.unwrap(),
         sampled.false_positives.unwrap() * 10_000 / sampled.findings
     );
+}
+
+/// A structural rate is a production rate.
+///
+/// A family marked as a test, benchmark, example or build-script context is
+/// published and counted but does not weigh on the score, and healthy test
+/// suites duplicate on purpose, one named case per scenario. Measuring a
+/// structural rule over those families publishes the cost of an idiom rather
+/// than the cost of the rule, so the sample is drawn from the production
+/// subpopulation and this test is what keeps it there.
+#[test]
+fn every_reviewed_structural_site_is_production_context() {
+    let artifact = artifact();
+    let structural: Vec<&ReviewedSite> = artifact
+        .adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.rule.starts_with("rust_doctor::structure::"))
+        .collect();
+
+    assert!(!structural.is_empty());
+    for site in structural {
+        assert_eq!(
+            site.context,
+            SiteContext::Production,
+            "{}/{} at {}:{}",
+            site.repository,
+            site.rule,
+            site.path,
+            site.line
+        );
+    }
 }
 
 #[test]
@@ -818,13 +862,11 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// corpus does not publish. Registration is nominative and one-way: a proven
 /// rule leaves it, none enters without the validation saying so.
 ///
-/// Two reasons put a rule here, and the second is not the first. Most of these
-/// names are `unobserved`: the corpus never triggered them, because a healthy
-/// repository does not commit the defect they aim at. The three structural
-/// rules are `incomplete`, which is the opposite situation: the corpus triggers
-/// them 459, 290 and 68 times, and not one of those sites has been adjudicated
-/// yet. The rate is withheld rather than assumed, and EP-005 is where it gets
-/// measured.
+/// Every name here is `unobserved`: the corpus never triggered it, because a
+/// healthy repository does not commit the defect it aims at. The six structural
+/// rules that used to sit here as `incomplete` left on 2026-08-09, when their
+/// corpus sites were adjudicated and their rates published; only
+/// `orphan_module_file` remains, which the ten repositories never triggered.
 ///
 /// Three entries were added on 2026-08-04, which the one-way rule normally
 /// forbids. They do not cover a rule admitted without evidence: they cover the
@@ -834,7 +876,7 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-const ADMISSION_DEBT: [&str; 35] = [
+const ADMISSION_DEBT: [&str; 29] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -863,13 +905,7 @@ const ADMISSION_DEBT: [&str; 35] = [
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
-    "rust_doctor::structure::complex_function",
-    "rust_doctor::structure::duplicate_function_body",
-    "rust_doctor::structure::near_duplicate_function_body",
     "rust_doctor::structure::orphan_module_file",
-    "rust_doctor::structure::oversized_unit",
-    "rust_doctor::structure::unreasoned_allow_attribute",
-    "rust_doctor::structure::unreferenced_feature",
 ];
 
 /// The threshold is enforceable here, and nowhere else: this test fails as soon
@@ -966,6 +1002,185 @@ fn the_published_catalog_matches_the_shipped_policy() {
     run(&paths(&cache, &artifacts, &binary), &manifest, &SCAN_ARGUMENTS).unwrap();
     let shipped = catalog_from_report(&report_of(&artifacts, "alpha-lib"));
     assert_eq!(shipped, artifact().catalog);
+}
+
+// ---------------------------------------------------------------------------
+// US-019: agent-generated population
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_agent_population_pins_at_least_five_repositories_with_mechanical_evidence() {
+    let population = artifact().agent_population;
+    assert!(population.repositories.len() >= 5);
+    assert!(population.selection_criterion.len() > 80);
+
+    let mut names = BTreeSet::new();
+    for repository in &population.repositories {
+        let name = repository.name.as_str();
+        assert_eq!(repository.commit.len(), 40, "{name}");
+        assert!(
+            repository
+                .commit
+                .chars()
+                .all(|value| value.is_ascii_hexdigit() && !value.is_ascii_uppercase()),
+            "{name}"
+        );
+        assert!(names.insert(name), "{name} pinned twice");
+        assert!(
+            repository.url.starts_with("https://") && repository.url.ends_with(".git"),
+            "{name}"
+        );
+        assert!(!repository.marker.trim().is_empty(), "{name}");
+        assert!(repository.rationale.len() > 20, "{name}");
+        // The selection threshold, falsifiable from the pinned history alone:
+        // at least half of the reachable commits carry the marker.
+        assert!(repository.total_commits > 0, "{name}");
+        assert!(repository.marked_commits <= repository.total_commits, "{name}");
+        assert!(
+            repository.marked_commits * 2 >= repository.total_commits,
+            "{name}: {} of {} commits carry the marker",
+            repository.marked_commits,
+            repository.total_commits
+        );
+    }
+}
+
+/// The agent population executes no untrusted build code: every Clippy rule is
+/// turned off, which the confinement proofs show keeps Cargo out entirely, and
+/// no observation may carry a Clippy finding.
+#[test]
+fn the_agent_population_is_scanned_without_executing_untrusted_build_code() {
+    let artifact = artifact();
+    let population = &artifact.agent_population;
+
+    for rule in artifact.catalog.iter().filter(|rule| rule.id.starts_with("clippy::")) {
+        assert!(
+            population.scan_arguments.contains(&format!("{}=off", rule.id)),
+            "{} stays active on untrusted code",
+            rule.id
+        );
+    }
+    for observation in &population.observations {
+        assert!(
+            observation
+                .rules
+                .iter()
+                .all(|rule| !rule.id.starts_with("clippy::")),
+            "{} carries a Clippy finding",
+            observation.name
+        );
+    }
+}
+
+/// Both populations publish per-rule findings, and the density ratio is
+/// recomputable from the published quantities. A ratio at or below 1.0 is
+/// published as a refutation, never omitted.
+#[test]
+fn the_density_ratio_is_published_for_both_populations_whatever_its_verdict() {
+    let artifact = artifact();
+    let density = &artifact.agent_population.structural_density;
+
+    assert!(
+        artifact
+            .agent_population
+            .observations
+            .iter()
+            .any(|observation| !observation.rules.is_empty()),
+        "the agent population publishes per-rule findings"
+    );
+    assert_eq!(density.healthy.findings, structural_findings(&artifact.observations));
+    assert_eq!(
+        density.agent.findings,
+        structural_findings(&artifact.agent_population.observations)
+    );
+    for side in [&density.healthy, &density.agent] {
+        assert!(side.lines > 0);
+        assert_eq!(
+            side.per_thousand_lines_milli,
+            density_milli(side.findings, side.lines)
+        );
+    }
+    assert_eq!(
+        density.ratio_milli,
+        density
+            .agent
+            .per_thousand_lines_milli
+            .saturating_mul(1_000)
+            / density.healthy.per_thousand_lines_milli
+    );
+    assert_eq!(density.refutes_density_assumption, density.ratio_milli <= 1_000);
+}
+
+/// Replays the agent population from the local cache: observations, selection
+/// evidence and line counts all reproduce. Runs under its own artifacts
+/// subdirectory so the healthy reproduction can run concurrently.
+#[test]
+fn the_agent_population_reproduces_from_the_local_cache() {
+    let (Some(cache), Some(artifacts)) = (
+        env::var_os(CACHE_DIRECTORY_ENV),
+        env::var_os(ARTIFACTS_DIRECTORY_ENV),
+    ) else {
+        return;
+    };
+    let cache = PathBuf::from(cache);
+    let artifacts = PathBuf::from(artifacts).join("agent-replay");
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !artifacts.starts_with(repository) && !cache.starts_with(repository),
+        "the corpus and its artifacts belong outside this repository"
+    );
+    let published = artifact();
+    let population = &published.agent_population;
+    let binary = binary();
+
+    let arguments: Vec<&str> = population.scan_arguments.iter().map(String::as_str).collect();
+    let replayed = run(&paths(&cache, &artifacts, &binary), &population.manifest(), &arguments).unwrap();
+    if replayed.observations != population.observations {
+        fs::write(
+            artifacts.join("agent-observations.json"),
+            serde_json::to_vec_pretty(&replayed.observations).unwrap(),
+        )
+        .unwrap();
+    }
+    assert_eq!(replayed.observations, population.observations);
+
+    // The selection evidence recounts from the pinned history alone.
+    for entry in &population.repositories {
+        let log = Command::new("git")
+            .arg("-C")
+            .arg(cache.join(&entry.name))
+            .args(["log", "--format=%B%x00", &entry.commit])
+            .output()
+            .unwrap();
+        assert!(log.status.success(), "{}", entry.name);
+        let messages = String::from_utf8_lossy(&log.stdout);
+        let total = messages.split('\0').filter(|message| !message.trim().is_empty()).count() as u64;
+        let marked = messages
+            .split('\0')
+            .filter(|message| message.contains(&entry.marker))
+            .count() as u64;
+        assert_eq!(total, entry.total_commits, "{}", entry.name);
+        assert_eq!(marked, entry.marked_commits, "{}", entry.name);
+    }
+
+    // Line counts recount from freshly materialised trees of both populations.
+    let mut agent_lines = 0;
+    for entry in &population.repositories {
+        agent_lines += rust_line_count(&artifacts.join("work").join(&entry.name));
+    }
+    assert_eq!(agent_lines, population.structural_density.agent.lines);
+
+    let mut healthy_lines = 0;
+    for entry in &published.manifest.repositories {
+        let work = artifacts.join("healthy-trees").join(&entry.name);
+        if work.exists() {
+            fs::remove_dir_all(&work).unwrap();
+        }
+        fs::create_dir_all(&work).unwrap();
+        support::corpus::materialise(&cache.join(&entry.name), &entry.commit, &artifacts, &work);
+        healthy_lines += rust_line_count(&work);
+    }
+    assert_eq!(healthy_lines, population.structural_density.healthy.lines);
 }
 
 // ---------------------------------------------------------------------------

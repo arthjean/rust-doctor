@@ -1,6 +1,6 @@
 {
   "adjudication": {
-    "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect.",
+    "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
     "reviewed": [
       {
         "context": "build_script",
@@ -514,9 +514,414 @@
         "repository": "fd",
         "rule": "rust_doctor::cargo::duplicate_major_versions",
         "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A flat boolean filter enumeration; the branch count is the clause count and the flat chain is the clearest available form.",
+        "line": 21,
+        "path": "src/filetypes.rs",
+        "repository": "fd",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A 211-line run function at cyclomatic 52 parsing options, opening inputs and configuring output in one body; decomposition is feasible and would be accepted.",
+        "line": 240,
+        "path": "src/main.rs",
+        "repository": "hexyl",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Cognitive complexity 47 from nested matcher-precedence loops; naming the precedence stages would genuinely help a reader.",
+        "line": 546,
+        "path": "crates/ignore/src/dir.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "An exhaustive match over HirKind; the branch count is the case analysis the domain requires and cognitive complexity stays low.",
+        "line": 51,
+        "path": "crates/regex/src/strip.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "UTF-16 surrogate pairing is essential complexity in a tight documented loop; splitting it would obscure the algorithm.",
+        "line": 897,
+        "path": "src/read.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "put_uint_le and put_int_le carry byte-identical four-statement bodies; a private helper over the eight-byte array serves both without touching the public trait methods.",
+        "line": 971,
+        "path": "src/buf/buf_mut.rs",
+        "repository": "bytes",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "advance_mut is copied verbatim, explanatory comment included, into the BufMut impls for &mut [u8] and &mut [MaybeUninit<u8>]; take and split_at_mut are generic, so one helper serves both.",
+        "line": 1496,
+        "path": "src/buf/buf_mut.rs",
+        "repository": "bytes",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "release_shared is duplicated between bytes.rs and bytes_mut.rs down to its twenty-line memory-ordering comment, differing only in the counter field name; the reference-counting invariant belongs in one place.",
+        "line": 1541,
+        "path": "src/bytes.rs",
+        "repository": "bytes",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Parallel Visitor impls for Level and LevelFilter over a three-statement body whose only difference is the seed type; the crate writes its serde surface out for both enums deliberately.",
+        "line": 95,
+        "path": "src/serde.rs",
+        "repository": "log",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Four Flag trait impls of the declarative flag table; the search mode is the erased difference and one explicit type per flag is the file's design.",
+        "line": 1294,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Five flag impls assigning a different field from a switch; the flag table is deliberately explicit and the impls cannot merge.",
+        "line": 1484,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Two separator flags parsing through their own type; the erased type alias is the whole difference.",
+        "line": 1812,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Three glob-collecting flags pushing onto different fields; same flag-table pattern.",
+        "line": 2554,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Five boolean switch flags; the assigned field is erased and the table is the design.",
+        "line": 4302,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "--sort and --sortr repeat the entire ten-line sort-kind parse table to differ in one boolean; a helper taking that boolean removes the copy and keeps the two flags in step.",
+        "line": 6358,
+        "path": "crates/core/flags/defs.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The Match and Context serializers list the same five fields in the same order, differing only in the struct-name literal; one macro or shared function serves both wire messages.",
+        "line": 95,
+        "path": "crates/printer/src/jsont.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "extract_class_unicode and extract_class_bytes walk sibling class types that share no trait; the eight-line repetition is what the type system leaves behind.",
+        "line": 317,
+        "path": "crates/regex/src/literal.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "sink_before_context and sink_other_context repeat a twenty-five-line scaffold differing only in SinkContextKind; a kind parameter removes the second copy.",
+        "line": 556,
+        "path": "crates/searcher/src/searcher/core.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "deserialize_seq and deserialize_map repeat a twenty-five-line peek, recurse and end scaffold differing in one byte literal and the visitor call; the crate already macros comparable families.",
+        "line": 1735,
+        "path": "src/de.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Two visitor impls over a three-statement body whose only difference is the seed type; parallel impls for the borrowed and boxed forms.",
+        "line": 326,
+        "path": "src/raw.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Eleven serialize_* methods repeat the same begin_string, write, end_string scaffold; a macro parameterized on the writer call serves all eleven.",
+        "line": 834,
+        "path": "src/ser.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Twelve write_i* and write_u* formatter methods repeat the same three-statement itoa scaffold; this is the canonical macro family.",
+        "line": 1565,
+        "path": "src/ser.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "end_array and end_object repeat a four-statement scaffold differing in one byte literal.",
+        "line": 1984,
+        "path": "src/ser.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "to_string and to_string_pretty repeat the same body including the unsafe from_utf8_unchecked block and its justification comment; a shared helper keeps that unsafe reasoning in one place.",
+        "line": 2238,
+        "path": "src/ser.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The same twenty-five-line deserialize_enum body in the owned and borrowed map deserializers; a generic helper removes the copy without touching the impls.",
+        "line": 234,
+        "path": "src/value/de.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The Sender and Receiver Clone impls repeat the same overflow guard around a relaxed fetch_add, comment included; a helper keeps that safety-relevant invariant in one place.",
+        "line": 569,
+        "path": "src/lib.rs",
+        "repository": "async-channel",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Two cfg-gated implementations of ptr_map, one for miri and one for the rest; only one ever compiles and the pair is the configuration, not a clone.",
+        "line": 1573,
+        "path": "src/bytes.rs",
+        "repository": "bytes",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Prefix and suffix matching strategies whose differing predicate is the entire semantics of each.",
+        "line": 825,
+        "path": "crates/globset/src/lib.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "is_good and is_really_good share three guard lines then diverge; the second is a stricter variant, not a copy.",
+        "line": 550,
+        "path": "crates/regex/src/literal.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Shift helpers differing in direction and in overflow handling; the operator is the meaning.",
+        "line": 8,
+        "path": "src/lexical/shift.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A cohesive 1060-line file holding one type's implementation, deliberately organized as a single unit just past the threshold.",
+        "line": 1,
+        "path": "src/error.rs",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A single 183-line function whose two allocation-kind branches are independent; the inlining comment justifies its separation from reserve, not its internal length.",
+        "line": 624,
+        "path": "src/bytes_mut.rs",
+        "repository": "bytes",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A cohesive module whose length is dominated by its own test module, in the maintainer's deliberate single-file style.",
+        "line": 1,
+        "path": "crates/globset/src/glob.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "An impl block's length is its method count; splitting one type's impl into several blocks moves lines without reducing anything.",
+        "line": 884,
+        "path": "crates/printer/src/standard.rs",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A 529-line impl block whose size is the Deserializer trait's method count, which the implementer does not choose.",
+        "line": 1387,
+        "path": "src/de.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "A deliberate opt-out of a widely disputed style lint, in a build script and a test file; the maintainer's position is public and a reason string would add nothing.",
+        "line": 1,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The capitalized Ok constructor deliberately mirrors Result::Ok for the documented inference case; the allow is the intended construct.",
+        "line": 648,
+        "path": "src/lib.rs",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Withholding Copy is an API-stability choice, and the crate's minimum supported Rust predates the reason argument, so the intent cannot be stated inline.",
+        "line": 1573,
+        "path": "src/lib.rs",
+        "repository": "log",
+        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The conditional alloc import is used under some feature combinations and not others; the allow is the standard idiom for that.",
+        "line": 6,
+        "path": "src/lexical/bignum.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The Result return keeps this parser uniform with the siblings it is selected among; the wrap is deliberate.",
+        "line": 171,
+        "path": "impl/src/fmt.rs",
+        "repository": "thiserror",
+        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The manifest comment above the feature states it is kept as a compatibility no-op; removing it would break downstream activations.",
+        "line": 19,
+        "path": "Cargo.toml",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::unreferenced_feature",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Documented in the manifest as deprecated and a no-op kept for compatibility.",
+        "line": 48,
+        "path": "crates/globset/Cargo.toml",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::unreferenced_feature",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
+        "line": 32,
+        "path": "crates/grep/Cargo.toml",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::unreferenced_feature",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
+        "line": 44,
+        "path": "crates/ignore/Cargo.toml",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::unreferenced_feature",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
+        "line": 31,
+        "path": "crates/searcher/Cargo.toml",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::unreferenced_feature",
+        "verdict": "false_positive"
       }
     ],
-    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold.",
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition.",
     "trigger_verification": {
       "confirmed": 538,
       "findings": 538,
@@ -587,6 +992,569 @@
           "rule": "rust_doctor::cargo::duplicate_major_versions"
         }
       ]
+    }
+  },
+  "agent_population": {
+    "observations": [
+      {
+        "authoritative": true,
+        "commit": "6f1b99acb2f4ec2414592136c2009fe7713deec3",
+        "distinct": 1199,
+        "exit_code": 0,
+        "findings_digest": "3ccc9c3527d43396489b00690451877746a61b5cd4acd5cd21f1e718ff7c904d",
+        "name": "claudes-c-compiler",
+        "occurrences": 1734,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "occurrences": 1
+          },
+          {
+            "distinct": 661,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 661
+          },
+          {
+            "distinct": 130,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 368
+          },
+          {
+            "distinct": 122,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 358
+          },
+          {
+            "distinct": 279,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 279
+          },
+          {
+            "distinct": 6,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 67
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 94,
+          "worst_tier": "P2"
+        },
+        "status": "complete"
+      },
+      {
+        "authoritative": false,
+        "commit": "0284e33b45a69921fac85fcb95c7a1bf8759f936",
+        "distinct": 87,
+        "exit_code": 1,
+        "findings_digest": "8933991c19271c4c802688db06ae346559db286c6efbacad4b01a468743d6427",
+        "name": "ostendo",
+        "occurrences": 148,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 4,
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "occurrences": 4
+          },
+          {
+            "distinct": 32,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 32
+          },
+          {
+            "distinct": 16,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 39
+          },
+          {
+            "distinct": 15,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 43
+          },
+          {
+            "distinct": 2,
+            "id": "rust_doctor::structure::orphan_module_file",
+            "occurrences": 2
+          },
+          {
+            "distinct": 16,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 16
+          },
+          {
+            "distinct": 2,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 12
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 95,
+          "worst_tier": "P2"
+        },
+        "status": "incomplete"
+      },
+      {
+        "authoritative": true,
+        "commit": "2be33f74d64a536ceca06deaacae11d71309474f",
+        "distinct": 66,
+        "exit_code": 0,
+        "findings_digest": "ef065a7fe93d6bde9997b13811318245d8e32680c0b336d03dd04d4effb4f5a4",
+        "name": "artifexprocal",
+        "occurrences": 147,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "occurrences": 1
+          },
+          {
+            "distinct": 9,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 9
+          },
+          {
+            "distinct": 28,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 71
+          },
+          {
+            "distinct": 21,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 57
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 3
+          },
+          {
+            "distinct": 4,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 6
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 95,
+          "worst_tier": "P2"
+        },
+        "status": "complete"
+      },
+      {
+        "authoritative": true,
+        "commit": "26e92506e9e6113f233b65ff1ea1894d9efb11ea",
+        "distinct": 35,
+        "exit_code": 0,
+        "findings_digest": "340bd4a5de89fe86a05e5b01176fcf92f9d467933fde0946a7f17bd7f583353d",
+        "name": "mdr",
+        "occurrences": 61,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::missing_lockfile",
+            "occurrences": 1
+          },
+          {
+            "distinct": 9,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 9
+          },
+          {
+            "distinct": 11,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 28
+          },
+          {
+            "distinct": 6,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 15
+          },
+          {
+            "distinct": 8,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 8
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 95,
+          "worst_tier": "P2"
+        },
+        "status": "complete"
+      },
+      {
+        "authoritative": true,
+        "commit": "cd6dac93028460d761e3c5e67aaadc23c4a24af2",
+        "distinct": 35,
+        "exit_code": 0,
+        "findings_digest": "4ba2f68e534f5389fb9f057e22a63318a18b1448baa67d3fada5d10f50d8ed41",
+        "name": "ralph-os",
+        "occurrences": 46,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 16,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 16
+          },
+          {
+            "distinct": 7,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 14
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 6
+          },
+          {
+            "distinct": 6,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 6
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 4
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 98,
+          "worst_tier": "P3"
+        },
+        "status": "complete"
+      },
+      {
+        "authoritative": false,
+        "commit": "4d9b33d9ab5a379425db3807d7e66c000b3a4bc6",
+        "distinct": 3620,
+        "exit_code": 1,
+        "findings_digest": "b5c93677010c18cc25927d353075139e298c4eb9d2abd3286b71527d33d961cc",
+        "name": "vibesql",
+        "occurrences": 9900,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 19,
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "occurrences": 19
+          },
+          {
+            "distinct": 784,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 784
+          },
+          {
+            "distinct": 1251,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 4472
+          },
+          {
+            "distinct": 924,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 3532
+          },
+          {
+            "distinct": 14,
+            "id": "rust_doctor::structure::orphan_module_file",
+            "occurrences": 14
+          },
+          {
+            "distinct": 580,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 580
+          },
+          {
+            "distinct": 46,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 497
+          },
+          {
+            "distinct": 2,
+            "id": "rust_doctor::structure::unreferenced_feature",
+            "occurrences": 2
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 93,
+          "worst_tier": "P2"
+        },
+        "status": "incomplete"
+      },
+      {
+        "authoritative": true,
+        "commit": "ff10443c652324c38d8af390e7af29d8e6560c14",
+        "distinct": 55,
+        "exit_code": 0,
+        "findings_digest": "8d78d25409e565e37b9425d0a5240d497bcb38cd2883f181aedda296bd4c2762",
+        "name": "syncvibe",
+        "occurrences": 98,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 5,
+            "id": "rust_doctor::cargo::duplicate_major_versions",
+            "occurrences": 5
+          },
+          {
+            "distinct": 16,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 16
+          },
+          {
+            "distinct": 12,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 34
+          },
+          {
+            "distinct": 10,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 25
+          },
+          {
+            "distinct": 9,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 9
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 9
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 95,
+          "worst_tier": "P2"
+        },
+        "status": "complete"
+      },
+      {
+        "authoritative": true,
+        "commit": "cf32fbe5f2adee8e3d36312bbdc41f8c6c3209e8",
+        "distinct": 185,
+        "exit_code": 0,
+        "findings_digest": "ddafb846a36dd3bba4dad1d1172c7ccb0292ffeb55be6b4db6dccd6c2eaf5fa6",
+        "name": "coda",
+        "occurrences": 257,
+        "outcome": "processed",
+        "rules": [
+          {
+            "distinct": 82,
+            "id": "rust_doctor::structure::complex_function",
+            "occurrences": 82
+          },
+          {
+            "distinct": 21,
+            "id": "rust_doctor::structure::duplicate_function_body",
+            "occurrences": 59
+          },
+          {
+            "distinct": 19,
+            "id": "rust_doctor::structure::near_duplicate_function_body",
+            "occurrences": 48
+          },
+          {
+            "distinct": 47,
+            "id": "rust_doctor::structure::oversized_unit",
+            "occurrences": 47
+          },
+          {
+            "distinct": 16,
+            "id": "rust_doctor::structure::unreasoned_allow_attribute",
+            "occurrences": 21
+          }
+        ],
+        "score": {
+          "applied_ceiling": null,
+          "label": "Great",
+          "value": 98,
+          "worst_tier": "P3"
+        },
+        "status": "complete"
+      }
+    ],
+    "repositories": [
+      {
+        "commit": "6f1b99acb2f4ec2414592136c2009fe7713deec3",
+        "marked_commits": 2575,
+        "marker": "Co-Authored-By: Claude",
+        "name": "claudes-c-compiler",
+        "rationale": "Anthropic's demonstration C compiler, authored by Claude Opus 4.6 with the trailer on 64 percent of 3982 commits.",
+        "total_commits": 3982,
+        "url": "https://github.com/anthropics/claudes-c-compiler.git"
+      },
+      {
+        "commit": "0284e33b45a69921fac85fcb95c7a1bf8759f936",
+        "marked_commits": 59,
+        "marker": "Co-Authored-By: Claude",
+        "name": "ostendo",
+        "rationale": "A display-control tool whose README and commit trailers document Claude Code authorship.",
+        "total_commits": 100,
+        "url": "https://github.com/ZoneMix/ostendo.git"
+      },
+      {
+        "commit": "2be33f74d64a536ceca06deaacae11d71309474f",
+        "marked_commits": 126,
+        "marker": "Co-Authored-By: Claude",
+        "name": "artifexprocal",
+        "rationale": "A generative-art project with 72 percent of its commits carrying the Claude trailer.",
+        "total_commits": 175,
+        "url": "https://github.com/danielwlee312/artifexprocal.git"
+      },
+      {
+        "commit": "26e92506e9e6113f233b65ff1ea1894d9efb11ea",
+        "marked_commits": 43,
+        "marker": "Co-Authored-By: Claude",
+        "name": "mdr",
+        "rationale": "A CleverCloud terminal markdown renderer built with Claude, model names in the trailers.",
+        "total_commits": 70,
+        "url": "https://github.com/CleverCloud/mdr.git"
+      },
+      {
+        "commit": "cd6dac93028460d761e3c5e67aaadc23c4a24af2",
+        "marked_commits": 56,
+        "marker": "Co-Authored-By: Claude",
+        "name": "ralph-os",
+        "rationale": "An operating-system experiment driven by an autonomous agent loop, attribution in every generated commit.",
+        "total_commits": 83,
+        "url": "https://github.com/schani/ralph-os.git"
+      },
+      {
+        "commit": "4d9b33d9ab5a379425db3807d7e66c000b3a4bc6",
+        "marked_commits": 3209,
+        "marker": "Generated with [Claude Code]",
+        "name": "vibesql",
+        "rationale": "A SQL engine grown to 700k lines by an agent, the largest agent-authored Rust tree found.",
+        "total_commits": 4460,
+        "url": "https://github.com/rjwalters/vibesql.git"
+      },
+      {
+        "commit": "ff10443c652324c38d8af390e7af29d8e6560c14",
+        "marked_commits": 142,
+        "marker": "Co-Authored-By: Claude",
+        "name": "syncvibe",
+        "rationale": "A sync tool with 74 percent of its commits carrying the Claude trailer.",
+        "total_commits": 191,
+        "url": "https://github.com/Curious1008/syncvibe.git"
+      },
+      {
+        "commit": "cf32fbe5f2adee8e3d36312bbdc41f8c6c3209e8",
+        "marked_commits": 1295,
+        "marker": "Co-Authored-By: Claude",
+        "name": "coda",
+        "rationale": "A long-running agent-built project, 2528 commits of which 1295 carry the Claude trailer.",
+        "total_commits": 2528,
+        "url": "https://github.com/adamtwiss/coda.git"
+      }
+    ],
+    "scan_arguments": [
+      "--json",
+      "--yes",
+      "--rule",
+      "clippy::arc_with_non_send_sync=off",
+      "--rule",
+      "clippy::await_holding_lock=off",
+      "--rule",
+      "clippy::await_holding_refcell_ref=off",
+      "--rule",
+      "clippy::dbg_macro=off",
+      "--rule",
+      "clippy::exit=off",
+      "--rule",
+      "clippy::expect_used=off",
+      "--rule",
+      "clippy::format_collect=off",
+      "--rule",
+      "clippy::indexing_slicing=off",
+      "--rule",
+      "clippy::large_types_passed_by_value=off",
+      "--rule",
+      "clippy::manual_memcpy=off",
+      "--rule",
+      "clippy::mem_forget=off",
+      "--rule",
+      "clippy::missing_safety_doc=off",
+      "--rule",
+      "clippy::mut_mutex_lock=off",
+      "--rule",
+      "clippy::non_send_fields_in_send_ty=off",
+      "--rule",
+      "clippy::panic=off",
+      "--rule",
+      "clippy::panic_in_result_fn=off",
+      "--rule",
+      "clippy::permissions_set_readonly_false=off",
+      "--rule",
+      "clippy::print_stderr=off",
+      "--rule",
+      "clippy::print_stdout=off",
+      "--rule",
+      "clippy::ptr_arg=off",
+      "--rule",
+      "clippy::rc_buffer=off",
+      "--rule",
+      "clippy::rc_mutex=off",
+      "--rule",
+      "clippy::redundant_allocation=off",
+      "--rule",
+      "clippy::stable_sort_primitive=off",
+      "--rule",
+      "clippy::string_slice=off",
+      "--rule",
+      "clippy::suspicious_command_arg_space=off",
+      "--rule",
+      "clippy::todo=off",
+      "--rule",
+      "clippy::too_many_arguments=off",
+      "--rule",
+      "clippy::type_complexity=off",
+      "--rule",
+      "clippy::unimplemented=off",
+      "--rule",
+      "clippy::unnecessary_to_owned=off",
+      "--rule",
+      "clippy::unreachable=off",
+      "--rule",
+      "clippy::unused_async=off",
+      "--rule",
+      "clippy::unwrap_used=off",
+      "--rule",
+      "clippy::useless_vec=off",
+      "--rule",
+      "clippy::vec_init_then_push=off",
+      "--rule",
+      "clippy::zombie_processes=off"
+    ],
+    "selection_criterion": "A repository qualifies when at least half of the commit messages reachable from its pinned revision contain its recorded marker, an exact substring such as 'Co-Authored-By: Claude' or 'Generated with [Claude Code]' that coding agents append to the commits they author. The criterion reads the git history alone, never code style, README claims or popularity, and marked_commits and total_commits are recounted mechanically from git log at the pinned revision when the corpus is replayed. The population is scanned with every Clippy rule off, because its build scripts and proc-macros are untrusted: the native detectors parse source text and compile nothing.",
+    "structural_density": {
+      "agent": {
+        "findings": 5251,
+        "lines": 988872,
+        "per_thousand_lines_milli": 5310
+      },
+      "healthy": {
+        "findings": 399,
+        "lines": 122044,
+        "per_thousand_lines_milli": 3269
+      },
+      "ratio_milli": 1624,
+      "refutes_density_assumption": false
     }
   },
   "artifact": "rust-doctor-score-credibility-corpus",
@@ -913,7 +1881,13 @@
       "clippy::string_slice",
       "clippy::too_many_arguments",
       "clippy::unreachable",
-      "clippy::unwrap_used"
+      "clippy::unwrap_used",
+      "rust_doctor::structure::complex_function",
+      "rust_doctor::structure::duplicate_function_body",
+      "rust_doctor::structure::near_duplicate_function_body",
+      "rust_doctor::structure::oversized_unit",
+      "rust_doctor::structure::unreasoned_allow_attribute",
+      "rust_doctor::structure::unreferenced_feature"
     ],
     "refused": [],
     "threshold_basis_points": 500,
@@ -946,17 +1920,11 @@
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
-      "rust_doctor::structure::complex_function",
-      "rust_doctor::structure::duplicate_function_body",
-      "rust_doctor::structure::near_duplicate_function_body",
-      "rust_doctor::structure::orphan_module_file",
-      "rust_doctor::structure::oversized_unit",
-      "rust_doctor::structure::unreasoned_allow_attribute",
-      "rust_doctor::structure::unreferenced_feature"
+      "rust_doctor::structure::orphan_module_file"
     ],
     "verdict": "passed"
   },
-  "generated_at": "2026-08-08",
+  "generated_at": "2026-08-10",
   "harness": {
     "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
     "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
@@ -1117,11 +2085,11 @@
     {
       "authoritative": true,
       "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
-      "distinct": 56,
+      "distinct": 39,
       "exit_code": 0,
-      "findings_digest": "620ca79634375bc723696292fdaca81cef252578e2f4bd9de1a5639482e6e978",
+      "findings_digest": "5d3d8920ac38fd791208b1bcafb7e1aed63c4735cf31fb68737c07be820e65f4",
       "name": "anyhow",
-      "occurrences": 98,
+      "occurrences": 55,
       "outcome": "processed",
       "rules": [
         {
@@ -1145,14 +2113,14 @@
           "occurrences": 2
         },
         {
-          "distinct": 9,
+          "distinct": 3,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 27
+          "occurrences": 7
         },
         {
-          "distinct": 16,
+          "distinct": 5,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 34
+          "occurrences": 11
         },
         {
           "distinct": 3,
@@ -1173,7 +2141,7 @@
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 98,
+        "value": 99,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -1181,11 +2149,11 @@
     {
       "authoritative": true,
       "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
-      "distinct": 27,
+      "distinct": 12,
       "exit_code": 0,
-      "findings_digest": "e9344287bc8b82a4331c5d26fbecf6b5c00c7b4e661169010bc035124242173c",
+      "findings_digest": "0eab67be1f74a918c5cd22acfa1a48b656d5baa9e283120e93360ff55e712b80",
       "name": "async-channel",
-      "occurrences": 65,
+      "occurrences": 28,
       "outcome": "processed",
       "rules": [
         {
@@ -1194,14 +2162,14 @@
           "occurrences": 1
         },
         {
-          "distinct": 11,
+          "distinct": 1,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 29
+          "occurrences": 2
         },
         {
-          "distinct": 13,
+          "distinct": 8,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 32
+          "occurrences": 22
         },
         {
           "distinct": 1,
@@ -1225,11 +2193,11 @@
     {
       "authoritative": true,
       "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
-      "distinct": 147,
+      "distinct": 94,
       "exit_code": 0,
-      "findings_digest": "34a8ccf375093ac51a72dd621b64bab087ac7b47342bd1c09e017a0d01ad5895",
+      "findings_digest": "9444d29bc7bf04ce1e95cc3858e9c4865f3dee4eaedb91a922797e4246373031",
       "name": "bytes",
-      "occurrences": 291,
+      "occurrences": 152,
       "outcome": "processed",
       "rules": [
         {
@@ -1268,14 +2236,14 @@
           "occurrences": 2
         },
         {
-          "distinct": 57,
+          "distinct": 24,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 141
+          "occurrences": 49
         },
         {
-          "distinct": 37,
+          "distinct": 17,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 83
+          "occurrences": 36
         },
         {
           "distinct": 8,
@@ -1299,11 +2267,11 @@
     {
       "authoritative": true,
       "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
-      "distinct": 67,
+      "distinct": 58,
       "exit_code": 0,
-      "findings_digest": "86e67996a612d368aea94e68d3833a1cdd3d900ce38a1d489fc41ebffe87ef1e",
+      "findings_digest": "0be3876d60cb1c378b75b80b62b1f5dd7b71a7b43f897d9a4d6ee97140207e46",
       "name": "fd",
-      "occurrences": 97,
+      "occurrences": 74,
       "outcome": "processed",
       "rules": [
         {
@@ -1347,14 +2315,14 @@
           "occurrences": 4
         },
         {
-          "distinct": 9,
+          "distinct": 2,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 23
+          "occurrences": 4
         },
         {
-          "distinct": 9,
+          "distinct": 7,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 25
+          "occurrences": 21
         },
         {
           "distinct": 2,
@@ -1370,7 +2338,7 @@
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 89,
+        "value": 90,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1378,11 +2346,11 @@
     {
       "authoritative": true,
       "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
-      "distinct": 46,
+      "distinct": 28,
       "exit_code": 0,
-      "findings_digest": "ee9f40898896abab02c67c6f84b15bbb6330fc168392c45914d7614cb9f9b0e4",
+      "findings_digest": "307b2da153733c9f96b25880a9f29e9c5756f652c10753a752ec60a6785658c7",
       "name": "hexyl",
-      "occurrences": 92,
+      "occurrences": 33,
       "outcome": "processed",
       "rules": [
         {
@@ -1421,14 +2389,14 @@
           "occurrences": 3
         },
         {
-          "distinct": 16,
+          "distinct": 3,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 54
+          "occurrences": 7
         },
         {
-          "distinct": 6,
+          "distinct": 1,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 14
+          "occurrences": 2
         },
         {
           "distinct": 1,
@@ -1447,11 +2415,11 @@
     {
       "authoritative": true,
       "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
-      "distinct": 105,
+      "distinct": 31,
       "exit_code": 0,
-      "findings_digest": "32311bebcf474b86fe00267e525f69f18e7f58e98cd09e254cd9ca6eebb8819f",
+      "findings_digest": "dbc31e75bdc6764e28b6cb4206a53a328216fc478fcc6733b152eb040ba5b8aa",
       "name": "log",
-      "occurrences": 237,
+      "occurrences": 48,
       "outcome": "processed",
       "rules": [
         {
@@ -1475,14 +2443,14 @@
           "occurrences": 5
         },
         {
-          "distinct": 54,
+          "distinct": 8,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 145
+          "occurrences": 18
         },
         {
-          "distinct": 32,
+          "distinct": 4,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 71
+          "occurrences": 9
         },
         {
           "distinct": 2,
@@ -1498,7 +2466,7 @@
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 93,
+        "value": 94,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1506,11 +2474,11 @@
     {
       "authoritative": true,
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
-      "distinct": 645,
+      "distinct": 498,
       "exit_code": 0,
-      "findings_digest": "e76e81cd7e547a6d82d4e61d23e4fcee32edac84f1c754a3307be8887ab5a879",
+      "findings_digest": "8bce490186ffe8be5e0db400bba7a8941b7dc20ebd57deec4391b92bf73a4b43",
       "name": "ripgrep",
-      "occurrences": 1262,
+      "occurrences": 811,
       "outcome": "processed",
       "rules": [
         {
@@ -1574,14 +2542,14 @@
           "occurrences": 17
         },
         {
-          "distinct": 167,
+          "distinct": 74,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 537
+          "occurrences": 229
         },
         {
-          "distinct": 93,
+          "distinct": 39,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 307
+          "occurrences": 164
         },
         {
           "distinct": 27,
@@ -1610,11 +2578,11 @@
     {
       "authoritative": true,
       "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
-      "distinct": 273,
+      "distinct": 111,
       "exit_code": 0,
-      "findings_digest": "88538896292a4d0d4cee69cf354bd2fde229aca498d820d888275cfd28d4e1ba",
+      "findings_digest": "d9d172cb0aa22bc64131a333f7e78049e08ae509970643e5fc2b9f90e4cd01fe",
       "name": "serde_json",
-      "occurrences": 697,
+      "occurrences": 164,
       "outcome": "processed",
       "rules": [
         {
@@ -1653,14 +2621,14 @@
           "occurrences": 4
         },
         {
-          "distinct": 123,
+          "distinct": 17,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 423
+          "occurrences": 53
         },
         {
-          "distinct": 72,
+          "distinct": 16,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 196
+          "occurrences": 33
         },
         {
           "distinct": 12,
@@ -1676,7 +2644,7 @@
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 92,
+        "value": 93,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -1684,11 +2652,11 @@
     {
       "authoritative": true,
       "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
-      "distinct": 13,
+      "distinct": 2,
       "exit_code": 0,
-      "findings_digest": "ca24e95a16c6fb9a6e661d599dea99891b8d40e4346488e22ed005987a57b5a2",
+      "findings_digest": "dcf4fcd7b41198677df74137a5afbaa2abc63365d7e39495bdb995f768108635",
       "name": "smol",
-      "occurrences": 31,
+      "occurrences": 4,
       "outcome": "processed",
       "rules": [
         {
@@ -1697,14 +2665,9 @@
           "occurrences": 1
         },
         {
-          "distinct": 7,
+          "distinct": 1,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 19
-        },
-        {
-          "distinct": 5,
-          "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 11
+          "occurrences": 3
         }
       ],
       "score": {
@@ -1718,11 +2681,11 @@
     {
       "authoritative": true,
       "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
-      "distinct": 72,
+      "distinct": 66,
       "exit_code": 0,
-      "findings_digest": "72f07bd28c1f786d37959df08dc1ccd46323f945a2ca8da5031a80446755d1f7",
+      "findings_digest": "a405a20c8143447b0d6b9ab5797ab6dce2faf242294f58e84c208d821bb7628b",
       "name": "thiserror",
-      "occurrences": 121,
+      "occurrences": 103,
       "outcome": "processed",
       "rules": [
         {
@@ -1761,14 +2724,14 @@
           "occurrences": 6
         },
         {
-          "distinct": 6,
+          "distinct": 1,
           "id": "rust_doctor::structure::duplicate_function_body",
-          "occurrences": 18
+          "occurrences": 2
         },
         {
-          "distinct": 2,
+          "distinct": 1,
           "id": "rust_doctor::structure::near_duplicate_function_body",
-          "occurrences": 4
+          "occurrences": 2
         },
         {
           "distinct": 2,
@@ -2232,34 +3195,34 @@
       "true_positives": null
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
+      "false_positive_rate_basis_points": 6000,
+      "false_positives": 3,
       "findings": 34,
       "id": "rust_doctor::structure::complex_function",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 2
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
-      "findings": 459,
+      "false_positive_rate_basis_points": 4000,
+      "false_positives": 8,
+      "findings": 134,
       "id": "rust_doctor::structure::duplicate_function_body",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 20,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 12
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
-      "findings": 285,
+      "false_positive_rate_basis_points": 8000,
+      "false_positives": 4,
+      "findings": 98,
       "id": "rust_doctor::structure::near_duplicate_function_body",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 1
     },
     {
       "false_positive_rate_basis_points": null,
@@ -2272,37 +3235,37 @@
       "true_positives": null
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
+      "false_positive_rate_basis_points": 8000,
+      "false_positives": 4,
       "findings": 58,
       "id": "rust_doctor::structure::oversized_unit",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 1
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
       "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 0
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
       "findings": 7,
       "id": "rust_doctor::structure::unreferenced_feature",
-      "reviewed": 0,
-      "status": "incomplete",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 0
     }
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "score_distribution": {
     "bands": [
       {
@@ -2314,12 +3277,12 @@
     "collapsed_into_one_band": true,
     "collapsed_into_one_value": false,
     "maximum": 100,
-    "minimum": 89,
+    "minimum": 90,
     "values": [
       {
         "label": "Great",
         "name": "anyhow",
-        "value": 98
+        "value": 99
       },
       {
         "label": "Great",
@@ -2334,7 +3297,7 @@
       {
         "label": "Great",
         "name": "fd",
-        "value": 89
+        "value": 90
       },
       {
         "label": "Great",
@@ -2344,7 +3307,7 @@
       {
         "label": "Great",
         "name": "log",
-        "value": 93
+        "value": 94
       },
       {
         "label": "Great",
@@ -2354,7 +3317,7 @@
       {
         "label": "Great",
         "name": "serde_json",
-        "value": 92
+        "value": 93
       },
       {
         "label": "Great",

@@ -68,6 +68,7 @@ pub(crate) enum RepositoryOutcome {
 #[serde(deny_unknown_fields)]
 pub(crate) struct CorpusArtifact {
     pub(crate) adjudication: Adjudication,
+    pub(crate) agent_population: AgentPopulation,
     pub(crate) artifact: String,
     pub(crate) catalog: Vec<CatalogRule>,
     pub(crate) epic: String,
@@ -82,6 +83,133 @@ pub(crate) struct CorpusArtifact {
     pub(crate) score_distribution: ScoreDistribution,
     pub(crate) toolchain: Toolchain,
     pub(crate) trust_boundary: TrustBoundary,
+}
+
+/// Second corpus population: repositories whose commit history documents agent
+/// authorship. Their build code is untrusted, so the population is scanned
+/// with every Clippy rule off: the native detectors parse source text and
+/// compile nothing, which the confinement tests prove.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentPopulation {
+    pub(crate) observations: Vec<Observation>,
+    pub(crate) repositories: Vec<AgentRepository>,
+    pub(crate) scan_arguments: Vec<String>,
+    pub(crate) selection_criterion: String,
+    pub(crate) structural_density: DensityComparison,
+}
+
+/// An agent-authored repository, pinned like the healthy ones and carrying the
+/// mechanical evidence of its selection: an exact marker searched in commit
+/// messages, and the counts that make the criterion falsifiable from the
+/// repository record alone.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentRepository {
+    pub(crate) commit: String,
+    /// Exact string searched in the commit messages reachable from the pinned
+    /// revision.
+    pub(crate) marker: String,
+    pub(crate) marked_commits: u64,
+    pub(crate) name: String,
+    pub(crate) rationale: String,
+    pub(crate) total_commits: u64,
+    pub(crate) url: String,
+}
+
+/// Structural finding density of both populations, in integer arithmetic so
+/// two computations produce identical bytes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DensityComparison {
+    pub(crate) agent: StructuralDensity,
+    pub(crate) healthy: StructuralDensity,
+    /// Agent density over healthy density, in thousandths.
+    pub(crate) ratio_milli: u64,
+    /// True when the ratio is at or below 1.0. Published as a refutation of
+    /// the assumption that agent-written Rust carries more structural
+    /// duplication, never omitted.
+    pub(crate) refutes_density_assumption: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StructuralDensity {
+    /// Distinct structural findings over the population.
+    pub(crate) findings: u64,
+    /// Lines in the population's Rust source files, measured on the
+    /// materialised trees.
+    pub(crate) lines: u64,
+    /// Findings per thousand lines, in thousandths.
+    pub(crate) per_thousand_lines_milli: u64,
+}
+
+impl AgentPopulation {
+    /// The replay manifest of the population. Shape and tag carry no meaning
+    /// for the harness, which only reads names and commits.
+    pub(crate) fn manifest(&self) -> Manifest {
+        Manifest {
+            repositories: self
+                .repositories
+                .iter()
+                .map(|repository| ManifestEntry {
+                    commit: repository.commit.clone(),
+                    name: repository.name.clone(),
+                    rationale: repository.rationale.clone(),
+                    shape: RepositoryShape {
+                        asynchronous: false,
+                        binary: false,
+                        library: false,
+                        proc_macro: false,
+                        workspace_members: 1,
+                    },
+                    tag: "pinned".to_owned(),
+                    url: repository.url.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Distinct structural findings across a population's observations.
+pub(crate) fn structural_findings(observations: &[Observation]) -> u64 {
+    observations
+        .iter()
+        .flat_map(|observation| observation.rules.iter())
+        .filter(|rule| rule.id.starts_with("rust_doctor::structure::"))
+        .map(|rule| rule.distinct)
+        .sum()
+}
+
+/// Findings per thousand lines, in thousandths: `findings * 1_000_000 / lines`.
+pub(crate) fn density_milli(findings: u64, lines: u64) -> u64 {
+    if lines == 0 {
+        return 0;
+    }
+    findings.saturating_mul(1_000_000) / lines
+}
+
+/// Lines in every `.rs` file under `root`, newline-terminated or not.
+pub(crate) fn rust_line_count(root: &Path) -> u64 {
+    fn visit(directory: &Path, total: &mut u64) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        let mut paths: Vec<_> = entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect();
+        paths.sort();
+        for path in paths {
+            if path.is_dir() {
+                visit(&path, total);
+            } else if path.extension().is_some_and(|extension| extension == "rs")
+                && let Ok(source) = fs::read_to_string(&path)
+            {
+                *total += source.lines().count() as u64;
+            }
+        }
+    }
+    let mut total = 0;
+    visit(root, &mut total);
+    total
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -225,6 +353,7 @@ pub(crate) struct RuleTrigger {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SiteContext {
+    Benchmark,
     BuildScript,
     Example,
     Production,
@@ -497,6 +626,9 @@ pub(crate) fn run(
             .arg(&work)
             .args(scan_arguments)
             .env("CARGO_TARGET_DIR", &target)
+            // A wall-clock cutoff would make the observations of a large
+            // repository depend on machine load; a measurement cannot.
+            .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600")
             .output();
 
         let Ok(output) = scan else {
@@ -525,7 +657,7 @@ pub(crate) fn run(
 
 /// Materialises the pinned revision into `work` through a temporary index kept
 /// under the artifacts: the cache stays read-only, index included.
-fn materialise(repository: &Path, commit: &str, artifacts: &Path, work: &Path) {
+pub(crate) fn materialise(repository: &Path, commit: &str, artifacts: &Path, work: &Path) {
     let index = fresh_directory(&artifacts.join("index")).join(
         work.file_name()
             .expect("a materialised repository should carry a name"),
