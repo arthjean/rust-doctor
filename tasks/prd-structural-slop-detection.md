@@ -71,7 +71,7 @@ Key findings that informed this PRD, gathered 2026-08-08:
 - **similarity-rs** (mizchi, 1,485 recent downloads, self-labeled beta): tree-sitter based, multi-language family. **How we differ:** Rust-specific, integrated, and not beta.
 - **cargo-duplicated** (bircni, 34 recent downloads): text-based line matching, no AST. **How we differ:** renamed clones are the majority case in agent output and text matching cannot see them.
 - **rust-code-analysis** (Mozilla, 17,186 recent downloads, no release since 2023-01): cyclomatic and cognitive complexity, library not cargo subcommand. **How we differ:** maintained, and complexity is one signal among several rather than the whole product.
-- **cargo-machete / cargo-shear / cargo-udeps** (458k / 62k / 135k recent downloads): unused dependency detection. **How we differ:** we do not compete here. Explicit non-goal.
+- **cargo-machete / cargo-shear / cargo-udeps** (458k / 62k / 135k recent downloads): unused dependency detection. **How we differ:** we do not compete here. Explicit non-goal. *Amended 2026-08-10 by the suppression, dependency and hygiene PRD (`tasks/prd-suppression-dependency-hygiene.md`, EP-002): superseded on the same reason recorded under Non-Goals below, and rust-doctor now ships `rust_doctor::cargo::unused_dependency` and `rust_doctor::cargo::test_only_dependency`.*
 - **Market gap:** aggregation. Four separate installs, four output formats, no score, no gate, no baseline. Nobody has assembled them.
 
 ### Best Practices Applied

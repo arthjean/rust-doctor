@@ -13,10 +13,19 @@ in "The production-context measurement (2026-08-10, final)". They say
 `duplicate_function_body` adjudicates at 4000 bp on production-context
 families, under US-018's 5000 bp refutation line, so the first assumption
 holds and the refutation clause does not fire; and the structural finding
-density of agent-written Rust is 1.624 times that of healthy Rust, so the
+density of agent-written Rust is above that of healthy Rust, so the
 second assumption holds too, which `tests/corpus.json` publishes as
 `refutes_density_assumption: false`. Everything above that section describes
 the pre-revision detector and is superseded.
+
+**Amended 2026-08-10** by EP-005 of
+`tasks/prd-suppression-dependency-hygiene.md`. That PRD added two structural
+rules, `crate_level_allow` and `stacked_allow_attribute`, so both sides of the
+density comparison were re-measured: healthy 399 to 433 findings, agent 5,251
+to 5,296, and the ratio 1.624 to **1.509**. The verdict is unchanged, the
+number is not. Every 1.624 below is the measurement of the day it was taken;
+`docs/suppression-precision-2026-08.md` carries the restatement and its
+explanation.
 
 Every measurement here was taken with `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS`
 set to 600 by the corpus harness, so a large repository is analyzed whole
@@ -229,6 +238,11 @@ trailing comment or by an MSRV that predates the `reason` argument, a feature
 whose manifest comment says "DEPRECATED. It is a no-op", an impl block whose
 529 lines are a trait's method count. Reading out-of-band justification is a
 detector change, not a measurement one, and is out of this epic's scope.
+
+**Superseded density figure.** The 1.624 ratio above was measured with the
+seven structural rules of this PRD. Two more shipped on 2026-08-10 and both
+populations were re-measured at 1.509; see the amendment at the top of this
+file and `docs/suppression-precision-2026-08.md`.
 
 **One gap found and not fixed.** `unanimous_context` in `src/structure.rs`
 marks a family only when every member shares one context, so a family

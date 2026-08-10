@@ -6,13 +6,25 @@ detectors, then scores it out of 100. `src/lib.rs` exposes
 `inspect(InspectRequest) -> Report`, `src/main.rs` is the CLI on top of it, and
 `npm/rust-doctor/` is a Node launcher for the released binary.
 
+The catalog holds 62 rules across five producers, and a rule's id prefix names
+its producer: `clippy::*` (37 curated lints, `Producer::Clippy`),
+`rust_doctor::source::*` (2, `SourceKernel`, error stage `source`),
+`rust_doctor::cargo::*` (11, `CargoHealth`, stage `dependencies`, which judges
+the manifests and `.cargo/config.toml`), `rust_doctor::structure::*` (9,
+`Structure`, stage `structure`) and `rust_doctor::repo::*` (3, `Repo`, stage
+`repo`, the only pass that reads outside the Cargo model, enumerating through
+`git ls-files`). `validate_catalog`
+refuses any other prefix, and a pass that fails degrades to a complete report
+carrying a `ReportError` at its stage with the authoritative flag dropped.
+
 ## Trust boundary
 
 Inspecting a workspace runs `cargo clippy` inside it, and Cargo executes that
 workspace's `build.rs` files and procedural macros. Inspect trusted local paths
 only. Never scan a path taken from an issue, a bug report, or any source outside
-this repository. The native detectors in `src/source_kernel/` are exempt: they
-parse source text and build nothing.
+this repository. Clippy is the only pass that compiles anything: the four
+native producers parse source text, read manifests or ask git what it tracks,
+and build nothing.
 
 The tool never reaches the network, never uploads, never emits telemetry. Keep
 it that way: no HTTP client, no analytics dependency, no phone-home. `--json`
@@ -179,4 +191,5 @@ one batch to the next.
   `feat(policy): grow the catalog to forty rules`. Use `!` for a breaking change
   to the report schema or the CLI surface.
 - Keep the README's rule count and native detector table in sync with
-  `src/policy/catalog.rs` and `src/source_kernel/detectors.rs`.
+  `src/policy/catalog.rs`, which is the single list every producer's rules are
+  declared in.
