@@ -34,10 +34,10 @@
     {
       "id": "EP-004",
       "title": "Repository hygiene",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 4
     },
     {
       "id": "EP-005",
@@ -188,55 +188,55 @@
       "id": "US-011",
       "title": "Repository pass wired as a fifth producer",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-012",
       "title": "Tracked secret file",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-013",
       "title": "Unignored build output",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-014",
       "title": "Hardcoded credential",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-015",
