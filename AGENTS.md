@@ -62,6 +62,18 @@ cargo run --release -- . --yes --verbose
 - **Dependencies are pinned exactly** (`= 1.8.5`, not `^1.8`) in `Cargo.toml`,
   and `Cargo.lock` is committed. The `missing_lockfile` detector requires it for
   a binary crate.
+- **Structural rules default to warning, never error.** The
+  `rust_doctor::structure::*` rules live in `src/structure/`, run on the same
+  file set the source kernel enumerates, and report a clone family as one
+  diagnostic whose `related` array names every member beyond the first. Their
+  fingerprint is computed from the normalized content hash, never from source
+  positions, so inserting lines above a finding leaves `--scope baseline`
+  unmoved. A structural pass failure degrades to a complete non-structural
+  report with a `ReportError` at stage `structure`. The pass stops at a
+  wall-clock budget of 10 seconds and says so;
+  `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS` overrides it, which is how the
+  corpus harness makes an observation independent of machine load, and why the
+  published structural measurement was taken at 600 seconds.
 
 ## Working in `tests/`
 

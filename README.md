@@ -121,6 +121,10 @@ Findings from test targets, benches, examples, and build scripts are reported bu
 
 Precision is measured, not asserted: `tests/corpus.json` pins ten public Rust repositories by commit, and `cargo test --test corpus_precision` replays the rules against them. The measurement says how much noise a rule produces on healthy code. It does not claim recall, which needs adversarial fixtures and is a separate question.
 
+The structural rules are measured the same way, on the families that actually weigh on the score: `duplicate_function_body` adjudicates at 40% false positives over 20 reviewed clone families, against 100% for the two rules at the head of the Clippy catalog. The five other measured structural rules sit between 60% and 100% over 5 sites each, because healthy code documents its exceptions where no detector reads: an `#[allow]` justified in a trailing comment, a feature the manifest marks deprecated. The seventh, `orphan_module_file`, the ten repositories never triggered. Those rates are published, not hidden, and none of them removes a rule.
+
+Against a second corpus of eight agent-authored repositories, selected by commit-trailer evidence alone with at least half of all commits carrying an agent attribution marker, agent-written Rust measures 5.3 structural findings per thousand lines against healthy Rust's 3.3, a ratio of 1.62. Adjudicated per-rule precision on that second population is not yet measured. The full record, confidence intervals included, sits in `docs/structural-precision-2026-08.md`.
+
 ## JSON output
 
 `--json` emits a versioned report (`schema_version`) with every diagnostic, its span, its rule, its category, its severity before and after policy, the gate verdict, and the score. Paths are workspace-relative. No absolute path, no environment, no user data leaves the report.
