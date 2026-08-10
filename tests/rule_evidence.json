@@ -242,6 +242,21 @@
       "test": "tests/dependency_truth.rs::only_the_never_referenced_dependency_is_reported_as_unused"
     },
     {
+      "catches": "a tracked source literal matching a closed list of high-confidence credential prefixes",
+      "id": "rust_doctor::repo::hardcoded_credential",
+      "test": "tests/repo_hygiene.rs::hardcoded_credentials_are_reported_by_pattern_name_without_the_value"
+    },
+    {
+      "catches": "a git-tracked file whose name marks it as secret-bearing",
+      "id": "rust_doctor::repo::tracked_secret_file",
+      "test": "tests/repo_hygiene.rs::a_tracked_secret_file_is_reported_and_caps_the_security_dimension"
+    },
+    {
+      "catches": "a Cargo target directory no ignore source git honors keeps out of the repository",
+      "id": "rust_doctor::repo::unignored_build_output",
+      "test": "tests/repo_hygiene.rs::a_missing_gitignore_reports_the_unignored_target_directory"
+    },
+    {
       "catches": "a client builder that turns certificate or hostname verification off",
       "id": "rust_doctor::source::disabled_tls_verification",
       "oracle": "source-kernel/precision/oracle.json"

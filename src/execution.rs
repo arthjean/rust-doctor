@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
 use crate::policy::{PolicyPlan, Producer};
+use crate::repo_hygiene::{self, RepoScan};
 use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceScan};
 use crate::structure::{self, StructureScan};
@@ -31,6 +32,7 @@ pub(crate) struct ExecutionResult {
     pub(crate) source: Option<SourceScan>,
     pub(crate) structure: Option<StructureScan>,
     pub(crate) cargo_health: Option<CargoHealthScan>,
+    pub(crate) repo: Option<RepoScan>,
     pub(crate) error: Option<InternalError>,
 }
 
@@ -44,6 +46,7 @@ impl ExecutionResult {
             source: None,
             structure: None,
             cargo_health: None,
+            repo: None,
             error: None,
         }
     }
@@ -63,6 +66,10 @@ impl ExecutionResult {
                 .structure
                 .as_ref()
                 .is_none_or(|structure| structure.errors.is_empty())
+            && self
+                .repo
+                .as_ref()
+                .is_none_or(|repo| repo.errors.is_empty())
     }
 }
 
@@ -324,6 +331,12 @@ fn execute_target(
             .metadata
             .as_ref()
             .map(|metadata| cargo_health::inspect(metadata, plan));
+    }
+    // The repository pass reads git, not Cargo: it sits in the manifest-level
+    // slot beside the dependency pack, before the compilation that Clippy
+    // triggers, and reads nothing that pass will rewrite.
+    if plan.active_rules(Producer::Repo).next().is_some() {
+        result.repo = Some(repo_hygiene::inspect(workspace_root.as_std_path(), plan));
     }
     if plan.active_rules(Producer::Clippy).next().is_none() {
         result.scan = ClippyExecution::Disabled;

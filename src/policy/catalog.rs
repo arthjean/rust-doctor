@@ -14,6 +14,7 @@ pub(crate) enum Producer {
     CargoHealth,
     SourceKernel,
     Structure,
+    Repo,
 }
 
 /// Criticality of a rule, independent of `default_level` and of the effective
@@ -473,6 +474,30 @@ pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Set rev to the full 40-character commit SHA intended by the project.",
 };
+pub(crate) static REPO_HARDCODED_CREDENTIAL: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::repo::hardcoded_credential",
+    category: "security",
+    producer: Producer::Repo,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Remove the credential from the source and rotate it; the closed list judged here is AKIA, ghp_, github_pat_, sk-, xoxb- and BEGIN PRIVATE KEY blocks, and the matched value is never republished by the report.",
+};
+pub(crate) static REPO_TRACKED_SECRET_FILE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::repo::tracked_secret_file",
+    category: "security",
+    producer: Producer::Repo,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P1,
+    help: "Remove the file from version control with git rm --cached, rotate what it contains, and add its name to .gitignore so it stays out; the report names the path and never its contents.",
+};
+pub(crate) static REPO_UNIGNORED_BUILD_OUTPUT: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::repo::unignored_build_output",
+    category: "maintainability",
+    producer: Producer::Repo,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Add the target directory to .gitignore so build artifacts stay out of the repository; the directory judged is Cargo's, including a custom target-dir set in .cargo/config.toml, and any ignore source git honors counts.",
+};
 pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::disabled_tls_verification",
     category: "security",
@@ -565,7 +590,7 @@ pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinitio
     help: "Delete the feature nothing reads, or declare the one a cfg already gates; switch this rule off for a stub deliberately kept as published surface.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 59] = [
+pub(crate) const CATALOG: [&RuleDefinition; 62] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -614,6 +639,9 @@ pub(crate) const CATALOG: [&RuleDefinition; 59] = [
     &CARGO_UNCHECKED_RELEASE_OVERFLOW,
     &CARGO_UNPINNED_GIT,
     &CARGO_UNUSED_DEPENDENCY,
+    &REPO_HARDCODED_CREDENTIAL,
+    &REPO_TRACKED_SECRET_FILE,
+    &REPO_UNIGNORED_BUILD_OUTPUT,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
     &STRUCTURE_COMPLEX_FUNCTION,
@@ -692,6 +720,7 @@ fn validate_catalog(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
         Producer::CargoHealth => definition.id.starts_with("rust_doctor::cargo::"),
         Producer::SourceKernel => definition.id.starts_with("rust_doctor::source::"),
         Producer::Structure => definition.id.starts_with("rust_doctor::structure::"),
+        Producer::Repo => definition.id.starts_with("rust_doctor::repo::"),
     }) {
         return Err(CatalogError::InvalidProducer);
     }
@@ -744,7 +773,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 60] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 63] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -794,6 +823,9 @@ mod tests {
         &CARGO_UNCHECKED_RELEASE_OVERFLOW,
         &CARGO_UNPINNED_GIT,
         &CARGO_UNUSED_DEPENDENCY,
+        &REPO_HARDCODED_CREDENTIAL,
+        &REPO_TRACKED_SECRET_FILE,
+        &REPO_UNIGNORED_BUILD_OUTPUT,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
         &STRUCTURE_COMPLEX_FUNCTION,
@@ -828,7 +860,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 59);
+        assert_eq!(CATALOG.len(), 62);
         assert_eq!(
             CATEGORIES,
             [
@@ -898,6 +930,7 @@ mod tests {
         assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 11);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
         assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
+        assert_eq!(plan.active_rules(Producer::Repo).count(), 3);
     }
 
     #[test]

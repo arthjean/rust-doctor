@@ -1801,6 +1801,21 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::repo::hardcoded_credential",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::repo::tracked_secret_file",
+      "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::repo::unignored_build_output",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::source::disabled_tls_verification",
       "tier": "P0"
     },
@@ -1906,6 +1921,9 @@
       "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
+      "rust_doctor::repo::hardcoded_credential",
+      "rust_doctor::repo::tracked_secret_file",
+      "rust_doctor::repo::unignored_build_output",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
       "rust_doctor::structure::complex_function",
@@ -1972,6 +1990,9 @@
       "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
+      "rust_doctor::repo::hardcoded_credential",
+      "rust_doctor::repo::tracked_secret_file",
+      "rust_doctor::repo::unignored_build_output",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
       "rust_doctor::structure::crate_level_allow",
@@ -3288,6 +3309,36 @@
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::repo::hardcoded_credential",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::repo::tracked_secret_file",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::repo::unignored_build_output",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
       "true_positives": null
     },
     {

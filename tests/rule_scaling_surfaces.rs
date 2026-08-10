@@ -125,6 +125,9 @@ fn repository_from_revisions(
     fs::copy(surface_fixture("Cargo.toml"), root.join("Cargo.toml")).unwrap();
     fs::copy(surface_fixture("Cargo.lock"), root.join("Cargo.lock")).unwrap();
     fs::copy(surface_fixture("clippy.toml"), root.join("clippy.toml")).unwrap();
+    // The repository-hygiene pass is not this pack's subject: the ignore line
+    // keeps `unignored_build_output` out of the delta counts below.
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
     for revision in revisions {
         fs::write(root.join(revision.path), source(revision.baseline)).unwrap();
     }

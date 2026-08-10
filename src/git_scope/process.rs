@@ -147,7 +147,7 @@ fn run_git_configured(
     })
 }
 
-pub(super) fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Command {
+pub(crate) fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Command {
     let mut command = Command::new(git);
     command
         .args(arguments)

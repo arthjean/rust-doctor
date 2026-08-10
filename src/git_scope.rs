@@ -12,10 +12,10 @@ mod process;
 #[cfg(test)]
 pub(crate) use process::STDERR_OUTPUT_LIMIT;
 #[cfg(test)]
-use process::{GIT_ENVIRONMENT_OVERRIDES, collect_bounded, git_command};
+use process::{GIT_ENVIRONMENT_OVERRIDES, collect_bounded};
 use process::{GIT_OUTPUT_TOO_LARGE, output_too_large};
 pub(crate) use process::{
-    GitCall, GitFailure, GitOutput, git_arguments, run_git, run_git_with_index,
+    GitCall, GitFailure, GitOutput, git_arguments, git_command, run_git, run_git_with_index,
 };
 
 const OID_OUTPUT_LIMIT: usize = 4_096;

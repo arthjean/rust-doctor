@@ -884,7 +884,10 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// that PRD's EP-005.
 /// The three release-profile rules entered on 2026-08-10 with EP-003 of the
 /// same PRD, still on the same terms.
-const ADMISSION_DEBT: [&str; 37] = [
+/// The three repository-hygiene rules entered on 2026-08-10 with EP-004 of
+/// the same PRD, admitted on trigger tests that build their git fixtures at
+/// test time, unmeasured until that PRD's EP-005 replays the corpus.
+const ADMISSION_DEBT: [&str; 40] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -917,6 +920,9 @@ const ADMISSION_DEBT: [&str; 37] = [
     "rust_doctor::cargo::unchecked_release_overflow",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::cargo::unused_dependency",
+    "rust_doctor::repo::hardcoded_credential",
+    "rust_doctor::repo::tracked_secret_file",
+    "rust_doctor::repo::unignored_build_output",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
     "rust_doctor::structure::crate_level_allow",

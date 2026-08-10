@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 59] = [
+const RULES: [&str; 62] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -64,6 +64,9 @@ const RULES: [&str; 59] = [
     "rust_doctor::cargo::unchecked_release_overflow",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::cargo::unused_dependency",
+    "rust_doctor::repo::hardcoded_credential",
+    "rust_doctor::repo::tracked_secret_file",
+    "rust_doctor::repo::unignored_build_output",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
     "rust_doctor::structure::complex_function",
@@ -426,7 +429,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 13);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 59);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 62);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()

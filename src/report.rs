@@ -782,6 +782,11 @@ fn diagnostics_from_execution(
     {
         merge_structure_findings(&mut diagnostics, structure, workspace_root, home);
     }
+    if status != Status::Failed
+        && let Some(repo) = result.repo.as_ref()
+    {
+        merge_repo_findings(&mut diagnostics, repo, workspace_root, home);
+    }
     apply_policy(&mut diagnostics, plan);
     if let Some(scope) = scope {
         project_diagnostics(&mut diagnostics, scope);
@@ -995,6 +1000,13 @@ fn report_errors(
     if let Some(cargo_health) = result.cargo_health.as_ref() {
         errors.extend(cargo_health.errors.iter().map(|error| ReportError {
             stage: "dependencies".to_owned(),
+            code: error.code.to_owned(),
+            message: error.message.to_owned(),
+        }));
+    }
+    if let Some(repo) = result.repo.as_ref() {
+        errors.extend(repo.errors.iter().map(|error| ReportError {
+            stage: "repo".to_owned(),
             code: error.code.to_owned(),
             message: error.message.to_owned(),
         }));
@@ -1280,6 +1292,76 @@ fn normalize_structure_finding(
         similarity_basis_points: finding.similarity,
         complexity: finding.complexity,
         occurrences: finding.occurrences,
+    }
+}
+
+/// Repository findings enter on the manifest-level path: their identity
+/// deliberately ignores the span, exactly as the cargo-health candidates do,
+/// so a credential finding keeps its baseline fingerprint when lines are
+/// inserted above it.
+fn merge_repo_findings(
+    diagnostics: &mut Vec<Diagnostic>,
+    scan: &crate::repo_hygiene::RepoScan,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) {
+    let mut merged: BTreeMap<_, _> = diagnostics
+        .drain(..)
+        .map(|diagnostic| (diagnostic.id.clone(), diagnostic))
+        .collect();
+    for finding in &scan.findings {
+        let diagnostic = normalize_repo_finding(finding, workspace_root, home);
+        merge_diagnostic(&mut merged, diagnostic);
+    }
+    diagnostics.extend(merged.into_values());
+    diagnostics.sort_by(compare_diagnostics);
+}
+
+fn normalize_repo_finding(
+    finding: &crate::repo_hygiene::RepoFinding,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) -> Diagnostic {
+    let definition = finding.definition;
+    let source = DiagnosticSource::RustDoctor;
+    let code = Some(definition.id.to_owned());
+    // The pass publishes an already normalized path, so normalizing again
+    // would escape a `%` twice and hand the consumer a name that decodes back
+    // to a file that does not exist.
+    let path = Some(finding.path.clone());
+    let message = sanitize_text(&finding.message, workspace_root, home);
+    let id = fingerprint(
+        source,
+        code.as_deref(),
+        path.as_deref(),
+        None,
+        canonical_severity(definition.default_level),
+        &message,
+    );
+    Diagnostic {
+        id,
+        source,
+        context: finding.context,
+        code,
+        base_severity: canonical_severity(definition.default_level),
+        severity: canonical_severity(definition.default_level),
+        category: Some(definition.category.to_owned()),
+        message,
+        help: Some(definition.help.to_owned()),
+        // No Cargo package owns a repository-level finding.
+        package: None,
+        target: None,
+        path,
+        span: finding.span.map(|span| DiagnosticSpan {
+            line_start: span.line_start,
+            column_start: span.column_start,
+            line_end: span.line_end,
+            column_end: span.column_end,
+        }),
+        related: Vec::new(),
+        similarity_basis_points: None,
+        complexity: None,
+        occurrences: 1,
     }
 }
 
@@ -2208,6 +2290,7 @@ mod tests {
             manifest_path: Some(manifest_path),
             structure: None,
             cargo_health: cargo_health_scan(&metadata),
+            repo: None,
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(
@@ -2381,6 +2464,7 @@ mod tests {
             manifest_path: Some(manifest_path.clone()),
             structure: None,
             cargo_health: cargo_health_scan(&metadata),
+            repo: None,
             metadata: Some(metadata.clone()),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(Vec::new(), 0, true, true)).into(),
@@ -2397,6 +2481,7 @@ mod tests {
             manifest_path: Some(manifest_path),
             structure: None,
             cargo_health: cargo_health_scan(&metadata),
+            repo: None,
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(
@@ -2432,6 +2517,7 @@ mod tests {
             metadata: None,
             structure: None,
             cargo_health: None,
+            repo: None,
             toolchain: ToolchainProvenance::default(),
             scan: None.into(),
             source: None,
@@ -2496,6 +2582,7 @@ mod tests {
             manifest_path: Some(workspace.join("Cargo.toml")),
             structure: None,
             cargo_health: cargo_health_scan(&metadata),
+            repo: None,
             metadata: Some(metadata),
             toolchain: ToolchainProvenance::default(),
             scan: Some(scan(compiler_messages, 0, true, true)).into(),
@@ -2826,6 +2913,7 @@ mod tests {
             metadata: None,
             structure: None,
             cargo_health: None,
+            repo: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -2870,6 +2958,7 @@ mod tests {
             metadata: None,
             structure: None,
             cargo_health: None,
+            repo: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -2920,6 +3009,7 @@ mod tests {
             metadata: None,
             structure: None,
             cargo_health: None,
+            repo: None,
             toolchain: ToolchainProvenance::default(),
             scan: Some(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -2946,6 +3036,56 @@ mod tests {
             error.code == "build-finished-missing"
                 && error.message == "Cargo did not emit build-finished"
         }));
+    }
+
+    /// US-011: a repository-pass failure degrades the scan, never aborts it.
+    /// The error surfaces at stage `repo`, the diagnostics of every other
+    /// producer stay published, and the incomplete status drops the
+    /// authoritative flag.
+    #[test]
+    fn repo_errors_surface_at_stage_repo_and_make_the_scan_incomplete() {
+        let metadata = cargo_health_metadata(&[]);
+        let path = metadata.workspace_root.join("src/lib.rs").to_string();
+        let result = ExecutionResult {
+            manifest_path: None,
+            metadata: Some(metadata),
+            structure: None,
+            cargo_health: None,
+            repo: Some(crate::repo_hygiene::RepoScan {
+                findings: Vec::new(),
+                errors: vec![crate::repo_hygiene::RepoError {
+                    code: "git-unavailable",
+                    message: "Repository hygiene skipped: git was not available.",
+                }],
+            }),
+            toolchain: ToolchainProvenance::default(),
+            scan: Some(scan(
+                vec![compiler_message(
+                    Some("clippy::todo"),
+                    "warning",
+                    "todo survives the repo failure",
+                    &path,
+                    2,
+                )],
+                0,
+                true,
+                true,
+            ))
+            .into(),
+            source: None,
+            error: None,
+        };
+        let report = from_execution(result);
+
+        assert_eq!(report.status, Status::Incomplete);
+        assert!(report.errors.iter().any(|error| {
+            error.stage == "repo"
+                && error.code == "git-unavailable"
+                && error.message == "Repository hygiene skipped: git was not available."
+        }));
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].code.as_deref(), Some("clippy::todo"));
+        assert!(!report.audit.score.as_ref().is_some_and(|score| score.authoritative));
     }
 
     #[test]

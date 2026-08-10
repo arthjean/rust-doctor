@@ -213,7 +213,10 @@ fn source_errors_make_a_started_scan_incomplete_without_losing_valid_findings() 
     );
     let rendered = serde_json::to_string(&report).unwrap();
     assert!(!rendered.contains(env!("CARGO_MANIFEST_DIR")));
-    assert!(!rendered.contains("secret"));
+    // The exact payload of the out-of-workspace file: the bare word `secret`
+    // now legitimately appears in the report through the
+    // `rust_doctor::repo::tracked_secret_file` rule id in `policy.rules`.
+    assert!(!rendered.contains("secret {user}"));
     assert!(!rendered.contains("echo {user}"));
 }
 

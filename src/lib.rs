@@ -12,6 +12,7 @@ mod git_scope;
 mod policy;
 pub mod presentation;
 pub mod render;
+mod repo_hygiene;
 mod report;
 mod scan_target;
 mod source_kernel;

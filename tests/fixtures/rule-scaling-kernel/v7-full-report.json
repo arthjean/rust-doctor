@@ -298,6 +298,24 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::repo::hardcoded_credential",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::repo::tracked_secret_file",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::repo::unignored_build_output",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::source::disabled_tls_verification",
         "category": "security",
         "level": "warn",
