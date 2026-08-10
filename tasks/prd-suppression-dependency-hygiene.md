@@ -122,6 +122,8 @@ Make a suppression visible as a finding. Three rules: a crate-level or module-le
 
 **Definition of Done:** a fixture workspace whose only defect is a blanket `#![allow(clippy::all)]` produces at least one diagnostic and a score below 100, and all three rules are catalogued, evidenced and covered by tests.
 
+**Risk 8, settled on 2026-08-10.** The self-scan answers the question the risk row asks. `crate_level_allow` fires twice on this repository, on `tests/presentation_nfr.rs` and `tests/support/mod.rs`, and both are true positives: each carries a genuine file-wide inner `allow`. Neither is a defect to correct, because both sit in a test target, carry the non-production context marker, and leave the score at 94, unchanged from the pre-epic run. `stacked_allow_attribute` and `permissive_lint_table` stay silent here: this repository's `[lints.clippy]` table sets no catalogued rule to `allow`, and its `#![cfg_attr(test, allow(...))]` lines are out of reach of every attribute detector by construction.
+
 #### US-001: Crate-level and module-level allow detector
 **Description:** As a reviewer, I want an `#![allow(...)]` that covers an entire file reported as a finding, so that a blanket suppression is as visible as the code it hides.
 
