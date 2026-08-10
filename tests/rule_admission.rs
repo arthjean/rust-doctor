@@ -297,3 +297,33 @@ fn a_test_reference_names_a_function_that_still_exists() {
         );
     }
 }
+
+/// The README is not a third source of truth: its rule count and breakdown
+/// follow the published catalog, which the corpus test already proves equal to
+/// the shipped policy. Editing the catalog without touching the README fails
+/// here.
+#[test]
+fn the_readme_rule_count_matches_the_published_catalog() {
+    let catalog = catalogued();
+    let clippy = catalog.iter().filter(|id| id.starts_with("clippy::")).count();
+    let structural = catalog
+        .iter()
+        .filter(|id| id.starts_with("rust_doctor::structure::"))
+        .count();
+    let native = catalog.len() - clippy - structural;
+
+    let readme = fs::read_to_string(repository().join("README.md")).expect("the README should be readable");
+    let expected = format!(
+        "{} rules today: {clippy} selected Clippy lints, {native} native detectors and {structural} structural rules.",
+        catalog.len()
+    );
+    assert!(
+        readme.contains(&expected),
+        "README no longer states \"{expected}\""
+    );
+
+    // Every structural rule appears in the README detector table.
+    for id in catalog.iter().filter(|id| id.starts_with("rust_doctor::structure::")) {
+        assert!(readme.contains(id.as_str()), "README table misses {id}");
+    }
+}
