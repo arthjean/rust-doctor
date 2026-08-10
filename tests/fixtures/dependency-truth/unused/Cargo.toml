@@ -1,0 +1,37 @@
+[package]
+name = "dependency-truth-unused"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[workspace]
+members = [
+    "beta",
+    "crates/build-probe",
+    "crates/never-used",
+    "crates/optional-probe",
+    "crates/renamed-real",
+    "crates/shared-helper",
+    "crates/used-extern",
+    "crates/used-macro",
+    "crates/used-qualified",
+    "crates/used-via-use",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+alias_probe = { package = "renamed-real", path = "crates/renamed-real" }
+build-probe = { path = "crates/build-probe" }
+never-used = { path = "crates/never-used" }
+optional-probe = { path = "crates/optional-probe", optional = true }
+shared-helper = { path = "crates/shared-helper" }
+used-extern = { path = "crates/used-extern" }
+used-macro = { path = "crates/used-macro" }
+used-qualified = { path = "crates/used-qualified" }
+used-via-use = { path = "crates/used-via-use" }
+
+[build-dependencies]
+build-probe = { path = "crates/build-probe" }

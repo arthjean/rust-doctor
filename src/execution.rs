@@ -339,12 +339,14 @@ fn execute_target(
             Err(error) => result.fail(error),
         }
     }
-    // One walk feeds both producers that read source text. The source kernel
-    // decides per call site, the structural pass decides per family, and
-    // enumerating the workspace twice for that would double the only expensive
-    // part of either.
+    // One walk feeds every producer that reads source text. The source kernel
+    // decides per call site, the structural pass decides per family, the
+    // dependency-truth rules read crate references off the same units, and
+    // enumerating the workspace twice for any of them would double the only
+    // expensive part of each.
+    let dependency_truth = cargo_health::dependency_truth_required(plan);
     if result.error.is_none()
-        && source_kernel::enumeration_required(plan)
+        && (source_kernel::enumeration_required(plan) || dependency_truth)
         && let Some(metadata) = result.metadata.as_ref()
     {
         let enumeration = source_kernel::enumerate(metadata);
@@ -353,6 +355,10 @@ fn execute_target(
         }
         if plan.active_rules(Producer::Structure).next().is_some() {
             result.structure = Some(structure::analyze(metadata, &enumeration, plan, settings));
+        }
+        if dependency_truth && let Some(scan) = result.cargo_health.as_mut() {
+            let references = source_kernel::references::collect(&enumeration);
+            cargo_health::inspect_dependency_truth(metadata, &enumeration, &references, plan, scan);
         }
     }
 

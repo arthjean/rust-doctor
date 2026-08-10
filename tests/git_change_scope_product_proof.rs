@@ -350,7 +350,10 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     let mut reports = BTreeMap::new();
     let mut cases = Vec::new();
 
-    let (report, evaluation) = run_case(&fixture, "full", &[], None, 7);
+    // Nine since EP-002 of the suppression PRD: the two decoy dependencies
+    // this fixture declares and never references, the unbounded registry
+    // alias and the local git alias, are now findings of their own.
+    let (report, evaluation) = run_case(&fixture, "full", &[], None, 9);
     reports.insert("full", report);
     cases.push(evaluation);
 
@@ -412,7 +415,7 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
         "files-manifest",
         FILES_ARGUMENTS,
         Some(&["app/Cargo.toml"]),
-        2,
+        4,
     );
     reports.insert("files-manifest", report);
     cases.push(evaluation);

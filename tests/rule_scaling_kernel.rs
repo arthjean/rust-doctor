@@ -479,8 +479,13 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     // the file-wide scope `crate_level_allow` reports whatever the reason, and
     // its quiet counterpart carries one attribute naming four lints, which is
     // the accumulation `stacked_allow_attribute` reports.
-    const ADMITTED_AFTER_EP018: [(&str, usize); 4] = [
+    // Since EP-002 of the same PRD, the two decoy dependencies the fixture
+    // declares to trigger the pinning rules, `fixture_git_dep` and
+    // `fixture_registry_dep`, are also what they look like: declared and
+    // referenced by nothing, so `unused_dependency` reports both.
+    const ADMITTED_AFTER_EP018: [(&str, usize); 5] = [
         ("clippy::expect_used", 1),
+        ("rust_doctor::cargo::unused_dependency", 2),
         ("rust_doctor::structure::crate_level_allow", 1),
         ("rust_doctor::structure::duplicate_function_body", 1),
         ("rust_doctor::structure::stacked_allow_attribute", 1),

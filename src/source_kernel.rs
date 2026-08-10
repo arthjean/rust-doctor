@@ -12,6 +12,7 @@ use crate::report::DiagnosticContext;
 
 mod aliases;
 mod detectors;
+pub(crate) mod references;
 
 use aliases::AliasMap;
 use detectors::{CrateAliases, DETECTORS, Detection, Detector};

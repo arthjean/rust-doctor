@@ -1766,6 +1766,11 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::cargo::test_only_dependency",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "tier": "P3"
     },
@@ -1773,6 +1778,11 @@
       "default_level": "warn",
       "id": "rust_doctor::cargo::unpinned_git_dependency",
       "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unused_dependency",
+      "tier": "P2"
     },
     {
       "default_level": "warn",
@@ -1874,8 +1884,10 @@
       "rust_doctor::cargo::missing_lockfile",
       "rust_doctor::cargo::path_dependency_outside_workspace",
       "rust_doctor::cargo::permissive_lint_table",
+      "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
+      "rust_doctor::cargo::unused_dependency",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
       "rust_doctor::structure::complex_function",
@@ -1935,8 +1947,10 @@
       "rust_doctor::cargo::missing_lockfile",
       "rust_doctor::cargo::path_dependency_outside_workspace",
       "rust_doctor::cargo::permissive_lint_table",
+      "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
+      "rust_doctor::cargo::unused_dependency",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
       "rust_doctor::structure::crate_level_allow",
@@ -3189,6 +3203,16 @@
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
+      "id": "rust_doctor::cargo::test_only_dependency",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "reviewed": 0,
       "status": "unobserved",
@@ -3203,6 +3227,16 @@
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unused_dependency",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
       "true_positives": null
     },
     {

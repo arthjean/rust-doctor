@@ -328,12 +328,16 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
     assert_eq!(*default_exit, 0);
     assert_eq!(default["schema_version"], 13);
     assert_eq!(default["status"], "complete");
-    assert_eq!(default["summary"]["warnings"], 7);
-    assert_eq!(default["summary"]["total"], 7);
+    // Nine warnings since EP-002 of the suppression PRD: the two decoy
+    // dependencies this fixture declares and never references, the unbounded
+    // registry alias and the local git alias, are now `unused_dependency`
+    // findings on top of the historical seven.
+    assert_eq!(default["summary"]["warnings"], 9);
+    assert_eq!(default["summary"]["total"], 9);
     assert_eq!(default["gate"]["status"], "passed");
     assert_eq!(default["gate"]["blocking_diagnostics"], 0);
     let default_findings = findings(default);
-    assert_eq!(default_findings.len(), RULES.len());
+    assert_eq!(default_findings.len(), RULES.len() + 1);
     assert!(default_findings.values().all(|diagnostic| {
         diagnostic["base_severity"] == "warning" && diagnostic["severity"] == "warning"
     }));
@@ -350,7 +354,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
         .filter_map(|(id, category)| (*category == "security").then_some(*id))
         .collect();
     assert_eq!(reports["security-off"].0, 0);
-    assert_eq!(security_off["summary"]["warnings"], 4);
+    assert_eq!(security_off["summary"]["warnings"], 6);
     assert!(
         findings(security_off)
             .keys()
@@ -362,7 +366,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let shell = &reports["shell-reactivated"].1;
     assert_eq!(reports["shell-reactivated"].0, 1);
-    assert_eq!(shell["summary"]["total"], 5);
+    assert_eq!(shell["summary"]["total"], 7);
     assert_eq!(shell["summary"]["errors"], 1);
     assert_eq!(shell["gate"]["status"], "failed");
     assert_eq!(shell["gate"]["blocking_diagnostics"], 1);
@@ -423,7 +427,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
     assert_eq!(none["gate"]["blocking_diagnostics"], 0);
     assert_eq!(reports["correctness-error-warning"].0, 1);
     assert_eq!(warning["gate"]["status"], "failed");
-    assert_eq!(warning["gate"]["blocking_diagnostics"], 7);
+    assert_eq!(warning["gate"]["blocking_diagnostics"], 9);
 
     for (rule, _) in RULES {
         let error_value = format!("{rule}=error");

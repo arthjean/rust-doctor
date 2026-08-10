@@ -1,0 +1,26 @@
+[package]
+name = "dependency-truth-test-only"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = [
+    "crates/dev-only",
+    "crates/orphan",
+    "crates/probe-both",
+    "crates/probe-inline",
+    "crates/probe-integration",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+orphan = { path = "crates/orphan" }
+probe-both = { path = "crates/probe-both" }
+probe-inline = { path = "crates/probe-inline" }
+probe-integration = { path = "crates/probe-integration" }
+
+[dev-dependencies]
+dev-only = { path = "crates/dev-only" }

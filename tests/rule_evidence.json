@@ -207,6 +207,11 @@
       "test": "tests/suppression_audit.rs::a_permissive_lint_table_entry_is_reported_with_its_span"
     },
     {
+      "catches": "a [dependencies] entry referenced only from test, bench or example code",
+      "id": "rust_doctor::cargo::test_only_dependency",
+      "test": "tests/dependency_truth.rs::test_only_dependencies_are_reported_with_their_reference_site"
+    },
+    {
       "catches": "a registry dependency whose version requirement admits any version",
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "oracle": "cargo-health/precision/oracle.json"
@@ -215,6 +220,11 @@
       "catches": "a git dependency pinned by branch or tag instead of a full commit revision",
       "id": "rust_doctor::cargo::unpinned_git_dependency",
       "oracle": "cargo-health/precision/oracle.json"
+    },
+    {
+      "catches": "a declared dependency no source of its package references",
+      "id": "rust_doctor::cargo::unused_dependency",
+      "test": "tests/dependency_truth.rs::only_the_never_referenced_dependency_is_reported_as_unused"
     },
     {
       "catches": "a client builder that turns certificate or hostname verification off",

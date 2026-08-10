@@ -256,6 +256,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::cargo::test_only_dependency",
+        "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::cargo::unbounded_registry_dependency",
         "category": "reliability",
         "level": "warn",
@@ -264,6 +270,12 @@
       {
         "id": "rust_doctor::cargo::unpinned_git_dependency",
         "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unused_dependency",
+        "category": "dependencies",
         "level": "warn",
         "source": "default"
       },

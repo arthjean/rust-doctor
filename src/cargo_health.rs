@@ -1,16 +1,18 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use cargo_metadata::{Dependency, Metadata, Package, TargetKind};
+use cargo_metadata::{Dependency, DependencyKind, Metadata, Package, TargetKind};
 use serde::Deserialize;
 
 use crate::policy::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
-    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_PERMISSIVE_LINT_TABLE, CARGO_UNBOUNDED_REGISTRY,
-    CARGO_UNPINNED_GIT, PolicyPlan, RuleDefinition,
+    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_PERMISSIVE_LINT_TABLE,
+    CARGO_TEST_ONLY_DEPENDENCY, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT,
+    CARGO_UNUSED_DEPENDENCY, PolicyPlan, RuleDefinition,
 };
-use crate::source_kernel::{SourceSpan, byte_range_span, line_starts};
+use crate::source_kernel::references::{self, CrateReferences, Mention};
+use crate::source_kernel::{Enumeration, SourceSpan, byte_range_span, line_starts};
 
 /// Name of the offline resolved graph. `cargo metadata` runs with `--no-deps`,
 /// so `metadata.resolve` is always absent: the only graph readable without a
@@ -206,6 +208,119 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
     }
 
     scan
+}
+
+/// Do the dependency-truth rules need the source enumeration? The walk is the
+/// expensive part of the scan, so execution asks before starting it for these
+/// rules alone.
+pub(crate) fn dependency_truth_required(plan: &PolicyPlan) -> bool {
+    plan.is_active(CARGO_UNUSED_DEPENDENCY.id) || plan.is_active(CARGO_TEST_ONLY_DEPENDENCY.id)
+}
+
+/// Judges every `[dependencies]` entry of every workspace member against the
+/// references its sources actually make (US-006 and US-007).
+///
+/// The candidate set is deliberately narrow: only `kind = Normal` entries are
+/// judged, never `[dev-dependencies]` or `[build-dependencies]`, an optional
+/// entry sits behind a feature the scan cannot evaluate, and a target-gated
+/// entry belongs to a platform the scan may not be on. A package whose
+/// reference collection is incomplete is skipped entirely, so a parse failure
+/// never converts into a wall of wrong findings. Before either rule reports,
+/// the textual fallback scans the package's sources for the crate name, which
+/// silences the doctest, macro-token and attribute-argument classes.
+pub(crate) fn inspect_dependency_truth(
+    metadata: &Metadata,
+    enumeration: &Enumeration,
+    collected: &CrateReferences,
+    plan: &PolicyPlan,
+    scan: &mut CargoHealthScan,
+) {
+    let unused = plan.is_active(CARGO_UNUSED_DEPENDENCY.id);
+    let test_only = plan.is_active(CARGO_TEST_ONLY_DEPENDENCY.id);
+    if !unused && !test_only {
+        return;
+    }
+
+    for package in workspace_packages(metadata) {
+        if collected.incomplete(&package.id.repr) {
+            continue;
+        }
+        let manifest_path = package
+            .manifest_path
+            .strip_prefix(&metadata.workspace_root)
+            .ok()
+            .map(|path| path.as_str().to_owned());
+        let development: BTreeSet<&str> = package
+            .dependencies
+            .iter()
+            .filter(|dependency| dependency.kind == DependencyKind::Development)
+            .map(|dependency| dependency.name.as_str())
+            .collect();
+
+        for dependency in &package.dependencies {
+            if dependency.kind != DependencyKind::Normal
+                || dependency.optional
+                || dependency.target.is_some()
+            {
+                continue;
+            }
+            let key = dependency.rename.as_deref().unwrap_or(&dependency.name);
+            let sites = collected.sites(&package.id.repr, &key.replace('-', "_"));
+
+            if !sites.anywhere() {
+                if unused
+                    && !references::mentioned(
+                        enumeration,
+                        &package.id.repr,
+                        key,
+                        Mention::Anywhere,
+                    )
+                {
+                    scan.candidates.push(Candidate {
+                        definition: &CARGO_UNUSED_DEPENDENCY,
+                        message: format!(
+                            "Declared dependency \"{key}\" is referenced by no source of its package."
+                        ),
+                        package: package.name.to_string(),
+                        manifest_path: manifest_path.clone(),
+                        span: None,
+                    });
+                }
+                continue;
+            }
+
+            // A dependency referenced nowhere belongs to the unused rule
+            // above, so one manifest entry never produces two findings.
+            if !test_only
+                || sites.production
+                || development.contains(dependency.name.as_str())
+                || references::mentioned(
+                    enumeration,
+                    &package.id.repr,
+                    key,
+                    Mention::ProductionOnly,
+                )
+            {
+                continue;
+            }
+            let message = if sites.test_target {
+                format!(
+                    "Dependency \"{key}\" is referenced only from test, bench or example code."
+                )
+            } else {
+                format!(
+                    "Dependency \"{key}\" is referenced only from an inline #[cfg(test)] module."
+                )
+            };
+            scan.candidates.push(Candidate {
+                definition: &CARGO_TEST_ONLY_DEPENDENCY,
+                message,
+                package: package.name.to_string(),
+                manifest_path: manifest_path.clone(),
+                span: None,
+            });
+        }
+    }
 }
 
 /// Shape of the manifest the lint-table reader needs: the `[lints]` table of a
@@ -661,8 +776,10 @@ mod tests {
                 CARGO_MISSING_LOCKFILE.id,
                 CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id,
                 CARGO_PERMISSIVE_LINT_TABLE.id,
+                CARGO_TEST_ONLY_DEPENDENCY.id,
                 CARGO_UNBOUNDED_REGISTRY.id,
                 CARGO_UNPINNED_GIT.id,
+                CARGO_UNUSED_DEPENDENCY.id,
             ]
         );
         assert!(

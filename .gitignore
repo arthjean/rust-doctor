@@ -18,3 +18,4 @@
 /.claude/.paneflow-hook-leases
 /.claude/settings.local.json
 /tests/fixtures/suppression/*/target/
+/tests/fixtures/dependency-truth/*/target/

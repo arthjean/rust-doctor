@@ -403,6 +403,22 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Remove the allow entry from [lints] and fix what it silences; a manifest-level allow hides the rule from every scan of this workspace.",
 };
+pub(crate) static CARGO_TEST_ONLY_DEPENDENCY: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::test_only_dependency",
+    category: "dependencies",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Move the entry to [dev-dependencies]: only the test suite references it, and every consumer of the library compiles it anyway.",
+};
+pub(crate) static CARGO_UNUSED_DEPENDENCY: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::unused_dependency",
+    category: "dependencies",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Remove the entry no source references, or switch this rule off with --rule or rust-doctor.toml for a crate needed for linking alone; references made only through macro expansion or doctests are not seen.",
+};
 pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::path_dependency_outside_workspace",
     category: "dependencies",
@@ -519,7 +535,7 @@ pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinitio
     help: "Delete the feature nothing reads, or declare the one a cfg already gates; switch this rule off for a stub deliberately kept as published surface.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 54] = [
+pub(crate) const CATALOG: [&RuleDefinition; 56] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -561,8 +577,10 @@ pub(crate) const CATALOG: [&RuleDefinition; 54] = [
     &CARGO_MISSING_LOCKFILE,
     &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
     &CARGO_PERMISSIVE_LINT_TABLE,
+    &CARGO_TEST_ONLY_DEPENDENCY,
     &CARGO_UNBOUNDED_REGISTRY,
     &CARGO_UNPINNED_GIT,
+    &CARGO_UNUSED_DEPENDENCY,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
     &STRUCTURE_COMPLEX_FUNCTION,
@@ -693,7 +711,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 55] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 57] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -736,8 +754,10 @@ mod tests {
         &CARGO_MISSING_LOCKFILE,
         &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
         &CARGO_PERMISSIVE_LINT_TABLE,
+        &CARGO_TEST_ONLY_DEPENDENCY,
         &CARGO_UNBOUNDED_REGISTRY,
         &CARGO_UNPINNED_GIT,
+        &CARGO_UNUSED_DEPENDENCY,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
         &STRUCTURE_COMPLEX_FUNCTION,
@@ -772,7 +792,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 54);
+        assert_eq!(CATALOG.len(), 56);
         assert_eq!(
             CATEGORIES,
             [
@@ -839,7 +859,7 @@ mod tests {
 
         let plan = PolicyPlan::default();
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
-        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 6);
+        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 8);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
         assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
     }

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 54] = [
+const RULES: [&str; 56] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -57,8 +57,10 @@ const RULES: [&str; 54] = [
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
     "rust_doctor::cargo::permissive_lint_table",
+    "rust_doctor::cargo::test_only_dependency",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
+    "rust_doctor::cargo::unused_dependency",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
     "rust_doctor::structure::complex_function",
@@ -421,7 +423,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 13);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 54);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 56);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -506,7 +508,10 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         reports["absent"]["policy"]["rules"],
         reports["empty"]["policy"]["rules"]
     );
-    assert_eq!(diagnostic_ids(&reports["absent"]).len(), 7);
+    // Eight distinct codes since EP-002 of the suppression PRD: the two decoy
+    // dependencies this fixture declares and never references both land under
+    // the one `unused_dependency` code.
+    assert_eq!(diagnostic_ids(&reports["absent"]).len(), 8);
     let rule_scaling = oracle();
     let absent = &reports["absent"];
     assert_eq!(absent["status"], "complete");

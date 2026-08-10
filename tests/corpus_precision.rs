@@ -879,7 +879,10 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// Three suppression-audit rules entered on 2026-08-10 with EP-001 of the
 /// suppression PRD: admitted on their trigger fixtures, unmeasured until the
 /// corpus replay of that PRD's EP-005 adjudicates them.
-const ADMISSION_DEBT: [&str; 32] = [
+/// The two dependency-truth rules entered on 2026-08-10 with EP-002 of the
+/// same PRD, on the same terms: trigger fixtures now, corpus adjudication in
+/// that PRD's EP-005.
+const ADMISSION_DEBT: [&str; 34] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -905,8 +908,10 @@ const ADMISSION_DEBT: [&str; 32] = [
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
     "rust_doctor::cargo::permissive_lint_table",
+    "rust_doctor::cargo::test_only_dependency",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
+    "rust_doctor::cargo::unused_dependency",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
     "rust_doctor::structure::crate_level_allow",
