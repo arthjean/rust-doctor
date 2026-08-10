@@ -232,7 +232,22 @@ pub(crate) fn analyze(
     plan: &PolicyPlan,
     settings: &StructureSettings,
 ) -> StructureScan {
-    analyze_within(metadata, enumeration, plan, settings, TIME_BUDGET)
+    analyze_within(metadata, enumeration, plan, settings, time_budget())
+}
+
+/// The wall-clock budget, overridable through
+/// `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS`.
+///
+/// A wall-clock cutoff makes the findings of a large workspace depend on
+/// machine load: the pinned-corpus harness raises it so that two replays of
+/// the same revision publish the same observations. The default stays the
+/// interactive contract.
+fn time_budget() -> Duration {
+    std::env::var("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(TIME_BUDGET)
 }
 
 fn analyze_within(
