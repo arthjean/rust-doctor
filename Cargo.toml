@@ -26,6 +26,9 @@ unicode-width = "=0.2.2"
 [dev-dependencies]
 libc = "=0.2.189"
 
+[profile.release]
+overflow-checks = true
+
 [lints.clippy]
 panic = "deny"
 unimplemented = "deny"
