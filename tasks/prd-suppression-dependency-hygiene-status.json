@@ -26,10 +26,10 @@
     {
       "id": "EP-003",
       "title": "Release profile hardening",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 3,
-      "stories_done": 0
+      "stories_done": 3
     },
     {
       "id": "EP-004",
@@ -148,41 +148,41 @@
       "id": "US-008",
       "title": "Spanned manifest reader",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-009",
       "title": "Release profile rules",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-008"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-010",
       "title": "Permissive rustflags",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-008"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-10",
+      "completed_at": "2026-08-10",
+      "reviewed_at": "2026-08-10"
     },
     {
       "id": "US-011",
