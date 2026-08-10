@@ -518,7 +518,7 @@ Measure what the structural rules actually do, on both healthy public Rust and o
 
 ## Non-Goals
 
-- **Unused dependency detection.** cargo-machete (458k recent downloads) and cargo-shear (62k) own this. Revisit only if a user asks for a unified report and both tools remain external.
+- **Unused dependency detection.** cargo-machete (458k recent downloads) and cargo-shear (62k) own this. Revisit only if a user asks for a unified report and both tools remain external. *Amended 2026-08-10 by the suppression, dependency and hygiene PRD (`tasks/prd-suppression-dependency-hygiene.md`, EP-002): superseded. The stable toolchain still emits no such diagnostic (`[lints.cargo] unused_dependencies` verified nightly-only on cargo 1.97.1), and the test-only half is excluded from cargo's design by choice, so `rust_doctor::cargo::unused_dependency` and `rust_doctor::cargo::test_only_dependency` now ship on the existing diagnostic path.*
 - **A separate `deslop-rs` crate or binary.** Extraction from a working module is cheap in Rust; two half-finished projects are not. Revisit once the structural pass has users.
 - **Cross-crate or cross-workspace duplication.** Single-workspace analysis only. Revisit if a monorepo user asks.
 - **Semantic equivalence.** Two functions that compute the same result through different structures are out of scope. This is structural similarity, not program equivalence.
