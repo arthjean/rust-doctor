@@ -7,3 +7,6 @@ publish = false
 [[bin]]
 name = "unusable-resolution"
 path = "src/main.rs"
+
+[profile.release]
+overflow-checks = true

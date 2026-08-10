@@ -8,7 +8,8 @@ use serde::Deserialize;
 use crate::policy::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
     CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_PERMISSIVE_LINT_TABLE,
-    CARGO_TEST_ONLY_DEPENDENCY, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT,
+    CARGO_PERMISSIVE_RUSTFLAGS, CARGO_RELEASE_DEBUG_SYMBOLS, CARGO_TEST_ONLY_DEPENDENCY,
+    CARGO_UNBOUNDED_REGISTRY, CARGO_UNCHECKED_RELEASE_OVERFLOW, CARGO_UNPINNED_GIT,
     CARGO_UNUSED_DEPENDENCY, PolicyPlan, RuleDefinition,
 };
 use crate::source_kernel::references::{self, CrateReferences, Mention};
@@ -92,12 +93,17 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
     let missing_lockfile = plan.is_active(CARGO_MISSING_LOCKFILE.id);
     let duplicate_majors = plan.is_active(CARGO_DUPLICATE_MAJOR_VERSIONS.id);
     let permissive_lints = plan.is_active(CARGO_PERMISSIVE_LINT_TABLE.id);
+    let release_profile = plan.is_active(CARGO_UNCHECKED_RELEASE_OVERFLOW.id)
+        || plan.is_active(CARGO_RELEASE_DEBUG_SYMBOLS.id);
+    let rustflags = plan.is_active(CARGO_PERMISSIVE_RUSTFLAGS.id);
     if !unbounded_registry
         && !unpinned_git
         && !outside_path
         && !missing_lockfile
         && !duplicate_majors
         && !permissive_lints
+        && !release_profile
+        && !rustflags
     {
         return CargoHealthScan::default();
     }
@@ -107,6 +113,12 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
 
     if permissive_lints {
         inspect_lint_tables(metadata, plan, &mut scan);
+    }
+    if release_profile {
+        inspect_release_profile(metadata, plan, &mut scan);
+    }
+    if rustflags {
+        inspect_rustflags(metadata, &mut scan);
     }
 
     for package in workspace_packages(metadata) {
@@ -467,20 +479,8 @@ fn permissive_entries(
 fn read_manifest_lints(
     path: &Path,
 ) -> Result<Option<(String, ManifestLintDocument)>, CargoHealthError> {
-    let Ok(file) = fs::metadata(path) else {
+    let Some(contents) = read_bounded_toml("manifest-unreadable", path)? else {
         return Ok(None);
-    };
-    if !file.is_file() || file.len() > MAX_MANIFEST_BYTES {
-        return Err(CargoHealthError {
-            code: "manifest-unreadable",
-            message: "a manifest is not a readable regular file within the published size limit",
-        });
-    }
-    let Ok(contents) = fs::read_to_string(path) else {
-        return Err(CargoHealthError {
-            code: "manifest-unreadable",
-            message: "a manifest could not be read as UTF-8 text",
-        });
     };
     let Ok(document) = toml::from_str::<ManifestLintDocument>(&contents) else {
         return Err(CargoHealthError {
@@ -489,6 +489,307 @@ fn read_manifest_lints(
         });
     };
     Ok(Some((contents, document)))
+}
+
+/// Bounded read shared by every TOML file the pack opens itself: an absent
+/// file is an observed fact, an oversized or unreadable one is a closed error,
+/// never a partial read. The code distinguishes the manifest from the cargo
+/// configuration so the report says which file failed without naming a path.
+fn read_bounded_toml(code: &'static str, path: &Path) -> Result<Option<String>, CargoHealthError> {
+    let Ok(file) = fs::metadata(path) else {
+        return Ok(None);
+    };
+    if !file.is_file() || file.len() > MAX_MANIFEST_BYTES {
+        return Err(CargoHealthError {
+            code,
+            message: "a file is not a readable regular file within the published size limit",
+        });
+    }
+    match fs::read_to_string(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(_) => Err(CargoHealthError {
+            code,
+            message: "a file could not be read as UTF-8 text",
+        }),
+    }
+}
+
+/// Shape of the manifest the profile rules need (US-008): the `[profile.*]`
+/// tables of the workspace root, with the byte span of each judged setting.
+/// `cargo metadata` publishes no profile, so the root manifest is re-read from
+/// disk under the same bound as the lint reader. A virtual workspace manifest
+/// with no `[package]` still parses: profiles are all this shape reads.
+///
+/// `Spanned` yields byte ranges over the read source; the span of a setting is
+/// the span of its value, which sits on the line that carries the key, and
+/// `byte_range_span` converts it with the same line index the other readers
+/// use.
+#[derive(Debug, Default, Deserialize)]
+struct ManifestProfileDocument {
+    profile: Option<BTreeMap<toml::Spanned<String>, ProfileSettings>>,
+}
+
+/// The three settings the release-profile rules judge. Every other profile key
+/// is ignored without making the document invalid.
+#[derive(Debug, Default, Deserialize)]
+struct ProfileSettings {
+    #[serde(rename = "overflow-checks")]
+    overflow_checks: Option<toml::Spanned<TomlScalar>>,
+    debug: Option<toml::Spanned<TomlScalar>>,
+    strip: Option<toml::Spanned<TomlScalar>>,
+}
+
+/// The scalar spellings Cargo accepts for profile settings: `debug` is a
+/// boolean, an integer level or a named level, `strip` a boolean or a named
+/// mode.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TomlScalar {
+    Truth(bool),
+    Level(i64),
+    Name(String),
+}
+
+/// Reads the `[profile.*]` shape of the workspace root manifest, bounded and
+/// closed exactly like the lint reader.
+fn read_manifest_profiles(
+    path: &Path,
+) -> Result<Option<(String, ManifestProfileDocument)>, CargoHealthError> {
+    let Some(contents) = read_bounded_toml("manifest-unreadable", path)? else {
+        return Ok(None);
+    };
+    let Ok(document) = toml::from_str::<ManifestProfileDocument>(&contents) else {
+        return Err(CargoHealthError {
+            code: "manifest-invalid",
+            message: "a manifest profile table could not be parsed",
+        });
+    };
+    Ok(Some((contents, document)))
+}
+
+/// Judges `[profile.release]` of the workspace root (US-009). Only that table
+/// is read: Cargo honors profiles from the root manifest alone, and a profile
+/// inheriting from release through `inherits` is not resolved, which the rule
+/// help states.
+///
+/// `unchecked_release_overflow` fires when the workspace produces a binary and
+/// the release profile does not set `overflow-checks = true`, including when
+/// the manifest carries no `[profile.release]` at all, because Cargo's release
+/// default is `false`. `release_debug_symbols` fires only on an explicit
+/// `debug = true`, `2` or `"full"` left unstripped, because Cargo's release
+/// default is no debug info.
+fn inspect_release_profile(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoHealthScan) {
+    let root_manifest = metadata.workspace_root.as_std_path().join("Cargo.toml");
+    let (source, document) = match read_manifest_profiles(&root_manifest) {
+        Ok(Some(read)) => read,
+        Ok(None) => return,
+        Err(error) => {
+            scan.errors.push(error);
+            return;
+        }
+    };
+    let starts = line_starts(&source);
+    let release = document
+        .profile
+        .as_ref()
+        .and_then(|profiles| profiles.iter().find(|(key, _)| key.get_ref() == "release"));
+    let owner = resolution_owner(metadata);
+
+    if plan.is_active(CARGO_UNCHECKED_RELEASE_OVERFLOW.id)
+        && workspace_packages(metadata).any(produces_a_binary)
+    {
+        let enabled = release.is_some_and(|(_, settings)| {
+            settings
+                .overflow_checks
+                .as_ref()
+                .is_some_and(|checks| matches!(checks.get_ref(), TomlScalar::Truth(true)))
+        });
+        if !enabled {
+            // The span points at the explicit `overflow-checks` value when one
+            // is written, at the `[profile.release]` header when the section
+            // exists without it, and nowhere when the default is what fires.
+            let span = release.map(|(key, settings)| {
+                settings
+                    .overflow_checks
+                    .as_ref()
+                    .map_or_else(|| key.span(), toml::Spanned::span)
+            });
+            scan.candidates.push(Candidate {
+                definition: &CARGO_UNCHECKED_RELEASE_OVERFLOW,
+                message: "Release profile compiles without overflow checks, so integer overflow wraps silently in the shipped binary.".to_owned(),
+                package: owner.clone(),
+                manifest_path: Some("Cargo.toml".to_owned()),
+                span: span.map(|range| byte_range_span(range, &starts, &source)),
+            });
+        }
+    }
+
+    if plan.is_active(CARGO_RELEASE_DEBUG_SYMBOLS.id)
+        && let Some((_, settings)) = release
+    {
+        let full_debug = settings.debug.as_ref().is_some_and(|debug| {
+            match debug.get_ref() {
+                TomlScalar::Truth(value) => *value,
+                TomlScalar::Level(value) => *value == 2,
+                TomlScalar::Name(value) => value == "full",
+            }
+        });
+        let stripped = settings.strip.as_ref().is_some_and(|strip| match strip.get_ref() {
+            TomlScalar::Truth(value) => *value,
+            TomlScalar::Level(_) => false,
+            TomlScalar::Name(value) => value == "symbols" || value == "debuginfo",
+        });
+        if full_debug
+            && !stripped
+            && let Some(debug) = settings.debug.as_ref()
+        {
+            scan.candidates.push(Candidate {
+                definition: &CARGO_RELEASE_DEBUG_SYMBOLS,
+                message: "Release profile ships full debug info unstripped, so absolute build paths travel inside the binary.".to_owned(),
+                package: owner,
+                manifest_path: Some("Cargo.toml".to_owned()),
+                span: Some(byte_range_span(debug.span(), &starts, &source)),
+            });
+        }
+    }
+}
+
+/// Shape of `.cargo/config.toml` the rustflags rule reads: the `[build]` table
+/// and every `[target.*]` table, because both apply their flags to every build
+/// they cover. Everything else in the document is ignored.
+#[derive(Debug, Default, Deserialize)]
+struct CargoConfigDocument {
+    build: Option<RustflagsCarrier>,
+    target: Option<BTreeMap<String, RustflagsCarrier>>,
+}
+
+/// The setting is kept as a spanned raw value because cargo accepts two
+/// spellings, a list of arguments or one space-separated string, and an
+/// untagged enum would lose the span: serde buffers untagged content through a
+/// deserializer that cannot carry it. Every argument shares the span of the
+/// setting that declares it, which is the line the finding points at.
+#[derive(Debug, Default, Deserialize)]
+struct RustflagsCarrier {
+    rustflags: Option<toml::Spanned<toml::Value>>,
+}
+
+/// The flags of one rustflags setting as (argument, byte span) pairs. A shape
+/// cargo does not accept, an integer for instance, yields no argument rather
+/// than an error: it is cargo's to refuse, not this rule's.
+fn rustflag_arguments(setting: &toml::Spanned<toml::Value>) -> Vec<(&str, std::ops::Range<usize>)> {
+    let span = setting.span();
+    match setting.get_ref() {
+        toml::Value::Array(entries) => entries
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .map(|argument| (argument, span.clone()))
+            .collect(),
+        toml::Value::String(joined) => joined
+            .split_whitespace()
+            .map(|argument| (argument, span.clone()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Reports every workspace-wide rustflag drawn from the closed list of
+/// checks-disabling flags (US-010): `--cap-lints allow`, `-A warnings` and
+/// `-C overflow-checks=off`, in their separated and joined spellings. Flags
+/// outside that list are not this rule's subject. Only the workspace root's
+/// `.cargo/config.toml` is read; its absence is silence, not an error.
+fn inspect_rustflags(metadata: &Metadata, scan: &mut CargoHealthScan) {
+    let path = metadata
+        .workspace_root
+        .as_std_path()
+        .join(".cargo")
+        .join("config.toml");
+    let contents = match read_bounded_toml("cargo-config-unreadable", &path) {
+        Ok(Some(contents)) => contents,
+        Ok(None) => return,
+        Err(error) => {
+            scan.errors.push(error);
+            return;
+        }
+    };
+    let Ok(document) = toml::from_str::<CargoConfigDocument>(&contents) else {
+        scan.errors.push(CargoHealthError {
+            code: "cargo-config-invalid",
+            message: "a cargo configuration file could not be parsed",
+        });
+        return;
+    };
+
+    let starts = line_starts(&contents);
+    let owner = resolution_owner(metadata);
+    let carriers = document
+        .build
+        .iter()
+        .chain(document.target.iter().flat_map(BTreeMap::values));
+    for setting in carriers.filter_map(|carrier| carrier.rustflags.as_ref()) {
+        for (flag, span) in neutralizing_rustflags(&rustflag_arguments(setting)) {
+            scan.candidates.push(Candidate {
+                definition: &CARGO_PERMISSIVE_RUSTFLAGS,
+                message: format!(
+                    "Workspace rustflags carry \"{flag}\", which switches a check off for every build."
+                ),
+                package: owner.clone(),
+                manifest_path: Some(".cargo/config.toml".to_owned()),
+                span: Some(byte_range_span(span, &starts, &contents)),
+            });
+        }
+    }
+}
+
+/// The closed list of neutralizing flags, matched over an argument sequence.
+/// Each hit is returned under its canonical separated spelling so the finding
+/// names one flag however it was written.
+fn neutralizing_rustflags(
+    arguments: &[(&str, std::ops::Range<usize>)],
+) -> Vec<(&'static str, std::ops::Range<usize>)> {
+    let mut matched = Vec::new();
+    let mut index = 0;
+    while index < arguments.len() {
+        let (argument, span) = &arguments[index];
+        let next = arguments
+            .get(index + 1)
+            .map(|(argument, _)| *argument)
+            .unwrap_or_default();
+        let (flag, consumed) = match *argument {
+            "--cap-lints" if next == "allow" => (Some("--cap-lints allow"), 2),
+            "--cap-lints=allow" => (Some("--cap-lints allow"), 1),
+            "-A" | "--allow" if next == "warnings" => (Some("-A warnings"), 2),
+            "-Awarnings" | "--allow=warnings" => (Some("-A warnings"), 1),
+            "-C" | "--codegen" if disables_overflow_checks(next) => {
+                (Some("-C overflow-checks=off"), 2)
+            }
+            _ => {
+                let joined = argument
+                    .strip_prefix("-C")
+                    .or_else(|| argument.strip_prefix("--codegen="));
+                match joined {
+                    Some(setting) if disables_overflow_checks(setting) => {
+                        (Some("-C overflow-checks=off"), 1)
+                    }
+                    _ => (None, 1),
+                }
+            }
+        };
+        if let Some(flag) = flag {
+            matched.push((flag, span.clone()));
+        }
+        index += consumed;
+    }
+    matched
+}
+
+/// `overflow-checks` accepts the codegen spellings of false: `off`, `false`,
+/// `no`, `n` and `0`.
+fn disables_overflow_checks(setting: &str) -> bool {
+    setting
+        .split_once('=')
+        .is_some_and(|(key, value)| {
+            key == "overflow-checks" && matches!(value, "off" | "false" | "no" | "n" | "0")
+        })
 }
 
 fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
@@ -776,8 +1077,11 @@ mod tests {
                 CARGO_MISSING_LOCKFILE.id,
                 CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id,
                 CARGO_PERMISSIVE_LINT_TABLE.id,
+                CARGO_PERMISSIVE_RUSTFLAGS.id,
+                CARGO_RELEASE_DEBUG_SYMBOLS.id,
                 CARGO_TEST_ONLY_DEPENDENCY.id,
                 CARGO_UNBOUNDED_REGISTRY.id,
+                CARGO_UNCHECKED_RELEASE_OVERFLOW.id,
                 CARGO_UNPINNED_GIT.id,
                 CARGO_UNUSED_DEPENDENCY.id,
             ]
@@ -1213,6 +1517,203 @@ mod tests {
                 .count(),
             5
         );
+    }
+
+    /// US-008: the reader returns the profile values with byte spans that
+    /// convert to the same line and column the crate's span helpers publish
+    /// elsewhere, and a virtual workspace manifest with no `[package]` still
+    /// yields its profiles.
+    #[test]
+    fn the_profile_reader_returns_values_with_line_accurate_spans() {
+        let source = "[workspace]\nmembers = []\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\noverflow-checks = false\n";
+        let document: ManifestProfileDocument =
+            toml::from_str(source).expect("the virtual manifest should parse");
+        let profiles = document.profile.expect("the profiles should be read");
+        let (key, settings) = profiles
+            .iter()
+            .next()
+            .expect("the release profile should be read");
+        assert_eq!(key.get_ref(), "release");
+        let starts = line_starts(source);
+        assert_eq!(byte_range_span(key.span(), &starts, source).line_start, 4);
+
+        let debug = settings.debug.as_ref().expect("debug should be read");
+        assert!(matches!(debug.get_ref(), TomlScalar::Level(2)));
+        assert_eq!(byte_range_span(debug.span(), &starts, source).line_start, 5);
+
+        let strip = settings.strip.as_ref().expect("strip should be read");
+        assert!(matches!(strip.get_ref(), TomlScalar::Name(name) if name == "none"));
+        assert_eq!(byte_range_span(strip.span(), &starts, source).line_start, 6);
+
+        let checks = settings
+            .overflow_checks
+            .as_ref()
+            .expect("overflow-checks should be read");
+        assert!(matches!(checks.get_ref(), TomlScalar::Truth(false)));
+        let span = byte_range_span(checks.span(), &starts, source);
+        assert_eq!((span.line_start, span.line_end), (7, 7));
+    }
+
+    /// US-008: an absent manifest is an observed fact, an oversized one and an
+    /// unparseable one are closed errors, never a partial read.
+    #[test]
+    fn the_profile_reader_bounds_what_it_opens() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
+            "cargo-health-profile-reader-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&scratch).expect("the scratch directory should be creatable");
+
+        assert!(
+            read_manifest_profiles(&scratch.join("absent").join("Cargo.toml"))
+                .expect("an absent manifest is not an error")
+                .is_none()
+        );
+
+        let oversized = scratch.join("oversized.toml");
+        fs::write(&oversized, vec![b'#'; MAX_MANIFEST_BYTES as usize + 1])
+            .expect("the oversized manifest should be writable");
+        let error = read_manifest_profiles(&oversized).expect_err("the bound should refuse");
+        assert_eq!(error.code, "manifest-unreadable");
+
+        let invalid = scratch.join("invalid.toml");
+        fs::write(&invalid, "[profile.release]\ndebug = 1.5\n")
+            .expect("the invalid manifest should be writable");
+        let error = read_manifest_profiles(&invalid).expect_err("the shape should refuse");
+        assert_eq!(error.code, "manifest-invalid");
+        assert!(!error.message.contains('/'));
+
+        fs::remove_dir_all(&scratch).expect("the scratch directory should be removable");
+    }
+
+    /// US-010: the closed list matches every published spelling and nothing
+    /// else, and each hit is returned under its canonical separated form.
+    #[test]
+    fn the_closed_rustflags_list_matches_every_spelling_and_nothing_else() {
+        let arguments = |flags: &[&'static str]| {
+            flags
+                .iter()
+                .map(|flag| (*flag, 0..flag.len()))
+                .collect::<Vec<_>>()
+        };
+        let matched = |flags: &[&'static str]| {
+            neutralizing_rustflags(&arguments(flags))
+                .into_iter()
+                .map(|(flag, _)| flag)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(matched(&["--cap-lints", "allow"]), ["--cap-lints allow"]);
+        assert_eq!(matched(&["--cap-lints=allow"]), ["--cap-lints allow"]);
+        for spelling in [
+            ["-A", "warnings"].as_slice(),
+            ["-Awarnings"].as_slice(),
+            ["--allow", "warnings"].as_slice(),
+            ["--allow=warnings"].as_slice(),
+        ] {
+            assert_eq!(matched(spelling), ["-A warnings"], "{spelling:?}");
+        }
+        for spelling in [
+            ["-C", "overflow-checks=off"].as_slice(),
+            ["-Coverflow-checks=false"].as_slice(),
+            ["--codegen", "overflow-checks=no"].as_slice(),
+            ["--codegen=overflow-checks=0"].as_slice(),
+        ] {
+            assert_eq!(matched(spelling), ["-C overflow-checks=off"], "{spelling:?}");
+        }
+        assert_eq!(
+            matched(&["-C", "target-cpu=native", "--cap-lints", "allow", "-Awarnings"]),
+            ["--cap-lints allow", "-A warnings"]
+        );
+
+        for negative in [
+            ["-C", "target-cpu=native"].as_slice(),
+            ["--cap-lints", "warn"].as_slice(),
+            ["--cap-lints"].as_slice(),
+            ["-A", "dead_code"].as_slice(),
+            ["-D", "warnings"].as_slice(),
+            ["-Coverflow-checks=on"].as_slice(),
+            ["overflow-checks=off"].as_slice(),
+            ["-C"].as_slice(),
+        ] {
+            assert_eq!(matched(negative), [""; 0], "{negative:?}");
+        }
+    }
+
+    /// US-009: `debug = "full"` is the named spelling of the level `2`, and a
+    /// strip mode that removes debug info silences the finding while
+    /// `strip = false` does not.
+    #[test]
+    fn the_debug_symbols_rule_reads_the_named_level_and_the_strip_modes() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
+            "cargo-health-debug-full-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&scratch).expect("the scratch directory should be creatable");
+        let (mut metadata, _) = protocol_metadata();
+        metadata.workspace_root = scratch
+            .to_str()
+            .expect("the scratch path should be UTF-8")
+            .into();
+
+        let observed = |manifest: &str| {
+            fs::write(scratch.join("Cargo.toml"), manifest)
+                .expect("the scratch manifest should be writable");
+            let scan = super::inspect(&metadata, &PolicyPlan::default());
+            assert!(scan.errors.is_empty(), "{:?}", scan.errors);
+            scan.candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.definition.id == CARGO_RELEASE_DEBUG_SYMBOLS.id
+                })
+                .count()
+        };
+
+        assert_eq!(observed("[profile.release]\ndebug = \"full\"\nstrip = false\n"), 1);
+        assert_eq!(observed("[profile.release]\ndebug = \"full\"\nstrip = \"debuginfo\"\n"), 0);
+        assert_eq!(observed("[profile.release]\ndebug = 1\n"), 0);
+
+        fs::remove_dir_all(&scratch).expect("the scratch directory should be removable");
+    }
+
+    /// US-010: a cargo configuration the parser cannot read is a bounded
+    /// error, never a partial judgement, and the rest of the pack still
+    /// reports.
+    #[test]
+    fn a_malformed_cargo_config_abstains_with_a_bounded_error() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
+            "cargo-health-config-invalid-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(scratch.join(".cargo")).expect("the scratch should be creatable");
+        fs::write(scratch.join(".cargo/config.toml"), "[build\nrustflags = [\n")
+            .expect("the malformed configuration should be writable");
+
+        let (mut metadata, _) = protocol_metadata();
+        metadata.workspace_root = scratch
+            .to_str()
+            .expect("the scratch path should be UTF-8")
+            .into();
+        let scan = super::inspect(&metadata, &PolicyPlan::default());
+        assert!(
+            scan.errors
+                .iter()
+                .any(|error| error.code == "cargo-config-invalid"),
+            "{:?}",
+            scan.errors
+        );
+        assert!(
+            scan.candidates
+                .iter()
+                .all(|candidate| candidate.definition.id != CARGO_PERMISSIVE_RUSTFLAGS.id),
+            "a malformed configuration still produced a rustflags finding"
+        );
+        assert!(
+            !scan.candidates.is_empty(),
+            "the rest of the pack should still report"
+        );
+
+        fs::remove_dir_all(&scratch).expect("the scratch directory should be removable");
     }
 
     fn dependency_mut<'a>(

@@ -1,0 +1,5 @@
+[build]
+rustflags = ["--cap-lints", "allow", "-Awarnings"]
+
+[target.'cfg(unix)']
+rustflags = "-C overflow-checks=off"

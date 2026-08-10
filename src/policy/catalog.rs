@@ -403,6 +403,25 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Remove the allow entry from [lints] and fix what it silences; a manifest-level allow hides the rule from every scan of this workspace.",
 };
+pub(crate) static CARGO_PERMISSIVE_RUSTFLAGS: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::permissive_rustflags",
+    // Reliability at P2, like the manifest lint table: a flag that caps or
+    // silences lints neutralizes the scan itself for every build of the
+    // workspace, which is graver than weakening the shipped artifact.
+    category: "reliability",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Remove the flag from .cargo/config.toml and fix what it silences; the closed list judged here is --cap-lints allow, -A warnings and -C overflow-checks=off, each of which disables a check for every build of this workspace.",
+};
+pub(crate) static CARGO_RELEASE_DEBUG_SYMBOLS: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::release_debug_symbols",
+    category: "reliability",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Set strip = \"symbols\" or remove debug from [profile.release]: full debug info ships absolute build paths inside the binary. Only [profile.release] itself is judged; profiles inheriting from it are not resolved.",
+};
 pub(crate) static CARGO_TEST_ONLY_DEPENDENCY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::test_only_dependency",
     category: "dependencies",
@@ -418,6 +437,17 @@ pub(crate) static CARGO_UNUSED_DEPENDENCY: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
     help: "Remove the entry no source references, or switch this rule off with --rule or rust-doctor.toml for a crate needed for linking alone; references made only through macro expansion or doctests are not seen.",
+};
+pub(crate) static CARGO_UNCHECKED_RELEASE_OVERFLOW: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::unchecked_release_overflow",
+    // The rule states a tradeoff, not a verdict: the Rust Performance Book
+    // measures overflow checks at a few percent on integer-heavy code, and the
+    // help names that cost so the reader can decline it.
+    category: "reliability",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Set overflow-checks = true under [profile.release] so integer overflow panics instead of wrapping silently; the measured cost is a few percent on integer-heavy code, which is the tradeoff this finding asks you to decide.",
 };
 pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::path_dependency_outside_workspace",
@@ -535,7 +565,7 @@ pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinitio
     help: "Delete the feature nothing reads, or declare the one a cfg already gates; switch this rule off for a stub deliberately kept as published surface.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 56] = [
+pub(crate) const CATALOG: [&RuleDefinition; 59] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -577,8 +607,11 @@ pub(crate) const CATALOG: [&RuleDefinition; 56] = [
     &CARGO_MISSING_LOCKFILE,
     &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
     &CARGO_PERMISSIVE_LINT_TABLE,
+    &CARGO_PERMISSIVE_RUSTFLAGS,
+    &CARGO_RELEASE_DEBUG_SYMBOLS,
     &CARGO_TEST_ONLY_DEPENDENCY,
     &CARGO_UNBOUNDED_REGISTRY,
+    &CARGO_UNCHECKED_RELEASE_OVERFLOW,
     &CARGO_UNPINNED_GIT,
     &CARGO_UNUSED_DEPENDENCY,
     &SOURCE_DISABLED_TLS,
@@ -711,7 +744,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 57] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 60] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -754,8 +787,11 @@ mod tests {
         &CARGO_MISSING_LOCKFILE,
         &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
         &CARGO_PERMISSIVE_LINT_TABLE,
+        &CARGO_PERMISSIVE_RUSTFLAGS,
+        &CARGO_RELEASE_DEBUG_SYMBOLS,
         &CARGO_TEST_ONLY_DEPENDENCY,
         &CARGO_UNBOUNDED_REGISTRY,
+        &CARGO_UNCHECKED_RELEASE_OVERFLOW,
         &CARGO_UNPINNED_GIT,
         &CARGO_UNUSED_DEPENDENCY,
         &SOURCE_DISABLED_TLS,
@@ -792,7 +828,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 56);
+        assert_eq!(CATALOG.len(), 59);
         assert_eq!(
             CATEGORIES,
             [
@@ -859,7 +895,7 @@ mod tests {
 
         let plan = PolicyPlan::default();
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
-        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 8);
+        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 11);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
         assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
     }

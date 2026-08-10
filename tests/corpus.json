@@ -1766,12 +1766,27 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::cargo::permissive_rustflags",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::release_debug_symbols",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::cargo::test_only_dependency",
       "tier": "P2"
     },
     {
       "default_level": "warn",
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::unchecked_release_overflow",
       "tier": "P3"
     },
     {
@@ -1884,8 +1899,11 @@
       "rust_doctor::cargo::missing_lockfile",
       "rust_doctor::cargo::path_dependency_outside_workspace",
       "rust_doctor::cargo::permissive_lint_table",
+      "rust_doctor::cargo::permissive_rustflags",
+      "rust_doctor::cargo::release_debug_symbols",
       "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
       "rust_doctor::source::disabled_tls_verification",
@@ -1947,8 +1965,11 @@
       "rust_doctor::cargo::missing_lockfile",
       "rust_doctor::cargo::path_dependency_outside_workspace",
       "rust_doctor::cargo::permissive_lint_table",
+      "rust_doctor::cargo::permissive_rustflags",
+      "rust_doctor::cargo::release_debug_symbols",
       "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
       "rust_doctor::source::disabled_tls_verification",
@@ -3203,6 +3224,26 @@
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
+      "id": "rust_doctor::cargo::permissive_rustflags",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::release_debug_symbols",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
       "id": "rust_doctor::cargo::test_only_dependency",
       "reviewed": 0,
       "status": "unobserved",
@@ -3214,6 +3255,16 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "reviewed": 0,
+      "status": "unobserved",
+      "tier": "P3",
+      "true_positives": null
+    },
+    {
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::unchecked_release_overflow",
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",

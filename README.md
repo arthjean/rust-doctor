@@ -72,7 +72,7 @@ rust-doctor --scope baseline --base main  # only findings your change introduced
 
 ## Rules
 
-56 rules today: 37 selected Clippy lints, 10 native detectors and 9 structural rules.
+59 rules today: 37 selected Clippy lints, 13 native detectors and 9 structural rules.
 
 The Clippy lints are curated, not the whole `restriction` group. They cover panic paths (`unwrap_used`, `indexing_slicing`, `panic_in_result_fn`), async and concurrency hazards (`await_holding_lock`, `arc_with_non_send_sync`, `rc_mutex`), and allocation waste (`redundant_allocation`, `unnecessary_to_owned`, `useless_vec`).
 
@@ -90,6 +90,9 @@ The native detectors find what Clippy does not:
 | `rust_doctor::cargo::permissive_lint_table` | a `[lints]` entry switching a catalogued rule off from the manifest |
 | `rust_doctor::cargo::unused_dependency` | a declared dependency no source of its package references |
 | `rust_doctor::cargo::test_only_dependency` | a `[dependencies]` entry referenced only from test, bench or example code |
+| `rust_doctor::cargo::unchecked_release_overflow` | a release profile compiling a binary without overflow checks |
+| `rust_doctor::cargo::release_debug_symbols` | a release profile shipping full debug info unstripped |
+| `rust_doctor::cargo::permissive_rustflags` | a workspace rustflag drawn from the closed checks-disabling list |
 | `rust_doctor::structure::complex_function` | a function past its cyclomatic or cognitive threshold |
 | `rust_doctor::structure::crate_level_allow` | an `#![allow]` covering a whole file or module |
 | `rust_doctor::structure::duplicate_function_body` | functions with identical bodies under other names |

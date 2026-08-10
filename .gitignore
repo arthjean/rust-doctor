@@ -19,3 +19,4 @@
 /.claude/settings.local.json
 /tests/fixtures/suppression/*/target/
 /tests/fixtures/dependency-truth/*/target/
+/tests/fixtures/profile-hardening/*/target/

@@ -256,6 +256,18 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::cargo::permissive_rustflags",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::release_debug_symbols",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::cargo::test_only_dependency",
         "category": "dependencies",
         "level": "warn",
@@ -263,6 +275,12 @@
       },
       {
         "id": "rust_doctor::cargo::unbounded_registry_dependency",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::unchecked_release_overflow",
         "category": "reliability",
         "level": "warn",
         "source": "default"

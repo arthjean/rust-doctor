@@ -207,6 +207,16 @@
       "test": "tests/suppression_audit.rs::a_permissive_lint_table_entry_is_reported_with_its_span"
     },
     {
+      "catches": "a workspace rustflag drawn from the closed checks-disabling list in .cargo/config.toml",
+      "id": "rust_doctor::cargo::permissive_rustflags",
+      "test": "tests/profile_hardening.rs::neutralizing_rustflags_are_reported_in_both_spellings"
+    },
+    {
+      "catches": "a release profile shipping full debug info unstripped",
+      "id": "rust_doctor::cargo::release_debug_symbols",
+      "test": "tests/profile_hardening.rs::a_virtual_workspace_manifest_carries_both_profile_findings"
+    },
+    {
       "catches": "a [dependencies] entry referenced only from test, bench or example code",
       "id": "rust_doctor::cargo::test_only_dependency",
       "test": "tests/dependency_truth.rs::test_only_dependencies_are_reported_with_their_reference_site"
@@ -215,6 +225,11 @@
       "catches": "a registry dependency whose version requirement admits any version",
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "oracle": "cargo-health/precision/oracle.json"
+    },
+    {
+      "catches": "a release profile compiling a binary without overflow checks",
+      "id": "rust_doctor::cargo::unchecked_release_overflow",
+      "test": "tests/profile_hardening.rs::an_unchecked_release_profile_is_reported_for_a_binary_workspace"
     },
     {
       "catches": "a git dependency pinned by branch or tag instead of a full commit revision",

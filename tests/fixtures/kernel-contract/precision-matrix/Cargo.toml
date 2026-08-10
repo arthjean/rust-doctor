@@ -10,3 +10,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "precision-matrix"
 path = "src/main.rs"
+
+[profile.release]
+overflow-checks = true
