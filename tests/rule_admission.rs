@@ -322,8 +322,11 @@ fn the_readme_rule_count_matches_the_published_catalog() {
         "README no longer states \"{expected}\""
     );
 
-    // Every structural rule appears in the README detector table.
-    for id in catalog.iter().filter(|id| id.starts_with("rust_doctor::structure::")) {
+    // Every native and structural rule appears in the README detector table.
+    // The table is the only place a reader learns what a rule catches without
+    // reading the catalog, so a producer growing without it is a rule shipped
+    // undocumented.
+    for id in catalog.iter().filter(|id| !id.starts_with("clippy::")) {
         assert!(readme.contains(id.as_str()), "README table misses {id}");
     }
 }
