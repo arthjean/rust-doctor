@@ -186,9 +186,17 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     // The findings are scored: the dimension the category maps to leaves 100.
     // The marked families are excluded from that arithmetic, the two others are
     // not, which is what makes the mark observable rather than declarative.
+    // Since EP-001 of the suppression PRD, the crate-level exemption of the
+    // test crate is also reported under its own rule, so the category list is
+    // looked up by name rather than by position.
     assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 99);
-    assert_eq!(report["audit"]["categories"][0]["name"], "Maintainability");
-    assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
+    let maintainability = report["audit"]["categories"]
+        .as_array()
+        .expect("categories should be an array")
+        .iter()
+        .find(|category| category["name"] == "Maintainability")
+        .expect("the maintainability tally is published");
+    assert_eq!(maintainability["distinct"]["total"], 4);
 
     // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();
@@ -208,13 +216,20 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     }
 }
 
-/// US-014: an exemption that states its reason is not a finding.
+/// US-014: an exemption that states its reason is not an unreasoned finding.
+///
+/// Since EP-001 of the suppression PRD, the reason answers the census and not
+/// the reach: the same attribute is still reported by `crate_level_allow`,
+/// because its scope is the whole file, and that P2 finding is what now costs
+/// the fixture its perfect score.
 #[test]
 fn a_stated_reason_leaves_the_census_with_nothing_to_report() {
     let report = published(InspectRequest::new(fixture("reasoned-allow")));
     assert!(structural(&report).is_empty(), "{report:#?}");
+    let scope = rule_findings(&report, "rust_doctor::structure::crate_level_allow");
+    assert_eq!(scope.len(), 1, "the file-wide scope is still a finding");
     assert_eq!(report["audit"]["score"]["maintainability"], Value::Null);
-    assert_eq!(report["audit"]["score"]["value"], 100);
+    assert_eq!(report["audit"]["score"]["value"], 94);
     assert_eq!(report["audit"]["score"]["authoritative"], true);
 }
 

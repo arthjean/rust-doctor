@@ -531,6 +531,7 @@ mod tests {
             path: "src/lib.rs",
             context: None,
             packages: Vec::new(),
+            attributes: Vec::new(),
         }
     }
 

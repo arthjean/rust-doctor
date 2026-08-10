@@ -17,3 +17,4 @@
 /npm/rust-doctor/*.tgz
 /.claude/.paneflow-hook-leases
 /.claude/settings.local.json
+/tests/fixtures/suppression/*/target/

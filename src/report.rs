@@ -1100,6 +1100,9 @@ fn normalize_cargo_health_candidate(
         .manifest_path
         .as_deref()
         .and_then(|path| workspace_path::normalize_relative(Path::new(path)));
+    // The identity deliberately ignores the span: a manifest key keeps its
+    // finding when lines are inserted above it, exactly as the structural
+    // fingerprints do.
     let id = fingerprint(
         source,
         code.as_deref(),
@@ -1123,7 +1126,12 @@ fn normalize_cargo_health_candidate(
         package: Some(normalize_text(&candidate.package)),
         target: None,
         path,
-        span: None,
+        span: candidate.span.map(|span| DiagnosticSpan {
+            line_start: span.line_start,
+            column_start: span.column_start,
+            line_end: span.line_end,
+            column_end: span.column_end,
+        }),
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,

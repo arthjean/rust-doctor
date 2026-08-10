@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 use serde_json::Value;
 
 const DUPLICATE_FUNCTION_BODY: &str = "rust_doctor::structure::duplicate_function_body";
+const CRATE_LEVEL_ALLOW: &str = "rust_doctor::structure::crate_level_allow";
 
 fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
@@ -352,13 +353,16 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     // What it leaves is the structural family, and that is not an oversight: a
     // native rule is not a lint the compiler carries, so no attribute written
     // in the source reaches it. Switching one off goes through `--rule` or
-    // through `rust-doctor.toml`, and nowhere else.
+    // through `rust-doctor.toml`, and nowhere else. Since EP-001 of the
+    // suppression PRD, the crate-level exemption is itself a finding: the
+    // suppression that removed the three lints is exactly what the report now
+    // shows in their place.
     assert_eq!(
         curated(&allowed_report)
             .iter()
             .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default())
             .collect::<Vec<_>>(),
-        [DUPLICATE_FUNCTION_BODY],
+        [CRATE_LEVEL_ALLOW, DUPLICATE_FUNCTION_BODY],
         "{:#?}",
         curated(&allowed_report)
     );

@@ -410,7 +410,10 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         &candidates,
         "baseline",
     );
-    assert_delta(&baseline, 5, 0, 0);
+    // The surface files carry a reasoned crate-level allow in both states,
+    // which `crate_level_allow` reports since EP-001 of the suppression PRD:
+    // present on both sides, it lands in `pre_existing`, never in the delta.
+    assert_delta(&baseline, 5, 1, 0);
     assert_eq!(baseline.delta.as_ref().unwrap().introduced.len(), 5);
 
     let persisting = repository(
@@ -427,7 +430,7 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         &candidates,
         "persisting-default",
     );
-    assert_delta(&default, 0, 5, 0);
+    assert_delta(&default, 0, 6, 0);
     let error = deterministic_report(
         &persisting,
         InspectRequest::new(&persisting.root)
@@ -438,7 +441,7 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         &candidates,
         "persisting-error",
     );
-    assert_delta(&error, 0, 5, 0);
+    assert_delta(&error, 0, 6, 0);
     let warning = default
         .diagnostics
         .iter()
@@ -463,7 +466,7 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         &BTreeSet::new(),
         "resolved",
     );
-    assert_delta(&fixed, 0, 0, 5);
+    assert_delta(&fixed, 0, 1, 5);
     assert_eq!(candidate_codes(&fixed, &candidates).len(), 0);
     assert_eq!(
         fixed

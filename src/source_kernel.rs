@@ -899,6 +899,23 @@ pub(crate) fn source_span(range: TextRange, line_starts: &[usize], source: &str)
     }
 }
 
+/// Span of a byte range, for a reader whose offsets come from outside the
+/// syntax tree, the spanned manifest parser for instance.
+pub(crate) fn byte_range_span(
+    range: std::ops::Range<usize>,
+    line_starts: &[usize],
+    source: &str,
+) -> SourceSpan {
+    let (line_start, column_start) = source_position(range.start, line_starts, source);
+    let (line_end, column_end) = source_position(range.end, line_starts, source);
+    SourceSpan {
+        line_start,
+        column_start,
+        line_end,
+        column_end,
+    }
+}
+
 fn source_position(offset: usize, line_starts: &[usize], source: &str) -> (usize, usize) {
     let bounded = offset.min(source.len());
     let line_index = line_starts.partition_point(|start| *start <= bounded) - 1;
@@ -973,8 +990,8 @@ mod tests {
     use super::*;
     use crate::policy::{
         PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
-        STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_DUPLICATE_FUNCTION_BODY,
-        STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_ORPHAN_MODULE_FILE,
+        STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_DUPLICATE_FUNCTION_BODY,
+        STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_STACKED_ALLOW,
         STRUCTURE_OVERSIZED_UNIT, STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE,
     };
     use cargo_metadata::MetadataCommand;
@@ -1147,6 +1164,8 @@ mod tests {
             .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)
             .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off)
             .with_rule(STRUCTURE_UNREASONED_ALLOW.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_CRATE_LEVEL_ALLOW.id, RuleLevel::Off)
+            .with_rule(STRUCTURE_STACKED_ALLOW.id, RuleLevel::Off)
             .with_rule(STRUCTURE_COMPLEX_FUNCTION.id, RuleLevel::Off)
             .with_rule(STRUCTURE_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off)
             .with_rule(STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY.id, RuleLevel::Off)

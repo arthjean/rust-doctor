@@ -876,7 +876,10 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-const ADMISSION_DEBT: [&str; 29] = [
+/// Three suppression-audit rules entered on 2026-08-10 with EP-001 of the
+/// suppression PRD: admitted on their trigger fixtures, unmeasured until the
+/// corpus replay of that PRD's EP-005 adjudicates them.
+const ADMISSION_DEBT: [&str; 32] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -901,11 +904,14 @@ const ADMISSION_DEBT: [&str; 29] = [
     "clippy::zombie_processes",
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
+    "rust_doctor::cargo::permissive_lint_table",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::orphan_module_file",
+    "rust_doctor::structure::stacked_allow_attribute",
 ];
 
 /// The threshold is enforceable here, and nowhere else: this test fails as soon

@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["alpha", "beta"]
+
+[workspace.lints.clippy]
+unwrap_used = "allow"

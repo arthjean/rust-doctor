@@ -474,9 +474,16 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     // requires since the EP-005 design revision. The single-statement chains
     // fell under `MINIMUM_STATEMENTS`, which is that revision working as
     // measured.
-    const ADMITTED_AFTER_EP018: [(&str, usize); 2] = [
+    // The two suppression-audit rules of EP-001 both fire on this fixture by
+    // design: its crate-level `#![allow(dead_code, reason = ...)]` is exactly
+    // the file-wide scope `crate_level_allow` reports whatever the reason, and
+    // its quiet counterpart carries one attribute naming four lints, which is
+    // the accumulation `stacked_allow_attribute` reports.
+    const ADMITTED_AFTER_EP018: [(&str, usize); 4] = [
         ("clippy::expect_used", 1),
+        ("rust_doctor::structure::crate_level_allow", 1),
         ("rust_doctor::structure::duplicate_function_body", 1),
+        ("rust_doctor::structure::stacked_allow_attribute", 1),
     ];
     let admitted_after_ep018: usize = ADMITTED_AFTER_EP018.iter().map(|(_, count)| count).sum();
     assert_eq!(

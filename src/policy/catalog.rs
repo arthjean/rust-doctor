@@ -395,6 +395,14 @@ pub(crate) static CARGO_MISSING_LOCKFILE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Commit Cargo.lock next to the manifest so every build of this binary resolves the same dependency versions.",
 };
+pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::cargo::permissive_lint_table",
+    category: "reliability",
+    producer: Producer::CargoHealth,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Remove the allow entry from [lints] and fix what it silences; a manifest-level allow hides the rule from every scan of this workspace.",
+};
 pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::path_dependency_outside_workspace",
     category: "dependencies",
@@ -443,6 +451,17 @@ pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Split the branching into smaller functions, or flatten it with early returns, so one reading holds the whole path.",
 };
+pub(crate) static STRUCTURE_CRATE_LEVEL_ALLOW: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::crate_level_allow",
+    // Reliability, like the manifest lint table: a file-wide allow neutralizes
+    // the scan for everything the file will ever contain, which is a different
+    // act from an untidy exemption on one item.
+    category: "reliability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P2,
+    help: "Scope the allow to the item that needs it; a file-wide or module-wide exemption, reasoned or not, also silences every future finding in its reach.",
+};
 pub(crate) static STRUCTURE_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::duplicate_function_body",
     category: "maintainability",
@@ -475,6 +494,14 @@ pub(crate) static STRUCTURE_OVERSIZED_UNIT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Split the file, function, impl block or module along its responsibilities before growth makes the split harder.",
 };
+pub(crate) static STRUCTURE_STACKED_ALLOW: RuleDefinition = RuleDefinition {
+    id: "rust_doctor::structure::stacked_allow_attribute",
+    category: "maintainability",
+    producer: Producer::Structure,
+    default_level: RuleLevel::Warn,
+    tier: RuleTier::P3,
+    help: "Keep the one exemption the item actually needs and fix what the others hide; attributes produced by cfg_attr are not counted here.",
+};
 pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::unreasoned_allow_attribute",
     category: "maintainability",
@@ -492,7 +519,7 @@ pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinitio
     help: "Delete the feature nothing reads, or declare the one a cfg already gates; switch this rule off for a stub deliberately kept as published surface.",
 };
 
-pub(crate) const CATALOG: [&RuleDefinition; 51] = [
+pub(crate) const CATALOG: [&RuleDefinition; 54] = [
     &CLIPPY_ARC_WITH_NON_SEND_SYNC,
     &CLIPPY_AWAIT_HOLDING_LOCK,
     &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -533,15 +560,18 @@ pub(crate) const CATALOG: [&RuleDefinition; 51] = [
     &CARGO_DUPLICATE_MAJOR_VERSIONS,
     &CARGO_MISSING_LOCKFILE,
     &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
+    &CARGO_PERMISSIVE_LINT_TABLE,
     &CARGO_UNBOUNDED_REGISTRY,
     &CARGO_UNPINNED_GIT,
     &SOURCE_DISABLED_TLS,
     &SOURCE_DYNAMIC_SHELL,
     &STRUCTURE_COMPLEX_FUNCTION,
+    &STRUCTURE_CRATE_LEVEL_ALLOW,
     &STRUCTURE_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_ORPHAN_MODULE_FILE,
     &STRUCTURE_OVERSIZED_UNIT,
+    &STRUCTURE_STACKED_ALLOW,
     &STRUCTURE_UNREASONED_ALLOW,
     &STRUCTURE_UNREFERENCED_FEATURE,
 ];
@@ -663,7 +693,7 @@ mod tests {
         help: "Synthetic authoring proof.",
     };
 
-    const SYNTHETIC_CATALOG: [&RuleDefinition; 52] = [
+    const SYNTHETIC_CATALOG: [&RuleDefinition; 55] = [
         &CLIPPY_ARC_WITH_NON_SEND_SYNC,
         &CLIPPY_AWAIT_HOLDING_LOCK,
         &CLIPPY_AWAIT_HOLDING_REFCELL_REF,
@@ -705,15 +735,18 @@ mod tests {
         &CARGO_DUPLICATE_MAJOR_VERSIONS,
         &CARGO_MISSING_LOCKFILE,
         &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
+        &CARGO_PERMISSIVE_LINT_TABLE,
         &CARGO_UNBOUNDED_REGISTRY,
         &CARGO_UNPINNED_GIT,
         &SOURCE_DISABLED_TLS,
         &SOURCE_DYNAMIC_SHELL,
         &STRUCTURE_COMPLEX_FUNCTION,
+        &STRUCTURE_CRATE_LEVEL_ALLOW,
         &STRUCTURE_DUPLICATE_FUNCTION_BODY,
         &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
         &STRUCTURE_ORPHAN_MODULE_FILE,
         &STRUCTURE_OVERSIZED_UNIT,
+        &STRUCTURE_STACKED_ALLOW,
         &STRUCTURE_UNREASONED_ALLOW,
         &STRUCTURE_UNREFERENCED_FEATURE,
     ];
@@ -739,7 +772,7 @@ mod tests {
     #[test]
     fn catalog_is_the_exact_normative_inventory() {
         validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-        assert_eq!(CATALOG.len(), 51);
+        assert_eq!(CATALOG.len(), 54);
         assert_eq!(
             CATEGORIES,
             [
@@ -806,9 +839,9 @@ mod tests {
 
         let plan = PolicyPlan::default();
         assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
-        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 5);
+        assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 6);
         assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
-        assert_eq!(plan.active_rules(Producer::Structure).count(), 7);
+        assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
     }
 
     #[test]

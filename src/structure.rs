@@ -17,10 +17,13 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use cargo_metadata::Metadata;
-use ra_ap_syntax::ast::{self, HasAttrs};
+use ra_ap_syntax::ast::{self, HasAttrs, HasName};
 use ra_ap_syntax::{AstNode, SyntaxNode};
 
-use crate::policy::{PolicyPlan, RuleDefinition, STRUCTURE_UNREASONED_ALLOW};
+use crate::policy::{
+    PolicyPlan, RuleDefinition, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_STACKED_ALLOW,
+    STRUCTURE_UNREASONED_ALLOW,
+};
 use crate::report::{ComplexityFigures, DiagnosticContext};
 use crate::source_kernel::{Enumeration, SourceSpan, compact, line_starts, source_span};
 
@@ -171,6 +174,12 @@ struct Unit<'a> {
     /// Packages whose targets reach this unit, for the detectors whose answer
     /// depends on which manifest describes the file.
     packages: Vec<&'a str>,
+    /// Every attribute of the tree, walked once for the whole detector table.
+    /// The three suppression rules read the same nodes, and the pass runs
+    /// under a wall-clock budget: a second traversal of every unit costs the
+    /// budget a walk and finds nothing the first one missed. Empty for a
+    /// caller that reads no attribute.
+    attributes: Vec<ast::Attr>,
 }
 
 impl Unit<'_> {
@@ -179,12 +188,30 @@ impl Unit<'_> {
     }
 }
 
+/// The one attribute walk the suppression detectors share.
+fn attributes_of(tree: &ast::SourceFile) -> Vec<ast::Attr> {
+    tree.syntax()
+        .descendants()
+        .filter_map(ast::Attr::cast)
+        .collect()
+}
+
 static UNREASONED_ALLOW: Detector = Detector {
     definition: &STRUCTURE_UNREASONED_ALLOW,
     observe: unreasoned_allow,
 };
 
-static DETECTORS: [&Detector; 1] = [&UNREASONED_ALLOW];
+static CRATE_LEVEL_ALLOW: Detector = Detector {
+    definition: &STRUCTURE_CRATE_LEVEL_ALLOW,
+    observe: crate_level_allow,
+};
+
+static STACKED_ALLOW: Detector = Detector {
+    definition: &STRUCTURE_STACKED_ALLOW,
+    observe: stacked_allow,
+};
+
+static DETECTORS: [&Detector; 3] = [&UNREASONED_ALLOW, &CRATE_LEVEL_ALLOW, &STACKED_ALLOW];
 
 /// Members of one family, before it becomes a diagnostic.
 #[derive(Debug, Default)]
@@ -299,13 +326,20 @@ fn analyze_within(
         if is_generated(unit.source()) {
             continue;
         }
+        let tree = unit.tree();
+        let attributes = if detectors.is_empty() {
+            Vec::new()
+        } else {
+            attributes_of(&tree)
+        };
         let analysed = Unit {
-            tree: unit.tree(),
+            tree,
             source: unit.source(),
             line_starts: line_starts(unit.source()),
             path: unit.relative_path(),
             context: unit.context(enumeration.contexts()),
             packages: unit.package_ids().collect(),
+            attributes,
         };
         for detector in &detectors {
             for observation in (detector.observe)(&analysed, settings) {
@@ -488,47 +522,26 @@ fn structural_hash(rule: &str, key: &str) -> String {
 /// the syntax tree.
 fn unreasoned_allow(unit: &Unit<'_>, _settings: &StructureSettings) -> Vec<Observation> {
     let mut observations = Vec::new();
-    for attribute in unit.tree.syntax().descendants().filter_map(ast::Attr::cast) {
-        // Only the `allow(...)` form is a census subject: `#[expect]` carries
-        // another path, and `#[cfg_attr(test, allow(...))]` is a `CfgAttrMeta`
-        // whose produced attribute does not exist in this tree.
-        let Some(ast::Meta::TokenTreeMeta(meta)) = attribute.meta() else {
+    for attribute in &unit.attributes {
+        let Some(reading) = allow_arguments(attribute) else {
             continue;
         };
-        if meta
-            .path()
-            .and_then(|path| path.as_single_name_ref())
-            .map(|name| name.text().to_string())
-            .as_deref()
-            != Some("allow")
-        {
+        if reading.has_reason || reading.lints.is_empty() {
             continue;
         }
-        let Some(arguments) = meta.token_tree().map(|tree| arguments(tree.syntax())) else {
-            continue;
-        };
-        if arguments.iter().any(|argument| is_reason(argument)) {
-            continue;
-        }
-        let mut lints: Vec<&str> = arguments
-            .iter()
-            .map(String::as_str)
-            .filter(|argument| !argument.is_empty())
-            .collect();
-        if lints.is_empty() {
-            continue;
-        }
-        lints.sort_unstable();
-        lints.dedup();
 
         let inner = attribute.excl_token().is_some();
         let written = format!(
             "#{}[allow({})]",
             if inner { "!" } else { "" },
-            lints.join(", ")
+            reading.lints.join(", ")
         );
         observations.push(Observation {
-            key: format!("{}|{}", if inner { "inner" } else { "outer" }, lints.join(",")),
+            key: format!(
+                "{}|{}",
+                if inner { "inner" } else { "outer" },
+                reading.lints.join(",")
+            ),
             subject: format!("{written} switches a lint off without a stated reason."),
             span: unit.span(attribute.syntax()),
             context: test_context(attribute.syntax()).or(unit.context),
@@ -536,6 +549,178 @@ fn unreasoned_allow(unit: &Unit<'_>, _settings: &StructureSettings) -> Vec<Obser
         });
     }
     observations
+}
+
+/// Every inner `#![allow(...)]` whose scope is a whole file or a whole inline
+/// module.
+///
+/// The scope, not the justification, is what this rule judges: an attribute
+/// carrying `reason = "..."` is reported all the same, and the help says so.
+/// An outer `#[allow]` on a single item belongs to the stacked and unreasoned
+/// detectors, and an inner attribute in any narrower position, a function body
+/// for instance, exempts one item and is left to them too.
+fn crate_level_allow(unit: &Unit<'_>, _settings: &StructureSettings) -> Vec<Observation> {
+    let mut observations = Vec::new();
+    for attribute in &unit.attributes {
+        if attribute.excl_token().is_none() {
+            continue;
+        }
+        let Some(reading) = allow_arguments(attribute) else {
+            continue;
+        };
+        if reading.lints.is_empty() {
+            continue;
+        }
+        let Some(parent) = attribute.syntax().parent() else {
+            continue;
+        };
+
+        let lints = reading.lints.join(", ");
+        let (scope, subject) = if ast::SourceFile::cast(parent.clone()).is_some() {
+            (
+                "file".to_owned(),
+                format!("#![allow({lints})] covers this whole file."),
+            )
+        } else if let Some(module) = ast::ItemList::cast(parent.clone())
+            .and_then(|list| list.syntax().parent())
+            .and_then(ast::Module::cast)
+        {
+            let name = module
+                .name()
+                .map(|name| name.text().to_string())
+                .unwrap_or_default();
+            (
+                format!("module:{name}"),
+                format!("#![allow({lints})] covers the whole module \"{name}\"."),
+            )
+        } else {
+            continue;
+        };
+
+        observations.push(Observation {
+            key: format!("{scope}|{}", reading.lints.join(",")),
+            subject,
+            span: unit.span(attribute.syntax()),
+            context: test_context(attribute.syntax()).or(unit.context),
+            complexity: None,
+        });
+    }
+    observations
+}
+
+/// Accumulated allows on one item, before the stacked detector judges them.
+#[derive(Debug)]
+struct Stack {
+    attributes: usize,
+    /// Widest lint list a single attribute of the stack names.
+    widest: usize,
+    lints: Vec<String>,
+    span: SourceSpan,
+    context: Option<DiagnosticContext>,
+}
+
+/// An item carrying several suppressions at once: two or more separate
+/// `#[allow(...)]` attributes, or one attribute naming four or more lints,
+/// since one attribute listing four lints and four attributes are the same
+/// act. `#[cfg_attr(test, allow(...))]` is out of reach here, exactly as it is
+/// for the unreasoned detector, and the rule help states the limitation.
+fn stacked_allow(unit: &Unit<'_>, _settings: &StructureSettings) -> Vec<Observation> {
+    let mut per_item = BTreeMap::<usize, Stack>::new();
+    for attribute in &unit.attributes {
+        if attribute.excl_token().is_some() {
+            continue;
+        }
+        let Some(reading) = allow_arguments(attribute) else {
+            continue;
+        };
+        if reading.lints.is_empty() {
+            continue;
+        }
+        let Some(parent) = attribute.syntax().parent() else {
+            continue;
+        };
+
+        let named = reading.lints.len();
+        per_item
+            .entry(usize::from(parent.text_range().start()))
+            .and_modify(|stack| {
+                stack.attributes += 1;
+                stack.widest = stack.widest.max(named);
+                stack.lints.extend(reading.lints.iter().cloned());
+            })
+            .or_insert_with(|| Stack {
+                attributes: 1,
+                widest: named,
+                lints: reading.lints,
+                span: unit.span(attribute.syntax()),
+                context: test_context(attribute.syntax()).or(unit.context),
+            });
+    }
+
+    per_item
+        .into_values()
+        .filter(|stack| stack.attributes >= 2 || stack.widest >= 4)
+        .map(|mut stack| {
+            stack.lints.sort_unstable();
+            stack.lints.dedup();
+            let subject = if stack.attributes >= 2 {
+                format!(
+                    "{} allow attributes stack {} suppressions on one item.",
+                    stack.attributes,
+                    stack.lints.len()
+                )
+            } else {
+                format!(
+                    "#[allow({})] stacks {} suppressions on one item.",
+                    stack.lints.join(", "),
+                    stack.lints.len()
+                )
+            };
+            Observation {
+                key: format!("{}|{}", stack.attributes, stack.lints.join(",")),
+                subject,
+                span: stack.span,
+                context: stack.context,
+                complexity: None,
+            }
+        })
+        .collect()
+}
+
+/// What an `allow(...)` attribute names: its lints, sorted and deduplicated,
+/// and whether a `reason = "..."` argument sits among them.
+struct AllowReading {
+    lints: Vec<String>,
+    has_reason: bool,
+}
+
+/// Reads the attribute as an `allow`, or refuses it.
+///
+/// Only the `allow(...)` token-tree form is readable: `#[expect]` carries
+/// another path and expires by itself, and `#[cfg_attr(test, allow(...))]` is
+/// a `CfgAttrMeta` whose produced attribute does not exist in the syntax tree.
+fn allow_arguments(attribute: &ast::Attr) -> Option<AllowReading> {
+    let Some(ast::Meta::TokenTreeMeta(meta)) = attribute.meta() else {
+        return None;
+    };
+    if meta
+        .path()
+        .and_then(|path| path.as_single_name_ref())
+        .map(|name| name.text().to_string())
+        .as_deref()
+        != Some("allow")
+    {
+        return None;
+    }
+    let arguments = meta.token_tree().map(|tree| arguments(tree.syntax()))?;
+    let has_reason = arguments.iter().any(|argument| is_reason(argument));
+    let mut lints: Vec<String> = arguments
+        .into_iter()
+        .filter(|argument| !argument.is_empty() && !is_reason(argument))
+        .collect();
+    lints.sort_unstable();
+    lints.dedup();
+    Some(AllowReading { lints, has_reason })
 }
 
 /// Is this argument the `reason = "..."` the attribute needs to be deliberate?
@@ -658,6 +843,7 @@ mod tests {
                 path: unit.relative_path(),
                 context: unit.context(enumeration.contexts()),
                 packages: unit.package_ids().collect(),
+                attributes: Vec::new(),
             };
             functions.extend(duplication::observe(&analysed));
         }
@@ -797,16 +983,149 @@ mod tests {
         );
     }
 
-    fn observe(source: &str, context: Option<DiagnosticContext>) -> Vec<Observation> {
+    fn observe_with(
+        detector: fn(&Unit<'_>, &StructureSettings) -> Vec<Observation>,
+        source: &str,
+        context: Option<DiagnosticContext>,
+    ) -> Vec<Observation> {
+        let tree = SourceFile::parse(source, Edition::Edition2024).tree();
         let unit = Unit {
-            tree: SourceFile::parse(source, Edition::Edition2024).tree(),
+            attributes: attributes_of(&tree),
+            tree,
             source,
             line_starts: line_starts(source),
             path: "src/lib.rs",
             context,
             packages: Vec::new(),
         };
-        unreasoned_allow(&unit, &StructureSettings::default())
+        detector(&unit, &StructureSettings::default())
+    }
+
+    fn observe(source: &str, context: Option<DiagnosticContext>) -> Vec<Observation> {
+        observe_with(unreasoned_allow, source, context)
+    }
+
+    /// US-001: only the inner attribute whose scope is a whole file or a whole
+    /// inline module is this rule's subject, reasoned or not.
+    #[test]
+    fn a_crate_level_allow_is_reported_whatever_its_reason() {
+        let file = observe_with(crate_level_allow, "#![allow(clippy::unwrap_used)]\nfn free() {}", None);
+        assert_eq!(file.len(), 1);
+        assert_eq!(file[0].key, "file|clippy::unwrap_used");
+        assert!(file[0].subject.contains("covers this whole file"), "{}", file[0].subject);
+        assert!(file[0].subject.contains("clippy::unwrap_used"), "{}", file[0].subject);
+
+        let reasoned = observe_with(
+            crate_level_allow,
+            "#![allow(dead_code, reason = \"scope is what is judged\")]\n",
+            None,
+        );
+        assert_eq!(reasoned.len(), 1, "a stated reason does not narrow the scope");
+        assert_eq!(reasoned[0].key, "file|dead_code");
+
+        for quiet in [
+            "#[allow(dead_code)]\nfn free() {}",
+            "#![deny(dead_code)]\n",
+            "#![warn(dead_code)]\n",
+            "#![doc = \"a crate\"]\n",
+            "#![expect(dead_code)]\n",
+            "fn free() { #![allow(dead_code)] }",
+            "#![allow()]\n",
+        ] {
+            assert!(
+                observe_with(crate_level_allow, quiet, None).is_empty(),
+                "{quiet}"
+            );
+        }
+    }
+
+    /// US-001: an inline module carrying an inner allow is reported with the
+    /// module as its subject, and a `#[cfg(test)]` module carries the mark.
+    #[test]
+    fn a_module_level_allow_names_its_module() {
+        let observed = observe_with(
+            crate_level_allow,
+            "mod imports {\n    #![allow(unused_imports)]\n    pub use std::fs;\n}",
+            None,
+        );
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].key, "module:imports|unused_imports");
+        assert!(
+            observed[0].subject.contains("module \"imports\""),
+            "{}",
+            observed[0].subject
+        );
+        assert_eq!(observed[0].context, None);
+
+        let gated = observe_with(
+            crate_level_allow,
+            "#[cfg(test)]\nmod tests {\n    #![allow(dead_code)]\n    fn helper() {}\n}",
+            None,
+        );
+        assert_eq!(gated.len(), 1);
+        assert_eq!(gated[0].context, Some(DiagnosticContext::Tests));
+    }
+
+    /// US-001: the key carries the scope and the lint set, never a position or
+    /// a path, so an insertion above the attribute moves nothing.
+    #[test]
+    fn the_crate_level_key_ignores_position() {
+        let first = observe_with(crate_level_allow, "#![allow(b, a)]\n", None);
+        let second = observe_with(crate_level_allow, "\n\n\n#![allow(a, b)]\n", None);
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert_eq!(first[0].key, second[0].key);
+        assert_ne!(first[0].span, second[0].span);
+    }
+
+    /// US-002: two separate attributes and one attribute naming four lints are
+    /// the same act; narrower accumulations stay quiet.
+    #[test]
+    fn stacked_allows_are_reported_once_per_item() {
+        let separate = observe_with(
+            stacked_allow,
+            "#[allow(dead_code)]\n#[allow(unused_variables)]\nfn stacked() {}",
+            None,
+        );
+        assert_eq!(separate.len(), 1);
+        assert_eq!(separate[0].key, "2|dead_code,unused_variables");
+        assert!(
+            separate[0].subject.contains("2 allow attributes"),
+            "{}",
+            separate[0].subject
+        );
+
+        let wide = observe_with(
+            stacked_allow,
+            "#[allow(a, b, c, d)]\nfn wide() {}",
+            None,
+        );
+        assert_eq!(wide.len(), 1);
+        assert_eq!(wide[0].key, "1|a,b,c,d");
+        assert!(wide[0].subject.contains("4 suppressions"), "{}", wide[0].subject);
+
+        for quiet in [
+            "#[allow(dead_code)]\nfn narrow() {}",
+            "#[allow(a, b, c)]\nfn three() {}",
+            "#[allow(a, b, c, reason = \"still three lints\")]\nfn reasoned() {}",
+            "#[cfg_attr(test, allow(a, b, c, d))]\nfn gated() {}",
+            "#[allow(dead_code)]\nfn one() {}\n#[allow(dead_code)]\nfn other() {}",
+        ] {
+            assert!(observe_with(stacked_allow, quiet, None).is_empty(), "{quiet}");
+        }
+    }
+
+    /// US-002: an item inside a test context carries the mark, so the stack is
+    /// published without weighing.
+    #[test]
+    fn a_stack_inside_a_test_module_is_marked() {
+        let observed = observe_with(
+            stacked_allow,
+            "#[cfg(test)]\nmod tests {\n    #[allow(dead_code)]\n    #[allow(unused_variables)]\n    fn helper() {}\n}",
+            None,
+        );
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].context, Some(DiagnosticContext::Tests));
     }
 
     #[test]

@@ -7,9 +7,10 @@ use serde::Deserialize;
 
 use crate::policy::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
-    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_UNBOUNDED_REGISTRY, CARGO_UNPINNED_GIT,
-    PolicyPlan, RuleDefinition,
+    CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_PERMISSIVE_LINT_TABLE, CARGO_UNBOUNDED_REGISTRY,
+    CARGO_UNPINNED_GIT, PolicyPlan, RuleDefinition,
 };
+use crate::source_kernel::{SourceSpan, byte_range_span, line_starts};
 
 /// Name of the offline resolved graph. `cargo metadata` runs with `--no-deps`,
 /// so `metadata.resolve` is always absent: the only graph readable without a
@@ -20,12 +21,18 @@ const LOCKFILE: &str = "Cargo.lock";
 /// pack abstains instead of loading the file.
 const MAX_LOCKFILE_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Same bound for a manifest the lint-table reader re-parses from disk.
+const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
     pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: String,
     pub(crate) package: String,
     pub(crate) manifest_path: Option<String>,
+    /// Position of the offending manifest key, when the pack re-read the
+    /// manifest itself; the metadata-derived predicates carry none.
+    pub(crate) span: Option<SourceSpan>,
 }
 
 /// Bounded error of the pack: a closed code and a frozen message, with no
@@ -82,17 +89,23 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
     let outside_path = plan.is_active(CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id);
     let missing_lockfile = plan.is_active(CARGO_MISSING_LOCKFILE.id);
     let duplicate_majors = plan.is_active(CARGO_DUPLICATE_MAJOR_VERSIONS.id);
+    let permissive_lints = plan.is_active(CARGO_PERMISSIVE_LINT_TABLE.id);
     if !unbounded_registry
         && !unpinned_git
         && !outside_path
         && !missing_lockfile
         && !duplicate_majors
+        && !permissive_lints
     {
         return CargoHealthScan::default();
     }
 
     let mut scan = CargoHealthScan::default();
     let workspace_root = metadata.workspace_root.as_std_path();
+
+    if permissive_lints {
+        inspect_lint_tables(metadata, plan, &mut scan);
+    }
 
     for package in workspace_packages(metadata) {
         let manifest_path = package
@@ -115,6 +128,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                     ),
                     package: package.name.to_string(),
                     manifest_path: manifest_path.clone(),
+                    span: None,
                 });
             }
             if unpinned_git {
@@ -128,6 +142,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                     ),
                     package: package.name.to_string(),
                     manifest_path: manifest_path.clone(),
+                    span: None,
                 });
             }
             if outside_path && leaves_workspace(dependency, workspace_root) {
@@ -136,6 +151,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                     message: format!("Path dependency \"{key}\" resolves outside the workspace."),
                     package: package.name.to_string(),
                     manifest_path: manifest_path.clone(),
+                    span: None,
                 });
             }
         }
@@ -164,6 +180,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                         .strip_prefix(&metadata.workspace_root)
                         .ok()
                         .map(|path| path.as_str().to_owned()),
+                    span: None,
                 });
             }
         }
@@ -181,6 +198,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
                         ),
                         package: owner.clone(),
                         manifest_path: Some(LOCKFILE.to_owned()),
+                        span: None,
                     });
                 }
             }
@@ -188,6 +206,174 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
     }
 
     scan
+}
+
+/// Shape of the manifest the lint-table reader needs: the `[lints]` table of a
+/// member, and the `[workspace.lints]` table a member can inherit. Everything
+/// else in the document is ignored without making it invalid.
+#[derive(Debug, Default, Deserialize)]
+struct ManifestLintDocument {
+    lints: Option<LintsSection>,
+    workspace: Option<WorkspaceLintSection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceLintSection {
+    lints: Option<LintsSection>,
+}
+
+/// A `[lints]` table is either an inheritance marker or per-tool tables. Only
+/// the `clippy` tool can name a catalogued rule, so the others are not read.
+#[derive(Debug, Default, Deserialize)]
+struct LintsSection {
+    workspace: Option<bool>,
+    clippy: Option<BTreeMap<toml::Spanned<String>, LintSetting>>,
+}
+
+/// The two spellings Cargo accepts for a lint level.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum LintSetting {
+    Level(String),
+    Detailed { level: Option<String> },
+}
+
+impl LintSetting {
+    fn level(&self) -> Option<&str> {
+        match self {
+            Self::Level(level) => Some(level),
+            Self::Detailed { level } => level.as_deref(),
+        }
+    }
+}
+
+/// Reports every `[lints.clippy]` entry that sets a catalogued, active rule to
+/// `allow`. The tool only judges what it would otherwise have said: a lint the
+/// catalog does not carry is not this rule's subject, and neither is a `deny`
+/// or a `warn`, which silence nothing.
+///
+/// A member declaring `[lints] workspace = true` points at the workspace
+/// root's `[workspace.lints]`, which is judged once and attributed to the root
+/// manifest rather than once per inheriting member.
+fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoHealthScan) {
+    let mut judge_root = false;
+    for package in workspace_packages(metadata) {
+        let document = match read_manifest_lints(package.manifest_path.as_std_path()) {
+            Ok(document) => document,
+            Err(error) => {
+                scan.errors.push(error);
+                continue;
+            }
+        };
+        let Some((source, manifest)) = document else {
+            continue;
+        };
+        let Some(lints) = manifest.lints else {
+            continue;
+        };
+        if lints.workspace == Some(true) {
+            judge_root = true;
+            continue;
+        }
+        let manifest_path = package
+            .manifest_path
+            .strip_prefix(&metadata.workspace_root)
+            .ok()
+            .map(|path| path.as_str().to_owned());
+        permissive_entries(
+            &lints,
+            &source,
+            plan,
+            package.name.as_ref(),
+            manifest_path,
+            scan,
+        );
+    }
+
+    if !judge_root {
+        return;
+    }
+    let root_manifest = metadata.workspace_root.as_std_path().join("Cargo.toml");
+    match read_manifest_lints(&root_manifest) {
+        Err(error) => scan.errors.push(error),
+        Ok(None) => {}
+        Ok(Some((source, manifest))) => {
+            let Some(lints) = manifest.workspace.and_then(|workspace| workspace.lints) else {
+                return;
+            };
+            permissive_entries(
+                &lints,
+                &source,
+                plan,
+                &resolution_owner(metadata),
+                Some("Cargo.toml".to_owned()),
+                scan,
+            );
+        }
+    }
+}
+
+fn permissive_entries(
+    lints: &LintsSection,
+    source: &str,
+    plan: &PolicyPlan,
+    package: &str,
+    manifest_path: Option<String>,
+    scan: &mut CargoHealthScan,
+) {
+    let Some(clippy) = lints.clippy.as_ref() else {
+        return;
+    };
+    let starts = line_starts(source);
+    for (key, setting) in clippy {
+        if setting.level() != Some("allow") {
+            continue;
+        }
+        let rule = format!("clippy::{}", key.get_ref());
+        // Catalogued and active in one check: the plan only knows catalogued
+        // identifiers, and an off rule was switched off by the user, not by
+        // the manifest.
+        if !plan.is_active(&rule) {
+            continue;
+        }
+        scan.candidates.push(Candidate {
+            definition: &CARGO_PERMISSIVE_LINT_TABLE,
+            message: format!("Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"."),
+            package: package.to_owned(),
+            manifest_path: manifest_path.clone(),
+            span: Some(byte_range_span(key.span(), &starts, source)),
+        });
+    }
+}
+
+/// Reads the `[lints]` shape of one manifest, bounded exactly like the
+/// lockfile: an oversized, unreadable or unparseable file is a closed error,
+/// never a partial read.
+fn read_manifest_lints(
+    path: &Path,
+) -> Result<Option<(String, ManifestLintDocument)>, CargoHealthError> {
+    let Ok(file) = fs::metadata(path) else {
+        return Ok(None);
+    };
+    if !file.is_file() || file.len() > MAX_MANIFEST_BYTES {
+        return Err(CargoHealthError {
+            code: "manifest-unreadable",
+            message: "a manifest is not a readable regular file within the published size limit",
+        });
+    }
+    let Ok(contents) = fs::read_to_string(path) else {
+        return Err(CargoHealthError {
+            code: "manifest-unreadable",
+            message: "a manifest could not be read as UTF-8 text",
+        });
+    };
+    let Ok(document) = toml::from_str::<ManifestLintDocument>(&contents) else {
+        return Err(CargoHealthError {
+            code: "manifest-invalid",
+            message: "a manifest lint table could not be parsed",
+        });
+    };
+    Ok(Some((contents, document)))
 }
 
 fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
@@ -474,6 +660,7 @@ mod tests {
                 CARGO_DUPLICATE_MAJOR_VERSIONS.id,
                 CARGO_MISSING_LOCKFILE.id,
                 CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE.id,
+                CARGO_PERMISSIVE_LINT_TABLE.id,
                 CARGO_UNBOUNDED_REGISTRY.id,
                 CARGO_UNPINNED_GIT.id,
             ]

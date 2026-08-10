@@ -596,6 +596,7 @@ mod tests {
             path,
             context: None,
             packages: vec!["probe"],
+            attributes: Vec::new(),
         }
     }
 

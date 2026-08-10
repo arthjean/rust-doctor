@@ -72,7 +72,7 @@ rust-doctor --scope baseline --base main  # only findings your change introduced
 
 ## Rules
 
-51 rules today: 37 selected Clippy lints, 7 native detectors and 7 structural rules.
+54 rules today: 37 selected Clippy lints, 8 native detectors and 9 structural rules.
 
 The Clippy lints are curated, not the whole `restriction` group. They cover panic paths (`unwrap_used`, `indexing_slicing`, `panic_in_result_fn`), async and concurrency hazards (`await_holding_lock`, `arc_with_non_send_sync`, `rc_mutex`), and allocation waste (`redundant_allocation`, `unnecessary_to_owned`, `useless_vec`).
 
@@ -87,11 +87,14 @@ The native detectors find what Clippy does not:
 | `rust_doctor::cargo::duplicate_major_versions` | one crate resolved at incompatible majors |
 | `rust_doctor::cargo::missing_lockfile` | a binary shipped without `Cargo.lock` |
 | `rust_doctor::cargo::path_dependency_outside_workspace` | a path that only resolves on your machine |
+| `rust_doctor::cargo::permissive_lint_table` | a `[lints]` entry switching a catalogued rule off from the manifest |
 | `rust_doctor::structure::complex_function` | a function past its cyclomatic or cognitive threshold |
+| `rust_doctor::structure::crate_level_allow` | an `#![allow]` covering a whole file or module |
 | `rust_doctor::structure::duplicate_function_body` | functions with identical bodies under other names |
 | `rust_doctor::structure::near_duplicate_function_body` | functions alike above a similarity threshold |
 | `rust_doctor::structure::orphan_module_file` | a file no `mod` declaration reaches, which Cargo never compiles |
 | `rust_doctor::structure::oversized_unit` | a file, function, impl block or module grown too large |
+| `rust_doctor::structure::stacked_allow_attribute` | several suppressions accumulated on one item |
 | `rust_doctor::structure::unreasoned_allow_attribute` | a lint switched off with no `reason` given |
 | `rust_doctor::structure::unreferenced_feature` | a feature nothing reads, or a `cfg` naming one nothing declares |
 

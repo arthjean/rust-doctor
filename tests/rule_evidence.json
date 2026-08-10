@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "criterion": "A rule ships only when one trigger of it is recorded where a test replays it: a frozen oracle that names the rule in an observed position, or a named test that scans a fixture and asserts the finding. The record proves the rule fires on the pattern it claims to catch. Precision on the corpus answers the opposite question, how often the rule is wrong on healthy code, and says nothing when the corpus never triggers it. `catches` states that pattern in one line, and for a Clippy rule it is the description the toolchain publishes, so a lint whose meaning shifts upstream stops matching its own contract.",
   "evidence": [
     {
@@ -203,6 +202,11 @@
       "test": "src/cargo_health.rs::a_path_dependency_leaving_the_workspace_is_named_without_its_path"
     },
     {
+      "catches": "a [lints] entry that sets a catalogued, active rule to allow in the manifest",
+      "id": "rust_doctor::cargo::permissive_lint_table",
+      "test": "tests/suppression_audit.rs::a_permissive_lint_table_entry_is_reported_with_its_span"
+    },
+    {
       "catches": "a registry dependency whose version requirement admits any version",
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "oracle": "cargo-health/precision/oracle.json"
@@ -228,6 +232,11 @@
       "test": "tests/structure_kernel.rs::the_complexity_pass_names_the_functions_too_tangled_to_review"
     },
     {
+      "catches": "an inner #![allow(...)] whose scope is a whole file or a whole inline module",
+      "id": "rust_doctor::structure::crate_level_allow",
+      "test": "tests/suppression_audit.rs::a_crate_level_allow_is_reported_with_its_scope"
+    },
+    {
       "catches": "two or more functions whose bodies are identical once names and literals are set aside",
       "id": "rust_doctor::structure::duplicate_function_body",
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
@@ -248,6 +257,11 @@
       "test": "tests/structure_kernel.rs::the_oversized_units_reach_the_report_and_the_generated_file_does_not"
     },
     {
+      "catches": "an item carrying two or more allow attributes, or one allow naming four or more lints",
+      "id": "rust_doctor::structure::stacked_allow_attribute",
+      "test": "tests/suppression_audit.rs::stacked_allow_attributes_are_reported_once_per_item"
+    },
+    {
       "catches": "an #[allow] attribute that switches a lint off without a reason argument",
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
       "test": "tests/structure_kernel.rs::the_structural_pass_publishes_one_diagnostic_per_family"
@@ -257,5 +271,6 @@
       "id": "rust_doctor::structure::unreferenced_feature",
       "test": "tests/structure_kernel.rs::the_feature_inventory_reports_both_sides_of_the_disagreement"
     }
-  ]
+  ],
+  "schema_version": 1
 }

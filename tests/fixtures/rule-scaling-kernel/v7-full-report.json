@@ -250,6 +250,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::cargo::permissive_lint_table",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::cargo::unbounded_registry_dependency",
         "category": "reliability",
         "level": "warn",
@@ -280,6 +286,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::structure::crate_level_allow",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::structure::duplicate_function_body",
         "category": "maintainability",
         "level": "warn",
@@ -299,6 +311,12 @@
       },
       {
         "id": "rust_doctor::structure::oversized_unit",
+        "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::structure::stacked_allow_attribute",
         "category": "maintainability",
         "level": "warn",
         "source": "default"

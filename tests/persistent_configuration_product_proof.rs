@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 51] = [
+const RULES: [&str; 54] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -56,15 +56,18 @@ const RULES: [&str; 51] = [
     "rust_doctor::cargo::duplicate_major_versions",
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
+    "rust_doctor::cargo::permissive_lint_table",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
     "rust_doctor::structure::complex_function",
+    "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::duplicate_function_body",
     "rust_doctor::structure::near_duplicate_function_body",
     "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::oversized_unit",
+    "rust_doctor::structure::stacked_allow_attribute",
     "rust_doctor::structure::unreasoned_allow_attribute",
     "rust_doctor::structure::unreferenced_feature",
 ];
@@ -418,7 +421,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             let report = first_report.unwrap();
             assert_eq!(report["schema_version"], 13);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 51);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 54);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
