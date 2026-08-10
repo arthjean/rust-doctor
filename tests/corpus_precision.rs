@@ -862,11 +862,16 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// corpus does not publish. Registration is nominative and one-way: a proven
 /// rule leaves it, none enters without the validation saying so.
 ///
-/// Every name here is `unobserved`: the corpus never triggered it, because a
-/// healthy repository does not commit the defect it aims at. The six structural
-/// rules that used to sit here as `incomplete` left on 2026-08-09, when their
-/// corpus sites were adjudicated and their rates published; only
+/// Almost every name here is `unobserved`: the corpus never triggered it,
+/// because a healthy repository does not commit the defect it aims at. The six
+/// structural rules that used to sit here as `incomplete` left on 2026-08-09,
+/// when their corpus sites were adjudicated and their rates published; only
 /// `orphan_module_file` remains, which the ten repositories never triggered.
+/// The one exception is `stacked_allow_attribute`, `incomplete` since
+/// 2026-08-10: the corpus produced exactly one finding for it and that finding
+/// sits in an integration test, outside the production subpopulation a
+/// structural rate is drawn from, so there is nothing to adjudicate and the
+/// rate stays withheld.
 ///
 /// Three entries were added on 2026-08-04, which the one-way rule normally
 /// forbids. They do not cover a rule admitted without evidence: they cover the
@@ -876,18 +881,15 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// targets made them silent. Their silence says what the 24 others already say:
 /// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
 /// with `println!`, and none leaves a `dbg!` in what it publishes.
-/// Three suppression-audit rules entered on 2026-08-10 with EP-001 of the
-/// suppression PRD: admitted on their trigger fixtures, unmeasured until the
-/// corpus replay of that PRD's EP-005 adjudicates them.
-/// The two dependency-truth rules entered on 2026-08-10 with EP-002 of the
-/// same PRD, on the same terms: trigger fixtures now, corpus adjudication in
-/// that PRD's EP-005.
-/// The three release-profile rules entered on 2026-08-10 with EP-003 of the
-/// same PRD, still on the same terms.
-/// The three repository-hygiene rules entered on 2026-08-10 with EP-004 of
-/// the same PRD, admitted on trigger tests that build their git fixtures at
-/// test time, unmeasured until that PRD's EP-005 replays the corpus.
-const ADMISSION_DEBT: [&str; 40] = [
+/// Eleven rules entered on 2026-08-10 with EP-001 to EP-004 of the
+/// suppression, dependency and hygiene PRD, admitted on trigger fixtures and
+/// unmeasured until that PRD's EP-005 replayed the corpus. Nine of them stayed:
+/// the ten healthy repositories declare no permissive `[lints]` table, no
+/// neutralizing rustflag, no unused or test-only dependency, no tracked secret
+/// and no unignored target directory, and none ships full debug symbols
+/// unstripped. `crate_level_allow` and `unchecked_release_overflow` left the
+/// same day, both observed and adjudicated, both published above the threshold.
+const ADMISSION_DEBT: [&str; 38] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -917,7 +919,6 @@ const ADMISSION_DEBT: [&str; 40] = [
     "rust_doctor::cargo::release_debug_symbols",
     "rust_doctor::cargo::test_only_dependency",
     "rust_doctor::cargo::unbounded_registry_dependency",
-    "rust_doctor::cargo::unchecked_release_overflow",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::cargo::unused_dependency",
     "rust_doctor::repo::hardcoded_credential",
@@ -925,7 +926,6 @@ const ADMISSION_DEBT: [&str; 40] = [
     "rust_doctor::repo::unignored_build_output",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
-    "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::stacked_allow_attribute",
 ];

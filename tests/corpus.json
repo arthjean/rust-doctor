@@ -517,6 +517,33 @@
       },
       {
         "context": "production",
+        "justification": "fd tunes its release profile for the shipped binary, setting lto, strip and codegen-units, and leaves overflow checks at Cargo's default of false. Nothing in the manifest states the omission as a decision, the tool spends its time in directory traversal rather than in integer arithmetic, and a wrap in a size or depth computation would be silent, so enabling the check is the change the finding asks for.",
+        "line": 89,
+        "path": "Cargo.toml",
+        "repository": "fd",
+        "rule": "rust_doctor::cargo::unchecked_release_overflow",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "hexyl computes byte offsets, column widths and group boundaries from the size of the input it is given, and its release profile sets only lto and codegen-units. A wrap there corrupts the rendering rather than failing, and the profile carries no sign that the absence of the check was weighed, so the one-line change stands.",
+        "line": 32,
+        "path": "Cargo.toml",
+        "repository": "hexyl",
+        "rule": "rust_doctor::cargo::unchecked_release_overflow",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "ripgrep's own manifest sets overflow-checks = false in [profile.release-lto], the profile its distributed binaries are built with, so the absence under [profile.release] is a decision the project already took knowingly for a search tool whose hot loops are index arithmetic. The rule restates a tradeoff its reader has settled, which is the case its help text asks the reader to decline.",
+        "line": 74,
+        "path": "Cargo.toml",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::cargo::unchecked_release_overflow",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "A flat boolean filter enumeration; the branch count is the clause count and the flat chain is the clearest available form.",
         "line": 21,
         "path": "src/filetypes.rs",
@@ -558,6 +585,51 @@
         "path": "src/read.rs",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The anchor is the build script's own file-wide allow of one pedantic formatting lint, and the family also names tests/test_ffi.rs. Neither file is shipped, but the two members disagree on their Cargo target kind so no unanimous context is stamped and the family weighs on the score. The exemption is right where it sits, and its scope is the file because the file is one hundred lines of build probe.",
+        "line": 1,
+        "path": "build.rs",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::crate_level_allow",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "#![allow(unknown_lints, mismatched_lifetime_syntaxes)] is a toolchain-compatibility pair, not a judgment about a call site: it silences a rustc lint that does not exist on the older compilers the crate supports, and unknown_lints is what keeps those compilers from rejecting the name. It has no item to be scoped to, and narrowing it is not a change anyone would make.",
+        "line": 237,
+        "path": "src/lib.rs",
+        "repository": "anyhow",
+        "rule": "rust_doctor::structure::crate_level_allow",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The block is serde_json's documented pedantic policy: its groups carry the reason inline, 'integer and float ser/de requires these sorts of casts', 'correctly used', 'things are often more readable this way'. The intent is written where no detector reads it, and scoping the cast exemptions to items would repeat them across the whole serializer.",
+        "line": 327,
+        "path": "src/lib.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::crate_level_allow",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The same unknown_lints and mismatched_lifetime_syntaxes compatibility pair as anyhow's, at the root of a no_std library that supports older compilers. It is about the toolchain rather than about any item of the crate.",
+        "line": 370,
+        "path": "src/lib.rs",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::crate_level_allow",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The same compatibility pair again, at the root of the procedural macro crate. Three of the five sampled sites are this one line, which is what a rule judging scope rather than justification finds on healthy public code.",
+        "line": 19,
+        "path": "impl/src/lib.rs",
+        "repository": "thiserror",
+        "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
       },
       {
@@ -923,8 +995,8 @@
     ],
     "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition.",
     "trigger_verification": {
-      "confirmed": 538,
-      "findings": 538,
+      "confirmed": 575,
+      "findings": 575,
       "method": "Mechanical: the rule's trigger is searched inside the reported span at the pinned revision. This is a guard against corrupted spans only. It cannot measure precision, because the lint that looks for a pattern always finds that pattern.",
       "triggers": [
         {
@@ -990,6 +1062,18 @@
         {
           "evidence": "bitflags",
           "rule": "rust_doctor::cargo::duplicate_major_versions"
+        },
+        {
+          "evidence": "release",
+          "rule": "rust_doctor::cargo::unchecked_release_overflow"
+        },
+        {
+          "evidence": "allow(",
+          "rule": "rust_doctor::structure::crate_level_allow"
+        },
+        {
+          "evidence": "allow(",
+          "rule": "rust_doctor::structure::stacked_allow_attribute"
         }
       ]
     }
@@ -999,11 +1083,11 @@
       {
         "authoritative": true,
         "commit": "6f1b99acb2f4ec2414592136c2009fe7713deec3",
-        "distinct": 1199,
+        "distinct": 1201,
         "exit_code": 0,
-        "findings_digest": "3ccc9c3527d43396489b00690451877746a61b5cd4acd5cd21f1e718ff7c904d",
+        "findings_digest": "a5f89be201fb1c54060a3c9ea3cb39135006079c85952857569a4690a59a0bff",
         "name": "claudes-c-compiler",
-        "occurrences": 1734,
+        "occurrences": 1741,
         "outcome": "processed",
         "rules": [
           {
@@ -1012,9 +1096,19 @@
             "occurrences": 1
           },
           {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
+          {
             "distinct": 661,
             "id": "rust_doctor::structure::complex_function",
             "occurrences": 661
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::structure::crate_level_allow",
+            "occurrences": 6
           },
           {
             "distinct": 130,
@@ -1040,7 +1134,7 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 94,
+          "value": 88,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -1048,17 +1142,22 @@
       {
         "authoritative": false,
         "commit": "0284e33b45a69921fac85fcb95c7a1bf8759f936",
-        "distinct": 87,
+        "distinct": 88,
         "exit_code": 1,
-        "findings_digest": "8933991c19271c4c802688db06ae346559db286c6efbacad4b01a468743d6427",
+        "findings_digest": "bde7017f48f9f57f8611725e3af5883d58eea6eb716e94f45d1f5cce93e4f61e",
         "name": "ostendo",
-        "occurrences": 148,
+        "occurrences": 149,
         "outcome": "processed",
         "rules": [
           {
             "distinct": 4,
             "id": "rust_doctor::cargo::duplicate_major_versions",
             "occurrences": 4
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
           },
           {
             "distinct": 32,
@@ -1094,7 +1193,7 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 95,
+          "value": 94,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -1102,17 +1201,32 @@
       {
         "authoritative": true,
         "commit": "2be33f74d64a536ceca06deaacae11d71309474f",
-        "distinct": 66,
+        "distinct": 75,
         "exit_code": 0,
-        "findings_digest": "ef065a7fe93d6bde9997b13811318245d8e32680c0b336d03dd04d4effb4f5a4",
+        "findings_digest": "e0ec04d578584026fd59b77e5164083272b1eef317bd75f99636fa7db823bc12",
         "name": "artifexprocal",
-        "occurrences": 147,
+        "occurrences": 156,
         "outcome": "processed",
         "rules": [
           {
             "distinct": 1,
             "id": "rust_doctor::cargo::missing_lockfile",
             "occurrences": 1
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::cargo::test_only_dependency",
+            "occurrences": 3
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
+          {
+            "distinct": 5,
+            "id": "rust_doctor::cargo::unused_dependency",
+            "occurrences": 5
           },
           {
             "distinct": 9,
@@ -1143,7 +1257,7 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 95,
+          "value": 94,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -1151,16 +1265,21 @@
       {
         "authoritative": true,
         "commit": "26e92506e9e6113f233b65ff1ea1894d9efb11ea",
-        "distinct": 35,
+        "distinct": 36,
         "exit_code": 0,
-        "findings_digest": "340bd4a5de89fe86a05e5b01176fcf92f9d467933fde0946a7f17bd7f583353d",
+        "findings_digest": "de07826a76d10c253da936ec7eeda0d5fa397c448898359bbd9a68b498221f27",
         "name": "mdr",
-        "occurrences": 61,
+        "occurrences": 62,
         "outcome": "processed",
         "rules": [
           {
             "distinct": 1,
             "id": "rust_doctor::cargo::missing_lockfile",
+            "occurrences": 1
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
             "occurrences": 1
           },
           {
@@ -1195,17 +1314,27 @@
       {
         "authoritative": true,
         "commit": "cd6dac93028460d761e3c5e67aaadc23c4a24af2",
-        "distinct": 35,
+        "distinct": 38,
         "exit_code": 0,
-        "findings_digest": "4ba2f68e534f5389fb9f057e22a63318a18b1448baa67d3fada5d10f50d8ed41",
+        "findings_digest": "8c15dfcb809e5512db64659452ca558f2dd7491d4701f932451c63ce1e0d9cd2",
         "name": "ralph-os",
-        "occurrences": 46,
+        "occurrences": 49,
         "outcome": "processed",
         "rules": [
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
           {
             "distinct": 16,
             "id": "rust_doctor::structure::complex_function",
             "occurrences": 16
+          },
+          {
+            "distinct": 2,
+            "id": "rust_doctor::structure::crate_level_allow",
+            "occurrences": 2
           },
           {
             "distinct": 7,
@@ -1231,19 +1360,19 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 98,
-          "worst_tier": "P3"
+          "value": 93,
+          "worst_tier": "P2"
         },
         "status": "complete"
       },
       {
         "authoritative": false,
         "commit": "4d9b33d9ab5a379425db3807d7e66c000b3a4bc6",
-        "distinct": 3620,
+        "distinct": 3650,
         "exit_code": 1,
-        "findings_digest": "b5c93677010c18cc25927d353075139e298c4eb9d2abd3286b71527d33d961cc",
+        "findings_digest": "9e2496bd0c32880f2e3644fc98656429551f51ae90113f516e09ccd909b4f7e9",
         "name": "vibesql",
-        "occurrences": 9900,
+        "occurrences": 9984,
         "outcome": "processed",
         "rules": [
           {
@@ -1252,9 +1381,19 @@
             "occurrences": 19
           },
           {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
+          {
             "distinct": 784,
             "id": "rust_doctor::structure::complex_function",
             "occurrences": 784
+          },
+          {
+            "distinct": 27,
+            "id": "rust_doctor::structure::crate_level_allow",
+            "occurrences": 79
           },
           {
             "distinct": 1251,
@@ -1277,6 +1416,11 @@
             "occurrences": 580
           },
           {
+            "distinct": 2,
+            "id": "rust_doctor::structure::stacked_allow_attribute",
+            "occurrences": 4
+          },
+          {
             "distinct": 46,
             "id": "rust_doctor::structure::unreasoned_allow_attribute",
             "occurrences": 497
@@ -1290,7 +1434,7 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 93,
+          "value": 87,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -1298,11 +1442,11 @@
       {
         "authoritative": true,
         "commit": "ff10443c652324c38d8af390e7af29d8e6560c14",
-        "distinct": 55,
+        "distinct": 57,
         "exit_code": 0,
-        "findings_digest": "8d78d25409e565e37b9425d0a5240d497bcb38cd2883f181aedda296bd4c2762",
+        "findings_digest": "2a4e73049682337f1725883c6424ec204d6664034ca3e94316ccb04d0d9def21",
         "name": "syncvibe",
-        "occurrences": 98,
+        "occurrences": 103,
         "outcome": "processed",
         "rules": [
           {
@@ -1311,9 +1455,19 @@
             "occurrences": 5
           },
           {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
+          {
             "distinct": 16,
             "id": "rust_doctor::structure::complex_function",
             "occurrences": 16
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::structure::crate_level_allow",
+            "occurrences": 4
           },
           {
             "distinct": 12,
@@ -1339,7 +1493,7 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 95,
+          "value": 89,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -1347,17 +1501,27 @@
       {
         "authoritative": true,
         "commit": "cf32fbe5f2adee8e3d36312bbdc41f8c6c3209e8",
-        "distinct": 185,
+        "distinct": 198,
         "exit_code": 0,
-        "findings_digest": "ddafb846a36dd3bba4dad1d1172c7ccb0292ffeb55be6b4db6dccd6c2eaf5fa6",
+        "findings_digest": "1527fe8497c0347a1ccf72bbfd13e927b878a1a1266b6379eb7529389351d424",
         "name": "coda",
-        "occurrences": 257,
+        "occurrences": 271,
         "outcome": "processed",
         "rules": [
+          {
+            "distinct": 1,
+            "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
           {
             "distinct": 82,
             "id": "rust_doctor::structure::complex_function",
             "occurrences": 82
+          },
+          {
+            "distinct": 12,
+            "id": "rust_doctor::structure::crate_level_allow",
+            "occurrences": 13
           },
           {
             "distinct": 21,
@@ -1383,8 +1547,8 @@
         "score": {
           "applied_ceiling": null,
           "label": "Great",
-          "value": 98,
-          "worst_tier": "P3"
+          "value": 92,
+          "worst_tier": "P2"
         },
         "status": "complete"
       }
@@ -1544,16 +1708,16 @@
     "selection_criterion": "A repository qualifies when at least half of the commit messages reachable from its pinned revision contain its recorded marker, an exact substring such as 'Co-Authored-By: Claude' or 'Generated with [Claude Code]' that coding agents append to the commits they author. The criterion reads the git history alone, never code style, README claims or popularity, and marked_commits and total_commits are recounted mechanically from git log at the pinned revision when the corpus is replayed. The population is scanned with every Clippy rule off, because its build scripts and proc-macros are untrusted: the native detectors parse source text and compile nothing.",
     "structural_density": {
       "agent": {
-        "findings": 5251,
+        "findings": 5296,
         "lines": 988872,
-        "per_thousand_lines_milli": 5310
+        "per_thousand_lines_milli": 5355
       },
       "healthy": {
-        "findings": 399,
+        "findings": 433,
         "lines": 122044,
-        "per_thousand_lines_milli": 3269
+        "per_thousand_lines_milli": 3547
       },
-      "ratio_milli": 1624,
+      "ratio_milli": 1509,
       "refutes_density_assumption": false
     }
   },
@@ -1870,7 +2034,7 @@
       "tier": "P3"
     }
   ],
-  "epic": "EP-025",
+  "epic": "EP-005 of the suppression, dependency and hygiene PRD",
   "gate": {
     "admitted": [
       "clippy::arc_with_non_send_sync",
@@ -1948,7 +2112,9 @@
       "clippy::too_many_arguments",
       "clippy::unreachable",
       "clippy::unwrap_used",
+      "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::structure::complex_function",
+      "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::duplicate_function_body",
       "rust_doctor::structure::near_duplicate_function_body",
       "rust_doctor::structure::oversized_unit",
@@ -1987,7 +2153,6 @@
       "rust_doctor::cargo::release_debug_symbols",
       "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
-      "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
       "rust_doctor::repo::hardcoded_credential",
@@ -1995,7 +2160,6 @@
       "rust_doctor::repo::unignored_build_output",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
-      "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::orphan_module_file",
       "rust_doctor::structure::stacked_allow_attribute"
     ],
@@ -2162,11 +2326,11 @@
     {
       "authoritative": true,
       "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
-      "distinct": 39,
+      "distinct": 50,
       "exit_code": 0,
-      "findings_digest": "5d3d8920ac38fd791208b1bcafb7e1aed63c4735cf31fb68737c07be820e65f4",
+      "findings_digest": "d6c1760436de858e4aff577c3c2c0b89675c611dc1e74a416f78d70b3c2e0e11",
       "name": "anyhow",
-      "occurrences": 55,
+      "occurrences": 69,
       "outcome": "processed",
       "rules": [
         {
@@ -2188,6 +2352,11 @@
           "distinct": 2,
           "id": "clippy::unwrap_used",
           "occurrences": 2
+        },
+        {
+          "distinct": 11,
+          "id": "rust_doctor::structure::crate_level_allow",
+          "occurrences": 14
         },
         {
           "distinct": 3,
@@ -2218,25 +2387,30 @@
       "score": {
         "applied_ceiling": null,
         "label": "Great",
-        "value": 99,
-        "worst_tier": "P3"
+        "value": 94,
+        "worst_tier": "P2"
       },
       "status": "complete"
     },
     {
       "authoritative": true,
       "commit": "35a63c456aaa1906015f5a825e7e35505a749afa",
-      "distinct": 12,
+      "distinct": 13,
       "exit_code": 0,
-      "findings_digest": "0eab67be1f74a918c5cd22acfa1a48b656d5baa9e283120e93360ff55e712b80",
+      "findings_digest": "98398adcfe5838d88fb1e544725d904f11614182a5683d8a2c89c853db22db1f",
       "name": "async-channel",
-      "occurrences": 28,
+      "occurrences": 30,
       "outcome": "processed",
       "rules": [
         {
           "distinct": 1,
           "id": "clippy::unwrap_used",
           "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::structure::crate_level_allow",
+          "occurrences": 2
         },
         {
           "distinct": 1,
@@ -2344,11 +2518,11 @@
     {
       "authoritative": true,
       "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
-      "distinct": 58,
+      "distinct": 59,
       "exit_code": 0,
-      "findings_digest": "0be3876d60cb1c378b75b80b62b1f5dd7b71a7b43f897d9a4d6ee97140207e46",
+      "findings_digest": "b6fb1b6fab32976d34bea9d463e8f267f3bb09e5d6d86c9e475f0c199c4e4f28",
       "name": "fd",
-      "occurrences": 74,
+      "occurrences": 75,
       "outcome": "processed",
       "rules": [
         {
@@ -2384,6 +2558,11 @@
         {
           "distinct": 1,
           "id": "rust_doctor::cargo::duplicate_major_versions",
+          "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::cargo::unchecked_release_overflow",
           "occurrences": 1
         },
         {
@@ -2423,11 +2602,11 @@
     {
       "authoritative": true,
       "commit": "abc20a380c8c2d9d76c1976222725d3211cef809",
-      "distinct": 28,
+      "distinct": 29,
       "exit_code": 0,
-      "findings_digest": "307b2da153733c9f96b25880a9f29e9c5756f652c10753a752ec60a6785658c7",
+      "findings_digest": "f7c4ce68e303ef04b01f74ecaf9a1fd3497e65ad994b5478fe831374ec56dd32",
       "name": "hexyl",
-      "occurrences": 33,
+      "occurrences": 34,
       "outcome": "processed",
       "rules": [
         {
@@ -2461,6 +2640,11 @@
           "occurrences": 4
         },
         {
+          "distinct": 1,
+          "id": "rust_doctor::cargo::unchecked_release_overflow",
+          "occurrences": 1
+        },
+        {
           "distinct": 3,
           "id": "rust_doctor::structure::complex_function",
           "occurrences": 3
@@ -2492,11 +2676,11 @@
     {
       "authoritative": true,
       "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
-      "distinct": 31,
+      "distinct": 32,
       "exit_code": 0,
-      "findings_digest": "dbc31e75bdc6764e28b6cb4206a53a328216fc478fcc6733b152eb040ba5b8aa",
+      "findings_digest": "9e13145966a2d1454c6937184421b9016fa6c4bd5e9acf4a2920e9655140458b",
       "name": "log",
-      "occurrences": 48,
+      "occurrences": 49,
       "outcome": "processed",
       "rules": [
         {
@@ -2518,6 +2702,11 @@
           "distinct": 5,
           "id": "clippy::unwrap_used",
           "occurrences": 5
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::structure::crate_level_allow",
+          "occurrences": 1
         },
         {
           "distinct": 8,
@@ -2551,11 +2740,11 @@
     {
       "authoritative": true,
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
-      "distinct": 498,
+      "distinct": 499,
       "exit_code": 0,
-      "findings_digest": "8bce490186ffe8be5e0db400bba7a8941b7dc20ebd57deec4391b92bf73a4b43",
+      "findings_digest": "f948c12d12a97aefc943ae7045d7ec160455c51e2bee77e122766ceed6a7747b",
       "name": "ripgrep",
-      "occurrences": 811,
+      "occurrences": 812,
       "outcome": "processed",
       "rules": [
         {
@@ -2614,6 +2803,11 @@
           "occurrences": 67
         },
         {
+          "distinct": 1,
+          "id": "rust_doctor::cargo::unchecked_release_overflow",
+          "occurrences": 1
+        },
+        {
           "distinct": 17,
           "id": "rust_doctor::structure::complex_function",
           "occurrences": 17
@@ -2655,11 +2849,11 @@
     {
       "authoritative": true,
       "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
-      "distinct": 111,
+      "distinct": 122,
       "exit_code": 0,
-      "findings_digest": "d9d172cb0aa22bc64131a333f7e78049e08ae509970643e5fc2b9f90e4cd01fe",
+      "findings_digest": "2f21de96c43e64668185a9509cdffac03d62a65a284877630fb30d14c77576a3",
       "name": "serde_json",
-      "occurrences": 164,
+      "occurrences": 175,
       "outcome": "processed",
       "rules": [
         {
@@ -2698,6 +2892,11 @@
           "occurrences": 4
         },
         {
+          "distinct": 10,
+          "id": "rust_doctor::structure::crate_level_allow",
+          "occurrences": 10
+        },
+        {
           "distinct": 17,
           "id": "rust_doctor::structure::duplicate_function_body",
           "occurrences": 53
@@ -2711,6 +2910,11 @@
           "distinct": 12,
           "id": "rust_doctor::structure::oversized_unit",
           "occurrences": 12
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::structure::stacked_allow_attribute",
+          "occurrences": 1
         },
         {
           "distinct": 17,
@@ -2758,11 +2962,11 @@
     {
       "authoritative": true,
       "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2",
-      "distinct": 66,
+      "distinct": 76,
       "exit_code": 0,
-      "findings_digest": "a405a20c8143447b0d6b9ab5797ab6dce2faf242294f58e84c208d821bb7628b",
+      "findings_digest": "67e589c6bcec3dac1cb391d4b2f3299382a9e91b34cbac7ca24aa972afc66e3c",
       "name": "thiserror",
-      "occurrences": 103,
+      "occurrences": 113,
       "outcome": "processed",
       "rules": [
         {
@@ -2799,6 +3003,11 @@
           "distinct": 6,
           "id": "rust_doctor::structure::complex_function",
           "occurrences": 6
+        },
+        {
+          "distinct": 10,
+          "id": "rust_doctor::structure::crate_level_allow",
+          "occurrences": 10
         },
         {
           "distinct": 1,
@@ -3282,14 +3491,14 @@
       "true_positives": null
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
-      "findings": 0,
+      "false_positive_rate_basis_points": 3333,
+      "false_positives": 1,
+      "findings": 3,
       "id": "rust_doctor::cargo::unchecked_release_overflow",
-      "reviewed": 0,
-      "status": "unobserved",
+      "reviewed": 3,
+      "status": "measured",
       "tier": "P3",
-      "true_positives": null
+      "true_positives": 2
     },
     {
       "false_positive_rate_basis_points": null,
@@ -3372,14 +3581,14 @@
       "true_positives": 2
     },
     {
-      "false_positive_rate_basis_points": null,
-      "false_positives": null,
-      "findings": 0,
+      "false_positive_rate_basis_points": 10000,
+      "false_positives": 5,
+      "findings": 33,
       "id": "rust_doctor::structure::crate_level_allow",
-      "reviewed": 0,
-      "status": "unobserved",
+      "reviewed": 5,
+      "status": "measured",
       "tier": "P2",
-      "true_positives": null
+      "true_positives": 0
     },
     {
       "false_positive_rate_basis_points": 4000,
@@ -3424,10 +3633,10 @@
     {
       "false_positive_rate_basis_points": null,
       "false_positives": null,
-      "findings": 0,
+      "findings": 1,
       "id": "rust_doctor::structure::stacked_allow_attribute",
       "reviewed": 0,
-      "status": "unobserved",
+      "status": "incomplete",
       "tier": "P3",
       "true_positives": null
     },
@@ -3469,7 +3678,7 @@
       {
         "label": "Great",
         "name": "anyhow",
-        "value": 99
+        "value": 94
       },
       {
         "label": "Great",
