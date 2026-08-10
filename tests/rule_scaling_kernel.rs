@@ -466,14 +466,17 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     assert_eq!(oracle.historical_rules.len(), 7);
     // Rules admitted after EP-018 that find something on this fixture, with
     // the number of findings each contributes. The `expect()` of the
-    // `zombie_processes` case is one of them since EP-024. The two families
-    // `duplicate_function_body` reports since EP-002 are the fixture's own
-    // shape: it repeats the same pair of cases three times over, once per
-    // written form of the same call, which is exactly the repetition the rule
-    // exists to name.
+    // `zombie_processes` case is one of them since EP-024. Of the two families
+    // `duplicate_function_body` reported since EP-002, one remains: the
+    // fixture repeats the same pair of cases three times over, once per
+    // written form of the same call, and `spaced_argument` is the only member
+    // whose body carries the three top-level statements the admission floor
+    // requires since the EP-005 design revision. The single-statement chains
+    // fell under `MINIMUM_STATEMENTS`, which is that revision working as
+    // measured.
     const ADMITTED_AFTER_EP018: [(&str, usize); 2] = [
         ("clippy::expect_used", 1),
-        ("rust_doctor::structure::duplicate_function_body", 2),
+        ("rust_doctor::structure::duplicate_function_body", 1),
     ];
     let admitted_after_ep018: usize = ADMITTED_AFTER_EP018.iter().map(|(_, count)| count).sum();
     assert_eq!(

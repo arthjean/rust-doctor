@@ -55,6 +55,18 @@ use crate::policy::{
 /// of a report.
 pub(super) const MINIMUM_NODES: usize = 30;
 
+/// Smallest statement count a family is built from, counted at the top level
+/// of the function body: its statements plus its tail expression.
+///
+/// Measured by the 2026-08 corpus adjudication
+/// (`docs/structural-precision-2026-08.md`): every confirmed true positive
+/// repeated a scaffold of at least three top-level statements, and every
+/// erased-name false positive, the delegation one-liners and two-statement
+/// boilerplate whose whole meaning lived in the names normalization erases,
+/// stopped at two. A one- or two-statement body cannot carry a shape apart
+/// from its names, so grouping it reports the naming, not a duplication.
+pub(super) const MINIMUM_STATEMENTS: usize = 3;
+
 /// Similarity two shapes reach before they are called the same shape, in basis
 /// points of a Sørensen-Dice score over their subtree multisets.
 ///
@@ -138,7 +150,7 @@ pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
         .filter_map(ast::Fn::cast)
         .filter_map(|function| {
             let normalized = normalize::normalize(&function)?;
-            (normalized.nodes >= MINIMUM_NODES).then(|| Function {
+            (normalized.nodes >= MINIMUM_NODES && normalized.statements >= MINIMUM_STATEMENTS).then(|| Function {
                 member: Member {
                     path: unit.path.to_owned(),
                     span: unit.span(function.syntax()),

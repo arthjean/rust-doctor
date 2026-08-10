@@ -49,6 +49,10 @@ pub(super) struct Normalized {
     /// function repeating one statement three times is not the same shape as
     /// one stating it once.
     pub(super) shingles: Vec<u64>,
+    /// Top-level statements of the body, tail expression included. A one- or
+    /// two-statement body is a delegation whose meaning lives in the erased
+    /// names, and the admission floor reads this count to keep it out.
+    pub(super) statements: usize,
 }
 
 /// Canonical form of a function, or nothing when it has no body to compare or
@@ -58,10 +62,14 @@ pub(super) struct Normalized {
 /// containing one is skipped whole rather than compared against a shape the
 /// author never wrote.
 pub(super) fn normalize(function: &ast::Fn) -> Option<Normalized> {
-    function.body()?;
+    let body = function.body()?;
+    let statements = body
+        .stmt_list()
+        .map(|list| list.statements().count() + usize::from(list.tail_expr().is_some()))
+        .unwrap_or(0);
     let mut canonical = Canonical::default();
     canonical.node(function.syntax());
-    (!canonical.poisoned).then(|| canonical.finish())
+    (!canonical.poisoned).then(|| canonical.finish(statements))
 }
 
 /// Sørensen-Dice similarity of two shingle multisets, in basis points.
@@ -231,7 +239,7 @@ impl Canonical {
         mix(hash, index as u64)
     }
 
-    fn finish(mut self) -> Normalized {
+    fn finish(mut self, statements: usize) -> Normalized {
         let mut hasher = blake3::Hasher::new();
         for field in [FINGERPRINT_DOMAIN, self.text.as_str()] {
             hasher.update(&(field.len() as u64).to_le_bytes());
@@ -242,6 +250,7 @@ impl Canonical {
             digest: hasher.finalize().to_hex().to_string(),
             nodes: self.nodes,
             shingles: self.shingles,
+            statements,
         }
     }
 }

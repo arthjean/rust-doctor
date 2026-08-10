@@ -14,9 +14,7 @@ fn aliased_unimplemented_case() -> u8 {
 
 #[test]
 fn aliases_compile_as_test_target_cases() {
-    let _ = (
-        aliased_dbg_case as fn(u8) -> u8,
-        aliased_todo_case as fn() -> u8,
-        aliased_unimplemented_case as fn() -> u8,
-    );
+    let first = aliased_dbg_case as fn(u8) -> u8;
+    let second = aliased_todo_case as fn() -> u8;
+    let _ = (first, second, aliased_unimplemented_case as fn() -> u8);
 }
