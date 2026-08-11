@@ -657,21 +657,27 @@ mod tests {
         assert!(!root.exists(), "the RAII owner must retry cleanup on drop");
     }
 
+    /// The rejected case is containment, and it is built from a scratch tree
+    /// rather than from this repository. Deriving it from `CARGO_MANIFEST_DIR`
+    /// made the test assert a property of the machine: where `target/` is a
+    /// symlink to a build directory elsewhere, the path canonicalizes outside
+    /// the repository, the guard rightly accepts it, and the test fails while
+    /// the code under test is correct.
     #[test]
     fn temporary_root_inside_the_repository_is_rejected() {
-        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+        let scratch = env::temp_dir()
             .canonicalize()
-            .unwrap();
-        let temporary = repository
-            .join("target/baseline-temp-boundary")
-            .join(std::process::id().to_string());
-        let _ = fs::remove_dir_all(&temporary);
+            .unwrap()
+            .join(format!("rust-doctor-temp-boundary-{}", std::process::id()));
+        let repository = scratch.join("repository");
+        let temporary = repository.join("target/baseline-temp-boundary");
+        let _ = fs::remove_dir_all(&scratch);
         fs::create_dir_all(&temporary).unwrap();
 
         let error = create_temp_root_in(&repository, &temporary).unwrap_err();
 
         assert_eq!(error.code, "baseline-temp-unavailable");
-        fs::remove_dir_all(&temporary).unwrap();
+        fs::remove_dir_all(&scratch).unwrap();
     }
 
     #[test]

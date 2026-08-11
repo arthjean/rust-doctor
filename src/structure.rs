@@ -1230,7 +1230,7 @@ mod tests {
 #[cfg(test)]
 mod benchmark {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
     use cargo_metadata::MetadataCommand;
@@ -1364,9 +1364,16 @@ mod benchmark {
         format!("pub fn shape_{position}({parameters}) -> u32 {{\n{body}    total\n}}\n")
     }
 
+    /// The generated workload lives outside this repository. Under `target/` it
+    /// inherits whatever that path is on the machine, and where `target` is a
+    /// symlink to a build directory elsewhere the units resolve outside the
+    /// workspace root cargo reports: the walk then reads nothing and the
+    /// benchmark measures an empty pass.
     fn workspace() -> PathBuf {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target/structure-benchmark")
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .expect("a canonical temporary directory")
+            .join("rust-doctor-structure-benchmark")
             .join(std::process::id().to_string());
         let sources = root.join("src");
         fs::create_dir_all(&sources).expect("the benchmark workspace should be writable");

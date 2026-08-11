@@ -99,9 +99,19 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
         .collect()
 }
 
+/// Scratch directory of a test, under `target/` so build output lands on the
+/// disk the user chose for it and `cargo clean` still reaches it.
+///
+/// The base is resolved rather than spelled, because `target` may be a symlink
+/// to a build directory elsewhere. The product canonicalizes the paths it
+/// reports, so a fixture rooted at the symlinked spelling gets compared against
+/// its resolved form and never matches: a test then fails over the layout of
+/// the machine while the code under test is correct. Resolving here puts both
+/// sides on the same footing without moving anything.
 pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+    base.canonicalize()
+        .unwrap_or(base)
         .join(scope)
         .join(format!(
             "{}-{}",

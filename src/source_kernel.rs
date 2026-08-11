@@ -1410,9 +1410,16 @@ fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo
     fn symlinks_outside_the_workspace_are_rejected_before_reading() {
         use std::os::unix::fs::symlink;
 
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("source-kernel-symlink-{}", std::process::id()));
+        // Built outside this repository on purpose. Under `target/` the tree
+        // inherits whatever that path is on the machine, and a `target` symlink
+        // pointing at a build directory elsewhere makes every unit resolve
+        // outside the workspace root cargo reports, so the walk reads nothing
+        // and the test fails for a reason that has nothing to do with symlink
+        // containment.
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("rust-doctor-source-kernel-symlink-{}", std::process::id()));
         if root.exists() {
             fs::remove_dir_all(&root).unwrap();
         }
@@ -1436,6 +1443,7 @@ fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo
         assert_eq!(scan.counters.files_parsed, 1);
         assert_eq!(scan.errors.len(), 1);
         assert_eq!(scan.errors[0].code, "path-outside-workspace");
+        assert!(!scan.errors[0].message.contains(&root.display().to_string()));
         assert!(!scan.errors[0].message.contains(env!("CARGO_MANIFEST_DIR")));
         fs::remove_dir_all(root).unwrap();
     }
