@@ -323,6 +323,10 @@ pub(crate) struct ScoreObservation {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Adjudication {
     pub(crate) criterion: String,
+    /// What the provenance of a verdict means and what the reader may conclude
+    /// from each value. Published beside the rates, because a sample judged by
+    /// an agent and one judged by a person are not the same evidence.
+    pub(crate) provenance: String,
     pub(crate) reviewed: Vec<ReviewedSite>,
     pub(crate) sampling: String,
     pub(crate) trigger_verification: TriggerVerification,
@@ -360,6 +364,37 @@ pub(crate) enum SiteContext {
     Tests,
 }
 
+impl SiteContext {
+    /// Does this declared context match what the report published for the
+    /// finding? A production diagnostic carries no `context` field at all,
+    /// which is what `weighs` reads, so an absent field means production and
+    /// nothing else.
+    pub(crate) fn matches(self, reported: Option<&str>) -> bool {
+        let expected = match self {
+            Self::Benchmark => Some("benchmark"),
+            Self::BuildScript => Some("build-script"),
+            Self::Example => Some("example"),
+            Self::Production => None,
+            Self::Tests => Some("tests"),
+        };
+        expected == reported
+    }
+}
+
+/// Who produced a verdict.
+///
+/// A rate adjudicated by an agent and a rate adjudicated by a person do not
+/// carry the same weight, and a measurement that claims methodological honesty
+/// has to say which it is. `Unrecorded` names the sites judged before this
+/// field existed: it is the truthful value for them, not a default to reuse.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Provenance {
+    Agent,
+    Human,
+    Unrecorded,
+}
+
 /// A corpus site actually read back, with its value verdict.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -368,6 +403,7 @@ pub(crate) struct ReviewedSite {
     pub(crate) justification: String,
     pub(crate) line: u64,
     pub(crate) path: String,
+    pub(crate) provenance: Provenance,
     pub(crate) repository: String,
     pub(crate) rule: String,
     pub(crate) verdict: Verdict,
@@ -385,6 +421,12 @@ pub(crate) struct RulePrecision {
     /// Population observed on the corpus. Never the denominator of the rate.
     pub(crate) findings: u64,
     pub(crate) id: String,
+    /// Distinct provenances of the verdicts this rate rests on, sorted. Empty
+    /// when no rate is published. It rides the rate rather than staying buried
+    /// in the site list, because this is where a reader looks: a rate is worth
+    /// its weakest verdict, and that has to be visible without cross-checking
+    /// a hundred and ten entries by hand.
+    pub(crate) provenance: Vec<Provenance>,
     /// Sites actually read back. This is the denominator of the published rate.
     pub(crate) reviewed: u64,
     pub(crate) status: PrecisionStatus,
@@ -802,6 +844,13 @@ pub(crate) struct Finding<'a> {
     pub(crate) occurrences: u64,
     pub(crate) path: &'a str,
     pub(crate) rule: &'a str,
+    /// Non-production mark the report published, absent for production code.
+    ///
+    /// Last on purpose, against the alphabetical order the rest of this file
+    /// keeps: `Ord` is derived, `digest` walks the sorted set, and a field
+    /// placed earlier would reorder every published `findings_digest` without
+    /// a single finding having changed.
+    pub(crate) context: Option<&'a str>,
 }
 
 pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
@@ -819,6 +868,7 @@ pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
             occurrences: diagnostic["occurrences"].as_u64().unwrap_or_default(),
             path: diagnostic["path"].as_str().unwrap_or_default(),
             rule: diagnostic["code"].as_str().unwrap_or_default(),
+            context: diagnostic["context"].as_str(),
         })
         .collect();
     findings.sort_unstable();
@@ -941,6 +991,7 @@ pub(crate) fn precision(
                     false_positives: None,
                     findings: 0,
                     id: id.to_owned(),
+                    provenance: Vec::new(),
                     reviewed: 0,
                     status: PrecisionStatus::Unobserved,
                     tier: rule.tier.clone(),
@@ -960,6 +1011,7 @@ pub(crate) fn precision(
                     false_positives: None,
                     findings,
                     id: id.to_owned(),
+                    provenance: Vec::new(),
                     reviewed: count,
                     status: PrecisionStatus::Incomplete,
                     tier: rule.tier.clone(),
@@ -971,6 +1023,8 @@ pub(crate) fn precision(
                 .iter()
                 .filter(|site| site.verdict == Verdict::FalsePositive)
                 .count() as u64;
+            let provenance: BTreeSet<Provenance> =
+                reviewed.iter().map(|site| site.provenance).collect();
             RulePrecision {
                 false_positive_rate_basis_points: Some(
                     false_positives.saturating_mul(10_000) / count,
@@ -978,6 +1032,7 @@ pub(crate) fn precision(
                 false_positives: Some(false_positives),
                 findings,
                 id: id.to_owned(),
+                provenance: provenance.into_iter().collect(),
                 reviewed: count,
                 status: PrecisionStatus::Measured,
                 tier: rule.tier.clone(),

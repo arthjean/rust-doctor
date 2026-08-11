@@ -1,12 +1,14 @@
 {
   "adjudication": {
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
+    "provenance": "Who produced each verdict. \"human\" names a site a person read and judged. \"agent\" names a site adjudicated by an agent under the published protocol: the site read in the pinned source with its surrounding code, blind to any prior verdict, with a disagreement between independent passes escalated rather than settled by the agent. \"unrecorded\" names the sites judged before this field existed, whose author is not established; they are published as they were measured rather than reattributed after the fact. A rate mixing provenances is worth its weakest one, and no verdict, whoever produced it, is certified beyond the agreement two trained reviewers reach with each other.",
     "reviewed": [
       {
         "context": "build_script",
         "justification": "A build script has no caller to return an error to: its main returns unit, and terminating the process is how Cargo is told the build failed.",
         "line": 106,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::exit",
         "verdict": "false_positive"
@@ -16,6 +18,7 @@
         "justification": "cargo_env_var is written to diverge when a Cargo-provided variable is missing, inside a build script that exposes no Result surface to propagate through.",
         "line": 192,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::exit",
         "verdict": "false_positive"
@@ -25,6 +28,7 @@
         "justification": "Reached only when writing to stderr itself failed, inside the binary's own message macro: no channel remains to report an error through, and the two codes separate a broken pipe from a real failure.",
         "line": 54,
         "path": "crates/core/messages.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::exit",
         "verdict": "false_positive"
@@ -34,6 +38,7 @@
         "justification": "Same macro, writeln branch: the condition being handled is the loss of stderr, so returning an error would have nowhere to surface.",
         "line": 61,
         "path": "crates/core/messages.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::exit",
         "verdict": "false_positive"
@@ -43,6 +48,7 @@
         "justification": "Cleanup failure of the probe directory in a build script; exiting is the sanctioned way for a build script to fail.",
         "line": 172,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "thiserror",
         "rule": "clippy::exit",
         "verdict": "false_positive"
@@ -52,6 +58,7 @@
         "justification": "The backtrace is captured when the Error is built and the accessor returns a reference, so there is no error value to propagate; the comment bounds the residual risk to a nondeterministic Error impl.",
         "line": 963,
         "path": "src/error.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::expect_used",
         "verdict": "false_positive"
@@ -61,6 +68,7 @@
         "justification": "path_absolute_form calls env::current_dir, which fails at runtime when the working directory is removed or unreadable; the closure can already report through print_error and return WalkState::Continue instead of aborting the walk.",
         "line": 528,
         "path": "src/walk.rs",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "clippy::expect_used",
         "verdict": "true_positive"
@@ -70,6 +78,7 @@
         "justification": "The closure runs only on the branch where to_str returned None, so the lossy conversion necessarily contains a replacement codepoint.",
         "line": 53,
         "path": "crates/cli/src/pattern.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::expect_used",
         "verdict": "false_positive"
@@ -79,6 +88,7 @@
         "justification": "The count is the size of an ngram set built from the compile-time flag table, which cannot approach u32::MAX.",
         "line": 455,
         "path": "crates/core/flags/parse.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::expect_used",
         "verdict": "false_positive"
@@ -88,6 +98,7 @@
         "justification": "SummaryBuilder::build allocates Stats whenever kind.requires_stats(), which holds for CountMatches, so the option is Some by construction of this sink.",
         "line": 767,
         "path": "crates/printer/src/summary.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::expect_used",
         "verdict": "false_positive"
@@ -97,6 +108,7 @@
         "justification": "slice_at comes from SIZE.checked_sub on the line above, whose None arm diverges, and buf is [0; SIZE], so the range is in bounds.",
         "line": 67,
         "path": "src/buf/buf_impl.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -106,6 +118,7 @@
         "justification": "idx iterates 0..LOG_LEVEL_NAMES.len(), so the index is in bounds by construction of the loop.",
         "line": 670,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "log",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -115,6 +128,7 @@
         "justification": "i is the offset memchr just returned for this slice, so it is a valid index into it.",
         "line": 28,
         "path": "crates/matcher/src/interpolate.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -124,6 +138,7 @@
         "justification": "midx advances only while midx + 1 < matches.len(), and the sink_slow_multi_line family already indexes matches[0] unguarded because this path runs only for a sunk line that carries matches.",
         "line": 1085,
         "path": "crates/printer/src/standard.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -133,6 +148,7 @@
         "justification": "The range is bounded by the searcher's line-visiting invariant, last_line_visited <= upto <= buf.len(), which the same function relies on a few lines above; get would create an error path for a state only a bug can produce.",
         "line": 254,
         "path": "crates/searcher/src/searcher/core.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -142,6 +158,7 @@
         "justification": "The compare-exchange lost the race, so the buffer now belongs to the winning Shared; forgetting the moved-out value suppresses Shared::drop, which would dealloc a buffer this thread no longer owns, while the Box still frees its own allocation.",
         "line": 1532,
         "path": "src/bytes.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::mem_forget",
         "verdict": "false_positive"
@@ -151,6 +168,7 @@
         "justification": "The trait is unsafe because an implementor must guarantee that chunk_mut exposes writable capacity and that remaining_mut does not overstate it, and the trait documentation never states that obligation: the only # Safety section of the file sits on advance_mut, which binds the caller rather than the implementor.",
         "line": 30,
         "path": "src/buf/buf_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::missing_safety_doc",
         "verdict": "true_positive"
@@ -160,6 +178,7 @@
         "justification": "The prose states one of the two obligations, that the caller initialize the data, and omits the other: len <= cap is only debug_assert!ed, so a release caller can set a length past the capacity and expose uninitialized memory through the slice. The contract is both unsectioned and partial.",
         "line": 544,
         "path": "src/bytes_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::missing_safety_doc",
         "verdict": "true_positive"
@@ -169,6 +188,7 @@
         "justification": "reserve mirrors Vec::reserve, whose documented contract is to panic on capacity overflow; the non-allocating path one line above already returns false instead.",
         "line": 700,
         "path": "src/bytes_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::panic",
         "verdict": "false_positive"
@@ -178,6 +198,7 @@
         "justification": "panic_advance is a cold diverging helper whose only purpose is to format the message of the panicking API; the fallible twin is published next to it as try_get with TryGetError.",
         "line": 207,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::panic",
         "verdict": "false_positive"
@@ -187,6 +208,7 @@
         "justification": "Reports a build configuration mistake, key-values passed without the kv feature; nothing here is an input the caller can recover from at runtime.",
         "line": 67,
         "path": "src/__private_api.rs",
+        "provenance": "unrecorded",
         "repository": "log",
         "rule": "clippy::panic",
         "verdict": "false_positive"
@@ -196,6 +218,7 @@
         "justification": "NoError is the error type of infallible matchers and its Display is documented, three lines above, as panicking.",
         "line": 507,
         "path": "crates/matcher/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic",
         "verdict": "false_positive"
@@ -205,6 +228,7 @@
         "justification": "std::ops::Index requires panicking on an absent index, and serde_json publishes Value::get for the fallible path.",
         "line": 72,
         "path": "src/value/index.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "clippy::panic",
         "verdict": "false_positive"
@@ -214,6 +238,7 @@
         "justification": "The assertion states the parser contract that a switch flag receives a switch value; reporting it as Err would surface an internal bug as a user-facing error.",
         "line": 669,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic_in_result_fn",
         "verdict": "false_positive"
@@ -223,6 +248,7 @@
         "justification": "Same shape as the rest of the flag table: the assertion guards the parser contract, not the argument being parsed.",
         "line": 3629,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic_in_result_fn",
         "verdict": "false_positive"
@@ -232,6 +258,7 @@
         "justification": "assert! rules out an affirmative switch that this flag definition never declares; the value branch below is the only reachable user input path.",
         "line": 5530,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic_in_result_fn",
         "verdict": "false_positive"
@@ -241,6 +268,7 @@
         "justification": "The assertion restates that --vimgrep declares no negation, a property of the flag table rather than of the parsed argument.",
         "line": 7387,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic_in_result_fn",
         "verdict": "false_positive"
@@ -250,6 +278,7 @@
         "justification": "Display for NoError returns fmt::Result only because the trait demands it; the type is documented as never being formatted.",
         "line": 506,
         "path": "crates/matcher/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::panic_in_result_fn",
         "verdict": "false_positive"
@@ -259,6 +288,7 @@
         "justification": "stderr is the channel Cargo reads build script diagnostics from, and a build script has no caller-provided writer.",
         "line": 105,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::print_stderr",
         "verdict": "false_positive"
@@ -268,6 +298,7 @@
         "justification": "Cleanup diagnostic of a build script, emitted on the only channel Cargo offers it.",
         "line": 167,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::print_stderr",
         "verdict": "false_positive"
@@ -277,6 +308,7 @@
         "justification": "This is fd's single centralised error printer in a binary crate: hard-wiring stderr in one named function is the abstraction the rule asks for, not the absence of one.",
         "line": 2,
         "path": "src/error.rs",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "clippy::print_stderr",
         "verdict": "false_positive"
@@ -286,6 +318,7 @@
         "justification": "Emitted from fn main immediately before exit(1); the entry point is exactly where a binary is expected to choose the output channel.",
         "line": 461,
         "path": "src/main.rs",
+        "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "clippy::print_stderr",
         "verdict": "false_positive"
@@ -295,6 +328,7 @@
         "justification": "Cleanup diagnostic of a build script, on Cargo's channel.",
         "line": 171,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "thiserror",
         "rule": "clippy::print_stderr",
         "verdict": "false_positive"
@@ -304,6 +338,7 @@
         "justification": "The body only calls len and reverses a subrange, both available on a mutable slice, and the single caller passes &mut buf on a local Vec, which coerces without a change at the call site. Taking &mut [u8] widens the signature at no cost.",
         "line": 588,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "clippy::ptr_arg",
         "verdict": "true_positive"
@@ -313,6 +348,7 @@
         "justification": "Arc<PathBuf> costs two indirections to reach the path bytes; the field is set once at construction, so Arc<Path> applies directly.",
         "line": 111,
         "path": "crates/ignore/src/dir.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::rc_buffer",
         "verdict": "true_positive"
@@ -322,6 +358,7 @@
         "justification": "explicit_ignores is filled by the builder and only read afterwards, so Arc<[Gitignore]> removes the Vec header and one dereference per access.",
         "line": 149,
         "path": "crates/ignore/src/dir.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::rc_buffer",
         "verdict": "true_positive"
@@ -331,6 +368,7 @@
         "justification": "custom_ignore_filenames is never mutated behind the Arc, so Arc<[OsString]> applies without changing the sharing model.",
         "line": 151,
         "path": "crates/ignore/src/dir.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::rc_buffer",
         "verdict": "true_positive"
@@ -340,6 +378,7 @@
         "justification": "The separator is assembled once in the builder and shared read-only across printers; Arc<[u8]> avoids one allocation and one indirection on a per-match path.",
         "line": 53,
         "path": "crates/printer/src/standard.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::rc_buffer",
         "verdict": "true_positive"
@@ -349,6 +388,7 @@
         "justification": "Same field family as separator_field_match, built once and read on every context line; Arc<[u8]> applies identically.",
         "line": 54,
         "path": "crates/printer/src/standard.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::rc_buffer",
         "verdict": "true_positive"
@@ -358,6 +398,7 @@
         "justification": "The vector holds usize indices and is deduplicated on the next line, so stability carries no meaning; sort_unstable drops the auxiliary allocation on a per-candidate path.",
         "line": 454,
         "path": "crates/globset/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::stable_sort_primitive",
         "verdict": "true_positive"
@@ -367,6 +408,7 @@
         "justification": "other[..] is the full range of the String, which cannot fall inside a UTF-8 character.",
         "line": 862,
         "path": "src/bytes.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -376,6 +418,7 @@
         "justification": "m is an aho-corasick match over the same string whose patterns are all ASCII braces, so its end offset is a character boundary.",
         "line": 82,
         "path": "src/fmt/mod.rs",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -385,6 +428,7 @@
         "justification": "offset comes from str::find on the same string, which returns a character boundary.",
         "line": 26,
         "path": "crates/core/flags/doc/mod.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -394,6 +438,7 @@
         "justification": "The slice skips a leading '/' whose presence was checked with starts_with on the line above, so index 1 is a boundary.",
         "line": 495,
         "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -403,6 +448,7 @@
         "justification": "The offsets were produced by scanning the ASCII digits of a message this module formatted itself.",
         "line": 527,
         "path": "src/error.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -412,6 +458,7 @@
         "justification": "PrinterBuilder already is the configuration struct the lint asks for: it holds the same ten options and build() is the single caller of this private constructor, which the scan sees because the three other call sites are tests. The public boundary never exposes the eleven positions.",
         "line": 320,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "clippy::too_many_arguments",
         "verdict": "false_positive"
@@ -421,6 +468,7 @@
         "justification": "A bare unreachable! with no message, enumerating the ids of a pattern list built 140 lines away; adding a placeholder to that list turns a compile-time omission into a runtime abort.",
         "line": 209,
         "path": "src/fmt/mod.rs",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "clippy::unreachable",
         "verdict": "true_positive"
@@ -430,6 +478,7 @@
         "justification": "The flag declares that it takes a value, so the parser never hands it an affirmative switch, and the message states that invariant.",
         "line": 1634,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unreachable",
         "verdict": "false_positive"
@@ -439,6 +488,7 @@
         "justification": "The man page generator is documented as required to panic on malformed markup; its input is ripgrep's own source, not user data.",
         "line": 80,
         "path": "crates/core/flags/doc/man.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unreachable",
         "verdict": "false_positive"
@@ -448,6 +498,7 @@
         "justification": "unwrap_value documents four lines above that calling it on a switch is a bug and that panicking is the intended response.",
         "line": 297,
         "path": "crates/core/flags/mod.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unreachable",
         "verdict": "false_positive"
@@ -457,6 +508,7 @@
         "justification": "The Io code was destructured away by the if let three lines above, so classify cannot return the Io category in this branch.",
         "line": 222,
         "path": "src/error.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "clippy::unreachable",
         "verdict": "false_positive"
@@ -466,6 +518,7 @@
         "justification": "The iterator ends with chain(iter::once(rustc)) on the line above, so next() always yields a value.",
         "line": 117,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "clippy::unwrap_used",
         "verdict": "false_positive"
@@ -475,6 +528,7 @@
         "justification": "Every Level discriminant is a valid LevelFilter, so from_usize is total over the values this method can pass it.",
         "line": 555,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "log",
         "rule": "clippy::unwrap_used",
         "verdict": "false_positive"
@@ -484,6 +538,7 @@
         "justification": "The branch is entered only when branches is neither empty nor longer than one, so pop yields the single element.",
         "line": 602,
         "path": "crates/globset/src/glob.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unwrap_used",
         "verdict": "false_positive"
@@ -493,6 +548,7 @@
         "justification": "Match::offset carries a Panics section stating that an overflowing offset panics; the behaviour is the published contract of the method.",
         "line": 140,
         "path": "crates/matcher/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unwrap_used",
         "verdict": "false_positive"
@@ -502,6 +558,7 @@
         "justification": "Both sequences were shown finite by the two min_literal_len guards above, as the comment on the previous line states.",
         "line": 613,
         "path": "crates/regex/src/literal.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "clippy::unwrap_used",
         "verdict": "false_positive"
@@ -511,6 +568,7 @@
         "justification": "The lockfile resolves bitflags 1.3.2 and 2.11.0 side by side; both are compiled into the binary and their types do not interoperate.",
         "line": 0,
         "path": "Cargo.lock",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "rust_doctor::cargo::duplicate_major_versions",
         "verdict": "true_positive"
@@ -520,6 +578,7 @@
         "justification": "fd tunes its release profile for the shipped binary, setting lto, strip and codegen-units, and leaves overflow checks at Cargo's default of false. Nothing in the manifest states the omission as a decision, the tool spends its time in directory traversal rather than in integer arithmetic, and a wrap in a size or depth computation would be silent, so enabling the check is the change the finding asks for.",
         "line": 89,
         "path": "Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "rust_doctor::cargo::unchecked_release_overflow",
         "verdict": "true_positive"
@@ -529,6 +588,7 @@
         "justification": "hexyl computes byte offsets, column widths and group boundaries from the size of the input it is given, and its release profile sets only lto and codegen-units. A wrap there corrupts the rendering rather than failing, and the profile carries no sign that the absence of the check was weighed, so the one-line change stands.",
         "line": 32,
         "path": "Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "rust_doctor::cargo::unchecked_release_overflow",
         "verdict": "true_positive"
@@ -538,6 +598,7 @@
         "justification": "ripgrep's own manifest sets overflow-checks = false in [profile.release-lto], the profile its distributed binaries are built with, so the absence under [profile.release] is a decision the project already took knowingly for a search tool whose hot loops are index arithmetic. The rule restates a tradeoff its reader has settled, which is the case its help text asks the reader to decline.",
         "line": 74,
         "path": "Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::cargo::unchecked_release_overflow",
         "verdict": "false_positive"
@@ -547,6 +608,7 @@
         "justification": "A flat boolean filter enumeration; the branch count is the clause count and the flat chain is the clearest available form.",
         "line": 21,
         "path": "src/filetypes.rs",
+        "provenance": "unrecorded",
         "repository": "fd",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "false_positive"
@@ -556,6 +618,7 @@
         "justification": "A 211-line run function at cyclomatic 52 parsing options, opening inputs and configuring output in one body; decomposition is feasible and would be accepted.",
         "line": 240,
         "path": "src/main.rs",
+        "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "true_positive"
@@ -565,6 +628,7 @@
         "justification": "Cognitive complexity 47 from nested matcher-precedence loops; naming the precedence stages would genuinely help a reader.",
         "line": 546,
         "path": "crates/ignore/src/dir.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "true_positive"
@@ -574,6 +638,7 @@
         "justification": "An exhaustive match over HirKind; the branch count is the case analysis the domain requires and cognitive complexity stays low.",
         "line": 51,
         "path": "crates/regex/src/strip.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "false_positive"
@@ -583,6 +648,7 @@
         "justification": "UTF-16 surrogate pairing is essential complexity in a tight documented loop; splitting it would obscure the algorithm.",
         "line": 897,
         "path": "src/read.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "false_positive"
@@ -592,6 +658,7 @@
         "justification": "The anchor is the build script's own file-wide allow of one pedantic formatting lint, and the family also names tests/test_ffi.rs. Neither file is shipped, but the two members disagree on their Cargo target kind so no unanimous context is stamped and the family weighs on the score. The exemption is right where it sits, and its scope is the file because the file is one hundred lines of build probe.",
         "line": 1,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
@@ -601,6 +668,7 @@
         "justification": "#![allow(unknown_lints, mismatched_lifetime_syntaxes)] is a toolchain-compatibility pair, not a judgment about a call site: it silences a rustc lint that does not exist on the older compilers the crate supports, and unknown_lints is what keeps those compilers from rejecting the name. It has no item to be scoped to, and narrowing it is not a change anyone would make.",
         "line": 237,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
@@ -610,6 +678,7 @@
         "justification": "The block is serde_json's documented pedantic policy: its groups carry the reason inline, 'integer and float ser/de requires these sorts of casts', 'correctly used', 'things are often more readable this way'. The intent is written where no detector reads it, and scoping the cast exemptions to items would repeat them across the whole serializer.",
         "line": 327,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
@@ -619,6 +688,7 @@
         "justification": "The same unknown_lints and mismatched_lifetime_syntaxes compatibility pair as anyhow's, at the root of a no_std library that supports older compilers. It is about the toolchain rather than about any item of the crate.",
         "line": 370,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
@@ -628,6 +698,7 @@
         "justification": "The same compatibility pair again, at the root of the procedural macro crate. Three of the five sampled sites are this one line, which is what a rule judging scope rather than justification finds on healthy public code.",
         "line": 19,
         "path": "impl/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "thiserror",
         "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
@@ -637,6 +708,7 @@
         "justification": "put_uint_le and put_int_le carry byte-identical four-statement bodies; a private helper over the eight-byte array serves both without touching the public trait methods.",
         "line": 971,
         "path": "src/buf/buf_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -646,6 +718,7 @@
         "justification": "advance_mut is copied verbatim, explanatory comment included, into the BufMut impls for &mut [u8] and &mut [MaybeUninit<u8>]; take and split_at_mut are generic, so one helper serves both.",
         "line": 1496,
         "path": "src/buf/buf_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -655,6 +728,7 @@
         "justification": "release_shared is duplicated between bytes.rs and bytes_mut.rs down to its twenty-line memory-ordering comment, differing only in the counter field name; the reference-counting invariant belongs in one place.",
         "line": 1541,
         "path": "src/bytes.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -664,6 +738,7 @@
         "justification": "Parallel Visitor impls for Level and LevelFilter over a three-statement body whose only difference is the seed type; the crate writes its serde surface out for both enums deliberately.",
         "line": 95,
         "path": "src/serde.rs",
+        "provenance": "unrecorded",
         "repository": "log",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -673,6 +748,7 @@
         "justification": "Four Flag trait impls of the declarative flag table; the search mode is the erased difference and one explicit type per flag is the file's design.",
         "line": 1294,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -682,6 +758,7 @@
         "justification": "Five flag impls assigning a different field from a switch; the flag table is deliberately explicit and the impls cannot merge.",
         "line": 1484,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -691,6 +768,7 @@
         "justification": "Two separator flags parsing through their own type; the erased type alias is the whole difference.",
         "line": 1812,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -700,6 +778,7 @@
         "justification": "Three glob-collecting flags pushing onto different fields; same flag-table pattern.",
         "line": 2554,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -709,6 +788,7 @@
         "justification": "Five boolean switch flags; the assigned field is erased and the table is the design.",
         "line": 4302,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -718,6 +798,7 @@
         "justification": "--sort and --sortr repeat the entire ten-line sort-kind parse table to differ in one boolean; a helper taking that boolean removes the copy and keeps the two flags in step.",
         "line": 6358,
         "path": "crates/core/flags/defs.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -727,6 +808,7 @@
         "justification": "The Match and Context serializers list the same five fields in the same order, differing only in the struct-name literal; one macro or shared function serves both wire messages.",
         "line": 95,
         "path": "crates/printer/src/jsont.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -736,6 +818,7 @@
         "justification": "extract_class_unicode and extract_class_bytes walk sibling class types that share no trait; the eight-line repetition is what the type system leaves behind.",
         "line": 317,
         "path": "crates/regex/src/literal.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -745,6 +828,7 @@
         "justification": "sink_before_context and sink_other_context repeat a twenty-five-line scaffold differing only in SinkContextKind; a kind parameter removes the second copy.",
         "line": 556,
         "path": "crates/searcher/src/searcher/core.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -754,6 +838,7 @@
         "justification": "deserialize_seq and deserialize_map repeat a twenty-five-line peek, recurse and end scaffold differing in one byte literal and the visitor call; the crate already macros comparable families.",
         "line": 1735,
         "path": "src/de.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -763,6 +848,7 @@
         "justification": "Two visitor impls over a three-statement body whose only difference is the seed type; parallel impls for the borrowed and boxed forms.",
         "line": 326,
         "path": "src/raw.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "false_positive"
@@ -772,6 +858,7 @@
         "justification": "Eleven serialize_* methods repeat the same begin_string, write, end_string scaffold; a macro parameterized on the writer call serves all eleven.",
         "line": 834,
         "path": "src/ser.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -781,6 +868,7 @@
         "justification": "Twelve write_i* and write_u* formatter methods repeat the same three-statement itoa scaffold; this is the canonical macro family.",
         "line": 1565,
         "path": "src/ser.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -790,6 +878,7 @@
         "justification": "end_array and end_object repeat a four-statement scaffold differing in one byte literal.",
         "line": 1984,
         "path": "src/ser.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -799,6 +888,7 @@
         "justification": "to_string and to_string_pretty repeat the same body including the unsafe from_utf8_unchecked block and its justification comment; a shared helper keeps that unsafe reasoning in one place.",
         "line": 2238,
         "path": "src/ser.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -808,6 +898,7 @@
         "justification": "The same twenty-five-line deserialize_enum body in the owned and borrowed map deserializers; a generic helper removes the copy without touching the impls.",
         "line": 234,
         "path": "src/value/de.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::duplicate_function_body",
         "verdict": "true_positive"
@@ -817,6 +908,7 @@
         "justification": "The Sender and Receiver Clone impls repeat the same overflow guard around a relaxed fetch_add, comment included; a helper keeps that safety-relevant invariant in one place.",
         "line": 569,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "async-channel",
         "rule": "rust_doctor::structure::near_duplicate_function_body",
         "verdict": "true_positive"
@@ -826,6 +918,7 @@
         "justification": "Two cfg-gated implementations of ptr_map, one for miri and one for the rest; only one ever compiles and the pair is the configuration, not a clone.",
         "line": 1573,
         "path": "src/bytes.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "rust_doctor::structure::near_duplicate_function_body",
         "verdict": "false_positive"
@@ -835,6 +928,7 @@
         "justification": "Prefix and suffix matching strategies whose differing predicate is the entire semantics of each.",
         "line": 825,
         "path": "crates/globset/src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::near_duplicate_function_body",
         "verdict": "false_positive"
@@ -844,6 +938,7 @@
         "justification": "is_good and is_really_good share three guard lines then diverge; the second is a stricter variant, not a copy.",
         "line": 550,
         "path": "crates/regex/src/literal.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::near_duplicate_function_body",
         "verdict": "false_positive"
@@ -853,6 +948,7 @@
         "justification": "Shift helpers differing in direction and in overflow handling; the operator is the meaning.",
         "line": 8,
         "path": "src/lexical/shift.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::near_duplicate_function_body",
         "verdict": "false_positive"
@@ -862,6 +958,7 @@
         "justification": "A cohesive 1060-line file holding one type's implementation, deliberately organized as a single unit just past the threshold.",
         "line": 1,
         "path": "src/error.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::oversized_unit",
         "verdict": "false_positive"
@@ -871,6 +968,7 @@
         "justification": "A single 183-line function whose two allocation-kind branches are independent; the inlining comment justifies its separation from reserve, not its internal length.",
         "line": 624,
         "path": "src/bytes_mut.rs",
+        "provenance": "unrecorded",
         "repository": "bytes",
         "rule": "rust_doctor::structure::oversized_unit",
         "verdict": "true_positive"
@@ -880,6 +978,7 @@
         "justification": "A cohesive module whose length is dominated by its own test module, in the maintainer's deliberate single-file style.",
         "line": 1,
         "path": "crates/globset/src/glob.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::oversized_unit",
         "verdict": "false_positive"
@@ -889,6 +988,7 @@
         "justification": "An impl block's length is its method count; splitting one type's impl into several blocks moves lines without reducing anything.",
         "line": 884,
         "path": "crates/printer/src/standard.rs",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::oversized_unit",
         "verdict": "false_positive"
@@ -898,6 +998,7 @@
         "justification": "A 529-line impl block whose size is the Deserializer trait's method count, which the implementer does not choose.",
         "line": 1387,
         "path": "src/de.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::oversized_unit",
         "verdict": "false_positive"
@@ -907,6 +1008,7 @@
         "justification": "A deliberate opt-out of a widely disputed style lint, in a build script and a test file; the maintainer's position is public and a reason string would add nothing.",
         "line": 1,
         "path": "build.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::unreasoned_allow_attribute",
         "verdict": "false_positive"
@@ -916,6 +1018,7 @@
         "justification": "The capitalized Ok constructor deliberately mirrors Result::Ok for the documented inference case; the allow is the intended construct.",
         "line": 648,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::unreasoned_allow_attribute",
         "verdict": "false_positive"
@@ -925,6 +1028,7 @@
         "justification": "Withholding Copy is an API-stability choice, and the crate's minimum supported Rust predates the reason argument, so the intent cannot be stated inline.",
         "line": 1573,
         "path": "src/lib.rs",
+        "provenance": "unrecorded",
         "repository": "log",
         "rule": "rust_doctor::structure::unreasoned_allow_attribute",
         "verdict": "false_positive"
@@ -934,6 +1038,7 @@
         "justification": "The conditional alloc import is used under some feature combinations and not others; the allow is the standard idiom for that.",
         "line": 6,
         "path": "src/lexical/bignum.rs",
+        "provenance": "unrecorded",
         "repository": "serde_json",
         "rule": "rust_doctor::structure::unreasoned_allow_attribute",
         "verdict": "false_positive"
@@ -943,6 +1048,7 @@
         "justification": "The Result return keeps this parser uniform with the siblings it is selected among; the wrap is deliberate.",
         "line": 171,
         "path": "impl/src/fmt.rs",
+        "provenance": "unrecorded",
         "repository": "thiserror",
         "rule": "rust_doctor::structure::unreasoned_allow_attribute",
         "verdict": "false_positive"
@@ -952,6 +1058,7 @@
         "justification": "The manifest comment above the feature states it is kept as a compatibility no-op; removing it would break downstream activations.",
         "line": 19,
         "path": "Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "anyhow",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
@@ -961,6 +1068,7 @@
         "justification": "Documented in the manifest as deprecated and a no-op kept for compatibility.",
         "line": 48,
         "path": "crates/globset/Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
@@ -970,6 +1078,7 @@
         "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
         "line": 32,
         "path": "crates/grep/Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
@@ -979,6 +1088,7 @@
         "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
         "line": 44,
         "path": "crates/ignore/Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
@@ -988,6 +1098,7 @@
         "justification": "The manifest comment marks the feature deprecated and kept as a no-op.",
         "line": 31,
         "path": "crates/searcher/Cargo.toml",
+        "provenance": "unrecorded",
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
@@ -3045,6 +3156,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::arc_with_non_send_sync",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3055,6 +3167,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::await_holding_lock",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3065,6 +3178,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::await_holding_refcell_ref",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3075,6 +3189,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::dbg_macro",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3085,6 +3200,9 @@
       "false_positives": 5,
       "findings": 10,
       "id": "clippy::exit",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P2",
@@ -3095,6 +3213,9 @@
       "false_positives": 4,
       "findings": 23,
       "id": "clippy::expect_used",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3105,6 +3226,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::format_collect",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3115,6 +3237,9 @@
       "false_positives": 5,
       "findings": 246,
       "id": "clippy::indexing_slicing",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3125,6 +3250,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::large_types_passed_by_value",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3135,6 +3261,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::manual_memcpy",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3145,6 +3272,9 @@
       "false_positives": 1,
       "findings": 1,
       "id": "clippy::mem_forget",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 1,
       "status": "measured",
       "tier": "P2",
@@ -3155,6 +3285,9 @@
       "false_positives": 0,
       "findings": 2,
       "id": "clippy::missing_safety_doc",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 2,
       "status": "measured",
       "tier": "P3",
@@ -3165,6 +3298,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::mut_mutex_lock",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3175,6 +3309,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::non_send_fields_in_send_ty",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3185,6 +3320,9 @@
       "false_positives": 5,
       "findings": 11,
       "id": "clippy::panic",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3195,6 +3333,9 @@
       "false_positives": 5,
       "findings": 46,
       "id": "clippy::panic_in_result_fn",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P2",
@@ -3205,6 +3346,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::permissions_set_readonly_false",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3215,6 +3357,9 @@
       "false_positives": 5,
       "findings": 9,
       "id": "clippy::print_stderr",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3225,6 +3370,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::print_stdout",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3235,6 +3381,9 @@
       "false_positives": 0,
       "findings": 1,
       "id": "clippy::ptr_arg",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 1,
       "status": "measured",
       "tier": "P3",
@@ -3245,6 +3394,9 @@
       "false_positives": 0,
       "findings": 6,
       "id": "clippy::rc_buffer",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3255,6 +3407,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::rc_mutex",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3265,6 +3418,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::redundant_allocation",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3275,6 +3429,9 @@
       "false_positives": 0,
       "findings": 1,
       "id": "clippy::stable_sort_primitive",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 1,
       "status": "measured",
       "tier": "P3",
@@ -3285,6 +3442,9 @@
       "false_positives": 5,
       "findings": 40,
       "id": "clippy::string_slice",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3295,6 +3455,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::suspicious_command_arg_space",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3305,6 +3466,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::todo",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3315,6 +3477,9 @@
       "false_positives": 1,
       "findings": 1,
       "id": "clippy::too_many_arguments",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 1,
       "status": "measured",
       "tier": "P3",
@@ -3325,6 +3490,7 @@
       "false_positives": null,
       "findings": 2,
       "id": "clippy::type_complexity",
+      "provenance": [],
       "reviewed": 0,
       "status": "incomplete",
       "tier": "P3",
@@ -3335,6 +3501,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unimplemented",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3345,6 +3512,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unnecessary_to_owned",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3355,6 +3523,9 @@
       "false_positives": 4,
       "findings": 23,
       "id": "clippy::unreachable",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P2",
@@ -3365,6 +3536,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unused_async",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3375,6 +3547,9 @@
       "false_positives": 5,
       "findings": 117,
       "id": "clippy::unwrap_used",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3385,6 +3560,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::useless_vec",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3395,6 +3571,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::vec_init_then_push",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3405,6 +3582,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "clippy::zombie_processes",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3415,6 +3593,9 @@
       "false_positives": 0,
       "findings": 1,
       "id": "rust_doctor::cargo::duplicate_major_versions",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 1,
       "status": "measured",
       "tier": "P2",
@@ -3425,6 +3606,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::missing_lockfile",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3435,6 +3617,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3445,6 +3628,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::permissive_lint_table",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3455,6 +3639,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::permissive_rustflags",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3465,6 +3650,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::release_debug_symbols",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3475,6 +3661,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::test_only_dependency",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3485,6 +3672,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3495,6 +3683,9 @@
       "false_positives": 1,
       "findings": 3,
       "id": "rust_doctor::cargo::unchecked_release_overflow",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 3,
       "status": "measured",
       "tier": "P3",
@@ -3505,6 +3696,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3515,6 +3707,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unused_dependency",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P2",
@@ -3525,6 +3718,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::hardcoded_credential",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3535,6 +3729,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::tracked_secret_file",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P1",
@@ -3545,6 +3740,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::unignored_build_output",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3555,6 +3751,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::source::disabled_tls_verification",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P0",
@@ -3565,6 +3762,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::source::dynamic_shell_command",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P0",
@@ -3575,6 +3773,9 @@
       "false_positives": 3,
       "findings": 34,
       "id": "rust_doctor::structure::complex_function",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3585,6 +3786,9 @@
       "false_positives": 5,
       "findings": 33,
       "id": "rust_doctor::structure::crate_level_allow",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P2",
@@ -3595,6 +3799,9 @@
       "false_positives": 8,
       "findings": 134,
       "id": "rust_doctor::structure::duplicate_function_body",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 20,
       "status": "measured",
       "tier": "P3",
@@ -3605,6 +3812,9 @@
       "false_positives": 4,
       "findings": 98,
       "id": "rust_doctor::structure::near_duplicate_function_body",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3615,6 +3825,7 @@
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::structure::orphan_module_file",
+      "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
       "tier": "P3",
@@ -3625,6 +3836,9 @@
       "false_positives": 4,
       "findings": 58,
       "id": "rust_doctor::structure::oversized_unit",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3635,6 +3849,7 @@
       "false_positives": null,
       "findings": 1,
       "id": "rust_doctor::structure::stacked_allow_attribute",
+      "provenance": [],
       "reviewed": 0,
       "status": "incomplete",
       "tier": "P3",
@@ -3645,6 +3860,9 @@
       "false_positives": 5,
       "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",
@@ -3655,6 +3873,9 @@
       "false_positives": 5,
       "findings": 7,
       "id": "rust_doctor::structure::unreferenced_feature",
+      "provenance": [
+        "unrecorded"
+      ],
       "reviewed": 5,
       "status": "measured",
       "tier": "P3",

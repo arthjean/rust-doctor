@@ -22,8 +22,9 @@ use serde_json::Value;
 use support::corpus::{
     ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
     GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, Manifest, ManifestEntry, Observation,
-    PrecisionStatus, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite, RuleObservation,
-    RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict, artifact,
+    PrecisionStatus, Provenance, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite,
+    RuleObservation, RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict,
+    artifact,
     catalog_from_report, curated_findings, density_milli, evidence_holds, gate, manifest_defects,
     missing_repositories, precision, run, rust_line_count, score_distribution, structural_findings,
 };
@@ -468,6 +469,7 @@ fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     }
 
     assert!(artifact.adjudication.criterion.len() > 80);
+    assert!(artifact.adjudication.provenance.len() > 80);
     assert!(artifact.adjudication.sampling.len() > 80);
     assert!(artifact.adjudication.trigger_verification.method.len() > 80);
     assert!(!artifact.adjudication.trigger_verification.triggers.is_empty());
@@ -518,6 +520,47 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
         sampled.false_positive_rate_basis_points.unwrap(),
         sampled.false_positives.unwrap() * 10_000 / sampled.findings
     );
+}
+
+/// A published rate names who produced the verdicts it rests on.
+///
+/// The rate is the visible artifact; the hundred and ten sites behind it are
+/// not. Carrying the provenance up to the rate is what lets a reader tell a
+/// number an agent produced from one a person produced, without which the
+/// distinction exists in the file and nowhere a reader looks.
+#[test]
+fn a_published_rate_carries_the_provenance_of_its_verdicts() {
+    let artifact = artifact();
+    let computed = precision(&artifact.catalog, &artifact.observations, &artifact.adjudication);
+
+    let mut declared: BTreeMap<&str, BTreeSet<Provenance>> = BTreeMap::new();
+    for site in &artifact.adjudication.reviewed {
+        declared.entry(site.rule.as_str()).or_default().insert(site.provenance);
+    }
+
+    let mut measured = 0usize;
+    for rule in &computed {
+        match rule.status {
+            PrecisionStatus::Measured => {
+                measured += 1;
+                assert!(!rule.provenance.is_empty(), "{}", rule.id);
+                let expected: Vec<Provenance> = declared
+                    .get(rule.id.as_str())
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+                assert_eq!(rule.provenance, expected, "{}", rule.id);
+            }
+            // No rate, nothing to attribute: a provenance here would credit a
+            // measurement that was never published.
+            PrecisionStatus::Incomplete | PrecisionStatus::Unobserved => {
+                assert!(rule.provenance.is_empty(), "{}", rule.id);
+                assert_eq!(rule.false_positive_rate_basis_points, None, "{}", rule.id);
+            }
+        }
+    }
+    assert!(measured > 0);
 }
 
 /// A structural rate is a production rate.
@@ -672,6 +715,7 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
 fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudication {
     Adjudication {
         criterion: "probe".to_owned(),
+        provenance: "probe".to_owned(),
         sampling: "probe".to_owned(),
         trigger_verification: TriggerVerification {
             confirmed: reviewed,
@@ -688,6 +732,7 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
                 justification: "probe".to_owned(),
                 line: index + 1,
                 path: "src/lib.rs".to_owned(),
+                provenance: Provenance::Unrecorded,
                 repository: "probe".to_owned(),
                 rule: id.to_owned(),
                 verdict: if index < false_positives {
@@ -1278,15 +1323,39 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(confirmed, published.adjudication.trigger_verification.confirmed);
     assert_eq!(confirmed, published.adjudication.trigger_verification.findings);
 
-    // Every reviewed site matches a finding the corpus actually produced.
+    // Every reviewed site matches a finding the corpus actually produced, at
+    // its published position and in its published context.
+    //
+    // The position is what makes a verdict verifiable rather than declarative:
+    // a site nobody can locate is a rate nobody can recompute. The context
+    // matters just as much and is easier to overlook, because it decides which
+    // subpopulation the sample belongs to: the structural rules draw from the
+    // production families alone, so a site declared production while the report
+    // marked it as test material would move the denominator of a published rate
+    // without moving a single finding.
     for site in &published.adjudication.reviewed {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
         let report: Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(
-            curated_findings(&report).iter().any(|finding| {
+        let findings = curated_findings(&report);
+        let located: Vec<_> = findings
+            .iter()
+            .filter(|finding| {
                 finding.rule == site.rule && finding.path == site.path && finding.line == site.line
-            }),
-            "site relu introuvable dans le corpus: {}/{} at {}:{}",
+            })
+            .collect();
+        assert!(
+            !located.is_empty(),
+            "reviewed site absent from the corpus: {}/{} at {}:{}",
+            site.repository,
+            site.rule,
+            site.path,
+            site.line
+        );
+        assert!(
+            located.iter().any(|finding| site.context.matches(finding.context)),
+            "reviewed site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
+            site.context,
+            located.first().and_then(|finding| finding.context),
             site.repository,
             site.rule,
             site.path,
