@@ -1,17 +1,21 @@
 ---
 name: corpus-adjudicate
-description: Deepen the adjudicated sample of one catalogued rule on the pinned corpus, from the five sites admission requires to a sample that can actually place the rule against the 5 percent threshold. Use when the user asks to adjudicate a rule, deepen a sample, measure precision properly, re-measure a noisy rule, or says "adjudicate clippy::x at 40". Handles one rule per run. Not for adding a rule to the catalog, which is rule-admit.
+description: Adjudicate one catalogued rule on the pinned corpus, deepening its reviewed sample past the five sites admission requires. Use when the user asks to adjudicate a rule, or when another skill needs a rate precise enough to place a rule against the threshold. Handles one rule per run. Not for adding a rule to the catalog, which is rule-admit.
 ---
 
 # Adjudicate one rule
 
 Admission asks whether a rule fires on the pattern it claims. This asks the
 other question, how often it is wrong on healthy code, and it is the question
-the published rate answers. The rate is only as good as the sample behind it:
-`adjudication.sampling` states plainly that five sites resolve steps of twenty
-points and cannot place a rule against the five percent threshold. Deepening a
-sample is therefore not polish, it is what turns a published number into a
-defensible one.
+the published rate answers. `adjudication.sampling` states plainly that five
+sites resolve steps of twenty points and cannot place a rule against the five
+percent threshold, so deepening a sample is what turns a published number into
+a defensible one.
+
+One word governs the whole run. A verdict reached without opening the code is
+**hearsay**: inferred from a neighbouring site, from the rule's reputation, or
+from the tool's own claim. Hearsay is not a weaker verdict, it is not a verdict,
+and it never enters the measurement. Everything below exists to keep it out.
 
 Read the "The pinned corpus" and "Admitting a rule" sections of `AGENTS.md`
 first, and the `adjudication.criterion` field of `tests/corpus.json`, which is
@@ -20,17 +24,15 @@ before starting, so a failure during the run belongs to this work.
 
 ## What the harness already enforces
 
-Four invariants hold whatever you do, and they are what make a delegated
-verdict auditable rather than declarative. Know them before writing a site:
+Four invariants hold whatever you do. They catch a corrupted sample, never
+hearsay, which reads exactly like a real verdict and is yours to keep out:
 
 - The rate is derived, never written. `precision()` in `tests/support/corpus.rs`
   computes every published rate from `adjudication.reviewed` alone, and a test
   asserts the published field equals the recomputation.
 - A reviewed site must name a finding the corpus actually produced, at its
   published `path` and `line`, and in its published `context`. Both are checked
-  in `the_published_observations_reproduce_the_pinned_corpus_run`. An invented
-  position or a context declared production while the report marked it test
-  material fails the suite.
+  in `the_published_observations_reproduce_the_pinned_corpus_run`.
 - `(rule, repository, path, line)` is unique. A site reviewed twice makes the
   rule incomplete and withholds its rate.
 - `MINIMUM_REVIEWED_SITES` is a floor of five, not a ceiling. The only upper
@@ -60,7 +62,10 @@ bench, example or build-script material is published but weighs nothing, and
 measuring the rule over those families publishes the cost of an idiom rather
 than the cost of the rule. A test enforces this restriction.
 
-## Step 2: Sample by stride, never by convenience
+**Done when** the population count is stated and every entry carries a
+repository, a path and a line drawn from a report, not from memory.
+
+## Step 2: Sample by stride
 
 From a population of `n` sites, take `k = min(target, n)` at indices
 `floor(i * n / k)` for `i` in `[0, k)`. A regular stride from the first site, so
@@ -74,6 +79,10 @@ recomputing the stride for the new `k` and adjudicating the sites it adds, not
 re-judging the ones already recorded, whose verdicts remain valid observations
 of the same population.
 
+**Done when** the stride is listed, and every already-recorded site is either
+inside it or named as sitting outside it. A stride that silently drops a
+recorded verdict changes the published rate without saying so.
+
 ## Step 3: Adjudicate, with the code in front of you
 
 Read each site in the materialized tree at `<artifacts>/work/<repository>`, with
@@ -81,6 +90,13 @@ the surrounding code, never the diagnostic alone. This is the single largest
 factor in whether the verdict is any good: an agent with repository access
 identifies false positives at roughly the rate a reviewer does, while the same
 model judging a finding in isolation degrades toward guessing.
+
+Judging a site by analogy with its neighbour in the same file is the most
+comfortable form of hearsay, and the one that shows up in practice: a run that
+reports thirty-five verdicts of which twelve say "same pattern as the site
+above" has thirty-five entries and twenty-three verdicts. Prefer a short honest
+count to a full list: state how many sites you actually opened, and emit only
+those.
 
 Apply `adjudication.criterion` verbatim. In short, a finding is a true positive
 when the flagged site should actually be changed, and a false positive when the
@@ -103,6 +119,12 @@ Delegating each pass to a separate subagent, with no shared context and no
 mention of any prior verdict, is what makes the second pass independent rather
 than a rereading.
 
+**Done when** every site in the stride carries two verdicts from sites that were
+opened, the agreement count and Cohen's kappa are computed, and the disagreeing
+sites are listed with both justifications. Kappa is undefined when neither pass
+produced a single verdict of one kind: report that rather than a perfect
+agreement figure, which in that case measures nothing.
+
 ## Step 4: Record the sites
 
 Add each site to `adjudication.reviewed` in `tests/corpus.json`:
@@ -120,9 +142,9 @@ Add each site to `adjudication.reviewed` in `tests/corpus.json`:
 }
 ```
 
-`provenance` is `agent` for a verdict produced under this protocol, `human` for
-one a person read and judged. Never `unrecorded`, which belongs to the sites
-judged before the field existed and is not a default to reuse.
+`provenance` is `agent` for a verdict produced under this protocol and `human`
+for one a person read and judged. `unrecorded` belongs to the sites judged
+before the field existed and stays theirs.
 
 The file is canonical JSON. Write it back exactly as it is read, or the diff
 fills with reformatting:
@@ -142,7 +164,12 @@ json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
   and loses default activation; nothing else is refused.
 - `adjudication.sampling`: state the new `k` for this rule and why, as the entry
   for `duplicate_function_body` already does. The published method has to
-  describe what was actually done.
+  describe what was actually done, including any site excluded for disagreement
+  and the resulting count.
+
+**Done when** `cargo test --test corpus_precision` passes without the cache,
+which is the harness recomputing every rate from the sites and comparing it to
+what you wrote.
 
 ## Step 6: Verify
 
@@ -184,12 +211,6 @@ is exactly what invalidates a rate.
 Cause: the sample was drawn from the whole population instead of the production
 subpopulation. Solution: filter findings with no `context` field before the
 stride, and recompute.
-
-### The published rate does not equal the recomputation
-
-Cause: `precision` was edited without the sites, or with a rounding other than
-integer division. Solution: recompute from `adjudication.reviewed`, which is the
-only input the harness reads.
 
 ### The rate is unchanged but the gate moved
 
