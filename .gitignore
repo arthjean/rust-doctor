@@ -1,4 +1,8 @@
-/target/
+# No trailing slash: a directory-only pattern does not cover a `target` that is
+# a symbolic link to a build directory elsewhere, which is a common way to move
+# build output off a small disk. Without this the link itself stays untracked
+# and committable, and rust-doctor reports it against this repository.
+/target
 /tests/fixtures/projects/*/target/
 /tests/fixtures/projects/*/Cargo.lock
 /tests/fixtures/kernel-contract/*/target/

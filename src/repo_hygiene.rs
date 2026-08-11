@@ -400,16 +400,31 @@ fn build_directory(workspace_root: &Path) -> Option<String> {
 }
 
 fn probe_ignore(workspace_root: &Path, directory: &str) -> IgnoreProbe {
+    // The trailing slash makes a directory-only pattern like `target/` match
+    // even before a first build creates the directory; the anchored and bare
+    // spellings match it too.
+    //
+    // Git refuses that spelling outright when the directory is a symbolic link
+    // to a build directory elsewhere, a common way to move build output off a
+    // small disk: it exits 128 with "is beyond a symbolic link" and answers
+    // nothing. The bare spelling still answers, and it has to be asked, because
+    // that workspace is exactly one where the build path is unignored and its
+    // link shows up as untracked. Abstaining there would hide the rule's own
+    // case from the user most exposed to it.
+    match ask_git_check_ignore(workspace_root, &format!("{directory}/")) {
+        IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, directory),
+        answered => answered,
+    }
+}
+
+fn ask_git_check_ignore(workspace_root: &Path, path: &str) -> IgnoreProbe {
     let arguments = git_arguments(
         workspace_root,
         [
             OsString::from("check-ignore"),
             OsString::from("--quiet"),
             OsString::from("--"),
-            // The trailing slash makes a directory-only pattern like
-            // `target/` match even before a first build creates the
-            // directory; the anchored and bare spellings match it too.
-            OsString::from(format!("{directory}/")),
+            OsString::from(path.to_owned()),
         ],
     );
     match git_command(Path::new("git"), workspace_root, &arguments).output() {
@@ -437,6 +452,53 @@ mod tests {
             stdout.push(0);
         }
         GitOutput { stdout }
+    }
+
+    /// A build directory moved elsewhere behind a symbolic link still gets an
+    /// answer.
+    ///
+    /// `git check-ignore -- target/` exits 128 with "is beyond a symbolic link"
+    /// on such a workspace and answers nothing, which used to make the rule
+    /// abstain on exactly the layout where the build path is unignored and its
+    /// link is sitting untracked. This repository is one of those workspaces,
+    /// so the rule was blind to its own case here.
+    #[test]
+    fn a_symlinked_build_directory_is_probed_rather_than_abstained_on() {
+        use std::os::unix::fs::symlink;
+
+        let scratch = std::env::temp_dir()
+            .canonicalize()
+            .expect("a canonical temporary directory")
+            .join(format!("rust-doctor-ignore-probe-{}", std::process::id()));
+        let workspace = scratch.join("workspace");
+        let elsewhere = scratch.join("elsewhere");
+        let _ = fs::remove_dir_all(&scratch);
+        fs::create_dir_all(&workspace).expect("the workspace should be writable");
+        fs::create_dir_all(&elsewhere).expect("the build directory should be writable");
+        let git = |arguments: &[&str]| {
+            std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(&workspace)
+                .output()
+                .expect("git should run")
+        };
+        git(&["init", "--quiet"]);
+
+        // Ignored through the directory-only spelling, and the link resolves
+        // outside the workspace exactly as a moved build directory does.
+        fs::write(workspace.join(".gitignore"), "/target/\n").expect("gitignore should write");
+        symlink(&elsewhere, workspace.join("target")).expect("the symlink should be created");
+        assert_eq!(
+            probe_ignore(&workspace, "target"),
+            IgnoreProbe::NotIgnored,
+            "a directory-only pattern does not cover the link that stands in for it"
+        );
+
+        // The same workspace, with the spelling that does cover a link.
+        fs::write(workspace.join(".gitignore"), "/target\n").expect("gitignore should write");
+        assert_eq!(probe_ignore(&workspace, "target"), IgnoreProbe::Ignored);
+
+        fs::remove_dir_all(&scratch).expect("the scratch tree should be removable");
     }
 
     #[test]
