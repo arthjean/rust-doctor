@@ -176,11 +176,14 @@ Turning a lint down means adding it to `rejected.json`; leaving it untriaged
 means doing nothing. `DECIDED_FLOOR` in `coverage.rs` records how many lints of
 the universe have been decided either way, and every triage batch raises it.
 
-Two skills carry the procedure: `.claude/skills/rule-candidate` triages a batch
-off the queue into rejections and a shortlist, and `.claude/skills/rule-admit`
-takes one retained rule through fixtures, catalog, counters, corpus and evidence
-record. Growing the catalog goes through them, so the steps stay the same from
-one batch to the next.
+Three skills carry the procedure: `.claude/skills/rule-candidate` triages a batch
+off the queue into rejections and a shortlist, `.claude/skills/rule-admit` takes
+one retained rule through fixtures, catalog, counters, corpus and evidence
+record, and `.claude/skills/corpus-adjudicate` deepens the adjudicated sample of
+one rule past the five sites admission requires, which is the only way a rate
+becomes precise enough to place a rule against the 5 % threshold. Growing the
+catalog goes through the first two, trusting what it publishes goes through the
+third, so the steps stay the same from one batch to the next.
 
 ## Conventions
 
