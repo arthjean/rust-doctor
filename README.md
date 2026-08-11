@@ -49,8 +49,10 @@ Gate passed: blocking error, 0 blocking diagnostic(s)
   │ ◠ ◠ │  ████████████████████████████████████████████████░░
   │  ▽  │  Rust Doctor
   └─────┘
-Fix the top 3 rules to reach a projected 96/100: clippy::indexing_slicing,
-clippy::string_slice, clippy::print_stderr
+Fix the top 3 rules to reach a projected 98/100:
+rust_doctor::cargo::duplicate_major_versions,
+rust_doctor::structure::duplicate_function_body,
+rust_doctor::structure::oversized_unit
 ```
 
 ## Trust boundary
@@ -131,6 +133,8 @@ Five dimensions (security, reliability, maintainability, performance, dependenci
 Findings from test targets, benches, examples, and build scripts are reported but do not weigh. A `println!` in `build.rs` is the channel Cargo imposes, not a defect of what you ship.
 
 Precision is measured, not asserted: `tests/corpus.json` pins ten public Rust repositories by commit, and `cargo test --test corpus_precision` replays the rules against them. The measurement says how much noise a rule produces on healthy code. It does not claim recall, which needs adversarial fixtures and is a separate question.
+
+That measurement decides what the report tells you to fix first. The three rules named at the end of a scan are ranked by what repairing each is expected to be worth, which is what it costs the score discounted by how often the corpus found it wrong, so a rule adjudicated at no true positive is left out however loudly it fires. `clippy::string_slice` is the clearest case: forty findings across the ten repositories, forty of them reviewed, none a defect. Ranking by volume alone put it near the top of every scan, which was advice to go and change correct code. A rule the corpus never adjudicated keeps its full rank, because no measurement is not evidence of noise.
 
 Suppression is scored. A blanket `#![allow(clippy::all)]`, several suppressions stacked on one item, a `[lints]` table switching a catalogued rule off, a `.cargo/config.toml` capping lints for every build: each is a finding of its own, so silencing the scanner costs points instead of earning them. That is the one move a clean build cannot distinguish from a fix, and it is the reason the rest of the score means anything.
 

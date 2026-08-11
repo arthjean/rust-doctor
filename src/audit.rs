@@ -181,6 +181,10 @@ pub(crate) struct RuleAggregate {
     dimension: Option<ScoreDimension>,
     tier: Option<RuleTier>,
     occurrences: usize,
+    /// Adjudicated false-positive rate on the pinned corpus, in basis points.
+    /// It ranks what to repair first and enters no penalty: what a rule costs
+    /// the score is what it reported here, whatever it costs elsewhere.
+    noise: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -199,6 +203,7 @@ struct PendingRule {
     mapping_conflict: bool,
     tier: Option<RuleTier>,
     occurrences: usize,
+    noise: Option<u16>,
 }
 
 impl Audit {
@@ -517,6 +522,10 @@ pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
 /// bounds.
 pub(crate) const OCCURRENCE_STEPS: [(usize, u64); 4] = [(1, 1), (5, 2), (20, 3), (usize::MAX, 4)];
 
+/// Full scale of an adjudicated rate, matching the basis points the corpus
+/// publishes.
+const BASIS_POINTS: u64 = 10_000;
+
 /// Saturating multiplier: a rule can never go past the last step, whatever its
 /// occurrence count.
 pub(crate) const fn occurrence_multiplier(occurrences: usize) -> u64 {
@@ -583,6 +592,24 @@ impl RuleAggregate {
         }
     }
 
+    /// What repairing this rule is expected to be worth, which is what it costs
+    /// the score discounted by how often the corpus found it wrong.
+    ///
+    /// A rule the corpus adjudicated at 100 % false positives is expected to be
+    /// worth nothing to repair, whatever its volume, and volume is exactly what
+    /// the noisiest rules have the most of. Ranking by contribution alone told
+    /// the user to fix the rule that fires most, which is not the same question
+    /// and, on a rule measured at zero true positives, is advice to change
+    /// correct code. An unmeasured rule keeps its full contribution: no
+    /// measurement is not evidence of noise.
+    const fn expected_repair_value(&self) -> u64 {
+        let kept = match self.noise {
+            Some(noise) => BASIS_POINTS.saturating_sub(noise as u64),
+            None => BASIS_POINTS,
+        };
+        self.contribution().saturating_mul(kept) / BASIS_POINTS
+    }
+
     /// A non-scorable rule caps nothing: a tier cannot act without a retained
     /// dimension and severity.
     const fn scoring_tier(&self) -> Option<RuleTier> {
@@ -623,16 +650,20 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new());
 
+    // Ranked by what repairing each rule is expected to be worth, and a rule
+    // expected to be worth nothing is left out rather than ranked last: naming
+    // it would still be telling the user to go and change it.
     let mut projected_rules: Vec<_> = aggregation
         .rules
         .iter()
-        .filter(|rule| rule.is_scorable())
+        .filter(|rule| rule.is_scorable() && rule.expected_repair_value() > 0)
         .cloned()
         .collect();
     projected_rules.sort_by(|left, right| {
         right
-            .contribution()
-            .cmp(&left.contribution())
+            .expected_repair_value()
+            .cmp(&left.expected_repair_value())
+            .then_with(|| right.contribution().cmp(&left.contribution()))
             .then_with(|| left.id.cmp(&right.id))
     });
     let projected_rule_ids: Vec<_> = projected_rules
@@ -713,6 +744,7 @@ pub(crate) fn aggregate_rules<'a>(
             mapping_conflict: false,
             tier: crate::policy::find(rule_id).map(|definition| definition.tier),
             occurrences: 0,
+            noise: crate::policy::corpus_noise(rule_id),
         });
         rule.occurrences = rule.occurrences.saturating_add(diagnostic.occurrences);
         if diagnostic.severity.rank() < rule.severity.rank() {
@@ -753,6 +785,7 @@ pub(crate) fn aggregate_rules<'a>(
                     .flatten(),
                 tier: rule.tier,
                 occurrences: rule.occurrences,
+                noise: rule.noise,
             })
             .collect(),
         diagnostics_are_authoritative,
@@ -1234,6 +1267,61 @@ mod tests {
                 },
             )
             .collect()
+    }
+
+    /// The rule that fires most is not the rule worth fixing first.
+    ///
+    /// `clippy::indexing_slicing` is adjudicated at 10000 basis points on the
+    /// pinned corpus, forty reviewed sites and no true positive, while
+    /// `rust_doctor::cargo::duplicate_major_versions` sits at zero. Ranking by
+    /// contribution alone put the noisy rule first because volume is exactly
+    /// what it has the most of, which is advice to go and change correct code.
+    #[test]
+    fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
+        let score = scored(&[
+            ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
+            (
+                "rust_doctor::cargo::duplicate_major_versions",
+                "dependencies",
+                Severity::Warning,
+                2,
+            ),
+        ]);
+
+        assert_eq!(
+            score.projected_rule_ids,
+            vec!["rust_doctor::cargo::duplicate_major_versions".to_owned()],
+            "a rule measured at no true positive is left out rather than ranked last"
+        );
+    }
+
+    /// Absence of a measurement is not evidence of noise.
+    #[test]
+    fn a_rule_the_corpus_never_adjudicated_keeps_its_full_rank() {
+        let score = scored(&[
+            ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
+            ("rust_doctor::repo::tracked_secret_file", "security", Severity::Warning, 1),
+        ]);
+
+        assert_eq!(
+            score.projected_rule_ids,
+            vec!["rust_doctor::repo::tracked_secret_file".to_owned()],
+            "an unmeasured rule is ranked on its contribution, undiscounted"
+        );
+    }
+
+    /// A workspace whose every scoring rule is measured wrong has nothing worth
+    /// repairing, and the report says so by naming nothing.
+    #[test]
+    fn nothing_is_projected_when_every_scoring_rule_is_measured_wrong() {
+        let score = scored(&[
+            ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
+            ("clippy::string_slice", "reliability", Severity::Warning, 12),
+        ]);
+
+        assert!(score.projected_rule_ids.is_empty());
+        assert_eq!(score.projected_after_top_three, None);
+        assert!(score.value < 100, "the findings still cost the score");
     }
 
     fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {

@@ -69,6 +69,13 @@ cargo run --release -- . --yes --verbose
   (`the_published_catalog_matches_the_shipped_policy`). Editing
   `src/policy/catalog.rs` means `tests/corpus.json` has to be regenerated with
   it.
+- **The score ranks by the rate the corpus adjudicated**
+  (`the_noise_the_score_ranks_by_matches_the_adjudicated_rate`). `CORPUS_NOISE`
+  in `src/policy/catalog.rs` mirrors the measured rates of `tests/corpus.json`,
+  because the report ranks what to fix first by what repairing each rule is
+  expected to be worth: its cost to the score discounted by its measured noise.
+  Re-adjudicating a rule means moving both. The rate ranks, it never penalizes:
+  what a rule costs the score is what it reported.
 - **The JSON report is versioned.** Any change to the report shape bumps
   `SCHEMA_VERSION` in `src/report.rs`.
 - **Dependencies are pinned exactly** (`= 1.8.5`, not `^1.8`) in `Cargo.toml`,
