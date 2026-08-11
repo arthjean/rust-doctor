@@ -76,6 +76,14 @@ cargo run --release -- . --yes --verbose
   expected to be worth: its cost to the score discounted by its measured noise.
   Re-adjudicating a rule means moving both. The rate ranks, it never penalizes:
   what a rule costs the score is what it reported.
+- **Two populations, two rates, no verdict crossing between them**
+  (`each_population_publishes_its_own_rate_from_its_own_sites`). Every reviewed
+  site carries a `population`: `healthy` says what a rule costs on code nobody
+  wants disturbed, `agent` what it is worth on the code this tool exists for.
+  Each rate is derived from its own sites against its own observations, and a
+  Clippy rule can never carry an `agent` rate, since Clippy is switched off on
+  untrusted code. `CORPUS_NOISE` mirrors the healthy rates today; switching that
+  reference is a product decision, not a consequence of a number.
 - **The JSON report is versioned.** Any change to the report shape bumps
   `SCHEMA_VERSION` in `src/report.rs`, currently 14, and the frozen v7 archive
   keeps projecting: `project_v11_wire_to_v7` in `tests/support/mod.rs` strips

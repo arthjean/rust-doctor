@@ -22,11 +22,11 @@ use serde_json::Value;
 use support::corpus::{
     ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
     GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, Manifest, ManifestEntry, Observation,
-    PrecisionStatus, Provenance, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite,
+    PrecisionStatus, Population, Provenance, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite,
     RuleObservation, RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict,
     artifact,
     catalog_from_report, curated_findings, density_milli, evidence_holds, gate, manifest_defects,
-    missing_repositories, precision, run, rust_line_count, score_distribution, structural_findings,
+    missing_repositories, precision, precision_of, run, rust_line_count, score_distribution, structural_findings,
 };
 
 static NEXT_SCOPE: AtomicUsize = AtomicUsize::new(0);
@@ -441,21 +441,36 @@ fn the_harness_publishes_processed_skipped_and_failed_counts() {
 #[test]
 fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     let artifact = artifact();
-    let mut observed: BTreeMap<(&str, &str), u64> = BTreeMap::new();
-    for observation in &artifact.observations {
-        for rule in &observation.rules {
-            observed.insert((observation.name.as_str(), rule.id.as_str()), rule.distinct);
+    // Each population is checked against its own observations. A site drawn
+    // from one and matched against the other would be free to name a finding
+    // that corpus never produced.
+    let observed_in = |observations: &[Observation]| {
+        let mut observed: BTreeMap<(String, String), u64> = BTreeMap::new();
+        for observation in observations {
+            for rule in &observation.rules {
+                observed.insert(
+                    (observation.name.clone(), rule.id.clone()),
+                    rule.distinct,
+                );
+            }
         }
-    }
+        observed
+    };
+    let healthy = observed_in(&artifact.observations);
+    let agent = observed_in(&artifact.agent_population.observations);
 
     assert!(!artifact.adjudication.reviewed.is_empty());
     let mut identities: BTreeSet<(&str, &str, &str, u64)> = BTreeSet::new();
     for site in &artifact.adjudication.reviewed {
         assert!(!site.justification.trim().is_empty(), "{site:?}");
         assert!(!site.path.is_empty(), "{site:?}");
+        let observed = match site.population {
+            Population::Agent => &agent,
+            Population::Healthy => &healthy,
+        };
         assert!(
-            observed.contains_key(&(site.repository.as_str(), site.rule.as_str())),
-            "site relu sans finding correspondant: {site:?}"
+            observed.contains_key(&(site.repository.clone(), site.rule.clone())),
+            "reviewed site with no matching finding in its population: {site:?}"
         );
         assert!(
             identities.insert((
@@ -561,6 +576,60 @@ fn a_published_rate_carries_the_provenance_of_its_verdicts() {
         }
     }
     assert!(measured > 0);
+}
+
+/// Two populations, two rates, and no verdict crossing between them.
+///
+/// The healthy corpus says what a rule costs on code nobody wants disturbed;
+/// the agent corpus says what it is worth on the code this tool exists for. A
+/// site counted on the wrong side would relate a verdict to a corpus it never
+/// described, and the two disagree enough for that to matter: the same rule
+/// measures 8709 basis points on one and 7000 on the other.
+#[test]
+fn each_population_publishes_its_own_rate_from_its_own_sites() {
+    let artifact = artifact();
+
+    let healthy = precision_of(
+        &artifact.catalog,
+        &artifact.observations,
+        &artifact.adjudication,
+        Population::Healthy,
+    );
+    let agent = precision_of(
+        &artifact.catalog,
+        &artifact.agent_population.observations,
+        &artifact.adjudication,
+        Population::Agent,
+    );
+    assert_eq!(healthy, artifact.precision);
+    assert_eq!(agent, artifact.agent_population.precision);
+
+    // Clippy is switched off on untrusted code, so no Clippy rule can ever
+    // carry a rate on the agent side. A measured one would mean the population
+    // was scanned with the compiler after all.
+    assert!(
+        agent
+            .iter()
+            .filter(|rule| rule.status == PrecisionStatus::Measured)
+            .all(|rule| !rule.id.starts_with("clippy::")),
+        "a Clippy rule cannot be measured on a population it never ran against"
+    );
+
+    // Dropping every agent site leaves the healthy rates untouched, which is
+    // what says the two sides are actually separate.
+    let mut healthy_only = artifact.adjudication.clone();
+    healthy_only
+        .reviewed
+        .retain(|site| site.population == Population::Healthy);
+    assert_eq!(
+        precision_of(
+            &artifact.catalog,
+            &artifact.observations,
+            &healthy_only,
+            Population::Healthy
+        ),
+        artifact.precision
+    );
 }
 
 /// A structural rate is a production rate.
@@ -732,6 +801,7 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
                 justification: "probe".to_owned(),
                 line: index + 1,
                 path: "src/lib.rs".to_owned(),
+                population: Population::Healthy,
                 provenance: Provenance::Unrecorded,
                 repository: "probe".to_owned(),
                 rule: id.to_owned(),
@@ -1210,6 +1280,47 @@ fn the_agent_population_reproduces_from_the_local_cache() {
         .unwrap();
     }
     assert_eq!(replayed.observations, population.observations);
+
+    // Every site drawn from this population names a finding it actually
+    // produced, at its published position and in its published context. The
+    // healthy corpus has the same check against its own reports; without this
+    // one the agent sites would be the only verdicts in the file that nothing
+    // can locate.
+    for site in &published
+        .adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.population == Population::Agent)
+        .collect::<Vec<_>>()
+    {
+        let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository)))
+            .expect("a report for every repository a reviewed site names");
+        let report: Value = serde_json::from_slice(&bytes).unwrap();
+        let located: Vec<_> = curated_findings(&report)
+            .into_iter()
+            .filter(|finding| {
+                finding.rule == site.rule && finding.path == site.path && finding.line == site.line
+            })
+            .collect();
+        assert!(
+            !located.is_empty(),
+            "reviewed site absent from the agent population: {}/{} at {}:{}",
+            site.repository,
+            site.rule,
+            site.path,
+            site.line
+        );
+        assert!(
+            located.iter().any(|finding| site.context.matches(finding.context)),
+            "reviewed site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
+            site.context,
+            located.first().and_then(|finding| finding.context),
+            site.repository,
+            site.rule,
+            site.path,
+            site.line
+        );
+    }
 
     // The selection evidence recounts from the pinned history alone.
     for entry in &population.repositories {

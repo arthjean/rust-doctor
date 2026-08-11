@@ -93,6 +93,15 @@ pub(crate) struct CorpusArtifact {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AgentPopulation {
     pub(crate) observations: Vec<Observation>,
+    /// Per-rule precision on this population, derived from the sites of
+    /// `adjudication.reviewed` marked `agent`, exactly as `precision` is derived
+    /// from the ones marked `healthy`.
+    ///
+    /// It is a separate list rather than a second column of `precision` because
+    /// the two populations do not observe the same rules: Clippy is switched off
+    /// here, so no Clippy rule can ever carry a rate on this side, and a shared
+    /// row would have to publish a hole for most of the catalog.
+    pub(crate) precision: Vec<RulePrecision>,
     pub(crate) repositories: Vec<AgentRepository>,
     pub(crate) scan_arguments: Vec<String>,
     pub(crate) selection_criterion: String,
@@ -381,6 +390,19 @@ impl SiteContext {
     }
 }
 
+/// Which population a reviewed site was drawn from.
+///
+/// The two answer different questions. `Healthy` says what a rule costs on code
+/// nobody wants disturbed, which is what decides admission. `Agent` says what it
+/// is worth on the code this tool exists for, which is what should decide what
+/// the report recommends. A rate that does not say which it is is not a rate.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Population {
+    Agent,
+    Healthy,
+}
+
 /// Who produced a verdict.
 ///
 /// A rate adjudicated by an agent and a rate adjudicated by a person do not
@@ -403,6 +425,7 @@ pub(crate) struct ReviewedSite {
     pub(crate) justification: String,
     pub(crate) line: u64,
     pub(crate) path: String,
+    pub(crate) population: Population,
     pub(crate) provenance: Provenance,
     pub(crate) repository: String,
     pub(crate) rule: String,
@@ -945,6 +968,20 @@ pub(crate) fn precision(
     observations: &[Observation],
     adjudication: &Adjudication,
 ) -> Vec<RulePrecision> {
+    precision_of(catalog, observations, adjudication, Population::Healthy)
+}
+
+/// Per-rule precision on one population.
+///
+/// The population selects both sides at once: the findings come from that
+/// population's observations and the verdicts from the sites drawn there.
+/// Crossing them would relate a verdict to a corpus it never described.
+pub(crate) fn precision_of(
+    catalog: &[CatalogRule],
+    observations: &[Observation],
+    adjudication: &Adjudication,
+    population: Population,
+) -> Vec<RulePrecision> {
     let mut observed: BTreeMap<(&str, &str), u64> = BTreeMap::new();
     for observation in observations {
         for rule in &observation.rules {
@@ -954,10 +991,16 @@ pub(crate) fn precision(
         }
     }
 
+    let reviewed: Vec<&ReviewedSite> = adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.population == population)
+        .collect();
+
     let mut sites: BTreeMap<&str, Vec<&ReviewedSite>> = BTreeMap::new();
     let mut duplicated: BTreeSet<&str> = BTreeSet::new();
     let mut seen: BTreeSet<(&str, &str, &str, u64)> = BTreeSet::new();
-    for site in &adjudication.reviewed {
+    for site in reviewed.iter().copied() {
         let identity = (
             site.rule.as_str(),
             site.repository.as_str(),
@@ -969,8 +1012,7 @@ pub(crate) fn precision(
         }
         sites.entry(site.rule.as_str()).or_default().push(site);
     }
-    let stale: BTreeSet<&str> = adjudication
-        .reviewed
+    let stale: BTreeSet<&str> = reviewed
         .iter()
         .filter(|site| !observed.contains_key(&(site.repository.as_str(), site.rule.as_str())))
         .map(|site| site.rule.as_str())
