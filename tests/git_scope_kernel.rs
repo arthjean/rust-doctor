@@ -190,7 +190,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 13);
+    assert_eq!(full.schema_version, 14);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -533,7 +533,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 13);
+        assert_eq!(report.schema_version, 14);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

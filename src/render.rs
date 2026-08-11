@@ -593,7 +593,33 @@ fn render_score<W: Write>(
             Style::Accent,
         )?;
     }
+    if let Some(withheld) = withheld_sentence(&score.withheld_rule_ids) {
+        line(writer, &withheld, options, Style::Plain)?;
+    }
     Ok(())
+}
+
+/// Why the loudest rule is missing from what to fix.
+///
+/// The rule with the most findings is often the one the corpus found most often
+/// wrong, so a list that drops it without a word reads as a defect of the tool.
+/// Two names carry the point; past that a count does, because the sentence is
+/// there to explain an absence, not to enumerate one.
+fn withheld_sentence(withheld: &[String]) -> Option<String> {
+    let named: Vec<&str> = withheld.iter().take(2).map(String::as_str).collect();
+    let subject = match (named.as_slice(), withheld.len()) {
+        ([], _) => return None,
+        ([only], _) => format!("{only} reports here but is"),
+        ([first, second], 2) => format!("{first} and {second} report here but are"),
+        ([first, second], total) => format!(
+            "{first}, {second} and {} more report here but are",
+            total - 2
+        ),
+        _ => return None,
+    };
+    Some(format!(
+        "{subject} left out: the corpus adjudicated no true positive for them on healthy code."
+    ))
 }
 
 #[derive(Clone, Copy)]
@@ -973,5 +999,85 @@ mod tests {
         assert!(output.contains("replace the placeholder"));
         assert!(output.contains("Fixed: src/lib.rs:2:3 warning [clippy::todo] removed debt"));
         assert!(!output.contains("must stay hidden"));
+    }
+
+    /// The sentence exists to explain an absence, so it names enough to be
+    /// recognised and counts the rest.
+    #[test]
+    fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
+        assert_eq!(withheld_sentence(&[]), None);
+
+        let one = withheld_sentence(&["clippy::indexing_slicing".to_owned()])
+            .expect("one withheld rule is a sentence");
+        assert!(one.contains("clippy::indexing_slicing reports here but is left out"));
+
+        let two = withheld_sentence(&[
+            "clippy::indexing_slicing".to_owned(),
+            "clippy::string_slice".to_owned(),
+        ])
+        .expect("two withheld rules are a sentence");
+        assert!(two.contains("clippy::indexing_slicing and clippy::string_slice report here"));
+
+        let many = withheld_sentence(&[
+            "clippy::indexing_slicing".to_owned(),
+            "clippy::string_slice".to_owned(),
+            "clippy::print_stderr".to_owned(),
+            "clippy::panic".to_owned(),
+        ])
+        .expect("four withheld rules are a sentence");
+        assert!(
+            many.contains("clippy::indexing_slicing, clippy::string_slice and 2 more"),
+            "{many}"
+        );
+        assert!(
+            !many.contains("clippy::print_stderr"),
+            "past two names the sentence counts rather than enumerates: {many}"
+        );
+    }
+
+    /// A reader who misses the loudest rule from what to fix finds out why in
+    /// the same breath, without opening the JSON.
+    #[test]
+    fn the_terminal_says_why_a_noisy_rule_is_missing_from_what_to_fix() {
+        let mut report = report();
+        report.diagnostics = vec![
+            diagnostic("clippy::indexing_slicing", "reliability", 60),
+            diagnostic("rust_doctor::cargo::duplicate_major_versions", "dependencies", 2),
+        ];
+        report.audit = Audit::build(1, Status::Complete, &report.diagnostics);
+        report.summary = Summary::from_diagnostics(&report.diagnostics);
+
+        let output = rendered(&report, 100, false, false);
+
+        assert!(
+            output.contains("Fix the top 1 rules"),
+            "the quiet rule is what the report recommends: {output}"
+        );
+        assert!(
+            output.contains("clippy::indexing_slicing reports here but is left out"),
+            "the loud rule's absence is explained: {output}"
+        );
+    }
+
+    fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
+        Diagnostic {
+            context: None,
+            id: format!("finding-{code}"),
+            source: DiagnosticSource::Clippy,
+            code: Some(code.to_owned()),
+            base_severity: Severity::Warning,
+            severity: Severity::Warning,
+            category: Some(category.to_owned()),
+            message: "finding".to_owned(),
+            help: None,
+            package: None,
+            target: None,
+            path: Some("src/lib.rs".to_owned()),
+            span: None,
+            related: Vec::new(),
+            similarity_basis_points: None,
+            complexity: None,
+            occurrences,
+        }
     }
 }

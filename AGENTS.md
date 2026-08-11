@@ -77,7 +77,10 @@ cargo run --release -- . --yes --verbose
   Re-adjudicating a rule means moving both. The rate ranks, it never penalizes:
   what a rule costs the score is what it reported.
 - **The JSON report is versioned.** Any change to the report shape bumps
-  `SCHEMA_VERSION` in `src/report.rs`.
+  `SCHEMA_VERSION` in `src/report.rs`, currently 14, and the frozen v7 archive
+  keeps projecting: `project_v11_wire_to_v7` in `tests/support/mod.rs` strips
+  the members added since, which is what proves no historical field ever
+  disappeared or changed type.
 - **Dependencies are pinned exactly** (`= 1.8.5`, not `^1.8`) in `Cargo.toml`,
   and `Cargo.lock` is committed. The `missing_lockfile` detector requires it for
   a binary crate.

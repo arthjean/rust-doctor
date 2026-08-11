@@ -326,7 +326,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let (default_exit, default) = &reports["default"];
     assert_eq!(*default_exit, 0);
-    assert_eq!(default["schema_version"], 13);
+    assert_eq!(default["schema_version"], 14);
     assert_eq!(default["status"], "complete");
     // Nine warnings since EP-002 of the suppression PRD: the two decoy
     // dependencies this fixture declares and never references, the unbounded

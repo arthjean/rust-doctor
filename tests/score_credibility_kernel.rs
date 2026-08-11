@@ -321,7 +321,7 @@ fn diverging_counts_fail_to_serialize() {
 fn an_inconsistent_model_is_rejected_before_publication() {
     let mut report = inspect(InspectRequest::new(adversarial()));
     assert_eq!(report.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 13);
+    assert_eq!(SCHEMA_VERSION, 14);
 
     let score = report.audit.score.as_mut().unwrap();
     score.applied_ceiling = None;

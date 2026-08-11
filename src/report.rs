@@ -25,7 +25,7 @@ use crate::source_kernel;
 use crate::structure;
 use crate::workspace_path;
 
-pub const SCHEMA_VERSION: u8 = 13;
+pub const SCHEMA_VERSION: u8 = 14;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -121,6 +121,15 @@ pub struct PolicyRuleReport {
     pub tier: RuleTier,
     pub level: RuleLevel,
     pub source: RuleLevelSource,
+    /// Adjudicated false-positive rate of this rule on the pinned corpus, in
+    /// basis points, absent when the corpus never adjudicated it.
+    ///
+    /// It is published because it ranks: the report tells the user what to fix
+    /// first by discounting each rule's cost by this rate, so a rule with many
+    /// findings can be left out of that list, and without the number the
+    /// omission reads as a defect of the tool rather than a measurement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corpus_noise_basis_points: Option<u16>,
 }
 
 impl PolicyReport {
@@ -139,6 +148,7 @@ impl PolicyReport {
                     tier: definition.tier,
                     level,
                     source,
+                    corpus_noise_basis_points: crate::policy::corpus_noise(definition.id),
                 })
                 .collect(),
         }

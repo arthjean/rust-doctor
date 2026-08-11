@@ -53,6 +53,8 @@ Fix the top 3 rules to reach a projected 98/100:
 rust_doctor::cargo::duplicate_major_versions,
 rust_doctor::structure::duplicate_function_body,
 rust_doctor::structure::oversized_unit
+clippy::indexing_slicing, clippy::string_slice and 1 more report here but are
+left out: the corpus adjudicated no true positive for them on healthy code.
 ```
 
 ## Trust boundary
@@ -145,6 +147,8 @@ Against a second corpus of eight agent-authored repositories, selected by commit
 ## JSON output
 
 `--json` emits a versioned report (`schema_version`) with every diagnostic, its span, its rule, its category, its severity before and after policy, the gate verdict, and the score. Paths are workspace-relative. No absolute path, no environment, no user data leaves the report.
+
+Each policy rule carries `corpus_noise_basis_points`, the rate the corpus adjudicated for it, absent when the corpus never adjudicated it. The score carries `withheld_rule_ids`, the rules that fired here and that the corpus found wrong every time, which is why they are missing from what the report tells you to fix. Both are published so that the ranking can be checked rather than trusted.
 
 ## License
 

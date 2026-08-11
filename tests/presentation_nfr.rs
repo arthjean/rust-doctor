@@ -97,7 +97,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 13,
+        schema_version: 14,
         audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,

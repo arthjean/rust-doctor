@@ -125,6 +125,15 @@ pub struct AuditScore {
     pub applied_ceiling: Option<u8>,
     pub projected_after_top_three: Option<u8>,
     pub projected_rule_ids: Vec<String>,
+    /// Rules that fired here and that the corpus adjudicated at no true
+    /// positive, in descending cost order, hence absent from
+    /// `projected_rule_ids` whatever their volume.
+    ///
+    /// Published so the omission reads as a measurement rather than a defect:
+    /// the rule with the most findings is often the one the corpus found most
+    /// often wrong, and a list that silently drops it is impossible to trust.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub withheld_rule_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -682,6 +691,27 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
         Vec::new()
     };
 
+    // What the ranking dropped, and why it is worth saying. A rule left out for
+    // measured noise is the loudest thing in the report, so its absence from
+    // the list of what to fix has to be legible without recomputation.
+    let mut withheld: Vec<_> = aggregation
+        .rules
+        .iter()
+        .filter(|rule| rule.is_scorable() && rule.expected_repair_value() == 0)
+        .filter(|rule| rule.contribution() > 0)
+        .collect();
+    withheld.sort_by(|left, right| {
+        right
+            .contribution()
+            .cmp(&left.contribution())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let withheld_rule_ids = if authoritative {
+        withheld.into_iter().map(|rule| rule.id.clone()).collect()
+    } else {
+        Vec::new()
+    };
+
     AuditScore {
         model: SCORE_MODEL.to_owned(),
         value: scored.value,
@@ -692,6 +722,7 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
         applied_ceiling: scored.applied_ceiling,
         projected_after_top_three,
         projected_rule_ids,
+        withheld_rule_ids,
     }
 }
 
@@ -1166,6 +1197,7 @@ mod tests {
                 applied_ceiling: None,
                 projected_after_top_three: None,
                 projected_rule_ids: Vec::new(),
+                withheld_rule_ids: Vec::new(),
             }),
         };
 
@@ -1322,6 +1354,53 @@ mod tests {
         assert!(score.projected_rule_ids.is_empty());
         assert_eq!(score.projected_after_top_three, None);
         assert!(score.value < 100, "the findings still cost the score");
+    }
+
+    /// What the ranking dropped is named, in the order that makes the omission
+    /// legible: the loudest first, since that is the one a reader misses.
+    #[test]
+    fn the_rules_the_ranking_dropped_are_published_loudest_first() {
+        let score = scored(&[
+            ("clippy::string_slice", "reliability", Severity::Warning, 2),
+            ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
+            (
+                "rust_doctor::cargo::duplicate_major_versions",
+                "dependencies",
+                Severity::Warning,
+                2,
+            ),
+        ]);
+
+        assert_eq!(
+            score.withheld_rule_ids,
+            vec![
+                "clippy::indexing_slicing".to_owned(),
+                "clippy::string_slice".to_owned()
+            ]
+        );
+        assert!(
+            !score
+                .withheld_rule_ids
+                .contains(&"rust_doctor::cargo::duplicate_major_versions".to_owned()),
+            "a rule the corpus found right is never withheld"
+        );
+    }
+
+    /// A partial scan withholds nothing, because it ranks nothing.
+    #[test]
+    fn a_scan_that_did_not_complete_names_neither_a_projection_nor_a_withholding() {
+        let diagnostics = diagnostics_for(&[(
+            "clippy::indexing_slicing",
+            "reliability",
+            Severity::Warning,
+            60,
+        )]);
+        let audit = Audit::build(1, Status::Incomplete, &diagnostics);
+        let score = audit.score.expect("an incomplete scan still scores");
+
+        assert!(!score.authoritative);
+        assert!(score.projected_rule_ids.is_empty());
+        assert!(score.withheld_rule_ids.is_empty());
     }
 
     fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
