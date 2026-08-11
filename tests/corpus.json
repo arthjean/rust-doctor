@@ -115,6 +115,76 @@
       },
       {
         "context": "production",
+        "justification": "chunk()[0] follows the remaining()<1 early return and Buf's contract makes chunk non-empty while remaining()>0.",
+        "line": 1216,
+        "path": "src/buf/buf_impl.rs",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "cnt is usize::min(src.len(), dst.len()), so dst[..cnt] and src[cnt..] are bounded by construction.",
+        "line": 258,
+        "path": "src/buf/buf_mut.rs",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "chunk()[0] is guarded by the has_remaining() early return and the Buf contract that chunk is non-empty then.",
+        "line": 115,
+        "path": "src/buf/iter.rs",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "this is the Index/IndexMut implementation for UninitSlice, where panicking on an out-of-range index is the documented contract of the trait.",
+        "line": 243,
+        "path": "src/buf/uninit_slice.rs",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "pre_args[1..] runs after Command::new(&pre_args[0]) already established the slice is non-empty.",
+        "line": 172,
+        "path": "src/exec/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "CP1047 and CP437 are 256-entry codepage tables indexed by a u8 widened to usize, so the index cannot exceed 255.",
+        "line": 114,
+        "path": "src/lib.rs",
+        "provenance": "agent",
+        "repository": "hexyl",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "byte_hex_panel is a 256-entry per-byte table indexed by b as usize with b: u8, structurally in range.",
+        "line": 558,
+        "path": "src/lib.rs",
+        "provenance": "agent",
+        "repository": "hexyl",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "idx iterates 0..LOG_LEVEL_NAMES.len(), so the index is in bounds by construction of the loop.",
         "line": 670,
         "path": "src/lib.rs",
@@ -125,10 +195,150 @@
       },
       {
         "context": "production",
+        "justification": "HiArgs maintains the invariant that paths is non-empty, a default search path being inserted during construction, so paths[0] is established by the module.",
+        "line": 875,
+        "path": "crates/core/flags/hiargs.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "slice[0] and slice[1] sit in the match arm for slice.len() == 2, which fixes the bound.",
+        "line": 472,
+        "path": "crates/core/flags/parse.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the identical slice self.tokens[start..] was already iterated earlier in the same function, so the range is established by the surrounding code.",
+        "line": 551,
+        "path": "crates/globset/src/glob.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "i comes from the pattern set produced over the regexes built from map, whose lengths the MultiStrategyBuilder keeps in lockstep as a module invariant.",
+        "line": 1009,
+        "path": "crates/globset/src/lib.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "i comes from matches_candidate_into over the same glob set, whose indices are glob indices by the builder's invariant.",
+        "line": 272,
+        "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "path[0] is short-circuited behind path.len() == 1 in the same condition.",
+        "line": 122,
+        "path": "crates/ignore/src/pathutil.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parts[0] and parts[1] are inside the match arm for parts.len() == 2.",
+        "line": 447,
+        "path": "crates/ignore/src/types.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "i is the offset memchr just returned for this slice, so it is a valid index into it.",
         "line": 28,
         "path": "crates/matcher/src/interpolate.rs",
         "provenance": "unrecorded",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "cap_end starts at i and is only advanced while replacement.get(cap_end) succeeds, so i..cap_end is within bounds by construction.",
+        "line": 119,
+        "path": "crates/matcher/src/interpolate.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the trait documentation states haystack must be the same slice searched to produce the capture ranges, an explicit API invariant.",
+        "line": 454,
+        "path": "crates/matcher/src/lib.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "pieces[1] is guarded by the pieces.len() <= 1 early return above it.",
+        "line": 320,
+        "path": "crates/printer/src/color.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "HEX has 16 entries and the index is byte >> 4, which is at most 15.",
+        "line": 921,
+        "path": "crates/printer/src/hyperlink/mod.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "rmatches is the replacement match list constructed parallel to matches by the caller, an invariant this module maintains for SubMatches::new.",
+        "line": 876,
+        "path": "crates/printer/src/json.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "ALPHABET has 64 entries and the index is masked with & 0b111_111, capping it at 63.",
+        "line": 247,
+        "path": "crates/printer/src/jsont.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "same masked & 0b111_111 index into the 64-entry ALPHABET table.",
+        "line": 268,
+        "path": "crates/printer/src/jsont.rs",
+        "provenance": "agent",
         "repository": "ripgrep",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
@@ -145,11 +355,151 @@
       },
       {
         "context": "production",
+        "justification": "line is a sunk line range within bytes and upto is min(line.end(), m.end()), so the slice stays inside the established range.",
+        "line": 1153,
+        "path": "crates/printer/src/standard.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "line.with_end(upto) uses upto = min(line.end(), m.start()) on a line range the sink guarantees lies within bytes.",
+        "line": 1276,
+        "path": "crates/printer/src/standard.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "buf has MAX_U64_LEN cells and a u64 has at most that many decimal digits, so i cannot underflow before n reaches 0.",
+        "line": 433,
+        "path": "crates/printer/src/util.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the documented contract is that line is a bounds range into buf, and every caller passes searcher-produced line ranges over that buf.",
+        "line": 541,
+        "path": "crates/printer/src/util.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "self.end <= buf.len() is a struct invariant of the line buffer, reasserted after every resize.",
+        "line": 368,
+        "path": "crates/searcher/src/line_buffer.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "bytes[0] is guarded by the immediately preceding while bytes.get(0) == Some(&src) check.",
+        "line": 547,
+        "path": "crates/searcher/src/line_buffer.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "locate's contract is that range addresses bytes, and bytes[..range.start()] is bounded by that documented caller invariant.",
+        "line": 137,
+        "path": "crates/searcher/src/lines.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "The range is bounded by the searcher's line-visiting invariant, last_line_visited <= upto <= buf.len(), which the same function relies on a few lines above; get would create an error path for a state only a bug can produce.",
         "line": 254,
         "path": "crates/searcher/src/searcher/core.rs",
         "provenance": "unrecorded",
         "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "line comes from lines::locate over buf, which clamps its end to buf.len(), so buf[line] is in range.",
+        "line": 511,
+        "path": "crates/searcher/src/searcher/core.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "core.pos() <= buffer().len() is the searcher-core invariant this assert exists to state, maintained by roll and consume.",
+        "line": 59,
+        "path": "crates/searcher/src/searcher/glue.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "position_of_index receives i derived from self.index, which the parser keeps at or below slice.len() throughout.",
+        "line": 422,
+        "path": "src/read.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "start is a snapshot of self.index which only grows, and index < slice.len() is checked before the slice.",
+        "line": 517,
+        "path": "src/read.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "self.index <= slice.len() is the parser invariant, skip_to_escape capping it at len, so the RangeFrom slice is valid and the slice pattern handles the short case.",
+        "line": 622,
+        "path": "src/read.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "HEX0 and HEX1 are [i16; 256] indexed by a u8 widened to usize.",
+        "line": 1079,
+        "path": "src/read.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::indexing_slicing",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the field indices in display_implied_bounds were recorded from this same input's fields during attribute parsing, and the transparent branch's fields[0] is validated to exist by thiserror's valid pass.",
+        "line": 149,
+        "path": "impl/src/expand.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
         "rule": "clippy::indexing_slicing",
         "verdict": "false_positive"
       },
@@ -415,6 +765,76 @@
       },
       {
         "context": "production",
+        "justification": "other[..] is a full-range slice of the String and can never split a character.",
+        "line": 1745,
+        "path": "src/bytes_mut.rs",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "&s[1..] follows starts_with('!'), a one-byte ASCII prefix, so index 1 is a boundary.",
+        "line": 91,
+        "path": "src/filter/owner.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "[..] is a full-range slice used only to coerce the lowercased String to &str.",
+        "line": 46,
+        "path": "src/filter/size.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m.start() plus BRACE_LEN comes from an AhoCorasick match of ASCII patterns over the same string.",
+        "line": 73,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m.end() is an AhoCorasick match boundary on the same string.",
+        "line": 74,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m.end() is an AhoCorasick match boundary on the same string.",
+        "line": 76,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m.start() is an AhoCorasick match boundary on the same string.",
+        "line": 77,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "m is an aho-corasick match over the same string whose patterns are all ASCII braces, so its end offset is a character boundary.",
         "line": 82,
         "path": "src/fmt/mod.rs",
@@ -425,10 +845,150 @@
       },
       {
         "context": "production",
+        "justification": "m.end() is an AhoCorasick match boundary on the same string.",
+        "line": 88,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "m.end() plus BRACE_LEN steps past the one-byte ASCII closing brace at the match end.",
+        "line": 89,
+        "path": "src/fmt/mod.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "offset starts as the byte length of the parent prefix of the same lossy string and advances by c.len_utf8() per char.",
+        "line": 96,
+        "path": "src/output.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the same offset, a prefix length advanced by len_utf8, so it sits on a character boundary.",
+        "line": 106,
+        "path": "src/output.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the same boundary-maintained offset as the two slices above it.",
+        "line": 122,
+        "path": "src/output.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "digits_end counts leading ASCII digit bytes, so it lands on a character boundary.",
+        "line": 82,
+        "path": "crates/cli/src/human.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "digits_end is the same ASCII-digit prefix length as the slice above it.",
+        "line": 89,
+        "path": "crates/cli/src/human.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "offset comes from str::find on the same string, which returns a character boundary.",
         "line": 26,
         "path": "crates/core/flags/doc/mod.rs",
         "provenance": "unrecorded",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "offset comes from doc.find(&tag_prefix) on the same string.",
+        "line": 29,
+        "path": "crates/core/flags/doc/mod.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "start is a find result plus the byte length of the found ASCII tag prefix, and end is a find result for the closing brace.",
+        "line": 32,
+        "path": "crates/core/flags/doc/mod.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "start and end both derive from find results over the same string.",
+        "line": 34,
+        "path": "crates/core/flags/doc/mod.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "a component suffix starts with the ASCII slash by MatchStrategy's documented invariant, so suffix[1..] is boundary-safe.",
+        "line": 498,
+        "path": "crates/globset/src/lib.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the slice starts at the length of the ASCII literal the preceding starts_with(\"gitdir: \") confirmed.",
+        "line": 1081,
+        "path": "crates/ignore/src/dir.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "line[1..] follows starts_with of a two-ASCII-byte escape, skipping the one-byte backslash.",
+        "line": 483,
+        "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "line[1..] follows starts_with(\"!\"), a one-byte ASCII prefix.",
+        "line": 488,
+        "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "agent",
         "repository": "ripgrep",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
@@ -445,11 +1005,151 @@
       },
       {
         "context": "production",
+        "justification": "len minus one is a boundary because the preceding check saw the last byte is the ASCII slash.",
+        "line": 503,
+        "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "len minus one is a boundary because the preceding check saw the last byte is the ASCII backslash.",
+        "line": 507,
+        "path": "crates/ignore/src/gitignore.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "this Index<Match> impl deliberately mirrors std slice indexing, where panicking on an invalid range is the operator's contract and the Match offsets come from matchers over the same haystack.",
+        "line": 179,
+        "path": "crates/matcher/src/lib.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "end_of_line starts at an rfind result plus an ASCII literal length and advances one byte only while the next byte is an ASCII digit.",
+        "line": 503,
+        "path": "src/error.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "end_of_line was advanced byte by byte only across ASCII digits from an rfind-derived boundary.",
+        "line": 507,
+        "path": "src/error.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "end_of_column advances one byte per confirmed ASCII digit from a boundary fixed by the starts_with check on the column literal.",
+        "line": 514,
+        "path": "src/error.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "start_of_line and end_of_line both sit on boundaries established by rfind, ASCII literal lengths and digit checks.",
+        "line": 523,
+        "path": "src/error.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "The offsets were produced by scanning the ASCII digits of a message this module formatted itself.",
         "line": 527,
         "path": "src/error.rs",
         "provenance": "unrecorded",
         "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "self[..] is a full-range slice of the String used only for deref to &str.",
+        "line": 109,
+        "path": "src/value/index.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "self[..] is a full-range slice and cannot split a character.",
+        "line": 112,
+        "path": "src/value/index.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "self[..] is a full-range slice and cannot split a character.",
+        "line": 115,
+        "path": "src/value/index.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "brace plus one steps past the one-byte ASCII opening brace located by read.find.",
+        "line": 44,
+        "path": "impl/src/fmt.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "read[brace+1..] uses the same find boundary plus one ASCII byte.",
+        "line": 45,
+        "path": "impl/src/fmt.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "read[1..] follows starts_with of the opening brace, a one-byte ASCII prefix.",
+        "line": 48,
+        "path": "impl/src/fmt.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "clippy::string_slice",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "end_spec comes from read.find for the closing brace on the same string.",
+        "line": 94,
+        "path": "impl/src/fmt.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
         "rule": "clippy::string_slice",
         "verdict": "false_positive"
       },
@@ -615,6 +1315,56 @@
       },
       {
         "context": "production",
+        "justification": "construct_config is a flat derivation of independent Config fields feeding one struct literal, with time constraints and command already extracted into helpers, so the remaining branch count is the clearest form.",
+        "line": 195,
+        "path": "src/main.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "poll is a state machine over the receiver result and buffering mode whose arms belong together; splitting would scatter one drain decision.",
+        "line": 197,
+        "path": "src/walk.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "the spawn_senders closure mixes entry error normalization with a flat run of independent filters (pattern, extension, file type, owner, size, time) that could each be lifted into a named predicate without dispersing any single decision.",
+        "line": 442,
+        "path": "src/walk.rs",
+        "provenance": "agent",
+        "repository": "fd",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "print_byte dispatches over the Squeezer state plus panel-boundary separators as one layout decision; splitting would scatter the column formatting.",
+        "line": 529,
+        "path": "src/lib.rs",
+        "provenance": "agent",
+        "repository": "hexyl",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "print_all mixes a nested read-refill loop, squeeze detection, line printing, the empty-input ending, and the incomplete-last-line ending, each a separable concern with clean inputs.",
+        "line": 613,
+        "path": "src/lib.rs",
+        "provenance": "agent",
+        "repository": "hexyl",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
         "justification": "A 211-line run function at cyclomatic 52 parsing options, opening inputs and configuring output in one body; decomposition is feasible and would be accepted.",
         "line": 240,
         "path": "src/main.rs",
@@ -622,6 +1372,56 @@
         "repository": "hexyl",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "from_low_args is already decomposed into Patterns, Paths and glob helpers, and what remains is flat derivation of independent HiArgs fields feeding one constructor.",
+        "line": 109,
+        "path": "crates/core/flags/hiargs.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "search_parallel is one linear orchestration of setup, a worker closure whose branches are per-file error handling, and final stats; splitting would scatter the single search flow.",
+        "line": 153,
+        "path": "crates/core/main.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "tokens_to_regex is an exhaustive match over the closed Token enum, a compiler dispatch that is the clearest form.",
+        "line": 692,
+        "path": "crates/globset/src/glob.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parse_star is one lookahead case analysis deciding how a double-star token folds; the branches are a single parsing decision that would be scattered by splitting.",
+        "line": 901,
+        "path": "crates/globset/src/glob.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "GlobSet::new is a match over the closed MatchStrategy enum plus a flat run of is-empty checks populating strategies, both the clearest form.",
+        "line": 458,
+        "path": "crates/globset/src/lib.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
       },
       {
         "context": "production",
@@ -635,6 +1435,66 @@
       },
       {
         "context": "production",
+        "justification": "Walk::next is an iterator state machine over WalkEvent variants whose Exit, Dir and File arms belong together around the shared ignore stack.",
+        "line": 1135,
+        "path": "crates/ignore/src/walk.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "visit is linear orchestration where the branch count comes from per-root-path error reporting forced by the visitor protocol, not from mixed responsibilities.",
+        "line": 1376,
+        "path": "crates/ignore/src/walk.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "run_one is an ordered traversal protocol of visit check, same-filesystem, readdir and descend, where each branch feeds the next; extraction would disperse one decision.",
+        "line": 1703,
+        "path": "crates/ignore/src/walk.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "from_str is a character-level state machine over a local four-state enum, and the arms are the state machine itself.",
+        "line": 102,
+        "path": "crates/printer/src/hyperlink/mod.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "finish is a match over the closed SummaryKind enum plus one documented binary-quit special case, the clearest form for the sink contract.",
+        "line": 710,
+        "path": "crates/printer/src/summary.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "check is a recursive exhaustive match over the closed HirKind enum, a canonical AST walk.",
+        "line": 7,
+        "path": "crates/regex/src/ban.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "An exhaustive match over HirKind; the branch count is the case analysis the domain requires and cognitive complexity stays low.",
         "line": 51,
         "path": "crates/regex/src/strip.rs",
@@ -645,11 +1505,111 @@
       },
       {
         "context": "production",
+        "justification": "match_by_line_slow is one line loop whose matched, after-context and passthru branches are a single sink decision per line, coupled by shared position state.",
+        "line": 330,
+        "path": "crates/searcher/src/searcher/core.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "match_by_line_fast is a tight search loop whose invert, context and stop branches share position and match state; splitting would scatter the fast-path decision.",
+        "line": 385,
+        "path": "crates/searcher/src/searcher/core.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "MultiLine::run chains begin, binary detection, the sink loop and trailing context through one keepgoing flag; the branches are one sequential protocol.",
+        "line": 166,
+        "path": "crates/searcher/src/searcher/glue.rs",
+        "provenance": "agent",
+        "repository": "ripgrep",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "ignore_value is a hand-rolled stack machine skipping a JSON value, where the byte dispatch and frame handling are one inseparable parsing decision.",
+        "line": 1100,
+        "path": "src/de.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "deserialize_any is a parser dispatch table over the first byte of a JSON value, the clearest form.",
+        "line": 1390,
+        "path": "src/de.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "ErrorCode fmt is a flat exhaustive Display match over a closed enum with cognitive complexity 1.",
+        "line": 350,
+        "path": "src/error.rs",
+        "provenance": "agent",
+        "repository": "serde_json",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
         "justification": "UTF-16 surrogate pairing is essential complexity in a tight documented loop; splitting it would obscure the algorithm.",
         "line": 897,
         "path": "src/read.rs",
         "provenance": "unrecorded",
         "repository": "serde_json",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parse_token_expr's branches enumerate token kinds in one lookahead decision inherent to the token stream grammar.",
+        "line": 196,
+        "path": "impl/src/attr.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "expand_shorthand is a single-pass scanner where member parsing, trait-suffix mapping and binding synthesis share the read cursor and per-placeholder state, so splitting would scatter one lexing decision across helpers threaded with mutable state.",
+        "line": 16,
+        "path": "impl/src/fmt.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "scan_expr is the interpreter of a table-driven state machine whose match over the closed Input and Action enums is the table itself, the clearest available form.",
+        "line": 192,
+        "path": "impl/src/scan_expr.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
+        "rule": "rust_doctor::structure::complex_function",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "check_field_attrs is a flat sequence of independent validation cases, each already minimal, so extraction would only rename the cases.",
+        "line": 151,
+        "path": "impl/src/valid.rs",
+        "provenance": "agent",
+        "repository": "thiserror",
         "rule": "rust_doctor::structure::complex_function",
         "verdict": "false_positive"
       },
@@ -1104,7 +2064,7 @@
         "verdict": "false_positive"
       }
     ],
-    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition.",
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. Observed agreement was 35 of 35 on both Clippy rules, where the absence of variance leaves Cohen's kappa undefined and the agreement therefore says less than it appears to, and 26 of 29 on complex_function, for a kappa of 0.53.",
     "trigger_verification": {
       "confirmed": 575,
       "findings": 575,
@@ -3234,13 +4194,14 @@
     },
     {
       "false_positive_rate_basis_points": 10000,
-      "false_positives": 5,
+      "false_positives": 40,
       "findings": 246,
       "id": "clippy::indexing_slicing",
       "provenance": [
+        "agent",
         "unrecorded"
       ],
-      "reviewed": 5,
+      "reviewed": 40,
       "status": "measured",
       "tier": "P3",
       "true_positives": 0
@@ -3439,13 +4400,14 @@
     },
     {
       "false_positive_rate_basis_points": 10000,
-      "false_positives": 5,
+      "false_positives": 40,
       "findings": 40,
       "id": "clippy::string_slice",
       "provenance": [
+        "agent",
         "unrecorded"
       ],
-      "reviewed": 5,
+      "reviewed": 40,
       "status": "measured",
       "tier": "P3",
       "true_positives": 0
@@ -3769,17 +4731,18 @@
       "true_positives": null
     },
     {
-      "false_positive_rate_basis_points": 6000,
-      "false_positives": 3,
+      "false_positive_rate_basis_points": 8709,
+      "false_positives": 27,
       "findings": 34,
       "id": "rust_doctor::structure::complex_function",
       "provenance": [
+        "agent",
         "unrecorded"
       ],
-      "reviewed": 5,
+      "reviewed": 31,
       "status": "measured",
       "tier": "P3",
-      "true_positives": 2
+      "true_positives": 4
     },
     {
       "false_positive_rate_basis_points": 10000,
