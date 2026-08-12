@@ -251,6 +251,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           RELEASING: ${{ github.ref_type == 'tag' }}
         run: |
+          # Absolute directories, never `release-packages/<key>`: npm resolves a
+          # bare `a/b` argument as the GitHub shorthand owner/repo and goes
+          # looking for a repository instead of publishing the folder.
           publish() {
             directory="$1"
             name="$2"
@@ -265,9 +268,9 @@ jobs:
             npm publish "$directory" --access public --provenance
           }
           for key in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
-            publish "release-packages/$key" "@rustdoctor/$key"
+            publish "$GITHUB_WORKSPACE/release-packages/$key" "@rustdoctor/$key"
           done
-          publish npm/rust-doctor rust-doctor
+          publish "$GITHUB_WORKSPACE/npm/rust-doctor" rust-doctor
 
   # What the run shipped, or would have shipped.
   summary:
