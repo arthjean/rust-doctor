@@ -512,55 +512,72 @@ mod tty {
         );
     }
 
+    /// Nothing is asked before the scan. A workspace with uncommitted Rust
+    /// files used to open a scope menu; the run now goes straight to the full
+    /// codebase, and narrowing to what changed is what `--scope` is for.
     #[test]
-    fn escape_q_and_ctrl_c_cancel_scope_selection_before_scan_with_exit_130() {
+    fn a_workspace_with_uncommitted_changes_scans_the_full_codebase_without_asking() {
+        let root = changed_project();
+        let before = fs::read(root.join("src/lib.rs")).unwrap();
+        let mut command = binary();
+        command.arg(&root);
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("↑/↓ move · enter select · q quit");
+        let frame = String::from_utf8_lossy(&process.output).into_owned();
+        assert!(!frame.contains("Choose what to scan"), "{frame}");
+        assert!(!frame.contains("Uncommitted changes"), "{frame}");
+        process.send(b"q");
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert_eq!(fs::read(root.join("src/lib.rs")).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Every key that leaves the report leaves it, whatever the terminal did
+    /// with Ctrl-C. The scan already ran, so the exit code is the scan's.
+    #[test]
+    fn q_escape_and_ctrl_c_all_leave_the_report_with_the_scan_exit_code() {
         for (name, input) in [
             ("q", b"q".as_slice()),
             ("escape", b"\x1b".as_slice()),
             ("ctrl-c", b"\x03".as_slice()),
         ] {
-            let root = changed_project();
-            let before = fs::read(root.join("src/lib.rs")).unwrap();
             let mut command = binary();
-            command.arg(&root);
+            command.arg(kernel("todo")).args(["--scope", "full"]);
             let mut process = PtyProcess::spawn(command);
-            process.wait_for("Choose what to scan");
+            process.wait_for("↑/↓ move · enter select · q quit");
             process.send(input);
             let (status, output) = process.wait();
-            // Ctrl-C reaches the menu as the byte 0x03 once the CLI has put the
-            // terminal in raw mode, and as a SIGINT from the line discipline
-            // before that. Which one happens is a race between this write and
-            // the child's tcsetattr, and macOS loses it where Linux wins. A
-            // shell reports either as 130, and what the case is really about
-            // holds in both: no scan ran and the workspace is untouched.
+            // Ctrl-C reaches the report as the byte 0x03 once the CLI has put
+            // the terminal in raw mode, and as a SIGINT from the line
+            // discipline before that. Which one happens is a race between this
+            // write and the child's tcsetattr, and macOS loses it where Linux
+            // wins. Either way the report is gone and nothing else ran.
             if name == "ctrl-c" && status.signal() == Some(libc::SIGINT) {
                 assert_eq!(status.code(), None, "{name}: {output}");
             } else {
-                assert_eq!(status.code(), Some(130), "{name}: {output}");
-                assert!(output.contains("Scan cancelled."), "{name}: {output}");
+                assert_eq!(status.code(), Some(0), "{name}: {output}");
             }
-            assert!(!output.contains("Scanned "), "{name}: {output}");
-            assert_eq!(fs::read(root.join("src/lib.rs")).unwrap(), before);
-            fs::remove_dir_all(root).unwrap();
+            assert!(!output.contains("Choose how to continue"), "{name}: {output}");
         }
     }
 
+    /// The report belongs to stdin and stdout. A run whose stderr goes
+    /// somewhere else still draws it and still reads its keys.
     #[test]
-    fn scope_selection_uses_stdin_and_stdout_when_stderr_is_redirected() {
-        let root = changed_project();
+    fn the_report_uses_stdin_and_stdout_when_stderr_is_redirected() {
         let mut command = binary();
-        command.arg(&root);
+        command.arg(kernel("todo")).args(["--scope", "full"]);
         let mut process = PtyProcess::spawn_with_redirected_stderr(command);
-        process.wait_for("Choose what to scan");
+        process.wait_for("↑/↓ move · enter select · q quit");
         process.send(b"q");
         let (status, output) = process.wait();
-        assert_eq!(status.code(), Some(130), "{output}");
-        assert!(!output.contains("Scanned "), "{output}");
-        fs::remove_dir_all(root).unwrap();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert!(output.contains("┌─────┐"), "{output}");
     }
 
     #[test]
-    fn explicit_scope_skips_scope_prompt_and_codex_inherits_one_payload_cwd_and_tty() {
+    fn codex_inherits_one_payload_its_cwd_and_the_terminal() {
         let root = temporary_root("handoff");
         let agents = root.join("agents");
         let capture = root.join("capture");

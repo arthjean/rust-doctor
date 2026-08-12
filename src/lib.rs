@@ -49,7 +49,6 @@ pub struct InspectionSession {
     prepared: execution::PreparedInspection,
     plan: policy::PolicyPlan,
     scope_request: git_scope::ScopeRequest,
-    preview_scope: Option<ScopeReport>,
 }
 
 impl InspectionSession {
@@ -98,38 +97,11 @@ impl InspectionSession {
             prepared,
             plan,
             scope_request,
-            preview_scope: None,
         })
     }
 
     pub fn workspace_root(&self) -> &Path {
         self.prepared.workspace_root()
-    }
-
-    pub fn preview_uncommitted_rust_files(&mut self) -> Option<usize> {
-        if self.preview_scope.is_none() {
-            self.preview_scope = git_scope::resolve(
-                &git_scope::ScopeRequest::Files {
-                    base: "HEAD".to_owned(),
-                },
-                self.prepared.workspace_root(),
-            )
-            .ok();
-        }
-        Some(
-            self.preview_scope
-                .as_ref()?
-                .files()?
-                .iter()
-                .filter(|path| path.ends_with(".rs"))
-                .count(),
-        )
-    }
-
-    pub fn select_uncommitted_files(&mut self) {
-        self.scope_request = git_scope::ScopeRequest::Files {
-            base: "HEAD".to_owned(),
-        };
     }
 
     pub fn inspect(self) -> InspectReport {
@@ -150,20 +122,12 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         prepared,
         plan,
         scope_request,
-        preview_scope,
     } = session;
-    let cached_preview_matches = matches!(
-        &scope_request,
-        git_scope::ScopeRequest::Files { base } if base == "HEAD"
-    );
-    let scope = match preview_scope.filter(|_| cached_preview_matches) {
-        Some(scope) => scope,
-        None => match git_scope::resolve(&scope_request, prepared.workspace_root()) {
-            Ok(scope) => scope,
-            Err(error) => {
-                return report::preparation_failure(prepared.fail(error), plan.blocking());
-            }
-        },
+    let scope = match git_scope::resolve(&scope_request, prepared.workspace_root()) {
+        Ok(scope) => scope,
+        Err(error) => {
+            return report::preparation_failure(prepared.fail(error), plan.blocking());
+        }
     };
     if let git_scope::ScopeDetails::Baseline { comparison_base } = scope.details() {
         let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {

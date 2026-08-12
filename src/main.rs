@@ -16,7 +16,6 @@ use std::time::Instant;
 use clap::builder::TypedValueParser;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
-use console::{Key, Term};
 use handoff::{
     HandoffError, RescanCommand, available_agents, build_prompt, copy_to_clipboard, launch_agent,
 };
@@ -189,7 +188,6 @@ fn main() -> ExitCode {
 }
 
 fn run_inspect(arguments: InspectArgs) -> ExitCode {
-    let scope_was_explicit = arguments.scope.is_some();
     let scoped_base = match validate_scope(arguments.scope, arguments.base.as_deref()) {
         Ok(scope) => scope,
         Err((kind, message)) => return clap_error(kind, message),
@@ -208,34 +206,13 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     if !arguments.json {
         eprintln!("Scanning Rust files...");
     }
+    // The scope is what the invocation asked for, nothing else. A run that
+    // names no scope scans the whole workspace rather than opening a menu:
+    // narrowing to what changed is what `--scope files` and `--scope baseline`
+    // are for, and a question asked before the scan is a question asked before
+    // the reader has seen a single finding.
     let request = arguments.request(scoped_base.as_ref());
-    let mut session = InspectionSession::prepare(request);
-    let scoped_base = if scoped_base.is_none() && !scope_was_explicit && interactive {
-        match session
-            .as_mut()
-            .ok()
-            .and_then(InspectionSession::preview_uncommitted_rust_files)
-        {
-            Some(count) if count > 0 => match choose_scope(count) {
-                Ok(Some(ScopeArgument::Files)) => {
-                    if let Ok(session) = &mut session {
-                        session.select_uncommitted_files();
-                    }
-                    Some((ScopeArgument::Files, "HEAD".to_owned()))
-                }
-                Ok(Some(ScopeArgument::Full)) => None,
-                Ok(Some(ScopeArgument::Baseline)) => None,
-                Ok(None) | Err(_) => {
-                    eprintln!("Scan cancelled.");
-                    return ExitCode::from(130);
-                }
-            },
-            _ => None,
-        }
-    } else {
-        scoped_base
-    };
-
+    let session = InspectionSession::prepare(request);
     let rescan_command = arguments.rescan_command(scoped_base.as_ref());
 
     let started = Instant::now();
@@ -401,56 +378,6 @@ fn interactions_allowed(
         && !yes
         && ci.is_none_or(OsStr::is_empty)
         && !terminal_is_dumb
-}
-
-fn choose_scope(changed_files: usize) -> io::Result<Option<ScopeArgument>> {
-    let items = [
-        "Full codebase".to_owned(),
-        format!("Uncommitted changes ({changed_files})"),
-    ];
-    select_item("Choose what to scan", &items)
-        .map(|selection| selection.map(|index| [ScopeArgument::Full, ScopeArgument::Files][index]))
-}
-
-fn select_item(prompt: &str, items: &[String]) -> io::Result<Option<usize>> {
-    let terminal = Term::stdout();
-    terminal.hide_cursor()?;
-    let result = select_item_on(&terminal, prompt, items);
-    let _ = terminal.show_cursor();
-    let _ = terminal.flush();
-    result
-}
-
-fn select_item_on(terminal: &Term, prompt: &str, items: &[String]) -> io::Result<Option<usize>> {
-    let mut selected = 0usize;
-    loop {
-        terminal.write_line(&format!("{prompt}:"))?;
-        for (index, item) in items.iter().enumerate() {
-            let marker = if index == selected { ">" } else { " " };
-            terminal.write_line(&format!("{marker} {item}"))?;
-        }
-        terminal.flush()?;
-
-        match terminal.read_key_raw()? {
-            Key::ArrowDown | Key::Tab | Key::Char('j') => {
-                selected = (selected + 1) % items.len();
-            }
-            Key::ArrowUp | Key::BackTab | Key::Char('k') => {
-                selected = (selected + items.len() - 1) % items.len();
-            }
-            Key::Enter | Key::Char(' ') => {
-                terminal.clear_last_lines(items.len() + 1)?;
-                terminal.write_line(&format!("{prompt}: {}", items[selected]))?;
-                return Ok(Some(selected));
-            }
-            Key::Escape | Key::CtrlC | Key::Char('q') => {
-                terminal.clear_last_lines(items.len() + 1)?;
-                return Ok(None);
-            }
-            _ => {}
-        }
-        terminal.clear_last_lines(items.len() + 1)?;
-    }
 }
 
 fn terminal_width(

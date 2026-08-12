@@ -81,9 +81,10 @@ measurement was taken under.
 
 ## Running the tool on this repository
 
-The CLI opens a scope menu when stdin and stdout are both terminals, and then
-the interactive report instead of the linear one. Pass `--yes` for any scripted
-or agent-driven run:
+The CLI opens the interactive report instead of the linear one when stdin and
+stdout are both terminals. Nothing is asked before the scan: a run that names no
+scope scans the whole workspace. Pass `--yes` for any scripted or agent-driven
+run:
 
 ```bash
 cargo run --release -- . --yes --verbose
@@ -100,7 +101,10 @@ split, stacked or compact arrangement the reference picks. `screens.rs` draws,
 `text.rs` measures in display columns and sanitizes every span, and `tui.rs` is
 the state machine and the frame loop.
 
-Two things it deliberately does not do. It never takes the alternate screen:
+Three things it deliberately does not do. It asks nothing before the scan, the
+way React Doctor's TUI path hard-codes `skipPrompts: true` in
+`resolve-tui-scan-scope.ts`: the reader answers questions after seeing findings,
+not before. It never takes the alternate screen:
 frames are rewritten in place the way Ink does, so the last one survives in the
 scrollback. And it never renders on a run that asked for `--json`, `--yes` or
 `--verbose`, or on a scan that failed, because those readers are pipes, CI,
