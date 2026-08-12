@@ -64,6 +64,13 @@ without blocking on it. And `corpus.yml` is manual rather than nightly, since
 every input it consumes is pinned, so a schedule would recompute the same
 answer at the cost of compiling eighteen repositories.
 
+The structural benchmark asserts a wall clock, and its bounds were measured on
+a development machine. A slower machine declares itself through
+`RUST_DOCTOR_BENCHMARK_ALLOWANCE`, a multiple the CI sets to 3, rather than
+having the constants raised for everyone. It moves the two clocks only: the
+counter assertions that prove the near-duplicate scoring stays nominated rather
+than pairwise hold on any machine and are never relaxed.
+
 The toolchain is pinned to 1.97.1 in every workflow rather than tracking
 `stable`. Clippy's diagnostics are the product: 37 of the 62 catalogued rules
 are Clippy lints, and `tests/corpus.json` records the exact Clippy version its

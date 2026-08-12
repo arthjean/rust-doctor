@@ -57,6 +57,13 @@ jobs:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    # The structural benchmark asserts a wall clock, and its bounds were
+    # measured on a development machine. A hosted runner has two cores and
+    # shares them, so it declares itself slower here rather than having the
+    # constants raised for everyone. Only the two clocks move: the counter
+    # assertions that prove the scoring stays nominated are untouched.
+    env:
+      RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     strategy:
       fail-fast: false
       matrix:
@@ -123,6 +130,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     continue-on-error: true
+    env:
+      RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     defaults:
       run:
         # Not bash: Git Bash prepends its coreutils `link.exe`, which shadows
@@ -174,9 +183,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Clippy is required, not optional: the smoke drives a full scan of this
+      # repository, and without the component the scan fails, the report loses
+      # its categories and its score, and the proof reads a shape no user would
+      # ever see.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:

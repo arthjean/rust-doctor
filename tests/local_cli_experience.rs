@@ -218,13 +218,16 @@ mod tty {
             let mut master = 0;
             let mut slave = 0;
             // SAFETY: openpty initializes both descriptors, which are immediately owned by File.
+            // The trailing termios and winsize arguments are `*const` on glibc and `*mut` on the
+            // BSD platforms Apple derives from, so they are spelled `*mut` here: Rust weakens a
+            // `*mut` to a `*const` on its own, and the reverse would not compile on macOS.
             let result = unsafe {
                 libc::openpty(
                     &mut master,
                     &mut slave,
                     std::ptr::null_mut(),
-                    std::ptr::null(),
-                    std::ptr::null(),
+                    std::ptr::null_mut::<libc::termios>(),
+                    std::ptr::null_mut::<libc::winsize>(),
                 )
             };
             assert_eq!(result, 0, "{}", io::Error::last_os_error());
@@ -264,7 +267,10 @@ mod tty {
                     if libc::setsid() < 0 {
                         return Err(io::Error::last_os_error());
                     }
-                    if libc::ioctl(slave_fd, libc::TIOCSCTTY, 0) < 0 {
+                    // TIOCSCTTY is a `c_ulong` on glibc and a `c_uint` on Apple, while `ioctl`
+                    // takes a `c_ulong` on both. The inferred cast is what keeps one spelling
+                    // compiling on either platform.
+                    if libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
                         return Err(io::Error::last_os_error());
                     }
                     Ok(())
