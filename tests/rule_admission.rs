@@ -298,35 +298,19 @@ fn a_test_reference_names_a_function_that_still_exists() {
     }
 }
 
-/// The README is not a third source of truth: its rule count and breakdown
-/// follow the published catalog, which the corpus test already proves equal to
-/// the shipped policy. Editing the catalog without touching the README fails
-/// here.
+/// The README is not a third source of truth: the single rule count it states
+/// follows the published catalog, which the corpus test already proves equal to
+/// the shipped policy. Growing the catalog without touching the README fails
+/// here. What each rule catches is published by `rust-doctor rules list` and by
+/// the website that generates from that command, never by a table the README
+/// would have to keep in step.
 #[test]
 fn the_readme_rule_count_matches_the_published_catalog() {
     let catalog = catalogued();
-    let clippy = catalog.iter().filter(|id| id.starts_with("clippy::")).count();
-    let structural = catalog
-        .iter()
-        .filter(|id| id.starts_with("rust_doctor::structure::"))
-        .count();
-    let native = catalog.len() - clippy - structural;
-
     let readme = fs::read_to_string(repository().join("README.md")).expect("the README should be readable");
-    let expected = format!(
-        "{} rules today: {clippy} selected Clippy lints, {native} native detectors and {structural} structural rules.",
-        catalog.len()
-    );
+    let expected = format!("{} curated rules", catalog.len());
     assert!(
         readme.contains(&expected),
         "README no longer states \"{expected}\""
     );
-
-    // Every native and structural rule appears in the README detector table.
-    // The table is the only place a reader learns what a rule catches without
-    // reading the catalog, so a producer growing without it is a rule shipped
-    // undocumented.
-    for id in catalog.iter().filter(|id| !id.starts_with("clippy::")) {
-        assert!(readme.contains(id.as_str()), "README table misses {id}");
-    }
 }

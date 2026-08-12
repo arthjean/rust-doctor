@@ -318,6 +318,8 @@ third, so the steps stay the same from one batch to the next.
 - Conventional Commits with a scope, lowercase summary:
   `feat(policy): grow the catalog to forty rules`. Use `!` for a breaking change
   to the report schema or the CLI surface.
-- Keep the README's rule count and native detector table in sync with
-  `src/policy/catalog.rs`, which is the single list every producer's rules are
-  declared in.
+- Keep the README's rule count in sync with `src/policy/catalog.rs`, which is
+  the single list every producer's rules are declared in. The README carries
+  that one number and nothing else about the catalog: the rules themselves are
+  published by `rust-doctor rules list` and by rust-doctor.com/rules, which
+  generates from that command.
