@@ -160,26 +160,48 @@ function normalizeTerminal(value) {
     .replace(/Scanned (\d+) files in \d+\.\d+s/gu, "Scanned $1 files in <elapsed>");
 }
 
+// Read back from the source rather than pinned here. A hard-coded number turns
+// every schema bump into a silent lie in this proof: it sat at 8 while the
+// product shipped 14, and nothing said so because nothing ran this script.
+function shippedSchemaVersion() {
+  const source = readFileSync(join(repositoryRoot, "src/report.rs"), "utf8");
+  const found = source.match(/pub const SCHEMA_VERSION: u8 = (\d+);/u);
+  if (!found) throw new Error("SCHEMA_VERSION is no longer declared in src/report.rs");
+  return Number(found[1]);
+}
+
+// The category tally is the one section with two spellings: the renderer names
+// every category it counted ("Bugs: 0 errors, ...") and falls back to
+// "Categories: none" only when there are none at all. Matching the literal
+// "Categories:" asserted the empty scan, which is the shape this proof exists to
+// rule out, so the section is matched by what both spellings have in common.
+const SECTIONS = [
+  { name: "Scope", match: "Scope: full codebase" },
+  { name: "Scanned", match: "Scanned " },
+  { name: "All", match: "All " },
+  { name: "Categories", match: /^(?:Categories: none|\w[\w ]*: \d+ errors, )/mu },
+  { name: "Score", match: "┌─────┐" },
+  { name: "Share", match: "Share:" },
+  { name: "Docs", match: "Docs:" },
+  { name: "GitHub", match: "GitHub:" },
+];
+
+function sectionPosition(terminal, match) {
+  if (typeof match === "string") return terminal.indexOf(match);
+  const found = terminal.match(match);
+  return found?.index ?? -1;
+}
+
 function sectionOrder(terminal) {
-  const markers = [
-    "Scope: full codebase",
-    "Scanned ",
-    "All ",
-    "Categories:",
-    "┌─────┐",
-    "Share:",
-    "Docs:",
-    "GitHub:",
-  ];
   let previous = -1;
-  for (const marker of markers) {
-    const position = terminal.indexOf(marker);
+  for (const section of SECTIONS) {
+    const position = sectionPosition(terminal, section.match);
     if (position < previous || position === -1) {
-      throw new Error(`packed terminal section ${JSON.stringify(marker)} is missing or out of order`);
+      throw new Error(`packed terminal section ${JSON.stringify(section.name)} is missing or out of order`);
     }
     previous = position;
   }
-  return markers.map((marker) => marker.replace(/[: ]+$/u, ""));
+  return SECTIONS.map((section) => section.name);
 }
 
 function createControlledBin(directory) {
@@ -337,7 +359,11 @@ function proveCli(installed) {
   assert(!jsonRun.stdout.includes("Choose what to scan"), "JSON output contains a prompt");
   assert(!jsonRun.stdout.includes(repositoryRoot), "JSON output contains the repository absolute path");
   const report = JSON.parse(jsonRun.stdout);
-  assert(report.schema_version === 8, "packed JSON schema is not v8");
+  const schemaVersion = shippedSchemaVersion();
+  assert(
+    report.schema_version === schemaVersion,
+    `packed JSON schema is ${report.schema_version}, not the shipped v${schemaVersion}`,
+  );
   assert(report.audit.source_files === Number(scan[1]), "terminal and JSON source counts differ");
   assert(report.audit.score?.value === Number(terminalScore[1]), "terminal and JSON scores differ");
   assert(report.audit.score?.label === terminalScore[2].trim(), "terminal and JSON labels differ");
@@ -360,7 +386,7 @@ function proveCli(installed) {
       ),
       criterion(
         "US-062-AC-3",
-        "single parseable JSON v8 without prompt, ANSI or absolute repository path",
+        "single parseable JSON at the shipped schema version, without prompt, ANSI or absolute repository path",
       ),
     ],
   };

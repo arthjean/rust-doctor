@@ -1256,6 +1256,29 @@ mod benchmark {
     /// the profile, so a debug run reads the share thirteen times too high.
     const DEBUG_ALLOWANCE: u32 = 14;
 
+    /// Multiple of every clock bound this *machine* is allowed, on top of the
+    /// profile allowance below.
+    ///
+    /// The bounds here were measured on a development machine. A shared CI
+    /// runner is slower and less predictable, and a benchmark that asserts a
+    /// wall clock on someone else's hardware measures that hardware. Rather
+    /// than raise the constants and lose the bound where it means something,
+    /// the slower machine declares itself through
+    /// `RUST_DOCTOR_BENCHMARK_ALLOWANCE`, the same way the corpus harness makes
+    /// its own observation independent of machine load through
+    /// `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS`.
+    ///
+    /// It touches the two clocks only. The counter assertions above it, which
+    /// are what prove the scoring is nominated rather than pairwise, hold on
+    /// any machine and are never relaxed.
+    fn machine_allowance() -> u32 {
+        std::env::var("RUST_DOCTOR_BENCHMARK_ALLOWANCE")
+            .ok()
+            .and_then(|factor| factor.parse::<u32>().ok())
+            .filter(|factor| *factor >= 1)
+            .unwrap_or(1)
+    }
+
     /// Multiple of every bound this profile is allowed.
     const fn allowance() -> u32 {
         if cfg!(debug_assertions) {
@@ -1435,7 +1458,7 @@ mod benchmark {
                 &enumeration,
                 &PolicyPlan::default(),
                 &StructureSettings::default(),
-                TIME_BUDGET * allowance(),
+                TIME_BUDGET * allowance() * machine_allowance(),
             );
             pass = pass.min(started.elapsed());
         }
@@ -1470,14 +1493,15 @@ mod benchmark {
             scan.counters.shapes
         );
 
-        let budget = BUDGET * allowance();
+        let budget = BUDGET * allowance() * machine_allowance();
         assert!(
             pass <= budget,
             "the structural pass took {pass:?}, over its {budget:?} budget"
         );
+        let recorded = RECORDED_MILLISECONDS * u128::from(machine_allowance());
         assert!(
-            pass.as_millis() * 4 <= RECORDED_MILLISECONDS * 5,
-            "the structural pass took {pass:?}, more than a quarter over the recorded {RECORDED_MILLISECONDS} ms"
+            pass.as_millis() * 4 <= recorded * 5,
+            "the structural pass took {pass:?}, more than a quarter over the recorded {recorded} ms"
         );
         assert!(
             scan.counters.retained_bytes <= MEMORY_LIMIT_BYTES,
