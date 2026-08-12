@@ -64,6 +64,20 @@ fn write(path: impl AsRef<Path>, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
+/// Whether the filesystem the fixtures are built on tells `x` from `X`.
+///
+/// Probed rather than inferred from the target: a case-sensitive volume on
+/// macOS and a case-insensitive one on Linux are both things people have.
+fn filesystem_distinguishes_case() -> bool {
+    let root = support::temporary_target("git-scope-case-probe", &NEXT_REPOSITORY);
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    write(root.join("case-probe"), "probe\n");
+    let distinguishes = !root.join("CASE-PROBE").exists();
+    let _ = fs::remove_dir_all(&root);
+    distinguishes
+}
+
 fn repository() -> OracleRepository {
     let root = support::temporary_target("git-scope-oracle", &NEXT_REPOSITORY);
     if root.exists() {
@@ -268,6 +282,20 @@ fn commit_tree(root: &Path, tree: &str, parents: &[&str], message: &str, day: u8
 
 #[test]
 fn git_2_55_oracle_covers_the_twenty_four_normative_cases() {
+    // The fixture names its default branch `head`, which is the point: a
+    // selector that reads like `HEAD` but is a branch is exactly the case the
+    // scope resolver has to get right. That repository cannot exist on a
+    // case-insensitive filesystem, where git resolves `head` to both
+    // `refs/heads/head` and `$GIT_DIR/HEAD` and refuses the ambiguity outright.
+    // macOS formats APFS case-insensitively by default, so the oracle is
+    // unreachable there. It says so and stops, rather than renaming the branch
+    // and pinning twenty-four cases that no longer include the interesting one.
+    if !filesystem_distinguishes_case() {
+        eprintln!(
+            "skipped: this filesystem does not distinguish case, so a branch named `head` is ambiguous to git"
+        );
+        return;
+    }
     let oracle: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/oracle.json")).unwrap();
     assert_eq!(oracle["cases"].as_array().unwrap().len(), 24);
