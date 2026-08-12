@@ -9,12 +9,43 @@ use super::RuleLevel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum Producer {
+pub enum Producer {
     Clippy,
     CargoHealth,
     SourceKernel,
     Structure,
     Repo,
+}
+
+/// One catalogued rule, as the outside world reads it.
+///
+/// `RuleDefinition` stays crate-private because it is the shape the scan
+/// compiles against; this is the published projection of it, and the reason the
+/// website can state what the tool checks without anyone retyping the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct CatalogEntry {
+    pub id: &'static str,
+    pub category: &'static str,
+    pub producer: Producer,
+    pub default_level: RuleLevel,
+    pub tier: RuleTier,
+    pub help: &'static str,
+}
+
+/// Every catalogued rule, in catalog order.
+#[must_use]
+pub fn catalog() -> Vec<CatalogEntry> {
+    CATALOG
+        .iter()
+        .map(|definition| CatalogEntry {
+            id: definition.id,
+            category: definition.category,
+            producer: definition.producer,
+            default_level: definition.default_level,
+            tier: definition.tier,
+            help: definition.help,
+        })
+        .collect()
 }
 
 /// Criticality of a rule, independent of `default_level` and of the effective

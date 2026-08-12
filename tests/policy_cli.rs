@@ -203,3 +203,63 @@ fn terminal_gate_exposes_effective_policy_threshold_and_count() {
     assert!(stdout.contains("Policy: base severity warning, effective severity error"));
     assert!(stdout.contains("Gate failed: blocking error, 3 blocking diagnostic(s)"));
 }
+
+/// The catalog the CLI publishes is the catalog the scan compiles against.
+///
+/// This is the surface the website reads to state what the tool checks, so a
+/// rule added to `src/policy/catalog.rs` has to reach it without anyone
+/// republishing a list by hand. Comparing against the library's own catalog
+/// rather than a frozen count is what keeps that true as the catalog grows.
+#[test]
+fn rules_list_publishes_the_shipped_catalog() {
+    let output = cli(&["rules", "list", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+
+    let published: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entries = published.as_array().unwrap();
+    let shipped = rust_doctor::catalog();
+    assert_eq!(entries.len(), shipped.len());
+
+    for (entry, rule) in entries.iter().zip(shipped.iter()) {
+        assert_eq!(entry["id"], rule.id);
+        assert_eq!(entry["category"], rule.category);
+        assert_eq!(entry["tier"], rule.tier.as_str());
+        assert_eq!(entry["help"], rule.help);
+        // Every catalogued rule ships at warn: an error by default would be a
+        // policy the reader never chose.
+        assert_eq!(entry["default_level"], "warn");
+    }
+
+    // A producer is named by the identifier's prefix, and the published field
+    // has to agree with it, since the website groups by one and explains the
+    // other.
+    for entry in entries {
+        let id = entry["id"].as_str().unwrap();
+        let producer = entry["producer"].as_str().unwrap();
+        let expected = match id.split("::").next().unwrap() {
+            "clippy" => "clippy",
+            _ => match id.split("::").nth(1).unwrap() {
+                "cargo" => "cargo-health",
+                "source" => "source-kernel",
+                "structure" => "structure",
+                "repo" => "repo",
+                // An unknown segment fails the assertion below rather than
+                // unwinding, so the report names the rule that introduced it.
+                other => other,
+            },
+        };
+        assert_eq!(producer, expected, "{id}");
+    }
+}
+
+/// The human listing is the same catalog, one rule per line.
+#[test]
+fn rules_list_without_json_stays_line_oriented() {
+    let output = cli(&["rules", "list"]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines.len(), rust_doctor::catalog().len());
+    assert!(lines.iter().all(|line| line.matches('\t').count() == 3));
+}

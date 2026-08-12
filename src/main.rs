@@ -6,7 +6,7 @@ mod tui;
 use std::env;
 use std::ffi::OsStr;
 use std::fmt;
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -86,7 +86,7 @@ impl Cli {
     fn into_inspect_args(self) -> InspectArgs {
         match self.command {
             Some(CliCommand::Inspect(arguments)) => arguments,
-            None => self.inspect,
+            Some(CliCommand::Rules(_)) | None => self.inspect,
         }
     }
 }
@@ -98,6 +98,29 @@ enum CliCommand {
         "Inspect a trusted local Cargo workspace.\n\n{TRUST_WARNING}\n\nUse `rust-doctor ./inspect` when the path itself is named `inspect`."
     ))]
     Inspect(InspectArgs),
+    #[command(about = "Print the rule catalog")]
+    Rules(RulesArgs),
+}
+
+/// The catalog, printed rather than described.
+///
+/// Nothing here reads the filesystem: the catalog is what the binary was
+/// compiled with, so this command answers the same thing everywhere and needs
+/// no workspace to answer it. It exists so that what publishes the rule list,
+/// the website included, reads it from the tool instead of restating it.
+#[derive(Debug, Clone, Args)]
+struct RulesArgs {
+    #[command(subcommand)]
+    command: RulesCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum RulesCommand {
+    #[command(about = "List every catalogued rule")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Clone, Args)]
@@ -184,7 +207,43 @@ enum ScopeArgument {
 }
 
 fn main() -> ExitCode {
-    run_inspect(Cli::parse().into_inspect_args())
+    let cli = Cli::parse();
+    if let Some(CliCommand::Rules(arguments)) = &cli.command {
+        return run_rules(arguments);
+    }
+    run_inspect(cli.into_inspect_args())
+}
+
+fn run_rules(arguments: &RulesArgs) -> ExitCode {
+    let RulesCommand::List { json } = arguments.command;
+    let catalog = rust_doctor::catalog();
+    let mut out = io::stdout().lock();
+    let written = if json {
+        match serde_json::to_string_pretty(&catalog) {
+            Ok(payload) => writeln!(out, "{payload}"),
+            Err(_) => {
+                eprintln!("rust-doctor: the catalog could not be serialized.");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        catalog.iter().try_for_each(|rule| {
+            writeln!(
+                out,
+                "{}\t{}\t{}\t{}",
+                rule.id,
+                rule.category,
+                rule.tier.as_str(),
+                rule.help
+            )
+        })
+    };
+    // A closed pipe is how `| head` ends, not a failure to report.
+    match written {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
+    }
 }
 
 fn run_inspect(arguments: InspectArgs) -> ExitCode {

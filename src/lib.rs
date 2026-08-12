@@ -27,8 +27,8 @@ pub use audit::{
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{
-    BlockingLevel, BlockingLevelSource, CategoryOverride, RuleLevel, RuleLevelSource, RuleOverride,
-    RuleTier,
+    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, RuleLevel, RuleLevelSource,
+    RuleOverride, RuleTier, catalog,
 };
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,

@@ -12,6 +12,7 @@ mod catalog;
 mod coverage;
 
 pub use catalog::RuleTier;
+pub use catalog::{CatalogEntry, catalog};
 use catalog::find_in;
 pub(crate) use catalog::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,

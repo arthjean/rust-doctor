@@ -5,11 +5,11 @@
     "": {
       "name": "rust-doctor",
       "optionalDependencies": {
-        "@rustdoctor/darwin-arm64": "0.3.1",
-        "@rustdoctor/darwin-x64": "0.3.1",
-        "@rustdoctor/linux-arm64": "0.3.1",
-        "@rustdoctor/linux-x64": "0.3.1",
-        "@rustdoctor/win32-x64": "0.3.1",
+        "@rustdoctor/darwin-arm64": "0.3.2",
+        "@rustdoctor/darwin-x64": "0.3.2",
+        "@rustdoctor/linux-arm64": "0.3.2",
+        "@rustdoctor/linux-x64": "0.3.2",
+        "@rustdoctor/win32-x64": "0.3.2",
       },
     },
   },

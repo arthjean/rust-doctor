@@ -79,6 +79,22 @@ The toolchain is pinned to 1.97.1 in every workflow rather than tracking
 are Clippy lints, and `tests/corpus.json` records the exact Clippy version its
 measurement was taken under.
 
+## The published catalog
+
+`rust-doctor rules list --json` prints the 62 catalogued rules, each with its
+category, producer, default level, tier and help. It reads no filesystem: the
+catalog is what the binary was compiled with. `rust_doctor::catalog()` is the
+same projection for library callers, and `CatalogEntry` is the only public
+shape of a rule, `RuleDefinition` staying crate-private.
+
+It exists so that whatever publishes the rule list reads it from the tool.
+`rust-doctor-web` generates `public/catalog/rules.json` from this command and
+refuses a category, producer, level or tier it does not render, so a catalog
+that grows a concept fails the website build instead of rendering a blank.
+`rules_list_publishes_the_shipped_catalog` in `tests/policy_cli.rs` compares
+the command against `catalog()` rather than against a frozen count, which is
+what keeps the two true as the catalog grows.
+
 ## Publishing
 
 `npx rust-doctor@latest` resolves the unscoped `rust-doctor` wrapper, which
@@ -139,7 +155,11 @@ existing test asserts against the linear renderer, which is unchanged.
 
 The only file the tool writes into a scanned workspace is
 `.github/workflows/rust-doctor.yml`, only from the CI menu entry, and never over
-an existing file (`src/tui/workflow.rs`).
+an existing file (`src/tui/workflow.rs`). That workflow installs the published
+launcher, `npm install -g rust-doctor@<version>`, pinned to the version of the
+binary that wrote it: the pin comes from `CARGO_PKG_VERSION` rather than a
+string in the template, so a release cannot forget to move it, and a generated
+gate keeps scanning with the rule set its author saw.
 
 ## Invariants the tests enforce
 

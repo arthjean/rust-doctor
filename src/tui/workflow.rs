@@ -49,8 +49,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The npm launcher resolves the prebuilt binary for the runner rather
+      # than compiling rust-doctor from source on every run. The version is
+      # pinned: a CI gate whose rule set moves on its own fails builds for
+      # reasons nobody chose.
       - name: Install rust-doctor
-        run: cargo install --locked --git https://github.com/arthjean/rust-doctor rust-doctor
+        run: npm install -g rust-doctor@{VERSION}
 
       # BASE_REF reaches the shell through the environment rather than through
       # `${{ }}` interpolation: a branch name is attacker-controlled text on a
@@ -124,8 +128,17 @@ pub fn install(workspace_root: &Path) -> Result<PathBuf, WorkflowError> {
     if let Some(directory) = destination.parent() {
         fs::create_dir_all(directory).map_err(|error| WorkflowError::Write(error.kind()))?;
     }
-    fs::write(&destination, WORKFLOW).map_err(|error| WorkflowError::Write(error.kind()))?;
+    fs::write(&destination, workflow()).map_err(|error| WorkflowError::Write(error.kind()))?;
     Ok(PathBuf::from(WORKFLOW_PATH))
+}
+
+/// The workflow, pinned to the version that wrote it.
+///
+/// Deriving the pin from the running binary rather than restating it keeps the
+/// generated gate scanning with the rule set its author saw, and keeps a
+/// release from having to remember to bump a string in a template.
+fn workflow() -> String {
+    WORKFLOW.replace("{VERSION}", env!("CARGO_PKG_VERSION"))
 }
 
 #[cfg(test)]
@@ -163,6 +176,13 @@ mod tests {
         let written = fs::read_to_string(root.join(WORKFLOW_PATH)).unwrap();
         assert!(written.starts_with("name: Rust Doctor\n"));
         assert!(written.contains("--scope baseline"));
+        // The gate installs the published launcher, pinned to the version that
+        // wrote the file, and no placeholder survives into the workspace.
+        assert!(written.contains(&format!(
+            "npm install -g rust-doctor@{}",
+            env!("CARGO_PKG_VERSION")
+        )));
+        assert!(!written.contains("{VERSION}"));
         // The branch name never reaches the shell through interpolation.
         assert!(!written.contains("${{ github.base_ref }}\"") && written.contains("BASE_REF:"));
         fs::remove_dir_all(root).unwrap();
