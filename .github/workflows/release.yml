@@ -162,9 +162,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Clippy is required, not optional, for the same reason ci.yml states it:
+      # the smoke drives a full scan of this repository, and without the
+      # component the scan fails, the score loses its authoritative flag, and
+      # the report drops the share line the proof reads.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
