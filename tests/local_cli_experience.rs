@@ -188,7 +188,7 @@ mod tty {
     use std::io::{self, Read, Write};
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::process::CommandExt;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, ExitStatus, Stdio};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -449,8 +449,18 @@ mod tty {
             process.wait_for("Choose what to scan");
             process.send(input);
             let (status, output) = process.wait();
-            assert_eq!(status.code(), Some(130), "{name}: {output}");
-            assert!(output.contains("Scan cancelled."), "{name}: {output}");
+            // Ctrl-C reaches the menu as the byte 0x03 once the CLI has put the
+            // terminal in raw mode, and as a SIGINT from the line discipline
+            // before that. Which one happens is a race between this write and
+            // the child's tcsetattr, and macOS loses it where Linux wins. A
+            // shell reports either as 130, and what the case is really about
+            // holds in both: no scan ran and the workspace is untouched.
+            if name == "ctrl-c" && status.signal() == Some(libc::SIGINT) {
+                assert_eq!(status.code(), None, "{name}: {output}");
+            } else {
+                assert_eq!(status.code(), Some(130), "{name}: {output}");
+                assert!(output.contains("Scan cancelled."), "{name}: {output}");
+            }
             assert!(!output.contains("Scanned "), "{name}: {output}");
             assert_eq!(fs::read(root.join("src/lib.rs")).unwrap(), before);
             fs::remove_dir_all(root).unwrap();
