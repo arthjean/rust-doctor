@@ -81,10 +81,17 @@ jobs:
       # Several integration tests spawn `cargo clippy` against fixture
       # workspaces, so the component is required on every leg that runs tests,
       # not only on the clippy job above.
+      #
+      # The Windows target comes with it: `rule_scaling_precision` checks a
+      # fixture under `--target x86_64-pc-windows-msvc` to observe
+      # `clippy::permissions_set_readonly_false` where Unix permissions do not
+      # exist. Only that target's standard library is needed, never a linker,
+      # since the test type-checks and never builds an executable.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
           components: clippy
+          targets: x86_64-pc-windows-msvc
 
       - uses: Swatinem/rust-cache@v2
         with:
