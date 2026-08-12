@@ -261,15 +261,19 @@ jobs:
           # Absolute directories, never `release-packages/<key>`: npm resolves a
           # bare `a/b` argument as the GitHub shorthand owner/repo and goes
           # looking for a repository instead of publishing the folder.
+          # The dry-run comes before the skip, not after: a run that is not
+          # releasing exists to validate the candidate, and a version already on
+          # the registry is the normal case between releases. Skipping there
+          # would make the job green without having read a single package.
           publish() {
             directory="$1"
             name="$2"
-            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
-              echo "$name@$VERSION is already on the registry, skipping"
-              return 0
-            fi
             if [ "$RELEASING" != "true" ]; then
               npm publish "$directory" --access public --provenance --dry-run
+              return 0
+            fi
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "$name@$VERSION is already on the registry, skipping"
               return 0
             fi
             npm publish "$directory" --access public --provenance
