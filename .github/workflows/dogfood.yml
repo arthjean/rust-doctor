@@ -1,0 +1,104 @@
+name: Rust Doctor
+
+# The analogue of React Doctor's react-doctor.yml: this repository scans itself
+# with the binary built from the commit under review, never from a published
+# release. A rule that regresses shows up on the pull request that caused it.
+#
+# On a pull request the scan runs in baseline mode, which is the mode the tool
+# exists for in CI: it materializes the comparison ref in a temporary worktree,
+# scans both sides, and reports only what the change introduced. The existing
+# backlog is not the contributor's problem.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: rust-doctor-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scan:
+    name: Self-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Baseline scope resolves a comparison ref and checks it out into a
+          # temporary worktree, so the shallow default clone is not enough.
+          fetch-depth: 0
+
+      # rust-doctor shells out to `cargo clippy` inside the scanned workspace.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: dogfood
+
+      - name: Build the scanner under review
+        run: cargo build --release --locked --bin rust-doctor
+
+      # BASE_REF reaches the shell through the environment rather than through
+      # `${{ }}` interpolation: a branch name is attacker-controlled text on a
+      # fork pull request, and interpolating it into a run block is a command
+      # injection.
+      - name: Scan
+        id: scan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "${BASE_REF:-}" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            scope_arguments=(--scope baseline --base "origin/$BASE_REF")
+          else
+            scope_arguments=(--scope full)
+          fi
+
+          # The gate is the product surface: a diagnostic at or above the
+          # blocking level exits non-zero. Keep the run alive long enough to
+          # publish the report, then re-raise the tool's own exit code.
+          set +e
+          ./target/release/rust-doctor . --yes --verbose "${scope_arguments[@]}" \
+            > scan.txt 2>&1
+          scan_status=$?
+          ./target/release/rust-doctor . --yes --json "${scope_arguments[@]}" \
+            > scan.json 2>/dev/null
+          set -e
+
+          {
+            echo '## Rust Doctor'
+            echo
+            echo '```'
+            cat scan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$scan_status"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-doctor-report
+          path: |
+            scan.txt
+            scan.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,192 @@
+name: CI
+
+# The gate AGENTS.md documents: clippy clean, tests green, the Node launcher
+# proven. React Doctor splits this across ci.yml and code-quality.yml because a
+# JavaScript workspace has lint and typecheck as separate passes; a Rust crate
+# has one linter, so the two collapse into this file.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Keyed by PR number rather than head_ref: two fork PRs can share a branch name
+# (most often `main`), and a name-keyed group would let one contributor's push
+# cancel another's unrelated run. Pushes to main are never canceled in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The toolchain is pinned, not `stable`. Clippy's diagnostics ARE the product
+  # here: 37 of the 62 catalogued rules are Clippy lints, and tests/corpus.json
+  # records the exact clippy version its measurement was taken under. A floating
+  # `stable` would silently move the catalog's meaning every six weeks.
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: clippy
+
+      - name: Clippy
+        run: cargo clippy --all-targets --no-deps --locked -- -D warnings
+
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # tests/git_scope_oracle.rs and tests/baseline_oracle.rs build their
+          # own repositories in scratch directories and set their own git
+          # identity, so no global git config is needed. Full history is still
+          # required: the baseline scope materializes a comparison ref in a
+          # temporary worktree.
+          fetch-depth: 0
+
+      # Several integration tests spawn `cargo clippy` against fixture
+      # workspaces, so the component is required on every leg that runs tests,
+      # not only on the clippy job above.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: test-${{ matrix.os }}
+
+      - name: Test
+        run: cargo test --locked
+
+  # The crate advertises rust-version = "1.95". This leg is what keeps that
+  # promise honest: a dependency bump that raises the real floor fails here
+  # instead of failing a user's `cargo install` months later. Check only, not
+  # test: the claim is that the crate compiles on 1.95, not that its test
+  # harness does.
+  msrv:
+    name: MSRV 1.95
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: msrv
+
+      - name: Check
+        run: cargo check --locked --all-targets
+
+  # Non-blocking on purpose. npm/rust-doctor/lib/launcher.js declares a
+  # @rust-doctor/win32-x64 package, so Windows is a shipping target, but the
+  # source is written against Unix semantics in several places (symlink
+  # resolution in workspace_path.rs, the corpus harness is #![cfg(unix)]
+  # outright). This leg measures the real distance to a Windows release without
+  # blocking work that has nothing to do with it. Promote it to required once
+  # it is green, or drop win32-x64 from the launcher.
+  windows:
+    name: Tests (windows, advisory)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    defaults:
+      run:
+        # Not bash: Git Bash prepends its coreutils `link.exe`, which shadows
+        # the MSVC linker and breaks every build-script link.
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: test-windows
+
+      - name: Test
+        run: cargo test --locked
+
+  launcher:
+    name: Node launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.3.14
+
+      - name: Test the launcher
+        working-directory: npm/rust-doctor
+        run: bun test tests
+
+  # The packed proof builds the release binary, assembles the wrapper and the
+  # linux-x64 native package, installs the pair into a scratch prefix and drives
+  # the resulting `rust-doctor` end to end. It is the only check that exercises
+  # what an `npx rust-doctor` user actually receives, which is why it runs on
+  # every push rather than only at release time. pack-local.mjs refuses any
+  # platform other than linux-x64, so this job is deliberately single-platform.
+  packed:
+    name: Packed launcher smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: packed
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.3.14
+
+      - name: Packed launcher smoke
+        working-directory: npm/rust-doctor
+        run: bun run smoke:packed

@@ -1,0 +1,204 @@
+name: Release
+
+# Builds the five platform binaries the Node launcher declares in
+# npm/rust-doctor/lib/launcher.js and publishes them as workflow artifacts.
+#
+# NOTHING IS PUBLISHED HERE. No `cargo publish`, no `npm publish`, no release
+# creation. Cargo.toml still carries `publish = false`, the crates.io name
+# currently serves the 0.2.0 written before this rewrite, and the npm name was
+# unpublished from a retired account. Those are product decisions, not CI
+# decisions. When they are settled, the publishing steps attach at the two
+# points marked PUBLICATION HOOK below.
+#
+# React Doctor's publish.yml is driven by Changesets, which has no analogue for
+# a single Rust crate: the version lives in Cargo.toml and the launcher's
+# package.json mirrors it (pack-local.mjs fails the build when they disagree),
+# so a release is one version bump, not a changeset graph.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04 rather than ubuntu-latest: the glibc the binary links
+          # against is the oldest one it will run on, and `latest` silently
+          # moves that floor when GitHub rolls the label forward.
+          - platform: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            native: true
+          - platform: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            native: true
+          - platform: darwin-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            native: true
+          # Cross-compiled from the Apple Silicon runner: Xcode ships both
+          # slices, and GitHub's Intel macOS images are on their way out. The
+          # tradeoff is that this leg cannot run the binary it produces, so its
+          # smoke step is skipped rather than faked.
+          - platform: darwin-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            native: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: release-${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --bin rust-doctor --target ${{ matrix.target }}
+
+      # Proves the artifact starts and reports the version Cargo.toml declares,
+      # which is the one invariant pack-local.mjs later checks the wrapper
+      # manifest against.
+      - name: Verify the binary runs
+        if: matrix.native
+        run: ./target/${{ matrix.target }}/release/rust-doctor --version
+
+      - name: Stage the binary
+        run: |
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/rust-doctor" staging/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-doctor-${{ matrix.platform }}
+          path: staging
+          if-no-files-found: error
+          retention-days: 7
+
+  # Separate from the matrix above rather than a fifth leg with a conditional
+  # shell. Every cargo step here must run under pwsh: Git Bash prepends its
+  # coreutils `link.exe` to PATH, which shadows the MSVC linker and breaks the
+  # link step of any build script in the graph (blake3 carries one).
+  build-windows:
+    name: win32-x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: release-x86_64-pc-windows-msvc
+
+      - name: Build
+        run: cargo build --release --locked --bin rust-doctor --target x86_64-pc-windows-msvc
+
+      - name: Verify the binary runs
+        run: .\target\x86_64-pc-windows-msvc\release\rust-doctor.exe --version
+
+      - name: Stage the binary
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\rust-doctor.exe staging\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-doctor-win32-x64
+          path: staging
+          if-no-files-found: error
+          retention-days: 7
+
+  # The launcher contract, proven against a real install rather than asserted.
+  # pack-local.mjs refuses any platform but linux-x64, so this covers one of the
+  # five packages end to end; extending it to the other four is what stands
+  # between this workflow and an actual npm release.
+  launcher:
+    name: Packed launcher proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: release-launcher
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.3.14
+
+      - name: Packed launcher smoke
+        working-directory: npm/rust-doctor
+        run: bun run smoke:packed
+
+      # PUBLICATION HOOK (npm): the wrapper and the five @rust-doctor/<platform>
+      # packages are assembled and published here, once the account and the name
+      # are settled. Keep `npm publish --dry-run` as the last non-publishing
+      # step so the candidate is validated even while publication is off.
+
+  # A tag build states what it would ship, and nothing more.
+  summary:
+    name: Release summary
+    needs: [build, build-windows, launcher]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Describe the candidate
+        run: |
+          {
+            echo '## Release candidate'
+            echo
+            echo 'Built, not published. Publication is deliberately absent from this workflow.'
+            echo
+            echo '| Artifact | Size |'
+            echo '|---|---|'
+            find artifacts -type f -printf '| %p | %s bytes |\n' | sort
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # PUBLICATION HOOK (crates.io): `cargo publish` attaches here, after
+      # `publish = false` is removed from Cargo.toml and the version moves past
+      # the 0.2.0 already on the registry.
