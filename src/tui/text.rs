@@ -433,11 +433,11 @@ mod tests {
         let line = Line::of(Span::linked(
             "Rust Doctor",
             Style::color(Color::Cyan),
-            "https://rust-doctor.vercel.app",
+            "https://rust-doctor.com",
         ));
         assert_eq!(line.render(false, false), "Rust Doctor");
         let full = line.render(true, true);
-        assert!(full.contains("\u{1b}]8;;https://rust-doctor.vercel.app\u{1b}\\"));
+        assert!(full.contains("\u{1b}]8;;https://rust-doctor.com\u{1b}\\"));
         assert!(full.contains("\u{1b}[36m"));
         assert!(!line.render(true, false).contains("]8;;"));
     }

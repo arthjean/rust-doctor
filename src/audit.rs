@@ -29,7 +29,7 @@ pub(crate) fn source_file_inventory(
 }
 
 pub const SCORE_MODEL: &str = "core-v2";
-const SHARE_BASE_URL: &str = "https://rust-doctor.vercel.app/share";
+const SHARE_BASE_URL: &str = "https://rust-doctor.com/share";
 const MAX_SHARED_COUNT: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

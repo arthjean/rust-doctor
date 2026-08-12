@@ -35,7 +35,7 @@ const BAR_MIN_WIDTH: usize = 10;
 const RIGHT_EDGE_SAFETY: usize = 1;
 
 const BRANDING_NAME: &str = "Rust Doctor";
-const BRANDING_URL: &str = "(https://rust-doctor.vercel.app)";
+const BRANDING_URL: &str = "(https://rust-doctor.com)";
 
 const RAINBOW_GRADIENT_WIDTH: f64 = 80.0;
 const RAINBOW_OKLCH_LIGHTNESS: f64 = 0.638;
@@ -448,7 +448,7 @@ mod tests {
         assert!(lines[0].contains("100 / 100 Great"));
         assert!(lines[1].contains("◠ ◠"));
         assert!(lines[1].contains('█'));
-        assert!(lines[2].contains("Rust Doctor (https://rust-doctor.vercel.app)"));
+        assert!(lines[2].contains("Rust Doctor (https://rust-doctor.com)"));
         assert!(lines[3].contains("└─────┘"));
     }
 

@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "rust-doctor"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "blake3",
  "cargo_metadata",

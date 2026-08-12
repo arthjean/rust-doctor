@@ -14,7 +14,7 @@ mod score_header;
 
 const DEFAULT_WIDTH: usize = 80;
 const MIN_WIDTH: usize = 80;
-const DOCS_URL: &str = "https://rust-doctor.vercel.app/docs";
+const DOCS_URL: &str = "https://rust-doctor.com/docs";
 const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
 
 #[derive(Debug)]

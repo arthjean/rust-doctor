@@ -18,7 +18,7 @@ pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
     crate::policy::find(rule_id).map(|definition| definition.help)
 }
 
-const RULE_BASE_URL: &str = "https://rust-doctor.vercel.app/rules/";
+const RULE_BASE_URL: &str = "https://rust-doctor.com/rules/";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(presentation.groups[0].title, "Same warning");
         assert_eq!(
             presentation.groups[0].rule_url,
-            "https://rust-doctor.vercel.app/rules/clippy%3A%3Asame_warning"
+            "https://rust-doctor.com/rules/clippy%3A%3Asame_warning"
         );
     }
 

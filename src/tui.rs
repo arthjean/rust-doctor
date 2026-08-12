@@ -827,7 +827,7 @@ mod tests {
             location: "src/lib.rs:4".to_owned(),
             message: "called `unwrap` on a value".to_owned(),
             help: Some("Use `?` or `unwrap_or`.".to_owned()),
-            rule_url: "https://rust-doctor.vercel.app/rules/clippy".to_owned(),
+            rule_url: "https://rust-doctor.com/rules/clippy".to_owned(),
             frame: None,
             sites: (1..=10).map(|line| format!("src/lib.rs:{line}")).collect(),
         }

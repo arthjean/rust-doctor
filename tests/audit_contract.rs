@@ -35,7 +35,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
     assert!(score.projected_rule_ids.is_empty());
     assert_eq!(
         clean.audit.share_url().unwrap(),
-        "https://rust-doctor.vercel.app/share?s=100&f=1"
+        "https://rust-doctor.com/share?s=100&f=1"
     );
     let audit_keys: Vec<_> = value["audit"]
         .as_object()
@@ -195,7 +195,7 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.value, 94);
     assert_eq!(
         report.audit.share_url().unwrap(),
-        "https://rust-doctor.vercel.app/share?s=94&w=3&f=1"
+        "https://rust-doctor.com/share?s=94&w=3&f=1"
     );
 }
 

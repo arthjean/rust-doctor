@@ -22,7 +22,7 @@ use super::model::{
 use super::text::{Color, Line, Span, Style, wrap_spans};
 
 pub const BRANDING_NAME: &str = "Rust Doctor";
-pub const BRANDING_URL: &str = "https://rust-doctor.vercel.app";
+pub const BRANDING_URL: &str = "https://rust-doctor.com";
 pub const GITHUB_ACTIONS_SETUP_URL: &str = "https://github.com/arthjean/rust-doctor#github-actions";
 
 const POINTER: &str = "❯";
@@ -793,7 +793,7 @@ mod tests {
         assert!(rendered[0].starts_with("  ┌─────┐  90 / 100 Great  ·  delgres-ceramique"));
         assert!(rendered[1].starts_with("  │ ◠ ◠ │  █"));
         assert!(rendered[1].ends_with('░'));
-        assert!(rendered[2].contains("Rust Doctor (https://rust-doctor.vercel.app)"));
+        assert!(rendered[2].contains("Rust Doctor (https://rust-doctor.com)"));
         assert_eq!(rendered[3], "  └─────┘  ");
     }
 

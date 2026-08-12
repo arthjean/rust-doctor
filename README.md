@@ -47,7 +47,7 @@ copies one rule's context to the clipboard, `esc` goes back and `q` quits.
 ```
   ┌─────┐  90 / 100 Great  ·  my-crate
   │ ◠ ◠ │  █████████████████████████████████████████████░░░░░
-  │  ▽  │  Rust Doctor (https://rust-doctor.vercel.app)
+  │  ▽  │  Rust Doctor (https://rust-doctor.com)
   └─────┘
 
 ❯ Review 5 issues
@@ -113,8 +113,8 @@ The interactive report offers to add the workflow for you, and writes it to
 `.github/workflows/rust-doctor.yml`. It never overwrites an existing file, and
 it is the only thing Rust Doctor ever writes into a scanned workspace.
 
-The workflow installs Rust Doctor from this repository, then scans on every push
-to `main` and every pull request. A pull request is scanned in `--scope
+The workflow installs the published launcher, pinned to the version that wrote
+the file, then scans on every push to `main` and every pull request. A pull request is scanned in `--scope
 baseline` against its base branch, so only what the change introduces is judged
 and the existing backlog stays out of the contributor's way. The report lands in
 the job summary, and the step exits with the tool's own exit code, which is
@@ -127,6 +127,8 @@ request.
 ## Rules
 
 62 rules today: 37 selected Clippy lints, 16 native detectors and 9 structural rules.
+`rust-doctor rules list` prints them all, `--json` for machines, and
+[rust-doctor.com/rules](https://rust-doctor.com/rules) publishes the same list.
 
 The Clippy lints are curated, not the whole `restriction` group. They cover panic paths (`unwrap_used`, `indexing_slicing`, `panic_in_result_fn`), async and concurrency hazards (`await_holding_lock`, `arc_with_non_send_sync`, `rc_mutex`), and allocation waste (`redundant_allocation`, `unnecessary_to_owned`, `useless_vec`).
 
