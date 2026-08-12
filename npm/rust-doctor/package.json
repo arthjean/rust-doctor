@@ -1,6 +1,6 @@
 {
   "name": "rust-doctor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local-first Rust project health audit",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -20,11 +20,11 @@
     "node": "^20.19.0 || >=22.13.0"
   },
   "optionalDependencies": {
-    "@rustdoctor/darwin-x64": "0.3.0",
-    "@rustdoctor/darwin-arm64": "0.3.0",
-    "@rustdoctor/linux-x64": "0.3.0",
-    "@rustdoctor/linux-arm64": "0.3.0",
-    "@rustdoctor/win32-x64": "0.3.0"
+    "@rustdoctor/darwin-x64": "0.3.1",
+    "@rustdoctor/darwin-arm64": "0.3.1",
+    "@rustdoctor/linux-x64": "0.3.1",
+    "@rustdoctor/linux-arm64": "0.3.1",
+    "@rustdoctor/win32-x64": "0.3.1"
   },
   "scripts": {
     "test": "bun test tests",
