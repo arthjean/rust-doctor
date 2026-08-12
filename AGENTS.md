@@ -41,9 +41,33 @@ and no user data.
 | Node launcher tests | `cd npm/rust-doctor && bun test tests` |
 | Packed launcher smoke | `cd npm/rust-doctor && bun run smoke:packed` |
 
-Use `bun` under `npm/rust-doctor/`, never `npm` or `pnpm`. There is no CI: the
-lint and test commands above are the only gate, so run them before calling a
-change complete.
+Use `bun` under `npm/rust-doctor/`, never `npm` or `pnpm`. Run the lint and
+test commands before calling a change complete: `.github/workflows/ci.yml`
+replays them on every push and pull request, so a change that skips them fails
+in the open instead of locally.
+
+## Workflows
+
+| Workflow | When | What it settles |
+|---|---|---|
+| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on its declared MSRV 1.95, the Node launcher and its packed install |
+| `dogfood.yml` | push, pull request | The repository scans itself with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged |
+| `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, as artifacts. It publishes nothing: both publication points are marked `PUBLICATION HOOK` and left unwired |
+| `corpus.yml` | manual | Reproduces the pinned measurement of `tests/corpus.json` from a fresh clone cache, under the toolchain the artifact names |
+
+Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
+rustfmt-clean, and reformatting it is a separate mechanical commit, not
+something a CI file should decide. The Windows leg of `ci.yml` is
+`continue-on-error`, because the launcher declares a `win32-x64` package while
+the source is Unix-shaped in several places; the leg measures that distance
+without blocking on it. And `corpus.yml` is manual rather than nightly, since
+every input it consumes is pinned, so a schedule would recompute the same
+answer at the cost of compiling eighteen repositories.
+
+The toolchain is pinned to 1.97.1 in every workflow rather than tracking
+`stable`. Clippy's diagnostics are the product: 37 of the 62 catalogued rules
+are Clippy lints, and `tests/corpus.json` records the exact Clippy version its
+measurement was taken under.
 
 ## Running the tool on this repository
 

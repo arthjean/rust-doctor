@@ -1,0 +1,117 @@
+name: Corpus
+
+# The analogue of React Doctor's delta-audit.yml: replay the pinned corpus and
+# check that the published measurement still reproduces.
+#
+# Manual only, and deliberately not nightly. The test asserts strict equality
+# against tests/corpus.json, which was recorded under one exact toolchain
+# (rustc 1.97.1 / clippy 0.1.97, named in the artifact's `toolchain` block).
+# Nothing in the corpus floats: repositories are pinned by commit and the
+# toolchain is pinned here, so a scheduled run can only ever repeat the same
+# answer at the cost of compiling eighteen repositories. Run it when a rule
+# changes, which is when the answer can change.
+#
+# TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
+# scanning runs `cargo clippy`, which executes their build scripts and
+# procedural macros. That is acceptable here only because the runner is
+# disposable and every revision is pinned. Do not port these steps to a
+# developer machine, and do not add a repository to the manifest without the
+# review the corpus protocol requires.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  measure:
+    name: Reproduce the pinned measurement
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      # Both paths must sit outside the repository: the reproduction test
+      # refuses to run otherwise, because a corpus checkout inside the working
+      # tree would be scanned as if it were part of this crate. The runner temp
+      # directory is the clean way to say that. `$GITHUB_WORKSPACE/../x` would
+      # not do, since the test compares path prefixes lexically and such a path
+      # still starts with the workspace. This is a step rather than a workflow
+      # `env:` block because the `runner` context does not exist there.
+      - name: Resolve the corpus paths
+        run: |
+          {
+            echo "RUST_DOCTOR_CORPUS_DIR=$RUNNER_TEMP/corpus-cache"
+            echo "RUST_DOCTOR_CORPUS_ARTIFACTS=$RUNNER_TEMP/corpus-artifacts"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/corpus-cache" "$RUNNER_TEMP/corpus-artifacts"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Pinned to the toolchain the artifact was measured under. Read it
+          # back from tests/corpus.json before changing this line.
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: corpus
+
+      # Keyed on the manifest itself: a new pinned revision changes the file,
+      # which invalidates the cache and re-clones. Nothing else does.
+      - name: Restore the clone cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.RUST_DOCTOR_CORPUS_DIR }}
+          key: corpus-clones-${{ hashFiles('tests/corpus.json') }}
+
+      # One shallow fetch of the exact revision per repository, across both
+      # populations: `manifest.repositories` is the healthy public code,
+      # `agent_population.repositories` is the code the tool exists for. The
+      # harness identifies a cached repository by `git rev-parse HEAD`, so the
+      # detached checkout below is what it looks for.
+      - name: Materialize both populations
+        run: |
+          mkdir -p "$RUST_DOCTOR_CORPUS_DIR"
+          jq -r '
+            (.manifest.repositories + .agent_population.repositories)[]
+            | [.name, .url, .commit] | @tsv
+          ' tests/corpus.json | while IFS=$'\t' read -r name url commit; do
+            repository="$RUST_DOCTOR_CORPUS_DIR/$name"
+            if [ "$(git -C "$repository" rev-parse HEAD 2>/dev/null || true)" = "$commit" ]; then
+              continue
+            fi
+            rm -rf "$repository"
+            git init --quiet "$repository"
+            git -C "$repository" remote add origin "$url"
+            git -C "$repository" fetch --quiet --depth 1 origin "$commit"
+            git -C "$repository" checkout --quiet --detach FETCH_HEAD
+          done
+
+      - name: Reproduce
+        run: cargo test --locked --test corpus_precision
+
+      # The reproduction test writes the replayed observations next to the
+      # artifacts when they differ from the published ones. That file is the
+      # whole diagnosis when this job goes red, so keep it whatever happens.
+      - name: Upload the replayed measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-measurement
+          path: ${{ env.RUST_DOCTOR_CORPUS_ARTIFACTS }}/observations.json
+          if-no-files-found: ignore
+          retention-days: 14
