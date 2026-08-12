@@ -118,20 +118,23 @@ jobs:
       - name: Check
         run: cargo check --locked --all-targets
 
-  # Non-blocking on purpose. npm/rust-doctor/lib/launcher.js declares a
-  # @rust-doctor/win32-x64 package, so Windows is a shipping target, but the
-  # source is written against Unix semantics in several places (symlink
-  # resolution in workspace_path.rs, the corpus harness is #![cfg(unix)]
-  # outright). This leg measures the real distance to a Windows release without
-  # blocking work that has nothing to do with it. Promote it to required once
-  # it is green, or drop win32-x64 from the launcher.
+  # Windows compiles, and that is the whole claim this job makes.
+  #
+  # npm/rust-doctor/lib/launcher.js declares a @rust-doctor/win32-x64 package,
+  # so Windows is a shipping target and the code must at least keep building
+  # for it: a `use std::os::unix` outside a `#[cfg]` stopped this leg at
+  # compilation once already, and this job is what catches the next one.
+  #
+  # It stops short of `cargo test` deliberately. As measured on 2026-08-12,
+  # 258 of the 273 unit tests pass on windows-latest and 14 fail, on path
+  # separators, edition resolution and the hotspot self-scan. That is a port to
+  # do, not a flake to retry, and a job that stays red forever teaches everyone
+  # to ignore a red job. Turn this into `cargo test` in the commit that closes
+  # those fourteen, or drop win32-x64 from the launcher and delete the job.
   windows:
-    name: Tests (windows, advisory)
+    name: Build (windows)
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true
-    env:
-      RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     defaults:
       run:
         # Not bash: Git Bash prepends its coreutils `link.exe`, which shadows
@@ -139,21 +142,18 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
-          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: test-windows
+          key: build-windows
 
-      - name: Test
-        run: cargo test --locked
+      - name: Check
+        run: cargo check --locked --all-targets
 
   launcher:
     name: Node launcher

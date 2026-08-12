@@ -50,19 +50,21 @@ in the open instead of locally.
 
 | Workflow | When | What it settles |
 |---|---|---|
-| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on its declared MSRV 1.95, the Node launcher and its packed install |
+| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install |
 | `dogfood.yml` | push, pull request | The repository scans itself with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, as artifacts. It publishes nothing: both publication points are marked `PUBLICATION HOOK` and left unwired |
 | `corpus.yml` | manual | Reproduces the pinned measurement of `tests/corpus.json` from a fresh clone cache, under the toolchain the artifact names |
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not
-something a CI file should decide. The Windows leg of `ci.yml` is
-`continue-on-error`, because the launcher declares a `win32-x64` package while
-the source is Unix-shaped in several places; the leg measures that distance
-without blocking on it. And `corpus.yml` is manual rather than nightly, since
-every input it consumes is pinned, so a schedule would recompute the same
-answer at the cost of compiling eighteen repositories.
+something a CI file should decide. The Windows leg stops at `cargo check`
+rather than `cargo test`: the launcher declares a `win32-x64` package, so the
+build must keep working, but 14 of the 273 unit tests fail there as measured on
+2026-08-12, on path separators, edition resolution and the hotspot self-scan.
+That is a port to do, and a job that stays red forever teaches everyone to
+ignore a red job. And `corpus.yml` is manual rather than nightly, since every
+input it consumes is pinned, so a schedule would recompute the same answer at
+the cost of compiling eighteen repositories.
 
 The structural benchmark asserts a wall clock, and its bounds were measured on
 a development machine. A slower machine declares itself through

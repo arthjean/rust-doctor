@@ -756,6 +756,36 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// Runs `attempt` until the freshly written script stops being reported
+    /// busy.
+    ///
+    /// These tests write a shell script and execute it immediately. The kernel
+    /// answers `ETXTBSY` when any process still holds that file open for
+    /// writing, and a sibling test thread doing its own `fork` inherits every
+    /// descriptor this process had open at that instant, including one this
+    /// test just closed (rust-lang/rust#114554). The window is real on a loaded
+    /// two-core runner and says nothing about the handoff, so it is waited out
+    /// rather than asserted. A failure that is not the race still surfaces,
+    /// because it is returned unchanged on the first attempt that shows it.
+    #[cfg(unix)]
+    fn without_text_busy(
+        mut attempt: impl FnMut() -> Result<(), HandoffError>,
+    ) -> Result<(), HandoffError> {
+        for _ in 0..20u8 {
+            let outcome = attempt();
+            let busy = matches!(
+                outcome,
+                Err(HandoffError::AgentSpawn(_, io::ErrorKind::ExecutableFileBusy))
+                    | Err(HandoffError::ClipboardFailed)
+            );
+            if !busy {
+                return outcome;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        attempt()
+    }
+
     #[cfg(unix)]
     #[test]
     fn non_zero_agent_and_clipboard_fallback_are_typed() {
@@ -771,7 +801,7 @@ mod tests {
         };
         let payload = payload();
         assert_eq!(
-            launch_agent(&agent, &payload, &root),
+            without_text_busy(|| launch_agent(&agent, &payload, &root)),
             Err(HandoffError::AgentExited(AgentTarget::Codex))
         );
 
@@ -786,11 +816,13 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&second, fs::Permissions::from_mode(0o700)).unwrap();
-        copy_to_clipboard_in(
-            &payload,
-            Some(root.as_os_str()),
-            &[("first-copy", &[]), ("second-copy", &[])],
-        )
+        without_text_busy(|| {
+            copy_to_clipboard_in(
+                &payload,
+                Some(root.as_os_str()),
+                &[("first-copy", &[]), ("second-copy", &[])],
+            )
+        })
         .unwrap();
         assert_eq!(fs::read_to_string(capture).unwrap(), payload.as_str());
         fs::remove_dir_all(root).unwrap();
