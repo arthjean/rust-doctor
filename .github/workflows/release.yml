@@ -216,6 +216,14 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships npm 10.
+      # The registry authenticates this job by the OIDC identity the six
+      # packages each name as their trusted publisher, so no token is stored:
+      # a leaked secret cannot publish, and a workflow renamed or moved to
+      # another repository stops being trusted rather than staying authorized.
+      - name: Upgrade npm to a trusted-publishing build
+        run: npm install -g npm@^11.5.1
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -247,7 +255,6 @@ jobs:
 
       - name: Publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
           RELEASING: ${{ github.ref_type == 'tag' }}
         run: |

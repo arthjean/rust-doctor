@@ -96,10 +96,14 @@ That is also why the publish job skips what the registry already serves instead
 of failing, so a re-run after a partial failure finishes the release rather than
 consuming a version.
 
-The job needs one secret, `NPM_TOKEN`, a granular automation token limited to
-the `@rustdoctor` scope and the `rust-doctor` package. Every package is
-published with `--provenance`, which is what ties a tarball to the commit and
-the workflow that built it.
+The job stores no secret. Each of the six packages names this repository's
+`release.yml` as its trusted publisher on npmjs.com, and the registry
+authenticates the run by its OIDC identity, which is why the job upgrades npm
+past 11.5.1 and asks for `id-token: write`. A new package has to be published
+once by token before it can be given a trusted publisher, since the setting
+lives in a package's settings: 0.3.0 went out that way, and the token was
+revoked afterwards. Every package is published with `--provenance`, which ties
+a tarball to the commit and the workflow that built it.
 
 ## Running the tool on this repository
 
