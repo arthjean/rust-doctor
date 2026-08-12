@@ -23,8 +23,6 @@ Run this at your workspace root to get an audit.
 npx rust-doctor@latest
 ```
 
-https://github.com/user-attachments/assets/318ba31a-9ce4-4040-b1f2-727478f74e29
-
 ### 2. Hand off to agents
 
 Once you have an audit, the report hands the findings to your coding agent, with the rules, their spans, and the scan scope already written into the prompt.
