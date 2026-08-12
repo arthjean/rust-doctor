@@ -199,6 +199,28 @@ fn normalized_for_entry(report: &Value) -> Value {
     normalized
 }
 
+/// The fixture's own commit hash, held out of the pinned output hash.
+///
+/// `prepare_fixture` writes the absolute path of the git dependency into the
+/// manifest it then commits, so the fixture's tree, and with it its commit,
+/// differ between one machine's checkout root and another's: `/home/runner`
+/// on the Linux runner, `/Users/runner` on the macOS one. The value names
+/// where the fixture was built, never what the product did, which is why the
+/// hash is taken with it replaced rather than with the whole scope dropped.
+/// Its shape is still asserted at the call site, where a 40-digit hexadecimal
+/// base is required of every `files` case.
+fn without_fixture_commit(output: &[u8]) -> Vec<u8> {
+    const FIELD: &str = "\"comparison_base\":\"";
+    const PINNED: &str = "0000000000000000000000000000000000000000";
+    let text = String::from_utf8_lossy(output);
+    let Some(start) = text.find(FIELD).map(|at| at + FIELD.len()) else {
+        return output.to_vec();
+    };
+    let mut normalized = text.into_owned();
+    normalized.replace_range(start..start + PINNED.len(), PINNED);
+    normalized.into_bytes()
+}
+
 fn diagnostic_ids(report: &Value) -> BTreeSet<String> {
     report["diagnostics"]
         .as_array()
@@ -267,7 +289,7 @@ fn run_case(
         let output = expected_output.unwrap();
         output_hashes.insert(
             entry_name,
-            blake3::hash(&v6_compatible_output(&output))
+            blake3::hash(&without_fixture_commit(&v6_compatible_output(&output)))
                 .to_hex()
                 .to_string(),
         );

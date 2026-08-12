@@ -462,6 +462,11 @@ mod tests {
     /// abstain on exactly the layout where the build path is unignored and its
     /// link is sitting untracked. This repository is one of those workspaces,
     /// so the rule was blind to its own case here.
+    // The layout under test is a POSIX symbolic link, which is what `git
+    // check-ignore` refuses to look beyond. Windows has its own link kinds and
+    // its own answer, so the case is stated where it exists rather than
+    // approximated where it does not.
+    #[cfg(unix)]
     #[test]
     fn a_symlinked_build_directory_is_probed_rather_than_abstained_on() {
         use std::os::unix::fs::symlink;

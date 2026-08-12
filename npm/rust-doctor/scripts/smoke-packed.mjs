@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { PLATFORM_PACKAGES } from "../lib/launcher.js";
 import {
@@ -659,6 +659,10 @@ function buildArtifact({ evidence, installed, cli, deterministic, handoff, inter
 }
 
 function writeArtifact(artifact) {
+  // The build this proof drives goes to a temporary target directory, so
+  // `target/` need not exist at all: it does on a machine that has built the
+  // crate before, and does not on a fresh runner.
+  mkdirSync(dirname(artifactPath), { recursive: true });
   const temporaryPath = `${artifactPath}.${process.pid}-${Date.now()}.tmp`;
   try {
     writeFileSync(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`, { flag: "wx" });
