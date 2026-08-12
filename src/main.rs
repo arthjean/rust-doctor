@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod handoff;
+mod tui;
 
 use std::env;
 use std::ffi::OsStr;
@@ -22,7 +23,8 @@ use handoff::{
 use rust_doctor::presentation::ReportPresentation;
 use rust_doctor::render::{TerminalOptions, render_json, render_terminal_with_presentation};
 use rust_doctor::{
-    BlockingLevel, CategoryOverride, InspectRequest, InspectionSession, RuleOverride, ScopeMode,
+    BlockingLevel, CategoryOverride, InspectReport, InspectRequest, InspectionSession, RuleOverride,
+    ScopeMode, Status,
 };
 
 const TRUST_WARNING: &str = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";
@@ -247,9 +249,27 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     let elapsed = started.elapsed();
     let scan_exit = report.exit_code();
     let presentation = ReportPresentation::derive_terminal(&report);
+    let color = terminal_color_enabled(
+        stdout_is_terminal,
+        env::var_os("NO_COLOR").as_deref(),
+        term.as_deref(),
+    );
+    let animate = terminal_animation_enabled(
+        stdout_is_terminal,
+        env::var_os("NO_COLOR").as_deref(),
+        term.as_deref(),
+        env::var_os("CI").as_deref(),
+    );
+    // `--verbose` means print everything, so it keeps the linear report; a
+    // failed scan does too, because its errors are the only thing worth
+    // reading and the interactive report has no room to carry them.
+    let interactive_report =
+        interactive && !arguments.json && !arguments.verbose && report.status != Status::Failed;
     let stdout = io::stdout();
     let render_result = if arguments.json {
         render_json(&report, stdout.lock())
+    } else if interactive_report {
+        Ok(())
     } else {
         render_terminal_with_presentation(
             &report,
@@ -264,17 +284,8 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
                     term.as_deref(),
                     env::var_os("COLUMNS").as_deref(),
                 ),
-                color: terminal_color_enabled(
-                    stdout_is_terminal,
-                    env::var_os("NO_COLOR").as_deref(),
-                    term.as_deref(),
-                ),
-                animate: terminal_animation_enabled(
-                    stdout_is_terminal,
-                    env::var_os("NO_COLOR").as_deref(),
-                    term.as_deref(),
-                    env::var_os("CI").as_deref(),
-                ),
+                color,
+                animate,
             },
         )
     };
@@ -286,26 +297,70 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    if interactive
-        && !arguments.json
-        && report.audit.source_files > 0
-        && !report.diagnostics.is_empty()
-        && !presentation.groups.is_empty()
+    if interactive_report
+        && let Err(error) = run_interactive_report(
+            &report,
+            &presentation,
+            &workspace_root,
+            rescan_command,
+            color,
+            animate,
+        )
     {
-        match rescan_command
-            .and_then(|command| build_prompt(&report, &presentation, &command))
-            .and_then(|payload| run_handoff_menu(&payload, &workspace_root))
-        {
-            Ok(()) => {}
-            Err(error) => {
-                bounded_stderr(&error.to_string());
-                if scan_exit == 0 {
-                    return ExitCode::from(2);
-                }
-            }
+        bounded_stderr(&error.to_string());
+        if scan_exit == 0 {
+            return ExitCode::from(2);
         }
     }
     ExitCode::from(scan_exit)
+}
+
+/// Draws the interactive report and carries out whatever the reader chose on
+/// the way out. An agent is launched only once the loop has given the terminal
+/// back, so it inherits a screen nothing else is writing to.
+fn run_interactive_report(
+    report: &InspectReport,
+    presentation: &ReportPresentation,
+    workspace_root: &Path,
+    rescan_command: Result<RescanCommand, HandoffError>,
+    color: bool,
+    animate: bool,
+) -> Result<(), HandoffError> {
+    let agents = available_agents();
+    let session = tui::Session {
+        report,
+        presentation,
+        workspace_root,
+        agents: &agents,
+        color,
+        animate,
+    };
+    let completed = match tui::run(&session) {
+        Ok(completed) => completed,
+        Err(error) => {
+            bounded_stderr(&format!("Interactive report unavailable: {error}"));
+            return Ok(());
+        }
+    };
+    if let Some(path) = &completed.installed_workflow {
+        eprintln!("Added {}.", path.display());
+    }
+    match completed.outcome {
+        tui::Outcome::Quit => Ok(()),
+        tui::Outcome::LaunchAgent(index) => {
+            let Some(agent) = agents.get(index) else {
+                return Ok(());
+            };
+            let payload = build_prompt(report, presentation, &rescan_command?)?;
+            launch_agent(agent, &payload, workspace_root)
+        }
+        tui::Outcome::CopyPrompt => {
+            let payload = build_prompt(report, presentation, &rescan_command?)?;
+            copy_to_clipboard(&payload)?;
+            eprintln!("Prompt copied to clipboard.");
+            Ok(())
+        }
+    }
 }
 
 fn validate_scope(
@@ -355,44 +410,6 @@ fn choose_scope(changed_files: usize) -> io::Result<Option<ScopeArgument>> {
     ];
     select_item("Choose what to scan", &items)
         .map(|selection| selection.map(|index| [ScopeArgument::Full, ScopeArgument::Files][index]))
-}
-
-fn run_handoff_menu(
-    payload: &handoff::HandoffPayload,
-    workspace_root: &Path,
-) -> Result<(), HandoffError> {
-    let agents = available_agents();
-    loop {
-        let mut items: Vec<_> = agents
-            .iter()
-            .map(|agent| agent.label().to_owned())
-            .collect();
-        items.push("Copy prompt to clipboard".to_owned());
-        items.push("Skip".to_owned());
-        let selection = match select_item("What would you like to do next?", &items) {
-            Ok(selection) => selection,
-            Err(_) => return Ok(()),
-        };
-        let Some(selection) = selection else {
-            return Ok(());
-        };
-        if selection < agents.len() {
-            return launch_agent(&agents[selection], payload, workspace_root);
-        }
-        if selection == agents.len() {
-            match copy_to_clipboard(payload) {
-                Ok(()) => {
-                    eprintln!("Prompt copied to clipboard.");
-                    return Ok(());
-                }
-                Err(error) => {
-                    bounded_stderr(&error.to_string());
-                    continue;
-                }
-            }
-        }
-        return Ok(());
-    }
 }
 
 fn select_item(prompt: &str, items: &[String]) -> io::Result<Option<usize>> {

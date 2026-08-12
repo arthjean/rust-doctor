@@ -398,8 +398,16 @@ pub fn launch_agent(
 }
 
 pub fn copy_to_clipboard(payload: &HandoffPayload) -> Result<(), HandoffError> {
+    copy_text(payload.as_str())
+}
+
+/// Puts arbitrary already-sanitized text on the clipboard. The interactive
+/// report copies one rule at a time rather than the whole handoff prompt, and
+/// that payload is built where it is displayed rather than by
+/// [`build_prompt`].
+pub fn copy_text(text: &str) -> Result<(), HandoffError> {
     let path = env::var_os("PATH");
-    copy_to_clipboard_in(payload, path.as_deref(), clipboard_candidates())
+    copy_to_clipboard_in(text, path.as_deref(), clipboard_candidates())
 }
 
 fn clipboard_candidates() -> &'static [(&'static str, &'static [&'static str])] {
@@ -417,7 +425,7 @@ fn clipboard_candidates() -> &'static [(&'static str, &'static [&'static str])] 
 }
 
 fn copy_to_clipboard_in(
-    payload: &HandoffPayload,
+    payload: &str,
     path: Option<&OsStr>,
     candidates: &[(&str, &[&str])],
 ) -> Result<(), HandoffError> {
@@ -427,7 +435,7 @@ fn copy_to_clipboard_in(
             continue;
         };
         found = true;
-        if run_clipboard(&executable, arguments, payload.as_str()).is_ok() {
+        if run_clipboard(&executable, arguments, payload).is_ok() {
             return Ok(());
         }
     }
@@ -818,7 +826,7 @@ mod tests {
         fs::set_permissions(&second, fs::Permissions::from_mode(0o700)).unwrap();
         without_text_busy(|| {
             copy_to_clipboard_in(
-                &payload,
+                payload.as_str(),
                 Some(root.as_os_str()),
                 &[("first-copy", &[]), ("second-copy", &[])],
             )

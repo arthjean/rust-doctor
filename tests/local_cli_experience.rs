@@ -130,7 +130,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     assert!(clean.contains("No issues found."));
     assert!(clean.contains("All 0 occurrences across 0 findings"));
     assert!(clean.contains("100 / 100 Great"));
-    assert!(!clean.contains("What would you like to do next?"));
+    assert!(!clean.contains("Hand off to an agent"));
 
     let partial = run(&["--yes"], &project("compile-error"));
     assert_eq!(partial.status.code(), Some(1));
@@ -143,7 +143,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     let no_rust = String::from_utf8(no_rust.stdout).unwrap();
     assert!(no_rust.contains("Score unavailable: no Rust files were analyzed."));
     assert!(!no_rust.contains("Share:"));
-    assert!(!no_rust.contains("What would you like to do next?"));
+    assert!(!no_rust.contains("Hand off to an agent"));
 }
 
 #[test]
@@ -160,12 +160,12 @@ fn redirected_ci_and_yes_runs_never_offer_or_launch_handoff() {
         let output = command.output().unwrap();
         let terminal = String::from_utf8(output.stdout).unwrap();
         assert!(output.status.success());
-        assert!(!terminal.contains("What would you like to do next?"));
+        assert!(!terminal.contains("Hand off to an agent"));
         assert!(!terminal.contains("Choose what to scan"));
     }
 
     let yes = terminal(&["--yes"], &project("clippy-warning"));
-    assert!(!yes.contains("What would you like to do next?"));
+    assert!(!yes.contains("Hand off to an agent"));
 
     let redirected = binary()
         .arg("--yes")
@@ -411,6 +411,80 @@ mod tty {
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
+    /// A terminal run opens the interactive report rather than the linear one,
+    /// and leaves on `q` with the scan's own exit code.
+    #[test]
+    fn a_terminal_run_opens_the_interactive_report_on_its_score_and_its_menu() {
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full"]);
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("Hand off to an agent");
+        // Every marker has to survive the styling: a span boundary splits the
+        // stream, so only text one span carries whole can be matched here.
+        let frame = String::from_utf8_lossy(&process.output).into_owned();
+        for marker in [
+            "┌─────┐",
+            " / 100 ",
+            "Rust Doctor",
+            "Review ",
+            "↑/↓ move · enter select · q quit",
+        ] {
+            assert!(frame.contains(marker), "{marker} missing from\n{frame}");
+        }
+        process.send(b"q");
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert!(
+            !output.contains("All 3 occurrences across 3 findings"),
+            "the linear report belongs to the non-interactive runs: {output}"
+        );
+    }
+
+    /// The review is one `esc` deep: leaving it comes back to the landing with
+    /// the menu moved on to what to do next, rather than quitting.
+    #[test]
+    fn reviewing_the_issues_shows_a_detail_and_esc_returns_to_the_next_action() {
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full"]);
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("Review ");
+        process.send(b"\r");
+        process.wait_for(" copy context");
+        let frame = String::from_utf8_lossy(&process.output).into_owned();
+        for marker in ["Impact", "Why", "issue 1/", "findings", "unread"] {
+            assert!(frame.contains(marker), "{marker} missing from\n{frame}");
+        }
+        process.send(b"\x1b");
+        // A lone Esc is only an Esc once nothing follows it inside the window
+        // the key reader gives an escape sequence, so the next key waits.
+        thread::sleep(Duration::from_millis(250));
+        process.send(b"\r");
+        process.wait_for("Choose how to continue");
+        process.send(b"q");
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+    }
+
+    /// `--verbose` means print everything, so it keeps the linear report even
+    /// on a terminal and never opens a menu.
+    #[test]
+    fn verbose_keeps_the_linear_report_on_a_terminal() {
+        let mut command = binary();
+        command
+            .arg(kernel("todo"))
+            .args(["--scope", "full", "--verbose"]);
+        let (status, output) = PtyProcess::spawn(command).wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert!(
+            output.contains("All 3 occurrences across 3 findings"),
+            "{output}"
+        );
+        assert!(!output.contains("↑/↓ move"), "{output}");
+    }
+
+    /// Walks the interactive report from its landing to the agent it hands
+    /// off to. `selection` is what the agent screen itself receives, so a
+    /// caller only has to say which agent it wants.
     fn assert_handoff_contract(
         command: Command,
         selection: &[u8],
@@ -418,8 +492,12 @@ mod tty {
         workspace: &Path,
     ) {
         let mut process = PtyProcess::spawn(command);
-        process.wait_for("What would you like to do next?");
+        process.wait_for("Hand off to an agent");
         assert!(!String::from_utf8_lossy(&process.output).contains("Choose what to scan"));
+        // The landing opens on the review; the handoff is the entry under it,
+        // and this workspace carries no `.git`, so no CI entry sits between.
+        process.send(b"\x1b[B\r");
+        process.wait_for("Choose how to continue");
         process.send(selection);
         let (status, output) = process.wait();
         assert_eq!(status.code(), Some(0), "{output}");

@@ -25,9 +25,31 @@ rust-doctor                 # scan the current workspace
 rust-doctor path/to/project # scan somewhere else
 rust-doctor --json          # machine-readable report
 rust-doctor --verbose       # every finding, not just the top one
+rust-doctor --yes           # never prompt, print the linear report
 ```
 
-A scan looks like this:
+In a terminal the scan ends on an interactive report: the score, then a menu to
+review the findings one rule at a time, add the GitHub Actions workflow, or hand
+the work to Claude Code, Codex or Cursor. In the review, `↑/↓` moves, `enter`
+copies one rule's context to the clipboard, `esc` goes back and `q` quits.
+
+```
+  ┌─────┐  90 / 100 Great  ·  my-crate
+  │ ◠ ◠ │  █████████████████████████████████████████████░░░░░
+  │  ▽  │  Rust Doctor (https://rust-doctor.vercel.app)
+  └─────┘
+
+❯ Review 5 issues
+
+› Add to GitHub Actions (Recommended)
+
+› Hand off to an agent
+
+↑/↓ move · enter select · q quit
+```
+
+Anything that is not a terminal on both ends, and any run with `--json`,
+`--yes` or `--verbose`, gets the linear report instead:
 
 ```
 Scanning Rust files...
@@ -73,6 +95,23 @@ rust-doctor --scope baseline --base main  # only findings your change introduced
 ```
 
 `--scope baseline` materializes the comparison ref in a temporary worktree, scans both sides, and reports the delta. That is the mode for CI: it ignores the existing backlog and fails only on what the change adds.
+
+## GitHub Actions
+
+The interactive report offers to add the workflow for you, and writes it to
+`.github/workflows/rust-doctor.yml`. It never overwrites an existing file, and
+it is the only thing Rust Doctor ever writes into a scanned workspace.
+
+The workflow installs Rust Doctor from this repository, then scans on every push
+to `main` and every pull request. A pull request is scanned in `--scope
+baseline` against its base branch, so only what the change introduces is judged
+and the existing backlog stays out of the contributor's way. The report lands in
+the job summary, and the step exits with the tool's own exit code, which is
+non-zero only when a diagnostic reaches the blocking level.
+
+The base branch name reaches the shell through the environment rather than
+through `${{ }}` interpolation: it is attacker-controlled text on a fork pull
+request.
 
 ## Rules
 

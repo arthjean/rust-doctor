@@ -3,7 +3,8 @@
 rust-doctor is one Rust crate (edition 2024, rustc 1.95 or later): a local-first
 CLI that inspects a trusted Cargo workspace with curated Clippy lints and native
 detectors, then scores it out of 100. `src/lib.rs` exposes
-`inspect(InspectRequest) -> Report`, `src/main.rs` is the CLI on top of it, and
+`inspect(InspectRequest) -> Report`, `src/main.rs` is the CLI on top of it,
+`src/tui/` is the interactive report it opens on a terminal, and
 `npm/rust-doctor/` is a Node launcher for the released binary.
 
 The catalog holds 62 rules across five producers, and a rule's id prefix names
@@ -80,12 +81,35 @@ measurement was taken under.
 
 ## Running the tool on this repository
 
-The CLI opens a scope menu when stdin and stdout are both terminals. Pass
-`--yes` for any scripted or agent-driven run:
+The CLI opens a scope menu when stdin and stdout are both terminals, and then
+the interactive report instead of the linear one. Pass `--yes` for any scripted
+or agent-driven run:
 
 ```bash
 cargo run --release -- . --yes --verbose
 ```
+
+## The interactive report
+
+`src/tui/` is a transposition of React Doctor's Ink application, screen for
+screen: the landing score block and its action menu, the split review with the
+rule list on the left and the detail on the right, the agent handoff, and the
+two GitHub Actions screens. `model.rs` carries the geometry of
+`resolve-report-layout.ts` unchanged, so the same terminal size picks the same
+split, stacked or compact arrangement the reference picks. `screens.rs` draws,
+`text.rs` measures in display columns and sanitizes every span, and `tui.rs` is
+the state machine and the frame loop.
+
+Two things it deliberately does not do. It never takes the alternate screen:
+frames are rewritten in place the way Ink does, so the last one survives in the
+scrollback. And it never renders on a run that asked for `--json`, `--yes` or
+`--verbose`, or on a scan that failed, because those readers are pipes, CI,
+agents, and someone who needs an error message the report has no room for. Every
+existing test asserts against the linear renderer, which is unchanged.
+
+The only file the tool writes into a scanned workspace is
+`.github/workflows/rust-doctor.yml`, only from the CI menu entry, and never over
+an existing file (`src/tui/workflow.rs`).
 
 ## Invariants the tests enforce
 
