@@ -89,16 +89,18 @@ function validateBinary(binaryPath) {
   }
 }
 
-function nativeManifest(packageName, version, key) {
+export function nativeManifest(packageName, version, key) {
   const [os, cpu] = key.split("-");
   return {
     name: packageName,
     version,
     description: `Rust Doctor native binary for ${os} ${cpu}`,
     license: "MIT OR Apache-2.0",
+    // The canonical git+https form: npm resolves provenance against this field,
+    // and a bare https URL is not what it matches the workflow's repository to.
     repository: {
       type: "git",
-      url: "https://github.com/arthjean/rust-doctor",
+      url: "git+https://github.com/arthjean/rust-doctor.git",
     },
     os: [os],
     cpu: [cpu],

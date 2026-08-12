@@ -24,6 +24,13 @@ import { packageRoot } from "../scripts/pack-local.mjs";
 
 const roots = [];
 
+// The launcher refuses a native package whose version differs from the
+// wrapper's, so the fixtures state the shipped version rather than a literal
+// that a release bump would silently invalidate.
+const wrapperVersion = JSON.parse(
+  readFileSync(join(packageRoot, "package.json"), "utf8"),
+).version;
+
 function fixture(name) {
   const root = mkdtempSync(join(tmpdir(), `rust-doctor-wrapper-${name}-`));
   roots.push(root);
@@ -36,20 +43,20 @@ function fixture(name) {
     root,
     wrapper,
     command: join(wrapper, "bin/rust-doctor.js"),
-    native: join(root, "node_modules/@rust-doctor/linux-x64"),
+    native: join(root, "node_modules/@rustdoctor/linux-x64"),
   };
 }
 
 function installNative(
   fixture_,
   source,
-  { mode = 0o755, version = "0.1.0", os = "linux", cpu = "x64" } = {},
+  { mode = 0o755, version = wrapperVersion, os = "linux", cpu = "x64" } = {},
 ) {
   const bin = join(fixture_.native, "bin");
   mkdirSync(bin, { recursive: true });
   writeFileSync(
     join(fixture_.native, "package.json"),
-    `${JSON.stringify({ name: "@rust-doctor/linux-x64", version, os: [os], cpu: [cpu] })}\n`,
+    `${JSON.stringify({ name: "@rustdoctor/linux-x64", version, os: [os], cpu: [cpu] })}\n`,
   );
   const binary = join(bin, "rust-doctor");
   writeFileSync(binary, source);
@@ -201,12 +208,12 @@ setInterval(() => {}, 1000);
     const absentOutput = run(absent);
     expect(absentOutput.status).toBe(1);
     expect(absentOutput.stdout).toBe("");
-    expect(absentOutput.stderr).toContain("@rust-doctor/linux-x64 is not installed");
+    expect(absentOutput.stderr).toContain("@rustdoctor/linux-x64 is not installed");
     expect(Buffer.byteLength(absentOutput.stderr)).toBeLessThan(1024);
 
     const mismatch = fixture("mismatch");
     installNative(mismatch, "#!/bin/sh\nexit 0\n", { version: "9.9.9" });
-    expect(run(mismatch).stderr).toContain("must match rust-doctor 0.1.0");
+    expect(run(mismatch).stderr).toContain(`must match rust-doctor ${wrapperVersion}`);
 
     const mode = fixture("mode");
     installNative(mode, "#!/bin/sh\nexit 0\n", { mode: 0o644 });

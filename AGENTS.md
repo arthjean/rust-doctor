@@ -53,7 +53,7 @@ in the open instead of locally.
 |---|---|---|
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install |
 | `dogfood.yml` | push, pull request | The repository scans itself with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged |
-| `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, as artifacts. It publishes nothing: both publication points are marked `PUBLICATION HOOK` and left unwired |
+| `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages. A tag publishes; a manual run stops at `npm publish --dry-run`. crates.io stays unwired, marked `PUBLICATION HOOK` |
 | `corpus.yml` | manual | Reproduces the pinned measurement of `tests/corpus.json` from a fresh clone cache, under the toolchain the artifact names |
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
@@ -78,6 +78,28 @@ The toolchain is pinned to 1.97.1 in every workflow rather than tracking
 `stable`. Clippy's diagnostics are the product: 37 of the 62 catalogued rules
 are Clippy lints, and `tests/corpus.json` records the exact Clippy version its
 measurement was taken under.
+
+## Publishing
+
+`npx rust-doctor@latest` resolves the unscoped `rust-doctor` wrapper, which
+carries the five `@rustdoctor/<platform>` binaries as exact-version optional
+dependencies. Releasing is one version bump in `Cargo.toml`, mirrored into
+`npm/rust-doctor/package.json` and `bun.lock`, then a `v<version>` tag:
+`release.yml` refuses a tag that disagrees with the manifest.
+
+Two scars from the retired account constrain the names. `@rust-doctor/linux-x64`
+still resolves, owned by `npm-support`, so that scope cannot be reclaimed and
+the binaries live under `@rustdoctor/*`. Versions 0.1.1 through 0.2.0 of
+`rust-doctor` were unpublished and are burned for good, since npm never lets a
+`name@version` be reused: the line restarts at 0.3.0 and can never go back.
+That is also why the publish job skips what the registry already serves instead
+of failing, so a re-run after a partial failure finishes the release rather than
+consuming a version.
+
+The job needs one secret, `NPM_TOKEN`, a granular automation token limited to
+the `@rustdoctor` scope and the `rust-doctor` package. Every package is
+published with `--provenance`, which is what ties a tarball to the commit and
+the workflow that built it.
 
 ## Running the tool on this repository
 

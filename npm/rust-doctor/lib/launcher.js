@@ -4,11 +4,11 @@ import { constants as osConstants } from "node:os";
 import { spawn } from "node:child_process";
 
 export const PLATFORM_PACKAGES = Object.freeze({
-  "darwin-x64": "@rust-doctor/darwin-x64",
-  "darwin-arm64": "@rust-doctor/darwin-arm64",
-  "linux-x64": "@rust-doctor/linux-x64",
-  "linux-arm64": "@rust-doctor/linux-arm64",
-  "win32-x64": "@rust-doctor/win32-x64",
+  "darwin-x64": "@rustdoctor/darwin-x64",
+  "darwin-arm64": "@rustdoctor/darwin-arm64",
+  "linux-x64": "@rustdoctor/linux-x64",
+  "linux-arm64": "@rustdoctor/linux-arm64",
+  "win32-x64": "@rustdoctor/win32-x64",
 });
 
 const wrapperManifest = JSON.parse(

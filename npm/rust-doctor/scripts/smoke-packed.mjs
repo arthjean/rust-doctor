@@ -263,7 +263,7 @@ function installPacked(temporary, packed) {
       private: true,
       dependencies: {
         "rust-doctor": `file:${packed.wrapperArchive}`,
-        "@rust-doctor/linux-x64": `file:${packed.nativeArchive}`,
+        "@rustdoctor/linux-x64": `file:${packed.nativeArchive}`,
       },
       overrides: localOptionalOverrides(optionalStubs, packed.version),
     }, null, 2)}\n`,
@@ -288,7 +288,7 @@ function installPacked(temporary, packed) {
   const wrapper = join(install, "node_modules/.bin/rust-doctor");
   const nativeBinary = join(
     install,
-    "node_modules/@rust-doctor/linux-x64/bin/rust-doctor",
+    "node_modules/@rustdoctor/linux-x64/bin/rust-doctor",
   );
   assert(existsSync(wrapper), "installed wrapper bin is missing");
   assert(existsSync(nativeBinary), "installed native bin is missing");

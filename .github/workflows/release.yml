@@ -1,14 +1,21 @@
 name: Release
 
 # Builds the five platform binaries the Node launcher declares in
-# npm/rust-doctor/lib/launcher.js and publishes them as workflow artifacts.
+# npm/rust-doctor/lib/launcher.js and publishes them to npm, so that
+# `npx rust-doctor@latest` resolves to the binary for the machine that ran it.
 #
-# NOTHING IS PUBLISHED HERE. No `cargo publish`, no `npm publish`, no release
-# creation. Cargo.toml still carries `publish = false`, the crates.io name
-# currently serves the 0.2.0 written before this rewrite, and the npm name was
-# unpublished from a retired account. Those are product decisions, not CI
-# decisions. When they are settled, the publishing steps attach at the two
-# points marked PUBLICATION HOOK below.
+# A tag publishes; anything else stops at `npm publish --dry-run`, so the
+# candidate stays validated between releases. crates.io is still not published
+# here: Cargo.toml carries `publish = false` and the registry name serves the
+# 0.2.0 written before this rewrite, which is a product decision the remaining
+# PUBLICATION HOOK marks rather than settles.
+#
+# The npm names are not the ones the retired account used. `@rust-doctor/*` was
+# transferred to npm-support when that account went away and cannot be
+# reclaimed, so the native packages live under `@rustdoctor/*`. Versions 0.1.1
+# through 0.2.0 of the unscoped `rust-doctor` were unpublished and are burned
+# for good: npm never lets a name@version be reused. That is why the line
+# restarts at 0.3.0.
 #
 # React Doctor's publish.yml is driven by Changesets, which has no analogue for
 # a single Rust crate: the version lives in Cargo.toml and the launcher's
@@ -145,8 +152,9 @@ jobs:
 
   # The launcher contract, proven against a real install rather than asserted.
   # pack-local.mjs refuses any platform but linux-x64, so this covers one of the
-  # five packages end to end; extending it to the other four is what stands
-  # between this workflow and an actual npm release.
+  # five packages end to end, on the only platform this runner can both build
+  # and execute. The other four are proven by construction: publish stages every
+  # package through the same nativeManifest this smoke test installs from.
   launcher:
     name: Packed launcher proof
     runs-on: ubuntu-latest
@@ -171,15 +179,95 @@ jobs:
         working-directory: npm/rust-doctor
         run: bun run smoke:packed
 
-      # PUBLICATION HOOK (npm): the wrapper and the five @rust-doctor/<platform>
-      # packages are assembled and published here, once the account and the name
-      # are settled. Keep `npm publish --dry-run` as the last non-publishing
-      # step so the candidate is validated even while publication is off.
+  # Publishes six packages: the five native ones, then the unscoped wrapper that
+  # depends on them. That order is the contract. The wrapper's
+  # optionalDependencies name all five at an exact version, so a wrapper that
+  # reached the registry first would be installable for a window in which no
+  # binary exists to satisfy it.
+  #
+  # Nothing here is idempotent by npm's design, since a published name@version
+  # can never be replaced, so the job skips what the registry already serves
+  # rather than failing. That is what makes a re-run after a partial failure
+  # safe: it publishes the remainder instead of burning the version.
+  publish:
+    name: Publish to npm
+    needs: [build, build-windows, launcher]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # npm provenance: the attestation is signed with the workflow's OIDC
+      # identity, which is what lets a reader tie the tarball to this commit.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
 
-  # A tag build states what it would ship, and nothing more.
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # A tag names the version it ships, and disagreeing with the manifest is a
+      # release built from the wrong commit rather than a detail to reconcile.
+      - name: Resolve the release version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./npm/rust-doctor/package.json').version")"
+          if [ "$REF_TYPE" = "tag" ] && [ "${REF_NAME#v}" != "$version" ]; then
+            echo "tag $REF_NAME does not name version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stage the five native packages
+        working-directory: npm/rust-doctor
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bun scripts/pack-release.mjs \
+            --artifacts "$GITHUB_WORKSPACE/artifacts" \
+            --output "$GITHUB_WORKSPACE/release-packages" \
+            --expect-version "$VERSION"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASING: ${{ github.ref_type == 'tag' }}
+        run: |
+          publish() {
+            directory="$1"
+            name="$2"
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "$name@$VERSION is already on the registry, skipping"
+              return 0
+            fi
+            if [ "$RELEASING" != "true" ]; then
+              npm publish "$directory" --access public --provenance --dry-run
+              return 0
+            fi
+            npm publish "$directory" --access public --provenance
+          }
+          for key in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            publish "release-packages/$key" "@rustdoctor/$key"
+          done
+          publish npm/rust-doctor rust-doctor
+
+  # What the run shipped, or would have shipped.
   summary:
     name: Release summary
-    needs: [build, build-windows, launcher]
+    needs: [build, build-windows, launcher, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -188,11 +276,19 @@ jobs:
           path: artifacts
 
       - name: Describe the candidate
+        env:
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           {
-            echo '## Release candidate'
-            echo
-            echo 'Built, not published. Publication is deliberately absent from this workflow.'
+            if [ "$REF_TYPE" = "tag" ]; then
+              echo '## Released'
+              echo
+              echo 'Published to npm: the five @rustdoctor/<platform> packages, then the rust-doctor wrapper.'
+            else
+              echo '## Release candidate'
+              echo
+              echo 'Built and validated through `npm publish --dry-run`. Only a tag publishes.'
+            fi
             echo
             echo '| Artifact | Size |'
             echo '|---|---|'

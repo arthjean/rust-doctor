@@ -53,22 +53,23 @@ describe("local package contract", () => {
     expect(readFileSync(join(packageRoot, manifest.bin["rust-doctor"]), "utf8"))
       .toStartWith("#!/usr/bin/env node\n");
     expect(Object.keys(manifest.optionalDependencies)).toEqual([
-      "@rust-doctor/darwin-x64",
-      "@rust-doctor/darwin-arm64",
-      "@rust-doctor/linux-x64",
-      "@rust-doctor/linux-arm64",
-      "@rust-doctor/win32-x64",
+      "@rustdoctor/darwin-x64",
+      "@rustdoctor/darwin-arm64",
+      "@rustdoctor/linux-x64",
+      "@rustdoctor/linux-arm64",
+      "@rustdoctor/win32-x64",
     ]);
     expect(manifest.scripts.postinstall).toBeUndefined();
   });
 
   test("manifest drift and absent optional dependencies fail closed", () => {
+    const version = cargoVersion();
     const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
-    expect(() => validateWrapperManifest({ ...manifest, version: "9.9.9" }, "0.1.0"))
+    expect(() => validateWrapperManifest({ ...manifest, version: "9.9.9" }, version))
       .toThrow("must match Cargo.toml");
     const missingOptional = structuredClone(manifest);
-    delete missingOptional.optionalDependencies["@rust-doctor/linux-x64"];
-    expect(() => validateWrapperManifest(missingOptional, "0.1.0"))
+    delete missingOptional.optionalDependencies["@rustdoctor/linux-x64"];
+    expect(() => validateWrapperManifest(missingOptional, version))
       .toThrow("exactly the five");
   });
 
@@ -80,7 +81,7 @@ describe("local package contract", () => {
     const packed = packLocal({ binaryPath: binary });
     temporaryRoots.push(packed.output);
     expect(packed.key).toBe("linux-x64");
-    expect(packed.packageName).toBe("@rust-doctor/linux-x64");
+    expect(packed.packageName).toBe("@rustdoctor/linux-x64");
     expect(archiveInventory(packed.wrapperArchive)).toEqual([
       "package/bin/rust-doctor.js",
       "package/lib/launcher.js",
@@ -99,7 +100,7 @@ describe("local package contract", () => {
       readFileSync(join(extracted, "package/package.json"), "utf8"),
     );
     expect(nativeManifest).toMatchObject({
-      name: "@rust-doctor/linux-x64",
+      name: "@rustdoctor/linux-x64",
       version: packed.version,
       os: ["linux"],
       cpu: ["x64"],

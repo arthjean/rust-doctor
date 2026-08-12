@@ -8,7 +8,18 @@ Everything runs locally. No network, no upload, no telemetry.
 
 ## Install
 
-Not published yet. Build it from source:
+Run it without installing anything:
+
+```bash
+npx rust-doctor@latest
+```
+
+The npm package is a launcher: it resolves the prebuilt binary for your
+platform from an optional dependency and executes it. Linux, macOS and Windows
+on x64, plus Linux and macOS on arm64. Scanning still needs a Rust toolchain in
+the workspace, since Clippy is one of the five producers.
+
+Or build it from source:
 
 ```bash
 git clone https://github.com/arthjean/rust-doctor
