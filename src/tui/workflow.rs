@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 pub const WORKFLOW_PATH: &str = ".github/workflows/rust-doctor.yml";
@@ -120,15 +120,28 @@ pub fn can_install(workspace_root: &Path) -> bool {
     workspace_root.join(".git").exists() && !workspace_root.join(WORKFLOW_PATH).exists()
 }
 
+/// Writes the workflow and answers with its workspace-relative path, which is
+/// what the caller prints: a report never publishes an absolute path.
+///
+/// The refusal to overwrite is the creation itself rather than a check followed
+/// by a write. Asking the filesystem to create the file only if it is absent
+/// leaves no window where something else could put one there, which is what
+/// makes "never over an existing file" a guarantee instead of a likelihood.
 pub fn install(workspace_root: &Path) -> Result<PathBuf, WorkflowError> {
     let destination = workspace_root.join(WORKFLOW_PATH);
-    if destination.exists() {
-        return Err(WorkflowError::AlreadyPresent);
-    }
     if let Some(directory) = destination.parent() {
         fs::create_dir_all(directory).map_err(|error| WorkflowError::Write(error.kind()))?;
     }
-    fs::write(&destination, workflow()).map_err(|error| WorkflowError::Write(error.kind()))?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::AlreadyExists => WorkflowError::AlreadyPresent,
+            kind => WorkflowError::Write(kind),
+        })?;
+    file.write_all(workflow().as_bytes())
+        .map_err(|error| WorkflowError::Write(error.kind()))?;
     Ok(PathBuf::from(WORKFLOW_PATH))
 }
 
