@@ -16,7 +16,7 @@ use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SyntaxKind, SyntaxNode, TextRange};
 
 use super::aliases::{AliasMap, Provenance};
-use super::literal_string;
+use super::{literal_string, unanimous};
 use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
 use crate::source_text::{compact, intersects_errors};
 
@@ -52,7 +52,9 @@ pub(super) struct Context<'a> {
     pub(super) crates: &'a CrateAliases,
     pub(super) error_ranges: &'a [TextRange],
     pub(super) edition: Edition,
-    pub(super) test_path: bool,
+    /// Does the unit hold test material? Decided by the kernel from Cargo's
+    /// target kind first, never by a detector reading a path.
+    pub(super) test_code: bool,
 }
 
 impl Context<'_> {
@@ -135,10 +137,14 @@ static DYNAMIC_SHELL: Detector = Detector {
 
 pub(super) static DETECTORS: [&Detector; 2] = [&DISABLED_TLS, &DYNAMIC_SHELL];
 
+/// Reqwest's builder disabling certificate or hostname verification.
+///
+/// The rule stays out of test code: verification is routinely turned off on
+/// purpose against a local server with a self-signed certificate, and that is
+/// the dominant reading of the pattern there. `dynamic_shell` below carries no
+/// such exemption on purpose, because an interpolated shell command is a
+/// finding wherever it is written, and a test harness is a place it runs.
 fn disabled_tls(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
-    if context.test_path {
-        return None;
-    }
     let call = ast::MethodCallExpr::cast(node.clone())?;
     let message = match call.name_ref()?.text().as_str() {
         "tls_danger_accept_invalid_certs" | "danger_accept_invalid_certs" => {
@@ -172,7 +178,7 @@ fn disabled_tls(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
         return None;
     }
     if intersects_errors(call.syntax().text_range(), context.error_ranges)
-        || excluded_test_context(&call)
+        || in_test_code(context, call.syntax())
     {
         return None;
     }
@@ -249,8 +255,17 @@ fn plain_segments(path: &ast::Path) -> Option<Vec<String>> {
         .collect()
 }
 
-fn excluded_test_context(call: &ast::MethodCallExpr) -> bool {
-    call.syntax().ancestors().any(|ancestor| {
+/// Is this node test material? The unit answers for the file, Cargo's target
+/// kind first and the path convention second; the attributes answer for the
+/// item, which is what covers an inline `#[cfg(test)]` module of a shipped
+/// file. One question, so a detector that wants to stay quiet in tests asks it
+/// once instead of composing two half-answers.
+fn in_test_code(context: &Context<'_>, node: &SyntaxNode) -> bool {
+    context.test_code || under_test_attribute(node)
+}
+
+fn under_test_attribute(node: &SyntaxNode) -> bool {
+    node.ancestors().any(|ancestor| {
         let has_cfg_test = ancestor
             .children()
             .filter_map(ast::Attr::cast)
@@ -320,17 +335,11 @@ fn format_macro_dynamic(call: &ast::MacroCall, edition: Edition) -> bool {
     if compact(path.syntax()) != "format" {
         return false;
     }
-    let Some(token_tree) = call.token_tree() else {
+    let Some(arguments) = format_arguments(call, edition) else {
         return false;
     };
-    let arguments = token_tree_arguments(token_tree.syntax());
-    let Some((format_literal, values)) = arguments.split_first() else {
-        return false;
-    };
-    let Some(format_expression) = parsed_expression(format_literal, edition) else {
-        return false;
-    };
-    let Some(format_text) = literal_string(format_expression) else {
+    let mut arguments = arguments.args();
+    let Some(format_text) = arguments.next().and_then(literal_string) else {
         return false;
     };
     let fields = format_fields(&format_text);
@@ -340,11 +349,12 @@ fn format_macro_dynamic(call: &ast::MacroCall, edition: Edition) -> bool {
 
     let mut positional = Vec::new();
     let mut named = BTreeMap::new();
-    for value in values {
-        if let Some((name, expression)) = named_format_argument(value) {
-            named.insert(name, expression_is_literal(expression, edition));
-        } else {
-            positional.push(expression_is_literal(value, edition));
+    for argument in arguments {
+        match named_argument(&argument) {
+            Some((name, value)) => {
+                named.insert(name, is_literal(&value));
+            }
+            None => positional.push(is_literal(&argument)),
         }
     }
     let mut next_position = 0;
@@ -362,49 +372,57 @@ fn format_macro_dynamic(call: &ast::MacroCall, edition: Edition) -> bool {
     })
 }
 
-fn token_tree_arguments(tree: &SyntaxNode) -> Vec<String> {
-    let mut arguments = vec![String::new()];
-    for element in tree.children_with_tokens() {
-        if element
-            .as_token()
-            .is_some_and(|token| matches!(token.text(), "(" | ")" | "[" | "]" | "{" | "}"))
-        {
-            continue;
-        }
-        if element.as_token().is_some_and(|token| token.text() == ",") {
-            arguments.push(String::new());
-            continue;
-        }
-        if element.kind().is_trivia() {
-            continue;
-        }
-        if let Some(argument) = arguments.last_mut() {
-            argument.push_str(&element.to_string());
-        }
-    }
-    arguments
-        .into_iter()
-        .filter(|argument| !argument.is_empty())
-        .collect()
+/// The argument list of a `format!` invocation, parsed.
+///
+/// A macro's arguments are a flat token tree, not an argument list, so the
+/// whole tree is handed to the parser at once: prefixing an identifier turns
+/// `("echo {user}", value, width = 4)` into a call expression, and the parser
+/// then splits the commas, keeps the whitespace and hands back typed
+/// expressions. Reading those tokens as text instead is what used to
+/// concatenate `value as usize` into the single identifier `valueasusize` and
+/// cut `probe::<A, B>()` in half at the comma of its generic arguments.
+fn format_arguments(call: &ast::MacroCall, edition: Edition) -> Option<ast::ArgList> {
+    let inner = delimited_text(&call.token_tree()?)?;
+    let ast::Expr::CallExpr(call) = parsed_expression(&format!("f({inner})"), edition)? else {
+        return None;
+    };
+    call.arg_list()
 }
 
-fn named_format_argument(argument: &str) -> Option<(&str, &str)> {
-    let (name, expression) = argument.split_once('=')?;
-    if !name.is_empty()
-        && !expression.starts_with('=')
-        && name
-            .chars()
-            .all(|character| character == '_' || character.is_alphanumeric())
-    {
-        Some((name, expression))
-    } else {
-        None
-    }
+/// The text between a token tree's delimiters, whichever pair was written:
+/// `format!` accepts `()`, `[]` and `{}` and means the same by each.
+fn delimited_text(tree: &ast::TokenTree) -> Option<String> {
+    let text = tree.syntax().text().to_string();
+    let mut characters = text.chars();
+    let opening = characters.next()?;
+    let closing = characters.next_back()?;
+    matches!((opening, closing), ('(', ')') | ('[', ']') | ('{', '}'))
+        .then(|| characters.as_str().to_owned())
 }
 
-fn expression_is_literal(expression: &str, edition: Edition) -> bool {
-    parsed_expression(expression, edition)
-        .is_some_and(|expression| matches!(strip_wrappers(expression), ast::Expr::Literal(_)))
+/// `name = value`, which is how a named `format!` argument parses once the
+/// argument list is a real one: an assignment expression whose left side is a
+/// bare identifier. Recognizing the shape is what replaced splitting the text
+/// on the first `=` and then guarding against `==` by hand.
+fn named_argument(expression: &ast::Expr) -> Option<(String, ast::Expr)> {
+    let ast::Expr::BinExpr(binary) = expression else {
+        return None;
+    };
+    if binary.op_kind() != Some(ast::BinaryOp::Assignment { op: None }) {
+        return None;
+    }
+    let ast::Expr::PathExpr(path) = binary.lhs()? else {
+        return None;
+    };
+    let segments = plain_segments(&path.path()?)?;
+    let [name] = segments.as_slice() else {
+        return None;
+    };
+    Some((name.clone(), binary.rhs()?))
+}
+
+fn is_literal(expression: &ast::Expr) -> bool {
+    matches!(strip_wrappers(expression.clone()), ast::Expr::Literal(_))
 }
 
 fn parsed_expression(expression: &str, edition: Edition) -> Option<ast::Expr> {
@@ -443,26 +461,19 @@ fn format_fields(format: &str) -> Vec<String> {
 /// name. An identifier carried by two different dependencies is dropped rather
 /// than arbitrated.
 pub(super) fn crate_aliases(package: &cargo_metadata::Package) -> CrateAliases {
-    let mut aliases = CrateAliases::new();
-    let mut conflicting = Vec::new();
+    let mut declared: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for dependency in &package.dependencies {
         let krate = dependency.name.replace('-', "_");
         let alias = dependency
             .rename
             .as_deref()
             .map_or_else(|| krate.clone(), |rename| rename.replace('-', "_"));
-        if let Some(existing) = aliases.get(&alias)
-            && existing != &krate
-        {
-            conflicting.push(alias);
-            continue;
-        }
-        aliases.insert(alias, krate);
+        declared.entry(alias).or_default().push(krate);
     }
-    for alias in conflicting {
-        aliases.remove(&alias);
-    }
-    aliases
+    declared
+        .into_iter()
+        .filter_map(|(alias, krates)| unanimous(krates).map(|krate| (alias, krate)))
+        .collect()
 }
 
 /// Aliases shared by every package that reaches a unit. An identifier whose

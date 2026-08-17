@@ -21,7 +21,7 @@ pub(super) fn collect(
 ) -> SourceFileInventory {
     let compiler = scan.map(|scan| compiler_inventory(metadata, &scan.messages));
     let source = source.map(|source| SourceFileInventory {
-        files: source.counters.files_read,
+        files: source.counters.walk.files_read,
         complete: source.errors.is_empty(),
     });
 

@@ -24,9 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ra_ap_syntax::ast::{self, HasAttrs};
-use ra_ap_syntax::{AstNode, SyntaxKind, TextRange};
-
-use crate::report::DiagnosticContext;
+use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
 
 use crate::source_text::compact;
 
@@ -101,22 +99,13 @@ pub(crate) fn collect(enumeration: &Enumeration) -> CrateReferences {
             references.incomplete_packages.extend(packages);
             continue;
         }
-        collect_unit(unit, &packages, is_test_unit(unit, enumeration), &mut references);
+        // A unit a production target also reaches counts as production, because
+        // reporting shipped code as test-only is the expensive mistake.
+        let test_unit = unit.is_test_target(enumeration.contexts());
+        collect_unit(unit, &packages, test_unit, &mut references);
     }
 
     references
-}
-
-/// A unit every reaching target marks as test, bench or example material. A
-/// unit a production target also reaches counts as production, because
-/// reporting shipped code as test-only is the expensive mistake.
-fn is_test_unit(unit: &SourceUnit, enumeration: &Enumeration) -> bool {
-    matches!(
-        unit.context(enumeration.contexts()),
-        Some(
-            DiagnosticContext::Tests | DiagnosticContext::Benchmark | DiagnosticContext::Example
-        )
-    )
 }
 
 fn collect_unit(
@@ -125,34 +114,33 @@ fn collect_unit(
     test_unit: bool,
     references: &mut CrateReferences,
 ) {
-    let tree = unit.tree();
-    // Ranges of inline `#[cfg(test)]` modules. The walk is preorder, so a
-    // module's range is recorded before any path inside it is visited.
-    let mut test_ranges: Vec<TextRange> = Vec::new();
+    // Every site of a test unit is a test site, so the gated ranges only have
+    // to be found inside a production one.
+    let gated = if test_unit {
+        Vec::new()
+    } else {
+        test_gated_ranges(unit)
+    };
 
-    for node in tree.syntax().descendants() {
+    for node in unit.tree().syntax().descendants() {
         match node.kind() {
-            SyntaxKind::MODULE if !test_unit => {
-                if let Some(module) = ast::Module::cast(node.clone())
-                    && module.attrs().any(|attribute| is_cfg_test(&attribute))
-                {
-                    test_ranges.push(node.text_range());
-                }
-            }
             // Only the outermost path of a chain carries the crate-naming
             // first segment: `a::b::c` nests three PATH nodes and the two
             // inner ones repeat what the outer one already says.
-            SyntaxKind::PATH if node.parent().is_none_or(|parent| parent.kind() != SyntaxKind::PATH) => {
-                let Some(name) = ast::Path::cast(node.clone())
-                    .and_then(|path| path.segments().next())
-                    .and_then(|segment| match segment.kind() {
-                        Some(ast::PathSegmentKind::Name(name)) => Some(name.text().to_string()),
-                        _ => None,
-                    })
-                else {
+            SyntaxKind::PATH
+                if node
+                    .parent()
+                    .is_none_or(|parent| parent.kind() != SyntaxKind::PATH) =>
+            {
+                let Some(name) = written_crate_name(&node) else {
                     continue;
                 };
-                record(references, packages, &name, site(test_unit, &test_ranges, node.text_range()));
+                record(
+                    references,
+                    packages,
+                    &name,
+                    site(test_unit, &gated, node.text_range()),
+                );
             }
             SyntaxKind::EXTERN_CRATE => {
                 let Some(name) = ast::ExternCrate::cast(node.clone())
@@ -162,45 +150,69 @@ fn collect_unit(
                 else {
                     continue;
                 };
-                record(references, packages, &name, site(test_unit, &test_ranges, node.text_range()));
+                record(
+                    references,
+                    packages,
+                    &name,
+                    site(test_unit, &gated, node.text_range()),
+                );
             }
-            // Macro arguments are tokens, not paths, and test code sits in
-            // `assert_eq!` almost entirely. An identifier a `::` follows and
-            // no `::` precedes is the head of a written chain; inside a token
-            // tree the separator is two bare `:` tokens. Nested token trees
-            // are their own nodes, so each token is read once.
             SyntaxKind::TOKEN_TREE => {
-                let tokens: Vec<_> = node
-                    .children_with_tokens()
-                    .filter_map(|element| element.into_token())
-                    .filter(|token| !token.kind().is_trivia())
-                    .collect();
-                let colon_pair = |index: usize| {
-                    tokens
-                        .get(index)
-                        .zip(tokens.get(index + 1))
-                        .is_some_and(|(first, second)| {
-                            first.kind() == SyntaxKind::COLON
-                                && second.kind() == SyntaxKind::COLON
-                        })
-                };
-                for (index, token) in tokens.iter().enumerate() {
-                    if token.kind() == SyntaxKind::IDENT
-                        && colon_pair(index + 1)
-                        && !(index >= 2 && colon_pair(index - 2))
-                    {
-                        record(
-                            references,
-                            packages,
-                            token.text(),
-                            site(test_unit, &test_ranges, token.text_range()),
-                        );
-                    }
+                for token in chain_heads(&node) {
+                    record(
+                        references,
+                        packages,
+                        token.text(),
+                        site(test_unit, &gated, token.text_range()),
+                    );
                 }
             }
             _ => {}
         }
     }
+}
+
+/// First segment of a written path, which is the only one that can name a
+/// crate. A segment that is not a plain name, `crate` or `<T as Trait>` for
+/// instance, names no crate.
+fn written_crate_name(node: &SyntaxNode) -> Option<String> {
+    match ast::Path::cast(node.clone())?.segments().next()?.kind()? {
+        ast::PathSegmentKind::Name(name) => Some(name.text().to_string()),
+        _ => None,
+    }
+}
+
+/// Identifiers heading a written path inside a macro's token tree.
+///
+/// Macro arguments are tokens rather than parsed paths, and test code lives
+/// there almost entirely (`assert_eq!` and its siblings). An identifier a `::`
+/// follows and no `::` precedes is the head of a written chain; inside a token
+/// tree that separator is two bare `:` tokens. Nested trees are their own
+/// nodes, so each token is read exactly once.
+fn chain_heads(tree: &SyntaxNode) -> Vec<SyntaxToken> {
+    let tokens: Vec<SyntaxToken> = tree
+        .children_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| !token.kind().is_trivia())
+        .collect();
+    let separator = |index: usize| {
+        tokens
+            .get(index)
+            .zip(tokens.get(index + 1))
+            .is_some_and(|(first, second)| {
+                first.kind() == SyntaxKind::COLON && second.kind() == SyntaxKind::COLON
+            })
+    };
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, token)| {
+            token.kind() == SyntaxKind::IDENT
+                && separator(index + 1)
+                && !(*index >= 2 && separator(index - 2))
+        })
+        .map(|(_, token)| token.clone())
+        .collect()
 }
 
 fn site(test_unit: bool, test_ranges: &[TextRange], range: TextRange) -> ReferenceSites {
@@ -277,7 +289,9 @@ pub(crate) fn mentioned(
         .units
         .values()
         .filter(|unit| unit.package_ids().any(|id| id == package_id))
-        .filter(|unit| reach == Mention::Anywhere || !is_test_unit(unit, enumeration))
+        .filter(|unit| {
+            reach == Mention::Anywhere || !unit.is_test_target(enumeration.contexts())
+        })
         .any(|unit| {
             let excluded = match reach {
                 Mention::Anywhere => Vec::new(),
@@ -288,7 +302,9 @@ pub(crate) fn mentioned(
         })
 }
 
-/// Ranges of the unit's inline `#[cfg(test)]` modules.
+/// Ranges of the unit's inline `#[cfg(test)]` modules. One implementation, so
+/// what the collector calls a test site and what the textual fallback refuses
+/// to read as production evidence cannot come apart.
 fn test_gated_ranges(unit: &SourceUnit) -> Vec<TextRange> {
     unit.tree()
         .syntax()
@@ -334,6 +350,7 @@ fn contains_identifier(haystack: &str, needle: &str, excluded: &[TextRange]) -> 
 mod tests {
     use std::collections::BTreeSet;
 
+    use crate::report::DiagnosticContext;
     use ra_ap_syntax::{Edition, SourceFile};
 
     use super::super::{Identity, Reachability};

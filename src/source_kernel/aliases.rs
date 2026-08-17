@@ -227,30 +227,25 @@ fn plain(segment: &ast::PathSegment) -> bool {
     children.next().is_none()
 }
 
+/// Name a declaration binds in its scope.
+///
+/// A declaration binds its own name whatever kind of item it is, and the
+/// grammar says so: `AnyHasName` covers every kind of `BINDING_KINDS` except
+/// the two that name something they did not declare. `use` is handled by
+/// `record_tree`, and `extern crate` is the exception here, since it names an
+/// existing crate through a `NameRef` unless a rename gave it one of its own.
 fn shadowing_name(node: &SyntaxNode) -> Option<String> {
-    if let Some(item) = ast::Module::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
     if let Some(item) = ast::ExternCrate::cast(node.clone()) {
         return match item.rename() {
+            // `extern crate serde as _;` links the crate and binds no name at
+            // all, so a rename without a name is not a fallback to the crate's.
             Some(rename) => rename.name().map(|name| name.text().to_string()),
             None => item.name_ref().map(|name| name.text().to_string()),
         };
     }
-    if let Some(item) = ast::Struct::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Enum::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Union::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    if let Some(item) = ast::Trait::cast(node.clone()) {
-        return item.name().map(|name| name.text().to_string());
-    }
-    ast::TypeAlias::cast(node.clone())
-        .and_then(|item| item.name().map(|name| name.text().to_string()))
+    ast::AnyHasName::cast(node.clone())?
+        .name()
+        .map(|name| name.text().to_string())
 }
 
 fn shadowed_by_generic_parameter(node: &SyntaxNode, name: &str) -> bool {

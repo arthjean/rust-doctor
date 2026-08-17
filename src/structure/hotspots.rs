@@ -38,7 +38,7 @@ pub(super) const RULES: [&RuleDefinition; 2] =
 /// each is a file its own history routes around rather than reads. Naming them
 /// on a self-scan is the admission the PRD asks the tool to make about its own
 /// code.
-pub(super) const FILE_LINES: usize = 1_000;
+pub(crate) const FILE_LINES: usize = 1_000;
 
 /// Lines an inline `mod` block may reach before it is named.
 pub(super) const MODULE_LINES: usize = 500;
