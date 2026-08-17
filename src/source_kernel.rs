@@ -5,10 +5,11 @@ use std::path::{Component, Path, PathBuf};
 
 use cargo_metadata::Metadata;
 use ra_ap_syntax::ast::{self, HasAttrs, HasName, LiteralKind};
-use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxNode, TextRange};
+use ra_ap_syntax::{AstNode, Edition, SourceFile, TextRange};
 
 use crate::policy::{PolicyPlan, Producer, RuleDefinition};
 use crate::report::DiagnosticContext;
+use crate::source_text::{SourceSpan, intersects_errors, line_starts, source_span};
 
 mod aliases;
 mod detectors;
@@ -30,14 +31,6 @@ pub(crate) struct Candidate {
     pub(crate) target: Option<String>,
     pub(crate) path: String,
     pub(crate) span: SourceSpan,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct SourceSpan {
-    pub(crate) line_start: usize,
-    pub(crate) column_start: usize,
-    pub(crate) line_end: usize,
-    pub(crate) column_end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -854,76 +847,6 @@ fn unique_target(reachability: &BTreeSet<Reachability>) -> Option<String> {
     }
 }
 
-/// Text of a node with every trivia token dropped, so an attribute written
-/// across three lines compares equal to the same attribute written on one.
-pub(crate) fn compact(node: &SyntaxNode) -> String {
-    node.descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia())
-        .map(|token| token.text().to_string())
-        .collect()
-}
-
-fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
-    let start = u32::from(range.start());
-    let end = u32::from(range.end());
-    errors.iter().any(|error| {
-        let error_start = u32::from(error.start());
-        let error_end = u32::from(error.end());
-        if error_start == error_end {
-            error_start >= start && error_start <= end
-        } else {
-            error_start < end && error_end > start
-        }
-    })
-}
-
-pub(crate) fn line_starts(source: &str) -> Vec<usize> {
-    std::iter::once(0)
-        .chain(
-            source
-                .bytes()
-                .enumerate()
-                .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
-        )
-        .collect()
-}
-
-pub(crate) fn source_span(range: TextRange, line_starts: &[usize], source: &str) -> SourceSpan {
-    let (line_start, column_start) = source_position(range.start().into(), line_starts, source);
-    let (line_end, column_end) = source_position(range.end().into(), line_starts, source);
-    SourceSpan {
-        line_start,
-        column_start,
-        line_end,
-        column_end,
-    }
-}
-
-/// Span of a byte range, for a reader whose offsets come from outside the
-/// syntax tree, the spanned manifest parser for instance.
-pub(crate) fn byte_range_span(
-    range: std::ops::Range<usize>,
-    line_starts: &[usize],
-    source: &str,
-) -> SourceSpan {
-    let (line_start, column_start) = source_position(range.start, line_starts, source);
-    let (line_end, column_end) = source_position(range.end, line_starts, source);
-    SourceSpan {
-        line_start,
-        column_start,
-        line_end,
-        column_end,
-    }
-}
-
-fn source_position(offset: usize, line_starts: &[usize], source: &str) -> (usize, usize) {
-    let bounded = offset.min(source.len());
-    let line_index = line_starts.partition_point(|start| *start <= bounded) - 1;
-    let column = source[line_starts[line_index]..bounded].chars().count() + 1;
-    (line_index + 1, column)
-}
-
 fn path_contains_tests_segment(path: &str) -> bool {
     Path::new(path)
         .components()
@@ -1584,22 +1507,6 @@ fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo
                 1
             );
         }
-    }
-
-    #[test]
-    fn unicode_columns_are_scalar_based_and_end_exclusive() {
-        let source = "fn main() { let _ = \"é\"; true }";
-        let start = source.find("true").unwrap();
-        let end = start + "true".len();
-        let span = source_span(
-            TextRange::new((start as u32).into(), (end as u32).into()),
-            &line_starts(source),
-            source,
-        );
-        assert_eq!(span.line_start, 1);
-        assert_eq!(span.line_end, 1);
-        assert_eq!(span.column_start, source[..start].chars().count() + 1);
-        assert_eq!(span.column_end, source[..end].chars().count() + 1);
     }
 
     #[test]

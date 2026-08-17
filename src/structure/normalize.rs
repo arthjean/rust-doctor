@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 use ra_ap_syntax::ast::{self, LiteralKind};
 use ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode};
 
-use crate::source_kernel::compact;
+use crate::source_text::compact;
 
 const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-normalized-v1";
 

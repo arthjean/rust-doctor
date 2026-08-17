@@ -2329,7 +2329,7 @@ mod tests {
                     package: Some("example".to_owned()),
                     target: Some("example".to_owned()),
                     path: path.to_owned(),
-                    span: crate::source_kernel::SourceSpan {
+                    span: crate::source_text::SourceSpan {
                         line_start: 3,
                         column_start: 1,
                         line_end: 3,
@@ -2581,7 +2581,7 @@ mod tests {
                 package: Some("example".to_owned()),
                 target: None,
                 path: "src/source.rs".to_owned(),
-                span: source_kernel::SourceSpan {
+                span: crate::source_text::SourceSpan {
                     line_start: 4,
                     column_start: 8,
                     line_end: 4,

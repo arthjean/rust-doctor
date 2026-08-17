@@ -45,7 +45,8 @@ use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
 use crate::policy::{PolicyPlan, RuleDefinition};
 use crate::report::{ComplexityFigures, DiagnosticContext};
-use crate::source_kernel::{Enumeration, SourceSpan, SourceUnit, compact, line_starts, source_span};
+use crate::source_kernel::{Enumeration, SourceUnit};
+use crate::source_text::{SourceSpan, compact, line_starts, source_span};
 
 #[cfg(test)]
 mod benchmark;

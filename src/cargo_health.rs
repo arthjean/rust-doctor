@@ -13,7 +13,8 @@ use crate::policy::{
     CARGO_UNUSED_DEPENDENCY, PolicyPlan, RuleDefinition,
 };
 use crate::source_kernel::references::{self, CrateReferences, Mention};
-use crate::source_kernel::{Enumeration, SourceSpan, byte_range_span, line_starts};
+use crate::source_kernel::Enumeration;
+use crate::source_text::{SourceSpan, byte_range_span, line_starts};
 
 /// Name of the offline resolved graph. `cargo metadata` runs with `--no-deps`,
 /// so `metadata.resolve` is always absent: the only graph readable without a

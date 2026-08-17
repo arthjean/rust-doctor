@@ -23,7 +23,7 @@ use crate::policy::{
     STRUCTURE_UNREASONED_ALLOW,
 };
 use crate::report::DiagnosticContext;
-use crate::source_kernel::SourceSpan;
+use crate::source_text::SourceSpan;
 
 /// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 3] = [

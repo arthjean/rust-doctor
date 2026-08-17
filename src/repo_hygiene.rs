@@ -22,7 +22,7 @@ use crate::policy::{
     RuleDefinition,
 };
 use crate::report::DiagnosticContext;
-use crate::source_kernel::SourceSpan;
+use crate::source_text::SourceSpan;
 use crate::workspace_path;
 
 /// Enumeration stops here rather than hanging on a monorepo, mirroring the

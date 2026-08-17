@@ -32,9 +32,8 @@ use crate::policy::{
     RuleDefinition, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_UNREFERENCED_FEATURE,
 };
 use crate::report::DiagnosticContext;
-use crate::source_kernel::{
-    Enumeration, SourceSpan, byte_range_span, line_starts, workspace_relative,
-};
+use crate::source_kernel::{Enumeration, workspace_relative};
+use crate::source_text::{SourceSpan, byte_range_span, line_starts};
 
 /// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] = [

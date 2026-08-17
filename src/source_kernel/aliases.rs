@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
-use super::intersects_errors;
+use crate::source_text::intersects_errors;
 
 /// Maximum number of bindings retained per source unit.
 ///

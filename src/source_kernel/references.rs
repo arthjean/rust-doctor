@@ -28,7 +28,9 @@ use ra_ap_syntax::{AstNode, SyntaxKind, TextRange};
 
 use crate::report::DiagnosticContext;
 
-use super::{Enumeration, SourceUnit, compact};
+use crate::source_text::compact;
+
+use super::{Enumeration, SourceUnit};
 
 /// Where a package's sources reference one crate name.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

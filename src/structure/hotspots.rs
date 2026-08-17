@@ -25,7 +25,7 @@ use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 use super::{Active, Observation, StructureSettings, Unit, test_context};
 use crate::policy::{RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT};
 use crate::report::ComplexityFigures;
-use crate::source_kernel::compact;
+use crate::source_text::compact;
 
 /// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] =

@@ -16,8 +16,9 @@ use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SyntaxKind, SyntaxNode, TextRange};
 
 use super::aliases::{AliasMap, Provenance};
-use super::{compact, intersects_errors, literal_string};
+use super::literal_string;
 use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
+use crate::source_text::{compact, intersects_errors};
 
 /// Dependency aliases of a unit: identifier written in the code to canonical
 /// crate name.

@@ -17,6 +17,7 @@ mod report;
 mod scan_target;
 pub mod score_block;
 mod source_kernel;
+mod source_text;
 mod structure;
 pub mod terminal_text;
 mod workspace_path;
