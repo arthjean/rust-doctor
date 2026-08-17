@@ -6,9 +6,17 @@
 //!
 //! Every span sanitizes on construction, so a rule message, a path or a help
 //! string coming out of Clippy can never smuggle an escape sequence into a
-//! frame. That matters more here than in the static renderer: a stray sequence
+//! frame. That matters more here than in the linear renderer: a stray sequence
 //! would desynchronize the cursor rewind and corrupt every frame after it.
+//!
+//! Sanitizing and measuring are the library's, not this module's
+//! ([`rust_doctor::terminal_text`]). A second sanitizer is a second set of
+//! escape forms to get wrong, and the two this crate carried had already
+//! drifted apart on string sequences.
 
+use rust_doctor::terminal_text::display_width;
+// Re-exported while `tui::issue_prompt` still reaches for it through this module.
+pub use rust_doctor::terminal_text::sanitize;
 use std::fmt::Write as _;
 
 use unicode_width::UnicodeWidthChar;
@@ -128,6 +136,8 @@ impl Span {
         }
     }
 
+    /// A span whose text is already sanitized, which is the case for every
+    /// slice cut out of another span.
     fn raw(text: String, style: Style, link: Option<String>) -> Self {
         Self { text, style, link }
     }
@@ -334,55 +344,6 @@ fn split_at_width(content: &str, width: usize) -> (String, &str) {
     (content.to_owned(), "")
 }
 
-pub fn display_width(content: &str) -> usize {
-    content.chars().fold(0usize, |width, character| {
-        width.saturating_add(UnicodeWidthChar::width(character).unwrap_or(0))
-    })
-}
-
-/// Drops every control character and escape sequence. Report text reaches the
-/// frame through here, so nothing a scanned workspace contains can move the
-/// cursor or repaint the screen.
-pub fn sanitize(content: &str) -> String {
-    let mut sanitized = String::with_capacity(content.len());
-    let mut characters = content.chars().peekable();
-    while let Some(character) = characters.next() {
-        if character == '\u{1b}' {
-            // Consume the introducer and the parameter bytes of the sequence,
-            // stopping on its final byte.
-            if matches!(characters.peek(), Some('[' | ']' | '(' | ')')) {
-                let opener = characters.next().unwrap_or('[');
-                for following in characters.by_ref() {
-                    let terminated = if opener == ']' {
-                        following == '\u{7}' || following == '\u{1b}'
-                    } else {
-                        ('@'..='~').contains(&following)
-                    };
-                    if terminated {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        if matches!(
-            character,
-            '\u{90}' | '\u{98}' | '\u{9b}' | '\u{9d}' | '\u{9e}' | '\u{9f}'
-        ) {
-            for following in characters.by_ref() {
-                if following == '\u{9c}' || ('@'..='~').contains(&following) {
-                    break;
-                }
-            }
-            continue;
-        }
-        if !character.is_control() {
-            sanitized.push(character);
-        }
-    }
-    sanitized
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +357,17 @@ mod tests {
         let hostile = Span::plain("safe\u{1b}[2Jmore\u{1b}]0;title\u{7}end\u{9b}31mtail");
         assert_eq!(hostile.text, "safemoreendtail");
         assert!(!Line::of(hostile).render(true, true).contains("[2J"));
+    }
+
+    /// The forms a hand-written sanitizer gets wrong: a string sequence closed
+    /// by `ESC \` rather than `BEL`, and a device control string whose
+    /// introducer is not `[` or `]`. Both must vanish whole, payload included.
+    #[test]
+    fn a_span_drops_string_sequences_whole_whatever_closes_them() {
+        let osc = Span::plain("head\u{1b}]8;;https://example.com\u{1b}\\tail");
+        assert_eq!(osc.text, "headtail");
+        let dcs = Span::plain("head\u{1b}Pq#0;2;0;0;0\u{1b}\\tail");
+        assert_eq!(dcs.text, "headtail");
     }
 
     #[test]

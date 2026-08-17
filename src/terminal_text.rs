@@ -1,6 +1,17 @@
+//! Terminal text measured and made safe, for every renderer this crate feeds.
+//!
+//! Both reports draw text a scanned workspace produced: a Clippy message, a
+//! path, a rule help. [`sanitize`] is the one gate it goes through, so nothing
+//! it contains can move the cursor or repaint the screen, and [`display_width`]
+//! is the one ruler the layouts measure with. They are public because the
+//! interactive report lives in the binary crate and must share them: a second
+//! sanitizer is a second set of escape sequences to get wrong.
+
 use unicode_width::UnicodeWidthChar;
 
-pub(crate) fn sanitize(content: &str) -> String {
+/// Drops every control character, and every escape sequence whole, including
+/// the C1 forms and the string sequences that end on `BEL` or `ESC \`.
+pub fn sanitize(content: &str) -> String {
     let characters: Vec<_> = content.chars().collect();
     let mut sanitized = String::with_capacity(content.len());
     let mut index = 0;
@@ -25,13 +36,16 @@ pub(crate) fn sanitize(content: &str) -> String {
     sanitized
 }
 
-pub(crate) fn display_width(content: &str) -> usize {
+/// Width of already-sanitized text in terminal columns, counting a wide
+/// character as two and a combining one as none.
+pub fn display_width(content: &str) -> usize {
     content.chars().fold(0usize, |width, character| {
         width.saturating_add(UnicodeWidthChar::width(character).unwrap_or(0))
     })
 }
 
-pub(crate) fn truncate(content: &str, width: usize) -> String {
+/// Cuts on a column boundary and marks the cut with an ellipsis.
+pub fn truncate(content: &str, width: usize) -> String {
     if display_width(content) <= width {
         return content.to_owned();
     }
@@ -54,7 +68,9 @@ pub(crate) fn truncate(content: &str, width: usize) -> String {
     truncated
 }
 
-pub(crate) fn wrap(content: &str, width: usize) -> Vec<String> {
+/// Word-wraps into rows no wider than `width` columns, breaking a word that
+/// does not fit on its own.
+pub fn wrap(content: &str, width: usize) -> Vec<String> {
     if content.is_empty() || width == 0 {
         return vec![String::new()];
     }

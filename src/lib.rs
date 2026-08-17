@@ -17,7 +17,7 @@ mod report;
 mod scan_target;
 mod source_kernel;
 mod structure;
-mod terminal_text;
+pub mod terminal_text;
 mod workspace_path;
 
 pub use audit::{
