@@ -2,9 +2,15 @@
 //! right.
 //!
 //! Transposition of React Doctor's `render-score-header.ts`: same faces, same
-//! OKLCH conversion, same animation cadences. The count is eased over 40
-//! frames, then a perfect score scrolls the rainbow over 16 frames before
-//! freezing on a coloured bar and a plain face.
+//! OKLCH conversion, same animation cadences. The count is eased over
+//! [`score_block::COUNT_UP_FRAME_COUNT`] frames, then a perfect score scrolls
+//! the rainbow over 16 frames before freezing on a coloured bar and a plain
+//! face.
+//!
+//! Everything the interactive report must agree with lives in
+//! [`crate::score_block`]: the faces, the label, the fill rule, the geometry
+//! and the count-up. What stays here is what only this report does, the OKLCH
+//! rainbow and the in-place rewind.
 //!
 //! The animation only exists in a real coloured terminal outside CI. Any other
 //! output receives the final frame directly, which keeps captured renders
@@ -17,37 +23,19 @@ use std::time::Duration;
 
 use super::{RenderError, Style, TerminalOptions, write_styled};
 use crate::ScoreLabel;
-use crate::terminal_text::{display_width, truncate};
+use crate::score_block::{self, PERFECT_SCORE};
+use crate::terminal_text::truncate;
 
-const FACE_TOP: &str = "┌─────┐";
-const FACE_BOTTOM: &str = "└─────┘";
 const INDENT: &str = "  ";
 const GAP: &str = "  ";
-
-/// Bar width of the reference, trimmed down by the available room.
-const BAR_MAX_WIDTH: usize = 50;
-
-/// Below this bar width the block is worth nothing: the caller falls back on
-/// the historical single line.
-const BAR_MIN_WIDTH: usize = 10;
-
-/// Column left free on the right, like the reference.
-const RIGHT_EDGE_SAFETY: usize = 1;
-
-const BRANDING_NAME: &str = "Rust Doctor";
-const BRANDING_URL: &str = "(https://rust-doctor.com)";
 
 const RAINBOW_GRADIENT_WIDTH: f64 = 80.0;
 const RAINBOW_OKLCH_LIGHTNESS: f64 = 0.638;
 const RAINBOW_OKLCH_CHROMA: f64 = 0.129;
 const RAINBOW_HUE_SHIFT_PER_FRAME: f64 = 9.0;
 
-const ANIMATION_FRAME_COUNT: u32 = 40;
-const ANIMATION_FRAME_DELAY: Duration = Duration::from_millis(50);
 const RAINBOW_FRAME_COUNT: u32 = 16;
 const RAINBOW_FRAME_DELAY: Duration = Duration::from_millis(50);
-
-const PERFECT_SCORE: u8 = 100;
 
 const DIM: &str = "2";
 const RESET: &str = "\u{1b}[0m";
@@ -56,14 +44,6 @@ const RESET: &str = "\u{1b}[0m";
 /// leaves no residue. The reference does without it; we keep it because the
 /// score line grows from `0 / 100` to `100 / 100` during the count.
 const CLEAR_TO_END: &str = "\u{1b}[K";
-
-fn face(label: ScoreLabel) -> [&'static str; 2] {
-    match label {
-        ScoreLabel::Great => ["◠ ◠", " ▽ "],
-        ScoreLabel::NeedsWork => ["• •", " ─ "],
-        ScoreLabel::Critical => ["x x", " ▽ "],
-    }
-}
 
 const fn style_code(label: ScoreLabel, authoritative: bool) -> &'static str {
     if !authoritative {
@@ -153,28 +133,8 @@ fn rainbow(content: &str, frame: u32, offset: usize) -> String {
     colored
 }
 
-fn ease_out_cubic(progress: f64) -> f64 {
-    1.0 - (1.0 - progress).powi(3)
-}
-
-/// Value displayed at one frame of the count: starts at zero, lands exactly on
-/// the score, never goes back.
-fn counted(value: u8, frame: u32) -> u8 {
-    let progress = ease_out_cubic(f64::from(frame) / f64::from(ANIMATION_FRAME_COUNT));
-    let counted = (f64::from(value) * progress).round();
-    if counted <= 0.0 {
-        0
-    } else if counted >= f64::from(PERFECT_SCORE) {
-        PERFECT_SCORE
-    } else {
-        counted as u8
-    }
-}
-
 fn bar(value: u8, width: usize) -> String {
-    let filled = (usize::from(value) * width)
-        .div_ceil(usize::from(PERFECT_SCORE))
-        .min(width);
+    let filled = score_block::bar_fill(value, width);
     format!("{}{}", "█".repeat(filled), "░".repeat(width - filled))
 }
 
@@ -196,30 +156,13 @@ impl Layout {
         allow_links: bool,
         width: usize,
     ) -> Option<Self> {
-        let offset = INDENT.len() + display_width(FACE_TOP) + GAP.len();
-        // One guard column on the right: a line that fills the terminal exactly
-        // triggers an implicit wrap on some emulators, which would desynchronize
-        // the rewind of the animation.
-        let available = width.checked_sub(offset + RIGHT_EDGE_SAFETY)?;
-        if available < BAR_MIN_WIDTH {
-            return None;
-        }
-        let [eyes, mouth] = face(label);
+        let available = score_block::right_column_width(width)?;
         Some(Self {
-            faces: [
-                FACE_TOP.to_owned(),
-                format!("│ {eyes} │"),
-                format!("│ {mouth} │"),
-                FACE_BOTTOM.to_owned(),
-            ],
-            offset,
+            faces: score_block::face_rows(label),
+            offset: score_block::FACE_OFFSET_COLUMNS,
             available,
-            bar_width: available.min(BAR_MAX_WIDTH),
-            label_text: if authoritative {
-                label.as_str()
-            } else {
-                "Core partial"
-            },
+            bar_width: available.min(score_block::BAR_MAX_WIDTH_CHARS),
+            label_text: score_block::label_text(label, authoritative),
             allow_links,
         })
     }
@@ -233,9 +176,16 @@ impl Layout {
 
     fn raw_branding(&self) -> String {
         if self.allow_links {
-            truncate(&format!("{BRANDING_NAME} {BRANDING_URL}"), self.available)
+            truncate(
+                &format!(
+                    "{} ({})",
+                    score_block::BRANDING_NAME,
+                    score_block::BRANDING_URL
+                ),
+                self.available,
+            )
         } else {
-            truncate(BRANDING_NAME, self.available)
+            truncate(score_block::BRANDING_NAME, self.available)
         }
     }
 
@@ -319,10 +269,10 @@ impl Layout {
                     None => paint(right, code),
                 }
             }
-            2 => match right.split_once(BRANDING_URL) {
-                Some((name, _)) => {
-                    format!("{}{}", name, paint(BRANDING_URL, DIM))
-                }
+            // The name stays plain and the URL dims, wherever a narrow terminal
+            // cut the line.
+            2 => match right.split_once(" (") {
+                Some((name, url)) => format!("{name}{}", paint(&format!(" ({url}"), DIM)),
                 None => right.to_owned(),
             },
             _ => paint(right, code),
@@ -386,16 +336,16 @@ fn animate<W: Write>(
     code: &str,
     is_perfect: bool,
 ) -> Result<(), RenderError> {
-    for frame in 0..=ANIMATION_FRAME_COUNT {
-        let counted = counted(value, frame);
+    for frame in 0..=score_block::COUNT_UP_FRAME_COUNT {
+        let counted = score_block::eased(0, value, frame, score_block::COUNT_UP_FRAME_COUNT);
         let painted = if is_perfect {
             layout.rainbow_frame(counted, frame)
         } else {
             layout.styled_frame(counted, code)
         };
         write_frame(writer, &painted, frame > 0)?;
-        if frame < ANIMATION_FRAME_COUNT {
-            sleep(ANIMATION_FRAME_DELAY);
+        if frame < score_block::COUNT_UP_FRAME_COUNT {
+            sleep(score_block::COUNT_UP_FRAME_DELAY);
         }
     }
 
@@ -418,8 +368,17 @@ fn animate<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_text::sanitize;
+    use crate::terminal_text::{display_width, sanitize};
     use std::path::Path;
+
+    /// The literals this file formats with must match the columns
+    /// [`score_block`] budgets for them, since the geometry is computed there
+    /// and painted here.
+    #[test]
+    fn the_padding_this_file_writes_is_the_padding_the_geometry_counts() {
+        assert_eq!(display_width(INDENT), score_block::INDENT_COLUMNS);
+        assert_eq!(display_width(GAP), score_block::GAP_COLUMNS);
+    }
 
     fn options(width: usize, color: bool) -> TerminalOptions<'static> {
         TerminalOptions {
@@ -526,7 +485,8 @@ mod tests {
                     for line in output.lines() {
                         let visible = sanitize(line);
                         assert!(
-                            display_width(&visible) <= width - RIGHT_EDGE_SAFETY,
+                            display_width(&visible)
+                                <= width - score_block::RIGHT_EDGE_SAFETY_COLUMNS,
                             "width {width} exceeded by {visible:?}"
                         );
                     }
@@ -551,25 +511,16 @@ mod tests {
         assert!(output.is_empty());
     }
 
+    /// The fill rule and the easing are proved in [`score_block`]; what this
+    /// file owns is that the bar it paints is exactly `bar_width` cells wide.
     #[test]
-    fn the_bar_fills_proportionally_and_never_overflows() {
+    fn the_bar_is_always_exactly_as_wide_as_the_room_it_was_given() {
         assert_eq!(bar(100, 10), "██████████");
         assert_eq!(bar(0, 10), "░░░░░░░░░░");
-        assert_eq!(display_width(&bar(37, 10)), 10);
-        assert!(bar(1, 10).starts_with('█'));
-    }
-
-    /// The count must start at zero, land exactly on the value and never go
-    /// back: that is all the easing guarantees.
-    #[test]
-    fn the_eased_count_up_starts_at_zero_and_lands_on_the_score() {
-        for value in [1u8, 42, 99, 100] {
-            let counted: Vec<u8> = (0..=ANIMATION_FRAME_COUNT)
-                .map(|frame| counted(value, frame))
-                .collect();
-            assert_eq!(counted[0], 0);
-            assert_eq!(counted[counted.len() - 1], value);
-            assert!(counted.windows(2).all(|pair| pair[0] <= pair[1]));
+        for width in [10usize, 27, 50] {
+            for value in [0u8, 1, 37, 99, 100] {
+                assert_eq!(display_width(&bar(value, width)), width);
+            }
         }
     }
 
@@ -591,7 +542,7 @@ mod tests {
         .unwrap();
         let output = String::from_utf8(output).unwrap();
         let rewinds = output.matches("\u{1b}[4A").count();
-        assert_eq!(rewinds as u32, ANIMATION_FRAME_COUNT);
+        assert_eq!(rewinds as u32, score_block::COUNT_UP_FRAME_COUNT);
         // The value and the label are painted separately, so the line is only
         // readable once the sequences are stripped.
         assert!(sanitize(&output).contains("60 / 100 Needs work"));

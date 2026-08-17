@@ -15,6 +15,7 @@ pub mod render;
 mod repo_hygiene;
 mod report;
 mod scan_target;
+pub mod score_block;
 mod source_kernel;
 mod structure;
 pub mod terminal_text;
