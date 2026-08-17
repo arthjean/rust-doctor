@@ -14,8 +14,9 @@
 //! The orphan walk is the only place the structural pass touches a file the
 //! source kernel did not enumerate, and that is exactly the point: an
 //! unreachable file is invisible to every producer that starts from a Cargo
-//! target. The walk is bounded, never leaves the directories a target already
-//! roots, and stops at any directory holding another package.
+//! target. The walk is bounded by a directory budget and by the pass's
+//! deadline, never leaves the directories a target already roots, and stops at
+//! any directory holding another package.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -23,14 +24,23 @@ use std::path::{Path, PathBuf};
 
 use cargo_metadata::{Metadata, Package};
 use ra_ap_syntax::ast;
-use ra_ap_syntax::{AstNode, AstToken, SyntaxKind, SyntaxNode, SyntaxToken};
+use ra_ap_syntax::{AstNode, AstToken, SyntaxNode, SyntaxToken};
+use serde::Deserialize;
 
-use super::{Observation, Unit, is_generated};
+use super::{Active, Deadline, Observation, Unit, is_generated, single_name};
 use crate::policy::{
-    PolicyPlan, RuleDefinition, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_UNREFERENCED_FEATURE,
+    RuleDefinition, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_UNREFERENCED_FEATURE,
 };
 use crate::report::DiagnosticContext;
-use crate::source_kernel::{Enumeration, SourceSpan};
+use crate::source_kernel::{
+    Enumeration, SourceSpan, byte_range_span, line_starts, workspace_relative,
+};
+
+/// The rules this half of the pass produces.
+pub(super) const RULES: [&RuleDefinition; 2] = [
+    &STRUCTURE_ORPHAN_MODULE_FILE,
+    &STRUCTURE_UNREFERENCED_FEATURE,
+];
 
 /// Directory entries the orphan walk may visit across the whole workspace.
 /// Past it the walk stops: a workspace that large has already answered the
@@ -41,26 +51,6 @@ const WALK_LIMIT: usize = 20_000;
 /// the limit the source kernel applies to the files it enumerates, so a file no
 /// module reaches is not read on terms the reached ones are not.
 const CANDIDATE_BYTES_LIMIT: u64 = 8_388_608;
-
-/// Which of the two manifest detectors the policy leaves on.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Active {
-    pub(super) orphans: bool,
-    pub(super) features: bool,
-}
-
-impl Active {
-    pub(super) fn of(plan: &PolicyPlan) -> Self {
-        Self {
-            orphans: plan.is_active(STRUCTURE_ORPHAN_MODULE_FILE.id),
-            features: plan.is_active(STRUCTURE_UNREFERENCED_FEATURE.id),
-        }
-    }
-
-    pub(super) const fn any(self) -> bool {
-        self.orphans || self.features
-    }
-}
 
 /// What the walk of the units tells the two manifest detectors.
 #[derive(Debug, Default)]
@@ -91,26 +81,17 @@ struct Reference {
     packages: BTreeSet<String>,
 }
 
-/// Reads one unit for both detectors, in a single pass over its tree.
-///
-/// Both detectors look for a word that has to be written for them to have
-/// anything to find, so a file whose text does not carry it is never walked.
-/// The scan of the text costs a fraction of the traversal it replaces, and on
-/// real code it replaces almost all of them: the pass already walks every tree
-/// twice, and a third walk for nothing is a quarter of its budget.
-pub(super) fn observe(unit: &Unit<'_>, active: Active, uses: &mut Uses) {
-    let includes = active.orphans && unit.source.contains("include");
-    let features = active.features && unit.source.contains("feature");
-    let scripted = active.orphans
-        && unit.context == Some(DiagnosticContext::BuildScript)
-        && unit.source.contains(".rs");
-    if !includes && !features && !scripted {
-        return;
-    }
-    if scripted {
+/// Reads one unit for both detectors, off the inventory its single traversal
+/// collected.
+pub(super) fn observe(unit: &Unit<'_>, active: &Active, uses: &mut Uses) {
+    let orphans = active.on(&STRUCTURE_ORPHAN_MODULE_FILE);
+    let features = active.on(&STRUCTURE_UNREFERENCED_FEATURE);
+    if orphans && unit.context == Some(DiagnosticContext::BuildScript) {
+        // Every string literal of the file, and only of this file: a package
+        // has one build script, so the tokens it writes are worth a walk of
+        // their own rather than a bucket every other unit would carry empty.
         for token in significant(unit.tree.syntax()) {
-            if let Some(literal) = ast::String::cast(token)
-                .and_then(|literal| literal.value().ok().map(|value| value.into_owned()))
+            if let Some(literal) = string_value(&token)
                 && literal.ends_with(".rs")
                 && let Some(name) = Path::new(&literal).file_name()
             {
@@ -118,50 +99,51 @@ pub(super) fn observe(unit: &Unit<'_>, active: Active, uses: &mut Uses) {
             }
         }
     }
-    for node in unit.tree.syntax().descendants() {
-        match node.kind() {
-            SyntaxKind::MACRO_CALL => {
-                let Some(call) = ast::MacroCall::cast(node.clone()) else {
-                    continue;
-                };
-                let name = call
-                    .path()
-                    .and_then(|path| path.as_single_name_ref())
-                    .map(|name| name.text().to_string());
-                match name.as_deref() {
-                    Some("include") if includes => {
-                        if let Some(tree) = call.token_tree()
-                            && let Some(literal) = first_string(tree.syntax())
-                            && let Some(path) = included_path(unit.path, &literal)
-                        {
-                            uses.included.insert(path);
-                        }
+    if orphans || features {
+        for call in &unit.inventory.macro_calls {
+            match call.path().as_ref().and_then(single_name).as_deref() {
+                Some("include") if orphans => {
+                    if let Some(tree) = call.token_tree()
+                        && let Some(literal) = first_string(tree.syntax())
+                        && let Some(path) = included_path(unit.path, &literal)
+                    {
+                        uses.included.insert(path);
                     }
-                    Some("cfg") if features => {
-                        if let Some(tree) = call.token_tree() {
-                            read_features(unit, &significant(tree.syntax()), &node, uses);
-                        }
+                }
+                Some("cfg") if features => {
+                    if let Some(tree) = call.token_tree() {
+                        read_features(unit, &significant(tree.syntax()), call.syntax(), uses);
                     }
-                    _ => {}
                 }
+                _ => {}
             }
-            // `#[cfg(...)]` and `#[cfg_attr(...)]` each parse into a meta of
-            // their own, so the gate is read off the tokens rather than off a
-            // variant: what is needed here is the name written first and the
-            // literals under it, whatever shape the grammar gives them.
-            SyntaxKind::ATTR if features => {
-                let tokens = significant(&node);
-                let gate = tokens
-                    .iter()
-                    .skip_while(|token| token.kind() != SyntaxKind::L_BRACK)
-                    .nth(1)
-                    .map(|token| token.text().to_owned());
-                if matches!(gate.as_deref(), Some("cfg" | "cfg_attr")) {
-                    read_features(unit, &tokens, &node, uses);
-                }
-            }
-            _ => {}
         }
+    }
+    if features {
+        for attribute in &unit.inventory.attributes {
+            if reads_a_cfg(attribute) {
+                let node = attribute.syntax();
+                read_features(unit, &significant(node), node, uses);
+            }
+        }
+    }
+}
+
+/// Does this attribute gate on a `cfg`?
+///
+/// `#[cfg(...)]` and `#[cfg_attr(...)]` each parse into a meta of their own, so
+/// the question is asked of the meta the grammar produced rather than of the
+/// token that happens to sit after the bracket. The token-tree form is answered
+/// too, because a grammar that stops distinguishing them must not silently stop
+/// answering.
+fn reads_a_cfg(attribute: &ast::Attr) -> bool {
+    match attribute.meta() {
+        Some(ast::Meta::CfgMeta(_) | ast::Meta::CfgAttrMeta(_)) => true,
+        Some(ast::Meta::TokenTreeMeta(meta)) => matches!(
+            meta.path().as_ref().and_then(single_name).as_deref(),
+            Some("cfg" | "cfg_attr")
+        ),
+        _ => false,
     }
 }
 
@@ -173,6 +155,12 @@ fn significant(node: &SyntaxNode) -> Vec<SyntaxToken> {
         .collect()
 }
 
+/// The value of a string literal token, unescaped.
+fn string_value(token: &SyntaxToken) -> Option<String> {
+    ast::String::cast(token.clone())
+        .and_then(|literal| literal.value().ok().map(|value| value.into_owned()))
+}
+
 /// Every `feature = "..."` of one condition, whatever nests it: `any`, `all`
 /// and `not` are read through, because what matters here is that the name was
 /// written, not the shape of the condition around it.
@@ -181,9 +169,7 @@ fn read_features(unit: &Unit<'_>, tokens: &[SyntaxToken], site: &SyntaxNode, use
         if window[0].text() != "feature" || window[1].text() != "=" {
             continue;
         }
-        let Some(feature) = ast::String::cast(window[2].clone())
-            .and_then(|literal| literal.value().ok().map(|value| value.into_owned()))
-        else {
+        let Some(feature) = string_value(&window[2]) else {
             continue;
         };
         uses.features.push(Reference {
@@ -200,23 +186,48 @@ fn read_features(unit: &Unit<'_>, tokens: &[SyntaxToken], site: &SyntaxNode, use
 /// other. The path of each one is what the finding points at: the file for an
 /// orphan, the manifest for a feature nothing reads, the reading site for a
 /// feature nothing declares.
+pub(super) struct Findings {
+    pub(super) observations: Vec<(&'static RuleDefinition, String, Observation)>,
+    /// Did the orphan walk stop at the deadline rather than finish? It is the
+    /// one phase of the pass that reads the filesystem, so it is the one that
+    /// has to say whether it got to the end.
+    pub(super) stopped: bool,
+}
+
 pub(super) fn findings(
     metadata: &Metadata,
     enumeration: &Enumeration,
-    active: Active,
+    active: &Active,
     uses: &Uses,
-) -> Vec<(&'static RuleDefinition, String, Observation)> {
+    deadline: &Deadline,
+) -> Findings {
     let Ok(workspace_root) = metadata.workspace_root.as_std_path().canonicalize() else {
-        return Vec::new();
+        return Findings {
+            observations: Vec::new(),
+            stopped: false,
+        };
     };
     let mut observations = Vec::new();
-    if active.orphans {
-        observations.extend(orphans(metadata, enumeration, uses, &workspace_root));
+    let mut stopped = false;
+    if active.on(&STRUCTURE_ORPHAN_MODULE_FILE) {
+        stopped = orphans(
+            metadata,
+            enumeration,
+            uses,
+            &workspace_root,
+            deadline,
+            &mut observations,
+        );
     }
-    if active.features {
-        observations.extend(features(metadata, uses, &workspace_root));
+    if active.on(&STRUCTURE_UNREFERENCED_FEATURE) {
+        let declared = declared_features(metadata);
+        observations.extend(unreferenced_declarations(metadata, uses, &workspace_root));
+        observations.extend(unknown_references(uses, &declared));
     }
-    observations
+    Findings {
+        observations,
+        stopped,
+    }
 }
 
 /// Files under a package's own target directories that no module tree reaches.
@@ -228,19 +239,23 @@ pub(super) fn findings(
 /// is what says whether Cargo compiles it. Reachability is compared by
 /// workspace-relative path, which is unique, so no `mod` declaration of one
 /// package ever silences a file of another.
+///
+/// Returns whether the walk stopped early.
 fn orphans(
     metadata: &Metadata,
     enumeration: &Enumeration,
     uses: &Uses,
     workspace_root: &Path,
-) -> Vec<(&'static RuleDefinition, String, Observation)> {
+    deadline: &Deadline,
+    observations: &mut Vec<(&'static RuleDefinition, String, Observation)>,
+) -> bool {
     let compiled: BTreeSet<&str> = enumeration
         .units()
         .map(|unit| unit.relative_path())
         .collect();
 
     let mut budget = WALK_LIMIT;
-    let mut observations = Vec::new();
+    let mut stopped = false;
     for package in workspace_packages(metadata) {
         let Some(package_directory) = package.manifest_path.parent() else {
             continue;
@@ -249,10 +264,16 @@ fn orphans(
 
         let mut candidates = BTreeSet::new();
         for root in module_roots(package, package_directory) {
-            walk(&root, &mut budget, &mut candidates);
+            stopped |= walk(&root, &mut budget, deadline, &mut candidates);
         }
         for candidate in candidates {
-            let Some(relative) = relative_path(workspace_root, &candidate) else {
+            // Reading a candidate is the only unbounded work of this phase, so
+            // the deadline is read before every one of them and not only
+            // between packages.
+            if deadline.exceeded() {
+                return true;
+            }
+            let Some(relative) = workspace_relative(workspace_root, &candidate) else {
                 continue;
             };
             if compiled.contains(relative.as_str())
@@ -288,27 +309,32 @@ fn orphans(
             ));
         }
     }
-    observations
+    stopped
 }
 
-/// Features the manifest and the code disagree about, per package.
-fn features(
+/// Every feature name each workspace package declares, its optional
+/// dependencies included: activating one of those is what declares it.
+fn declared_features(metadata: &Metadata) -> BTreeMap<&str, BTreeSet<&str>> {
+    workspace_packages(metadata)
+        .map(|package| {
+            let names = package
+                .features
+                .keys()
+                .map(String::as_str)
+                .chain(optional_dependencies(package))
+                .collect();
+            (package.id.repr.as_str(), names)
+        })
+        .collect()
+}
+
+/// Features a manifest declares that nothing reads and that do nothing.
+fn unreferenced_declarations(
     metadata: &Metadata,
     uses: &Uses,
     workspace_root: &Path,
 ) -> Vec<(&'static RuleDefinition, String, Observation)> {
     let mut observations = Vec::new();
-    let mut declared: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for package in workspace_packages(metadata) {
-        let names = package
-            .features
-            .keys()
-            .map(String::as_str)
-            .chain(optional_dependencies(package))
-            .collect();
-        declared.insert(package.id.repr.as_str(), names);
-    }
-
     for package in workspace_packages(metadata) {
         let optional: BTreeSet<&str> = optional_dependencies(package).collect();
         // A feature named in another feature's list is referenced: turning the
@@ -325,26 +351,34 @@ fn features(
             .filter(|reference| reference.packages.contains(package.id.repr.as_str()))
             .map(|reference| reference.feature.as_str())
             .collect();
-        let Some(manifest) = relative_path(workspace_root, package.manifest_path.as_std_path())
+        // `default` is read by Cargo itself, an optional dependency's feature
+        // is read by whoever activates the dependency, and a feature that
+        // activates something does something whether or not a `cfg` names it.
+        // What is left is a feature with no reader and no effect.
+        let unreferenced: Vec<&String> = package
+            .features
+            .iter()
+            .filter(|(feature, activates)| {
+                feature.as_str() != "default"
+                    && !optional.contains(feature.as_str())
+                    && activates.is_empty()
+                    && !listed.contains(feature.as_str())
+                    && !read.contains(feature.as_str())
+            })
+            .map(|(feature, _)| feature)
+            .collect();
+        if unreferenced.is_empty() {
+            continue;
+        }
+        let Some(manifest) = workspace_relative(workspace_root, package.manifest_path.as_std_path())
         else {
             continue;
         };
+        // The manifest is read once here, and only for a package that has
+        // something to report in it.
         let text = readable(package.manifest_path.as_std_path()).unwrap_or_default();
-
-        for (feature, activates) in &package.features {
-            // `default` is read by Cargo itself, an optional dependency's
-            // feature is read by whoever activates the dependency, and a
-            // feature that activates something does something whether or not a
-            // `cfg` names it. What is left is a feature with no reader and no
-            // effect.
-            if feature == "default"
-                || optional.contains(feature.as_str())
-                || !activates.is_empty()
-                || listed.contains(feature.as_str())
-                || read.contains(feature.as_str())
-            {
-                continue;
-            }
+        let spans = declaration_spans(&text);
+        for feature in unreferenced {
             observations.push((
                 &STRUCTURE_UNREFERENCED_FEATURE,
                 manifest.clone(),
@@ -354,41 +388,50 @@ fn features(
                         "Package \"{}\" declares feature \"{feature}\", which no cfg reads and which activates nothing.",
                         package.name
                     ),
-                    span: manifest_span(&text, feature),
+                    span: spans.get(feature.as_str()).copied().unwrap_or_else(head_of_file),
                     context: None,
                     complexity: None,
                 },
             ));
         }
     }
-
-    for reference in &uses.features {
-        // Resolution is per package: the manifests that decide are those of the
-        // packages whose targets compile the file.
-        let known = reference.packages.iter().any(|package| {
-            declared
-                .get(package.as_str())
-                .is_some_and(|names| names.contains(reference.feature.as_str()))
-        });
-        if known || reference.packages.is_empty() {
-            continue;
-        }
-        observations.push((
-            &STRUCTURE_UNREFERENCED_FEATURE,
-            reference.path.clone(),
-            Observation {
-                key: format!("referenced|{}", reference.feature),
-                subject: format!(
-                    "cfg(feature = \"{}\") reads a feature the package compiling this file does not declare.",
-                    reference.feature
-                ),
-                span: reference.span,
-                context: reference.context,
-                complexity: None,
-            },
-        ));
-    }
     observations
+}
+
+/// Sites reading a feature no manifest compiling them declares.
+fn unknown_references(
+    uses: &Uses,
+    declared: &BTreeMap<&str, BTreeSet<&str>>,
+) -> Vec<(&'static RuleDefinition, String, Observation)> {
+    uses.features
+        .iter()
+        .filter(|reference| {
+            // Resolution is per package: the manifests that decide are those of
+            // the packages whose targets compile the file.
+            !reference.packages.is_empty()
+                && !reference.packages.iter().any(|package| {
+                    declared
+                        .get(package.as_str())
+                        .is_some_and(|names| names.contains(reference.feature.as_str()))
+                })
+        })
+        .map(|reference| {
+            (
+                &STRUCTURE_UNREFERENCED_FEATURE,
+                reference.path.clone(),
+                Observation {
+                    key: format!("referenced|{}", reference.feature),
+                    subject: format!(
+                        "cfg(feature = \"{}\") reads a feature the package compiling this file does not declare.",
+                        reference.feature
+                    ),
+                    span: reference.span,
+                    context: reference.context,
+                    complexity: None,
+                },
+            )
+        })
+        .collect()
 }
 
 fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
@@ -418,6 +461,47 @@ fn plain_feature(entry: &str) -> Option<&str> {
     (!entry.contains('/') && !entry.starts_with("dep:")).then_some(entry)
 }
 
+/// The `[features]` table as the parser reads it, for the position of each
+/// declaration.
+#[derive(Deserialize)]
+struct ManifestFeatures {
+    features: Option<BTreeMap<toml::Spanned<String>, toml::Value>>,
+}
+
+/// Where each feature is declared in its manifest, so a finding points at the
+/// entry rather than at the top of the file.
+///
+/// The positions come from the parser, the way `cargo_health` locates a
+/// manifest entry: a scan looking for a `[features]` header misses a table
+/// written any other way and then points at the first line of the file as
+/// though it said something.
+fn declaration_spans(manifest: &str) -> BTreeMap<String, SourceSpan> {
+    let Ok(document) = toml::from_str::<ManifestFeatures>(manifest) else {
+        return BTreeMap::new();
+    };
+    let starts = line_starts(manifest);
+    document
+        .features
+        .unwrap_or_default()
+        .into_keys()
+        .map(|name| {
+            let span = byte_range_span(name.span(), &starts, manifest);
+            (name.into_inner(), span)
+        })
+        .collect()
+}
+
+/// Where a finding points when the manifest that declares it does not read
+/// back.
+const fn head_of_file() -> SourceSpan {
+    SourceSpan {
+        line_start: 1,
+        column_start: 1,
+        line_end: 1,
+        column_end: 1,
+    }
+}
+
 /// Directories a package's own targets root, with the redundant ones dropped:
 /// a build script roots the package directory, which already contains `src`.
 fn module_roots(package: &Package, package_directory: &Path) -> Vec<PathBuf> {
@@ -440,16 +524,24 @@ fn module_roots(package: &Package, package_directory: &Path) -> Vec<PathBuf> {
 }
 
 /// Every `.rs` file under one root, without following a symbolic link and
-/// without entering another package.
-fn walk(root: &Path, budget: &mut usize, files: &mut BTreeSet<PathBuf>) {
+/// without entering another package. Returns whether the walk stopped early.
+fn walk(
+    root: &Path,
+    budget: &mut usize,
+    deadline: &Deadline,
+    files: &mut BTreeSet<PathBuf>,
+) -> bool {
     let mut stack = vec![root.to_path_buf()];
     while let Some(directory) = stack.pop() {
+        if deadline.exceeded() {
+            return true;
+        }
         let Ok(entries) = fs::read_dir(&directory) else {
             continue;
         };
         for entry in entries.flatten() {
             if *budget == 0 {
-                return;
+                return false;
             }
             *budget -= 1;
             let name = entry.file_name();
@@ -465,7 +557,7 @@ fn walk(root: &Path, budget: &mut usize, files: &mut BTreeSet<PathBuf>) {
                 continue;
             };
             if kind.is_dir() {
-                if name != "target" && !holds_a_package(&entry.path()) {
+                if name != "target" && !holds_a_package(&entry.path(), budget) {
                     stack.push(entry.path());
                 }
             } else if kind.is_file() && name.ends_with(".rs") {
@@ -473,13 +565,18 @@ fn walk(root: &Path, budget: &mut usize, files: &mut BTreeSet<PathBuf>) {
             }
         }
     }
+    false
 }
 
 /// Is this directory another package, or the place several of them are kept?
 /// Either way the files under it answer to a module tree that is not the one
 /// being walked, which is what keeps a directory of fixture crates out of the
 /// report.
-fn holds_a_package(directory: &Path) -> bool {
+///
+/// The probe reads a directory of its own, so it spends the same budget the
+/// walk does: a tree of directories that each hold several others costs more
+/// listings than it holds entries.
+fn holds_a_package(directory: &Path, budget: &mut usize) -> bool {
     if directory.join("Cargo.toml").is_file() {
         return true;
     }
@@ -487,6 +584,7 @@ fn holds_a_package(directory: &Path) -> bool {
         return false;
     };
     entries.flatten().any(|entry| {
+        *budget = budget.saturating_sub(1);
         entry.file_type().is_ok_and(|kind| kind.is_dir())
             && entry.path().join("Cargo.toml").is_file()
     })
@@ -512,21 +610,7 @@ fn included_path(from: &str, literal: &str) -> Option<String> {
 fn first_string(tree: &SyntaxNode) -> Option<String> {
     tree.descendants_with_tokens()
         .filter_map(|element| element.into_token())
-        .find_map(|token| {
-            ast::String::cast(token).and_then(|literal| {
-                literal
-                    .value()
-                    .ok()
-                    .map(|value| value.into_owned())
-            })
-        })
-}
-
-fn relative_path(workspace_root: &Path, path: &Path) -> Option<String> {
-    let canonical = path.canonicalize().ok()?;
-    let relative = canonical.strip_prefix(workspace_root).ok()?;
-    let relative = relative.to_string_lossy().replace('\\', "/");
-    (!relative.is_empty()).then_some(relative)
+        .find_map(|token| string_value(&token))
 }
 
 /// Text of a file the pass is willing to read, or nothing.
@@ -548,86 +632,41 @@ fn whole_file(source: &str) -> SourceSpan {
     }
 }
 
-/// Line of the manifest that declares this feature, so the finding points at
-/// the entry rather than at the top of the file.
-fn manifest_span(manifest: &str, feature: &str) -> SourceSpan {
-    let mut inside = false;
-    for (index, line) in manifest.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            inside = trimmed == "[features]";
-            continue;
-        }
-        if !inside {
-            continue;
-        }
-        let named = trimmed
-            .split_once('=')
-            .map(|(name, _)| name.trim().trim_matches('"'));
-        if named == Some(feature) {
-            return SourceSpan {
-                line_start: index + 1,
-                column_start: 1,
-                line_end: index + 1,
-                column_end: line.chars().count() + 1,
-            };
-        }
-    }
-    SourceSpan {
-        line_start: 1,
-        column_start: 1,
-        line_end: 1,
-        column_end: 1,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use ra_ap_syntax::{Edition, SourceFile};
-
     use super::*;
-    use crate::source_kernel::line_starts;
 
-    fn unit<'a>(source: &'a str, path: &'a str) -> Unit<'a> {
-        Unit {
-            tree: SourceFile::parse(source, Edition::Edition2024).tree(),
-            source,
-            line_starts: line_starts(source),
-            path,
-            context: None,
-            packages: vec!["probe"],
-            attributes: Vec::new(),
-        }
+    fn both() -> Active {
+        Active::of_rules(RULES)
     }
-
-    const BOTH: Active = Active {
-        orphans: true,
-        features: true,
-    };
 
     fn read(source: &str) -> Uses {
         let mut uses = Uses::default();
-        observe(&unit(source, "src/lib.rs"), BOTH, &mut uses);
+        observe(&Unit::probe(source, "src/lib.rs"), &both(), &mut uses);
         uses
     }
 
     /// US-015: every shape a `cfg` writes a feature in is read, and the ones
     /// that are not a feature gate are left alone.
+    ///
+    /// The order is not asserted: the features reach a report through a keyed
+    /// map, so the order they were read in never survives to it.
     #[test]
     fn every_cfg_shape_names_its_feature() {
-        let read = read(
+        let uses = read(
             "#[cfg(feature = \"one\")]\nfn a() {}\n\
              #[cfg(all(unix, any(feature = \"two\", not(feature = \"three\"))))]\nfn b() {}\n\
              #[cfg_attr(feature = \"four\", derive(Debug))]\nstruct C;\n\
              fn d() { if cfg!(feature = \"five\") { } }\n\
              fn e() { let feature = \"six\"; }\n",
         );
-        let names: Vec<&str> = read
+        let mut names: Vec<&str> = uses
             .features
             .iter()
             .map(|reference| reference.feature.as_str())
             .collect();
-        assert_eq!(names, ["one", "two", "three", "four", "five"]);
+        names.sort_unstable();
+        assert_eq!(names, ["five", "four", "one", "three", "two"]);
     }
 
     /// US-013: a file pulled in with `include!` is compiled without any `mod`
@@ -636,8 +675,8 @@ mod tests {
     fn an_included_file_is_recorded_as_reached() {
         let mut uses = Uses::default();
         observe(
-            &unit("include!(\"../generated/table.rs\");\n", "src/deep/mod.rs"),
-            BOTH,
+            &Unit::probe("include!(\"../generated/table.rs\");\n", "src/deep/mod.rs"),
+            &both(),
             &mut uses,
         );
         assert_eq!(
@@ -646,22 +685,74 @@ mod tests {
         );
     }
 
+    /// A rule the policy left off reads nothing, so neither detector pays for
+    /// the other.
+    #[test]
+    fn an_inactive_rule_reads_nothing() {
+        let mut uses = Uses::default();
+        observe(
+            &Unit::probe(
+                "#[cfg(feature = \"one\")]\nfn a() {}\ninclude!(\"other.rs\");\n",
+                "src/lib.rs",
+            ),
+            &Active::default(),
+            &mut uses,
+        );
+        assert!(uses.features.is_empty());
+        assert!(uses.included.is_empty());
+
+        let mut orphans_only = Uses::default();
+        observe(
+            &Unit::probe(
+                "#[cfg(feature = \"one\")]\nfn a() {}\ninclude!(\"other.rs\");\n",
+                "src/lib.rs",
+            ),
+            &Active::of_rules([&STRUCTURE_ORPHAN_MODULE_FILE]),
+            &mut orphans_only,
+        );
+        assert!(orphans_only.features.is_empty());
+        assert_eq!(orphans_only.included.len(), 1);
+    }
+
+    /// A build script naming a Rust file compiles it without any module
+    /// declaration, and only a build script is read that way.
+    #[test]
+    fn a_build_script_records_the_files_it_names() {
+        let source = "fn main() { println!(\"cargo:rerun-if-changed=build/probe.rs\"); }";
+        let mut scripted = Unit::probe(source, "build.rs");
+        scripted.context = Some(DiagnosticContext::BuildScript);
+        let mut uses = Uses::default();
+        observe(&scripted, &both(), &mut uses);
+        assert_eq!(
+            uses.scripted.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["probe.rs"]
+        );
+
+        let mut library = Uses::default();
+        observe(&Unit::probe(source, "src/lib.rs"), &both(), &mut library);
+        assert!(library.scripted.is_empty());
+    }
+
     #[test]
     fn a_feature_entry_is_located_in_its_manifest() {
         let manifest = "[package]\nname = \"probe\"\n\n[features]\ndefault = []\nspare = []\n\n[dependencies]\nspare = \"1\"\n";
+        let spans = declaration_spans(manifest);
         assert_eq!(
-            manifest_span(manifest, "spare"),
-            SourceSpan {
+            spans.get("spare").copied(),
+            Some(SourceSpan {
                 line_start: 6,
                 column_start: 1,
                 line_end: 6,
-                column_end: 11,
-            }
+                column_end: 6,
+            })
         );
-        // A name the table does not carry falls back to the head of the file
-        // rather than pointing at a line that says something else.
+        assert!(spans.contains_key("default"));
+        // A name the table does not carry has no position, and the caller falls
+        // back to the head of the file rather than to a line that says
+        // something else.
+        assert_eq!(spans.get("absent"), None);
         assert_eq!(
-            manifest_span(manifest, "absent"),
+            head_of_file(),
             SourceSpan {
                 line_start: 1,
                 column_start: 1,
@@ -669,6 +760,24 @@ mod tests {
                 column_end: 1,
             }
         );
+    }
+
+    /// A table the line scan it replaced could not find: the header carries a
+    /// comment, and the entries are still located.
+    #[test]
+    fn a_features_table_is_located_however_it_is_written() {
+        let manifest = "[features] # the table this package publishes\nspare = []\n";
+        let spans = declaration_spans(manifest);
+        assert_eq!(
+            spans.get("spare").map(|span| span.line_start),
+            Some(2),
+            "{spans:?}"
+        );
+    }
+
+    #[test]
+    fn a_manifest_that_does_not_parse_locates_nothing() {
+        assert!(declaration_spans("[features\nspare = []").is_empty());
     }
 
     #[test]

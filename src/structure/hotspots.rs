@@ -15,20 +15,21 @@
 //! with the same branch count therefore separate exactly when one buries its
 //! branches deeper, which is the property the cyclomatic figure cannot see.
 //!
-//! The two detectors share one walk of the tree. The structural pass already
-//! walks every unit for the duplication rules, and a wall-clock budget bounds
-//! the whole pass, so a detector that can piggyback on a traversal must not
-//! start its own.
+//! Neither detector walks the tree. Both read the inventory the unit's single
+//! traversal collected, because the pass runs under a wall clock and a
+//! traversal per detector spends it once per detector over the same nodes.
 
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
-use super::{Observation, StructureSettings, Unit, test_context};
-use crate::policy::{
-    PolicyPlan, RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT,
-};
+use super::{Active, Observation, StructureSettings, Unit, test_context};
+use crate::policy::{RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT};
 use crate::report::ComplexityFigures;
 use crate::source_kernel::compact;
+
+/// The rules this half of the pass produces.
+pub(super) const RULES: [&RuleDefinition; 2] =
+    [&STRUCTURE_COMPLEX_FUNCTION, &STRUCTURE_OVERSIZED_UNIT];
 
 /// Lines a file may reach before it is named.
 ///
@@ -50,26 +51,6 @@ pub(super) const IMPL_LINES: usize = 500;
 /// so it sits half again higher.
 pub(super) const FUNCTION_LINES: usize = 150;
 
-/// Which halves of the hotspot walk the policy leaves on.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Active {
-    pub(super) complexity: bool,
-    pub(super) size: bool,
-}
-
-impl Active {
-    pub(super) fn of(plan: &PolicyPlan) -> Self {
-        Self {
-            complexity: plan.is_active(STRUCTURE_COMPLEX_FUNCTION.id),
-            size: plan.is_active(STRUCTURE_OVERSIZED_UNIT.id),
-        }
-    }
-
-    pub(super) const fn any(self) -> bool {
-        self.complexity || self.size
-    }
-}
-
 /// Cyclomatic and cognitive complexity of one function, measured together in
 /// one walk of its body.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -78,8 +59,8 @@ pub(super) struct Metrics {
     pub(super) cognitive: u32,
 }
 
-/// Every hotspot of one unit, in one traversal: the functions whose complexity
-/// crosses a threshold, and the units grown past the line bound of their kind.
+/// Every hotspot of one unit: the functions whose complexity crosses a
+/// threshold, and the units grown past the line bound of their kind.
 ///
 /// The keys carry the qualified name under the file, never a position, so a
 /// finding keeps its identity while its unit stays where it is, however the
@@ -87,119 +68,122 @@ pub(super) struct Metrics {
 pub(super) fn observe(
     unit: &Unit<'_>,
     settings: &StructureSettings,
-    active: Active,
+    active: &Active,
 ) -> Vec<(&'static RuleDefinition, Observation)> {
     let mut observations = Vec::new();
-    if active.size {
-        let file_lines = lines_of(unit, unit.tree.syntax());
-        if file_lines >= FILE_LINES {
-            observations.push((
-                &STRUCTURE_OVERSIZED_UNIT,
-                Observation {
-                    key: format!("file|{}", unit.path),
-                    subject: format!("{} is {file_lines} lines long.", unit.path),
-                    span: unit.span(unit.tree.syntax()),
-                    context: unit.context,
-                    complexity: None,
-                },
-            ));
+    if active.on(&STRUCTURE_OVERSIZED_UNIT) {
+        // The file is a unit like the three kinds inside it, so it goes through
+        // the same bound table rather than through a prologue of its own.
+        let units = std::iter::once(unit.tree.syntax())
+            .chain(unit.inventory.functions.iter().map(AstNode::syntax))
+            .chain(unit.inventory.implementations.iter().map(AstNode::syntax))
+            .chain(unit.inventory.modules.iter().map(AstNode::syntax));
+        for node in units {
+            observations.extend(
+                oversized(unit, node).map(|observation| (&STRUCTURE_OVERSIZED_UNIT, observation)),
+            );
         }
     }
-
-    for node in unit.tree.syntax().descendants() {
-        match node.kind() {
-            SyntaxKind::FN => {
-                let Some(function) = ast::Fn::cast(node.clone()) else {
-                    continue;
-                };
-                let Some(body) = function.body() else {
-                    continue;
-                };
-                if active.size {
-                    let lines = lines_of(unit, &node);
-                    if lines >= FUNCTION_LINES
-                        && let Some(name) = qualified_name(&function)
-                    {
-                        observations.push((
-                            &STRUCTURE_OVERSIZED_UNIT,
-                            sized(unit, &node, format!("Function {name}"), "fn", lines),
-                        ));
-                    }
-                }
-                if active.complexity {
-                    let mut metrics = Metrics::default();
-                    measure(body.syntax(), 0, &mut metrics);
-                    metrics.cyclomatic += 1;
-                    if metrics.cyclomatic >= settings.cyclomatic_threshold
-                        || metrics.cognitive >= settings.cognitive_threshold
-                    {
-                        let Some(name) = qualified_name(&function) else {
-                            continue;
-                        };
-                        observations.push((
-                            &STRUCTURE_COMPLEX_FUNCTION,
-                            Observation {
-                                key: format!("fn|{}|{name}", unit.path),
-                                subject: format!(
-                                    "Function {name} reaches cyclomatic complexity {} and cognitive complexity {}.",
-                                    metrics.cyclomatic, metrics.cognitive
-                                ),
-                                span: unit.span(&node),
-                                context: test_context(&node).or(unit.context),
-                                complexity: Some(ComplexityFigures {
-                                    cyclomatic: metrics.cyclomatic,
-                                    cognitive: metrics.cognitive,
-                                }),
-                            },
-                        ));
-                    }
-                }
-            }
-            SyntaxKind::IMPL if active.size => {
-                let lines = lines_of(unit, &node);
-                if lines >= IMPL_LINES
-                    && let Some(block) = ast::Impl::cast(node.clone())
-                {
-                    let label = format!("Impl block {}", impl_label(&block));
-                    observations.push((
-                        &STRUCTURE_OVERSIZED_UNIT,
-                        sized(unit, &node, label, "impl", lines),
-                    ));
-                }
-            }
-            SyntaxKind::MODULE if active.size => {
-                let lines = lines_of(unit, &node);
-                if lines >= MODULE_LINES
-                    && let Some(name) = ast::Module::cast(node.clone())
-                        .filter(|module| module.item_list().is_some())
-                        .and_then(|module| module.name())
-                {
-                    observations.push((
-                        &STRUCTURE_OVERSIZED_UNIT,
-                        sized(unit, &node, format!("Module {name}"), "mod", lines),
-                    ));
-                }
-            }
-            _ => {}
+    if active.on(&STRUCTURE_COMPLEX_FUNCTION) {
+        for function in &unit.inventory.functions {
+            observations.extend(
+                complex(unit, function, settings)
+                    .map(|observation| (&STRUCTURE_COMPLEX_FUNCTION, observation)),
+            );
         }
     }
     observations
 }
 
-fn sized(
-    unit: &Unit<'_>,
-    node: &SyntaxNode,
-    label: String,
-    kind: &str,
-    lines: usize,
-) -> Observation {
-    Observation {
-        key: format!("{kind}|{}|{label}", unit.path),
-        subject: format!("{label} spans {lines} lines."),
+/// Tag and line bound of the kind of unit this node is, or nothing when the
+/// size rule does not judge its kind.
+const fn bound(kind: SyntaxKind) -> Option<(&'static str, usize)> {
+    match kind {
+        SyntaxKind::SOURCE_FILE => Some(("file", FILE_LINES)),
+        SyntaxKind::FN => Some(("fn", FUNCTION_LINES)),
+        SyntaxKind::IMPL => Some(("impl", IMPL_LINES)),
+        SyntaxKind::MODULE => Some(("mod", MODULE_LINES)),
+        _ => None,
+    }
+}
+
+/// The oversized-unit observation this node carries, if it carries one.
+fn oversized(unit: &Unit<'_>, node: &SyntaxNode) -> Option<Observation> {
+    let (tag, limit) = bound(node.kind())?;
+    let lines = lines_of(unit, node);
+    if lines < limit {
+        return None;
+    }
+    // Naming a function means walking its ancestors, so the label is built
+    // after the bound is crossed rather than for every unit of the file.
+    let label = label(unit, node)?;
+    let subject = match node.kind() {
+        SyntaxKind::SOURCE_FILE => format!("{label} is {lines} lines long."),
+        _ => format!("{label} spans {lines} lines."),
+    };
+    Some(Observation {
+        key: format!("{tag}|{}|{label}", unit.path),
+        subject,
         span: unit.span(node),
         context: test_context(node).or(unit.context),
         complexity: None,
+    })
+}
+
+/// What the finding calls this unit, or nothing when the node is not a unit
+/// after all: a declaration with no body and an out-of-line module both name
+/// code that lives somewhere else, and there is nothing in them to divide.
+///
+/// A file is called by its path, which is why its key repeats it: one shape of
+/// key for the four kinds is worth more than a shorter string for one of them.
+fn label(unit: &Unit<'_>, node: &SyntaxNode) -> Option<String> {
+    match node.kind() {
+        SyntaxKind::SOURCE_FILE => Some(unit.path.to_owned()),
+        SyntaxKind::FN => {
+            let function = ast::Fn::cast(node.clone())?;
+            function.body()?;
+            Some(format!("Function {}", qualified_name(&function)?))
+        }
+        SyntaxKind::IMPL => Some(format!(
+            "Impl block {}",
+            impl_label(&ast::Impl::cast(node.clone())?)
+        )),
+        SyntaxKind::MODULE => {
+            let module = ast::Module::cast(node.clone())?;
+            module.item_list()?;
+            Some(format!("Module {}", module.name()?))
+        }
+        _ => None,
     }
+}
+
+/// The complexity observation this function carries, if it crosses a threshold.
+fn complex(
+    unit: &Unit<'_>,
+    function: &ast::Fn,
+    settings: &StructureSettings,
+) -> Option<Observation> {
+    let metrics = metrics_of(&function.body()?);
+    if metrics.cyclomatic < settings.cyclomatic_threshold
+        && metrics.cognitive < settings.cognitive_threshold
+    {
+        return None;
+    }
+    let name = qualified_name(function)?;
+    let node = function.syntax();
+    Some(Observation {
+        key: format!("fn|{}|{name}", unit.path),
+        subject: format!(
+            "Function {name} reaches cyclomatic complexity {} and cognitive complexity {}.",
+            metrics.cyclomatic, metrics.cognitive
+        ),
+        span: unit.span(node),
+        context: test_context(node).or(unit.context),
+        complexity: Some(ComplexityFigures {
+            cyclomatic: metrics.cyclomatic,
+            cognitive: metrics.cognitive,
+        }),
+    })
 }
 
 /// Lines a node covers, from the line index alone. The full span, with its
@@ -218,14 +202,26 @@ fn lines_of(unit: &Unit<'_>, node: &SyntaxNode) -> usize {
     end.saturating_sub(start).saturating_add(1)
 }
 
-/// Both figures of one body, without the constant one cyclomatic starts from.
+/// Both figures of one body, in one walk of it.
 ///
+/// Cyclomatic complexity counts the paths, and a body with no branch is one
+/// path: that constant lives here, so no caller can measure a body and forget
+/// it, and no test can restate it.
+pub(super) fn metrics_of(body: &ast::BlockExpr) -> Metrics {
+    let mut metrics = Metrics {
+        cyclomatic: 1,
+        cognitive: 0,
+    };
+    measure(body.syntax(), 0, &mut metrics);
+    metrics
+}
+
 /// A nested function is skipped: it is measured on its own, and charging its
 /// branches to the function that merely contains it would report the container
 /// for the contained. A closure is not skipped, because it has no name to be
 /// reported under: its branches belong to the function that wrote it, one
 /// nesting level down.
-pub(super) fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
+fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
     for child in node.children() {
         match child.kind() {
             SyntaxKind::FN => {}
@@ -283,11 +279,13 @@ pub(super) fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
                 measure(&child, nesting, metrics);
             }
             SyntaxKind::BREAK_EXPR | SyntaxKind::CONTINUE_EXPR => {
-                let labeled = ast::BreakExpr::cast(child.clone())
-                    .is_some_and(|jump| jump.lifetime().is_some())
-                    || ast::ContinueExpr::cast(child.clone())
-                        .is_some_and(|jump| jump.lifetime().is_some());
-                if labeled {
+                // A jump naming a loop is the one that costs, and the label is
+                // the lifetime token under it, whichever of the two jumps
+                // carries it.
+                if child
+                    .children_with_tokens()
+                    .any(|element| element.kind() == SyntaxKind::LIFETIME)
+                {
                     metrics.cognitive += 1;
                 }
                 measure(&child, nesting, metrics);
@@ -345,50 +343,30 @@ fn impl_label(block: &ast::Impl) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use cargo_metadata::MetadataCommand;
-    use ra_ap_syntax::{Edition, SourceFile};
-
     use super::*;
-    use crate::report::DiagnosticContext;
-    use crate::source_kernel::{enumerate, line_starts};
-    use crate::structure::analyze;
 
-    const COMPLEXITY_ONLY: Active = Active {
-        complexity: true,
-        size: false,
-    };
-    const SIZE_ONLY: Active = Active {
-        complexity: false,
-        size: true,
-    };
+    fn complexity_only() -> Active {
+        Active::of_rules([&STRUCTURE_COMPLEX_FUNCTION])
+    }
+
+    fn size_only() -> Active {
+        Active::of_rules([&STRUCTURE_OVERSIZED_UNIT])
+    }
 
     fn unit(source: &str) -> Unit<'_> {
-        Unit {
-            tree: SourceFile::parse(source, Edition::Edition2024).tree(),
-            source,
-            line_starts: line_starts(source),
-            path: "src/lib.rs",
-            context: None,
-            packages: Vec::new(),
-            attributes: Vec::new(),
-        }
+        Unit::probe(source, "src/lib.rs")
     }
 
     fn measured(body: &str) -> Metrics {
         let source = format!("fn probe() {{\n{body}\n}}\n");
         let parsed = unit(&source);
         let function = parsed
-            .tree
-            .syntax()
-            .descendants()
-            .find_map(ast::Fn::cast)
-            .expect("the probe parses");
-        let mut metrics = Metrics::default();
-        measure(function.body().expect("the probe has a body").syntax(), 0, &mut metrics);
-        metrics.cyclomatic += 1;
-        metrics
+            .inventory
+            .functions
+            .first()
+            .expect("the probe parses")
+            .clone();
+        metrics_of(&function.body().expect("the probe has a body"))
     }
 
     /// US-010: cyclomatic complexity is the branch points plus one, and every
@@ -438,6 +416,10 @@ mod tests {
 
         let labeled = measured("'outer: for a in b { for c in d { continue 'outer; } }");
         assert_eq!(labeled.cognitive, 4);
+        let unlabeled = measured("for a in b { for c in d { continue; } }");
+        assert_eq!(unlabeled.cognitive, 3);
+        let labeled_break = measured("'outer: for a in b { for c in d { break 'outer; } }");
+        assert_eq!(labeled_break.cognitive, 4);
     }
 
     /// A nested function is measured on its own; a closure charges the
@@ -458,14 +440,14 @@ mod tests {
     #[test]
     fn only_a_function_over_a_threshold_is_observed() {
         let calm = unit("fn calm() { if a { b(); } }");
-        assert!(observe(&calm, &StructureSettings::default(), COMPLEXITY_ONLY).is_empty());
+        assert!(observe(&calm, &StructureSettings::default(), &complexity_only()).is_empty());
 
         let source = format!(
             "mod deep {{ impl Report {{ fn dense() {{ {} }} }} }}",
             "if a { b(); } ".repeat(25)
         );
         let dense = unit(&source);
-        let observed = observe(&dense, &StructureSettings::default(), COMPLEXITY_ONLY);
+        let observed = observe(&dense, &StructureSettings::default(), &complexity_only());
         assert_eq!(observed.len(), 1);
         assert_eq!(observed[0].0.id, STRUCTURE_COMPLEX_FUNCTION.id);
         let hotspot = &observed[0].1;
@@ -484,7 +466,7 @@ mod tests {
             cyclomatic_threshold: 27,
             cognitive_threshold: 26,
         };
-        assert!(observe(&dense, &raised, COMPLEXITY_ONLY).is_empty());
+        assert!(observe(&dense, &raised, &complexity_only()).is_empty());
     }
 
     /// US-011: each unit kind is named once when it crosses its own line
@@ -504,7 +486,7 @@ mod tests {
             "    pub const UNIT: u8 = 0;\n".repeat(MODULE_LINES)
         );
         let source = format!("{long_function}{long_impl}{long_module}");
-        let observed = observe(&unit(&source), &StructureSettings::default(), SIZE_ONLY);
+        let observed = observe(&unit(&source), &StructureSettings::default(), &size_only());
 
         let keys: Vec<&str> = observed
             .iter()
@@ -516,7 +498,7 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "file|src/lib.rs",
+                "file|src/lib.rs|src/lib.rs",
                 "fn|src/lib.rs|Function stretched",
                 "impl|src/lib.rs|Impl block std::fmt::Debug for Wide",
                 "mod|src/lib.rs|Module carried",
@@ -536,7 +518,33 @@ mod tests {
             "fn stretched() {{\n{}}}\n",
             "    call();\n".repeat(FUNCTION_LINES - 3)
         );
-        assert!(observe(&unit(&calm), &StructureSettings::default(), SIZE_ONLY).is_empty());
+        assert!(observe(&unit(&calm), &StructureSettings::default(), &size_only()).is_empty());
+    }
+
+    /// US-011: a declaration is not a unit, however long it is written. An
+    /// out-of-line module and a bodyless method both name code that lives
+    /// somewhere else, and neither has anything to divide.
+    #[test]
+    fn a_declaration_without_a_body_is_never_a_unit() {
+        let source = format!("mod carried;\n{}", "// filler\n".repeat(FILE_LINES));
+        let observed = observe(&unit(&source), &StructureSettings::default(), &size_only());
+        let keys: Vec<&str> = observed.iter().map(|(_, entry)| entry.key.as_str()).collect();
+        assert_eq!(keys, ["file|src/lib.rs|src/lib.rs"], "{keys:?}");
+
+        let documented = format!(
+            "trait Wide {{\n{}    fn declared(&self);\n}}\n",
+            "    /// One line of what it promises.\n".repeat(FUNCTION_LINES)
+        );
+        let observed = observe(
+            &unit(&documented),
+            &StructureSettings::default(),
+            &size_only(),
+        );
+        let keys: Vec<&str> = observed.iter().map(|(_, entry)| entry.key.as_str()).collect();
+        assert!(
+            !keys.iter().any(|key| key.starts_with("fn|")),
+            "a declaration with no body was reported as an oversized unit: {keys:?}"
+        );
     }
 
     /// US-011: the line count a file is named with is the one its reader
@@ -554,65 +562,27 @@ mod tests {
         assert_eq!(lines_of(&empty, empty.tree.syntax()), 1);
     }
 
-    /// US-011: a recognized generator header excludes the file from the whole
-    /// structural pass, silently.
+    /// A rule the policy left off costs its half of the walk nothing.
     #[test]
-    fn a_generated_file_is_excluded() {
-        for header in [
-            "// @generated by prost-build",
-            "// DO NOT EDIT: regenerated on every build",
-            "// Automatically generated by bindgen.",
-        ] {
-            assert!(super::super::is_generated(&format!("{header}\nfn free() {{}}\n")), "{header}");
-        }
-        assert!(!super::super::is_generated("fn free() {}\n"));
-    }
-
-    /// EP-003, definition of done: a scan of this repository names
-    /// `src/report.rs` and `src/audit.rs` as oversized and reports at least
-    /// one cognitive complexity hotspot, through the same pass `inspect` runs.
-    #[test]
-    fn the_self_scan_names_this_repository_s_own_hotspots() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let metadata = MetadataCommand::new()
-            .manifest_path(manifest)
-            .no_deps()
-            .other_options(["--offline".to_owned(), "--locked".to_owned()])
-            .exec()
-            .expect("this repository should describe itself");
-        let scan = analyze(
-            &metadata,
-            &enumerate(&metadata),
-            &crate::policy::PolicyPlan::default(),
-            &StructureSettings::default(),
+    fn an_inactive_half_observes_nothing() {
+        let source = format!(
+            "fn stretched() {{\n{}}}\n",
+            "    if a { b(); }\n".repeat(FUNCTION_LINES)
         );
-
-        let oversized_files: Vec<&str> = scan
-            .findings
-            .iter()
-            .filter(|finding| finding.definition.id == STRUCTURE_OVERSIZED_UNIT.id)
-            .map(|finding| finding.path.as_str())
-            .collect();
-        for expected in ["src/report.rs", "src/audit.rs"] {
-            assert!(
-                oversized_files.contains(&expected),
-                "{expected} is no longer named oversized: {oversized_files:?}"
-            );
-        }
-
-        let hotspot = scan
-            .findings
-            .iter()
-            .find(|finding| {
-                finding.definition.id == STRUCTURE_COMPLEX_FUNCTION.id
-                    && finding.context != Some(DiagnosticContext::Tests)
-                    && finding.complexity.is_some_and(|figures| {
-                        figures.cognitive >= StructureSettings::default().cognitive_threshold
-                    })
-            });
+        let both = observe(
+            &unit(&source),
+            &StructureSettings::default(),
+            &Active::of_rules(RULES),
+        );
+        assert!(both.iter().any(|(rule, _)| rule.id == STRUCTURE_OVERSIZED_UNIT.id));
+        assert!(both.iter().any(|(rule, _)| rule.id == STRUCTURE_COMPLEX_FUNCTION.id));
         assert!(
-            hotspot.is_some(),
-            "the self-scan reports no cognitive complexity hotspot"
+            observe(&unit(&source), &StructureSettings::default(), &size_only())
+                .iter()
+                .all(|(rule, _)| rule.id == STRUCTURE_OVERSIZED_UNIT.id)
+        );
+        assert!(
+            observe(&unit(&source), &StructureSettings::default(), &Active::default()).is_empty()
         );
     }
 }

@@ -38,13 +38,13 @@ const SEED: u64 = 0xcbf2_9ce4_8422_2325;
 /// The canonical form of one function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Normalized {
-    /// Identity of the canonical text, as a hexadecimal `blake3` digest. Two
-    /// functions share it exactly when their canonical forms are equal.
-    pub(super) digest: String,
-    /// Nodes the canonical form kept. This is the size a minimum threshold
-    /// reads, and it counts normalized nodes rather than source lines, so
-    /// reformatting cannot move it.
-    pub(super) nodes: usize,
+    /// Identity of the canonical text, as a raw `blake3` digest. Two functions
+    /// share it exactly when their canonical forms are equal.
+    ///
+    /// It is kept in its 32 bytes rather than in the 64 characters of its
+    /// hexadecimal rendering: the digest is held for every function of the
+    /// workspace at once, and the pass publishes what it holds.
+    pub(super) digest: [u8; 32],
     /// Hash of every subtree, sorted, duplicates kept. Duplicates matter: a
     /// function repeating one statement three times is not the same shape as
     /// one stating it once.
@@ -53,6 +53,25 @@ pub(super) struct Normalized {
     /// two-statement body is a delegation whose meaning lives in the erased
     /// names, and the admission floor reads this count to keep it out.
     pub(super) statements: usize,
+}
+
+impl Normalized {
+    /// Nodes the canonical form kept, which is one per subtree hash by
+    /// construction. This is the size a minimum threshold reads, and it counts
+    /// normalized nodes rather than source lines, so reformatting cannot move
+    /// it.
+    pub(super) const fn nodes(&self) -> usize {
+        self.shingles.len()
+    }
+}
+
+/// Hexadecimal rendering of a digest, for the keys a family is published under.
+pub(super) fn hex(digest: &[u8; 32]) -> String {
+    let mut rendered = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(rendered, "{byte:02x}");
+    }
+    rendered
 }
 
 /// Canonical form of a function, or nothing when it has no body to compare or
@@ -105,8 +124,8 @@ pub(super) fn similarity(left: &[u64], right: &[u64]) -> u16 {
 ///
 /// Dice is bounded above by `2 * min / (min + max)`, so a candidate whose size
 /// exceeds this cannot reach the threshold whatever it contains. That is what
-/// makes the nomination step exact: it drops only pairs already proven to fail,
-/// and never a pair that would have been reported.
+/// makes this half of the nomination exact: it drops only pairs already proven
+/// to fail, and never a pair that would have been reported.
 pub(super) fn largest_comparable(size: usize, threshold: u16) -> usize {
     if threshold == 0 {
         return usize::MAX;
@@ -117,36 +136,6 @@ pub(super) fn largest_comparable(size: usize, threshold: u16) -> usize {
     usize::try_from(bound).unwrap_or(usize::MAX)
 }
 
-/// Head of a shape a partner has to meet it in, counted in tokens.
-///
-/// The size bound above is a ratio, not a bound on work: at the shipped
-/// threshold a partner may be half again as large, so a workspace whose
-/// functions cluster around one length still compares everything with
-/// everything. The head is what turns the nomination into an index lookup.
-///
-/// Two multisets scoring above `threshold` share at least
-/// `threshold * (left + right) / 20000` tokens, which is at least
-/// `threshold * min / 10000`; and the size bound makes `min` at least
-/// `threshold * size / (20000 - threshold)` for either of them, so the overlap
-/// each one is committed to is known from its own length alone. Order both the
-/// same way, and everything they share past position `size - overlap + 1`
-/// numbers at most `overlap - 1`: one shared token has to fall inside the head
-/// this returns, on both sides. Undershooting the overlap only lengthens the
-/// head, so the floor division keeps the step exact.
-pub(super) fn smallest_head(size: usize, threshold: u16) -> usize {
-    let threshold = u64::from(threshold);
-    let denominator = 10_000_u64.saturating_mul(20_000_u64.saturating_sub(threshold));
-    if denominator == 0 {
-        return size.max(1);
-    }
-    let overlap = threshold
-        .saturating_mul(threshold)
-        .saturating_mul(size as u64)
-        / denominator;
-    let overlap = usize::try_from(overlap).unwrap_or(size);
-    size.saturating_sub(overlap).saturating_add(1).clamp(1, size.max(1))
-}
-
 #[derive(Debug, Default)]
 struct Canonical {
     text: String,
@@ -155,7 +144,6 @@ struct Canonical {
     /// `x + y`.
     placeholders: HashMap<String, usize>,
     shingles: Vec<u64>,
-    nodes: usize,
     poisoned: bool,
 }
 
@@ -178,7 +166,6 @@ impl Canonical {
             _ => {}
         }
 
-        self.nodes += 1;
         self.text.push('(');
         let _ = write!(self.text, "{kind:?}");
         let mut hash = mix(SEED, u64::from(u16::from(kind)));
@@ -247,8 +234,7 @@ impl Canonical {
         }
         self.shingles.sort_unstable();
         Normalized {
-            digest: hasher.finalize().to_hex().to_string(),
-            nodes: self.nodes,
+            digest: *hasher.finalize().as_bytes(),
             shingles: self.shingles,
             statements,
         }
@@ -294,7 +280,7 @@ mod tests {
         normalize(&function)
     }
 
-    fn digest(source: &str) -> String {
+    fn digest(source: &str) -> [u8; 32] {
         form(source).expect("the function should normalize").digest
     }
 
@@ -333,13 +319,6 @@ mod tests {
         assert_ne!(
             digest("fn one() { let value = \"text\"; }"),
             digest("fn two() { let value = 1; }")
-        );
-        assert!(
-            form("fn one() -> u32 { 40 + 999 }")
-                .expect("the function should normalize")
-                .digest
-                .len()
-                == 64
         );
     }
 
@@ -434,7 +413,7 @@ mod tests {
     }
 
     /// US-007: the score is a Sørensen-Dice over the subtree multisets, and
-    /// the nomination bound drops only pairs that cannot reach the threshold.
+    /// the size bound drops only pairs that cannot reach the threshold.
     #[test]
     fn the_similarity_reads_the_shape_and_its_bound_drops_only_the_impossible() {
         assert_eq!(similarity(&[], &[]), 0);
@@ -451,51 +430,16 @@ mod tests {
         assert_eq!(largest_comparable(100, 0), usize::MAX);
     }
 
-    /// US-007, US-009: the head is what keeps the nomination off the quadratic
-    /// path, and it is only worth anything if it is exact. Two shapes scoring
-    /// above the threshold share a token inside both heads, whatever order the
-    /// tokens are read in.
-    #[test]
-    fn two_shapes_above_the_threshold_always_meet_inside_their_heads() {
-        assert_eq!(smallest_head(100, 8_000), 48);
-        assert_eq!(smallest_head(0, 8_000), 1);
-        assert_eq!(smallest_head(100, 0), 100);
-        assert_eq!(smallest_head(100, 20_000), 100);
-
-        // Every pair the score admits meets inside the heads, under the
-        // numeric order and under the reversed one, because the proof asks
-        // only for a total order both sides agree on.
-        for shift in 0..40_usize {
-            let left: Vec<u64> = (0..100).collect();
-            let right: Vec<u64> = (shift as u64..shift as u64 + 100).collect();
-            if similarity(&left, &right) < 8_000 {
-                continue;
-            }
-            for reversed in [false, true] {
-                let head = |set: &[u64]| -> Vec<u64> {
-                    let mut ordered = set.to_vec();
-                    ordered.sort_unstable_by_key(|token| {
-                        if reversed { u64::MAX - *token } else { *token }
-                    });
-                    ordered.truncate(smallest_head(set.len(), 8_000));
-                    ordered
-                };
-                let (first, second) = (head(&left), head(&right));
-                assert!(
-                    first.iter().any(|token| second.contains(token)),
-                    "shift {shift} reversed {reversed} lost a pair the score admits"
-                );
-            }
-        }
-    }
-
-    /// The identity is a `blake3` digest of the canonical text, and the
-    /// subtree hashes are one per kept node.
+    /// The identity is a `blake3` digest of the canonical text, one subtree
+    /// hash is kept per node, and the count of nodes is that of the hashes
+    /// rather than a second field that could disagree with it.
     #[test]
     fn the_form_publishes_one_shingle_per_node() {
         let normalized = form("fn one(a: u32) -> u32 { a + 1 }").expect("it should normalize");
-        assert_eq!(normalized.shingles.len(), normalized.nodes);
-        assert!(normalized.nodes > 5, "{}", normalized.nodes);
+        assert_eq!(normalized.nodes(), normalized.shingles.len());
+        assert!(normalized.nodes() > 5, "{}", normalized.nodes());
         assert!(normalized.shingles.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(hex(&normalized.digest).len(), 64);
+        assert_eq!(hex(&[0, 1, 15, 16, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])[..10], *"00010f10ff");
     }
 }

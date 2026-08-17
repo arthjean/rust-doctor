@@ -930,6 +930,22 @@ fn path_contains_tests_segment(path: &str) -> bool {
         .any(|component| component == Component::Normal("tests".as_ref()))
 }
 
+/// Workspace-relative path of a file the kernel did not enumerate, or nothing
+/// when it resolves outside the workspace.
+///
+/// It canonicalizes before comparing, because the caller's root is canonical
+/// while a path assembled from a manifest or read from a directory is not: where
+/// the workspace sits under a symbolic link, a lexical comparison of the two
+/// answers no for every file of it. The structural pass relativizes through this
+/// and nothing else, so the invariant every report depends on, that no absolute
+/// path ever reaches the wire, has one implementation to be right in.
+pub(crate) fn workspace_relative(workspace_root: &Path, path: &Path) -> Option<String> {
+    let canonical = path.canonicalize().ok()?;
+    let relative = canonical.strip_prefix(workspace_root).ok()?;
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    (!relative.is_empty()).then_some(relative)
+}
+
 fn relative_path(workspace_root: &Path, path: &Path) -> String {
     path.strip_prefix(workspace_root)
         .ok()
