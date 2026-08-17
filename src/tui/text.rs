@@ -184,11 +184,9 @@ impl Line {
             return Self::blank();
         }
         let budget = width.saturating_sub(1);
-        let mut spans = Vec::new();
+        let mut spans: Vec<Span> = Vec::new();
         let mut used = 0usize;
-        let mut style = Style::PLAIN;
         for span in self.spans {
-            style = span.style;
             if used >= budget {
                 break;
             }
@@ -205,6 +203,10 @@ impl Line {
                 spans.push(Span::raw(kept, span.style, span.link.clone()));
             }
         }
+        // The ellipsis continues the text it replaces, so it carries the style
+        // of the last span that survived the cut. A line cut before its first
+        // span has no such style and the mark stays plain.
+        let style = spans.last().map_or(Style::PLAIN, |span| span.style);
         spans.push(Span::raw("…".to_owned(), style, None));
         Self { spans }
     }
@@ -405,6 +407,23 @@ mod tests {
         assert_eq!(visible(&line.clone().truncate_end(11)), "界界界 tail");
         assert_eq!(visible(&line.clone().truncate_end(5)), "界界…");
         assert_eq!(visible(&line.truncate_end(0)), "");
+    }
+
+    /// The ellipsis continues what survived the cut, never what was dropped:
+    /// a mark painted in the color of absent text reads as content.
+    #[test]
+    fn the_ellipsis_carries_the_style_of_the_last_span_that_survived() {
+        let line = Line::blank()
+            .with(Span::new("kept", Style::color(Color::Cyan)))
+            .with(Span::new("dropped", Style::color(Color::Red)));
+        let rendered = line.truncate_end(5).render(true, false);
+        assert!(rendered.contains("\u{1b}[36m…\u{1b}[0m"), "{rendered:?}");
+        assert!(!rendered.contains("\u{1b}[31m"));
+
+        // Cut before the first span keeps a plain mark rather than inventing a
+        // style.
+        let plain = Line::text("wide", Style::color(Color::Red)).truncate_end(1);
+        assert_eq!(plain.render(true, false), "…");
     }
 
     #[test]
