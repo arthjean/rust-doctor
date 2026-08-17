@@ -69,6 +69,35 @@ pub struct MigrationAdvisory {
     pub files: usize,
 }
 
+impl DiagnosticGroup {
+    /// The occurrence a one-line summary should stand on: the first one that
+    /// knows where it fired, so a reader is pointed at a site rather than at a
+    /// rule. A group whose diagnostics all lack a location still answers with
+    /// its first, since a message with no site beats no message.
+    pub fn representative(&self) -> Option<&GroupDiagnostic> {
+        self.diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.location().is_some())
+            .or_else(|| self.diagnostics.first())
+    }
+
+    /// The fix line a report shows a reader for the group. The toolchain's own
+    /// help wins, because it saw this occurrence; the catalogued help is what a
+    /// rule that emitted none still promises.
+    ///
+    /// Two callers deliberately do not go through here, and both have a reason
+    /// worth keeping. The linear report prints one help line per diagnostic
+    /// rather than one per group, so folding the catalogued fallback in would
+    /// change how many lines a report has. The agent handoff prompt takes the
+    /// catalogued help only, because the toolchain's help is text the scanned
+    /// workspace controls and that prompt is executed by an agent.
+    pub fn resolved_help(&self) -> Option<&str> {
+        self.representative()
+            .and_then(|diagnostic| diagnostic.help.as_deref())
+            .or_else(|| canonical_rule_help(&self.rule_id))
+    }
+}
+
 impl GroupDiagnostic {
     pub fn location(&self) -> Option<GroupLocation> {
         self.path
