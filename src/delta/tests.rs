@@ -598,3 +598,61 @@ fn adversarial_oracle_runs_the_complete_kernel_for_32_cases_and_20_identical_run
     fs::remove_dir_all(current_root).unwrap();
     assert_eq!(actual, expected);
 }
+
+/// US-003: a structural finding is matched on the identity its own pass
+/// computed, never on the message it published.
+///
+/// Every structural message states a number the next edit moves: the line count
+/// of an oversized file, the occurrence count of a clone family, the two figures
+/// of a hotspot. Matched on the message and on an excerpt of the unit, a finding
+/// older than the branch reads as introduced by it and the one it replaced reads
+/// as fixed, which is the opposite of what a baseline scope is asked for.
+#[test]
+fn a_structural_finding_survives_the_count_its_message_states() {
+    let baseline_root = root("structural-baseline");
+    let current_root = root("structural-current");
+
+    let mut before = diagnostic("family", Some("src/lib.rs"), Some(span(1, 1, 2)));
+    before.source = DiagnosticSource::RustDoctor;
+    before.code = Some(crate::policy::STRUCTURE_OVERSIZED_UNIT.id.to_owned());
+    before.message = "src/lib.rs is 1200 lines long.".to_owned();
+
+    let mut grown = before.clone();
+    grown.message = "src/lib.rs is 1207 lines long.".to_owned();
+    let delta = compute(
+        std::slice::from_ref(&before),
+        &[grown],
+        &baseline_root,
+        &current_root,
+    )
+    .unwrap();
+    assert_eq!(delta.summary.introduced, 0, "{delta:?}");
+    assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
+    assert!(delta.fixed.is_empty(), "{delta:?}");
+
+    // The same family reported from another file, which is what a clone family
+    // does when a new member sorts ahead of the old first one. The identity does
+    // not carry the path, so the family is still the same family.
+    let mut moved = before.clone();
+    moved.path = Some("src/other.rs".to_owned());
+    let delta = compute(
+        std::slice::from_ref(&before),
+        &[moved],
+        &baseline_root,
+        &current_root,
+    )
+    .unwrap();
+    assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
+    assert_eq!(delta.summary.cross_file_matches, 1, "{delta:?}");
+
+    // A per-site diagnostic keeps the matching it had: its message is part of
+    // what identifies it, because nothing else does.
+    let site = diagnostic("site", Some("src/lib.rs"), Some(span(1, 1, 2)));
+    let mut reworded = site.clone();
+    reworded.message = "another message".to_owned();
+    let delta = compute(&[site], &[reworded], &baseline_root, &current_root).unwrap();
+    assert_eq!(delta.summary.introduced, 1, "{delta:?}");
+
+    fs::remove_dir_all(baseline_root).unwrap();
+    fs::remove_dir_all(current_root).unwrap();
+}

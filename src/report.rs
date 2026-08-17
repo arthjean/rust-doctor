@@ -1263,10 +1263,16 @@ fn normalize_structure_finding(
         column_end: finding.span.column_end,
     });
     let message = sanitize_text(&finding.message, workspace_root, home);
+    // The identity of a structural finding is its family, and a family is not a
+    // file: `duplicate_function_body` gathers members across the workspace, and
+    // the path published beside it is only the first of them in sorted order.
+    // Feeding that path into the identity would retire the finding and publish a
+    // new one the day a member sorts ahead of it, while the normalized key of a
+    // per-file family already carries its path.
     let id = fingerprint_of(
         source,
         code.as_deref(),
-        path.as_deref(),
+        None,
         canonical_severity(definition.default_level),
         &FingerprintBody::Structure(&finding.structure),
     );

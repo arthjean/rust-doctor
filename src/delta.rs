@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::policy::Producer;
 use crate::report::{Diagnostic, DiagnosticSpan};
 
 pub(crate) const FINGERPRINT_VERSION: u8 = 1;
@@ -83,7 +84,13 @@ impl EvidenceLoader {
         };
         let mut diagnostics_by_path = BTreeMap::<String, Vec<usize>>::new();
         for (index, diagnostic) in diagnostics.iter().enumerate() {
+            // A diagnostic that already carries an identity of its own needs no
+            // excerpt, and reading one for it would spend the evidence budget on
+            // a fingerprint it is not going to use.
             if diagnostic.span.is_some()
+                && candidates
+                    .get(index)
+                    .is_some_and(|candidate| candidate.fingerprint.is_none())
                 && let Some(path) = diagnostic.path.as_ref()
             {
                 diagnostics_by_path
@@ -185,11 +192,35 @@ fn candidates(diagnostics: &[Diagnostic], root: &Path) -> Vec<Candidate> {
         .map(|diagnostic| Candidate {
             path: diagnostic.path.clone(),
             fallback: fallback_key(diagnostic),
-            fingerprint: None,
+            fingerprint: structural_identity(diagnostic).map(structural_fingerprint),
         })
         .collect::<Vec<_>>();
     EvidenceLoader::new(root).populate(diagnostics, &mut candidates);
     candidates
+}
+
+/// The identity a structural finding already publishes, when the diagnostic is
+/// one.
+///
+/// A structural finding is a family, and the identity the structural pass
+/// computes for it is the normalized content of that family: no span, no path,
+/// no measured count. That is what an appariement needs here, and it is what the
+/// message and the source excerpt below cannot give, because every structural
+/// message states a number the next edit moves: the line count of a file, the
+/// occurrence count of a clone family, the two complexity figures of a hotspot.
+/// Matched on those, a finding older than the branch reads as introduced by it,
+/// and the one it replaced reads as fixed.
+fn structural_identity(diagnostic: &Diagnostic) -> Option<&str> {
+    let definition = crate::policy::find(diagnostic.code.as_deref()?)?;
+    matches!(definition.producer, Producer::Structure).then_some(diagnostic.id.as_str())
+}
+
+fn structural_fingerprint(identity: &str) -> DeltaFingerprintV1 {
+    let mut hasher = blake3::Hasher::new();
+    hash_field(&mut hasher, FINGERPRINT_DOMAIN.as_bytes());
+    hash_field(&mut hasher, b"structure");
+    hash_field(&mut hasher, identity.as_bytes());
+    DeltaFingerprintV1(*hasher.finalize().as_bytes())
 }
 
 fn fallback_key(diagnostic: &Diagnostic) -> FallbackKey {
