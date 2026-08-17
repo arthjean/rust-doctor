@@ -139,9 +139,30 @@ screen: the landing score block and its action menu, the split review with the
 rule list on the left and the detail on the right, the agent handoff, and the
 two GitHub Actions screens. `model.rs` carries the geometry of
 `resolve-report-layout.ts` unchanged, so the same terminal size picks the same
-split, stacked or compact arrangement the reference picks. `screens.rs` draws,
-`text.rs` measures in display columns and sanitizes every span, and `tui.rs` is
-the state machine and the frame loop.
+split, stacked or compact arrangement the reference picks. `screens/menu.rs` is
+the shape the four menu screens share, drawing and reading keys once each;
+`screens/viewer.rs` is the split review; `screens.rs` keeps the score block.
+`text.rs` composes styled spans and measures them in display columns,
+`canvas.rs` owns the terminal, and `tui.rs` is the state machine and the frame
+loop.
+
+Two things the two reports share rather than each transposing. `score_block` is
+the score block's model: the faces, the label a score carries, how a value
+fills the bar, how much room the block needs and the cadence of its count-up.
+`terminal_text` is the sanitizer and the ruler. Both are public on the library
+for the binary to reach, and both are public for that reason alone. A second
+copy of either is what let the two reports disagree on the bar rounding, on the
+guard column, and on which escape sequences a diagnostic could smuggle into a
+frame.
+
+Three structural rules hold it together. Each screen carries its own cursor
+inside the `View` enum, never a flat set of cursors beside a view tag: a cursor
+that outlives the list it indexes is how a menu ends up pointing past its own
+actions. Every menu answers to one `screens::input`, so no screen carries its
+own hard-coded upper bound. And `canvas.rs` truncates every frame to the
+terminal minus its last row and last column, because a row that wraps moves the
+cursor away from where the next rewind expects it and corrupts every frame
+after; screens still size themselves, but none of them can break the loop.
 
 Three things it deliberately does not do. It asks nothing before the scan, the
 way React Doctor's TUI path hard-codes `skipPrompts: true` in
@@ -155,7 +176,9 @@ existing test asserts against the linear renderer, which is unchanged.
 
 The only file the tool writes into a scanned workspace is
 `.github/workflows/rust-doctor.yml`, only from the CI menu entry, and never over
-an existing file (`src/tui/workflow.rs`). That workflow installs the published
+an existing file (`src/tui/workflow.rs`): the refusal is the creation itself,
+`create_new`, rather than a check followed by a write. That workflow installs
+the published
 launcher, `npm install -g rust-doctor@<version>`, pinned to the version of the
 binary that wrote it: the pin comes from `CARGO_PKG_VERSION` rather than a
 string in the template, so a release cannot forget to move it, and a generated
