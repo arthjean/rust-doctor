@@ -5,16 +5,18 @@
 //! headers the list column shows, and [`Layout`] is the transposition of
 //! `resolve-report-layout.ts`, so the same terminal geometry picks the same
 //! split, stacked or compact arrangement it does.
+//!
+//! The score block's own geometry is not here: it is
+//! [`rust_doctor::score_block`], shared with the linear report so a score reads
+//! the same in both.
+
+use std::path::Path;
 
 use rust_doctor::presentation::{DiagnosticGroup, GroupLocation, ReportPresentation};
-use rust_doctor::{AuditCategoryName, ScoreLabel, Severity};
+use rust_doctor::score_block;
+use rust_doctor::{AuditCategoryName, InspectReport, ScoreLabel, Severity};
 
 use super::text::Color;
-
-pub const PERFECT_SCORE: u8 = 100;
-
-const SCORE_BAR_WIDTH_CHARS: usize = 50;
-const SCORE_BAR_MIN_WIDTH_CHARS: usize = 10;
 
 pub const HORIZONTAL_PADDING_COLUMNS: usize = 2;
 pub const DETAIL_INDENT_COLUMNS: usize = 2;
@@ -44,8 +46,6 @@ const REPORT_COLUMN_GUTTER_COLUMNS: usize = 3;
 const REPORT_MIN_COLUMN_WIDTH_CHARS: usize = 20;
 pub const REPORT_SPLIT_MARGIN_COLUMNS: usize = 1;
 pub const REPORT_SPLIT_PADDING_COLUMNS: usize = 1;
-const SCORE_FACE_OFFSET_COLUMNS: usize = 11;
-const SCORE_RIGHT_EDGE_SAFETY_COLUMNS: usize = 2;
 
 /// One catalogued rule and every site it fired on.
 #[derive(Debug, Clone)]
@@ -91,11 +91,7 @@ pub fn build_rows(presentation: &ReportPresentation) -> Vec<Row> {
 }
 
 fn row_from_group(group: &DiagnosticGroup) -> Row {
-    let representative = group
-        .diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.location().is_some())
-        .or_else(|| group.diagnostics.first());
+    let representative = group.representative();
     let frame = representative.and_then(|diagnostic| diagnostic.location());
     let mut sites: Vec<String> = Vec::new();
     for diagnostic in &group.diagnostics {
@@ -118,12 +114,7 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
         site_count: group.occurrences,
         location: frame.as_ref().map_or_else(String::new, format_site),
         message: representative.map_or_else(String::new, |diagnostic| diagnostic.message.clone()),
-        help: representative.and_then(|diagnostic| {
-            diagnostic
-                .help
-                .clone()
-                .or_else(|| rust_doctor::presentation::canonical_rule_help(&group.rule_id).map(str::to_owned))
-        }),
+        help: group.resolved_help().map(str::to_owned),
         rule_url: group.rule_url.clone(),
         frame,
         sites,
@@ -165,6 +156,23 @@ pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
     entries
 }
 
+/// What the report calls the workspace: the package name when there is exactly
+/// one, and the directory otherwise.
+pub fn project_name(report: &InspectReport, workspace_root: &Path) -> String {
+    if let Some(project) = report.project.as_ref()
+        && let [package] = project.packages.as_slice()
+    {
+        return package.name.clone();
+    }
+    workspace_root
+        .canonicalize()
+        .ok()
+        .as_deref()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str().map(str::to_owned))
+        .unwrap_or_else(|| "workspace".to_owned())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arrangement {
     Compact,
@@ -181,6 +189,14 @@ pub struct Layout {
     pub list_height: usize,
     pub detail_height: usize,
     pub shows_viewer_score_header: bool,
+    /// Room the score block may occupy. In a split it is the left column; in
+    /// every other arrangement it is the terminal itself, since the block
+    /// carries its own indent and its own guard column.
+    pub score_header_width: usize,
+    /// The widest a row may be. `width` is the content box, two columns in from
+    /// the edge; this is the hard bound, the terminal minus the guard column
+    /// every frame has to leave free.
+    pub frame_width: usize,
 }
 
 /// Direct transposition of `resolveReportLayout`. The two thresholds it turns
@@ -268,30 +284,15 @@ pub fn resolve_layout(columns: usize, rows: usize, entry_count: usize) -> Layout
         list_height,
         detail_height,
         shows_viewer_score_header,
+        score_header_width: if arrangement == Arrangement::Split {
+            list_column_width
+        } else {
+            columns
+        },
+        frame_width: columns
+            .saturating_sub(score_block::RIGHT_EDGE_SAFETY_COLUMNS)
+            .max(REPORT_MIN_WIDTH_CHARS),
     }
-}
-
-/// Bar width of the score block, and whether the block fits the face at all.
-pub fn score_bar_width(available_width: usize) -> Option<usize> {
-    let minimum =
-        SCORE_FACE_OFFSET_COLUMNS + SCORE_BAR_MIN_WIDTH_CHARS + SCORE_RIGHT_EDGE_SAFETY_COLUMNS;
-    if available_width < minimum {
-        return None;
-    }
-    Some(
-        score_right_column_width(available_width)
-            .clamp(SCORE_BAR_MIN_WIDTH_CHARS, SCORE_BAR_WIDTH_CHARS),
-    )
-}
-
-/// Room the score, the bar and the branding share to the right of the face.
-/// One guard column stays free on the right edge: a row that fills the terminal
-/// exactly wraps implicitly on some emulators, which would desynchronize the
-/// rewind between two frames.
-pub fn score_right_column_width(available_width: usize) -> usize {
-    available_width
-        .saturating_sub(SCORE_FACE_OFFSET_COLUMNS)
-        .saturating_sub(SCORE_RIGHT_EDGE_SAFETY_COLUMNS)
 }
 
 pub struct SeverityVariant {
@@ -330,14 +331,6 @@ pub const fn score_color(label: ScoreLabel) -> Color {
         ScoreLabel::Great => Color::Green,
         ScoreLabel::NeedsWork => Color::Yellow,
         ScoreLabel::Critical => Color::Red,
-    }
-}
-
-pub const fn doctor_face(label: ScoreLabel) -> [&'static str; 2] {
-    match label {
-        ScoreLabel::Great => ["◠ ◠", " ▽ "],
-        ScoreLabel::NeedsWork => ["• •", " ─ "],
-        ScoreLabel::Critical => ["x x", " ▽ "],
     }
 }
 
@@ -387,6 +380,10 @@ mod tests {
         // plus its margin plus the list fills the same column.
         assert_eq!(layout.detail_height, 44);
         assert_eq!(layout.list_height, 44 - 4 - 1);
+        // A split puts the score block inside the left column; anywhere else it
+        // owns the terminal, guard column included.
+        assert_eq!(layout.score_header_width, 61);
+        assert_eq!(resolve_layout(100, 40, 30).score_header_width, 100);
     }
 
     #[test]
@@ -406,11 +403,12 @@ mod tests {
         assert!(tiny.list_height >= REPORT_MIN_LIST_ROWS);
     }
 
+    /// The score block indents itself by the columns it declares, so the
+    /// report's own padding has to be that same number or the block sits at a
+    /// different offset than its geometry assumes.
     #[test]
-    fn the_score_block_declines_a_terminal_too_narrow_for_its_face() {
-        assert_eq!(score_bar_width(22), None);
-        assert_eq!(score_bar_width(23), Some(10));
-        assert_eq!(score_bar_width(80), Some(50));
+    fn the_report_padding_is_the_indent_the_score_block_counts() {
+        assert_eq!(HORIZONTAL_PADDING_COLUMNS, score_block::INDENT_COLUMNS);
     }
 
     #[test]

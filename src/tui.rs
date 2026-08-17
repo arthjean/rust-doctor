@@ -10,36 +10,53 @@
 //! the previous frame, every row clears to its end, and whatever the shorter
 //! frame left below is erased. No alternate screen, so the last frame survives
 //! in the scrollback exactly as the reference leaves it.
+//!
+//! Each screen carries its own cursor, in [`View`]. A flat set of cursors
+//! beside a view tag says nothing about which one is live, and the two that
+//! went out of step with the screen they indexed both produced a defect: a menu
+//! pointing past its own actions, and a failed write reported onto a screen
+//! that does not show notices.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
 use console::{Key, Term};
 use rust_doctor::presentation::ReportPresentation;
+use rust_doctor::score_block;
 use rust_doctor::{InspectReport, Status};
 
-use crate::handoff::AvailableAgent;
+use crate::handoff::{self, AvailableAgent};
 
+mod canvas;
 mod model;
 mod screens;
 mod text;
 mod workflow;
 
-use model::{Entry, PERFECT_SCORE, Row, build_entries, build_rows, pluralize, resolve_layout};
-use screens::{Action, CiFeedback, CopyFeedback, LandingNotices, ScoreVariant, ViewerState};
-use text::{Line, sanitize};
+use canvas::Canvas;
+use model::{Entry, Layout, Row, build_entries, build_rows, pluralize, project_name, resolve_layout};
+use screens::{Action, CopyFeedback, MenuInput, Notice, ScoreVariant, ViewerState};
+use text::Line;
 
-const SCORE_FRAME_COUNT: u32 = 40;
-const SCORE_FRAME_DELAY: Duration = Duration::from_millis(50);
+/// Frames the projected gain grows over, once the score has finished counting
+/// up. The count-up itself is [`score_block::COUNT_UP_FRAME_COUNT`], shared
+/// with the linear report; what follows it is this report's own.
 const PROJECTION_FRAME_COUNT: u32 = 16;
 const PROJECTION_FRAME_DELAY: Duration = Duration::from_millis(35);
-const ISSUE_PROMPT_MAX_SITES: usize = 8;
+
 const EXIT_HINT: &str = "esc back · q to quit";
+
+const CI_ACTIONS: [&str; 2] = ["Yes, add the workflow", "Open the GitHub Actions guide"];
+const RECOMMENDATION_ACTIONS: [&str; 2] = [
+    "Add to GitHub Actions first (Recommended)",
+    "Continue without GitHub Actions",
+];
+/// Both GitHub Actions menus open on the entry that writes the workflow, and
+/// both handlers match on it by this name rather than on a bare zero.
+const INSTALL_ACTION: usize = 0;
 
 /// What the reader asked for on the way out. Anything that takes the terminal
 /// over, launching an agent above all, happens after the loop has given it
@@ -68,78 +85,47 @@ pub struct Completed {
 }
 
 pub fn run(session: &Session<'_>) -> io::Result<Completed> {
-    let term = Term::stdout();
-    if !term.features().is_attended() {
+    let mut canvas = Canvas::new(Term::stdout(), session.color);
+    if !canvas.is_attended() {
         return Ok(Completed {
             outcome: Outcome::Quit,
             installed_workflow: None,
         });
     }
-    let mut canvas = Canvas {
-        term,
-        color: session.color,
-        drawn: 0,
-    };
     let mut app = App::new(session);
-    canvas.term.hide_cursor()?;
     let outcome = app.run(&mut canvas);
-    let _ = canvas.term.show_cursor();
-    let _ = canvas.term.flush();
+    canvas.restore();
     outcome.map(|outcome| Completed {
         outcome,
         installed_workflow: app.installed_workflow,
     })
 }
 
-// ---------------------------------------------------------------------- canvas
-
-struct Canvas {
-    term: Term,
-    color: bool,
-    drawn: usize,
-}
-
-impl Canvas {
-    /// Terminal geometry, as columns by rows.
-    fn geometry(&self) -> (usize, usize) {
-        let (rows, columns) = self.term.size();
-        (usize::from(columns).max(1), usize::from(rows).max(1))
-    }
-
-    fn draw(&mut self, frame: &[Line], height: usize) -> io::Result<()> {
-        let mut buffer = String::new();
-        if self.drawn > 0 {
-            let _ = write!(buffer, "\u{1b}[{}A", self.drawn);
-        }
-        buffer.push('\r');
-        let mut written = 0usize;
-        for line in frame.iter().take(height) {
-            buffer.push_str(&line.render(self.color, self.color));
-            // Clearing to the end of the row is what lets a frame shrink
-            // without leaving the previous one's tail behind.
-            buffer.push_str("\u{1b}[K\r\n");
-            written = written.saturating_add(1);
-        }
-        buffer.push_str("\u{1b}[J");
-        self.term.write_str(&buffer)?;
-        self.term.flush()?;
-        self.drawn = written;
-        Ok(())
-    }
-}
-
 // ------------------------------------------------------------------- the app
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// The screen on show, and the cursor that belongs to it. A cursor exists only
+/// while its screen does, so it can never index a list it does not come from.
 enum View {
-    Landing,
+    Landing {
+        selected: usize,
+    },
     Issues,
-    Ci,
-    HandoffCi,
-    Handoff,
+    /// The GitHub Actions screen reached from the landing menu.
+    Ci {
+        selected: usize,
+        notice: Option<Notice>,
+    },
+    /// The one offered on the way to an agent.
+    HandoffCi {
+        selected: usize,
+        notice: Option<Notice>,
+    },
+    Handoff {
+        selected: usize,
+    },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LandingAction {
     Review,
     AddToCi,
@@ -157,11 +143,6 @@ struct App<'a> {
     rows: Vec<Row>,
     entries: Vec<Entry>,
     view: View,
-    landing_selected: usize,
-    handoff_selected: usize,
-    ci_selected: usize,
-    recommendation_selected: usize,
-    ci_feedback: Option<CiFeedback>,
     ci_available: bool,
     selected_entry: usize,
     offset: usize,
@@ -183,15 +164,10 @@ impl<'a> App<'a> {
             .position(|entry| entry.row_index().is_some())
             .unwrap_or(0);
         Self {
-            project_name: project_name(session),
+            project_name: project_name(session.report, session.workspace_root),
             rows,
             entries,
-            view: View::Landing,
-            landing_selected: 0,
-            handoff_selected: 0,
-            ci_selected: 0,
-            recommendation_selected: 0,
-            ci_feedback: None,
+            view: View::Landing { selected: 0 },
             ci_available: workflow::can_install(session.workspace_root),
             selected_entry,
             offset: 0,
@@ -208,16 +184,18 @@ impl<'a> App<'a> {
 
     fn run(&mut self, canvas: &mut Canvas) -> io::Result<Outcome> {
         self.reveal_score(canvas)?;
+        // The cursor is hidden only once the loop owns the terminal. The reveal
+        // sleeps between frames with the terminal in cooked mode, so a Ctrl-C
+        // there kills the process before anything can put the cursor back; the
+        // loop reads Ctrl-C as a key and leaves cleanly.
+        canvas.hide_cursor()?;
         self.show_actions = true;
         loop {
-            let (columns, rows) = canvas.geometry();
-            let frame = self.frame(columns, rows);
-            canvas.draw(&frame, rows.saturating_sub(1).max(1))?;
-            match self.handle(canvas.term.read_key_raw()?, columns, rows) {
+            let layout = self.paint(canvas)?;
+            match self.handle(canvas.read_key()?, layout) {
                 Flow::Continue => {}
                 Flow::Exit(outcome) => {
-                    let frame = self.frame(columns, rows);
-                    canvas.draw(&frame, rows.saturating_sub(1).max(1))?;
+                    self.paint(canvas)?;
                     return Ok(outcome);
                 }
             }
@@ -225,7 +203,7 @@ impl<'a> App<'a> {
     }
 
     /// The count-up of `use-animated-score.ts`: the value eases from zero over
-    /// forty frames, then the projected gain grows out of it over sixteen more.
+    /// the shared count-up frames, then the projected gain grows out of it.
     fn reveal_score(&mut self, canvas: &mut Canvas) -> io::Result<()> {
         let Some(score) = self.session.report.audit.score.as_ref() else {
             return Ok(());
@@ -238,11 +216,12 @@ impl<'a> App<'a> {
             self.displayed_projection = target;
             return Ok(());
         }
-        for frame in 0..=SCORE_FRAME_COUNT {
-            self.displayed_score = eased(0, score.value, frame, SCORE_FRAME_COUNT);
+        for frame in 0..=score_block::COUNT_UP_FRAME_COUNT {
+            self.displayed_score =
+                score_block::eased(0, score.value, frame, score_block::COUNT_UP_FRAME_COUNT);
             self.paint(canvas)?;
-            if frame < SCORE_FRAME_COUNT {
-                sleep(SCORE_FRAME_DELAY);
+            if frame < score_block::COUNT_UP_FRAME_COUNT {
+                sleep(score_block::COUNT_UP_FRAME_DELAY);
             }
         }
         self.displayed_score = score.value;
@@ -250,8 +229,12 @@ impl<'a> App<'a> {
             return Ok(());
         };
         for frame in 1..=PROJECTION_FRAME_COUNT {
-            self.displayed_projection =
-                Some(eased(score.value, target, frame, PROJECTION_FRAME_COUNT));
+            self.displayed_projection = Some(score_block::eased(
+                score.value,
+                target,
+                frame,
+                PROJECTION_FRAME_COUNT,
+            ));
             self.paint(canvas)?;
             sleep(PROJECTION_FRAME_DELAY);
         }
@@ -259,56 +242,60 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn paint(&self, canvas: &mut Canvas) -> io::Result<()> {
+    /// Draws one frame and answers with the layout it drew for, so the keys
+    /// that follow are read against the geometry the reader is looking at
+    /// rather than against a second, independently resolved one.
+    fn paint(&self, canvas: &mut Canvas) -> io::Result<Layout> {
         let (columns, rows) = canvas.geometry();
-        let frame = self.frame(columns, rows);
-        canvas.draw(&frame, rows.saturating_sub(1).max(1))
+        let layout = resolve_layout(columns, rows, self.entries.len());
+        canvas.draw(self.frame(layout), columns, rows)?;
+        Ok(layout)
     }
 
     // ------------------------------------------------------------- rendering
 
-    fn frame(&self, columns: usize, rows: usize) -> Vec<Line> {
-        let layout = resolve_layout(columns, rows, self.entries.len());
-        let header_width = match layout.arrangement {
-            model::Arrangement::Split => layout.list_column_width,
-            _ => layout.width,
-        };
-        match self.view {
-            View::Landing => {
-                let actions: Vec<Action> = self
-                    .landing_actions(layout.width)
-                    .into_iter()
-                    .map(|(_, action)| action)
-                    .collect();
-                screens::landing(
-                    self.score_header(ScoreVariant::Landing, header_width),
-                    &self.notices(),
-                    &actions,
-                    self.landing_selected,
-                    self.show_actions,
-                )
+    fn frame(&self, layout: Layout) -> Vec<Line> {
+        match &self.view {
+            View::Landing { selected } => self.landing_frame(*selected, layout),
+            View::Handoff { selected } => {
+                let actions = self.handoff_actions();
+                screens::menu(screens::Menu {
+                    title: screens::handoff_title(),
+                    actions: &actions,
+                    selected: *selected,
+                    notice: None,
+                    hint: screens::HINT_MENU_BACK,
+                    width: layout.frame_width,
+                })
             }
-            View::Handoff => {
-                screens::agent_handoff(&self.handoff_actions(), self.handoff_selected)
+            View::HandoffCi { selected, notice } => {
+                let actions = actions_from(&RECOMMENDATION_ACTIONS);
+                screens::menu(screens::Menu {
+                    title: screens::ci_recommendation_title(layout.width),
+                    actions: &actions,
+                    selected: *selected,
+                    notice: notice.as_ref(),
+                    hint: screens::HINT_MENU_SKIP,
+                    width: layout.frame_width,
+                })
             }
-            View::HandoffCi => screens::ci_recommendation(
-                &recommendation_actions(),
-                self.recommendation_selected,
-                layout.width,
-            ),
-            View::Ci => screens::ci_setup(
-                &ci_actions(),
-                self.ci_selected,
-                self.ci_feedback.as_ref(),
-                layout.width,
-            ),
+            View::Ci { selected, notice } => {
+                let actions = actions_from(&CI_ACTIONS);
+                screens::menu(screens::Menu {
+                    title: screens::ci_setup_title(layout.width),
+                    actions: &actions,
+                    selected: *selected,
+                    notice: notice.as_ref(),
+                    hint: screens::HINT_MENU_BACK,
+                    width: layout.frame_width,
+                })
+            }
             View::Issues => {
                 let header = if layout.shows_viewer_score_header {
-                    self.score_header(ScoreVariant::Viewer, header_width)
+                    self.score_header(ScoreVariant::Viewer, layout.score_header_width)
                 } else {
                     Vec::new()
                 };
-                let read = |index: usize| self.read.contains(&index);
                 let state = ViewerState {
                     rows: &self.rows,
                     entries: &self.entries,
@@ -320,7 +307,7 @@ impl<'a> App<'a> {
                         self.selected_entry,
                         layout.list_height,
                     ),
-                    read: &read,
+                    read: &self.read,
                     workspace_root: self.session.workspace_root,
                     copy_feedback: self.copy_feedback,
                     exit_hint: EXIT_HINT,
@@ -330,59 +317,102 @@ impl<'a> App<'a> {
         }
     }
 
+    fn landing_frame(&self, selected: usize, layout: Layout) -> Vec<Line> {
+        let title = screens::landing_title(
+            self.score_header(ScoreVariant::Landing, layout.score_header_width),
+            &screens::LandingNotices {
+                issue_count: self.rows.len(),
+                incomplete: incomplete_message(self.session.report),
+            },
+        );
+        // Nothing is offered while the score is still counting up: the reader
+        // is watching a number, not reading a menu.
+        if !self.show_actions {
+            return title;
+        }
+        let actions: Vec<Action> = self
+            .landing_actions()
+            .into_iter()
+            .map(|kind| self.landing_action(kind, layout.width))
+            .collect();
+        let hint = if actions.is_empty() {
+            screens::HINT_QUIT
+        } else {
+            screens::HINT_MENU
+        };
+        screens::menu(screens::Menu {
+            title,
+            actions: &actions,
+            selected,
+            notice: None,
+            hint,
+            width: layout.frame_width,
+        })
+    }
+
     fn score_header(&self, variant: ScoreVariant, width: usize) -> Vec<Line> {
-        let (score, projection) = match variant {
+        let score = self.session.report.audit.score.as_ref();
+        let (displayed, projection) = match variant {
             ScoreVariant::Landing => (self.displayed_score, self.displayed_projection),
-            ScoreVariant::Viewer => (
-                self.session
-                    .report
-                    .audit
-                    .score
-                    .as_ref()
-                    .map_or(0, |score| score.value),
-                None,
-            ),
+            ScoreVariant::Viewer => (score.map_or(0, |score| score.value), None),
         };
         screens::score_header(
             variant,
-            self.session.report.audit.score.as_ref(),
+            score,
             &self.project_name,
             self.session.presentation.finding_count,
             width,
-            score,
+            displayed,
             projection,
         )
     }
 
-    fn notices(&self) -> LandingNotices {
-        LandingNotices {
-            issue_count: self.rows.len(),
-            incomplete: incomplete_message(self.session.report),
-            empty_state: None,
+    /// What the landing offers, in order. No width and no labels: building a
+    /// wrapped justification paragraph on the path that only needs to know
+    /// which entry the cursor is on is work thrown away on every keystroke.
+    fn landing_actions(&self) -> Vec<LandingAction> {
+        let mut actions = Vec::new();
+        if !self.rows.is_empty() {
+            actions.push(LandingAction::Review);
+        }
+        if self.ci_available {
+            actions.push(LandingAction::AddToCi);
+        }
+        if !self.rows.is_empty() {
+            actions.push(LandingAction::Handoff);
+        }
+        actions
+    }
+
+    fn landing_action(&self, kind: LandingAction, width: usize) -> Action {
+        match kind {
+            LandingAction::Review => Action::new(format!(
+                "Review {}",
+                pluralize(self.rows.len(), "issue")
+            )),
+            LandingAction::AddToCi => Action::described(
+                "Add to GitHub Actions (Recommended)",
+                screens::ci_justification(width),
+            ),
+            LandingAction::Handoff => Action::new("Hand off to an agent"),
         }
     }
 
-    fn landing_actions(&self, width: usize) -> Vec<(LandingAction, Action)> {
-        let mut actions = Vec::new();
-        if !self.rows.is_empty() {
-            actions.push((
-                LandingAction::Review,
-                Action::new(format!("Review {}", pluralize(self.rows.len(), "issue"))),
-            ));
+    /// The landing with its cursor on `action`, or on its first entry when the
+    /// landing no longer offers it. Every way back to the landing states which
+    /// entry it means, so a menu can never point past what it shows.
+    fn landing_on(&self, action: LandingAction) -> View {
+        self.landing_where(|kind| kind == action)
+    }
+
+    fn landing_where(&self, wanted: impl Fn(LandingAction) -> bool) -> View {
+        View::Landing {
+            selected: self
+                .landing_actions()
+                .into_iter()
+                .position(wanted)
+                .unwrap_or(0),
         }
-        if self.ci_available {
-            actions.push((
-                LandingAction::AddToCi,
-                Action::described(
-                    "Add to GitHub Actions (Recommended)",
-                    screens::ci_justification(width),
-                ),
-            ));
-        }
-        if !self.rows.is_empty() {
-            actions.push((LandingAction::Handoff, Action::new("Hand off to an agent")));
-        }
-        actions
     }
 
     fn handoff_actions(&self) -> Vec<Action> {
@@ -404,115 +434,114 @@ impl<'a> App<'a> {
 
     // --------------------------------------------------------------- input
 
-    fn handle(&mut self, key: Key, columns: usize, rows: usize) -> Flow {
+    fn handle(&mut self, key: Key, layout: Layout) -> Flow {
         if matches!(key, Key::Char('q') | Key::CtrlC) {
             return Flow::Exit(Outcome::Quit);
         }
         match self.view {
-            View::Landing => self.handle_landing(key, columns),
-            View::Handoff => self.handle_handoff(key),
-            View::HandoffCi => self.handle_recommendation(key),
-            View::Ci => self.handle_ci(key),
-            View::Issues => self.handle_issues(key, columns, rows),
+            View::Landing { .. } => self.handle_landing(key),
+            View::Handoff { .. } => self.handle_handoff(key),
+            View::HandoffCi { .. } => self.handle_recommendation(key),
+            View::Ci { .. } => self.handle_ci(key),
+            View::Issues => self.handle_issues(key, layout.list_height),
         }
     }
 
-    fn handle_landing(&mut self, key: Key, columns: usize) -> Flow {
-        let actions = self.landing_actions(columns);
-        match key {
-            Key::Escape => return Flow::Exit(Outcome::Quit),
-            Key::ArrowUp | Key::Char('k') => {
-                self.landing_selected = self.landing_selected.saturating_sub(1);
-            }
-            Key::ArrowDown | Key::Char('j') => {
-                self.landing_selected =
-                    (self.landing_selected + 1).min(actions.len().saturating_sub(1));
-            }
-            Key::Enter => match actions.get(self.landing_selected).map(|(kind, _)| *kind) {
+    fn handle_landing(&mut self, key: Key) -> Flow {
+        let actions = self.landing_actions();
+        let View::Landing { selected } = &mut self.view else {
+            return Flow::Continue;
+        };
+        match screens::input(key, selected, actions.len()) {
+            MenuInput::Back => return Flow::Exit(Outcome::Quit),
+            MenuInput::Selected(index) => match actions.get(index) {
                 Some(LandingAction::Review) => {
                     self.mark_read();
                     self.view = View::Issues;
                 }
                 Some(LandingAction::AddToCi) => {
-                    self.ci_feedback = None;
-                    self.ci_selected = 0;
-                    self.view = View::Ci;
+                    self.view = View::Ci {
+                        selected: 0,
+                        notice: None,
+                    };
                 }
                 Some(LandingAction::Handoff) => {
-                    self.handoff_selected = 0;
                     self.view = if self.ci_available {
-                        self.recommendation_selected = 0;
-                        View::HandoffCi
+                        View::HandoffCi {
+                            selected: 0,
+                            notice: None,
+                        }
                     } else {
-                        View::Handoff
+                        View::Handoff { selected: 0 }
                     };
                 }
                 None => {}
             },
-            _ => {}
+            MenuInput::Moved | MenuInput::Ignored => {}
         }
         Flow::Continue
     }
 
     fn handle_handoff(&mut self, key: Key) -> Flow {
-        let count = self.session.agents.len() + 1;
-        match key {
-            Key::Escape => self.view = View::Landing,
-            Key::ArrowUp | Key::Char('k') => {
-                self.handoff_selected = self.handoff_selected.saturating_sub(1);
+        let agents = self.session.agents.len();
+        let View::Handoff { selected } = &mut self.view else {
+            return Flow::Continue;
+        };
+        match screens::input(key, selected, agents.saturating_add(1)) {
+            MenuInput::Back => {
+                self.view = self.landing_on(LandingAction::Handoff);
             }
-            Key::ArrowDown | Key::Char('j') => {
-                self.handoff_selected = (self.handoff_selected + 1).min(count - 1);
-            }
-            Key::Enter => {
-                return Flow::Exit(if self.handoff_selected < self.session.agents.len() {
-                    Outcome::LaunchAgent(self.handoff_selected)
+            MenuInput::Selected(index) => {
+                return Flow::Exit(if index < agents {
+                    Outcome::LaunchAgent(index)
                 } else {
                     Outcome::CopyPrompt
                 });
             }
-            _ => {}
+            MenuInput::Moved | MenuInput::Ignored => {}
         }
         Flow::Continue
     }
 
     fn handle_recommendation(&mut self, key: Key) -> Flow {
-        match key {
-            Key::Escape => self.view = View::Handoff,
-            Key::ArrowUp | Key::Char('k') => {
-                self.recommendation_selected = self.recommendation_selected.saturating_sub(1);
-            }
-            Key::ArrowDown | Key::Char('j') => {
-                self.recommendation_selected = (self.recommendation_selected + 1).min(1);
-            }
-            Key::Enter => {
-                if self.recommendation_selected == 0 {
-                    self.install_workflow();
+        let View::HandoffCi { selected, .. } = &mut self.view else {
+            return Flow::Continue;
+        };
+        match screens::input(key, selected, RECOMMENDATION_ACTIONS.len()) {
+            MenuInput::Selected(INSTALL_ACTION) => {
+                // A write that failed keeps the reader on the screen that
+                // offered it: the agent handoff has nowhere to show a notice,
+                // so moving on would swallow the reason.
+                match self.install_workflow() {
+                    Some(notice) => self.set_ci_notice(notice),
+                    None => self.view = View::Handoff { selected: 0 },
                 }
-                self.view = View::Handoff;
             }
-            _ => {}
+            MenuInput::Back | MenuInput::Selected(_) => {
+                self.view = View::Handoff { selected: 0 };
+            }
+            MenuInput::Moved | MenuInput::Ignored => {}
         }
         Flow::Continue
     }
 
     fn handle_ci(&mut self, key: Key) -> Flow {
-        match key {
-            Key::Escape => {
-                self.ci_feedback = None;
-                self.view = View::Landing;
+        let View::Ci { selected, .. } = &mut self.view else {
+            return Flow::Continue;
+        };
+        match screens::input(key, selected, CI_ACTIONS.len()) {
+            MenuInput::Back => {
+                self.view = self.landing_on(LandingAction::AddToCi);
             }
-            Key::ArrowUp | Key::Char('k') => {
-                self.ci_selected = self.ci_selected.saturating_sub(1);
-            }
-            Key::ArrowDown | Key::Char('j') => self.ci_selected = (self.ci_selected + 1).min(1),
-            Key::Enter => {
-                if self.ci_selected == 0 {
-                    self.install_workflow();
-                    return Flow::Exit(Outcome::Quit);
-                }
-                let opened = open_url(screens::GITHUB_ACTIONS_SETUP_URL);
-                self.ci_feedback = Some(CiFeedback {
+            MenuInput::Selected(INSTALL_ACTION) => match self.install_workflow() {
+                // The workflow is written and the caller says so on a screen
+                // this report no longer owns.
+                None => return Flow::Exit(Outcome::Quit),
+                Some(notice) => self.set_ci_notice(notice),
+            },
+            MenuInput::Selected(_) => {
+                let opened = handoff::open_url(screens::GITHUB_ACTIONS_SETUP_URL);
+                self.set_ci_notice(Notice {
                     succeeded: opened,
                     message: if opened {
                         "✓ Opened the GitHub Actions guide in your browser".to_owned()
@@ -524,13 +553,12 @@ impl<'a> App<'a> {
                     },
                 });
             }
-            _ => {}
+            MenuInput::Moved | MenuInput::Ignored => {}
         }
         Flow::Continue
     }
 
-    fn handle_issues(&mut self, key: Key, columns: usize, rows: usize) -> Flow {
-        let height = resolve_layout(columns, rows, self.entries.len()).list_height;
+    fn handle_issues(&mut self, key: Key, height: usize) -> Flow {
         let is_second_g = self.awaiting_second_g && key == Key::Char('g');
         if key != Key::Char('g') {
             self.awaiting_second_g = false;
@@ -539,13 +567,8 @@ impl<'a> App<'a> {
             Key::Escape => {
                 // Coming back from the issues, the menu lands on what to do
                 // next rather than on the review the reader just left.
-                self.landing_selected = self
-                    .landing_actions(columns)
-                    .iter()
-                    .position(|(kind, _)| *kind != LandingAction::Review)
-                    .unwrap_or(0);
                 self.copy_feedback = None;
-                self.view = View::Landing;
+                self.view = self.landing_where(|kind| kind != LandingAction::Review);
             }
             Key::ArrowDown | Key::Char('j') => self.move_to(self.selected_entry + 1, true, height),
             Key::ArrowUp | Key::Char('k') => {
@@ -580,13 +603,9 @@ impl<'a> App<'a> {
         self.selected_entry = next;
         self.copy_feedback = None;
         self.mark_read();
-        if height > 0 {
-            if next < self.offset {
-                self.offset = next;
-            } else if next >= self.offset + height {
-                self.offset = next + 1 - height;
-            }
-        }
+        // The viewport follows the selection by exactly one rule, the one the
+        // frame reapplies when the terminal has been resized under it.
+        self.offset = visible_start(self.entries.len(), self.offset, next, height);
     }
 
     fn nearest_selectable(&self, from: usize, forward: bool) -> Option<usize> {
@@ -607,6 +626,13 @@ impl<'a> App<'a> {
         }
     }
 
+    fn selected_row(&self) -> Option<&Row> {
+        self.entries
+            .get(self.selected_entry)
+            .and_then(Entry::row_index)
+            .and_then(|index| self.rows.get(index))
+    }
+
     fn mark_read(&mut self) {
         if let Some(index) = self
             .entries
@@ -618,68 +644,58 @@ impl<'a> App<'a> {
     }
 
     fn copy_issue_context(&mut self) {
-        let Some(row) = self
-            .entries
-            .get(self.selected_entry)
-            .and_then(Entry::row_index)
-            .and_then(|index| self.rows.get(index))
-        else {
+        let Some(row) = self.selected_row() else {
             return;
         };
-        let prompt = issue_prompt(row, &self.project_name);
-        self.copy_feedback = Some(match crate::handoff::copy_text(&prompt) {
+        let issue = handoff::IssuePrompt {
+            project_name: &self.project_name,
+            rule_id: &row.rule_id,
+            title: &row.title,
+            category: row.category.as_str(),
+            is_error: row.is_error(),
+            site_count: row.site_count,
+            message: &row.message,
+            help: row.help.as_deref(),
+            rule_url: &row.rule_url,
+            sites: &row.sites,
+        };
+        let copied = handoff::build_issue_prompt(&issue)
+            .and_then(|payload| handoff::copy_to_clipboard(&payload));
+        self.copy_feedback = Some(match copied {
             Ok(()) => CopyFeedback::Copied,
             Err(_) => CopyFeedback::Failed,
         });
     }
 
-    fn install_workflow(&mut self) {
+    /// Writes the workflow, answering with what the reader has to be told.
+    /// Nothing to say means it landed.
+    fn install_workflow(&mut self) -> Option<Notice> {
         match workflow::install(self.session.workspace_root) {
             Ok(path) => {
                 self.ci_available = false;
                 self.installed_workflow = Some(path);
+                None
             }
-            Err(error) => {
-                self.ci_feedback = Some(CiFeedback {
-                    succeeded: false,
-                    message: format!("Could not add the workflow: {error}"),
-                });
-            }
+            Err(error) => Some(Notice {
+                succeeded: false,
+                message: format!("Could not add the workflow: {error}"),
+            }),
+        }
+    }
+
+    fn set_ci_notice(&mut self, notice: Notice) {
+        if let View::Ci { notice: slot, .. } | View::HandoffCi { notice: slot, .. } = &mut self.view
+        {
+            *slot = Some(notice);
         }
     }
 }
 
-fn ci_actions() -> Vec<Action> {
-    vec![
-        Action::new("Yes, add the workflow"),
-        Action::new("Open the GitHub Actions guide"),
-    ]
-}
-
-fn recommendation_actions() -> Vec<Action> {
-    vec![
-        Action::new("Add to GitHub Actions first (Recommended)"),
-        Action::new("Continue without GitHub Actions"),
-    ]
+fn actions_from(labels: &[&str]) -> Vec<Action> {
+    labels.iter().map(|label| Action::new(*label)).collect()
 }
 
 // --------------------------------------------------------------- derivations
-
-fn project_name(session: &Session<'_>) -> String {
-    if let Some(project) = session.report.project.as_ref()
-        && let [package] = project.packages.as_slice()
-    {
-        return package.name.clone();
-    }
-    session
-        .workspace_root
-        .canonicalize()
-        .ok()
-        .as_deref()
-        .and_then(Path::file_name)
-        .and_then(|name| name.to_str().map(str::to_owned))
-        .unwrap_or_else(|| "workspace".to_owned())
-}
 
 fn incomplete_message(report: &InspectReport) -> Option<String> {
     if report.status == Status::Complete {
@@ -701,6 +717,9 @@ fn incomplete_message(report: &InspectReport) -> Option<String> {
 }
 
 /// Where a viewport of `height` rows starts so that `selected` stays inside it.
+/// This is the only rule the list scrolls by: the selection keeps it up to
+/// date, and the frame reapplies it in case the terminal was resized between
+/// two keystrokes.
 fn visible_start(item_count: usize, offset: usize, selected: usize, height: usize) -> usize {
     if height == 0 {
         return 0;
@@ -715,222 +734,5 @@ fn visible_start(item_count: usize, offset: usize, selected: usize, height: usiz
     bounded
 }
 
-fn ease_out_cubic(progress: f64) -> f64 {
-    1.0 - (1.0 - progress).powi(3)
-}
-
-/// Value shown at one frame of an eased run from `from` to `to`.
-fn eased(from: u8, to: u8, frame: u32, frames: u32) -> u8 {
-    let progress = ease_out_cubic(f64::from(frame) / f64::from(frames));
-    let value = f64::from(to)
-        .mul_add(progress, f64::from(from) * (1.0 - progress))
-        .round();
-    if value <= 0.0 {
-        0
-    } else if value >= f64::from(PERFECT_SCORE) {
-        PERFECT_SCORE
-    } else {
-        value as u8
-    }
-}
-
-/// The clipboard payload of one rule, the transposition of
-/// `build-issue-prompt.ts`. Every field is sanitized before it is joined, so a
-/// message carrying an escape sequence cannot travel through the clipboard.
-fn issue_prompt(row: &Row, project_name: &str) -> String {
-    let severity = if row.is_error() { "ERROR" } else { "WARN" };
-    let mut lines = vec![
-        format!(
-            "Fix exactly one Rust Doctor rule in {}:",
-            sanitize(project_name)
-        ),
-        String::new(),
-        format!(
-            "{severity} {}: {} ({}, ×{})",
-            sanitize(row.category.as_str()),
-            sanitize(&row.title),
-            sanitize(&row.rule_id),
-            row.site_count
-        ),
-        sanitize(&row.message),
-    ];
-    if let Some(help) = &row.help {
-        lines.push(String::new());
-        lines.push(format!("Suggested fix: {}", sanitize(help)));
-    }
-    lines.extend([
-        String::new(),
-        "Scope:".to_owned(),
-        format!("- Fix only {}.", sanitize(&row.rule_id)),
-        "- Fix the root cause; do not suppress, disable, or silence the rule.".to_owned(),
-        "- Keep unrelated refactors out of this pass.".to_owned(),
-        String::new(),
-        "Affected sites:".to_owned(),
-    ]);
-    lines.extend(
-        row.sites
-            .iter()
-            .take(ISSUE_PROMPT_MAX_SITES)
-            .map(|site| format!("- {}", sanitize(site))),
-    );
-    let remaining = row.sites.len().saturating_sub(ISSUE_PROMPT_MAX_SITES);
-    if remaining > 0 {
-        lines.push(format!("- +{remaining} more sites"));
-    }
-    if !row.rule_url.is_empty() {
-        lines.push(String::new());
-        lines.push(format!("Learn more: {}", sanitize(&row.rule_url)));
-    }
-    lines.extend([
-        String::new(),
-        format!(
-            "Verify with `rust-doctor . --yes --verbose` and confirm {} is gone before moving on.",
-            sanitize(&row.rule_id)
-        ),
-    ]);
-    lines.join("\n")
-}
-
-/// Hands a URL to the desktop. Both streams go to the void: a browser launcher
-/// that writes to stdout would land in the middle of a frame.
-fn open_url(url: &str) -> bool {
-    let (program, arguments): (&str, &[&str]) = if cfg!(target_os = "macos") {
-        ("open", &[])
-    } else if cfg!(target_os = "windows") {
-        ("cmd", &["/C", "start", ""])
-    } else {
-        ("xdg-open", &[])
-    };
-    Command::new(program)
-        .args(arguments)
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rust_doctor::AuditCategoryName;
-    use rust_doctor::Severity;
-
-    fn row() -> Row {
-        Row {
-            rule_id: "clippy::unwrap_used".to_owned(),
-            title: "Unwrap used".to_owned(),
-            category: AuditCategoryName::Bugs,
-            severity: Severity::Warning,
-            site_count: 12,
-            location: "src/lib.rs:4".to_owned(),
-            message: "called `unwrap` on a value".to_owned(),
-            help: Some("Use `?` or `unwrap_or`.".to_owned()),
-            rule_url: "https://rust-doctor.com/rules/clippy".to_owned(),
-            frame: None,
-            sites: (1..=10).map(|line| format!("src/lib.rs:{line}")).collect(),
-        }
-    }
-
-    #[test]
-    fn the_issue_prompt_names_one_rule_bounds_its_sites_and_ends_on_the_rescan() {
-        let prompt = issue_prompt(&row(), "workspace");
-        assert!(prompt.starts_with("Fix exactly one Rust Doctor rule in workspace:"));
-        assert!(prompt.contains("WARN Bugs: Unwrap used (clippy::unwrap_used, ×12)"));
-        assert!(prompt.contains("- Fix only clippy::unwrap_used."));
-        assert_eq!(prompt.matches("- src/lib.rs:").count(), ISSUE_PROMPT_MAX_SITES);
-        assert!(prompt.contains("- +2 more sites"));
-        assert!(prompt.ends_with("confirm clippy::unwrap_used is gone before moving on."));
-    }
-
-    #[test]
-    fn hostile_report_text_never_reaches_the_clipboard_payload() {
-        let mut hostile = row();
-        hostile.message = "safe\u{1b}[2Jwiped".to_owned();
-        hostile.title = "title\nsecond line".to_owned();
-        let prompt = issue_prompt(&hostile, "workspace");
-        assert!(prompt.contains("safewiped"));
-        assert!(prompt.contains("titlesecond line"));
-        assert!(!prompt.contains('\u{1b}'));
-    }
-
-    #[test]
-    fn the_count_up_starts_at_zero_lands_on_the_score_and_never_goes_back() {
-        for value in [1u8, 42, 99, 100] {
-            let counted: Vec<u8> = (0..=SCORE_FRAME_COUNT)
-                .map(|frame| eased(0, value, frame, SCORE_FRAME_COUNT))
-                .collect();
-            assert_eq!(counted[0], 0);
-            assert_eq!(counted[counted.len() - 1], value);
-            assert!(counted.windows(2).all(|pair| pair[0] <= pair[1]));
-        }
-        assert_eq!(eased(60, 90, PROJECTION_FRAME_COUNT, PROJECTION_FRAME_COUNT), 90);
-        assert_eq!(eased(60, 90, 0, PROJECTION_FRAME_COUNT), 60);
-    }
-
-    #[test]
-    fn the_viewport_follows_the_selection_in_both_directions() {
-        assert_eq!(visible_start(20, 0, 0, 5), 0);
-        assert_eq!(visible_start(20, 0, 7, 5), 3);
-        assert_eq!(visible_start(20, 10, 2, 5), 2);
-        assert_eq!(visible_start(20, 18, 19, 5), 15);
-        assert_eq!(visible_start(3, 0, 2, 5), 0);
-        assert_eq!(visible_start(20, 4, 5, 0), 0);
-    }
-
-    #[test]
-    fn an_incomplete_scan_names_the_stages_that_did_not_finish() {
-        assert_eq!(
-            incomplete_message(&complete_report(Status::Complete, &[])),
-            None
-        );
-        assert_eq!(
-            incomplete_message(&complete_report(Status::Incomplete, &["structure", "repo"])),
-            Some("structure and repo checks did not complete: results are incomplete.".to_owned())
-        );
-    }
-
-    fn complete_report(status: Status, stages: &[&str]) -> InspectReport {
-        use rust_doctor::{
-            Audit, BlockingLevel, GateReport, GateStatus, ReportError, ScanReport, Summary,
-            ToolchainReport,
-        };
-        InspectReport {
-            schema_version: rust_doctor::SCHEMA_VERSION,
-            audit: Audit::build(0, status, &[]),
-            status,
-            complete: status == Status::Complete,
-            policy: None,
-            scope: None,
-            project: None,
-            toolchain: ToolchainReport {
-                rustc: None,
-                cargo: None,
-                clippy: None,
-            },
-            scan: ScanReport {
-                command: None,
-                exit_code: Some(0),
-                build_finished: Some(true),
-                noise_lines: Some(0),
-            },
-            diagnostics: Vec::new(),
-            delta: None,
-            errors: stages
-                .iter()
-                .map(|stage| ReportError {
-                    stage: (*stage).to_owned(),
-                    code: "failed".to_owned(),
-                    message: "stage failed".to_owned(),
-                })
-                .collect(),
-            summary: Summary::default(),
-            gate: GateReport {
-                blocking: BlockingLevel::Error,
-                status: GateStatus::Passed,
-                blocking_diagnostics: Some(0),
-            },
-        }
-    }
-}
+mod tests;

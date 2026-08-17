@@ -14,9 +14,7 @@
 //! escape forms to get wrong, and the two this crate carried had already
 //! drifted apart on string sequences.
 
-use rust_doctor::terminal_text::display_width;
-// Re-exported while `tui::issue_prompt` still reaches for it through this module.
-pub use rust_doctor::terminal_text::sanitize;
+use rust_doctor::terminal_text::{display_width, sanitize};
 use std::fmt::Write as _;
 
 use unicode_width::UnicodeWidthChar;
