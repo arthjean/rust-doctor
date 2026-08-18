@@ -132,6 +132,44 @@ run:
 cargo run --release -- . --yes --verbose
 ```
 
+## The linear report
+
+`src/render.rs` is the report every non-interactive run prints: the error type,
+the terminal options, the three entry points, the eight section renderers and
+the one styled-line primitive they all write through. `src/render/score_header.rs`
+is the score block, and each of the two carries its tests in a file of its own.
+
+Three rules hold it together, and each of them replaced something that had a
+cost.
+
+One width, guaranteed rather than branched on. `MIN_WIDTH` is at least
+`score_block::MIN_BLOCK_COLUMNS`, asserted at compile time, and every entry
+point normalizes to it, so the score block always fits. That deleted a whole
+dimension the module used to pay for and never reach: an optional constructor,
+a `drawn` flag threaded back through two modules, and a second single-line
+renderer whose bar truncated where the shared `bar_fill` rounds up. The two
+questions the geometry answers are now separate: `right_column_width` is total,
+`bar_width` is the one that says whether the block fits, and only the
+interactive report, which really does draw at forty columns, reads the second.
+
+One frame builder. A frame is the four rows composed under one `Palette`, and
+the palette is the only thing separating the counting frames from the scrolling
+ones and from the frame the block freezes on. Three builders used to carry the
+same loop, two of them identical but for a bolted-in `index == 1`, and the
+frozen frame was computed once in each of the two paths that show it.
+
+One row, built from its pieces. A `Row` carries the segments it paints
+differently, so the score line is never formatted and split back apart on
+`/ 100` to find its denominator, nor the branding on `" ("` to find its URL. A
+cut now lands inside one piece and leaves the pieces before it whole, which is
+what the comment on that code already claimed and what the string round-trip
+could not do.
+
+`the_report_holds_the_size_bound_it_reports_for` keeps every file of the module
+under the 1000 lines `oversized_unit` reports, tests included. That is why the
+two test modules have files of their own: the report has to pass the rule it
+prints.
+
 ## The interactive report
 
 `src/tui/` is a transposition of React Doctor's Ink application, screen for
