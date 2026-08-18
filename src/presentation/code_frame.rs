@@ -228,19 +228,19 @@ impl SanitizedLine {
 }
 
 fn sanitize_line(source: &str) -> SanitizedLine {
-    let characters: Vec<_> = source.chars().collect();
+    let characters: Vec<char> = source.chars().collect();
     let mut output = String::new();
     let mut source_columns = vec![0; characters.len().saturating_add(1)];
     let mut source_width = 0usize;
     let mut output_width = 0usize;
     let mut accepting_output = true;
     let mut index = 0;
-    while index < characters.len() {
-        source_columns[index] = source_width;
-        let character = characters[index];
+    while let Some(character) = characters.get(index).copied() {
+        let after = index.saturating_add(1);
+        set_column(&mut source_columns, index, source_width);
         if character == '\u{001b}' {
             let next = skip_escape_sequence(&characters, index);
-            source_columns[index + 1..=next.min(characters.len())].fill(source_width);
+            fill_columns(&mut source_columns, after, next, source_width);
             index = next;
             continue;
         }
@@ -249,36 +249,60 @@ fn sanitize_line(source: &str) -> SanitizedLine {
             '\u{0090}' | '\u{0098}' | '\u{009b}' | '\u{009d}' | '\u{009e}' | '\u{009f}'
         ) {
             let next = skip_c1_sequence(&characters, index);
-            source_columns[index + 1..=next.min(characters.len())].fill(source_width);
+            fill_columns(&mut source_columns, after, next, source_width);
             index = next;
             continue;
         }
         let token = if character == '\t' {
             " ".repeat(4 - (source_width % 4))
         } else if character.is_control() {
-            source_columns[index + 1] = source_width;
-            index += 1;
+            set_column(&mut source_columns, after, source_width);
+            index = after;
             continue;
         } else if character.is_ascii() {
             character.to_string()
         } else {
             format!("\\u{{{:X}}}", character as u32)
         };
+        // Every token above is at least one character wide, so overflowing the
+        // frame closes the output for the rest of the line rather than skipping
+        // one token and letting a narrower one behind it back in.
         source_width = source_width.saturating_add(token.len());
         if accepting_output && source_width <= FRAME_MAX_COLUMNS {
             output.push_str(&token);
             output_width = source_width;
-        } else if !token.is_empty() {
+        } else {
             accepting_output = false;
         }
-        source_columns[index + 1] = source_width;
-        index += 1;
+        set_column(&mut source_columns, after, source_width);
+        index = after;
     }
     SanitizedLine {
         text: output,
         source_columns,
         width: output_width,
         truncated: !accepting_output,
+    }
+}
+
+/// Records the column a source character starts at.
+///
+/// The map is one longer than the line, so every character and the position
+/// after the last one have a slot. Writing through the slot rather than through
+/// an index is what makes that a property of the code instead of a proof spread
+/// across this function and the two sequence skippers it calls.
+fn set_column(columns: &mut [usize], index: usize, width: usize) {
+    if let Some(slot) = columns.get_mut(index) {
+        *slot = width;
+    }
+}
+
+/// The same for the run a skipped escape sequence covers, which all start where
+/// the sequence did because none of them occupies a column of its own.
+fn fill_columns(columns: &mut [usize], from: usize, to: usize, width: usize) {
+    let last = to.min(columns.len().saturating_sub(1));
+    if let Some(covered) = columns.get_mut(from..=last) {
+        covered.fill(width);
     }
 }
 
