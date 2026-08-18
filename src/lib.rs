@@ -9,6 +9,8 @@ mod configuration;
 mod delta;
 mod execution;
 mod git_scope;
+#[cfg(test)]
+mod permutations;
 mod policy;
 pub mod presentation;
 pub mod render;

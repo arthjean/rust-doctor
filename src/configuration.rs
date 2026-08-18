@@ -196,6 +196,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::SystemTime;
 
+    use crate::permutations::next_permutation;
     use crate::policy::{PolicyInput, PolicyPlan};
 
     use super::*;
@@ -222,19 +223,6 @@ mod tests {
 
     fn error(contents: &[u8]) -> InternalError {
         load_path(&write(contents)).unwrap_err()
-    }
-
-    fn next_permutation(order: &mut [usize]) {
-        let pivot = (0..order.len() - 1)
-            .rev()
-            .find(|&index| order[index] < order[index + 1])
-            .unwrap();
-        let successor = (pivot + 1..order.len())
-            .rev()
-            .find(|&index| order[pivot] < order[index])
-            .unwrap();
-        order.swap(pivot, successor);
-        order[pivot + 1..].reverse();
     }
 
     #[test]
@@ -448,8 +436,8 @@ correctness = "off"
                 None => expected_plan = Some(plan),
             }
 
-            next_permutation(&mut config_order);
-            next_permutation(&mut request_order);
+            assert!(next_permutation(&mut config_order));
+            assert!(next_permutation(&mut request_order));
         }
 
         assert_eq!(config_orders.len(), 20);

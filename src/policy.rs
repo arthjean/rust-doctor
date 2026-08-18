@@ -508,6 +508,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+    use crate::permutations::next_permutation;
     use serde_json::Value;
 
     fn oracle() -> Value {
@@ -744,16 +745,10 @@ mod tests {
                 None => expected_plan = Some(plan),
             }
 
-            let pivot = (0..order.len() - 1)
-                .rev()
-                .find(|&index| order[index] < order[index + 1])
-                .expect("twenty permutations are below the full permutation count");
-            let successor = (pivot + 1..order.len())
-                .rev()
-                .find(|&index| order[pivot] < order[index])
-                .expect("permutation successor should exist");
-            order.swap(pivot, successor);
-            order[pivot + 1..].reverse();
+            assert!(
+                next_permutation(&mut order),
+                "twenty permutations are below the full permutation count"
+            );
         }
         assert_eq!(orders.len(), 20);
     }
