@@ -248,6 +248,47 @@ binary that wrote it: the pin comes from `CARGO_PKG_VERSION` rather than a
 string in the template, so a release cannot forget to move it, and a generated
 gate keeps scanning with the rule set its author saw.
 
+## The code frame
+
+`src/presentation/code_frame.rs` is the only place the tool reads a scanned
+file's contents back out to a terminal, so it is where the trust boundary is
+enforced one file at a time: the path is decoded and canonicalized, the handle
+is opened and then revalidated against the live path by device and inode, the
+bytes are refused if they carry a NUL or do not decode, and every escape
+sequence is neutralized before a byte reaches a frame. Both reports call
+`code_frame`, and `src/presentation/code_frame/tests.rs` carries the tests.
+
+Three rules hold it together, and each of them replaced something that had a
+cost.
+
+One reader, walking lines. `read_window` reads line by line to the window it
+needs and decodes only the lines it keeps. The byte prefix it replaced capped
+the read at eight kilobytes and then asked whether the reported line was in it,
+so every finding past roughly the first two hundred lines of a file printed
+`Code frame unavailable`, which is most of a file `oversized_unit` reports on at
+a thousand. It also cut a character in half whenever a multi-byte one straddled
+the cap, and a file that valid reported `InvalidUtf8` for every frame it had,
+including the ones on its first line.
+
+Every bound is a budget on work, never on reach. `SCAN_MAX_BYTES` bounds what
+one frame may scan, `LINE_MAX_BYTES` what one line may contribute, and
+`FRAME_MAX_COLUMNS` what one line may render, and none of the three decides
+which line is reachable. That is the distinction the byte prefix collapsed:
+a window disguised as a budget answers `Unavailable` for a line it simply never
+looked at.
+
+One gutter, published by the frame. `CodeFrame::gutter_width` is the width both
+reports lay their rows out from. The linear report used to hard-code four
+columns while the interactive one computed its own, so a frame reaching line ten
+thousand slid the source row one column right and left the caret row where it
+was, in one report and not the other. Four columns are now its floor, not its
+ceiling.
+
+`the_frame_holds_the_size_bound_the_report_reports_for` keeps both files of the
+module under the 1000 lines `oversized_unit` reports, tests included, for the
+reason the rest of the crate holds it: the code that renders the finding has to
+pass the rule that raised it.
+
 ## The source kernel
 
 `src/source_kernel.rs` is the types and the detector registry. `walk.rs` is the
