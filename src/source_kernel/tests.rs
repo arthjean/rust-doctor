@@ -5,6 +5,7 @@ use ra_ap_syntax::{Edition, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
 use super::walk::enumerate_with_limits;
 use super::*;
+
 use crate::policy::{
     PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
     STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_DUPLICATE_FUNCTION_BODY,
@@ -70,6 +71,16 @@ static SILENT: Detector = Detector {
     node: SyntaxKind::SOURCE_FILE,
     inspect: silent,
 };
+
+/// Whether a plan asks for anything the walk feeds.
+///
+/// A helper of these tests alone: the orchestrator asks the plan directly, and
+/// answering the same question in two modules is how the two drifted apart.
+fn enumeration_required(plan: &PolicyPlan) -> bool {
+    [Producer::SourceKernel, Producer::Structure]
+        .into_iter()
+        .any(|producer| plan.active_rules(producer).next().is_some())
+}
 
 const REGISTERED: [&Detector; 2] = DETECTORS;
 

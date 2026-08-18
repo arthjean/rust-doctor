@@ -731,22 +731,17 @@ fn from_execution_with_plan(
         policy: plan.map(PolicyReport::from_plan),
         scope,
         project,
-        toolchain: ToolchainReport {
-            rustc: result
-                .toolchain
-                .rustc
-                .as_deref()
-                .map(|value| sanitize_text(value, workspace_root, &home)),
-            cargo: result
-                .toolchain
-                .cargo
-                .as_deref()
-                .map(|value| sanitize_text(value, workspace_root, &home)),
-            clippy: result
-                .toolchain
-                .clippy
-                .as_deref()
-                .map(|value| sanitize_text(value, workspace_root, &home)),
+        toolchain: {
+            // Three versions or none: the shape the result carries is unfolded
+            // here, at the boundary whose schema publishes three nullable
+            // fields.
+            let toolchain = result.toolchain.as_ref();
+            let published = |value: &str| sanitize_text(value, workspace_root, &home);
+            ToolchainReport {
+                rustc: toolchain.map(|toolchain| published(&toolchain.rustc)),
+                cargo: toolchain.map(|toolchain| published(&toolchain.cargo)),
+                clippy: toolchain.map(|toolchain| published(&toolchain.clippy)),
+            }
         },
         scan,
         diagnostics,
@@ -1828,7 +1823,7 @@ mod tests {
     use std::os::unix::ffi::OsStringExt;
 
     use super::*;
-    use crate::execution::{CapturedDiagnosticCode, CapturedTarget, ToolchainProvenance};
+    use crate::execution::{CapturedDiagnosticCode, CapturedTarget, ClippyExecution};
 
     fn from_execution(result: ExecutionResult) -> InspectReport {
         super::from_execution(result, &PolicyPlan::default())
@@ -2310,8 +2305,8 @@ mod tests {
             cargo_health: cargo_health_scan(&metadata),
             repo: None,
             metadata: Some(metadata),
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(
+            toolchain: None,
+            scan: ClippyExecution::Finished(scan(
                 vec![compiler_message(
                     Some("clippy::todo"),
                     "warning",
@@ -2322,8 +2317,7 @@ mod tests {
                 0,
                 true,
                 true,
-            ))
-            .into(),
+            )),
             source: Some(crate::source_kernel::SourceScan {
                 candidates: vec![crate::source_kernel::Candidate {
                     definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
@@ -2484,8 +2478,8 @@ mod tests {
             cargo_health: cargo_health_scan(&metadata),
             repo: None,
             metadata: Some(metadata.clone()),
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(Vec::new(), 0, true, true)).into(),
+            toolchain: None,
+            scan: ClippyExecution::Finished(scan(Vec::new(), 0, true, true)),
             source: None,
             error: None,
         });
@@ -2501,8 +2495,8 @@ mod tests {
             cargo_health: cargo_health_scan(&metadata),
             repo: None,
             metadata: Some(metadata),
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(
+            toolchain: None,
+            scan: ClippyExecution::Finished(scan(
                 vec![compiler_message(
                     Some("E0001"),
                     "error",
@@ -2513,8 +2507,7 @@ mod tests {
                 101,
                 false,
                 false,
-            ))
-            .into(),
+            )),
             source: None,
             error: None,
         });
@@ -2536,8 +2529,8 @@ mod tests {
             structure: None,
             cargo_health: None,
             repo: None,
-            toolchain: ToolchainProvenance::default(),
-            scan: None.into(),
+            toolchain: None,
+            scan: ClippyExecution::NotRun,
             source: None,
             error: Some(InternalError {
                 stage: "metadata",
@@ -2602,8 +2595,8 @@ mod tests {
             cargo_health: cargo_health_scan(&metadata),
             repo: None,
             metadata: Some(metadata),
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(compiler_messages, 0, true, true)).into(),
+            toolchain: None,
+            scan: ClippyExecution::Finished(scan(compiler_messages, 0, true, true)),
             source: Some(source),
             error: None,
         });
@@ -2932,8 +2925,8 @@ mod tests {
             structure: None,
             cargo_health: None,
             repo: None,
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(ScanExecution {
+            toolchain: None,
+            scan: ClippyExecution::Finished(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
                 exit_code: Some(0),
                 exit_success: Some(true),
@@ -2942,8 +2935,7 @@ mod tests {
                 malformed_messages: 1,
                 messages: Vec::new(),
                 errors: Vec::new(),
-            })
-            .into(),
+            }),
             source: None,
             error: None,
         };
@@ -2977,8 +2969,8 @@ mod tests {
             structure: None,
             cargo_health: None,
             repo: None,
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(ScanExecution {
+            toolchain: None,
+            scan: ClippyExecution::Finished(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
                 exit_code: Some(101),
                 exit_success: Some(false),
@@ -2987,8 +2979,7 @@ mod tests {
                 malformed_messages: 2,
                 messages: Vec::new(),
                 errors: vec![duplicate],
-            })
-            .into(),
+            }),
             source: None,
             error: None,
         };
@@ -3028,8 +3019,8 @@ mod tests {
             structure: None,
             cargo_health: None,
             repo: None,
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(ScanExecution {
+            toolchain: None,
+            scan: ClippyExecution::Finished(ScanExecution {
                 command: vec!["cargo".to_owned(), "clippy".to_owned()],
                 exit_code: None,
                 exit_success: None,
@@ -3038,8 +3029,7 @@ mod tests {
                 malformed_messages: 0,
                 messages: Vec::new(),
                 errors: Vec::new(),
-            })
-            .into(),
+            }),
             source: None,
             error: None,
         };
@@ -3076,8 +3066,8 @@ mod tests {
                     message: "Repository hygiene skipped: git was not available.",
                 }],
             }),
-            toolchain: ToolchainProvenance::default(),
-            scan: Some(scan(
+            toolchain: None,
+            scan: ClippyExecution::Finished(scan(
                 vec![compiler_message(
                     Some("clippy::todo"),
                     "warning",
@@ -3088,8 +3078,7 @@ mod tests {
                 0,
                 true,
                 true,
-            ))
-            .into(),
+            )),
             source: None,
             error: None,
         };

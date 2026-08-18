@@ -1,4 +1,17 @@
-use super::ScanExecution;
+//! The Clippy pass, whole: the command it runs, the arguments the catalog
+//! decides, the process it starts, and the three states its outcome can be in.
+//!
+//! It used to be split the wrong way. This file held the argument vector and
+//! the outcome enum while the orchestrator held the process, the wire model and
+//! the parser, so `mod clippy` named a fifth of the Clippy story and
+//! `execution.rs` carried the rest at 977 lines of a 1000-line bound.
+
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use super::messages::{self, ScanExecution};
+use super::{CommandEnvironment, Programs};
+use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer, RuleDefinition, RuleLevel};
 
 /// Cargo's default targets: libraries and binaries, that is, what the project
@@ -44,8 +57,7 @@ pub(super) fn arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
 pub(crate) fn arguments_for_rules<'a>(
     rules: impl IntoIterator<Item = (&'a RuleDefinition, RuleLevel)>,
 ) -> Vec<&'static str> {
-    let mut arguments =
-        Vec::with_capacity(BASE_ARGS.len() + 1 + SILENCE_UNCATALOGUED.len() + 16);
+    let mut arguments = Vec::with_capacity(BASE_ARGS.len() + 1 + SILENCE_UNCATALOGUED.len() + 16);
     arguments.extend(BASE_ARGS);
     arguments.push("--");
     arguments.extend(SILENCE_UNCATALOGUED);
@@ -57,6 +69,97 @@ pub(crate) fn arguments_for_rules<'a>(
     arguments
 }
 
+/// Runs the pass and answers everything the report needs from it.
+///
+/// Stdout is drained to its end before the wait: Cargo blocked on a pipe it
+/// cannot flush never exits, and this process would wait on it forever.
+pub(super) fn run(
+    programs: &Programs,
+    workspace_root: &Path,
+    plan: &PolicyPlan,
+    target_dir: Option<&Path>,
+    environment: &CommandEnvironment,
+) -> Result<ScanExecution, InternalError> {
+    let arguments = arguments_for_plan(plan);
+    let mut child = command(
+        &programs.cargo,
+        workspace_root,
+        &arguments,
+        target_dir,
+        environment,
+    )
+    .spawn()
+    .map_err(|error| {
+        InternalError::new(
+            "execution",
+            "clippy-start-failed",
+            format!("Clippy could not be started: {error}"),
+        )
+    })?;
+
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.wait();
+        return Err(InternalError::new(
+            "execution",
+            "clippy-stdout-unavailable",
+            "Clippy started without a readable stdout pipe",
+        ));
+    };
+
+    let mut stream = messages::collect(std::io::BufReader::new(stdout));
+    let (exit_code, exit_success) = match child.wait() {
+        Ok(status) => (status.code(), Some(status.success())),
+        Err(error) => {
+            stream.errors.push(InternalError::new(
+                "execution",
+                "clippy-wait-failed",
+                format!("could not collect Clippy exit status: {error}"),
+            ));
+            (None, None)
+        }
+    };
+
+    Ok(ScanExecution {
+        command: std::iter::once("cargo")
+            .chain(arguments)
+            .map(str::to_owned)
+            .collect(),
+        exit_code,
+        exit_success,
+        build_finished: stream.build_finished,
+        noise_lines: stream.noise_lines,
+        malformed_messages: stream.malformed_messages,
+        messages: stream.messages,
+        errors: stream.errors,
+    })
+}
+
+fn command(
+    cargo: &Path,
+    workspace_root: &Path,
+    arguments: &[&str],
+    target_dir: Option<&Path>,
+    environment: &CommandEnvironment,
+) -> Command {
+    let mut command = Command::new(cargo);
+    command
+        .args(arguments)
+        .current_dir(workspace_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if let Some(target_dir) = target_dir {
+        command.env("CARGO_TARGET_DIR", target_dir);
+    }
+    environment.apply(&mut command);
+    command
+}
+
+/// What became of the pass: never started, switched off by the policy, or run
+/// to an outcome.
+///
+/// `Disabled` is a complete answer and `NotRun` is not, which is the whole
+/// reason the three are one enum rather than an `Option` and a flag.
 #[derive(Debug, Default)]
 pub(crate) enum ClippyExecution {
     #[default]
@@ -100,53 +203,4 @@ impl ClippyExecution {
 }
 
 #[cfg(test)]
-impl From<Option<ScanExecution>> for ClippyExecution {
-    fn from(scan: Option<ScanExecution>) -> Self {
-        scan.map_or(Self::NotRun, Self::Finished)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::policy::PolicyInput;
-
-    #[test]
-    fn arguments_prune_off_rules_but_keep_error_rules_at_warning() {
-        let input = PolicyInput::default()
-            .with_rule("clippy::dbg_macro", RuleLevel::Off)
-            .with_rule("clippy::todo", RuleLevel::Error);
-        let plan = PolicyPlan::compile(&input).expect("policy should compile");
-        let arguments = arguments_for_plan(&plan);
-
-        assert!(!arguments.contains(&"clippy::dbg_macro"));
-        assert!(
-            arguments
-                .windows(2)
-                .any(|pair| pair == ["-W", "clippy::todo"])
-        );
-        assert!(!arguments.contains(&"-D"));
-
-        // Turning off every category turns off every rule, whatever the
-        // catalog volume: the command then carries the silencing alone, so the
-        // scan reports nothing rather than everything Clippy warns about.
-        let all_off = crate::policy::CATEGORIES
-            .iter()
-            .fold(PolicyInput::default(), |input, category| {
-                input.with_category(*category, RuleLevel::Off)
-            });
-        let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-        assert_eq!(
-            arguments_for_plan(&all_off),
-            [
-                "clippy",
-                "--workspace",
-                "--no-deps",
-                "--message-format=json",
-                "--",
-                "-A",
-                "clippy::all",
-            ]
-        );
-    }
-}
+mod tests;

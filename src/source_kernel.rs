@@ -19,7 +19,7 @@ use std::path::{Component, Path, PathBuf};
 use ra_ap_syntax::ast::{self, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxKind, TextRange};
 
-use crate::policy::{PolicyPlan, Producer, RuleDefinition};
+use crate::policy::{PolicyPlan, RuleDefinition};
 use crate::report::DiagnosticContext;
 use crate::source_text::{SourceSpan, line_starts, source_span};
 
@@ -297,12 +297,6 @@ impl Enumeration {
 
 /// Does any producer reading source text still have an active rule? When none
 /// does, the workspace is never walked at all.
-pub(crate) fn enumeration_required(plan: &PolicyPlan) -> bool {
-    [Producer::SourceKernel, Producer::Structure]
-        .into_iter()
-        .any(|producer| plan.active_rules(producer).next().is_some())
-}
-
 /// The one value every reacher agrees on, or nothing.
 ///
 /// This is the module's recurring question, and answering it in one place is
