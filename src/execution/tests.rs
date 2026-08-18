@@ -4,6 +4,10 @@
 use std::ffi::OsStr;
 
 use super::*;
+use crate::cargo_health::{CargoHealthError, CargoHealthScan};
+use crate::repo_hygiene::{RepoError, RepoScan};
+use crate::source_kernel::{SourceError, SourceScan};
+use crate::structure::{StructureError, StructureScan};
 
 fn execute(path: &Path) -> ExecutionResult {
     let prepared = match super::prepare(path) {
@@ -32,6 +36,115 @@ fn compiler_message_count(scan: &ScanExecution) -> usize {
         .iter()
         .filter(|message| matches!(message, CapturedMessage::Compiler(_)))
         .count()
+}
+
+/// A result whose Clippy pass went perfectly, so that the only thing a test can
+/// make incomplete is the producer it puts an error in.
+fn clean_result() -> ExecutionResult {
+    ExecutionResult {
+        manifest_path: None,
+        metadata: None,
+        toolchain: None,
+        scan: ClippyExecution::Finished(ScanExecution {
+            command: vec!["cargo".to_owned(), "clippy".to_owned()],
+            exit_code: Some(0),
+            exit_success: Some(true),
+            build_finished: Some(true),
+            noise_lines: 0,
+            malformed_messages: 0,
+            messages: Vec::new(),
+            errors: Vec::new(),
+        }),
+        source: None,
+        structure: None,
+        cargo_health: None,
+        repo: None,
+        error: None,
+    }
+}
+
+/// Every producer that degrades rather than aborts costs the scan its
+/// authoritative flag, and publishes at its own stage.
+///
+/// `cargo_health` used to be in `report::errors` and out of `is_complete`, so a
+/// workspace whose `.cargo/config.toml` could not be read published a
+/// `dependencies` error under `"status": "complete"`. The four are asserted
+/// together because the defect was never the missing clause, it was that the
+/// list of producers was written twice.
+#[test]
+fn every_producer_error_drops_the_authoritative_flag_at_its_own_stage() {
+    assert!(clean_result().is_complete());
+
+    /// One way of degrading a clean result, and the stage it must publish at.
+    type Degradation = (&'static str, fn(&mut ExecutionResult));
+
+    let cases: [Degradation; 4] = [
+        ("source", |result| {
+            result.source = Some(SourceScan {
+                errors: vec![SourceError {
+                    code: "unit-unreadable",
+                    message: "a unit could not be read".to_owned(),
+                }],
+                ..SourceScan::default()
+            });
+        }),
+        ("structure", |result| {
+            result.structure = Some(StructureScan {
+                errors: vec![StructureError {
+                    code: "budget-exhausted",
+                    message: "the pass stopped at its budget".to_owned(),
+                }],
+                ..StructureScan::default()
+            });
+        }),
+        ("dependencies", |result| {
+            result.cargo_health = Some(CargoHealthScan {
+                errors: vec![CargoHealthError {
+                    code: "cargo-config-unreadable",
+                    message: "a file is not a readable regular file",
+                }],
+                ..CargoHealthScan::default()
+            });
+        }),
+        ("repo", |result| {
+            result.repo = Some(RepoScan {
+                errors: vec![RepoError {
+                    code: "git-unavailable",
+                    message: "git was not available",
+                }],
+                ..RepoScan::default()
+            });
+        }),
+    ];
+
+    for (stage, degrade) in cases {
+        let mut result = clean_result();
+        degrade(&mut result);
+
+        assert!(
+            !result.is_complete(),
+            "a {stage} error left the scan calling itself complete"
+        );
+        assert_eq!(
+            result
+                .producer_errors()
+                .map(|error| error.stage)
+                .collect::<Vec<_>>(),
+            [stage]
+        );
+    }
+}
+
+/// A producer that raised nothing publishes nothing, whether the plan ran it or
+/// left it out.
+#[test]
+fn a_producer_that_ran_clean_adds_no_error() {
+    let mut result = clean_result();
+    result.cargo_health = Some(CargoHealthScan::default());
+    result.repo = Some(RepoScan::default());
+
+    assert_eq!(result.producer_errors().count(), 0);
+    assert!(result.is_complete());
 }
 
 #[test]

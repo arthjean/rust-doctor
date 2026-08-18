@@ -6,11 +6,23 @@
 //! comparison needs; the four native producers live in their own modules and
 //! are called from here.
 //!
-//! One rule holds it together: **the result is assembled from what came back,
-//! never asked back for what it was given.** `ExecutionContext::run` owns the
-//! metadata until the end, so the three `Option` dances that could not be
-//! `None`, and the workspace-root clone that only existed to survive an early
-//! move, are gone with them.
+//! Two rules hold it together, and each of them replaced something that had a
+//! cost.
+//!
+//! **One list of the producers that degrade rather than abort.**
+//! `ExecutionResult::producer_errors` is that list. `is_complete` reads it to
+//! decide whether the score may call itself authoritative, and `report::errors`
+//! reads it to publish them, so a producer cannot reach one and miss the other.
+//! It used to be written twice, as a four-clause conjunction here and four
+//! `if let` blocks with the stage spelled again in `report.rs`, and
+//! `cargo_health` was in the second list only: a workspace whose
+//! `.cargo/config.toml` could not be read published a `dependencies` error
+//! under `"status": "complete"`.
+//!
+//! **The result is assembled from what came back, never asked back for what it
+//! was given.** `ExecutionContext::run` owns the metadata until the end, so the
+//! three `Option` dances that could not be `None`, and the workspace-root clone
+//! that only existed to survive an early move, are gone with them.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -57,6 +69,15 @@ pub(crate) struct ExecutionResult {
     pub(crate) error: Option<InternalError>,
 }
 
+/// One error of a producer that degraded instead of aborting, stamped with the
+/// stage the report publishes it at.
+#[derive(Debug)]
+pub(crate) struct ProducerError<'a> {
+    pub(crate) stage: &'static str,
+    pub(crate) code: &'static str,
+    pub(crate) message: &'a str,
+}
+
 impl ExecutionResult {
     /// The result of a run that ended before any producer could report.
     fn failed(
@@ -77,18 +98,48 @@ impl ExecutionResult {
         }
     }
 
+    /// Every error the four native producers raised, in the order the report
+    /// publishes their stages.
+    ///
+    /// This is the only enumeration of those producers in the crate. Adding a
+    /// fifth is one arm here, and both the completeness verdict and the
+    /// published error list follow from it.
+    pub(crate) fn producer_errors(&self) -> impl Iterator<Item = ProducerError<'_>> {
+        let source = self.source.iter().flat_map(|scan| {
+            scan.errors
+                .iter()
+                .map(|error| ProducerError::new("source", error.code, &error.message))
+        });
+        let structure = self.structure.iter().flat_map(|scan| {
+            scan.errors
+                .iter()
+                .map(|error| ProducerError::new("structure", error.code, &error.message))
+        });
+        let dependencies = self.cargo_health.iter().flat_map(|scan| {
+            scan.errors
+                .iter()
+                .map(|error| ProducerError::new("dependencies", error.code, error.message))
+        });
+        let repo = self.repo.iter().flat_map(|scan| {
+            scan.errors
+                .iter()
+                .map(|error| ProducerError::new("repo", error.code, error.message))
+        });
+        source.chain(structure).chain(dependencies).chain(repo)
+    }
+
     pub(crate) fn is_complete(&self) -> bool {
-        self.error.is_none()
-            && self.scan.is_complete()
-            && self
-                .source
-                .as_ref()
-                .is_none_or(|source| source.errors.is_empty())
-            && self
-                .structure
-                .as_ref()
-                .is_none_or(|structure| structure.errors.is_empty())
-            && self.repo.as_ref().is_none_or(|repo| repo.errors.is_empty())
+        self.error.is_none() && self.scan.is_complete() && self.producer_errors().next().is_none()
+    }
+}
+
+impl<'a> ProducerError<'a> {
+    const fn new(stage: &'static str, code: &'static str, message: &'a str) -> Self {
+        Self {
+            stage,
+            code,
+            message,
+        }
     }
 }
 

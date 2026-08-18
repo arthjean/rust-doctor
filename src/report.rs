@@ -989,34 +989,15 @@ fn report_errors(
             });
         }
     }
-    if let Some(source) = result.source.as_ref() {
-        errors.extend(source.errors.iter().map(|error| ReportError {
-            stage: "source".to_owned(),
-            code: error.code.to_owned(),
-            message: sanitize_text(&error.message, workspace_root, home),
-        }));
-    }
-    if let Some(structure) = result.structure.as_ref() {
-        errors.extend(structure.errors.iter().map(|error| ReportError {
-            stage: "structure".to_owned(),
-            code: error.code.to_owned(),
-            message: sanitize_text(&error.message, workspace_root, home),
-        }));
-    }
-    if let Some(cargo_health) = result.cargo_health.as_ref() {
-        errors.extend(cargo_health.errors.iter().map(|error| ReportError {
-            stage: "dependencies".to_owned(),
-            code: error.code.to_owned(),
-            message: error.message.to_owned(),
-        }));
-    }
-    if let Some(repo) = result.repo.as_ref() {
-        errors.extend(repo.errors.iter().map(|error| ReportError {
-            stage: "repo".to_owned(),
-            code: error.code.to_owned(),
-            message: error.message.to_owned(),
-        }));
-    }
+    // One list of the producers, shared with `ExecutionResult::is_complete`: a
+    // pass cannot publish an error here and still let the report call itself
+    // authoritative, which is what four hand-written blocks let `cargo_health`
+    // do.
+    errors.extend(result.producer_errors().map(|error| ReportError {
+        stage: error.stage.to_owned(),
+        code: error.code.to_owned(),
+        message: sanitize_text(error.message, workspace_root, home),
+    }));
     errors.sort_by(|left, right| {
         (&left.stage, &left.code, &left.message).cmp(&(&right.stage, &right.code, &right.message))
     });
