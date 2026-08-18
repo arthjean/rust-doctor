@@ -4,6 +4,7 @@ use std::path::Path;
 
 mod audit;
 mod baseline;
+mod bounded_read;
 mod cargo_health;
 mod configuration;
 mod delta;

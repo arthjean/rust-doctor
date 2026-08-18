@@ -18,11 +18,11 @@
 //! one of its own limits.
 
 use std::ffi::OsString;
-use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
+use crate::bounded_read::collect_bounded;
 use crate::internal_error::InternalError;
 
 #[cfg(test)]
@@ -87,12 +87,6 @@ pub(crate) const OUTPUT_TOO_LARGE: GitFailure = GitFailure::new(
 );
 
 const UNAVAILABLE: GitFailure = GitFailure::new("git-unavailable", "Git could not be started.");
-
-#[derive(Debug)]
-struct BoundedOutput {
-    bytes: Vec<u8>,
-    exceeded: bool,
-}
 
 /// Prefixes an operation with the configuration every call of this crate runs
 /// under.
@@ -212,26 +206,4 @@ fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Com
         command.env_remove(variable);
     }
     command
-}
-
-/// Reads a stream to its end, keeping at most `limit` bytes.
-///
-/// The read continues past the limit rather than stopping at it, because a
-/// producer blocked on a full pipe never exits and the caller is waiting on it.
-fn collect_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOutput> {
-    let mut bytes = Vec::new();
-    let mut exceeded = false;
-    let mut buffer = [0_u8; 8_192];
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        if !exceeded {
-            let kept = limit.saturating_sub(bytes.len()).min(read);
-            bytes.extend(buffer.iter().take(kept).copied());
-            exceeded = kept < read;
-        }
-    }
-    Ok(BoundedOutput { bytes, exceeded })
 }
