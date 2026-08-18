@@ -53,7 +53,7 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
 pub struct InspectionSession {
     prepared: execution::PreparedInspection,
     plan: policy::PolicyPlan,
-    scope_request: git_scope::ScopeRequest,
+    scope: git_scope::ValidatedScope,
 }
 
 impl InspectionSession {
@@ -79,13 +79,18 @@ impl InspectionSession {
                 )));
             }
         };
-        let scope_request = request.scope().clone();
-        if let Err(error) = git_scope::validate(&scope_request) {
-            return Err(Box::new(report::scope_failure(
-                error,
-                policy.failure_blocking(),
-            )));
-        }
+        // The base selector is checked once, here, and resolution takes what
+        // came back rather than the request, so it cannot fail a second time
+        // over the same answer.
+        let scope = match request.scope().validate() {
+            Ok(scope) => scope,
+            Err(error) => {
+                return Err(Box::new(report::scope_failure(
+                    error,
+                    policy.failure_blocking(),
+                )));
+            }
+        };
         let prepared = match execution::prepare(&request.path) {
             Ok(prepared) => prepared,
             Err(result) => {
@@ -100,7 +105,7 @@ impl InspectionSession {
         Ok(Self {
             prepared,
             plan,
-            scope_request,
+            scope,
         })
     }
 
@@ -125,15 +130,15 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
     let InspectionSession {
         prepared,
         plan,
-        scope_request,
+        scope: requested,
     } = session;
-    let scope = match git_scope::resolve(&scope_request, prepared.workspace_root()) {
+    let scope = match git_scope::resolve(&requested, prepared.workspace_root()) {
         Ok(scope) => scope,
         Err(error) => {
             return report::preparation_failure(prepared.fail(error), plan.blocking());
         }
     };
-    if let git_scope::ScopeDetails::Baseline { comparison_base } = scope.details() {
+    if let git_scope::ResolvedScope::Baseline { comparison_base } = scope.kind() {
         let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {
             Ok(snapshot) => snapshot,
             Err(error) => {

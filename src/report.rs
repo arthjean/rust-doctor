@@ -2068,7 +2068,8 @@ mod tests {
                 workspace_path::normalize_changed("src/100%.rs").unwrap(),
                 "src/lib.rs".to_owned(),
             ],
-        );
+        )
+        .unwrap();
 
         project_diagnostics(&mut diagnostics, &scope);
         diagnostics.sort_by(compare_diagnostics);
@@ -2097,7 +2098,7 @@ mod tests {
             }
         );
 
-        let empty_scope = ScopeReport::files_scope("0".repeat(40), Vec::new());
+        let empty_scope = ScopeReport::files_scope("0".repeat(40), Vec::new()).unwrap();
         project_diagnostics(&mut diagnostics, &empty_scope);
         assert_eq!(summarize(&diagnostics), Summary::default());
         assert_eq!(

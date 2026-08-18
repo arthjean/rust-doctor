@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::git_scope::ScopeDetails;
+use crate::git_scope::ResolvedScope;
 use crate::presentation::{DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame};
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
@@ -221,9 +221,9 @@ fn render_scope<W: Write>(
 ) -> Result<(), RenderError> {
     let description = report.scope.as_ref().map_or_else(
         || "Scope: full codebase".to_owned(),
-        |scope| match scope.details() {
-            ScopeDetails::Full => "Scope: full codebase".to_owned(),
-            ScopeDetails::Files {
+        |scope| match scope.kind() {
+            ResolvedScope::Full => "Scope: full codebase".to_owned(),
+            ResolvedScope::Files {
                 comparison_base,
                 files,
             } => format!(
@@ -231,7 +231,7 @@ fn render_scope<W: Write>(
                 files.len(),
                 short_revision(comparison_base)
             ),
-            ScopeDetails::Baseline { comparison_base } => format!(
+            ResolvedScope::Baseline { comparison_base } => format!(
                 "Scope: baseline comparison (base {})",
                 short_revision(comparison_base)
             ),

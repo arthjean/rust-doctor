@@ -1,13 +1,37 @@
-use std::ffi::OsString;
+//! The scope a scan runs under: the whole workspace, the files changed since a
+//! base, or a baseline comparison against one.
+//!
+//! Three rules hold the module together.
+//!
+//! **Validated once, resolved from that.** `ScopeRequest::validate` returns a
+//! [`ValidatedScope`] whose base selector already passed the closed grammar,
+//! and resolution reads that and nothing else. Validation used to run twice
+//! over the same request, once as the gate in `lib.rs` and once inside
+//! `resolve_with`, which left a failure branch in resolution that no input
+//! could reach.
+//!
+//! **One resolved shape.** [`ResolvedScope`] is the three cases, and the public
+//! [`ScopeReport`] is the accessors over it. A second enum used to mirror it
+//! variant for variant so callers inside the crate could match on it, which
+//! made a fourth scope mode an edit in five places.
+//!
+//! **One constructor per shape.** [`ScopeReport::files_scope`] is the only way
+//! a file scope is built: it sorts, deduplicates and bounds. `includes` binary
+//! searches that order, and the invariant used to be established separately by
+//! the production path and by the test constructor, so a third site would have
+//! broken the search in silence rather than loudly.
+
 use std::fmt;
 use std::path::Path;
 
 use serde::{Serialize, Serializer};
 
 use crate::execution::InternalError;
+use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
 use crate::workspace_path;
 
-use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
+#[cfg(test)]
+mod tests;
 
 /// The stage every outcome of this pass is reported at.
 const STAGE: &str = "scope";
@@ -18,11 +42,30 @@ const SCOPE_OUTPUT_LIMIT: usize = 2_097_152;
 const PATH_LIMIT: usize = 4_096;
 const FILE_LIMIT: usize = 10_000;
 
+const BASE_UNAVAILABLE: GitFailure =
+    GitFailure::new("base-unavailable", "Git base commit is unavailable.");
+const MERGE_BASE_UNAVAILABLE: GitFailure =
+    GitFailure::new("merge-base-unavailable", "Git merge base is unavailable.");
+const DIFF_FAILED: GitFailure =
+    GitFailure::new("git-diff-failed", "Git changed files could not be read.");
+
+/// The scope a caller asked for, before its base selector was checked.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ScopeRequest {
     Full,
     Files { base: String },
     Baseline { base: String },
+}
+
+impl ScopeRequest {
+    /// Checks the base selector against the closed grammar, once.
+    pub(crate) fn validate(&self) -> Result<ValidatedScope, InternalError> {
+        Ok(match self {
+            Self::Full => ValidatedScope::Full,
+            Self::Files { base } => ValidatedScope::Files(BaseSelector::new(base)?),
+            Self::Baseline { base } => ValidatedScope::Baseline(BaseSelector::new(base)?),
+        })
+    }
 }
 
 impl fmt::Debug for ScopeRequest {
@@ -32,6 +75,51 @@ impl fmt::Debug for ScopeRequest {
             Self::Files { .. } => formatter.write_str("Files { base: <redacted> }"),
             Self::Baseline { .. } => formatter.write_str("Baseline { base: <redacted> }"),
         }
+    }
+}
+
+/// A scope whose base selector passed [`BaseSelector::new`].
+///
+/// Resolution takes this rather than a `ScopeRequest`, which is what makes an
+/// invalid base unrepresentable at the point git is about to be handed one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ValidatedScope {
+    Full,
+    Files(BaseSelector),
+    Baseline(BaseSelector),
+}
+
+/// A base selector inside the grammar this tool accepts.
+///
+/// The grammar is closed rather than delegated to git: a selector reaches a
+/// command line, and `HEAD~1`, `main^{commit}` or a leading `-` are spellings
+/// this tool refuses to construct rather than spellings it asks git to judge.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct BaseSelector(String);
+
+impl BaseSelector {
+    fn new(base: &str) -> Result<Self, InternalError> {
+        if !is_valid_base(base) {
+            return Err(InternalError::new(
+                STAGE,
+                "invalid-base",
+                "Invalid Git base selector.",
+            ));
+        }
+        Ok(Self(base.to_owned()))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A branch name is the caller's, and no error or trace of this crate carries
+/// it: the selector redacts itself rather than relying on every formatter that
+/// might reach one.
+impl fmt::Debug for BaseSelector {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<redacted>")
     }
 }
 
@@ -49,13 +137,19 @@ pub enum ExecutionScope {
     Workspace,
 }
 
+/// The resolved scope, published through accessors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeReport {
     kind: ResolvedScope,
 }
 
+/// The three shapes a resolved scope takes.
+///
+/// Crate callers match on this directly through [`ScopeReport::kind`]. It stays
+/// out of the public API because the published surface is the accessors and the
+/// versioned JSON, not the variant list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ResolvedScope {
+pub(crate) enum ResolvedScope {
     Full,
     Files {
         comparison_base: String,
@@ -63,17 +157,6 @@ enum ResolvedScope {
     },
     Baseline {
         comparison_base: String,
-    },
-}
-
-pub(crate) enum ScopeDetails<'a> {
-    Full,
-    Files {
-        comparison_base: &'a str,
-        files: &'a [String],
-    },
-    Baseline {
-        comparison_base: &'a str,
     },
 }
 
@@ -110,26 +193,13 @@ impl ScopeReport {
 
     pub fn files(&self) -> Option<&[String]> {
         match &self.kind {
-            ResolvedScope::Full => None,
             ResolvedScope::Files { files, .. } => Some(files),
-            ResolvedScope::Baseline { .. } => None,
+            ResolvedScope::Full | ResolvedScope::Baseline { .. } => None,
         }
     }
 
-    pub(crate) fn details(&self) -> ScopeDetails<'_> {
-        match &self.kind {
-            ResolvedScope::Full => ScopeDetails::Full,
-            ResolvedScope::Files {
-                comparison_base,
-                files,
-            } => ScopeDetails::Files {
-                comparison_base,
-                files,
-            },
-            ResolvedScope::Baseline { comparison_base } => {
-                ScopeDetails::Baseline { comparison_base }
-            }
-        }
+    pub(crate) const fn kind(&self) -> &ResolvedScope {
+        &self.kind
     }
 
     pub(crate) const fn full() -> Self {
@@ -138,34 +208,61 @@ impl ScopeReport {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn files_scope(comparison_base: String, mut files: Vec<String>) -> Self {
-        files.sort();
-        files.dedup();
-        Self {
-            kind: ResolvedScope::Files {
-                comparison_base,
-                files,
-            },
-        }
-    }
-
-    #[cfg(test)]
+    /// A baseline scope carries a validated hex object id and nothing else, so
+    /// its serialized form is a fixed hundred or so bytes and the report bound
+    /// is one it cannot reach.
     pub(crate) fn baseline_scope(comparison_base: String) -> Self {
         Self {
             kind: ResolvedScope::Baseline { comparison_base },
         }
     }
 
+    /// The one place a file scope is built.
+    ///
+    /// Sorting and deduplicating here is what [`Self::includes`] binary
+    /// searches, and the bound is checked here because this is the only shape
+    /// that can reach it.
+    pub(crate) fn files_scope(
+        comparison_base: String,
+        mut files: Vec<String>,
+    ) -> Result<Self, InternalError> {
+        files.sort();
+        files.dedup();
+        let scope = Self {
+            kind: ResolvedScope::Files {
+                comparison_base,
+                files,
+            },
+        };
+        scope.ensure_output_bound()?;
+        Ok(scope)
+    }
+
+    /// Refuses a scope whose serialized form reaches the report limit.
+    ///
+    /// The measurement is the serialization itself, because normalization
+    /// expands paths (`%` becomes `%25`) and a bound on the diff bytes does not
+    /// bound what the report carries. A serializer that cannot answer is
+    /// treated as one that answered too large: an unmeasured scope is not a
+    /// bounded one. That branch is unreachable for a shape of enums and
+    /// strings, and refusing it is what keeps "published" and "measured" the
+    /// same set.
+    fn ensure_output_bound(&self) -> Result<(), InternalError> {
+        let measured = serde_json::to_vec(self).map_or(usize::MAX, |serialized| serialized.len());
+        (measured < SCOPE_OUTPUT_LIMIT)
+            .then_some(())
+            .ok_or_else(output_too_large)
+    }
+
     pub(crate) fn includes(&self, path: Option<&str>) -> bool {
-        match (&self.kind, path) {
-            (ResolvedScope::Full, _) => true,
-            (ResolvedScope::Baseline { .. }, _) => true,
-            (ResolvedScope::Files { files, .. }, Some(path)) => files
+        let ResolvedScope::Files { files, .. } = &self.kind else {
+            return true;
+        };
+        path.is_some_and(|path| {
+            files
                 .binary_search_by(|candidate| candidate.as_str().cmp(path))
-                .is_ok(),
-            (ResolvedScope::Files { .. }, None) => false,
-        }
+                .is_ok()
+        })
     }
 }
 
@@ -184,139 +281,120 @@ impl Serialize for ScopeReport {
     }
 }
 
-pub(crate) fn validate(request: &ScopeRequest) -> Result<(), InternalError> {
-    match request {
-        ScopeRequest::Full => Ok(()),
-        ScopeRequest::Files { base } | ScopeRequest::Baseline { base } if valid_base(base) => {
-            Ok(())
-        }
-        ScopeRequest::Files { .. } | ScopeRequest::Baseline { .. } => Err(invalid_base()),
-    }
-}
-
 pub(crate) fn resolve(
-    request: &ScopeRequest,
+    scope: &ValidatedScope,
     workspace_root: &Path,
 ) -> Result<ScopeReport, InternalError> {
-    resolve_with(request, workspace_root, |call| {
+    resolve_with(scope, workspace_root, |call| {
         run_git(Path::new("git"), workspace_root, call)
     })
 }
 
 fn resolve_with(
-    request: &ScopeRequest,
+    scope: &ValidatedScope,
     workspace_root: &Path,
     mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<ScopeReport, InternalError> {
-    let base = match request {
-        ScopeRequest::Full => return Ok(ScopeReport::full()),
-        ScopeRequest::Files { base } | ScopeRequest::Baseline { base } => {
-            validate(request)?;
-            base
-        }
-    };
-
-    let comparison_base = resolve_comparison_base_with(base, workspace_root, &mut run)?;
-    if matches!(request, ScopeRequest::Baseline { .. }) {
-        let scope = ScopeReport {
-            kind: ResolvedScope::Baseline { comparison_base },
-        };
-        ensure_scope_output_bound(&scope)?;
-        return Ok(scope);
-    }
-
-    let diff = run(&GitCall {
-        arguments: git_arguments(
+    // Each mode answers in full in its own arm, so a fourth one cannot be added
+    // without writing what it resolves to.
+    match scope {
+        ValidatedScope::Full => Ok(ScopeReport::full()),
+        ValidatedScope::Baseline(base) => Ok(ScopeReport::baseline_scope(resolve_comparison_base(
+            base,
             workspace_root,
-            [
-                OsString::from("diff"),
-                OsString::from("--no-ext-diff"),
-                OsString::from("--no-renames"),
-                OsString::from("--relative"),
-                OsString::from("--name-only"),
-                OsString::from("-z"),
-                OsString::from("--diff-filter=ACMR"),
-                OsString::from(&comparison_base),
-                OsString::from("--"),
-                OsString::from("."),
-            ],
-        ),
-        stdout_limit: DIFF_OUTPUT_LIMIT,
-        stage: STAGE,
-        failure: GitFailure::new("git-diff-failed", "Git changed files could not be read."),
-        overflow: OUTPUT_TOO_LARGE,
-    })?;
-
-    let scope = ScopeReport {
-        kind: ResolvedScope::Files {
-            comparison_base,
-            files: parse_paths(&diff)?,
-        },
-    };
-    ensure_scope_output_bound(&scope)?;
-    Ok(scope)
+            &mut run,
+        )?)),
+        ValidatedScope::Files(base) => {
+            let comparison_base = resolve_comparison_base(base, workspace_root, &mut run)?;
+            let diff = run(&scope_call(
+                workspace_root,
+                [
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-renames",
+                    "--relative",
+                    "--name-only",
+                    "-z",
+                    "--diff-filter=ACMR",
+                    comparison_base.as_str(),
+                    "--",
+                    ".",
+                ],
+                DIFF_OUTPUT_LIMIT,
+                DIFF_FAILED,
+            ))?;
+            ScopeReport::files_scope(comparison_base, parse_paths(&diff)?)
+        }
+    }
 }
 
-fn resolve_comparison_base_with(
-    base: &str,
+/// Resolves the base selector to the single merge base the comparison runs
+/// against.
+///
+/// The selector is turned into an object id first, so every later argument this
+/// pass puts on a command line is a validated lowercase hex digest rather than
+/// anything the caller wrote.
+fn resolve_comparison_base(
+    base: &BaseSelector,
     workspace_root: &Path,
     mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<String, InternalError> {
-    let revision = format!("{base}^{{commit}}");
-    let base_answer = run(&GitCall {
-        arguments: git_arguments(
-            workspace_root,
-            [
-                OsString::from("rev-parse"),
-                OsString::from("--verify"),
-                OsString::from("--quiet"),
-                OsString::from("--end-of-options"),
-                OsString::from(revision),
-            ],
-        ),
-        stdout_limit: OID_OUTPUT_LIMIT,
-        stage: STAGE,
-        failure: GitFailure::new("base-unavailable", "Git base commit is unavailable."),
-        overflow: OUTPUT_TOO_LARGE,
-    })?;
-    let base_commit = parse_single_oid(&base_answer).ok_or_else(base_unavailable)?;
+    let revision = format!("{}^{{commit}}", base.as_str());
+    let base_answer = run(&scope_call(
+        workspace_root,
+        [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            revision.as_str(),
+        ],
+        OID_OUTPUT_LIMIT,
+        BASE_UNAVAILABLE,
+    ))?;
+    let base_commit =
+        parse_single_oid(&base_answer).ok_or_else(|| BASE_UNAVAILABLE.error(STAGE))?;
 
-    let merge_answer = run(&GitCall {
-        arguments: git_arguments(
-            workspace_root,
-            [
-                OsString::from("merge-base"),
-                OsString::from("--all"),
-                OsString::from(&base_commit),
-                OsString::from("HEAD"),
-            ],
-        ),
-        stdout_limit: OID_OUTPUT_LIMIT,
-        stage: STAGE,
-        failure: GitFailure::new("merge-base-unavailable", "Git merge base is unavailable."),
-        overflow: OUTPUT_TOO_LARGE,
-    })?;
+    let merge_answer = run(&scope_call(
+        workspace_root,
+        ["merge-base", "--all", base_commit.as_str(), "HEAD"],
+        OID_OUTPUT_LIMIT,
+        MERGE_BASE_UNAVAILABLE,
+    ))?;
     let merge_bases =
-        parse_oids(&merge_answer, base_commit.len()).ok_or_else(merge_base_unavailable)?;
+        parse_oids(&merge_answer).ok_or_else(|| MERGE_BASE_UNAVAILABLE.error(STAGE))?;
+    // A merge base of another hash length than the commit it was asked about is
+    // not an answer about that commit.
+    if merge_bases.iter().any(|oid| oid.len() != base_commit.len()) {
+        return Err(MERGE_BASE_UNAVAILABLE.error(STAGE));
+    }
     match merge_bases.as_slice() {
-        [] => Err(merge_base_unavailable()),
+        [] => Err(MERGE_BASE_UNAVAILABLE.error(STAGE)),
         [comparison_base] => Ok(comparison_base.clone()),
         _ => Err(InternalError::new(
-            "scope",
+            STAGE,
             "merge-base-ambiguous",
             "Git merge base is ambiguous.",
         )),
     }
 }
 
-fn ensure_scope_output_bound(scope: &ScopeReport) -> Result<(), InternalError> {
-    match serde_json::to_vec(scope) {
-        Ok(serialized) if serialized.len() < SCOPE_OUTPUT_LIMIT => Ok(()),
-        Ok(_) | Err(_) => Err(output_too_large()),
+fn scope_call<const N: usize>(
+    workspace_root: &Path,
+    operation: [&str; N],
+    stdout_limit: usize,
+    failure: GitFailure,
+) -> GitCall {
+    GitCall {
+        arguments: git_arguments(workspace_root, operation),
+        stdout_limit,
+        stage: STAGE,
+        failure,
+        overflow: OUTPUT_TOO_LARGE,
     }
 }
 
-fn valid_base(base: &str) -> bool {
+fn is_valid_base(base: &str) -> bool {
     let bytes = base.as_bytes();
     if matches!(bytes.len(), 40 | 64) && bytes.iter().all(u8::is_ascii_hexdigit) {
         return true;
@@ -342,42 +420,45 @@ fn valid_base(base: &str) -> bool {
 }
 
 fn parse_single_oid(output: &[u8]) -> Option<String> {
-    let mut oids = parse_oids(output, 0)?;
+    let mut oids = parse_oids(output)?;
     (oids.len() == 1).then(|| oids.remove(0))
 }
 
-fn parse_oids(output: &[u8], expected_length: usize) -> Option<Vec<String>> {
+/// Reads whitespace-separated object ids, refusing the whole output if any
+/// token is not one.
+fn parse_oids(output: &[u8]) -> Option<Vec<String>> {
     let output = std::str::from_utf8(output).ok()?;
     output
         .split_ascii_whitespace()
         .map(|oid| {
-            let valid_length = if expected_length == 0 {
-                matches!(oid.len(), 40 | 64)
-            } else {
-                oid.len() == expected_length
-            };
-            (valid_length && oid.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            (matches!(oid.len(), 40 | 64) && oid.bytes().all(|byte| byte.is_ascii_hexdigit()))
                 .then(|| oid.to_ascii_lowercase())
         })
         .collect()
 }
 
+/// Reads the NUL-terminated paths of a `--name-only -z` diff.
+///
+/// The byte count is not checked here: `run_git` refused anything past
+/// `DIFF_OUTPUT_LIMIT` before this ran, and the count of paths and the length
+/// of each are what bound the result the report carries.
 fn parse_paths(output: &[u8]) -> Result<Vec<String>, InternalError> {
-    if output.len() > DIFF_OUTPUT_LIMIT {
-        return Err(output_too_large());
-    }
-    if output.is_empty() {
-        return Ok(Vec::new());
-    }
-    if !output.ends_with(&[0]) {
-        return Err(invalid_path());
-    }
+    // The last byte terminates the final path rather than separating an empty
+    // one, so it is split off rather than sliced away. Empty output is no
+    // change; anything else that does not end in NUL is a truncated answer.
+    let Some((&0, entries)) = output.split_last() else {
+        return if output.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err(invalid_path())
+        };
+    };
 
     let mut files = Vec::new();
-    for entry in output[..output.len() - 1].split(|byte| *byte == 0) {
+    for entry in entries.split(|byte| *byte == 0) {
         if files.len() == FILE_LIMIT {
             return Err(InternalError::new(
-                "scope",
+                STAGE,
                 "too-many-files",
                 "Git returned too many changed paths.",
             ));
@@ -388,8 +469,6 @@ fn parse_paths(output: &[u8]) -> Result<Vec<String>, InternalError> {
         let path = std::str::from_utf8(entry).map_err(|_| invalid_path())?;
         files.push(workspace_path::normalize_changed(path).ok_or_else(invalid_path)?);
     }
-    files.sort();
-    files.dedup();
     Ok(files)
 }
 
@@ -397,295 +476,10 @@ fn output_too_large() -> InternalError {
     OUTPUT_TOO_LARGE.error(STAGE)
 }
 
-fn invalid_base() -> InternalError {
-    InternalError::new("scope", "invalid-base", "Invalid Git base selector.")
-}
-
-fn base_unavailable() -> InternalError {
-    phase_failure("base-unavailable", "Git base commit is unavailable.")
-}
-
-fn merge_base_unavailable() -> InternalError {
-    phase_failure("merge-base-unavailable", "Git merge base is unavailable.")
-}
-
 fn invalid_path() -> InternalError {
-    phase_failure("git-path-invalid", "Git returned an invalid changed path.")
-}
-
-fn phase_failure(code: &'static str, message: &'static str) -> InternalError {
-    InternalError::new("scope", code, message)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::ffi::OsStr;
-
-    use super::*;
-
-    const BASE: &str = "1111111111111111111111111111111111111111";
-    const MERGE_BASE: &str = "2222222222222222222222222222222222222222";
-
-    fn files(base: &str) -> ScopeRequest {
-        ScopeRequest::Files {
-            base: base.to_owned(),
-        }
-    }
-
-    fn output(stdout: impl Into<Vec<u8>>) -> Result<Vec<u8>, InternalError> {
-        Ok(stdout.into())
-    }
-
-    #[test]
-    fn closed_base_grammar_accepts_only_named_selectors_and_full_oids() {
-        for accepted in [
-            "main",
-            "release/1.2.3",
-            "refs/remotes/origin/main",
-            BASE,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        ] {
-            assert!(validate(&files(accepted)).is_ok(), "{accepted}");
-        }
-        for rejected in [
-            "",
-            "-main",
-            ".hidden",
-            "feature/.hidden",
-            "feature/",
-            "feature//child",
-            "feature/../main",
-            "main.",
-            "main.lock",
-            "HEAD~1",
-            "main^{commit}",
-            "révision",
-        ] {
-            let error = validate(&files(rejected)).unwrap_err();
-            assert_eq!((error.stage, error.code), ("scope", "invalid-base"));
-            if !rejected.is_empty() {
-                assert!(!error.message.contains(rejected));
-            }
-        }
-        assert!(validate(&files(&"a".repeat(256))).is_err());
-    }
-
-    #[test]
-    fn full_returns_without_observing_git() {
-        let calls = RefCell::new(0);
-        let scope = resolve_with(&ScopeRequest::Full, Path::new("/workspace"), |_| {
-            *calls.borrow_mut() += 1;
-            output(Vec::new())
-        })
-        .unwrap();
-
-        assert_eq!(*calls.borrow(), 0);
-        assert_eq!(scope, ScopeReport::full());
-    }
-
-    #[test]
-    fn files_runs_three_exact_calls_and_normalizes_the_result() {
-        let responses = RefCell::new(VecDeque::from([
-            format!("{BASE}\n").into_bytes(),
-            format!("{MERGE_BASE}\n").into_bytes(),
-            b"src/z.rs\0src/a.rs\0src/z.rs\0".to_vec(),
-        ]));
-        let calls = RefCell::new(Vec::new());
-        let scope = resolve_with(&files("main"), Path::new("/workspace"), |call| {
-            calls.borrow_mut().push(call.arguments.clone());
-            output(responses.borrow_mut().pop_front().unwrap())
-        })
-        .unwrap();
-
-        assert_eq!(calls.borrow().len(), 3);
-        assert_eq!(
-            calls.borrow()[0],
-            [
-                "-c",
-                "color.ui=false",
-                "-c",
-                "core.fsmonitor=false",
-                "--no-pager",
-                "-C",
-                "/workspace",
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                "--end-of-options",
-                "main^{commit}",
-            ]
-            .map(OsString::from)
-        );
-        assert_eq!(calls.borrow()[1][7], OsStr::new("merge-base"));
-        assert_eq!(calls.borrow()[2][7], OsStr::new("diff"));
-        assert_eq!(calls.borrow()[2][10], OsStr::new("--relative"));
-        assert_eq!(scope.mode(), ScopeMode::Files);
-        assert_eq!(scope.comparison_base(), Some(MERGE_BASE));
-        assert_eq!(
-            scope.files(),
-            Some(&["src/a.rs".to_owned(), "src/z.rs".to_owned()][..])
-        );
-    }
-
-    #[test]
-    fn empty_diff_and_sha256_oids_are_closed_successes() {
-        let oid64 = "a".repeat(64);
-        let responses = RefCell::new(VecDeque::from([
-            format!("{oid64}\n").into_bytes(),
-            format!("{oid64}\n").into_bytes(),
-            Vec::new(),
-        ]));
-        let scope = resolve_with(&files(&oid64), Path::new("/workspace"), |_| {
-            output(responses.borrow_mut().pop_front().unwrap())
-        })
-        .unwrap();
-        assert_eq!(scope.comparison_base(), Some(oid64.as_str()));
-        assert_eq!(scope.files(), Some(&[][..]));
-    }
-
-    #[test]
-    fn failures_stop_before_later_calls_and_never_transport_hostile_output() {
-        for (failing_call, expected) in [
-            (0, "base-unavailable"),
-            (1, "merge-base-unavailable"),
-            (2, "git-diff-failed"),
-        ] {
-            let calls = RefCell::new(0);
-            let error = resolve_with(&files("main"), Path::new("/workspace"), |call| {
-                let index = *calls.borrow();
-                *calls.borrow_mut() += 1;
-                if index == failing_call {
-                    return Err(call.failure.error(call.stage));
-                }
-                match index {
-                    0 => output(format!("{BASE}\n")),
-                    1 => output(format!("{MERGE_BASE}\n")),
-                    _ => output(Vec::new()),
-                }
-            })
-            .unwrap_err();
-            assert_eq!(error.code, expected);
-            assert_eq!(*calls.borrow(), failing_call + 1);
-            assert!(!error.message.contains("credential=secret"));
-        }
-    }
-
-    #[test]
-    fn missing_and_ambiguous_merge_bases_fail_before_diff() {
-        for (merge_output, expected) in [
-            (Vec::new(), "merge-base-unavailable"),
-            (
-                format!("{BASE}\n{MERGE_BASE}\n").into_bytes(),
-                "merge-base-ambiguous",
-            ),
-            (b"not-an-oid\n".to_vec(), "merge-base-unavailable"),
-        ] {
-            let responses = RefCell::new(VecDeque::from([
-                format!("{BASE}\n").into_bytes(),
-                merge_output,
-            ]));
-            let calls = RefCell::new(0);
-            let error = resolve_with(&files("main"), Path::new("/workspace"), |_| {
-                *calls.borrow_mut() += 1;
-                output(responses.borrow_mut().pop_front().unwrap())
-            })
-            .unwrap_err();
-            assert_eq!(error.code, expected);
-            assert_eq!(*calls.borrow(), 2);
-        }
-    }
-
-    #[test]
-    fn all_output_and_path_boundaries_fail_atomically() {
-        assert!(parse_single_oid(format!("{BASE}\n{MERGE_BASE}\n").as_bytes()).is_none());
-        assert!(parse_single_oid(b"not-an-oid\n").is_none());
-        assert_eq!(parse_paths(&[]).unwrap(), Vec::<String>::new());
-        assert_eq!(
-            parse_paths(b"space name\0tab\tname\0line\nname\0percent%name\0").unwrap(),
-            ["line%0Aname", "percent%25name", "space name", "tab%09name"]
-        );
-
-        let too_large = vec![b'a'; DIFF_OUTPUT_LIMIT + 1];
-        assert_eq!(
-            parse_paths(&too_large).unwrap_err().code,
-            "git-output-too-large"
-        );
-        let too_many = b"a\0".repeat(FILE_LIMIT + 1);
-        assert_eq!(parse_paths(&too_many).unwrap_err().code, "too-many-files");
-        let long_path = [vec![b'a'; PATH_LIMIT + 1], vec![0]].concat();
-        assert_eq!(
-            parse_paths(&long_path).unwrap_err().code,
-            "git-path-invalid"
-        );
-        for invalid in [
-            vec![0],
-            b"/absolute\0".to_vec(),
-            b"./relative\0".to_vec(),
-            b"parent/../escape\0".to_vec(),
-            b"double//component\0".to_vec(),
-            vec![0xff, 0],
-            b"unterminated".to_vec(),
-        ] {
-            assert_eq!(parse_paths(&invalid).unwrap_err().code, "git-path-invalid");
-        }
-    }
-
-    #[test]
-    fn serialized_scope_limit_accepts_the_last_byte_and_rejects_the_boundary() {
-        fn scope_with_serialized_size(size: usize) -> ScopeReport {
-            let empty = ScopeReport::files_scope(MERGE_BASE.to_owned(), vec![String::new()]);
-            let overhead = serde_json::to_vec(&empty).unwrap().len();
-            let scope =
-                ScopeReport::files_scope(MERGE_BASE.to_owned(), vec!["x".repeat(size - overhead)]);
-            assert_eq!(serde_json::to_vec(&scope).unwrap().len(), size);
-            scope
-        }
-
-        let last_valid = scope_with_serialized_size(SCOPE_OUTPUT_LIMIT - 1);
-        assert!(ensure_scope_output_bound(&last_valid).is_ok());
-        let first_invalid = scope_with_serialized_size(SCOPE_OUTPUT_LIMIT);
-        assert_eq!(
-            ensure_scope_output_bound(&first_invalid).unwrap_err().code,
-            "git-output-too-large"
-        );
-    }
-
-    #[test]
-    fn normalized_scope_cannot_expand_beyond_the_report_limit() {
-        let mut diff = Vec::new();
-        for index in 0..FILE_LIMIT {
-            let prefix = format!("{index:04}-");
-            let path = format!("{prefix}{}", "%".repeat(PATH_LIMIT - prefix.len()));
-            if diff.len() + path.len() + 1 > DIFF_OUTPUT_LIMIT {
-                break;
-            }
-            diff.extend_from_slice(path.as_bytes());
-            diff.push(0);
-        }
-        assert!(diff.len() <= DIFF_OUTPUT_LIMIT);
-        let expanded_size = {
-            let scope = ScopeReport {
-                kind: ResolvedScope::Files {
-                    comparison_base: MERGE_BASE.to_owned(),
-                    files: parse_paths(&diff).unwrap(),
-                },
-            };
-            serde_json::to_vec(&scope).unwrap().len()
-        };
-        assert!(expanded_size >= SCOPE_OUTPUT_LIMIT);
-
-        let responses = RefCell::new(VecDeque::from([
-            format!("{BASE}\n").into_bytes(),
-            format!("{MERGE_BASE}\n").into_bytes(),
-            diff,
-        ]));
-        let error = resolve_with(&files("main"), Path::new("/workspace"), |_| {
-            output(responses.borrow_mut().pop_front().unwrap())
-        })
-        .unwrap_err();
-
-        assert_eq!(error.code, "git-output-too-large");
-    }
+    InternalError::new(
+        STAGE,
+        "git-path-invalid",
+        "Git returned an invalid changed path.",
+    )
 }
