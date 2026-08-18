@@ -179,6 +179,144 @@ fn symlink_escape_and_replacement_between_validation_and_open_are_rejected() {
     fs::remove_dir_all(outside).unwrap();
 }
 
+/// The reader walks lines rather than a byte prefix, so a finding deep in a
+/// file is framed exactly like one at its top. A cap on the bytes decoded left
+/// everything past the first kilobytes of a file with no frame at all, which is
+/// most of a file the crate's own `oversized_unit` rule reports on.
+#[test]
+fn a_line_past_any_byte_prefix_is_still_framed() {
+    let root = temporary_root("deep-line");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let mut source = String::new();
+    for number in 1..=1005 {
+        if number == 1000 {
+            source.push_str("    let reported = deep_in_the_file();\n");
+        } else {
+            source.push_str("    // filler carrying this file well past any byte prefix\n");
+        }
+    }
+    let path = root.join("src/deep.rs");
+    fs::write(&path, &source).unwrap();
+    assert!(
+        fs::metadata(&path).unwrap().len() > 8 * 1024,
+        "the fixture has to be larger than the byte cap it is a regression for"
+    );
+
+    let frame = code_frame(&root, &at("src/deep.rs", 1000, 9, 17)).unwrap();
+    assert_eq!(
+        frame
+            .lines
+            .iter()
+            .map(|line| line.number)
+            .collect::<Vec<_>>(),
+        vec![998, 999, 1000, 1001, 1002]
+    );
+    let reported = primary(&frame);
+    assert_eq!(reported.number, 1000);
+    assert_eq!(reported.text, "    let reported = deep_in_the_file();");
+    assert_eq!(
+        reported.marker,
+        Some(CodeFrameMarker {
+            column_start: 9,
+            column_end: 17,
+        })
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Decoding only the lines that are kept is what keeps a character straddling a
+/// bound from making a valid file look like it is not UTF-8. Under the byte
+/// prefix this replaced, one accented character at the wrong offset cost the
+/// file every frame it had, including the ones on its first line.
+#[test]
+fn a_character_straddling_a_read_bound_leaves_a_valid_file_readable() {
+    let root = temporary_root("straddle");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let mut source = String::from("    let reported = 1;\n");
+    let filler = "    // padding up to the boundary a byte prefix used to cut\n";
+    let opener = "    // ";
+    while source.len() + filler.len() + opener.len() <= 8191 {
+        source.push_str(filler);
+    }
+    let padding = 8191 - source.len() - opener.len();
+    source.push_str(opener);
+    source.push_str(&"y".repeat(padding));
+    assert_eq!(source.len(), 8191);
+    source.push_str("é and the rest of the comment\n");
+    fs::write(root.join("src/accent.rs"), &source).unwrap();
+    assert!(std::str::from_utf8(source.as_bytes()).is_ok());
+
+    let frame = code_frame(&root, &at("src/accent.rs", 1, 9, 17)).unwrap();
+    assert_eq!(primary(&frame).text, "    let reported = 1;");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The line bound is applied on a character boundary, so cutting a very long
+/// line never turns it into a decoding failure either.
+#[test]
+fn a_line_cut_at_its_own_bound_is_still_decoded() {
+    let root = temporary_root("long-line");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let mut line = "z".repeat(LINE_MAX_BYTES - 1);
+    line.push('é');
+    line.push_str(&"z".repeat(64));
+    fs::write(root.join("src/long.rs"), format!("{line}\n")).unwrap();
+
+    let frame = code_frame(&root, &at("src/long.rs", 1, 1, 2)).unwrap();
+    let reported = primary(&frame);
+    assert_eq!(reported.text, "z".repeat(FRAME_MAX_COLUMNS));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_window_never_leaves_the_file_it_frames() {
+    let root = temporary_root("window-edges");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/short.rs"), "one\ntwo\nthree\n").unwrap();
+
+    for (line, expected) in [(1, vec![1, 2, 3]), (2, vec![1, 2, 3]), (3, vec![1, 2, 3])] {
+        let frame = code_frame(&root, &at("src/short.rs", line, 1, 2)).unwrap();
+        assert_eq!(
+            frame
+                .lines
+                .iter()
+                .map(|line| line.number)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(primary(&frame).number, line);
+    }
+
+    assert_eq!(
+        code_frame(&root, &at("src/short.rs", 4, 1, 2))
+            .unwrap_err()
+            .reason,
+        CodeFrameUnavailableReason::Unavailable
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A line the scan budget cut short is dropped rather than shown. The frame
+/// would otherwise render a fragment as if it were the source, and the reader
+/// has no way to tell one from the other.
+#[test]
+fn a_line_the_scan_budget_cut_short_is_never_shown() {
+    let root = temporary_root("scan-budget");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let path = root.join("src/budget.rs");
+    fs::write(&path, "one\ntwo\nthree\n").unwrap();
+
+    // Seven bytes reach the end of "one\n" and stop three bytes into "two\n".
+    let cut = read_window(File::open(&path).unwrap(), 1, 7).unwrap();
+    assert_eq!(cut, vec!["one".to_owned()]);
+
+    // The same read with the budget landing on a line terminator keeps the line.
+    let whole = read_window(File::open(&path).unwrap(), 1, 8).unwrap();
+    assert_eq!(whole, vec!["one".to_owned(), "two".to_owned()]);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn source_column_mapping_uses_full_unicode_sequence_width() {
     let line = sanitize_line("👩‍🔬x");

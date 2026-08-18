@@ -1,5 +1,5 @@
 use std::fs::{self, File, Metadata};
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 use serde::Serialize;
@@ -11,9 +11,31 @@ use crate::workspace_path;
 #[cfg(test)]
 mod tests;
 
-const FRAME_MAX_BYTES: u64 = 8 * 1024;
+/// Lines of context the frame carries above the reported one.
+const FRAME_CONTEXT_LINES: usize = 2;
 const FRAME_MAX_LINES: usize = 5;
 const FRAME_MAX_COLUMNS: usize = 160;
+
+/// Bytes of one line the frame keeps.
+///
+/// A hundred and sixty columns need at most six hundred and forty bytes of
+/// characters, and the rest of this budget absorbs the escape sequences that
+/// occupy no column at all. A line cut here loses its tail and nothing else:
+/// an introducer that was kept still swallows everything after it, so a cut can
+/// never expose the inside of a sequence as text.
+const LINE_MAX_BYTES: usize = 8 * 1024;
+
+/// Bytes the reader scans looking for the reported line.
+///
+/// This is a scan budget, not a window, and the difference is the whole reason
+/// the reader walks lines. A cap on the bytes decoded left every finding past
+/// the first kilobytes of a file unframeable however short its own line was,
+/// and cut a character in half often enough to report a valid file as invalid
+/// UTF-8. Reaching this bound costs the frame nothing unless the reported line
+/// itself lies beyond it, which is why it sits at the size past which a file
+/// has stopped being source a person reads rather than at a size chosen to keep
+/// a frame small.
+const SCAN_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CodeFrame {
@@ -63,122 +85,165 @@ fn read_code_frame(
     location: &GroupLocation,
     before_open: impl FnOnce(),
 ) -> Result<CodeFrame, CodeFrameUnavailable> {
-    if !is_safe_relative_path(&location.path) {
+    // The path is decoded once. Failing here is the only case that answers with
+    // no location at all, since a path this rejected is one the report should
+    // not echo back.
+    let Some(relative_source) = workspace_path::decode_normalized_relative(&location.path) else {
         return Err(unavailable(
             None,
             CodeFrameUnavailableReason::OutsideWorkspace,
         ));
-    }
-    let safe_location = Some(format_location(location));
-    let canonical_root = workspace_root.canonicalize().map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
-    let relative_source =
-        workspace_path::decode_normalized_relative(&location.path).ok_or_else(|| {
-            unavailable(
-                safe_location.clone(),
-                CodeFrameUnavailableReason::OutsideWorkspace,
-            )
-        })?;
-    let candidate = canonical_root.join(relative_source);
-    let canonical_source = candidate.canonicalize().map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
+    };
+    let safe_location = format_location(location);
+    let fail = |reason| unavailable(Some(safe_location.clone()), reason);
+
+    let canonical_root = workspace_root
+        .canonicalize()
+        .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
+    let canonical_source = canonical_root
+        .join(relative_source)
+        .canonicalize()
+        .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
     if canonical_source == canonical_root || !canonical_source.starts_with(&canonical_root) {
-        return Err(unavailable(
-            safe_location,
-            CodeFrameUnavailableReason::OutsideWorkspace,
-        ));
+        return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
 
-    // Canonicalization alone has a replacement race. Open the checked path, then verify that the
-    // live path still resolves inside the workspace and identifies the same file as the handle.
+    // Canonicalization alone has a replacement race. Open the checked path, then
+    // verify that the live path still resolves inside the workspace and
+    // identifies the same file as the handle.
     before_open();
-    let file = File::open(&canonical_source).map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
-    let opened_metadata = file.metadata().map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
-    let revalidated = canonical_source.canonicalize().map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
-    let current_metadata = fs::metadata(&revalidated).map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::Unavailable,
-        )
-    })?;
+    let file =
+        File::open(&canonical_source).map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
+    let revalidated = canonical_source
+        .canonicalize()
+        .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
+    let current_metadata =
+        fs::metadata(&revalidated).map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
     if !opened_metadata.is_file()
         || !revalidated.starts_with(&canonical_root)
         || !same_file(&opened_metadata, &current_metadata)
     {
-        return Err(unavailable(
-            safe_location,
-            CodeFrameUnavailableReason::OutsideWorkspace,
-        ));
+        return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
 
-    let mut bytes = Vec::with_capacity(FRAME_MAX_BYTES as usize);
-    file.take(FRAME_MAX_BYTES)
-        .read_to_end(&mut bytes)
-        .map_err(|_| {
-            unavailable(
-                safe_location.clone(),
-                CodeFrameUnavailableReason::Unavailable,
-            )
-        })?;
-    if bytes.contains(&0) {
-        return Err(unavailable(
-            safe_location,
-            CodeFrameUnavailableReason::Binary,
-        ));
-    }
-    let source = std::str::from_utf8(&bytes).map_err(|_| {
-        unavailable(
-            safe_location.clone(),
-            CodeFrameUnavailableReason::InvalidUtf8,
-        )
-    })?;
-    frame_from_source(location, source)
-        .ok_or_else(|| unavailable(safe_location, CodeFrameUnavailableReason::Unavailable))
+    let start = window_start(location);
+    let window = match read_window(file, start, SCAN_MAX_BYTES) {
+        Ok(window) => window,
+        Err(reason) => return Err(fail(reason)),
+    };
+    frame_from_window(location, start, &window)
+        .ok_or_else(|| fail(CodeFrameUnavailableReason::Unavailable))
 }
 
-fn frame_from_source(location: &GroupLocation, source: &str) -> Option<CodeFrame> {
-    let source_lines: Vec<_> = source.lines().collect();
+/// First line the frame shows.
+///
+/// The window runs from here for `FRAME_MAX_LINES`, which always covers the
+/// reported line since only `FRAME_CONTEXT_LINES` of it sit above: anchoring
+/// above the line and reading forward is what leaves the reader with no case
+/// where it has to walk back to a line it already passed.
+fn window_start(location: &GroupLocation) -> usize {
+    location
+        .span
+        .line_start
+        .max(1)
+        .saturating_sub(FRAME_CONTEXT_LINES)
+        .max(1)
+}
+
+/// Reads the lines the frame is built from, one line at a time.
+///
+/// Walking lines is what makes the reported line as reachable at the end of a
+/// file as at its top, and decoding only the lines that are kept is what keeps
+/// a character straddling a bound from making a valid file look like it is not
+/// UTF-8. Both were bugs of the byte prefix this replaced.
+///
+/// The budget is a parameter rather than the constant read directly, so that
+/// the one branch answering what happens when it runs out mid-line is reachable
+/// from a test without an eight megabyte fixture.
+fn read_window(
+    file: File,
+    start: usize,
+    budget: u64,
+) -> Result<Vec<String>, CodeFrameUnavailableReason> {
+    let last = start.saturating_add(FRAME_MAX_LINES).saturating_sub(1);
+    let mut reader = BufReader::new(file.take(budget));
+    let mut window = Vec::with_capacity(FRAME_MAX_LINES);
+    let mut raw = Vec::new();
+    for number in 1..=last {
+        raw.clear();
+        let read = reader
+            .read_until(b'\n', &mut raw)
+            .map_err(|_| CodeFrameUnavailableReason::Unavailable)?;
+        if read == 0 {
+            break;
+        }
+        // A line the scan budget cut short is not a line of the file. Dropping
+        // it answers `Unavailable` for a reported line that far out rather than
+        // rendering a fragment as if it were the source.
+        if raw.last() != Some(&b'\n') && reader.get_ref().limit() == 0 {
+            break;
+        }
+        if number < start {
+            continue;
+        }
+        window.push(retain_line(&raw)?);
+    }
+    Ok(window)
+}
+
+/// One kept line, stripped of its terminator, bounded and decoded.
+///
+/// The NUL check covers what is kept rather than the whole file, which is the
+/// same guarantee it always carried: nothing outside the window is ever
+/// rendered, so nothing outside it can leak.
+fn retain_line(raw: &[u8]) -> Result<String, CodeFrameUnavailableReason> {
+    let line = raw.strip_suffix(b"\n").unwrap_or(raw);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.contains(&0) {
+        return Err(CodeFrameUnavailableReason::Binary);
+    }
+    let end = bounded_end(line).ok_or(CodeFrameUnavailableReason::InvalidUtf8)?;
+    line.get(..end)
+        .and_then(|kept| std::str::from_utf8(kept).ok())
+        .map(str::to_owned)
+        .ok_or(CodeFrameUnavailableReason::InvalidUtf8)
+}
+
+/// Where a kept line is cut: at `LINE_MAX_BYTES`, walked back to a character
+/// boundary so that a cut is never mistaken for a decoding failure.
+///
+/// A character is at most four bytes, so a boundary is at most three bytes
+/// back. Not finding one there means the bytes are not UTF-8, which is the
+/// caller's answer rather than a silently emptied line.
+fn bounded_end(line: &[u8]) -> Option<usize> {
+    if line.len() <= LINE_MAX_BYTES {
+        return Some(line.len());
+    }
+    (LINE_MAX_BYTES.saturating_sub(3)..=LINE_MAX_BYTES)
+        .rev()
+        .find(|end| line.get(*end).is_some_and(|byte| !is_continuation(*byte)))
+}
+
+const fn is_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
+}
+
+fn frame_from_window(
+    location: &GroupLocation,
+    start: usize,
+    window: &[String],
+) -> Option<CodeFrame> {
     let primary = location.span.line_start.max(1);
-    if primary > source_lines.len() {
+    if primary.saturating_sub(start) >= window.len() {
         return None;
     }
-    let mut start = primary.saturating_sub(2).max(1);
-    let mut end = start
-        .saturating_add(FRAME_MAX_LINES.saturating_sub(1))
-        .min(source_lines.len());
-    if primary > end {
-        start = primary
-            .saturating_sub(FRAME_MAX_LINES.saturating_sub(1))
-            .max(1);
-        end = primary;
-    }
-
-    let mut lines = Vec::with_capacity(end.saturating_sub(start).saturating_add(1));
-    for number in start..=end {
-        let sanitized = sanitize_line(source_lines[number - 1]);
+    let mut lines = Vec::with_capacity(window.len());
+    for (offset, source) in window.iter().enumerate() {
+        let number = start.saturating_add(offset);
+        let sanitized = sanitize_line(source);
         let is_primary = number == primary;
         let marker = is_primary.then(|| {
             let start = sanitized.source_column(location.span.column_start);
@@ -315,10 +380,6 @@ fn format_location(location: &GroupLocation) -> String {
     )
 }
 
-fn is_safe_relative_path(path: &str) -> bool {
-    workspace_path::decode_normalized_relative(path).is_some()
-}
-
 fn unavailable(
     location: Option<String>,
     reason: CodeFrameUnavailableReason,
@@ -344,6 +405,12 @@ fn same_file(left: &Metadata, right: &Metadata) -> bool {
     left.dev() == right.dev() && left.ino() == right.ino()
 }
 
+/// Off Unix there is no stable identity to compare: the handle-based file index
+/// and volume serial that would answer this exactly are still unstable in the
+/// standard library. Size, modification time and the read-only bit are what is
+/// reachable, and they are weaker: a swap that reproduces all three passes.
+/// That is the accepted floor rather than an oversight, and it is only ever the
+/// last of three checks, behind canonicalization and the workspace prefix.
 #[cfg(not(unix))]
 fn same_file(left: &Metadata, right: &Metadata) -> bool {
     left.len() == right.len()
