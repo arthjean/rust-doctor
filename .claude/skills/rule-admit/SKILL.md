@@ -27,7 +27,7 @@ them. A native detector has no upstream line, so write one sentence naming the
 pattern, not the fix.
 
 Pick the category and the tier, and check the pair against `TIER_WINDOWS` in
-`src/policy/catalog.rs`. Write `help` as an instruction to the user: what to do
+`src/policy/catalog/validate.rs`. Write `help` as an instruction to the user: what to do
 instead, in one sentence, without restating the problem.
 
 ## Step 2: Build the trigger fixture
@@ -67,9 +67,10 @@ suite run to rediscover.
 
 Counts, which move by one:
 
-- `src/policy/catalog.rs`: the length of `CATALOG`, the length of
-  `SYNTHETIC_CATALOG`, which is one more, the `CATALOG.len()` assertion, the
+- `src/policy/catalog.rs`: the length of `CATALOG`.
+- `src/policy/catalog/tests.rs`: the `CATALOG.len()` assertion, the
   `clippy_ids.len()` assertion, and `active_rules(Producer::Clippy).count()`.
+  The synthetic catalog is built from `CATALOG` and needs no edit.
 - `src/execution.rs`: the two command-length assertions, shaped `7 + 2 * N`,
   where `N` counts the active Clippy rules carried under `-W`.
 - `src/policy/coverage.rs`: `DECIDED_FLOOR`, since the rule leaves the queue.
@@ -82,8 +83,8 @@ Counts, which move by one:
 
 Lists, which gain the identifier in alphabetical position:
 
-- `src/policy/catalog.rs`: `CATALOG`, `SYNTHETIC_CATALOG`, and the expected
-  argument list of the synthetic proof, which omits the categories it turns off.
+- `src/policy/catalog.rs`: `CATALOG`. The synthetic proof derives its expected
+  argument list from the active rules, so it needs no edit either.
 - `tests/persistent_configuration_product_proof.rs`: `RULES`.
 - `tests/policy_gate_product_proof.rs`: the `--rule <id>=off` list that disables
   the whole Clippy producer, which only prunes the scan when it names every one.

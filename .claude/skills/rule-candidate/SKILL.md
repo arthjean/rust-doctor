@@ -62,7 +62,7 @@ closed class and one written sentence ending in a period:
 
 **Retain** when the lint names a real defect a user should fix. Record the
 proposed category and tier, and check the pair against `TIER_WINDOWS` in
-`src/policy/catalog.rs`: security is `P0` to `P1`, correctness and dependencies
+`src/policy/catalog/validate.rs`: security is `P0` to `P1`, correctness and dependencies
 `P1` to `P2`, reliability and performance `P2` to `P3`, maintainability `P3`. A
 pair outside its window means the category or the tier is wrong, not that the
 window should grow.
