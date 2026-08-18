@@ -7,16 +7,10 @@ use serde::{Serialize, Serializer};
 use crate::execution::InternalError;
 use crate::workspace_path;
 
-mod process;
+use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
 
-#[cfg(test)]
-pub(crate) use process::STDERR_OUTPUT_LIMIT;
-#[cfg(test)]
-use process::{GIT_ENVIRONMENT_OVERRIDES, collect_bounded};
-use process::{GIT_OUTPUT_TOO_LARGE, output_too_large};
-pub(crate) use process::{
-    GitCall, GitFailure, GitOutput, git_arguments, git_command, run_git, run_git_with_index,
-};
+/// The stage every outcome of this pass is reported at.
+const STAGE: &str = "scope";
 
 const OID_OUTPUT_LIMIT: usize = 4_096;
 const DIFF_OUTPUT_LIMIT: usize = 1_048_576;
@@ -212,7 +206,7 @@ pub(crate) fn resolve(
 fn resolve_with(
     request: &ScopeRequest,
     workspace_root: &Path,
-    mut run: impl FnMut(&GitCall) -> Result<GitOutput, InternalError>,
+    mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<ScopeReport, InternalError> {
     let base = match request {
         ScopeRequest::Full => return Ok(ScopeReport::full()),
@@ -231,7 +225,7 @@ fn resolve_with(
         return Ok(scope);
     }
 
-    let diff_output = run(&GitCall {
+    let diff = run(&GitCall {
         arguments: git_arguments(
             workspace_root,
             [
@@ -248,18 +242,15 @@ fn resolve_with(
             ],
         ),
         stdout_limit: DIFF_OUTPUT_LIMIT,
-        failure: GitFailure::new(
-            "scope",
-            "git-diff-failed",
-            "Git changed files could not be read.",
-        ),
-        stdout_overflow: GIT_OUTPUT_TOO_LARGE,
+        stage: STAGE,
+        failure: GitFailure::new("git-diff-failed", "Git changed files could not be read."),
+        overflow: OUTPUT_TOO_LARGE,
     })?;
 
     let scope = ScopeReport {
         kind: ResolvedScope::Files {
             comparison_base,
-            files: parse_paths(&diff_output.stdout)?,
+            files: parse_paths(&diff)?,
         },
     };
     ensure_scope_output_bound(&scope)?;
@@ -269,10 +260,10 @@ fn resolve_with(
 fn resolve_comparison_base_with(
     base: &str,
     workspace_root: &Path,
-    mut run: impl FnMut(&GitCall) -> Result<GitOutput, InternalError>,
+    mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<String, InternalError> {
     let revision = format!("{base}^{{commit}}");
-    let base_output = run(&GitCall {
+    let base_answer = run(&GitCall {
         arguments: git_arguments(
             workspace_root,
             [
@@ -284,16 +275,13 @@ fn resolve_comparison_base_with(
             ],
         ),
         stdout_limit: OID_OUTPUT_LIMIT,
-        failure: GitFailure::new(
-            "scope",
-            "base-unavailable",
-            "Git base commit is unavailable.",
-        ),
-        stdout_overflow: GIT_OUTPUT_TOO_LARGE,
+        stage: STAGE,
+        failure: GitFailure::new("base-unavailable", "Git base commit is unavailable."),
+        overflow: OUTPUT_TOO_LARGE,
     })?;
-    let base_commit = parse_single_oid(&base_output.stdout).ok_or_else(base_unavailable)?;
+    let base_commit = parse_single_oid(&base_answer).ok_or_else(base_unavailable)?;
 
-    let merge_output = run(&GitCall {
+    let merge_answer = run(&GitCall {
         arguments: git_arguments(
             workspace_root,
             [
@@ -304,15 +292,12 @@ fn resolve_comparison_base_with(
             ],
         ),
         stdout_limit: OID_OUTPUT_LIMIT,
-        failure: GitFailure::new(
-            "scope",
-            "merge-base-unavailable",
-            "Git merge base is unavailable.",
-        ),
-        stdout_overflow: GIT_OUTPUT_TOO_LARGE,
+        stage: STAGE,
+        failure: GitFailure::new("merge-base-unavailable", "Git merge base is unavailable."),
+        overflow: OUTPUT_TOO_LARGE,
     })?;
     let merge_bases =
-        parse_oids(&merge_output.stdout, base_commit.len()).ok_or_else(merge_base_unavailable)?;
+        parse_oids(&merge_answer, base_commit.len()).ok_or_else(merge_base_unavailable)?;
     match merge_bases.as_slice() {
         [] => Err(merge_base_unavailable()),
         [comparison_base] => Ok(comparison_base.clone()),
@@ -408,6 +393,10 @@ fn parse_paths(output: &[u8]) -> Result<Vec<String>, InternalError> {
     Ok(files)
 }
 
+fn output_too_large() -> InternalError {
+    OUTPUT_TOO_LARGE.error(STAGE)
+}
+
 fn invalid_base() -> InternalError {
     InternalError::new("scope", "invalid-base", "Invalid Git base selector.")
 }
@@ -431,22 +420,13 @@ fn phase_failure(code: &'static str, message: &'static str) -> InternalError {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::VecDeque;
     use std::ffi::OsStr;
-    #[cfg(unix)]
-    use std::fs;
-    use std::io::Cursor;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-    #[cfg(unix)]
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
     const BASE: &str = "1111111111111111111111111111111111111111";
     const MERGE_BASE: &str = "2222222222222222222222222222222222222222";
-    #[cfg(unix)]
-    static NEXT_SCRIPT: AtomicUsize = AtomicUsize::new(0);
 
     fn files(base: &str) -> ScopeRequest {
         ScopeRequest::Files {
@@ -454,31 +434,8 @@ mod tests {
         }
     }
 
-    fn output(stdout: impl Into<Vec<u8>>) -> Result<GitOutput, InternalError> {
-        Ok(GitOutput {
-            stdout: stdout.into(),
-        })
-    }
-
-    #[cfg(unix)]
-    fn git_script(contents: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target/git-scope-runner")
-            .join(format!(
-                "{}-{}",
-                std::process::id(),
-                NEXT_SCRIPT.fetch_add(1, Ordering::Relaxed)
-            ));
-        if directory.exists() {
-            fs::remove_dir_all(&directory).unwrap();
-        }
-        fs::create_dir_all(&directory).unwrap();
-        let script = directory.join("git");
-        fs::write(&script, contents).unwrap();
-        let mut permissions = fs::metadata(&script).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&script, permissions).unwrap();
-        (directory, script)
+    fn output(stdout: impl Into<Vec<u8>>) -> Result<Vec<u8>, InternalError> {
+        Ok(stdout.into())
     }
 
     #[test]
@@ -600,7 +557,7 @@ mod tests {
                 let index = *calls.borrow();
                 *calls.borrow_mut() += 1;
                 if index == failing_call {
-                    return Err(call.failure.error());
+                    return Err(call.failure.error(call.stage));
                 }
                 match index {
                     0 => output(format!("{BASE}\n")),
@@ -673,169 +630,6 @@ mod tests {
         ] {
             assert_eq!(parse_paths(&invalid).unwrap_err().code, "git-path-invalid");
         }
-
-        let bounded = collect_bounded(
-            Cursor::new(vec![b'x'; OID_OUTPUT_LIMIT + 1]),
-            OID_OUTPUT_LIMIT,
-        )
-        .unwrap();
-        assert!(bounded.exceeded);
-        assert_eq!(bounded.bytes.len(), OID_OUTPUT_LIMIT);
-
-        let exact_stderr = collect_bounded(
-            Cursor::new(vec![b'x'; STDERR_OUTPUT_LIMIT]),
-            STDERR_OUTPUT_LIMIT,
-        )
-        .unwrap();
-        assert!(!exact_stderr.exceeded);
-        assert_eq!(exact_stderr.bytes.len(), STDERR_OUTPUT_LIMIT);
-        let oversized_stderr = collect_bounded(
-            Cursor::new(vec![b'x'; STDERR_OUTPUT_LIMIT + 1]),
-            STDERR_OUTPUT_LIMIT,
-        )
-        .unwrap();
-        assert!(oversized_stderr.exceeded);
-        assert_eq!(oversized_stderr.bytes.len(), STDERR_OUTPUT_LIMIT);
-    }
-
-    #[test]
-    fn git_command_fixes_cwd_stdio_and_hostile_environment() {
-        let arguments = git_arguments(Path::new("/workspace"), [OsString::from("status")]);
-        let command = git_command(Path::new("git"), Path::new("/workspace"), &arguments);
-        assert_eq!(command.get_current_dir(), Some(Path::new("/workspace")));
-        assert_eq!(command.get_args().collect::<Vec<_>>(), arguments);
-        let environment: BTreeMap<_, _> = command.get_envs().collect();
-        assert_eq!(
-            environment.get(OsStr::new("GIT_NO_LAZY_FETCH")),
-            Some(&Some(OsStr::new("1")))
-        );
-        assert_eq!(
-            environment.get(OsStr::new("GIT_OPTIONAL_LOCKS")),
-            Some(&Some(OsStr::new("0")))
-        );
-        assert_eq!(
-            environment.get(OsStr::new("LC_ALL")),
-            Some(&Some(OsStr::new("C")))
-        );
-        for variable in GIT_ENVIRONMENT_OVERRIDES {
-            assert_eq!(environment.get(OsStr::new(variable)), Some(&None));
-        }
-    }
-
-    #[test]
-    fn missing_git_has_the_single_closed_error() {
-        let call = GitCall {
-            arguments: git_arguments(Path::new("/workspace"), [OsString::from("status")]),
-            stdout_limit: OID_OUTPUT_LIMIT,
-            failure: GitFailure::new(
-                "scope",
-                "base-unavailable",
-                "Git base commit is unavailable.",
-            ),
-            stdout_overflow: GIT_OUTPUT_TOO_LARGE,
-        };
-        let error = run_git(
-            Path::new("/definitely/missing/rust-doctor-git"),
-            Path::new("/workspace"),
-            &call,
-        )
-        .unwrap_err();
-        assert_eq!((error.stage, error.code), ("scope", "git-unavailable"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn real_process_output_limits_and_stderr_are_closed() {
-        let (workspace, oversized) = git_script(concat!(
-            "#!/bin/sh\n",
-            "i=0\n",
-            "while [ \"$i\" -lt 4097 ]; do printf x; i=$((i + 1)); done\n",
-            "printf 'credential=secret\\n' >&2\n",
-        ));
-        let call = GitCall {
-            arguments: git_arguments(&workspace, [OsString::from("status")]),
-            stdout_limit: OID_OUTPUT_LIMIT,
-            failure: GitFailure::new(
-                "scope",
-                "base-unavailable",
-                "Git base commit is unavailable.",
-            ),
-            stdout_overflow: GIT_OUTPUT_TOO_LARGE,
-        };
-        let error = run_git(&oversized, &workspace, &call).unwrap_err();
-        assert_eq!(error.code, "git-output-too-large");
-        assert!(!error.message.contains("credential=secret"));
-
-        let baseline_limit = GitCall {
-            stdout_overflow: GitFailure::new(
-                "baseline",
-                "baseline-limit-exceeded",
-                "Git baseline snapshot exceeds a supported limit.",
-            ),
-            ..call
-        };
-        let error = run_git(&oversized, &workspace, &baseline_limit).unwrap_err();
-        assert_eq!(
-            (error.stage, error.code),
-            ("baseline", "baseline-limit-exceeded")
-        );
-
-        let (workspace, failing) = git_script(concat!(
-            "#!/bin/sh\n",
-            "printf 'https://secret credential=secret\\n' >&2\n",
-            "exit 1\n",
-        ));
-        let call = GitCall {
-            arguments: git_arguments(&workspace, [OsString::from("status")]),
-            stdout_limit: OID_OUTPUT_LIMIT,
-            failure: GitFailure::new(
-                "scope",
-                "git-diff-failed",
-                "Git changed files could not be read.",
-            ),
-            stdout_overflow: GIT_OUTPUT_TOO_LARGE,
-        };
-        let error = run_git(&failing, &workspace, &call).unwrap_err();
-        assert_eq!(error.code, "git-diff-failed");
-        assert!(!error.message.contains("https://secret"));
-        assert!(!error.message.contains("credential=secret"));
-
-        let (workspace, exact_stderr) = git_script(concat!(
-            "#!/bin/sh\n",
-            "i=0\n",
-            "while [ \"$i\" -lt 8192 ]; do printf 12345678 >&2; i=$((i + 1)); done\n",
-        ));
-        let call = GitCall {
-            arguments: git_arguments(&workspace, [OsString::from("status")]),
-            stdout_limit: OID_OUTPUT_LIMIT,
-            failure: GitFailure::new(
-                "scope",
-                "base-unavailable",
-                "Git base commit is unavailable.",
-            ),
-            stdout_overflow: GIT_OUTPUT_TOO_LARGE,
-        };
-        let output = run_git(&exact_stderr, &workspace, &call).unwrap();
-        assert!(output.stdout.is_empty());
-
-        let (workspace, oversized_stderr) = git_script(concat!(
-            "#!/bin/sh\n",
-            "i=0\n",
-            "while [ \"$i\" -lt 8192 ]; do printf 12345678 >&2; i=$((i + 1)); done\n",
-            "printf x >&2\n",
-        ));
-        let call = GitCall {
-            arguments: git_arguments(&workspace, [OsString::from("status")]),
-            stdout_limit: OID_OUTPUT_LIMIT,
-            failure: GitFailure::new(
-                "scope",
-                "base-unavailable",
-                "Git base commit is unavailable.",
-            ),
-            stdout_overflow: GIT_OUTPUT_TOO_LARGE,
-        };
-        let error = run_git(&oversized_stderr, &workspace, &call).unwrap_err();
-        assert_eq!(error.code, "git-output-too-large");
     }
 
     #[test]

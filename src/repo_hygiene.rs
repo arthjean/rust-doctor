@@ -9,14 +9,13 @@
 //! an enumeration too large to trust, degrades the report with a bounded error
 //! at stage `repo`.
 
-use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 
 use serde::Deserialize;
 
 use crate::execution::InternalError;
-use crate::git_scope::{GitCall, GitFailure, GitOutput, git_arguments, git_command, run_git};
+use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_status};
 use crate::policy::{
     PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT,
     RuleDefinition,
@@ -24,6 +23,10 @@ use crate::policy::{
 use crate::report::DiagnosticContext;
 use crate::source_text::SourceSpan;
 use crate::workspace_path;
+
+/// The stage every git call of this pass reports at, and the one `report.rs`
+/// stamps a `RepoError` with.
+const STAGE: &str = "repo";
 
 /// Enumeration stops here rather than hanging on a monorepo, mirroring the
 /// source kernel's own unit limit in spirit.
@@ -87,7 +90,7 @@ pub(crate) fn inspect(workspace_root: &Path, plan: &PolicyPlan) -> RepoScan {
 fn inspect_with(
     workspace_root: &Path,
     plan: &PolicyPlan,
-    mut run: impl FnMut(&GitCall) -> Result<GitOutput, InternalError>,
+    mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
     probe: impl FnOnce(&str) -> IgnoreProbe,
 ) -> RepoScan {
     let secret_files = plan.is_active(REPO_TRACKED_SECRET_FILE.id);
@@ -99,15 +102,14 @@ fn inspect_with(
     }
 
     let output = match run(&GitCall {
-        arguments: git_arguments(workspace_root, [OsString::from("ls-files"), OsString::from("-z")]),
+        arguments: git_arguments(workspace_root, ["ls-files", "-z"]),
         stdout_limit: MAX_OUTPUT_BYTES,
+        stage: STAGE,
         failure: GitFailure::new(
-            "repo",
             "repo-not-a-repository",
             "Repository hygiene skipped: the workspace is not a git repository.",
         ),
-        stdout_overflow: GitFailure::new(
-            "repo",
+        overflow: GitFailure::new(
             "repo-enumeration-truncated",
             "Repository enumeration exceeded the supported size; repository hygiene was skipped.",
         ),
@@ -133,7 +135,7 @@ fn inspect_with(
         }
     };
 
-    let (paths, truncated) = tracked_paths(&output.stdout);
+    let (paths, truncated) = tracked_paths(&output);
     if truncated {
         scan.errors.push(RepoError {
             code: "repo-enumeration-truncated",
@@ -418,22 +420,11 @@ fn probe_ignore(workspace_root: &Path, directory: &str) -> IgnoreProbe {
 }
 
 fn ask_git_check_ignore(workspace_root: &Path, path: &str) -> IgnoreProbe {
-    let arguments = git_arguments(
-        workspace_root,
-        [
-            OsString::from("check-ignore"),
-            OsString::from("--quiet"),
-            OsString::from("--"),
-            OsString::from(path.to_owned()),
-        ],
-    );
-    match git_command(Path::new("git"), workspace_root, &arguments).output() {
-        Ok(output) => match output.status.code() {
-            Some(0) => IgnoreProbe::Ignored,
-            Some(1) => IgnoreProbe::NotIgnored,
-            _ => IgnoreProbe::Unavailable,
-        },
-        Err(_) => IgnoreProbe::Unavailable,
+    let arguments = git_arguments(workspace_root, ["check-ignore", "--quiet", "--", path]);
+    match run_git_status(Path::new("git"), workspace_root, &arguments) {
+        Some(0) => IgnoreProbe::Ignored,
+        Some(1) => IgnoreProbe::NotIgnored,
+        _ => IgnoreProbe::Unavailable,
     }
 }
 
@@ -445,13 +436,13 @@ mod tests {
         PolicyPlan::default()
     }
 
-    fn ls_files_output(paths: &[&str]) -> GitOutput {
+    fn ls_files_output(paths: &[&str]) -> Vec<u8> {
         let mut stdout = Vec::new();
         for path in paths {
             stdout.extend_from_slice(path.as_bytes());
             stdout.push(0);
         }
-        GitOutput { stdout }
+        stdout
     }
 
     /// A build directory moved elsewhere behind a symbolic link still gets an
@@ -511,7 +502,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("."),
             &plan(),
-            |call| Err(call.failure.error()),
+            |call| Err(call.failure.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
         assert!(scan.findings.is_empty());
@@ -543,7 +534,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("."),
             &plan(),
-            |call| Err(call.stdout_overflow.error()),
+            |call| Err(call.overflow.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
         assert!(scan.findings.is_empty());
@@ -575,10 +566,8 @@ mod tests {
 
     #[test]
     fn hostile_enumeration_entries_are_dropped_without_findings() {
-        let output = GitOutput {
-            stdout: b"../outside.env\x00/absolute/.env\x00\xff\xfe\x00src/lib.rs\x00".to_vec(),
-        };
-        let (paths, truncated) = tracked_paths(&output.stdout);
+        let output = b"../outside.env\x00/absolute/.env\x00\xff\xfe\x00src/lib.rs\x00".to_vec();
+        let (paths, truncated) = tracked_paths(&output);
         assert!(!truncated);
         assert_eq!(paths, ["src/lib.rs"]);
     }

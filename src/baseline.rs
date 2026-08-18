@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::execution::InternalError;
-use crate::git_scope::{self, GitCall, GitFailure};
+use crate::git::{self, GitCall, GitFailure};
 
 pub(crate) const ENTRY_LIMIT: usize = 100_000;
 pub(crate) const BLOB_LIMIT: u64 = 64 * 1024 * 1024;
@@ -19,18 +19,18 @@ const PATH_LIMIT: usize = 4_096;
 const COMMAND_OUTPUT_LIMIT: usize = 4_096;
 const TEMP_ATTEMPTS: usize = 128;
 
-const INVENTORY_FAILURE: GitFailure = GitFailure::new(
-    "baseline",
-    "baseline-inventory-failed",
-    "Git baseline inventory failed.",
-);
+/// Every git call of this module reports at this stage, including the two
+/// outcomes it does not name: a git that could not start, and a stream that
+/// overflowed the bound this module publishes in its own oracle.
+const STAGE: &str = "baseline";
+
+const INVENTORY_FAILURE: GitFailure =
+    GitFailure::new("baseline-inventory-failed", "Git baseline inventory failed.");
 const LIMIT_EXCEEDED: GitFailure = GitFailure::new(
-    "baseline",
     "baseline-limit-exceeded",
     "Git baseline snapshot exceeds a supported limit.",
 );
 const MATERIALIZATION_FAILURE: GitFailure = GitFailure::new(
-    "baseline",
     "baseline-materialization-failed",
     "Git baseline materialization failed.",
 );
@@ -136,27 +136,21 @@ pub(crate) fn materialize(
     workspace_root: &Path,
     comparison_base: &str,
 ) -> Result<Snapshot, InternalError> {
-    let inventory_output = git_scope::run_git(
+    let inventory_entries = git::run_git(
         Path::new("git"),
         workspace_root,
         &GitCall {
-            arguments: git_scope::git_arguments(
+            arguments: git::git_arguments(
                 workspace_root,
-                [
-                    OsString::from("ls-tree"),
-                    OsString::from("-r"),
-                    OsString::from("-z"),
-                    OsString::from("-l"),
-                    OsString::from("--full-tree"),
-                    OsString::from(comparison_base),
-                ],
+                ["ls-tree", "-r", "-z", "-l", "--full-tree", comparison_base],
             ),
             stdout_limit: INVENTORY_OUTPUT_LIMIT,
+            stage: STAGE,
             failure: INVENTORY_FAILURE,
-            stdout_overflow: LIMIT_EXCEEDED,
+            overflow: LIMIT_EXCEEDED,
         },
     )?;
-    let inventory = parse_inventory(&inventory_output.stdout)?;
+    let inventory = parse_inventory(&inventory_entries)?;
     let repository_root = repository_root(workspace_root)?;
     let workspace_relative = workspace_root
         .strip_prefix(&repository_root)
@@ -193,17 +187,15 @@ fn materialize_inventory(
     fs::create_dir(&snapshot.target).map_err(|_| temp_unavailable())?;
     let index = snapshot.root.join("index");
 
-    git_scope::run_git_with_index(
+    git::run_git_with_index(
         Path::new("git"),
         workspace_root,
         &GitCall {
-            arguments: git_scope::git_arguments(
-                workspace_root,
-                [OsString::from("read-tree"), OsString::from(comparison_base)],
-            ),
+            arguments: git::git_arguments(workspace_root, ["read-tree", comparison_base]),
             stdout_limit: COMMAND_OUTPUT_LIMIT,
+            stage: STAGE,
             failure: MATERIALIZATION_FAILURE,
-            stdout_overflow: MATERIALIZATION_FAILURE,
+            overflow: MATERIALIZATION_FAILURE,
         },
         &index,
     )?;
@@ -211,11 +203,11 @@ fn materialize_inventory(
     let mut prefix = OsString::from("--prefix=");
     prefix.push(snapshot.tree.as_os_str());
     prefix.push(std::path::MAIN_SEPARATOR_STR);
-    git_scope::run_git_with_index(
+    git::run_git_with_index(
         Path::new("git"),
         workspace_root,
         &GitCall {
-            arguments: git_scope::git_arguments(
+            arguments: git::git_arguments(
                 workspace_root,
                 [
                     OsString::from("checkout-index"),
@@ -225,8 +217,9 @@ fn materialize_inventory(
                 ],
             ),
             stdout_limit: COMMAND_OUTPUT_LIMIT,
+            stage: STAGE,
             failure: MATERIALIZATION_FAILURE,
-            stdout_overflow: MATERIALIZATION_FAILURE,
+            overflow: MATERIALIZATION_FAILURE,
         },
         &index,
     )?;
@@ -435,16 +428,16 @@ fn remove_snapshot(root: &Path) -> io::Result<()> {
 }
 
 fn inventory_failed() -> InternalError {
-    INVENTORY_FAILURE.error()
+    INVENTORY_FAILURE.error(STAGE)
 }
 
 pub(crate) fn limit_exceeded() -> InternalError {
-    LIMIT_EXCEEDED.error()
+    LIMIT_EXCEEDED.error(STAGE)
 }
 
 fn entry_invalid() -> InternalError {
     InternalError::new(
-        "baseline",
+        STAGE,
         "baseline-entry-invalid",
         "Git baseline contains an unsupported entry.",
     )
@@ -452,19 +445,19 @@ fn entry_invalid() -> InternalError {
 
 fn temp_unavailable() -> InternalError {
     InternalError::new(
-        "baseline",
+        STAGE,
         "baseline-temp-unavailable",
         "Git baseline temporary storage is unavailable.",
     )
 }
 
 fn materialization_failed() -> InternalError {
-    MATERIALIZATION_FAILURE.error()
+    MATERIALIZATION_FAILURE.error(STAGE)
 }
 
 pub(crate) fn scan_incomplete() -> InternalError {
     InternalError::new(
-        "baseline",
+        STAGE,
         "baseline-scan-incomplete",
         "Git baseline scan is incomplete.",
     )
@@ -472,7 +465,7 @@ pub(crate) fn scan_incomplete() -> InternalError {
 
 pub(crate) fn cleanup_failed() -> InternalError {
     InternalError::new(
-        "baseline",
+        STAGE,
         "baseline-cleanup-failed",
         "Git baseline cleanup failed.",
     )
@@ -693,7 +686,7 @@ mod tests {
         assert_eq!(limits["path_bytes"], PATH_LIMIT);
         assert_eq!(
             limits["stderr_bytes"],
-            crate::git_scope::STDERR_OUTPUT_LIMIT
+            crate::git::STDERR_OUTPUT_LIMIT
         );
     }
 }

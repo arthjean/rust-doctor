@@ -8,6 +8,7 @@ mod cargo_health;
 mod configuration;
 mod delta;
 mod execution;
+mod git;
 mod git_scope;
 #[cfg(test)]
 mod permutations;
