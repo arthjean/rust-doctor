@@ -171,7 +171,7 @@ pub(crate) fn compute(
     current: &[Diagnostic],
     baseline_root: &Path,
     current_root: &Path,
-) -> Result<DeltaReport, crate::execution::InternalError> {
+) -> Result<DeltaReport, crate::internal_error::InternalError> {
     if baseline.len() > DIAGNOSTIC_LIMIT || current.len() > DIAGNOSTIC_LIMIT {
         return Err(crate::baseline::limit_exceeded());
     }

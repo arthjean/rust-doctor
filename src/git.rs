@@ -23,7 +23,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 
 #[cfg(test)]
 mod tests;

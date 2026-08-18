@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 use crate::policy::{
     BlockingLevel, CATEGORIES, RuleLevel, find, validate_category_selector, validate_rule_selector,
 };

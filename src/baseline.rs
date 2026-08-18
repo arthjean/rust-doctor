@@ -8,7 +8,7 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure};
 
 pub(crate) const ENTRY_LIMIT: usize = 100_000;

@@ -14,7 +14,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_status};
 use crate::policy::{
     PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT,

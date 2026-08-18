@@ -14,9 +14,10 @@ use crate::cargo_health;
 use crate::delta::DeltaReport;
 use crate::execution::{
     BaselineExecution, CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData,
-    ExecutionResult, InternalError, ScanExecution,
+    ExecutionResult, ScanExecution,
 };
 use crate::git_scope::{ScopeReport, ScopeRequest};
+use crate::internal_error::InternalError;
 use crate::policy::{
     self, BlockingLevel, BlockingLevelSource, CategoryOverride, PolicyError, PolicyInput,
     PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,

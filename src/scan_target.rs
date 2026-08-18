@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use cargo_metadata::{Metadata, MetadataCommand};
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 
 #[derive(Debug)]
 pub(crate) struct ResolvedScanTarget {

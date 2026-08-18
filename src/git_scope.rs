@@ -26,7 +26,7 @@ use std::path::Path;
 
 use serde::{Serialize, Serializer};
 
-use crate::execution::InternalError;
+use crate::internal_error::InternalError;
 use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
 use crate::workspace_path;
 

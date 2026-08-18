@@ -84,7 +84,9 @@ pub(crate) fn execute(
     Ok(BaselineExecution { baseline, current })
 }
 
-fn command_environment(workspace_root: &Path) -> Result<CommandEnvironment, super::InternalError> {
+fn command_environment(
+    workspace_root: &Path,
+) -> Result<CommandEnvironment, crate::internal_error::InternalError> {
     if let Some(toolchain) = env::var_os("RUSTUP_TOOLCHAIN") {
         return valid_toolchain(&toolchain)
             .then_some(CommandEnvironment {

@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
+use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer};
 use crate::repo_hygiene::{self, RepoScan};
 use crate::scan_target::{self, ResolvedScanTarget};
@@ -141,23 +142,6 @@ pub(crate) struct CapturedSpan {
     pub(crate) column_start: usize,
     pub(crate) column_end: usize,
     pub(crate) is_primary: bool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct InternalError {
-    pub(crate) stage: &'static str,
-    pub(crate) code: &'static str,
-    pub(crate) message: String,
-}
-
-impl InternalError {
-    pub(crate) fn new(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            stage,
-            code,
-            message: message.into(),
-        }
-    }
 }
 
 #[derive(Debug)]

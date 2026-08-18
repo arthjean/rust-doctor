@@ -10,6 +10,7 @@ mod delta;
 mod execution;
 mod git;
 mod git_scope;
+mod internal_error;
 #[cfg(test)]
 mod permutations;
 mod policy;
