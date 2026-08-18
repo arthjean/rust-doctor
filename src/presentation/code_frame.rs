@@ -245,24 +245,7 @@ fn frame_from_window(
         let number = start.saturating_add(offset);
         let sanitized = sanitize_line(source);
         let is_primary = number == primary;
-        let marker = is_primary.then(|| {
-            let start = sanitized.source_column(location.span.column_start);
-            let end = sanitized.source_column(location.span.column_end);
-            let last_marker_column = if sanitized.truncated {
-                FRAME_MAX_COLUMNS
-            } else {
-                sanitized.width.saturating_add(1).min(FRAME_MAX_COLUMNS)
-            };
-            let column_start = start.saturating_add(1).min(last_marker_column).max(1);
-            let column_end = end
-                .saturating_add(1)
-                .max(column_start.saturating_add(1))
-                .min(FRAME_MAX_COLUMNS.saturating_add(1));
-            CodeFrameMarker {
-                column_start,
-                column_end,
-            }
-        });
+        let marker = is_primary.then(|| marker_for(location, &sanitized));
         lines.push(CodeFrameLine {
             number,
             text: sanitized.text,
@@ -276,11 +259,36 @@ fn frame_from_window(
     })
 }
 
+/// The caret under the reported line.
+///
+/// It never leaves the text the frame rendered. A span that ends on a later
+/// line has no end column on this one, so it runs to the end of what is shown
+/// rather than borrowing a column from a line the reader cannot see, and a
+/// span pointing past a line the sanitizer cut stops where the cut did rather
+/// than at the frame's own edge.
+fn marker_for(location: &GroupLocation, sanitized: &SanitizedLine) -> CodeFrameMarker {
+    let span = &location.span;
+    let start = sanitized.source_column(span.column_start);
+    let end = if span.line_end > span.line_start {
+        sanitized.width
+    } else {
+        sanitized.source_column(span.column_end)
+    };
+    let last_column = sanitized.width.saturating_add(1).min(FRAME_MAX_COLUMNS);
+    let column_start = start.saturating_add(1).min(last_column).max(1);
+    CodeFrameMarker {
+        column_start,
+        column_end: end
+            .saturating_add(1)
+            .min(last_column)
+            .max(column_start.saturating_add(1)),
+    }
+}
+
 struct SanitizedLine {
     text: String,
     source_columns: Vec<usize>,
     width: usize,
-    truncated: bool,
 }
 
 impl SanitizedLine {
@@ -297,7 +305,7 @@ fn sanitize_line(source: &str) -> SanitizedLine {
     let mut output = String::new();
     let mut source_columns = vec![0; characters.len().saturating_add(1)];
     let mut source_width = 0usize;
-    let mut output_width = 0usize;
+    let mut width = 0usize;
     let mut accepting_output = true;
     let mut index = 0;
     while let Some(character) = characters.get(index).copied() {
@@ -335,7 +343,7 @@ fn sanitize_line(source: &str) -> SanitizedLine {
         source_width = source_width.saturating_add(token.len());
         if accepting_output && source_width <= FRAME_MAX_COLUMNS {
             output.push_str(&token);
-            output_width = source_width;
+            width = source_width;
         } else {
             accepting_output = false;
         }
@@ -345,8 +353,7 @@ fn sanitize_line(source: &str) -> SanitizedLine {
     SanitizedLine {
         text: output,
         source_columns,
-        width: output_width,
-        truncated: !accepting_output,
+        width,
     }
 }
 

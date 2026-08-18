@@ -296,6 +296,73 @@ fn a_window_never_leaves_the_file_it_frames() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The caret stays inside the text the frame shows. A span pointing past what
+/// the sanitizer had room for stops where the text stops rather than at the
+/// frame's own edge, where it would hang in empty columns.
+#[test]
+fn a_marker_never_points_past_the_text_the_frame_shows() {
+    let root = temporary_root("marker-bound");
+    fs::create_dir_all(root.join("src")).unwrap();
+    // The emoji sanitizes to nine columns and would overflow, so the rendered
+    // line stops five columns short of the frame's width.
+    let source = format!("{}\u{1F469}{}", "a".repeat(155), "b".repeat(40));
+    fs::write(root.join("src/wide.rs"), format!("{source}\n")).unwrap();
+
+    let frame = code_frame(&root, &at("src/wide.rs", 1, 156, 190)).unwrap();
+    let reported = primary(&frame);
+    let marker = reported.marker.unwrap();
+    assert_eq!(reported.text.len(), 155);
+    assert!(
+        marker.column_start <= reported.text.len() + 1,
+        "the caret starts at {} for {} columns of text",
+        marker.column_start,
+        reported.text.len()
+    );
+    assert!(
+        marker.column_end <= reported.text.len() + 2,
+        "the caret ends at {} for {} columns of text",
+        marker.column_end,
+        reported.text.len()
+    );
+    assert!(marker.column_end > marker.column_start);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A span that ends on a later line has no end column on the line the frame
+/// shows. It marks to the end of what is shown rather than borrowing a column
+/// from a line the reader cannot see.
+#[test]
+fn a_span_ending_on_a_later_line_marks_to_the_end_of_the_line_shown() {
+    let root = temporary_root("multi-line-span");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/wide_span.rs"),
+        "use std::fmt;\nfn wide_span() {\n    body();\n}\n",
+    )
+    .unwrap();
+    let location = GroupLocation {
+        path: "src/wide_span.rs".to_owned(),
+        span: DiagnosticSpan {
+            line_start: 2,
+            column_start: 4,
+            line_end: 4,
+            column_end: 2,
+        },
+    };
+
+    let frame = code_frame(&root, &location).unwrap();
+    let reported = primary(&frame);
+    assert_eq!(reported.text, "fn wide_span() {");
+    assert_eq!(
+        reported.marker,
+        Some(CodeFrameMarker {
+            column_start: 4,
+            column_end: 17,
+        })
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A line the scan budget cut short is dropped rather than shown. The frame
 /// would otherwise render a fragment as if it were the source, and the reader
 /// has no way to tell one from the other.
