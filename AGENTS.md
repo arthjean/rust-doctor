@@ -95,6 +95,49 @@ that grows a concept fails the website build instead of rendering a blank.
 the command against `catalog()` rather than against a frozen count, which is
 what keeps the two true as the catalog grows.
 
+## The policy module
+
+`src/policy.rs` is the level algebra: the two override kinds, the precedence
+between a request, a configuration file and the shipped default, and the
+`PolicyPlan` every producer reads. `catalog.rs` is the 62 declarations and the
+lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
+the tests, `noise.rs` the adjudicated rate the score ranks by, and
+`coverage.rs` the candidate queue.
+
+Four rules hold it together, and each of them replaced something that had a
+cost.
+
+Validated once, compiled from that. `PolicyInput::validate` returns a
+`ValidatedPolicy`, and a plan compiles from that and from nothing else, so
+compilation is infallible. Validation used to run twice over the same catalog,
+once as the gate in `lib.rs` and once inside the compilation, which left a
+complete failure branch in `prepare_with` that no input could ever reach.
+
+One lookup, total. Four tables of the module are sorted by identifier and
+binary-searched, and `by_id` is the one way through them. The four hand-written
+copies indexed the slice they had just searched, which is five of the
+`indexing_slicing` findings the tool reports on its own source, and one of them
+indexed twice on the same line.
+
+One fact, stored once. A `PlannedRule` carries the source of its level and
+answers `restamped()` from it. The boolean that used to sit beside the source
+was a second place to keep the same fact true.
+
+The catalog is not copied to be tested. `synthetic_catalog()` builds the
+shipped list plus one rule rather than restating it, the frozen oracle compares
+against `catalog()` rather than against the private `RuleDefinition` it
+projects from, and the Clippy command is asserted as a fixed head followed by
+one `-W` per active rule in catalog order. The three hand-written copies these
+replaced all drifted silently: a rule admitted to `CATALOG` and forgotten in
+the second list left every assertion passing over a catalog that no longer
+shipped, and a field added to the published shape changed
+`rules list --json` without moving the record that was supposed to freeze it.
+
+`the_policy_holds_the_size_bound_the_catalog_publishes_for` keeps every file of
+the module under the 1000 lines `oversized_unit` reports, tests included. That
+is why the tests and the validation have files of their own: the module that
+declares the rule has to pass it.
+
 ## The agent skill
 
 `skills/rust-doctor/` is the skill an agent loads to drive the tool: `SKILL.md`
@@ -391,7 +434,7 @@ the pass has to pass its own rule.
   it.
 - **The score ranks by the rate the corpus adjudicated**
   (`the_noise_the_score_ranks_by_matches_the_adjudicated_rate`). `CORPUS_NOISE`
-  in `src/policy/catalog.rs` mirrors the measured rates of `tests/corpus.json`,
+  in `src/policy/noise.rs` mirrors the measured rates of `tests/corpus.json`,
   because the report ranks what to fix first by what repairing each rule is
   expected to be worth: its cost to the score discounted by its measured noise.
   Re-adjudicating a rule means moving both. The rate ranks, it never penalizes:
@@ -490,7 +533,8 @@ matching its own contract. `tests/rule_admission.rs` refuses a catalog and an
 index that disagree in either direction, and refuses a pointer that no longer
 resolves.
 
-The category bounds the tier through `TIER_WINDOWS` in `src/policy/catalog.rs`:
+The category bounds the tier through `TIER_WINDOWS` in
+`src/policy/catalog/validate.rs`:
 security is `P0` to `P1`, correctness and dependencies `P1` to `P2`, reliability
 and performance `P2` to `P3`, maintainability `P3`. `validate_catalog` refuses
 anything outside its window, so widening one is a deliberate edit rather than a
