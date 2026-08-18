@@ -107,6 +107,13 @@ fn read_code_frame(
     if canonical_source == canonical_root || !canonical_source.starts_with(&canonical_root) {
         return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
+    // Opening a path that is not a regular file is not merely useless: opening
+    // a named pipe blocks in the call itself, before any check on the handle
+    // could reject it. The check below the open is the one that decides; this
+    // one only keeps a tree carrying a pipe from stopping the report.
+    if !fs::symlink_metadata(&canonical_source).is_ok_and(|metadata| metadata.is_file()) {
+        return Err(fail(CodeFrameUnavailableReason::Unavailable));
+    }
 
     // Canonicalization alone has a replacement race. Open the checked path, then
     // verify that the live path still resolves inside the workspace and

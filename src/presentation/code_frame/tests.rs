@@ -151,6 +151,22 @@ fn hostile_paths_binary_and_invalid_utf8_never_render_source() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A path the workspace exposes as something other than a regular file is
+/// refused before it is opened. Opening a named pipe blocks in the call itself,
+/// so the check on the handle below the open could never be reached.
+#[test]
+fn a_path_that_is_not_a_regular_file_is_refused() {
+    let root = temporary_root("not-a-file");
+    fs::create_dir_all(root.join("unit.rs")).unwrap();
+    assert_eq!(
+        code_frame(&root, &at("unit.rs", 1, 1, 2))
+            .unwrap_err()
+            .reason,
+        CodeFrameUnavailableReason::Unavailable
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn symlink_escape_and_replacement_between_validation_and_open_are_rejected() {
