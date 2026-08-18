@@ -237,6 +237,7 @@ fn a_line_past_any_byte_prefix_is_still_framed() {
             column_end: 17,
         })
     );
+    assert_eq!(frame.gutter_width(), 4);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -398,6 +399,29 @@ fn a_line_the_scan_budget_cut_short_is_never_shown() {
     assert_eq!(whole, vec!["one".to_owned(), "two".to_owned()]);
 
     fs::remove_dir_all(root).unwrap();
+}
+
+/// Both reports lay their gutter out from this, so a frame reaching a wider
+/// line number widens the source row and the caret row together.
+#[test]
+fn the_gutter_widens_with_the_widest_line_number_of_the_frame() {
+    let frame = |numbers: &[usize]| CodeFrame {
+        location: "src/lib.rs:1:1".to_owned(),
+        lines: numbers
+            .iter()
+            .map(|number| CodeFrameLine {
+                number: *number,
+                text: String::new(),
+                primary: false,
+                marker: None,
+            })
+            .collect(),
+    };
+
+    assert_eq!(frame(&[1, 2, 3]).gutter_width(), 1);
+    assert_eq!(frame(&[998, 999, 1000]).gutter_width(), 4);
+    assert_eq!(frame(&[12_344, 12_345]).gutter_width(), 5);
+    assert_eq!(frame(&[]).gutter_width(), 1);
 }
 
 #[test]

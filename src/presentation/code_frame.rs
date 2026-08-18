@@ -73,6 +73,22 @@ pub struct CodeFrameUnavailable {
     pub message: String,
 }
 
+impl CodeFrame {
+    /// Digits the widest line number of the frame needs.
+    ///
+    /// Both reports lay their gutter out from this rather than each guessing a
+    /// width. A guess holds until a frame carries a line number wider than it,
+    /// and then the caret row and the source row stop agreeing on where the
+    /// text begins, in one report and not the other.
+    pub fn gutter_width(&self) -> usize {
+        self.lines
+            .iter()
+            .map(|line| line.number.to_string().len())
+            .max()
+            .unwrap_or(1)
+    }
+}
+
 pub fn code_frame(
     workspace_root: &Path,
     location: &GroupLocation,

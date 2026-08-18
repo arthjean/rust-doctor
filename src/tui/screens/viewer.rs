@@ -274,12 +274,7 @@ fn code_frame_lines(workspace_root: &Path, location: &GroupLocation, width: usiz
     let Ok(frame) = code_frame(workspace_root, location) else {
         return Vec::new();
     };
-    let gutter = frame
-        .lines
-        .iter()
-        .map(|line| line.number.to_string().len())
-        .max()
-        .unwrap_or(1);
+    let gutter = frame.gutter_width();
     let mut lines = Vec::with_capacity(frame.lines.len());
     for source in &frame.lines {
         lines.push(source_line(source, gutter).truncate_end(width));

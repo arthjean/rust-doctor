@@ -20,6 +20,9 @@ const DEFAULT_WIDTH: usize = 80;
 /// narrow-terminal fallback with a second rounding of its own.
 const MIN_WIDTH: usize = 80;
 const _: () = assert!(MIN_WIDTH >= crate::score_block::MIN_BLOCK_COLUMNS);
+/// Narrowest gutter a code frame is drawn with, so a report reads the same
+/// whether its frames sit at line 7 or line 700.
+const FRAME_GUTTER_COLUMNS: usize = 4;
 const DOCS_URL: &str = "https://rust-doctor.com/docs";
 const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
 
@@ -290,11 +293,18 @@ fn render_group<W: Write>(
         match code_frame(options.workspace_root, &location) {
             Ok(frame) => {
                 line(writer, &frame.location, options, Style::Accent)?;
+                // The gutter comes from the frame rather than from a constant,
+                // so a source row and the caret row under it agree on where the
+                // text begins whatever line numbers the frame carries. The four
+                // columns are the floor the report has always drawn at, not a
+                // ceiling on what a line number may need.
+                let gutter = frame.gutter_width().max(FRAME_GUTTER_COLUMNS);
+                let indent = " ".repeat(gutter.saturating_add(3));
                 for source in frame.lines {
                     let prefix = if source.primary { ">" } else { " " };
                     frame_line(
                         writer,
-                        &format!("{prefix} {:>4} | {}", source.number, source.text),
+                        &format!("{prefix} {:>gutter$} | {}", source.number, source.text),
                         options,
                         Style::Plain,
                     )?;
@@ -303,7 +313,7 @@ fn render_group<W: Write>(
                         let carets = marker.column_end.saturating_sub(marker.column_start).max(1);
                         frame_line(
                             writer,
-                            &format!("       | {}{}", " ".repeat(spaces), "^".repeat(carets)),
+                            &format!("{indent}| {}{}", " ".repeat(spaces), "^".repeat(carets)),
                             options,
                             Style::Warning,
                         )?;
