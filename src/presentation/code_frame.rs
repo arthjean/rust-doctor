@@ -8,9 +8,12 @@ use super::GroupLocation;
 use crate::terminal_text::{skip_c1_sequence, skip_escape_sequence};
 use crate::workspace_path;
 
+#[cfg(test)]
+mod tests;
+
 const FRAME_MAX_BYTES: u64 = 8 * 1024;
-pub(super) const FRAME_MAX_LINES: usize = 5;
-pub(super) const FRAME_MAX_COLUMNS: usize = 160;
+const FRAME_MAX_LINES: usize = 5;
+const FRAME_MAX_COLUMNS: usize = 160;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CodeFrame {
@@ -55,7 +58,7 @@ pub fn code_frame(
     read_code_frame(workspace_root, location, || {})
 }
 
-pub(super) fn read_code_frame(
+fn read_code_frame(
     workspace_root: &Path,
     location: &GroupLocation,
     before_open: impl FnOnce(),
@@ -322,30 +325,4 @@ fn same_file(left: &Metadata, right: &Metadata) -> bool {
     left.len() == right.len()
         && left.modified().ok() == right.modified().ok()
         && left.permissions().readonly() == right.permissions().readonly()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn source_column_mapping_uses_full_unicode_sequence_width() {
-        let line = sanitize_line("👩‍🔬x");
-
-        assert_eq!(line.text, "\\u{1F469}\\u{200D}\\u{1F52C}x");
-        assert_eq!(line.text.len(), 27);
-        assert_eq!(line.source_column(4), 26);
-        assert_eq!(line.source_column(5), 27);
-    }
-
-    #[test]
-    fn terminal_width_is_exact_because_non_ascii_is_escaped() {
-        assert_eq!(sanitize_line("e\u{301}").text, "e\\u{301}");
-        assert_eq!(sanitize_line("א\u{5b0}").text, "\\u{5D0}\\u{5B0}");
-        assert_eq!(
-            sanitize_line("❤️1️⃣").text,
-            "\\u{2764}\\u{FE0F}1\\u{FE0F}\\u{20E3}"
-        );
-        assert_eq!(sanitize_line("a\tb").text, "a   b");
-    }
 }
