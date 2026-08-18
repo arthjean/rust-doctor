@@ -23,9 +23,17 @@ Run this at your workspace root to get an audit.
 npx rust-doctor@latest
 ```
 
-### 2. Hand off to agents
+### 2. Install for agents
 
-Once you have an audit, the report hands the findings to your coding agent, with the rules, their spans, and the scan scope already written into the prompt.
+Once you have an audit, install the skill so your coding agent fixes what it found. The skill teaches it which finding to repair first, how the score is capped, and what to look for in a file the scan already flagged.
+
+```bash
+npx rust-doctor@latest skill install
+```
+
+This writes `.claude/skills/rust-doctor/` for Claude Code, from the binary rather than the network, and never over an existing skill.
+
+For a one-off handoff instead, the report sends the findings straight to an agent, with the rules, their spans, and the scan scope already written into the prompt.
 
 ```bash
 rust-doctor          # then pick "Hand off to an agent"

@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod handoff;
+mod skill;
 mod tui;
 
 use std::env;
@@ -86,7 +87,7 @@ impl Cli {
     fn into_inspect_args(self) -> InspectArgs {
         match self.command {
             Some(CliCommand::Inspect(arguments)) => arguments,
-            Some(CliCommand::Rules(_)) | None => self.inspect,
+            Some(CliCommand::Rules(_) | CliCommand::Skill(_)) | None => self.inspect,
         }
     }
 }
@@ -100,6 +101,27 @@ enum CliCommand {
     Inspect(InspectArgs),
     #[command(about = "Print the rule catalog")]
     Rules(RulesArgs),
+    #[command(about = "Install the agent skill")]
+    Skill(SkillArgs),
+}
+
+/// The skill an agent reads to drive the tool, written into the workspace.
+///
+/// It ships inside the binary, so this reaches no network and installs the
+/// skill of the running version rather than whatever the latest branch holds.
+#[derive(Debug, Clone, Args)]
+struct SkillArgs {
+    #[command(subcommand)]
+    command: SkillCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum SkillCommand {
+    #[command(about = "Write the skill into .claude/skills/, never over an existing one")]
+    Install {
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 /// The catalog, printed rather than described.
@@ -211,7 +233,26 @@ fn main() -> ExitCode {
     if let Some(CliCommand::Rules(arguments)) = &cli.command {
         return run_rules(arguments);
     }
+    if let Some(CliCommand::Skill(arguments)) = &cli.command {
+        return run_skill(arguments);
+    }
     run_inspect(cli.into_inspect_args())
+}
+
+fn run_skill(arguments: &SkillArgs) -> ExitCode {
+    let SkillCommand::Install { path } = &arguments.command;
+    match skill::install(path) {
+        Ok(written) => {
+            for document in written {
+                println!("{}", document.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("rust-doctor: the skill was not installed, {error}.");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn run_rules(arguments: &RulesArgs) -> ExitCode {
