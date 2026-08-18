@@ -73,13 +73,13 @@ pub fn score_header(
         ))
         .with(Span::dim(format!("  ·  {project_name}")));
 
-    let Some(right_width) = score_block::right_column_width(width) else {
+    let Some(bar_width) = score_block::bar_width(width) else {
         return vec![
             summary.truncate_end(box_width),
             branding_line().truncate_end(box_width),
         ];
     };
-    let bar_width = right_width.min(score_block::BAR_MAX_WIDTH_CHARS);
+    let right_width = score_block::right_column_width(width);
 
     let filled = score_block::bar_fill(displayed, bar_width);
     let projected = displayed_projection.map_or(filled, |projection| {

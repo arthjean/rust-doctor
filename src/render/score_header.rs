@@ -4,15 +4,44 @@
 //! Transposition of React Doctor's `render-score-header.ts`: same faces, same
 //! OKLCH conversion, same animation cadences. The count is eased over
 //! [`score_block::COUNT_UP_FRAME_COUNT`] frames, then a perfect score scrolls
-//! the rainbow over 16 frames before freezing on a coloured bar and a plain
-//! face.
+//! the rainbow over [`RAINBOW_FRAME_COUNT`] frames before freezing on a
+//! colored bar and a plain face.
 //!
 //! Everything the interactive report must agree with lives in
 //! [`crate::score_block`]: the faces, the label, the fill rule, the geometry
 //! and the count-up. What stays here is what only this report does, the OKLCH
 //! rainbow and the in-place rewind.
 //!
-//! The animation only exists in a real coloured terminal outside CI. Any other
+//! Three rules hold it together.
+//!
+//! One frame builder. A frame is the four rows composed under one [`Palette`],
+//! and the palette is the only thing that separates the counting frames from
+//! the scrolling ones and from the frame the block freezes on. Three builders
+//! used to carry the same loop, two of them identical but for a bolted-in
+//! `index == 1`.
+//!
+//! One row, built from its pieces. A [`Row`] carries the segments it paints
+//! differently, so the score line never has to be formatted and split back
+//! apart on `/ 100` to find its denominator, nor the branding on `" ("` to find
+//! its URL. Recovering structure from a string the same code just built is how
+//! a cut line used to silently change which half got dimmed.
+//!
+//! A [`Row`] is deliberately not the interactive report's `Span`. The two look
+//! alike, and the tables they must agree on were moved to [`crate::score_block`]
+//! for exactly that reason, but they model different things: a span is an Ink
+//! `<Text>` node with a color, a bold and a dim flag, sanitized on
+//! construction because it carries text a scanned workspace produced. A row
+//! carries four inks, one of which is a per-character truecolor gradient no
+//! screen of the interactive report draws, and nothing but constants and one
+//! integer. Merging them would widen the abstraction past both of its users.
+//!
+//! One width, guaranteed upstream. [`crate::render::MIN_WIDTH`] is at least
+//! [`score_block::MIN_BLOCK_COLUMNS`], asserted at compile time, so the block
+//! always fits and carries no narrow-terminal branch: no optional
+//! constructor, no drawn flag threaded back to the caller, no second single
+//! line renderer with its own rounding.
+//!
+//! The animation only exists in a real colored terminal outside CI. Any other
 //! output receives the final frame directly, which keeps captured renders
 //! deterministic.
 
@@ -21,10 +50,10 @@ use std::io::Write;
 use std::thread::sleep;
 use std::time::Duration;
 
-use super::{RenderError, Style, TerminalOptions, write_styled};
-use crate::ScoreLabel;
-use crate::score_block::{self, PERFECT_SCORE};
-use crate::terminal_text::truncate;
+use super::{RenderError, TerminalOptions};
+use crate::score_block::{self, BLOCK_ROWS, PERFECT_SCORE};
+use crate::terminal_text::{display_width, truncate};
+use crate::{AuditScore, ScoreLabel};
 
 const INDENT: &str = "  ";
 const GAP: &str = "  ";
@@ -34,6 +63,8 @@ const RAINBOW_OKLCH_LIGHTNESS: f64 = 0.638;
 const RAINBOW_OKLCH_CHROMA: f64 = 0.129;
 const RAINBOW_HUE_SHIFT_PER_FRAME: f64 = 9.0;
 
+/// Frames the gradient scrolls over once a perfect score has finished counting,
+/// and the frame the bar then freezes on.
 const RAINBOW_FRAME_COUNT: u32 = 16;
 const RAINBOW_FRAME_DELAY: Duration = Duration::from_millis(50);
 
@@ -45,6 +76,32 @@ const RESET: &str = "\u{1b}[0m";
 /// score line grows from `0 / 100` to `100 / 100` during the count.
 const CLEAR_TO_END: &str = "\u{1b}[K";
 
+/// The delays of the two animation phases.
+///
+/// Only the delays are injectable: a test that shortened the frame counts
+/// instead would stop proving the rewind arithmetic, which is the one thing
+/// the animation can get wrong in a way the reader sees.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Cadence {
+    count_up: Duration,
+    rainbow: Duration,
+}
+
+impl Cadence {
+    pub(super) const DEFAULT: Self = Self {
+        count_up: score_block::COUNT_UP_FRAME_DELAY,
+        rainbow: RAINBOW_FRAME_DELAY,
+    };
+
+    /// Runs every frame with no wall clock at all, for the tests that assert
+    /// the frame sequence.
+    #[cfg(test)]
+    const INSTANT: Self = Self {
+        count_up: Duration::ZERO,
+        rainbow: Duration::ZERO,
+    };
+}
+
 const fn style_code(label: ScoreLabel, authoritative: bool) -> &'static str {
     if !authoritative {
         return "33";
@@ -53,17 +110,6 @@ const fn style_code(label: ScoreLabel, authoritative: bool) -> &'static str {
         ScoreLabel::Great => "32",
         ScoreLabel::NeedsWork => "33",
         ScoreLabel::Critical => "31",
-    }
-}
-
-const fn style_for(label: ScoreLabel, authoritative: bool) -> Style {
-    if !authoritative {
-        return Style::Warning;
-    }
-    match label {
-        ScoreLabel::Great => Style::Success,
-        ScoreLabel::NeedsWork => Style::Warning,
-        ScoreLabel::Critical => Style::Muted,
     }
 }
 
@@ -113,9 +159,14 @@ fn oklch_to_rgb(lightness: f64, chroma: f64, hue: f64) -> (u8, u8, u8) {
     )
 }
 
-/// Colours character by character in truecolor. `offset` shifts the gradient so
+/// Colors character by character in truecolor. `offset` shifts the gradient so
 /// that it seems to continue from the left edge of the line, and `frame` makes
 /// it rotate: that shift is what produces the scrolling.
+///
+/// The gradient advances one step per character, which is one step per column
+/// because every character the block draws is one column wide.
+/// `every_row_measures_as_many_columns_as_it_has_characters` is what keeps that
+/// true.
 fn rainbow(content: &str, frame: u32, offset: usize) -> String {
     let mut colored = String::with_capacity(content.len() * 20);
     for (index, character) in content.chars().enumerate() {
@@ -128,7 +179,10 @@ fn rainbow(content: &str, frame: u32, offset: usize) -> String {
             .mul_add(360.0, f64::from(frame) * RAINBOW_HUE_SHIFT_PER_FRAME)
             % 360.0;
         let (red, green, blue) = oklch_to_rgb(RAINBOW_OKLCH_LIGHTNESS, RAINBOW_OKLCH_CHROMA, hue);
-        let _ = write!(colored, "\u{1b}[38;2;{red};{green};{blue}m{character}\u{1b}[39m");
+        let _ = write!(
+            colored,
+            "\u{1b}[38;2;{red};{green};{blue}m{character}\u{1b}[39m"
+        );
     }
     colored
 }
@@ -138,195 +192,237 @@ fn bar(value: u8, width: usize) -> String {
     format!("{}{}", "█".repeat(filled), "░".repeat(width - filled))
 }
 
+/// How one piece of the right column is painted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ink {
+    /// Follows the style the score's own label carries.
+    Label,
+    /// Dimmed: the denominator and the URL, like the reference.
+    Dim,
+    /// Left as it is: the branding name.
+    Plain,
+    /// Frozen mid-gradient, which only the bar of a finished perfect score is.
+    Gradient,
+}
+
+/// One row of the right column, as the pieces it paints differently.
+#[derive(Debug, Clone)]
+struct Row(Vec<(String, Ink)>);
+
+impl Row {
+    /// A row from the pieces it is made of, left to right.
+    fn of<const N: usize>(pieces: [(String, Ink); N]) -> Self {
+        Self(pieces.into())
+    }
+
+    /// The row the closing face row sits beside, which carries nothing.
+    fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Cuts the row to `columns`, piece by piece, so a cut lands inside one
+    /// piece and leaves the pieces before it whole. Cutting the rendered line
+    /// instead is what used to make a narrow terminal lose the dimming
+    /// altogether.
+    fn truncated(self, columns: usize) -> Self {
+        let mut budget = columns;
+        let mut pieces = Vec::with_capacity(self.0.len());
+        for (text, ink) in self.0 {
+            if budget == 0 {
+                break;
+            }
+            let cut = truncate(&text, budget);
+            budget -= display_width(&cut);
+            pieces.push((cut, ink));
+        }
+        Self(pieces)
+    }
+
+    /// The row with no sequence at all, for a colorless report and as the
+    /// input the scrolling palette paints whole.
+    fn plain(&self) -> String {
+        self.0.iter().map(|(text, _)| text.as_str()).collect()
+    }
+
+    /// The row painted piece by piece. `offset` is where the row starts on the
+    /// line, which only the frozen gradient reads, to continue from the left
+    /// edge rather than restart at the piece.
+    fn painted(&self, code: &str, offset: usize) -> String {
+        let mut painted = String::new();
+        let mut column = offset;
+        for (text, ink) in &self.0 {
+            let piece = match ink {
+                Ink::Label => paint(text, code),
+                Ink::Dim => paint(text, DIM),
+                Ink::Plain => text.clone(),
+                Ink::Gradient => rainbow(text, RAINBOW_FRAME_COUNT, column),
+            };
+            painted.push_str(&piece);
+            column += display_width(text);
+        }
+        painted
+    }
+}
+
+/// Assembles one rendered row from its two already-painted columns. The gap
+/// only exists when something follows it, so the closing row leaves no trailing
+/// spaces.
+fn compose(face: &str, right: &str) -> String {
+    let separator = if right.is_empty() { "" } else { GAP };
+    format!("{INDENT}{face}{separator}{right}")
+}
+
+/// How one frame paints its columns.
+#[derive(Debug, Clone, Copy)]
+enum Palette<'a> {
+    /// The whole line scrolls the gradient, face included: what a perfect score
+    /// shows while it counts up.
+    Scrolling { frame: u32 },
+    /// The label style everywhere, with the bar frozen mid-gradient once a
+    /// perfect score has finished scrolling.
+    Label { code: &'a str, frozen_bar: bool },
+}
+
+impl Palette<'_> {
+    /// The ink the bar carries under this palette. The scrolling palette paints
+    /// the whole line itself and never reads it.
+    const fn bar_ink(self) -> Ink {
+        match self {
+            Self::Label {
+                frozen_bar: true, ..
+            } => Ink::Gradient,
+            _ => Ink::Label,
+        }
+    }
+}
+
 /// Frozen geometry and contents of the block, computed once per render so that
-/// every frame shares exactly the same layout.
+/// every frame shares exactly the same layout. Only the score line and the bar
+/// move between two frames; the faces and the branding are built once.
 struct Layout {
-    faces: [String; 4],
-    offset: usize,
+    faces: [String; BLOCK_ROWS],
+    branding: Row,
     available: usize,
     bar_width: usize,
     label_text: &'static str,
-    allow_links: bool,
 }
 
 impl Layout {
-    fn new(
-        label: ScoreLabel,
-        authoritative: bool,
-        allow_links: bool,
-        width: usize,
-    ) -> Option<Self> {
-        let available = score_block::right_column_width(width)?;
-        Some(Self {
-            faces: score_block::face_rows(label),
-            offset: score_block::FACE_OFFSET_COLUMNS,
+    /// `allow_links` follows the rule of the Share, Docs and GitHub lines: a
+    /// failed report renders no URL, so the branding line loses its own.
+    fn new(score: &AuditScore, allow_links: bool, width: usize) -> Self {
+        let available = score_block::right_column_width(width);
+        let branding = if allow_links {
+            Row::of([
+                (score_block::BRANDING_NAME.to_owned(), Ink::Plain),
+                (format!(" ({})", score_block::BRANDING_URL), Ink::Dim),
+            ])
+        } else {
+            Row::of([(score_block::BRANDING_NAME.to_owned(), Ink::Plain)])
+        };
+        Self {
+            faces: score_block::face_rows(score.label),
+            branding: branding.truncated(available),
             available,
             bar_width: available.min(score_block::BAR_MAX_WIDTH_CHARS),
-            label_text: score_block::label_text(label, authoritative),
-            allow_links,
-        })
-    }
-
-    fn raw_score(&self, value: u8) -> String {
-        truncate(
-            &format!("{value} / {PERFECT_SCORE} {}", self.label_text),
-            self.available,
-        )
-    }
-
-    fn raw_branding(&self) -> String {
-        if self.allow_links {
-            truncate(
-                &format!(
-                    "{} ({})",
-                    score_block::BRANDING_NAME,
-                    score_block::BRANDING_URL
-                ),
-                self.available,
-            )
-        } else {
-            truncate(score_block::BRANDING_NAME, self.available)
+            label_text: score_block::label_text(score.label, score.authoritative),
         }
     }
 
-    fn raw_right(&self, value: u8) -> [String; 4] {
+    /// The four rows of the right column at one value. The bar needs no cut,
+    /// its width being the available room capped, and the closing row carries
+    /// nothing at all.
+    fn rows(&self, value: u8, bar_ink: Ink) -> [Row; BLOCK_ROWS] {
         [
-            self.raw_score(value),
-            bar(value, self.bar_width),
-            self.raw_branding(),
-            String::new(),
+            Row::of([
+                (value.to_string(), Ink::Label),
+                (format!(" / {PERFECT_SCORE}"), Ink::Dim),
+                (format!(" {}", self.label_text), Ink::Label),
+            ])
+            .truncated(self.available),
+            Row::of([(bar(value, self.bar_width), bar_ink)]),
+            self.branding.clone(),
+            Row::empty(),
         ]
     }
 
-    fn compose(&self, index: usize, right: &str) -> String {
-        let separator = if right.is_empty() { "" } else { GAP };
-        format!("{INDENT}{}{separator}{right}", self.faces[index])
-    }
-
-    /// Fully rainbow frame, face included. This is the state during the
-    /// animation of a perfect score.
-    fn rainbow_frame(&self, value: u8, frame: u32) -> String {
+    /// One frame: the four rows, each terminated so the next frame can rewind
+    /// onto it.
+    fn frame(&self, value: u8, palette: Palette<'_>) -> String {
         let mut output = String::new();
-        for (index, right) in self.raw_right(value).iter().enumerate() {
-            let line = self.compose(index, right);
-            let _ = write!(output, "{}{CLEAR_TO_END}\n\r", rainbow(&line, frame, 0));
-        }
-        output
-    }
-
-    /// Final frame of a perfect score: plain face, frozen rainbow bar.
-    fn perfect_frame(&self, value: u8, code: &str, frame: u32) -> String {
-        let mut output = String::new();
-        for (index, right) in self.raw_right(value).iter().enumerate() {
-            let painted_face = paint(&self.faces[index], code);
-            let separator = if right.is_empty() { "" } else { GAP };
-            let painted_right = if index == 1 {
-                rainbow(right, frame, self.offset)
-            } else {
-                self.paint_right(index, right, code)
+        for (face, row) in self.faces.iter().zip(self.rows(value, palette.bar_ink())) {
+            let composed = match palette {
+                Palette::Scrolling { frame } => rainbow(&compose(face, &row.plain()), frame, 0),
+                Palette::Label { code, .. } => compose(
+                    &paint(face, code),
+                    &row.painted(code, score_block::FACE_OFFSET_COLUMNS),
+                ),
             };
-            let _ = write!(
-                output,
-                "{INDENT}{painted_face}{separator}{painted_right}{CLEAR_TO_END}\n\r"
-            );
+            let _ = write!(output, "{composed}{CLEAR_TO_END}\n\r");
         }
         output
     }
 
-    /// Coloured frame of an imperfect score: everything follows the label
-    /// style, except `/ 100` and the URL which stay dimmed.
-    fn styled_frame(&self, value: u8, code: &str) -> String {
-        let mut output = String::new();
-        for (index, right) in self.raw_right(value).iter().enumerate() {
-            let painted_face = paint(&self.faces[index], code);
-            let separator = if right.is_empty() { "" } else { GAP };
-            let painted_right = self.paint_right(index, right, code);
-            let _ = write!(
-                output,
-                "{INDENT}{painted_face}{separator}{painted_right}{CLEAR_TO_END}\n\r"
-            );
-        }
-        output
-    }
-
-    /// Colours a line of the right column. The score line separates the value
-    /// from the denominator, and the branding separates the name from the URL,
-    /// like the reference.
-    fn paint_right(&self, index: usize, right: &str, code: &str) -> String {
-        if right.is_empty() {
-            return String::new();
-        }
-        match index {
-            0 => {
-                let denominator = format!("/ {PERFECT_SCORE}");
-                match right.split_once(&denominator) {
-                    Some((value, label)) => format!(
-                        "{}{}{}",
-                        paint(value.trim_end(), code),
-                        paint(&format!(" {denominator}"), DIM),
-                        paint(label, code)
-                    ),
-                    None => paint(right, code),
-                }
-            }
-            // The name stays plain and the URL dims, wherever a narrow terminal
-            // cut the line.
-            2 => match right.split_once(" (") {
-                Some((name, url)) => format!("{name}{}", paint(&format!(" ({url}"), DIM)),
-                None => right.to_owned(),
+    /// The frame the block freezes on, whether it was animated or drawn at
+    /// once. Both paths take it from here so neither can freeze on a different
+    /// one.
+    fn final_frame(&self, value: u8, code: &str, is_perfect: bool) -> String {
+        self.frame(
+            value,
+            Palette::Label {
+                code,
+                frozen_bar: is_perfect,
             },
-            _ => paint(right, code),
-        }
+        )
     }
 }
 
-/// Writes the two-column block. Returns `false` when the terminal is too narrow
-/// to carry it, in which case the caller keeps the single line.
+/// Writes the two-column block.
 ///
-/// `allow_links` follows the rule of the Share, Docs and GitHub lines: a failed
-/// report renders no URL, so the branding line loses its own.
+/// It always fits: [`super::MIN_WIDTH`] is at least
+/// [`score_block::MIN_BLOCK_COLUMNS`], asserted at compile time, and every
+/// entry point of the linear report normalizes to it.
 pub(super) fn render<W: Write>(
     writer: &mut W,
-    value: u8,
-    label: ScoreLabel,
-    authoritative: bool,
+    score: &AuditScore,
     allow_links: bool,
     options: TerminalOptions<'_>,
-) -> Result<bool, RenderError> {
-    let Some(layout) = Layout::new(label, authoritative, allow_links, options.width) else {
-        return Ok(false);
-    };
-    let code = style_code(label, authoritative);
-    let is_perfect = authoritative && value == PERFECT_SCORE;
-
-    if options.animate && options.color {
-        animate(writer, &layout, value, code, is_perfect)?;
-        return Ok(true);
-    }
+    cadence: Cadence,
+) -> Result<(), RenderError> {
+    let layout = Layout::new(score, allow_links, options.width);
+    let code = style_code(score.label, score.authoritative);
+    let is_perfect = score.authoritative && score.value == PERFECT_SCORE;
 
     if !options.color {
-        let style = style_for(label, authoritative);
-        for (index, right) in layout.raw_right(value).iter().enumerate() {
-            write_styled(writer, &layout.compose(index, right), false, style)?;
-        }
-        return Ok(true);
+        return write_plain(writer, &layout, score.value);
     }
-
-    let frame = if is_perfect {
-        layout.perfect_frame(value, code, RAINBOW_FRAME_COUNT)
-    } else {
-        layout.styled_frame(value, code)
-    };
-    write_frame(writer, &frame, false)
+    if options.animate {
+        return animate(writer, &layout, score.value, code, is_perfect, cadence);
+    }
+    write_frame(
+        writer,
+        &layout.final_frame(score.value, code, is_perfect),
+        false,
+    )
 }
 
-/// A frame ends with `\n\r`; it is rewritten in place by going back up its four
-/// lines.
-fn write_frame<W: Write>(writer: &mut W, frame: &str, rewind: bool) -> Result<bool, RenderError> {
-    let cursor = if rewind { "\u{1b}[4A\r" } else { "" };
-    write!(writer, "{cursor}{frame}").map_err(RenderError::Write)?;
-    writer.flush().map_err(RenderError::Write)?;
-    Ok(true)
+/// A report with no color takes the frozen frame with no sequence at all, one
+/// row per line, so a captured render carries only what it says.
+fn write_plain<W: Write>(writer: &mut W, layout: &Layout, value: u8) -> Result<(), RenderError> {
+    for (face, row) in layout.faces.iter().zip(layout.rows(value, Ink::Label)) {
+        writeln!(writer, "{}", compose(face, &row.plain())).map_err(RenderError::Write)?;
+    }
+    Ok(())
+}
+
+/// A frame ends every row with `\n\r`; the next one is written in place by
+/// going back up the rows this one wrote.
+fn write_frame<W: Write>(writer: &mut W, frame: &str, rewind: bool) -> Result<(), RenderError> {
+    if rewind {
+        write!(writer, "\u{1b}[{BLOCK_ROWS}A\r").map_err(RenderError::Write)?;
+    }
+    write!(writer, "{frame}").map_err(RenderError::Write)?;
+    writer.flush().map_err(RenderError::Write)
 }
 
 fn animate<W: Write>(
@@ -335,17 +431,21 @@ fn animate<W: Write>(
     value: u8,
     code: &str,
     is_perfect: bool,
+    cadence: Cadence,
 ) -> Result<(), RenderError> {
     for frame in 0..=score_block::COUNT_UP_FRAME_COUNT {
         let counted = score_block::eased(0, value, frame, score_block::COUNT_UP_FRAME_COUNT);
-        let painted = if is_perfect {
-            layout.rainbow_frame(counted, frame)
+        let palette = if is_perfect {
+            Palette::Scrolling { frame }
         } else {
-            layout.styled_frame(counted, code)
+            Palette::Label {
+                code,
+                frozen_bar: false,
+            }
         };
-        write_frame(writer, &painted, frame > 0)?;
+        write_frame(writer, &layout.frame(counted, palette), frame > 0)?;
         if frame < score_block::COUNT_UP_FRAME_COUNT {
-            sleep(score_block::COUNT_UP_FRAME_DELAY);
+            sleep(cadence.count_up);
         }
     }
 
@@ -354,197 +454,15 @@ fn animate<W: Write>(
     }
 
     for frame in 0..RAINBOW_FRAME_COUNT {
-        write_frame(writer, &layout.rainbow_frame(value, frame), true)?;
-        sleep(RAINBOW_FRAME_DELAY);
+        write_frame(
+            writer,
+            &layout.frame(value, Palette::Scrolling { frame }),
+            true,
+        )?;
+        sleep(cadence.rainbow);
     }
-    write_frame(
-        writer,
-        &layout.perfect_frame(value, code, RAINBOW_FRAME_COUNT),
-        true,
-    )?;
-    Ok(())
+    write_frame(writer, &layout.final_frame(value, code, true), true)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::terminal_text::{display_width, sanitize};
-    use std::path::Path;
-
-    /// The literals this file formats with must match the columns
-    /// [`score_block`] budgets for them, since the geometry is computed there
-    /// and painted here.
-    #[test]
-    fn the_padding_this_file_writes_is_the_padding_the_geometry_counts() {
-        assert_eq!(display_width(INDENT), score_block::INDENT_COLUMNS);
-        assert_eq!(display_width(GAP), score_block::GAP_COLUMNS);
-    }
-
-    fn options(width: usize, color: bool) -> TerminalOptions<'static> {
-        TerminalOptions {
-            workspace_root: Path::new("."),
-            elapsed: Duration::from_millis(0),
-            verbose: false,
-            width,
-            color,
-            animate: false,
-        }
-    }
-
-    fn rendered(value: u8, label: ScoreLabel, width: usize, color: bool) -> String {
-        let mut output = Vec::new();
-        let drawn = render(&mut output, value, label, true, true, options(width, color)).unwrap();
-        assert!(drawn, "the block should fit at width {width}");
-        String::from_utf8(output).unwrap()
-    }
-
-    #[test]
-    fn the_block_composes_a_face_a_score_a_bar_and_branding() {
-        let output = rendered(100, ScoreLabel::Great, 100, false);
-        let lines: Vec<_> = output.lines().collect();
-        assert_eq!(lines.len(), 4);
-        assert!(lines[0].contains("┌─────┐"));
-        assert!(lines[0].contains("100 / 100 Great"));
-        assert!(lines[1].contains("◠ ◠"));
-        assert!(lines[1].contains('█'));
-        assert!(lines[2].contains("Rust Doctor (https://rust-doctor.com)"));
-        assert!(lines[3].contains("└─────┘"));
-    }
-
-    #[test]
-    fn the_face_follows_the_label() {
-        assert!(rendered(100, ScoreLabel::Great, 100, false).contains("◠ ◠"));
-        assert!(rendered(60, ScoreLabel::NeedsWork, 100, false).contains("• •"));
-        assert!(rendered(10, ScoreLabel::Critical, 100, false).contains("x x"));
-    }
-
-    #[test]
-    fn only_a_perfect_colored_score_paints_the_bar_in_truecolor() {
-        assert!(rendered(100, ScoreLabel::Great, 100, true).contains("\u{1b}[38;2;"));
-        assert!(!rendered(100, ScoreLabel::Great, 100, false).contains('\u{1b}'));
-        assert!(!rendered(99, ScoreLabel::Great, 100, true).contains("\u{1b}[38;2;"));
-    }
-
-    /// The frozen gradient must start from cyan on the left and end on orange
-    /// on the right, like the final frame of the reference. A null hue shift
-    /// would reverse the direction.
-    #[test]
-    fn the_frozen_gradient_runs_from_cyan_to_orange() {
-        let output = rendered(100, ScoreLabel::Great, 100, true);
-        let colors: Vec<(u8, u8, u8)> = output
-            .split("\u{1b}[38;2;")
-            .skip(1)
-            .filter_map(|chunk| {
-                let channels: Vec<u8> = chunk
-                    .split_once('m')?
-                    .0
-                    .split(';')
-                    .filter_map(|value| value.parse().ok())
-                    .collect();
-                match channels[..] {
-                    [red, green, blue] => Some((red, green, blue)),
-                    _ => None,
-                }
-            })
-            .collect();
-        assert!(colors.len() >= 40, "the bar should be painted per character");
-        let (first_red, _, first_blue) = colors[0];
-        let (last_red, _, last_blue) = colors[colors.len() - 1];
-        assert!(first_blue > first_red, "the gradient should start cool");
-        assert!(last_red > last_blue, "the gradient should end warm");
-    }
-
-    #[test]
-    fn a_report_that_cannot_show_links_drops_the_url() {
-        let mut output = Vec::new();
-        render(
-            &mut output,
-            100,
-            ScoreLabel::Great,
-            true,
-            false,
-            options(100, false),
-        )
-        .unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert!(!output.contains("https://"));
-        assert!(output.contains("Rust Doctor"));
-        assert_eq!(output.lines().count(), 4);
-    }
-
-    #[test]
-    fn every_line_fits_the_terminal_in_both_color_modes() {
-        for width in [40, 80, 100, 140] {
-            for color in [false, true] {
-                for (value, label) in [
-                    (100, ScoreLabel::Great),
-                    (60, ScoreLabel::NeedsWork),
-                    (10, ScoreLabel::Critical),
-                ] {
-                    let output = rendered(value, label, width, color);
-                    for line in output.lines() {
-                        let visible = sanitize(line);
-                        assert!(
-                            display_width(&visible)
-                                <= width - score_block::RIGHT_EDGE_SAFETY_COLUMNS,
-                            "width {width} exceeded by {visible:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn a_terminal_too_narrow_declines_the_block() {
-        let mut output = Vec::new();
-        let drawn = render(
-            &mut output,
-            100,
-            ScoreLabel::Great,
-            true,
-            true,
-            options(16, false),
-        )
-        .unwrap();
-        assert!(!drawn);
-        assert!(output.is_empty());
-    }
-
-    /// The fill rule and the easing are proved in [`score_block`]; what this
-    /// file owns is that the bar it paints is exactly `bar_width` cells wide.
-    #[test]
-    fn the_bar_is_always_exactly_as_wide_as_the_room_it_was_given() {
-        assert_eq!(bar(100, 10), "██████████");
-        assert_eq!(bar(0, 10), "░░░░░░░░░░");
-        for width in [10usize, 27, 50] {
-            for value in [0u8, 1, 37, 99, 100] {
-                assert_eq!(display_width(&bar(value, width)), width);
-            }
-        }
-    }
-
-    /// An animated output must rewind exactly the height of the block between
-    /// two frames, otherwise it stacks blocks instead of replacing them.
-    #[test]
-    fn an_animated_render_rewinds_exactly_one_block_per_frame() {
-        let mut output = Vec::new();
-        let mut animated = options(100, true);
-        animated.animate = true;
-        render(
-            &mut output,
-            60,
-            ScoreLabel::NeedsWork,
-            true,
-            true,
-            animated,
-        )
-        .unwrap();
-        let output = String::from_utf8(output).unwrap();
-        let rewinds = output.matches("\u{1b}[4A").count();
-        assert_eq!(rewinds as u32, score_block::COUNT_UP_FRAME_COUNT);
-        // The value and the label are painted separately, so the line is only
-        // readable once the sequences are stripped.
-        assert!(sanitize(&output).contains("60 / 100 Needs work"));
-    }
-}
+mod tests;

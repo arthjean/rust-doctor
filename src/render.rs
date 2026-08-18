@@ -13,7 +13,13 @@ use crate::{GateStatus, InspectReport, Status};
 mod score_header;
 
 const DEFAULT_WIDTH: usize = 80;
+
+/// The linear report never renders narrower than this, and every entry point
+/// normalizes to it. That is what makes the score block total: at this width
+/// the block always fits, so neither it nor this file carries a
+/// narrow-terminal fallback with a second rounding of its own.
 const MIN_WIDTH: usize = 80;
+const _: () = assert!(MIN_WIDTH >= crate::score_block::MIN_BLOCK_COLUMNS);
 const DOCS_URL: &str = "https://rust-doctor.com/docs";
 const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
 
@@ -530,11 +536,6 @@ fn render_score<W: Write>(
             Style::Warning,
         );
     };
-    let label = if score.authoritative {
-        score.label.as_str()
-    } else {
-        "Core partial"
-    };
     if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
         let blocking = capping_rule_ids(report, tier);
         line(
@@ -548,28 +549,13 @@ fn render_score<W: Write>(
             Style::Warning,
         )?;
     }
-    let drawn = score_header::render(
+    score_header::render(
         writer,
-        score.value,
-        score.label,
-        score.authoritative,
+        score,
         report.status != Status::Failed,
         options,
+        score_header::Cadence::DEFAULT,
     )?;
-    if !drawn {
-        let filled = usize::from(score.value) * 20 / 100;
-        let bar = format!("{}{}", "█".repeat(filled), "░".repeat(20 - filled));
-        line(
-            writer,
-            &format!("Rust Doctor score: {}/100 {label} [{bar}]", score.value),
-            options,
-            if score.authoritative {
-                Style::Success
-            } else {
-                Style::Warning
-            },
-        )?;
-    }
     if !score.authoritative {
         line(
             writer,

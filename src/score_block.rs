@@ -40,6 +40,18 @@ pub const RIGHT_EDGE_SAFETY_COLUMNS: usize = 1;
 pub const BAR_MIN_WIDTH_CHARS: usize = 10;
 pub const BAR_MAX_WIDTH_CHARS: usize = 50;
 
+/// Columns a box must carry for the block to be worth drawing: the face, its
+/// paddings, the guard column and the shortest bar. A caller that guarantees
+/// this width upstream needs no narrow-terminal branch at all.
+pub const MIN_BLOCK_COLUMNS: usize =
+    FACE_OFFSET_COLUMNS + RIGHT_EDGE_SAFETY_COLUMNS + BAR_MIN_WIDTH_CHARS;
+
+/// Rows the block occupies, whatever the score. Both reports rewind by this
+/// many rows between two frames, so the face, the right column and the rewind
+/// count one number rather than three: a row that grew without the rewind
+/// following it moves the cursor away from where the next frame expects it.
+pub const BLOCK_ROWS: usize = 4;
+
 /// The count-up of `use-animated-score.ts`, shared by both reports. What
 /// follows it differs (the linear report scrolls a rainbow over a perfect
 /// score, the interactive one grows the projected gain), so each owns the
@@ -56,7 +68,7 @@ pub const fn face(label: ScoreLabel) -> [&'static str; 2] {
 }
 
 /// The four rows of the face, top to bottom.
-pub fn face_rows(label: ScoreLabel) -> [String; 4] {
+pub fn face_rows(label: ScoreLabel) -> [String; BLOCK_ROWS] {
     let [eyes, mouth] = face(label);
     [
         FACE_TOP.to_owned(),
@@ -97,16 +109,21 @@ pub fn bar_fill(value: u8, bar_width: usize) -> usize {
 }
 
 /// Room the score, the bar and the branding share to the right of the face,
-/// inside a box `columns` wide. `None` when the box cannot carry the block at
-/// all.
-pub fn right_column_width(columns: usize) -> Option<usize> {
-    let available = columns.checked_sub(FACE_OFFSET_COLUMNS + RIGHT_EDGE_SAFETY_COLUMNS)?;
-    (available >= BAR_MIN_WIDTH_CHARS).then_some(available)
+/// inside a box `columns` wide.
+///
+/// Total, because "how much room is there" always has an answer: a box too
+/// narrow simply leaves none. Whether the block is worth drawing at all is
+/// [`bar_width`], and keeping the two questions apart is what lets a caller
+/// that already guarantees [`MIN_BLOCK_COLUMNS`] carry no fallback.
+pub const fn right_column_width(columns: usize) -> usize {
+    columns.saturating_sub(FACE_OFFSET_COLUMNS + RIGHT_EDGE_SAFETY_COLUMNS)
 }
 
-/// Bar width inside a box `columns` wide, `None` under the same condition.
+/// Bar width inside a box `columns` wide, `None` when the box cannot carry the
+/// shortest bar and the caller must fall back on a single line.
 pub fn bar_width(columns: usize) -> Option<usize> {
-    Some(right_column_width(columns)?.min(BAR_MAX_WIDTH_CHARS))
+    let available = right_column_width(columns);
+    (available >= BAR_MIN_WIDTH_CHARS).then(|| available.min(BAR_MAX_WIDTH_CHARS))
 }
 
 fn ease_out_cubic(progress: f64) -> f64 {
@@ -153,19 +170,32 @@ mod tests {
     }
 
     /// The block keeps exactly one column free on the right edge, and declines
-    /// a box that cannot carry the shortest bar.
+    /// a box that cannot carry the shortest bar. [`MIN_BLOCK_COLUMNS`] is the
+    /// threshold itself, so a caller can guarantee it instead of branching on
+    /// it.
     #[test]
     fn the_block_declines_a_box_too_narrow_for_its_face_and_shortest_bar() {
-        assert_eq!(bar_width(21), None);
-        assert_eq!(bar_width(22), Some(BAR_MIN_WIDTH_CHARS));
+        assert_eq!(MIN_BLOCK_COLUMNS, 22);
+        assert_eq!(bar_width(MIN_BLOCK_COLUMNS - 1), None);
+        assert_eq!(bar_width(MIN_BLOCK_COLUMNS), Some(BAR_MIN_WIDTH_CHARS));
         assert_eq!(bar_width(80), Some(BAR_MAX_WIDTH_CHARS));
-        for columns in [22usize, 40, 61, 200] {
+        for columns in [MIN_BLOCK_COLUMNS, 40, 61, 200] {
             let width = bar_width(columns).unwrap();
             assert!(
                 FACE_OFFSET_COLUMNS + width <= columns - RIGHT_EDGE_SAFETY_COLUMNS,
                 "the block overflows a box of {columns} columns"
             );
         }
+    }
+
+    /// The right column is total: a box narrower than the block leaves nothing
+    /// to its right rather than refusing to answer.
+    #[test]
+    fn a_box_narrower_than_the_block_leaves_no_right_column() {
+        assert_eq!(right_column_width(0), 0);
+        assert_eq!(right_column_width(FACE_OFFSET_COLUMNS), 0);
+        assert_eq!(right_column_width(MIN_BLOCK_COLUMNS), BAR_MIN_WIDTH_CHARS);
+        assert_eq!(right_column_width(80), 68);
     }
 
     /// The rounding a bar reads by: a workspace that scored shows at least one
