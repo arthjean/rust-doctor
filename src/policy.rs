@@ -10,6 +10,7 @@ use crate::configuration::WorkspaceConfiguration;
 mod catalog;
 #[cfg(test)]
 mod coverage;
+mod noise;
 
 pub use catalog::RuleTier;
 pub use catalog::{CatalogEntry, catalog};
@@ -24,8 +25,9 @@ pub(crate) use catalog::{
     SOURCE_DYNAMIC_SHELL, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW,
     STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
     STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_STACKED_ALLOW,
-    STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, corpus_noise, find,
+    STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, find,
 };
+pub(crate) use noise::corpus_noise;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -87,65 +89,52 @@ impl fmt::Display for BlockingLevel {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuleOverride {
-    selector: String,
-    level: RuleLevel,
-}
-
-impl RuleOverride {
-    pub fn new(selector: impl Into<String>, level: RuleLevel) -> Self {
-        Self {
-            selector: selector.into(),
-            level,
+/// The two override kinds are the same pair, a selector and a level, read from
+/// the same `KEY=LEVEL` syntax and rendered back the same way. They stay
+/// distinct types so a category selector cannot reach `with_rule_override`, and
+/// they share one body so their parsing, their rendering and their shape cannot
+/// drift apart.
+macro_rules! selector_override {
+    ($name:ident) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name {
+            selector: String,
+            level: RuleLevel,
         }
-    }
-}
 
-impl fmt::Display for RuleOverride {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}={}", self.selector, self.level)
-    }
-}
+        impl $name {
+            pub fn new(selector: impl Into<String>, level: RuleLevel) -> Self {
+                Self {
+                    selector: selector.into(),
+                    level,
+                }
+            }
 
-impl FromStr for RuleOverride {
-    type Err = &'static str;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (selector, level) = parse_override(value)?;
-        Ok(Self::new(selector, level))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CategoryOverride {
-    selector: String,
-    level: RuleLevel,
-}
-
-impl CategoryOverride {
-    pub fn new(selector: impl Into<String>, level: RuleLevel) -> Self {
-        Self {
-            selector: selector.into(),
-            level,
+            /// The pair validation reads, so the two kinds go through one loop.
+            fn parts(&self) -> (&str, RuleLevel) {
+                (&self.selector, self.level)
+            }
         }
-    }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(formatter, "{}={}", self.selector, self.level)
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = &'static str;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                let (selector, level) = parse_override(value)?;
+                Ok(Self::new(selector, level))
+            }
+        }
+    };
 }
 
-impl fmt::Display for CategoryOverride {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}={}", self.selector, self.level)
-    }
-}
-
-impl FromStr for CategoryOverride {
-    type Err = &'static str;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (selector, level) = parse_override(value)?;
-        Ok(Self::new(selector, level))
-    }
-}
+selector_override!(RuleOverride);
+selector_override!(CategoryOverride);
 
 fn parse_override(value: &str) -> Result<(&str, RuleLevel), &'static str> {
     let (selector, level) = value
@@ -201,8 +190,11 @@ impl PolicyInput {
         self.blocking.unwrap_or_default()
     }
 
-    pub(crate) fn validate(&self) -> Result<(), PolicyError> {
-        validated_overrides(self).map(|_| ())
+    /// Reads the overrides once, against the shipped catalog. What comes back
+    /// is the only thing a plan compiles from, so a plan cannot be built out of
+    /// overrides nobody validated and validation cannot run twice.
+    pub(crate) fn validate(&self) -> Result<ValidatedPolicy<'_>, PolicyError> {
+        ValidatedPolicy::of(self, &CATALOG)
     }
 }
 
@@ -224,30 +216,25 @@ pub enum BlockingLevelSource {
     Request,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PlannedRule {
     definition: &'static RuleDefinition,
     level: RuleLevel,
     source: RuleLevelSource,
-    restamp: bool,
 }
 
-/// `serde` only implements `Serialize` up to arrays of 32 elements. The plan
-/// carries as many as the catalog does, so serialization goes through the
-/// slice: same published shape, with no bound on the catalog size.
-fn serialize_planned_rules<S>(
-    rules: &[PlannedRule; CATALOG.len()],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    rules.as_slice().serialize(serializer)
+impl PlannedRule {
+    /// A level the reader chose, at the request or through a configuration
+    /// file, rather than the one the catalog ships. It is read from the source
+    /// instead of being stored beside it: a second field for the same fact is
+    /// a second field to keep true.
+    const fn restamped(&self) -> bool {
+        !matches!(self.source, RuleLevelSource::Default)
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PolicyPlan {
-    #[serde(serialize_with = "serialize_planned_rules")]
     rules: [PlannedRule; CATALOG.len()],
     blocking: BlockingLevel,
     blocking_source: BlockingLevelSource,
@@ -261,7 +248,6 @@ impl Default for PolicyPlan {
                 definition,
                 level: definition.default_level,
                 source: RuleLevelSource::Default,
-                restamp: false,
             }),
             blocking: BlockingLevel::default(),
             blocking_source: BlockingLevelSource::Default,
@@ -273,34 +259,38 @@ impl Default for PolicyPlan {
 impl PolicyPlan {
     #[cfg(test)]
     pub(crate) fn compile(input: &PolicyInput) -> Result<Self, PolicyError> {
-        Self::compile_with_configuration(input, &WorkspaceConfiguration::default())
+        Ok(Self::compile_with_configuration(
+            &input.validate()?,
+            &WorkspaceConfiguration::default(),
+        ))
     }
 
     pub(crate) fn compile_with_configuration(
-        input: &PolicyInput,
+        policy: &ValidatedPolicy<'_>,
         configuration: &WorkspaceConfiguration,
-    ) -> Result<Self, PolicyError> {
-        let rules = compile_rules(&CATALOG, input, configuration)?;
-        let (blocking, blocking_source) = if let Some(blocking) = input.blocking {
+    ) -> Self {
+        let rules = compile_rules(&CATALOG, policy, configuration);
+        let (blocking, blocking_source) = if let Some(blocking) = policy.input.blocking {
             (blocking, BlockingLevelSource::Request)
         } else if let Some(blocking) = configuration.blocking {
             (blocking, BlockingLevelSource::Config)
         } else {
             (BlockingLevel::default(), BlockingLevelSource::Default)
         };
-        Ok(Self {
+        Self {
             rules,
             blocking,
             blocking_source,
             config_file: configuration.file_name,
-        })
+        }
+    }
+
+    fn planned(&self, id: &str) -> Option<&PlannedRule> {
+        by_id(&self.rules, id, |rule| rule.definition.id)
     }
 
     pub(crate) fn level(&self, id: &str) -> Option<RuleLevel> {
-        self.rules
-            .binary_search_by_key(&id, |rule| rule.definition.id)
-            .ok()
-            .map(|index| self.rules[index].level)
+        self.planned(id).map(|rule| rule.level)
     }
 
     pub(crate) fn is_active(&self, id: &str) -> bool {
@@ -308,10 +298,9 @@ impl PolicyPlan {
     }
 
     pub(crate) fn restamp_level(&self, id: &str) -> Option<RuleLevel> {
-        self.rules
-            .binary_search_by_key(&id, |rule| rule.definition.id)
-            .ok()
-            .and_then(|index| self.rules[index].restamp.then_some(self.rules[index].level))
+        self.planned(id)
+            .filter(|rule| rule.restamped())
+            .map(|rule| rule.level)
     }
 
     pub(crate) fn active_rules(
@@ -342,8 +331,8 @@ impl PolicyPlan {
     }
 }
 
-fn active_rules_in<const N: usize>(
-    rules: &[PlannedRule; N],
+fn active_rules_in(
+    rules: &[PlannedRule],
     producer: Producer,
 ) -> impl Iterator<Item = (&'static RuleDefinition, RuleLevel)> + '_ {
     rules.iter().filter_map(move |planned| {
@@ -354,14 +343,13 @@ fn active_rules_in<const N: usize>(
 
 fn compile_rules<const N: usize>(
     catalog: &[&'static RuleDefinition; N],
-    input: &PolicyInput,
+    policy: &ValidatedPolicy<'_>,
     configuration: &WorkspaceConfiguration,
-) -> Result<[PlannedRule; N], PolicyError> {
-    let (rule_overrides, category_overrides) = validated_overrides_in(input, catalog)?;
-    Ok(catalog.map(|definition| {
-        let (level, source) = if let Some(level) = rule_overrides.get(definition.id).copied() {
+) -> [PlannedRule; N] {
+    catalog.map(|definition| {
+        let (level, source) = if let Some(level) = policy.rules.get(definition.id).copied() {
             (level, RuleLevelSource::RequestRule)
-        } else if let Some(level) = category_overrides.get(definition.category).copied() {
+        } else if let Some(level) = policy.categories.get(definition.category).copied() {
             (level, RuleLevelSource::RequestCategory)
         } else if let Some(level) = configuration.rules.get(definition.id).copied() {
             (level, RuleLevelSource::ConfigRule)
@@ -374,53 +362,75 @@ fn compile_rules<const N: usize>(
             definition,
             level,
             source,
-            restamp: source != RuleLevelSource::Default,
         }
-    }))
+    })
 }
 
-type ValidatedOverrides<'a> = (BTreeMap<&'a str, RuleLevel>, BTreeMap<&'a str, RuleLevel>);
-
-fn validated_overrides(input: &PolicyInput) -> Result<ValidatedOverrides<'_>, PolicyError> {
-    validated_overrides_in(input, &CATALOG)
-}
-
-fn validated_overrides_in<'a>(
+/// Overrides read once against a catalog: every selector is spelled the way a
+/// selector may be spelled, names something that catalog knows, and appears
+/// once. A plan compiles from this and from nothing else, so the question is
+/// asked on one side of the boundary and answered on the other.
+#[derive(Debug)]
+pub(crate) struct ValidatedPolicy<'a> {
     input: &'a PolicyInput,
-    catalog: &[&RuleDefinition],
-) -> Result<ValidatedOverrides<'a>, PolicyError> {
-    let mut rule_overrides = BTreeMap::new();
-    for rule_override in &input.rule_overrides {
-        validate_rule_selector(&rule_override.selector)?;
-        if find_in(catalog, &rule_override.selector).is_none() {
-            return Err(PolicyError::unknown_rule());
+    rules: BTreeMap<&'a str, RuleLevel>,
+    categories: BTreeMap<&'a str, RuleLevel>,
+}
+
+impl<'a> ValidatedPolicy<'a> {
+    fn of(input: &'a PolicyInput, catalog: &[&RuleDefinition]) -> Result<Self, PolicyError> {
+        Ok(Self {
+            input,
+            rules: accepted(
+                input.rule_overrides.iter().map(RuleOverride::parts),
+                validate_rule_selector,
+                |selector| find_in(catalog, selector).is_some(),
+                PolicyError::unknown_rule(),
+                PolicyError::duplicate_rule(),
+            )?,
+            categories: accepted(
+                input.category_overrides.iter().map(CategoryOverride::parts),
+                validate_category_selector,
+                |selector| CATEGORIES.binary_search(&selector).is_ok(),
+                PolicyError::unknown_category(),
+                PolicyError::duplicate_category(),
+            )?,
+        })
+    }
+}
+
+/// One override list, accepted or refused. The rule list and the category list
+/// differ by how a selector is spelled, by what knows it and by which errors
+/// they carry, and by nothing else, so they go through one loop rather than
+/// through two that have to stay parallel.
+fn accepted<'a>(
+    overrides: impl Iterator<Item = (&'a str, RuleLevel)>,
+    well_formed: fn(&str) -> Result<(), PolicyError>,
+    known: impl Fn(&str) -> bool,
+    unknown: PolicyError,
+    duplicate: PolicyError,
+) -> Result<BTreeMap<&'a str, RuleLevel>, PolicyError> {
+    let mut accepted = BTreeMap::new();
+    for (selector, level) in overrides {
+        well_formed(selector)?;
+        if !known(selector) {
+            return Err(unknown);
         }
-        if rule_overrides
-            .insert(rule_override.selector.as_str(), rule_override.level)
-            .is_some()
-        {
-            return Err(PolicyError::duplicate_rule());
+        if accepted.insert(selector, level).is_some() {
+            return Err(duplicate);
         }
     }
+    Ok(accepted)
+}
 
-    let mut category_overrides = BTreeMap::new();
-    for category_override in &input.category_overrides {
-        validate_category_selector(&category_override.selector)?;
-        if CATEGORIES
-            .binary_search(&category_override.selector.as_str())
-            .is_err()
-        {
-            return Err(PolicyError::unknown_category());
-        }
-        if category_overrides
-            .insert(category_override.selector.as_str(), category_override.level)
-            .is_some()
-        {
-            return Err(PolicyError::duplicate_category());
-        }
-    }
-
-    Ok((rule_overrides, category_overrides))
+/// One entry of a table sorted by identifier.
+///
+/// Four tables of this module are sorted and searched that way, and reaching
+/// the answer through `get` rather than through an index keeps the lookup total
+/// on a table whose sorting only a test holds.
+fn by_id<'a, T>(sorted: &'a [T], id: &str, key: impl Fn(&T) -> &str) -> Option<&'a T> {
+    let found = sorted.binary_search_by_key(&id, |entry| key(entry)).ok()?;
+    sorted.get(found)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -609,8 +619,8 @@ mod tests {
                 "rust_doctor::source::dynamic_shell_command",
                 RuleLevel::Warn,
             );
-        let plan = PolicyPlan::compile_with_configuration(&request, &configuration)
-            .expect("layered policy should compile");
+        let request = request.validate().expect("layered policy should validate");
+        let plan = PolicyPlan::compile_with_configuration(&request, &configuration);
         let rules: BTreeMap<_, _> = plan
             .effective_rules()
             .map(|(definition, level, source)| (definition.id, (level, source)))
@@ -641,8 +651,10 @@ mod tests {
         );
 
         let explicit = PolicyInput::default().with_blocking(BlockingLevel::None);
-        let explicit = PolicyPlan::compile_with_configuration(&explicit, &configuration)
-            .expect("request blocking should compile");
+        let explicit = explicit
+            .validate()
+            .expect("request blocking should validate");
+        let explicit = PolicyPlan::compile_with_configuration(&explicit, &configuration);
         assert_eq!(explicit.blocking(), BlockingLevel::None);
         assert_eq!(explicit.blocking_source(), BlockingLevelSource::Request);
     }
@@ -698,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn twenty_override_orders_serialize_to_the_same_plan() {
+    fn twenty_override_orders_compile_to_the_same_plan() {
         #[derive(Clone, Copy)]
         enum Override {
             Rule(&'static str, RuleLevel),
@@ -727,10 +739,9 @@ mod tests {
                 };
             }
             let plan = PolicyPlan::compile(&input).expect("permuted policy should compile");
-            if let Some(expected) = &expected_plan {
-                assert_eq!(&plan, expected);
-            } else {
-                expected_plan = Some(plan);
+            match &expected_plan {
+                Some(expected) => assert_eq!(&plan, expected),
+                None => expected_plan = Some(plan),
             }
 
             let pivot = (0..order.len() - 1)

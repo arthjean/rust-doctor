@@ -418,7 +418,9 @@ correctness = "off"
         let mut request_order = [0, 1, 2, 3];
         let mut config_orders = BTreeSet::new();
         let mut request_orders = BTreeSet::new();
-        let mut outputs = BTreeSet::new();
+        // The plan is compared as a plan. Comparing a serialization of it would
+        // ask the private type to carry a published shape for one assertion.
+        let mut expected_plan = None;
 
         for _ in 0..20 {
             assert!(config_orders.insert(config_order));
@@ -439,8 +441,12 @@ correctness = "off"
                     }
                 };
             }
-            let plan = PolicyPlan::compile_with_configuration(&request, &configuration).unwrap();
-            outputs.insert(serde_json::to_vec(&plan).unwrap());
+            let validated = request.validate().unwrap();
+            let plan = PolicyPlan::compile_with_configuration(&validated, &configuration);
+            match &expected_plan {
+                Some(expected) => assert_eq!(&plan, expected),
+                None => expected_plan = Some(plan),
+            }
 
             next_permutation(&mut config_order);
             next_permutation(&mut request_order);
@@ -448,6 +454,6 @@ correctness = "off"
 
         assert_eq!(config_orders.len(), 20);
         assert_eq!(request_orders.len(), 20);
-        assert_eq!(outputs.len(), 1);
+        assert!(expected_plan.is_some());
     }
 }

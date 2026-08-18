@@ -63,12 +63,19 @@ impl InspectionSession {
         request: InspectRequest,
         policy: &policy::PolicyInput,
     ) -> Result<Self, Box<InspectReport>> {
-        if let Err(error) = policy.validate() {
-            return Err(Box::new(report::policy_failure(
-                error,
-                policy.failure_blocking(),
-            )));
-        }
+        // The overrides are read once, before any path is discovered and any
+        // process is started. What comes back is what the plan compiles from,
+        // so the compilation below cannot fail a second time over the same
+        // answer.
+        let validated = match policy.validate() {
+            Ok(validated) => validated,
+            Err(error) => {
+                return Err(Box::new(report::policy_failure(
+                    error,
+                    policy.failure_blocking(),
+                )));
+            }
+        };
         let scope_request = request.scope().clone();
         if let Err(error) = git_scope::validate(&scope_request) {
             return Err(Box::new(report::scope_failure(
@@ -86,15 +93,7 @@ impl InspectionSession {
             }
         };
         let plan =
-            match policy::PolicyPlan::compile_with_configuration(policy, &prepared.configuration) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    return Err(Box::new(report::policy_failure(
-                        error,
-                        policy.failure_blocking(),
-                    )));
-                }
-            };
+            policy::PolicyPlan::compile_with_configuration(&validated, &prepared.configuration);
         Ok(Self {
             prepared,
             plan,
