@@ -2,11 +2,16 @@
 //! toolchain.
 //!
 //! `clippy-driver -W help` enumerates every lint the toolchain can emit, so the
-//! upstream side of this catalog is finite and countable. Three sets partition
-//! it: the rules the catalog admits, the lints `rejected.json` turns down with
-//! a reason, and the rest, which is the candidate queue. Publishing the size of
+//! upstream side of this catalog is finite and countable. Three sets cover it:
+//! the rules the catalog admits, the lints `rejected.json` turns down with a
+//! reason, and the rest, which is the candidate queue. Publishing the size of
 //! that third set turns the recall this repository never claimed into a number
 //! that only moves one way.
+//!
+//! The three counts the run prints do not add up to the universe, and they are
+//! not meant to. A lint the toolchain denies by default is never offered as a
+//! candidate, since no scan can carry it, while a rejection may still name one:
+//! those lints are decided and outside the queue at the same time.
 //!
 //! The queue is ordered by what a user already sees. A lint the toolchain warns
 //! about by default reaches the report whether or not the catalog knows it:
@@ -16,6 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -42,6 +48,15 @@ impl ToolchainLevel {
             "warn" => Some(Self::Warn),
             "deny" => Some(Self::Deny),
             _ => None,
+        }
+    }
+
+    /// The column this level was read from, written back as it was read.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Warn => "warn",
+            Self::Deny => "deny",
         }
     }
 }
@@ -102,9 +117,16 @@ fn help_table() -> String {
     String::from_utf8(help.stdout).expect("the lint table should be UTF-8")
 }
 
+/// The lint table, read once. Every test below asks the same question of the
+/// same toolchain, and each answer costs a `clippy-driver` run.
+fn universe() -> &'static Universe {
+    static UNIVERSE: OnceLock<Universe> = OnceLock::new();
+    UNIVERSE.get_or_init(read_universe)
+}
+
 /// Reads both tables in one pass. A lint line carries a level in its second
 /// field, a group line carries its first member there, so the two never mix.
-fn universe() -> Universe {
+fn read_universe() -> Universe {
     let help = help_table();
     let mut levels = BTreeMap::new();
     let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -132,8 +154,11 @@ fn universe() -> Universe {
     Universe { levels, groups }
 }
 
-fn rejections() -> Rejections {
-    serde_json::from_str(include_str!("rejected.json")).expect("rejected.json should parse")
+fn rejections() -> &'static Rejections {
+    static REJECTIONS: OnceLock<Rejections> = OnceLock::new();
+    REJECTIONS.get_or_init(|| {
+        serde_json::from_str(include_str!("rejected.json")).expect("rejected.json should parse")
+    })
 }
 
 fn admitted() -> BTreeSet<&'static str> {
@@ -154,9 +179,9 @@ fn queue(universe: &Universe, decided: &BTreeSet<String>) -> Vec<(String, Toolch
         .filter(|(id, level)| **level != ToolchainLevel::Deny && !decided.contains(*id))
         .map(|(id, level)| (id.clone(), *level))
         .collect();
-    queue.sort_by(|left, right| {
-        (left.1 != ToolchainLevel::Warn, &left.0).cmp(&(right.1 != ToolchainLevel::Warn, &right.0))
-    });
+    // The table is read from a `BTreeMap`, so the identifiers already come
+    // sorted and a stable sort on the level alone is the whole ordering.
+    queue.sort_by_key(|(_, level)| *level != ToolchainLevel::Warn);
     queue
 }
 
@@ -257,7 +282,7 @@ fn the_candidate_queue_is_published_and_coverage_never_regresses() {
         .map(|id| (*id).to_owned())
         .chain(rejections.rejected.iter().map(|entry| entry.id.clone()))
         .collect();
-    let queue = queue(&universe, &decided);
+    let queue = queue(universe, &decided);
     let warned = queue
         .iter()
         .filter(|(_, level)| *level == ToolchainLevel::Warn)
@@ -275,12 +300,7 @@ fn the_candidate_queue_is_published_and_coverage_never_regresses() {
             .get(id)
             .map(|groups| groups.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        let level = match level {
-            ToolchainLevel::Warn => "warn",
-            ToolchainLevel::Allow => "allow",
-            ToolchainLevel::Deny => "deny",
-        };
-        println!("{level}\t{id}\t{}", groups.join(","));
+        println!("{}\t{id}\t{}", level.as_str(), groups.join(","));
     }
 
     assert!(
