@@ -212,6 +212,7 @@ fn cargo_spawn_failure_is_classified_before_versions_or_scan() {
 /// The message was `Clippy exited with status exit status: 101` and nothing
 /// else, with cargo's own line, the one naming the missing component, sent to
 /// `/dev/null` by the probe itself.
+#[cfg(unix)]
 #[test]
 fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
     let error = tool_version(
@@ -241,11 +242,12 @@ fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
 
 /// A probe that says nothing still names its remedy, so the sentence closes
 /// either way.
+#[cfg(unix)]
 #[test]
 fn a_silent_preflight_failure_still_names_its_remedy() {
     let error = tool_version(
-        Path::new("/bin/false"),
-        &["clippy", "--version"],
+        Path::new("/bin/sh"),
+        &["-c", "exit 1"],
         &fixture("clean"),
         CLIPPY_PROBE,
         &CommandEnvironment::default(),
