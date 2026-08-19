@@ -89,6 +89,34 @@ function validateBinary(binaryPath) {
   }
 }
 
+// The dual license is two files at the repository root, and npm auto-includes a
+// license only from a package root and only under a name it recognizes, which
+// `LICENSE-MIT` is not. So every published package declares the pair in `files`
+// and is handed the text at staging: the six tarballs each state
+// `MIT OR Apache-2.0`, and a tarball that states terms it does not carry is a
+// license claim with nothing behind it.
+export const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
+
+export function stageLicenses(directory) {
+  for (const name of LICENSE_FILES) {
+    const source = join(repositoryRoot, name);
+    if (!existsSync(source)) fail(`${name} is missing from the repository root`);
+    copyFileSync(source, join(directory, name));
+  }
+}
+
+// The wrapper is staged rather than published from the checkout, for the reason
+// the five native packages are: what a release uploads is then exactly what the
+// packed smoke test installs, down to the license text, instead of the two
+// diverging on whichever files happen to sit next to the manifest.
+export function stageWrapper(directory) {
+  mkdirSync(directory, { recursive: true });
+  copyFileSync(join(packageRoot, "package.json"), join(directory, "package.json"));
+  cpSync(join(packageRoot, "bin"), join(directory, "bin"), { recursive: true });
+  cpSync(join(packageRoot, "lib"), join(directory, "lib"), { recursive: true });
+  stageLicenses(directory);
+}
+
 export function nativeManifest(packageName, version, key) {
   const [os, cpu] = key.split("-");
   return {
@@ -104,7 +132,7 @@ export function nativeManifest(packageName, version, key) {
     },
     os: [os],
     cpu: [cpu],
-    files: ["bin/"],
+    files: ["bin/", ...LICENSE_FILES],
     preferUnplugged: true,
   };
 }
@@ -180,10 +208,8 @@ export function packLocal({ binaryPath } = {}) {
     const wrapperRoot = join(temporary, "wrapper");
     const nativeBin = join(nativeRoot, "bin");
     mkdirSync(nativeBin, { recursive: true });
-    mkdirSync(wrapperRoot);
-    copyFileSync(join(packageRoot, "package.json"), join(wrapperRoot, "package.json"));
-    cpSync(join(packageRoot, "bin"), join(wrapperRoot, "bin"), { recursive: true });
-    cpSync(join(packageRoot, "lib"), join(wrapperRoot, "lib"), { recursive: true });
+    stageWrapper(wrapperRoot);
+    stageLicenses(nativeRoot);
     writeFileSync(
       join(nativeRoot, "package.json"),
       `${JSON.stringify(nativeManifest(packageName, version, key), null, 2)}\n`,

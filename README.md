@@ -82,4 +82,7 @@ No absolute path, no environment variable, no user data.
 
 [Issues welcome!](https://github.com/arthjean/rust-doctor/issues)
 
-MIT OR Apache-2.0
+## License
+
+MIT OR Apache-2.0, at your option. See [LICENSE-MIT](./LICENSE-MIT) and
+[LICENSE-APACHE](./LICENSE-APACHE).

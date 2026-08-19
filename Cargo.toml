@@ -3,7 +3,20 @@ name = "rust-doctor"
 version = "0.3.3"
 edition = "2024"
 rust-version = "1.95"
-publish = false
+description = "Local-first health audit for Cargo workspaces: curated Clippy lints and native detectors, scored out of 100"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/arthjean/rust-doctor"
+homepage = "https://rust-doctor.com"
+documentation = "https://docs.rs/rust-doctor"
+readme = "README.md"
+keywords = ["clippy", "lint", "code-quality", "health", "diagnostics"]
+categories = ["development-tools", "command-line-utilities"]
+# What is published is the tool, not the repository around it. The Node
+# launcher ships on npm from `npm/`, the PRDs and the agent tooling are how the
+# crate is written rather than what it does, and `.github/` is what publishes
+# rather than what is published. `skills/` stays: `src/skill.rs` embeds it with
+# `include_str!`, so a tarball without it does not compile.
+exclude = ["npm/", "tasks/", ".claude/", ".github/"]
 
 [lib]
 path = "src/lib.rs"

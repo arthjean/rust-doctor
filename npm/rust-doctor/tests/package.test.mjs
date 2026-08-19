@@ -83,11 +83,15 @@ describe("local package contract", () => {
     expect(packed.key).toBe("linux-x64");
     expect(packed.packageName).toBe("@rustdoctor/linux-x64");
     expect(archiveInventory(packed.wrapperArchive)).toEqual([
+      "package/LICENSE-APACHE",
+      "package/LICENSE-MIT",
       "package/bin/rust-doctor.js",
       "package/lib/launcher.js",
       "package/package.json",
     ]);
     expect(archiveInventory(packed.nativeArchive)).toEqual([
+      "package/LICENSE-APACHE",
+      "package/LICENSE-MIT",
       "package/bin/rust-doctor",
       "package/package.json",
     ]);
@@ -104,7 +108,7 @@ describe("local package contract", () => {
       version: packed.version,
       os: ["linux"],
       cpu: ["x64"],
-      files: ["bin/"],
+      files: ["bin/", "LICENSE-MIT", "LICENSE-APACHE"],
     });
     const embedded = statSync(join(extracted, "package/bin/rust-doctor"));
     expect(embedded.isFile()).toBeTrue();

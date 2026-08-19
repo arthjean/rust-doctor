@@ -239,6 +239,8 @@ function installPacked(temporary, packed) {
   const nativeInventory = archiveInventory(packed.nativeArchive);
   assert(
     JSON.stringify(wrapperInventory) === JSON.stringify([
+      "package/LICENSE-APACHE",
+      "package/LICENSE-MIT",
       "package/bin/rust-doctor.js",
       "package/lib/launcher.js",
       "package/package.json",
@@ -247,6 +249,8 @@ function installPacked(temporary, packed) {
   );
   assert(
     JSON.stringify(nativeInventory) === JSON.stringify([
+      "package/LICENSE-APACHE",
+      "package/LICENSE-MIT",
       "package/bin/rust-doctor",
       "package/package.json",
     ]),

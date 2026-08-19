@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { PLATFORM_PACKAGES } from "../lib/launcher.js";
-import { binaryName, stageNativePackages, wrapperVersion } from "../scripts/pack-release.mjs";
+import { LICENSE_FILES } from "../scripts/pack-local.mjs";
+import { binaryName, stageReleasePackages, wrapperVersion } from "../scripts/pack-release.mjs";
 
 const roots = [];
 
@@ -30,6 +31,15 @@ function downloadedArtifacts({ skip = [], empty = [] } = {}) {
   return root;
 }
 
+// Each of the six packages declares `MIT OR Apache-2.0`, so each has to carry
+// both texts rather than name terms a reader cannot find in the tarball.
+function licensed(directory) {
+  for (const name of LICENSE_FILES) {
+    const text = readFileSync(join(directory, name), "utf8");
+    expect(text).toInclude("Arthur Jean");
+  }
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -37,8 +47,8 @@ afterEach(() => {
 });
 
 describe("release staging", () => {
-  test("stages the five native packages the wrapper declares", () => {
-    const staged = stageNativePackages({
+  test("stages the six packages a release publishes", () => {
+    const staged = stageReleasePackages({
       artifacts: downloadedArtifacts(),
       output: join(temporary("output"), "packages"),
       expectVersion: wrapperVersion(),
@@ -59,7 +69,7 @@ describe("release staging", () => {
         version: staged.version,
         os: [os],
         cpu: [cpu],
-        files: ["bin/"],
+        files: ["bin/", ...LICENSE_FILES],
       });
       expect(manifest.name.startsWith("@rustdoctor/")).toBeTrue();
       expect(Object.hasOwn(manifest, "scripts")).toBeFalse();
@@ -70,23 +80,34 @@ describe("release staging", () => {
       expect(embedded.isFile()).toBeTrue();
       expect(embedded.mode & 0o111).not.toBe(0);
       expect(package_.binary.endsWith(binaryName(package_.key))).toBeTrue();
+      licensed(package_.directory);
     }
+
+    // The wrapper is staged like the five, so a release never publishes it from
+    // the checkout, where the license pair sits one directory up and out of
+    // reach of npm.
+    const wrapper = JSON.parse(readFileSync(join(staged.wrapper, "package.json"), "utf8"));
+    expect(wrapper.name).toBe("rust-doctor");
+    expect(wrapper.version).toBe(staged.version);
+    expect(existsSync(join(staged.wrapper, "bin/rust-doctor.js"))).toBeTrue();
+    expect(existsSync(join(staged.wrapper, "lib/launcher.js"))).toBeTrue();
+    licensed(staged.wrapper);
   });
 
   test("a missing, empty or mismatched candidate fails closed", () => {
     const output = join(temporary("output-failures"), "packages");
 
-    expect(() => stageNativePackages({
+    expect(() => stageReleasePackages({
       artifacts: downloadedArtifacts({ skip: ["darwin-arm64"] }),
       output,
     })).toThrow("artifact for darwin-arm64 is missing");
 
-    expect(() => stageNativePackages({
+    expect(() => stageReleasePackages({
       artifacts: downloadedArtifacts({ empty: ["win32-x64"] }),
       output,
     })).toThrow("artifact for win32-x64 is not a regular non-empty file");
 
-    expect(() => stageNativePackages({
+    expect(() => stageReleasePackages({
       artifacts: downloadedArtifacts(),
       output,
       expectVersion: "9.9.9",

@@ -1,12 +1,14 @@
-// Assembles the five native packages a release publishes, from the binaries
-// the build matrix uploaded as workflow artifacts.
+// Assembles the six packages a release publishes, the five native ones from the
+// binaries the build matrix uploaded as workflow artifacts, and the wrapper that
+// depends on them.
 //
 // pack-local.mjs builds one package from a binary it compiles itself, which is
 // what the local proof needs and why it refuses any platform but the host's.
 // A release has no host: it has five binaries produced on five runners, and it
 // only has to lay them out. Both scripts write the same manifest through
-// nativeManifest, so the package a release publishes and the package the smoke
-// test installs cannot drift apart.
+// nativeManifest and stage the wrapper through stageWrapper, so the package a
+// release publishes and the package the smoke test installs cannot drift
+// apart.
 
 import {
   chmodSync,
@@ -21,7 +23,12 @@ import {
 import { join, resolve } from "node:path";
 
 import { PLATFORM_PACKAGES } from "../lib/launcher.js";
-import { nativeManifest, packageRoot } from "./pack-local.mjs";
+import {
+  nativeManifest,
+  packageRoot,
+  stageLicenses,
+  stageWrapper,
+} from "./pack-local.mjs";
 
 function fail(message) {
   throw new Error(`release pack: ${message}`);
@@ -39,7 +46,7 @@ export function wrapperVersion() {
   return manifest.version;
 }
 
-export function stageNativePackages({ artifacts, output, expectVersion } = {}) {
+export function stageReleasePackages({ artifacts, output, expectVersion } = {}) {
   if (!artifacts) fail("an artifacts directory is required");
   if (!output) fail("an output directory is required");
   const version = wrapperVersion();
@@ -69,6 +76,7 @@ export function stageNativePackages({ artifacts, output, expectVersion } = {}) {
       join(directory, "package.json"),
       `${JSON.stringify(nativeManifest(packageName, version, key), null, 2)}\n`,
     );
+    stageLicenses(directory);
     const embedded = join(bin, name);
     copyFileSync(source, embedded);
     // A workflow artifact travels as a zip, and the zip the upload action
@@ -79,7 +87,10 @@ export function stageNativePackages({ artifacts, output, expectVersion } = {}) {
 
     packages.push({ key, packageName, directory, binary: embedded, size: metadata.size });
   }
-  return { version, packages };
+
+  const wrapper = join(outputRoot, "wrapper");
+  stageWrapper(wrapper);
+  return { version, packages, wrapper };
 }
 
 if (import.meta.main) {
@@ -97,10 +108,11 @@ if (import.meta.main) {
     else fail(`unknown flag ${flag}`);
   }
 
-  const staged = stageNativePackages(options);
+  const staged = stageReleasePackages(options);
   process.stdout.write(
     `${JSON.stringify({
       version: staged.version,
+      wrapper: staged.wrapper,
       packages: staged.packages.map(({ key, packageName, directory, size }) => ({
         key,
         packageName,

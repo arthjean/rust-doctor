@@ -7,14 +7,16 @@
     "type": "git",
     "url": "git+https://github.com/arthjean/rust-doctor.git"
   },
-  "homepage": "https://github.com/arthjean/rust-doctor",
+  "homepage": "https://rust-doctor.com",
   "type": "module",
   "bin": {
     "rust-doctor": "bin/rust-doctor.js"
   },
   "files": [
     "bin/",
-    "lib/"
+    "lib/",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "engines": {
     "node": "^20.19.0 || >=22.13.0"

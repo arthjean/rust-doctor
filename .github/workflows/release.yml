@@ -4,11 +4,14 @@ name: Release
 # npm/rust-doctor/lib/launcher.js and publishes them to npm, so that
 # `npx rust-doctor@latest` resolves to the binary for the machine that ran it.
 #
-# A tag publishes; anything else stops at `npm publish --dry-run`, so the
-# candidate stays validated between releases. crates.io is still not published
-# here: Cargo.toml carries `publish = false` and the registry name serves the
-# 0.2.0 written before this rewrite, which is a product decision the remaining
-# PUBLICATION HOOK marks rather than settles.
+# A tag publishes; anything else stops at a dry run, so the candidate stays
+# validated between releases. The same tag publishes both channels, npm and
+# crates.io, from one commit: the two registries drifted apart once, npm
+# restarting at 0.3.0 while crates.io stayed on the 0.2.0 written before this
+# rewrite, and a version number that means one thing on one registry and
+# another elsewhere is what a single publishing commit prevents. The GitHub
+# Release goes out from the same tag, carrying the note written for it under
+# `.github/releases/`.
 #
 # The npm names are not the ones the retired account used. `@rust-doctor/*` was
 # transferred to npm-support when that account went away and cannot be
@@ -243,7 +246,11 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Stage the five native packages
+      # All six, the wrapper included: what npm uploads is then exactly what the
+      # packed smoke test installs, and the dual license text reaches every
+      # tarball rather than staying at the repository root where npm cannot see
+      # it.
+      - name: Stage the six packages
         working-directory: npm/rust-doctor
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -283,12 +290,155 @@ jobs:
           for key in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
             publish "$GITHUB_WORKSPACE/release-packages/$key" "@rustdoctor/$key"
           done
-          publish "$GITHUB_WORKSPACE/npm/rust-doctor" rust-doctor
+          publish "$GITHUB_WORKSPACE/release-packages/wrapper" rust-doctor
+
+  crates:
+    name: Publish to crates.io
+    needs: [build, build-windows, launcher]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Trusted publishing, the same arrangement the six npm packages use: the
+      # registry authenticates this job by its OIDC identity and mints a token
+      # that lives for one run, so nothing is stored and a workflow renamed or
+      # moved to another repository stops being trusted rather than staying
+      # authorized. It has to be enabled once in the crate settings on
+      # crates.io, naming this repository and this workflow file.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: crates-io
+
+      # Cargo.toml is where the version lives; npm/rust-doctor/package.json
+      # mirrors it, and the npm job checks the mirror. Both jobs refuse a tag
+      # that names something else, so a release built from the wrong commit
+      # fails on either side rather than shipping half of itself.
+      - name: Resolve the release version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "$REF_TYPE" = "tag" ] && [ "${REF_NAME#v}" != "$version" ]; then
+            echo "tag $REF_NAME does not name version $version" >&2
+            exit 1
+          fi
+          # crates.io answers 404 for a version it does not serve, and refuses
+          # a request carrying no user agent. A version already on the registry
+          # is skipped rather than failed, so a re-run after a partial release
+          # finishes it: crates.io never lets a version be republished, and
+          # yanking does not free the number either. Anything other than the
+          # two expected answers stops the job, because a transport failure
+          # read as "not published" is how a release talks itself into an
+          # upload the registry is about to refuse.
+          status="$(curl -sSL -o /dev/null -w '%{http_code}' \
+            -H "user-agent: rust-doctor release workflow (https://github.com/arthjean/rust-doctor)" \
+            "https://crates.io/api/v1/crates/rust-doctor/$version")"
+          case "$status" in
+            200) published=true ;;
+            404) published=false ;;
+            *) echo "crates.io answered $status for version $version" >&2; exit 1 ;;
+          esac
+          {
+            echo "version=$version"
+            echo "published=$published"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+        if: github.ref_type == 'tag' && steps.version.outputs.published != 'true'
+
+      - name: Publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISHED: ${{ steps.version.outputs.published }}
+          RELEASING: ${{ github.ref_type == 'tag' }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          # The skip guards the upload and not the dry run, which is where this
+          # differs from the npm job: `npm publish --dry-run` asks the registry
+          # and goes red for a version already published, while
+          # `cargo publish --dry-run` never asks, so it stays a real check of
+          # the tarball and its verification build between releases.
+          if [ "$RELEASING" != "true" ]; then
+            cargo publish --locked --dry-run
+            exit 0
+          fi
+          if [ "$PUBLISHED" = "true" ]; then
+            echo "rust-doctor@$VERSION is already on the registry, skipping"
+            exit 0
+          fi
+          cargo publish --locked
+
+  # The GitHub Release is published from a note written before the tag, not from
+  # the commit subjects. `.github/releases/v<version>.md` is where it lives, and
+  # a tag whose note is missing fails this job rather than shipping a release
+  # body assembled out of `git log`: the note is part of the release.
+  #
+  # It runs after both registries, because a release page announcing a version
+  # npm or crates.io refused is a claim with nothing behind it. Re-running edits
+  # the existing release instead of failing, so a partial run finishes.
+  github-release:
+    name: GitHub Release
+    needs: [publish, crates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve the release version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./npm/rust-doctor/package.json').version")"
+          if [ "$REF_TYPE" = "tag" ] && [ "${REF_NAME#v}" != "$version" ]; then
+            echo "tag $REF_NAME does not name version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release note
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASING: ${{ github.ref_type == 'tag' }}
+        run: |
+          notes=".github/releases/v$VERSION.md"
+          # Checked on every run, tag or not, so a missing note is caught by the
+          # candidate build rather than by the release it was supposed to
+          # describe.
+          if [ ! -s "$notes" ]; then
+            echo "$notes is missing or empty; write the release note before tagging" >&2
+            exit 1
+          fi
+          if [ "$RELEASING" != "true" ]; then
+            echo "v$VERSION would be released from $notes"
+            exit 0
+          fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release edit "v$VERSION" --title "v$VERSION" --notes-file "$notes" --latest
+          else
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file "$notes" --latest --verify-tag
+          fi
 
   # What the run shipped, or would have shipped.
   summary:
     name: Release summary
-    needs: [build, build-windows, launcher, publish]
+    needs: [build, build-windows, launcher, publish, crates, github-release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -305,17 +455,17 @@ jobs:
               echo '## Released'
               echo
               echo 'Published to npm: the five @rustdoctor/<platform> packages, then the rust-doctor wrapper.'
+              echo
+              echo 'Published to crates.io: the `rust-doctor` crate, from this same commit.'
+              echo
+              echo 'Published to GitHub: the release note under .github/releases/.'
             else
               echo '## Release candidate'
               echo
-              echo 'Built and validated through `npm publish --dry-run`. Only a tag publishes.'
+              echo 'Built and validated through `npm publish --dry-run` and `cargo publish --dry-run`. Only a tag publishes.'
             fi
             echo
             echo '| Artifact | Size |'
             echo '|---|---|'
             find artifacts -type f -printf '| %p | %s bytes |\n' | sort
           } >> "$GITHUB_STEP_SUMMARY"
-
-      # PUBLICATION HOOK (crates.io): `cargo publish` attaches here, after
-      # `publish = false` is removed from Cargo.toml and the version moves past
-      # the 0.2.0 already on the registry.
