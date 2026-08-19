@@ -8,8 +8,8 @@ use super::*;
 use crate::terminal_text::display_width;
 use crate::{
     Audit, BlockingLevel, DeltaMatch, DeltaReport, DeltaSummary, Diagnostic, DiagnosticSource,
-    DiagnosticSpan, GateReport, GateStatus, InspectReport, ScanReport, Severity, Summary,
-    ToolchainReport,
+    DiagnosticSpan, GateReport, GateStatus, InspectReport, ReportError, ScanReport, Severity,
+    Summary, ToolchainReport,
 };
 
 /// The report passes the rule it publishes. `oversized_unit` reports a file at
@@ -256,21 +256,49 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     );
 }
 
+/// A failed scan publishes what it attempted and what failed, and nothing it
+/// did not measure.
+///
+/// The failure used to be followed by a `100 / 100` face and `No issues
+/// found.`, because a run ending in the toolchain preflight still carries an
+/// inventory of the workspace it never scanned: the score is built from that
+/// count against zero diagnostics, and zero findings score 100. The old test
+/// missed it by building the audit over zero files, which is the one input for
+/// which no score exists at all.
 #[test]
-fn failed_reports_preserve_the_closed_no_url_terminal_contract() {
+fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
     let mut failed = report();
     failed.status = Status::Failed;
     failed.complete = false;
     failed.diagnostics.clear();
-    failed.audit = Audit::build(0, Status::Failed, &failed.diagnostics);
+    failed.audit = Audit::build(12, Status::Failed, &failed.diagnostics);
     failed.summary = Summary::default();
+    failed.errors = vec![ReportError {
+        stage: "execution".to_owned(),
+        code: "clippy-unavailable".to_owned(),
+        message: "Clippy could not report a version".to_owned(),
+    }];
+    assert!(failed.audit.score.is_some(), "the input has a score to hide");
 
     let output = rendered(&failed, 80, false, false);
 
-    assert!(!output.contains("https://"));
-    assert!(!output.contains("Share:"));
-    assert!(!output.contains("Docs:"));
-    assert!(!output.contains("GitHub:"));
+    assert!(output.contains("Scope: full codebase"));
+    assert!(output.contains("Scan failed: Clippy could not report a version"));
+    for claim in [
+        "/ 100",
+        "Rust Doctor",
+        "No issues found.",
+        "Scanned",
+        "occurrences",
+        "Categories:",
+        "Gate",
+        "https://",
+        "Share:",
+        "Docs:",
+        "GitHub:",
+    ] {
+        assert!(!output.contains(claim), "a failed scan claimed {claim:?}");
+    }
 }
 
 #[test]

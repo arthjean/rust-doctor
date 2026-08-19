@@ -308,18 +308,12 @@ struct Layout {
 }
 
 impl Layout {
-    /// `allow_links` follows the rule of the Share, Docs and GitHub lines: a
-    /// failed report renders no URL, so the branding line loses its own.
-    fn new(score: &AuditScore, allow_links: bool, width: usize) -> Self {
+    fn new(score: &AuditScore, width: usize) -> Self {
         let available = score_block::right_column_width(width);
-        let branding = if allow_links {
-            Row::of([
-                (score_block::BRANDING_NAME.to_owned(), Ink::Plain),
-                (format!(" ({})", score_block::BRANDING_URL), Ink::Dim),
-            ])
-        } else {
-            Row::of([(score_block::BRANDING_NAME.to_owned(), Ink::Plain)])
-        };
+        let branding = Row::of([
+            (score_block::BRANDING_NAME.to_owned(), Ink::Plain),
+            (format!(" ({})", score_block::BRANDING_URL), Ink::Dim),
+        ]);
         Self {
             faces: score_block::face_rows(score.label),
             branding: branding.truncated(available),
@@ -385,11 +379,10 @@ impl Layout {
 pub(super) fn render<W: Write>(
     writer: &mut W,
     score: &AuditScore,
-    allow_links: bool,
     options: TerminalOptions<'_>,
     cadence: Cadence,
 ) -> Result<(), RenderError> {
-    let layout = Layout::new(score, allow_links, options.width);
+    let layout = Layout::new(score, options.width);
     let code = style_code(score.label, score.authoritative);
     let is_perfect = score.authoritative && score.value == PERFECT_SCORE;
 

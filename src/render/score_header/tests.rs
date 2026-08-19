@@ -42,12 +42,12 @@ fn options(width: usize, color: bool) -> TerminalOptions<'static> {
 }
 
 fn rendered(value: u8, label: ScoreLabel, width: usize, color: bool) -> String {
-    render_with(&score(value, label, true), true, options(width, color))
+    render_with(&score(value, label, true), options(width, color))
 }
 
-fn render_with(score: &AuditScore, allow_links: bool, options: TerminalOptions<'_>) -> String {
+fn render_with(score: &AuditScore, options: TerminalOptions<'_>) -> String {
     let mut output = Vec::new();
-    render(&mut output, score, allow_links, options, Cadence::INSTANT).unwrap();
+    render(&mut output, score, options, Cadence::INSTANT).unwrap();
     String::from_utf8(output).unwrap()
 }
 
@@ -140,18 +140,6 @@ fn truecolors(output: &str) -> Vec<(u8, u8, u8)> {
         .collect()
 }
 
-#[test]
-fn a_report_that_cannot_show_links_drops_the_url() {
-    let output = render_with(
-        &score(100, ScoreLabel::Great, true),
-        false,
-        options(100, false),
-    );
-    assert!(!output.contains("https://"));
-    assert!(output.contains("Rust Doctor"));
-    assert_eq!(output.lines().count(), BLOCK_ROWS);
-}
-
 /// A score whose core passes could not be judged names itself rather than
 /// publishing a band, and carries the warning style whatever its label would
 /// have been.
@@ -163,11 +151,11 @@ fn a_score_that_is_not_authoritative_names_itself_partial_and_drops_its_band() {
         ScoreLabel::Critical,
     ] {
         let partial = score(100, label, false);
-        let plain = render_with(&partial, true, options(100, false));
+        let plain = render_with(&partial, options(100, false));
         assert!(plain.contains("100 / 100 Core partial"), "{plain}");
         assert!(!plain.contains(label.as_str()));
 
-        let colored = render_with(&partial, true, options(100, true));
+        let colored = render_with(&partial, options(100, true));
         assert!(colored.contains("\u{1b}[33m"), "{colored:?}");
         assert!(
             !colored.contains("\u{1b}[38;2;"),
@@ -255,7 +243,7 @@ fn the_bar_is_always_exactly_as_wide_as_the_room_it_was_given() {
 fn animated(value: u8, label: ScoreLabel) -> String {
     let mut animated = options(100, true);
     animated.animate = true;
-    render_with(&score(value, label, true), true, animated)
+    render_with(&score(value, label, true), animated)
 }
 
 const REWIND: &str = "\u{1b}[4A\r";

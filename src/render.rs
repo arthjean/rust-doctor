@@ -128,6 +128,10 @@ pub fn render_terminal_with_presentation<W: Write>(
     let options = options.normalized();
     let writer = &mut writer;
 
+    if report.status == Status::Failed {
+        return render_failure(writer, report, options);
+    }
+
     // The report is its sections, in order. Nothing is composed inline here:
     // a line written straight into the entry point is a section nobody named,
     // and eight of them are what made this function the report's own worst
@@ -144,6 +148,23 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_advisories(writer, presentation, options)?;
     render_score(writer, report, options)?;
     render_links(writer, report, options)
+}
+
+/// What a failed scan may say: the scope it was attempted under, and the stage
+/// that failed.
+///
+/// It measured nothing, so none of the sections below it apply: each of them
+/// counts, tallies, ranks or scores a population no producer ever produced.
+/// `No issues found.` over a scan that never ran is the same false claim as the
+/// `100 / 100` face that used to close such a report, under the line naming the
+/// failure.
+fn render_failure<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    render_scope(writer, report, options)?;
+    render_scan_errors(writer, report, options)
 }
 
 /// What the scan covered and how long it took.
@@ -239,16 +260,14 @@ fn render_advisories<W: Write>(
     Ok(())
 }
 
-/// Where to take the report next. A failed scan gets none of them: it has no
-/// score to share and nothing the docs would explain.
+/// Where to take the report next. A failed scan reaches none of this: it is
+/// rendered by `render_failure`, having no score to share and nothing the docs
+/// would explain.
 fn render_links<W: Write>(
     writer: &mut W,
     report: &InspectReport,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    if report.status == Status::Failed {
-        return Ok(());
-    }
     if let Ok(url) = report.audit.share_url() {
         line(writer, &format!("Share: {url}"), options, Style::Accent)?;
     }
@@ -654,13 +673,7 @@ fn render_score<W: Write>(
             Style::Warning,
         )?;
     }
-    score_header::render(
-        writer,
-        score,
-        report.status != Status::Failed,
-        options,
-        score_header::Cadence::DEFAULT,
-    )?;
+    score_header::render(writer, score, options, score_header::Cadence::DEFAULT)?;
     if !score.authoritative {
         line(
             writer,

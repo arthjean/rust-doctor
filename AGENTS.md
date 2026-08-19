@@ -367,7 +367,7 @@ the terminal options, the three entry points, the eight section renderers and
 the one styled-line primitive they all write through. `src/render/score_header.rs`
 is the score block, and each of the two carries its tests in a file of its own.
 
-Four rules hold it together, and each of them replaced something that had a
+Five rules hold it together, and each of them replaced something that had a
 cost.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
@@ -406,6 +406,16 @@ differently, so the score line is never formatted and split back apart on
 cut now lands inside one piece and leaves the pieces before it whole, which is
 what the comment on that code already claimed and what the string round-trip
 could not do.
+
+A failed scan is two sections, not twelve. `render_failure` is the scope the
+scan was attempted under and the stage that failed, and nothing else, because
+every other section counts, tallies, ranks or scores a population no producer
+ever produced. All twelve used to run on a failure too: a run that dies in the
+toolchain preflight still carries an inventory of the workspace it never
+scanned, so the score was built from that count against zero diagnostics, and a
+`Scan failed` line was followed by `No issues found.` and a `100 / 100` face.
+That retired the `allow_links` dimension of the score block with it, whose one
+job was to drop the branding URL from a block that is no longer drawn.
 
 `the_report_holds_the_size_bound_it_reports_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. That is why the
