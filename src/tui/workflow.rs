@@ -156,27 +156,15 @@ fn workflow() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+use crate::test_scratch::scratch;
 
-    static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
-
-    fn temporary_root(name: &str) -> PathBuf {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target/workflow-tests")
-            .join(format!(
-                "{}-{name}-{}",
-                std::process::id(),
-                TEMPORARY.fetch_add(1, Ordering::Relaxed)
-            ));
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
+    
 
     #[test]
     fn the_entry_is_offered_only_under_git_and_only_once() {
-        let root = temporary_root("availability");
+        let root = scratch("workflow-tests", "availability");
         assert!(!can_install(&root));
 
         fs::create_dir_all(root.join(".git")).unwrap();

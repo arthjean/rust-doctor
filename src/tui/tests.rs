@@ -7,16 +7,39 @@
 //! where both of the defects this module was rewritten for were living.
 
 use super::*;
+use crate::test_scratch::scratch;
 use console::Key;
 use rust_doctor::presentation::{DiagnosticGroup, GroupDiagnostic};
 use rust_doctor::{AuditCategoryName, Severity};
 use std::fs;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The interactive report passes the rule the linear one publishes. `tui.rs`
 /// carried a 535-line `impl App` that `oversized_unit` reports an impl block
 /// at five hundred, and no test named it: the frames and the input handlers
 /// have files of their own for that reason.
+#[test]
+fn the_interactive_report_holds_the_size_bound_the_report_reports_for() {
+    for own in [
+        include_str!("../tui.rs"),
+        include_str!("canvas.rs"),
+        include_str!("frames.rs"),
+        include_str!("input.rs"),
+        include_str!("model.rs"),
+        include_str!("screens.rs"),
+        include_str!("screens/menu.rs"),
+        include_str!("screens/viewer.rs"),
+        include_str!("text.rs"),
+        include_str!("tests.rs"),
+        include_str!("workflow.rs"),
+    ] {
+        let lines = own.lines().count();
+        assert!(
+            lines < rust_doctor::OVERSIZED_UNIT_FILE_LINES,
+            "a file of the interactive report is {lines} lines long, over the {} it reports",
+            rust_doctor::OVERSIZED_UNIT_FILE_LINES
+        );
+    }
+}
 
 #[test]
 fn the_viewport_follows_the_selection_in_both_directions() {
@@ -42,7 +65,7 @@ fn an_incomplete_scan_names_the_stages_that_did_not_finish() {
 /// cursor beside the view left the menu pointing at nothing and Enter inert.
 #[test]
 fn installing_the_workflow_leaves_the_landing_pointing_at_a_real_entry() {
-    let workspace = temporary_root("landing-cursor");
+    let workspace = scratch("tui-tests", "landing-cursor");
     fs::create_dir_all(workspace.join(".git")).unwrap();
     let report = report(Status::Complete, &[]);
     let presentation = presentation(&["clippy::a", "clippy::b"]);
@@ -293,20 +316,6 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
         issue_count: rule_ids.len(),
         finding_count: rule_ids.len(),
     }
-}
-
-static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
-
-fn temporary_root(name: &str) -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/tui-tests")
-        .join(format!(
-            "{}-{name}-{}",
-            std::process::id(),
-            TEMPORARY.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&root).unwrap();
-    root
 }
 
 fn report(status: Status, stages: &[&str]) -> InspectReport {

@@ -79,27 +79,15 @@ pub fn install(workspace_root: &Path) -> Result<Vec<PathBuf>, SkillError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+use crate::test_scratch::scratch;
 
-    static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
-
-    fn temporary_root(name: &str) -> PathBuf {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target/skill-tests")
-            .join(format!(
-                "{}-{name}-{}",
-                std::process::id(),
-                TEMPORARY.fetch_add(1, Ordering::Relaxed)
-            ));
-        fs::create_dir_all(&root).unwrap_or_default();
-        root
-    }
+    
 
     #[test]
     fn the_skill_installs_once_and_never_over_an_existing_one() {
-        let root = temporary_root("install");
+        let root = scratch("skill-tests", "install");
         let written = install(&root).unwrap_or_default();
         assert_eq!(
             written,

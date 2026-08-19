@@ -6,25 +6,10 @@
 //! not. They also live here rather than beside the rest of the presentation,
 //! which is what lets the reader and its bounds stay private to this module.
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
+use crate::test_scratch::scratch;
 use crate::DiagnosticSpan;
-
-static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
-
-fn temporary_root(name: &str) -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/presentation-tests")
-        .join(format!(
-            "{}-{name}-{}",
-            std::process::id(),
-            TEMPORARY.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&root).unwrap();
-    root
-}
 
 fn at(path: &str, line: usize, column_start: usize, column_end: usize) -> GroupLocation {
     GroupLocation {
@@ -64,7 +49,7 @@ fn the_frame_holds_the_size_bound_the_report_reports_for() {
 
 #[test]
 fn frame_is_bounded_marks_primary_location_and_neutralizes_controls() {
-    let root = temporary_root("bounded");
+    let root = scratch("presentation-tests", "bounded");
     fs::create_dir_all(root.join("src")).unwrap();
     let long = "x".repeat(200);
     fs::write(
@@ -100,7 +85,7 @@ fn frame_is_bounded_marks_primary_location_and_neutralizes_controls() {
 
 #[test]
 fn frame_resolves_normalized_paths_and_maps_source_to_terminal_columns() {
-    let root = temporary_root("normalized-path");
+    let root = scratch("presentation-tests", "normalized-path");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("src/100%.rs"),
@@ -132,7 +117,7 @@ fn frame_resolves_normalized_paths_and_maps_source_to_terminal_columns() {
 
 #[test]
 fn hostile_paths_binary_and_invalid_utf8_never_render_source() {
-    let root = temporary_root("hostile");
+    let root = scratch("presentation-tests", "hostile");
     fs::write(root.join("binary.rs"), b"safe\0secret").unwrap();
     fs::write(root.join("invalid.rs"), [0xff, 0xfe]).unwrap();
     for (path, reason) in [
@@ -156,7 +141,7 @@ fn hostile_paths_binary_and_invalid_utf8_never_render_source() {
 /// so the check on the handle below the open could never be reached.
 #[test]
 fn a_path_that_is_not_a_regular_file_is_refused() {
-    let root = temporary_root("not-a-file");
+    let root = scratch("presentation-tests", "not-a-file");
     fs::create_dir_all(root.join("unit.rs")).unwrap();
     assert_eq!(
         code_frame(&root, &at("unit.rs", 1, 1, 2))
@@ -172,8 +157,8 @@ fn a_path_that_is_not_a_regular_file_is_refused() {
 fn symlink_escape_and_replacement_between_validation_and_open_are_rejected() {
     use std::os::unix::fs::symlink;
 
-    let root = temporary_root("race-root");
-    let outside = temporary_root("race-outside");
+    let root = scratch("presentation-tests", "race-root");
+    let outside = scratch("presentation-tests", "race-outside");
     fs::write(outside.join("secret.rs"), "TOP_SECRET\n").unwrap();
     symlink(outside.join("secret.rs"), root.join("escape.rs")).unwrap();
     assert_eq!(
@@ -201,7 +186,7 @@ fn symlink_escape_and_replacement_between_validation_and_open_are_rejected() {
 /// most of a file the crate's own `oversized_unit` rule reports on.
 #[test]
 fn a_line_past_any_byte_prefix_is_still_framed() {
-    let root = temporary_root("deep-line");
+    let root = scratch("presentation-tests", "deep-line");
     fs::create_dir_all(root.join("src")).unwrap();
     let mut source = String::new();
     for number in 1..=1005 {
@@ -247,7 +232,7 @@ fn a_line_past_any_byte_prefix_is_still_framed() {
 /// file every frame it had, including the ones on its first line.
 #[test]
 fn a_character_straddling_a_read_bound_leaves_a_valid_file_readable() {
-    let root = temporary_root("straddle");
+    let root = scratch("presentation-tests", "straddle");
     fs::create_dir_all(root.join("src")).unwrap();
     let mut source = String::from("    let reported = 1;\n");
     let filler = "    // padding up to the boundary a byte prefix used to cut\n";
@@ -272,7 +257,7 @@ fn a_character_straddling_a_read_bound_leaves_a_valid_file_readable() {
 /// line never turns it into a decoding failure either.
 #[test]
 fn a_line_cut_at_its_own_bound_is_still_decoded() {
-    let root = temporary_root("long-line");
+    let root = scratch("presentation-tests", "long-line");
     fs::create_dir_all(root.join("src")).unwrap();
     let mut line = "z".repeat(LINE_MAX_BYTES - 1);
     line.push('é');
@@ -287,7 +272,7 @@ fn a_line_cut_at_its_own_bound_is_still_decoded() {
 
 #[test]
 fn a_window_never_leaves_the_file_it_frames() {
-    let root = temporary_root("window-edges");
+    let root = scratch("presentation-tests", "window-edges");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/short.rs"), "one\ntwo\nthree\n").unwrap();
 
@@ -318,7 +303,7 @@ fn a_window_never_leaves_the_file_it_frames() {
 /// frame's own edge, where it would hang in empty columns.
 #[test]
 fn a_marker_never_points_past_the_text_the_frame_shows() {
-    let root = temporary_root("marker-bound");
+    let root = scratch("presentation-tests", "marker-bound");
     fs::create_dir_all(root.join("src")).unwrap();
     // The emoji sanitizes to nine columns and would overflow, so the rendered
     // line stops five columns short of the frame's width.
@@ -350,7 +335,7 @@ fn a_marker_never_points_past_the_text_the_frame_shows() {
 /// from a line the reader cannot see.
 #[test]
 fn a_span_ending_on_a_later_line_marks_to_the_end_of_the_line_shown() {
-    let root = temporary_root("multi-line-span");
+    let root = scratch("presentation-tests", "multi-line-span");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("src/wide_span.rs"),
@@ -385,7 +370,7 @@ fn a_span_ending_on_a_later_line_marks_to_the_end_of_the_line_shown() {
 /// has no way to tell one from the other.
 #[test]
 fn a_line_the_scan_budget_cut_short_is_never_shown() {
-    let root = temporary_root("scan-budget");
+    let root = scratch("presentation-tests", "scan-budget");
     fs::create_dir_all(root.join("src")).unwrap();
     let path = root.join("src/budget.rs");
     fs::write(&path, "one\ntwo\nthree\n").unwrap();

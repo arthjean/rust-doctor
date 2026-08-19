@@ -2,6 +2,9 @@
 
 mod handoff;
 mod skill;
+#[cfg(test)]
+#[path = "test_scratch.rs"]
+mod test_scratch;
 mod tui;
 
 use std::env;

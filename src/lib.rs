@@ -24,6 +24,9 @@ pub mod score_block;
 mod source_kernel;
 mod source_text;
 mod structure;
+#[cfg(test)]
+#[path = "test_scratch.rs"]
+mod test_scratch;
 pub mod terminal_text;
 mod workspace_path;
 

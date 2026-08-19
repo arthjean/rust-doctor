@@ -20,28 +20,16 @@ fn the_handoff_holds_the_size_bound_the_report_reports_for() {
     }
 }
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
+use crate::test_scratch::scratch;
 use rust_doctor::presentation::ReportPresentation;
 use rust_doctor::{
     Audit, BlockingLevel, Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus,
     InspectReport, ScanReport, Severity, Status, Summary, ToolchainReport,
 };
 
-static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
 
-fn temporary_root(name: &str) -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/handoff-tests")
-        .join(format!(
-            "{}-{name}-{}",
-            std::process::id(),
-            TEMPORARY.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&root).unwrap();
-    root
-}
 
 fn report() -> InspectReport {
     let diagnostics = vec![Diagnostic {
@@ -284,7 +272,7 @@ fn agent_order_is_closed_and_stable() {
 fn agent_launch_passes_one_argument_and_uses_the_workspace_cwd() {
     use std::os::unix::fs::PermissionsExt;
 
-    let root = temporary_root("agent-success");
+    let root = scratch("handoff-tests", "agent-success");
     let executable = root.join("codex");
     fs::write(
         &executable,
@@ -350,7 +338,7 @@ fn without_text_busy(
 fn non_zero_agent_and_clipboard_fallback_are_typed() {
     use std::os::unix::fs::PermissionsExt;
 
-    let root = temporary_root("process-failures");
+    let root = scratch("handoff-tests", "process-failures");
     let failing_agent = root.join("codex");
     fs::write(&failing_agent, "#!/bin/sh\nexit 7\n").unwrap();
     fs::set_permissions(&failing_agent, fs::Permissions::from_mode(0o700)).unwrap();
