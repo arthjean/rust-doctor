@@ -604,25 +604,48 @@ fn the_rules_the_ranking_dropped_are_published_loudest_first() {
     );
 }
 
-/// A partial scan withholds nothing, because it ranks nothing.
+/// An incomplete scan still scores and still caps, and it names neither what to fix next nor
+/// what the ranking withheld, because it ranked nothing.
+///
+/// The two inputs are the two ways of asking: a rule the corpus adjudicated wrong is the one
+/// that would be withheld, and a `P0` rule is the one that would cap.
 #[test]
-fn a_scan_that_did_not_complete_names_neither_a_projection_nor_a_withholding() {
-    let diagnostics = diagnostics_for(&[(
-        "clippy::indexing_slicing",
-        "reliability",
-        Severity::Warning,
-        60,
-    )]);
-    let audit = Audit::build(1, Status::Incomplete, &diagnostics);
-    let score = audit.score.expect("an incomplete scan still scores");
+fn an_incomplete_scan_caps_and_names_neither_a_projection_nor_a_withholding() {
+    let noisy = scored_at(
+        Status::Incomplete,
+        &[(
+            "clippy::indexing_slicing",
+            "reliability",
+            Severity::Warning,
+            60,
+        )],
+    );
+    let capped = scored_at(
+        Status::Incomplete,
+        &[(
+            "rust_doctor::source::dynamic_shell_command",
+            "security",
+            Severity::Warning,
+            1,
+        )],
+    );
+    assert_eq!(capped.value, 40);
+    assert_eq!(capped.applied_ceiling, Some(40));
 
-    assert!(!score.authoritative);
-    assert!(score.projected_rule_ids.is_empty());
-    assert!(score.withheld_rule_ids.is_empty());
+    for score in [noisy, capped] {
+        assert!(!score.authoritative);
+        assert_eq!(score.projected_after_top_three, None);
+        assert!(score.projected_rule_ids.is_empty());
+        assert!(score.withheld_rule_ids.is_empty());
+    }
 }
 
 fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
-    Audit::build(1, Status::Complete, &diagnostics_for(rules))
+    scored_at(Status::Complete, rules)
+}
+
+fn scored_at(status: Status, rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
+    Audit::build(1, status, &diagnostics_for(rules))
         .score
         .expect("a scored audit should exist")
 }
@@ -751,25 +774,6 @@ fn a_rule_penalty_is_reproducible_from_published_fields() {
         let expected = severity_penalty_quarters(severity) * occurrence_multiplier(occurrences);
         assert_eq!(aggregate.penalty_quarters(), expected, "{code}");
     }
-}
-
-/// An incomplete scan stays capped and stays non-authoritative.
-#[test]
-fn an_incomplete_scan_is_capped_and_stays_non_authoritative() {
-    let diagnostics = diagnostics_for(&[(
-        "rust_doctor::source::dynamic_shell_command",
-        "security",
-        Severity::Warning,
-        1,
-    )]);
-    let audit = Audit::build(1, Status::Incomplete, &diagnostics);
-    let score = audit.score.expect("a scored audit should exist");
-
-    assert_eq!(score.value, 40);
-    assert_eq!(score.applied_ceiling, Some(40));
-    assert!(!score.authoritative);
-    assert_eq!(score.projected_after_top_three, None);
-    assert!(score.projected_rule_ids.is_empty());
 }
 
 /// A diagnostic with no catalog category stays counted: both quantities of

@@ -397,45 +397,58 @@ impl Serialize for AuditCategory {
 }
 
 impl AuditScore {
+    /// Whether every published member still follows from the others.
+    ///
+    /// `Audit`'s `Serialize` refuses a block that fails this, so each clause is the one thing it
+    /// names rather than a term in one long conjunction: when it refuses, the caller can be told
+    /// which fact stopped holding.
     pub fn is_valid(&self) -> bool {
-        self.model == SCORE_MODEL
-            && self.value <= 100
-            && self.applied_ceiling == self.worst_tier.and_then(tier_overall_ceiling)
-            && self.value == capped(weighted_score(self.dimensions), self.applied_ceiling)
-            && self.label == score_label(self.value)
-            && self
-                .dimensions
-                .values()
-                .into_iter()
-                .all(|value| value <= 100)
-            && self
-                .projected_after_top_three
-                .is_none_or(|value| value <= 100)
-            && self
-                .projected_after_top_three
-                .is_none_or(|projected| projected >= self.value)
-            && self.projected_rule_ids.len() <= 3
-            && self
-                .projected_rule_ids
-                .iter()
-                .all(|rule_id| !rule_id.is_empty())
-            && self
-                .projected_rule_ids
-                .iter()
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.projected_rule_ids.len()
-            && if self.authoritative {
-                matches!(
-                    (
-                        self.projected_after_top_three,
-                        self.projected_rule_ids.is_empty()
-                    ),
-                    (None, true) | (Some(_), false)
-                )
-            } else {
-                self.projected_after_top_three.is_none() && self.projected_rule_ids.is_empty()
-            }
+        if self.model != SCORE_MODEL || self.value > 100 {
+            return false;
+        }
+        if self.applied_ceiling != self.worst_tier.and_then(tier_overall_ceiling) {
+            return false;
+        }
+        if self.value != capped(weighted_score(self.dimensions), self.applied_ceiling) {
+            return false;
+        }
+        if self.label != score_label(self.value) {
+            return false;
+        }
+        if self.dimensions.values().into_iter().any(|value| value > 100) {
+            return false;
+        }
+        // Repairing the top three can only raise the score, never lower it.
+        if self
+            .projected_after_top_three
+            .is_some_and(|projected| projected > 100 || projected < self.value)
+        {
+            return false;
+        }
+        if !self.projected_rules_are_named_once() {
+            return false;
+        }
+        // An authoritative score names what to fix and what fixing it would be worth, or names
+        // neither. A non-authoritative one names nothing at all.
+        if self.authoritative {
+            matches!(
+                (
+                    self.projected_after_top_three,
+                    self.projected_rule_ids.is_empty()
+                ),
+                (None, true) | (Some(_), false)
+            )
+        } else {
+            self.projected_after_top_three.is_none() && self.projected_rule_ids.is_empty()
+        }
+    }
+
+    /// At most three rules, none of them empty and none of them named twice.
+    fn projected_rules_are_named_once(&self) -> bool {
+        let distinct: BTreeSet<_> = self.projected_rule_ids.iter().collect();
+        self.projected_rule_ids.len() <= 3
+            && distinct.len() == self.projected_rule_ids.len()
+            && self.projected_rule_ids.iter().all(|rule| !rule.is_empty())
     }
 }
 
@@ -526,14 +539,14 @@ pub(crate) fn category_mapping(category: &str) -> Option<(AuditCategoryName, Sco
 /// Every diagnostic falls into exactly one bucket, including those no catalog
 /// category covers. Without that, `summary` and `audit.categories` would count
 /// different populations.
-pub(crate) fn category_bucket(category: Option<&str>) -> AuditCategoryName {
+fn category_bucket(category: Option<&str>) -> AuditCategoryName {
     category
         .and_then(category_mapping)
         .map_or(AuditCategoryName::Other, |(name, _)| name)
 }
 
 /// Cap imposed on a dimension by the worst tier it contains.
-pub(crate) const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
+const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
     match tier {
         RuleTier::P0 => Some(20),
         RuleTier::P1 => Some(50),
@@ -543,7 +556,7 @@ pub(crate) const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
 }
 
 /// Cap imposed on the overall score by the worst tier across all dimensions.
-pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
+const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
     match tier {
         RuleTier::P0 => Some(40),
         RuleTier::P1 => Some(65),
@@ -586,7 +599,7 @@ fn worse_tier(current: Option<RuleTier>, candidate: Option<RuleTier>) -> Option<
     }
 }
 
-pub(crate) const fn severity_penalty_quarters(severity: Severity) -> u64 {
+const fn severity_penalty_quarters(severity: Severity) -> u64 {
     match severity {
         Severity::Error => 6,
         Severity::Warning => 3,
@@ -595,7 +608,7 @@ pub(crate) const fn severity_penalty_quarters(severity: Severity) -> u64 {
     }
 }
 
-pub(crate) const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
+const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
     match dimension {
         ScoreDimension::Security => 4,
         ScoreDimension::Reliability => 3,
@@ -607,7 +620,7 @@ pub(crate) const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 
 impl RuleAggregate {
     /// Penalty in quarter points, scored severity times occurrence step.
-    pub(crate) fn penalty_quarters(&self) -> u64 {
+    fn penalty_quarters(&self) -> u64 {
         match self.scored_severity {
             Some(severity) => severity_penalty_quarters(severity)
                 .saturating_mul(occurrence_multiplier(self.scored_occurrences)),
@@ -676,58 +689,26 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
 
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new());
-
-    // Ranked by what repairing each rule is expected to be worth, and a rule
-    // expected to be worth nothing is left out rather than ranked last: naming
-    // it would still be telling the user to go and change it.
-    let mut projected_rules: Vec<_> = aggregation
-        .rules
-        .iter()
-        .filter(|rule| rule.is_scorable() && rule.expected_repair_value() > 0)
-        .cloned()
-        .collect();
-    projected_rules.sort_by(|left, right| {
-        right
-            .expected_repair_value()
-            .cmp(&left.expected_repair_value())
-            .then_with(|| right.contribution().cmp(&left.contribution()))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    let projected_rule_ids: Vec<_> = projected_rules
+    let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
+    let (projected, withheld) = rank_repairs(&aggregation.rules);
+    let projected_rule_ids: Vec<String> = projected
         .iter()
         .take(3)
         .map(|rule| rule.id.clone())
         .collect();
-    let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
-    let projected_after_top_three = (authoritative && !projected_rule_ids.is_empty()).then(|| {
-        let removed: BTreeSet<_> = projected_rule_ids.iter().cloned().collect();
-        ScoredState::of(&aggregation.rules, &removed).value
-    });
-    let projected_rule_ids = if authoritative {
-        projected_rule_ids
-    } else {
-        Vec::new()
-    };
 
-    // What the ranking dropped, and why it is worth saying. A rule left out for
-    // measured noise is the loudest thing in the report, so its absence from
-    // the list of what to fix has to be legible without recomputation.
-    let mut withheld: Vec<_> = aggregation
-        .rules
-        .iter()
-        .filter(|rule| rule.is_scorable() && rule.expected_repair_value() == 0)
-        .filter(|rule| rule.contribution() > 0)
-        .collect();
-    withheld.sort_by(|left, right| {
-        right
-            .contribution()
-            .cmp(&left.contribution())
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    let withheld_rule_ids = if authoritative {
-        withheld.into_iter().map(|rule| rule.id.clone()).collect()
+    // A ranking is only worth as much as the set of diagnostics it ranked, and that set is
+    // exactly what a scan that did not complete cannot vouch for. So the projection, the rules
+    // it names and the rules it withheld are published together or not at all.
+    let (projected_rule_ids, withheld_rule_ids, projected_after_top_three) = if authoritative {
+        let after = (!projected_rule_ids.is_empty()).then(|| {
+            let removed: BTreeSet<_> = projected_rule_ids.iter().cloned().collect();
+            ScoredState::of(&aggregation.rules, &removed).value
+        });
+        let withheld_rule_ids = withheld.iter().map(|rule| rule.id.clone()).collect();
+        (projected_rule_ids, withheld_rule_ids, after)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new(), None)
     };
 
     AuditScore {
@@ -742,6 +723,35 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
         projected_rule_ids,
         withheld_rule_ids,
     }
+}
+
+/// The rules that cost the score anything, split by whether repairing them is worth something,
+/// each half ordered by what it is worth to the reader.
+///
+/// The two halves are one question asked once. A rule the corpus adjudicated at no true positive
+/// is expected to be worth nothing to repair, whatever its volume, and volume is exactly what the
+/// noisiest rules have the most of: it is withheld rather than ranked last, because naming it
+/// would still be telling the reader to go and change correct code. It is published all the same,
+/// loudest first, so its absence from the projection reads as a measurement and not as a defect.
+fn rank_repairs(rules: &[RuleAggregate]) -> (Vec<&RuleAggregate>, Vec<&RuleAggregate>) {
+    let (mut projected, mut withheld): (Vec<_>, Vec<_>) = rules
+        .iter()
+        .filter(|rule| rule.is_scorable() && rule.contribution() > 0)
+        .partition(|rule| rule.expected_repair_value() > 0);
+    projected.sort_by(|left, right| {
+        right
+            .expected_repair_value()
+            .cmp(&left.expected_repair_value())
+            .then_with(|| right.contribution().cmp(&left.contribution()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    withheld.sort_by(|left, right| {
+        right
+            .contribution()
+            .cmp(&left.contribution())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    (projected, withheld)
 }
 
 /// Capped score and its cause, for a given set of rules.
@@ -893,7 +903,7 @@ fn weighted_score(dimensions: ScoreDimensions) -> u8 {
     u8::try_from((numerator.saturating_add(6) / 13).min(100)).unwrap_or(100)
 }
 
-pub(crate) const fn score_label(score: u8) -> ScoreLabel {
+const fn score_label(score: u8) -> ScoreLabel {
     if score >= 75 {
         ScoreLabel::Great
     } else if score >= 50 {
