@@ -25,6 +25,8 @@ mod source_kernel;
 mod source_text;
 mod structure;
 #[cfg(test)]
+mod test_clock;
+#[cfg(test)]
 #[path = "test_scratch.rs"]
 mod test_scratch;
 pub mod terminal_text;

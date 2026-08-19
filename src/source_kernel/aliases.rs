@@ -309,6 +309,7 @@ mod tests {
     use ra_ap_syntax::Edition;
 
     use super::*;
+    use crate::test_clock::machine_allowance;
 
     fn map(source: &str) -> (AliasMap, ra_ap_syntax::Parse<SourceFile>) {
         let parse = SourceFile::parse(source, Edition::Edition2024);
@@ -504,12 +505,16 @@ mod tests {
         let p95 = samples[18];
         // The budget applies to the shipped binary. An unoptimized test build
         // pays the CST access cost, so the bound is loosened there without
-        // ceasing to measure the same construction.
+        // ceasing to measure the same construction. A shared CI runner is
+        // slower again and declares itself through `machine_allowance`, rather
+        // than having the two constants raised for every machine: 21.5 ms on
+        // Linux and 28.9 ms on macOS against the 20 ms measured here, on
+        // 2026-08-19.
         let budget = if cfg!(debug_assertions) {
             Duration::from_millis(20)
         } else {
             Duration::from_millis(2)
-        };
+        } * machine_allowance();
         assert!(p95 < budget, "p95 was {p95:?}");
     }
 

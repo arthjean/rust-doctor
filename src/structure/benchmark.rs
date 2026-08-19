@@ -13,6 +13,10 @@ use cargo_metadata::MetadataCommand;
 
 use super::*;
 use crate::source_kernel::enumerate;
+// The machine allowance touches the two clocks below only. The counter
+// assertions beside them, which are what prove the scoring is nominated
+// rather than pairwise, hold on any machine and are never relaxed.
+use crate::test_clock::machine_allowance;
 
 const FILES: usize = 1_000;
 const FUNCTIONS_PER_FILE: usize = 10;
@@ -45,29 +49,6 @@ const MEMORY_LIMIT_BYTES: usize = 200 * 1024 * 1024;
 
 const OPERATORS: [&str; 6] = ["+", "-", "*", "|", "&", "^"];
 const LITERALS: [&str; 6] = ["1", "2.5", "\"text\"", "true", "'c'", "7u64"];
-
-/// Multiple of every clock bound this *machine* is allowed, on top of the
-/// profile allowance below.
-///
-/// The bounds here were measured on a development machine. A shared CI
-/// runner is slower and less predictable, and a benchmark that asserts a
-/// wall clock on someone else's hardware measures that hardware. Rather
-/// than raise the constants and lose the bound where it means something,
-/// the slower machine declares itself through
-/// `RUST_DOCTOR_BENCHMARK_ALLOWANCE`, the same way the corpus harness makes
-/// its own observation independent of machine load through
-/// `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS`.
-///
-/// It touches the two clocks only. The counter assertions above it, which
-/// are what prove the scoring is nominated rather than pairwise, hold on
-/// any machine and are never relaxed.
-fn machine_allowance() -> u32 {
-    std::env::var("RUST_DOCTOR_BENCHMARK_ALLOWANCE")
-        .ok()
-        .and_then(|factor| factor.parse::<u32>().ok())
-        .filter(|factor| *factor >= 1)
-        .unwrap_or(1)
-}
 
 /// Multiple of every bound this profile is allowed.
 const fn allowance() -> u32 {
