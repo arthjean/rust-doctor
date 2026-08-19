@@ -220,7 +220,11 @@ pub(crate) struct RuleAggregate {
     pub(crate) category: Option<AuditCategoryName>,
     dimension: Option<ScoreDimension>,
     tier: Option<RuleTier>,
-    occurrences: usize,
+    /// Every occurrence the report publishes for this rule, which is what the reader is shown.
+    pub(crate) occurrences: usize,
+    /// The subset of them the score charges for. The two differ by exactly the diagnostics
+    /// outside production code: counted and displayed, never penalized.
+    scored_occurrences: usize,
     /// Adjudicated false-positive rate on the pinned corpus, in basis points.
     /// It ranks what to repair first and enters no penalty: what a rule costs
     /// the score is what it reported here, whatever it costs elsewhere.
@@ -243,6 +247,7 @@ struct PendingRule {
     mapping_conflict: bool,
     tier: Option<RuleTier>,
     occurrences: usize,
+    scored_occurrences: usize,
     noise: Option<u16>,
 }
 
@@ -265,16 +270,11 @@ impl Audit {
         status: Status,
         diagnostics: &[Diagnostic],
     ) -> Self {
+        // Both quantities count everything the report publishes, FR-06 requires them to equal
+        // `summary`. What the score sets aside is decided inside `aggregate_rules`, so the two
+        // callers of it cannot disagree on the population.
         let categories = category_tallies(diagnostics);
-        // Both quantities count everything the report publishes, FR-06
-        // requires them to equal `summary`. Only the score sets aside
-        // non-production diagnostics: they stay visible and counted, they stop
-        // costing points.
-        let aggregation = aggregate_rules(
-            diagnostics
-                .iter()
-                .filter(|diagnostic| crate::report::DiagnosticContext::weighs(diagnostic)),
-        );
+        let aggregation = aggregate_rules(diagnostics.iter());
         let scan_is_complete = status == Status::Complete && inventory_is_complete;
         let score = (source_files > 0).then(|| score(&aggregation, scan_is_complete));
         Self {
@@ -610,7 +610,7 @@ impl RuleAggregate {
     pub(crate) fn penalty_quarters(&self) -> u64 {
         match self.scored_severity {
             Some(severity) => severity_penalty_quarters(severity)
-                .saturating_mul(occurrence_multiplier(self.occurrences)),
+                .saturating_mul(occurrence_multiplier(self.scored_occurrences)),
             None => 0,
         }
     }
@@ -634,7 +634,7 @@ impl RuleAggregate {
     /// and, on a rule measured at zero true positives, is advice to change
     /// correct code. An unmeasured rule keeps its full contribution: no
     /// measurement is not evidence of noise.
-    fn expected_repair_value(&self) -> u64 {
+    pub(crate) fn expected_repair_value(&self) -> u64 {
         let kept = match self.noise {
             Some(noise) => BASIS_POINTS.saturating_sub(noise as u64),
             None => BASIS_POINTS,
@@ -769,19 +769,28 @@ impl ScoredState {
     }
 }
 
+/// One aggregate per rule that fired, over every diagnostic the report publishes.
+///
+/// The score and the report body read the same aggregates. What separates them is not the
+/// population but which figures they use: a diagnostic outside production code is counted in
+/// `occurrences` and left out of `scored_occurrences`, so it stays visible and costs no points,
+/// and it never decides whether the diagnostics are authoritative. That set-aside used to live
+/// at one of the two call sites, so the contribution the body ranked by was not the one the
+/// score charged, and a rule that only ever fired in a test was ranked as if it had.
 pub(crate) fn aggregate_rules<'a>(
     diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> RuleAggregation {
     let mut diagnostics_are_authoritative = true;
     let mut rules = BTreeMap::<String, PendingRule>::new();
     for diagnostic in diagnostics {
+        let weighs = crate::report::DiagnosticContext::weighs(diagnostic);
         let Some(rule_id) = diagnostic.code.as_deref().filter(|code| !code.is_empty()) else {
-            diagnostics_are_authoritative = false;
+            diagnostics_are_authoritative &= !weighs;
             continue;
         };
         let mapping = diagnostic.category.as_deref().and_then(category_mapping);
-        let valid = diagnostic.severity != Severity::Unknown && mapping.is_some();
-        if !valid {
+        let scores = weighs && diagnostic.severity != Severity::Unknown && mapping.is_some();
+        if weighs && !scores {
             diagnostics_are_authoritative = false;
         }
         let rule = rules.entry(rule_id.to_owned()).or_insert(PendingRule {
@@ -793,13 +802,22 @@ pub(crate) fn aggregate_rules<'a>(
             mapping_conflict: false,
             tier: crate::policy::find(rule_id).map(|definition| definition.tier),
             occurrences: 0,
+            scored_occurrences: 0,
             noise: crate::policy::corpus_noise(rule_id),
         });
         rule.occurrences = rule.occurrences.saturating_add(diagnostic.occurrences);
+        // Every occurrence in production code moves the step, including one the score can put no
+        // severity on: what a rule costs grows with how often it fired, and an occurrence the
+        // catalog could not read is still an occurrence.
+        if weighs {
+            rule.scored_occurrences = rule
+                .scored_occurrences
+                .saturating_add(diagnostic.occurrences);
+        }
         if diagnostic.severity.rank() < rule.severity.rank() {
             rule.severity = diagnostic.severity;
         }
-        if valid && let Some((category, dimension)) = mapping {
+        if scores && let Some((category, dimension)) = mapping {
             rule.scored_severity =
                 Some(rule.scored_severity.map_or(diagnostic.severity, |current| {
                     if diagnostic.severity.rank() < current.rank() {
@@ -834,6 +852,7 @@ pub(crate) fn aggregate_rules<'a>(
                     .flatten(),
                 tier: rule.tier,
                 occurrences: rule.occurrences,
+                scored_occurrences: rule.scored_occurrences,
                 noise: rule.noise,
             })
             .collect(),

@@ -86,6 +86,33 @@ fn every_dimension_is_listed_once() {
     assert_eq!(distinct.len(), ScoreDimension::ALL.len());
 }
 
+/// A rule that only ever fired outside production code is counted and shown, and costs nothing.
+///
+/// The two used to be separated by which population each caller aggregated over, so the cost the
+/// report ranked by was not the cost the score charged.
+#[test]
+fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
+    let mut in_tests = diagnostic_with_category(Some("security"));
+    in_tests.code = Some("clippy::todo".to_owned());
+    in_tests.severity = Severity::Error;
+    in_tests.occurrences = 40;
+    in_tests.context = Some(crate::report::DiagnosticContext::Tests);
+
+    let aggregation = aggregate_rules([&in_tests]);
+    let rule = aggregation
+        .rules
+        .first()
+        .expect("the rule is aggregated like any other");
+    assert_eq!(rule.occurrences, 40, "it stays counted");
+    assert_eq!(rule.contribution(), 0, "and costs the score nothing");
+    assert!(aggregation.diagnostics_are_authoritative);
+
+    let audit = Audit::build(1, Status::Complete, &[in_tests]);
+    let score = audit.score.as_ref().expect("a scored workspace");
+    assert_eq!(score.value, 100);
+    assert!(score.projected_rule_ids.is_empty());
+}
+
 fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
     Diagnostic {
         context: None,

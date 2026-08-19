@@ -169,10 +169,13 @@ fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
         };
         let severity = aggregate.effective_severity;
         let category = aggregate.category;
+        // The list is ordered by the key the score's projection ranks by, and not by the raw
+        // cost it used to rank by. The two are the same question, so the report cannot both name
+        // a rule as withheld for measured noise and put it at the top of what to work down. The
+        // aggregate already holds the occurrence total, so nothing sums it a second time.
+        let repair_value = aggregate.expected_repair_value();
         let contribution = aggregate.contribution();
-        let occurrences = diagnostics.iter().fold(0usize, |total, diagnostic| {
-            total.saturating_add(diagnostic.occurrences)
-        });
+        let occurrences = aggregate.occurrences;
         let diagnostics = diagnostics
             .into_iter()
             .map(|diagnostic| GroupDiagnostic {
@@ -201,9 +204,12 @@ fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
             })
             .collect();
         ranked.push((
-            severity.rank(),
-            std::cmp::Reverse(contribution),
-            std::cmp::Reverse(occurrences),
+            (
+                severity.rank(),
+                std::cmp::Reverse(repair_value),
+                std::cmp::Reverse(contribution),
+                std::cmp::Reverse(occurrences),
+            ),
             DiagnosticGroup {
                 title: rule_title(&rule_id),
                 rule_url: format!("{RULE_BASE_URL}{}", percent_encode_path_segment(&rule_id)),
@@ -218,11 +224,9 @@ fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
     ranked.sort_by(|left, right| {
         left.0
             .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
-            .then_with(|| left.3.rule_id.cmp(&right.3.rule_id))
+            .then_with(|| left.1.rule_id.cmp(&right.1.rule_id))
     });
-    ranked.into_iter().map(|(_, _, _, group)| group).collect()
+    ranked.into_iter().map(|(_, group)| group).collect()
 }
 
 fn migration_advisories(groups: &[DiagnosticGroup]) -> Vec<MigrationAdvisory> {
@@ -399,6 +403,75 @@ mod tests {
         assert_eq!(
             presentation.groups[0].rule_url,
             "https://rust-doctor.com/rules/clippy%3A%3Asame_warning"
+        );
+    }
+
+    /// The list is ordered by what repairing a rule is expected to be worth, not by what it cost.
+    ///
+    /// `clippy::exit` is adjudicated at every finding false on the pinned corpus, so the score
+    /// withholds it from what to fix and the report says so. Ranking the body by raw cost put it
+    /// first regardless, which is the report naming a rule as withheld and then telling the
+    /// reader to start with it. The two orderings are one question, asked once.
+    #[test]
+    fn a_rule_the_corpus_measured_wrong_is_not_ranked_first() {
+        let presentation = ReportPresentation::derive(&report(vec![
+            diagnostic(
+                "clippy::exit",
+                Severity::Error,
+                "correctness",
+                Some("src/a.rs".to_owned()),
+                40,
+            ),
+            diagnostic(
+                "clippy::todo",
+                Severity::Error,
+                "correctness",
+                Some("src/b.rs".to_owned()),
+                1,
+            ),
+        ]));
+
+        assert_eq!(
+            presentation
+                .groups
+                .iter()
+                .map(|group| group.rule_id.as_str())
+                .collect::<Vec<_>>(),
+            ["clippy::todo", "clippy::exit"],
+            "the quieter rule leads even though the noisy one fired forty times"
+        );
+    }
+
+    /// A finding outside production code keeps its place in the list and its occurrence count,
+    /// and carries none of the weight that decides where the list starts.
+    #[test]
+    fn a_finding_outside_production_code_stays_listed_and_ranks_last() {
+        let mut in_tests = diagnostic(
+            "clippy::dbg_macro",
+            Severity::Error,
+            "correctness",
+            Some("src/a.rs".to_owned()),
+            40,
+        );
+        in_tests.context = Some(crate::report::DiagnosticContext::Tests);
+        let presentation = ReportPresentation::derive(&report(vec![
+            in_tests,
+            diagnostic(
+                "clippy::todo",
+                Severity::Error,
+                "correctness",
+                Some("src/b.rs".to_owned()),
+                1,
+            ),
+        ]));
+
+        assert_eq!(
+            presentation
+                .groups
+                .iter()
+                .map(|group| (group.rule_id.as_str(), group.occurrences))
+                .collect::<Vec<_>>(),
+            [("clippy::todo", 1), ("clippy::dbg_macro", 40)]
         );
     }
 
