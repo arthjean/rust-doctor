@@ -104,8 +104,18 @@ lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
 the tests, `noise.rs` the adjudicated rate the score ranks by, and
 `coverage.rs` the candidate queue.
 
-Four rules hold it together, and each of them replaced something that had a
+Five rules hold it together, and each of them replaced something that had a
 cost.
+
+One answer to "which of my rules are on". `ActiveRules::of(plan, producer)` is
+the set a producer asks for once and reads per finding, derived from the
+catalog's own `producer` field so no producer keeps a second list. The
+structural pass had a private version of it; `cargo_health` hoisted eleven
+booleans at the top of `inspect` and negated eight of them in one conjunction,
+which made that function the crate's own worst complexity hotspot at cyclomatic
+32, and `inspect_release_profile` then asked the plan again for two of the
+rules the conjunction had already answered for. `repo_hygiene` hoisted three
+more.
 
 Validated once, compiled from that. `PolicyInput::validate` returns a
 `ValidatedPolicy`, and a plan compiles from that and from nothing else, so
@@ -265,6 +275,50 @@ run:
 cargo run --release -- . --yes --verbose
 ```
 
+## The published report
+
+`src/report.rs` is the wire format and nothing else: the request that starts a
+scan, the report that comes back, `SCHEMA_VERSION`, and the closed vocabularies
+its members draw from. `report/assembly.rs` builds one from an execution,
+`report/normalize.rs` turns a producer's finding into one of its diagnostics,
+`report/sanitize.rs` takes every published path and home directory out of the
+text a scan produced, and the tests sit in `report/tests.rs` and
+`report/tests/normalization.rs`.
+
+Four rules hold it together, and each of them replaced something that had a
+cost.
+
+One merge, one order. `diagnostics_from_execution` keeps one `BTreeMap` open
+across all five producers and sorts once at the end. Three word-for-word
+`merge_*` functions used to close it between producers, each rebuilding the map
+it had just been handed and re-sorting behind it: the vector was sorted five
+times per scan, every diagnostic id was cloned three times over, and the guard
+that skips a failed scan was spelled three more times after the `match` above
+had already answered it.
+
+Two states, not eight. `Origin` says whether the run compiled a plan and
+resolved a scope, or failed before either existed. It used to be an
+`Option<&PolicyPlan>`, a `BlockingLevel` and an `Option<ScopeReport>` side by
+side: every caller holding a plan passed that plan's own blocking level, and the
+single caller without a plan was also the one without a scope.
+
+One escape grammar, in `terminal_text`. This module carried a second, and
+neither copy was complete: `terminal_text` advanced two characters past any
+`ESC` it did not recognize, so `ESC ( B` left a bare `B` in a frame, and no
+sequence was ever cancelled by `CAN` or `SUB`. What separated the two callers
+was never the grammar but whether a newline survives it, which is what
+`sanitize` and `sanitize_multiline` now name.
+
+No pass-through with a second name. `baseline_report_failure` had a
+`baseline_cleanup_failure` in front of it that called it and nothing else, and
+`summarize` stood in front of `Summary::from_diagnostics`.
+
+`the_report_holds_the_size_bound_it_publishes` keeps every file of the module
+under the 1000 lines `oversized_unit` reports, tests included. This was one file
+of 3226 lines, three times over the bound, and the self-scan that named it froze
+the defect rather than gating it: a test asserting the crate's largest violation
+is a test that fails the day the violation is repaired.
+
 ## The linear report
 
 `src/render.rs` is the report every non-interactive run prints: the error type,
@@ -272,8 +326,15 @@ the terminal options, the three entry points, the eight section renderers and
 the one styled-line primitive they all write through. `src/render/score_header.rs`
 is the score block, and each of the two carries its tests in a file of its own.
 
-Three rules hold it together, and each of them replaced something that had a
+Four rules hold it together, and each of them replaced something that had a
 cost.
+
+The report is its sections, in order. `render_terminal_with_presentation` is
+twelve calls and nothing else: a line written straight into the entry point is
+a section nobody named, and eight of them are what made it one of the module's
+three complexity hotspots. `render_legacy_context` was the other shape of the
+same problem, five unrelated sections in one function whose name admitted it,
+reading `report.delta` at both ends with three other sections in between.
 
 One width, guaranteed rather than branched on. `MIN_WIDTH` is at least
 `score_block::MIN_BLOCK_COLUMNS`, asserted at compile time, and every entry
@@ -290,6 +351,13 @@ the palette is the only thing separating the counting frames from the scrolling
 ones and from the frame the block freezes on. Three builders used to carry the
 same loop, two of them identical but for a bolted-in `index == 1`, and the
 frozen frame was computed once in each of the two paths that show it.
+
+One view, not two booleans. `GroupView` says whether the report is drawing the
+worst group with its first location or every group with every location. It used
+to be `top: bool, all_locations: bool`, four combinations for the two that
+exist, and a call site read `(.., true, false)`; the limit that pair encoded was
+applied through a `Box<dyn Iterator>` allocated to choose between `iter()` and
+`iter().take(1)`.
 
 One row, built from its pieces. A `Row` carries the segments it paints
 differently, so the score line is never formatted and split back apart on
@@ -315,7 +383,11 @@ the shape the four menu screens share, drawing and reading keys once each;
 `screens/viewer.rs` is the split review; `screens.rs` keeps the score block.
 `text.rs` composes styled spans and measures them in display columns,
 `canvas.rs` owns the terminal, and `tui.rs` is the state machine and the frame
-loop.
+loop. `frames.rs` is what a state looks like and `input.rs` is what a key does
+to it: they carry an `impl App` each because one block holding both reached 535
+lines, over the five hundred `oversized_unit` reports an impl at, and
+`the_interactive_report_holds_the_size_bound_the_report_reports_for` is what
+keeps every file of the module under the bound it prints.
 
 Two things the two reports share rather than each transposing. `score_block` is
 the score block's model: the faces, the label a score carries, how a value
@@ -652,6 +724,19 @@ bodies of the same shape.
 
 ## Invariants the tests enforce
 
+- **The crate is not a hotspot of its own scan**
+  (`no_unit_of_this_crate_s_own_source_is_a_hotspot`). A structural pass over
+  this repository names no `oversized_unit` and no `complex_function` anywhere
+  under `src/`. It replaced a test that asserted the opposite, that
+  `src/report.rs` was oversized, which froze the crate's largest self-violation
+  in place: repairing the file failed the suite. Evidence that a rule fires
+  belongs on a fixture, and `tests/rule_evidence.json` names the tests that
+  carry it; what belongs in a self-scan is the gate. The eleven
+  `the_X_holds_the_size_bound` tests stay beside it, because each fails on its
+  own module and says which one. Four of them are new: the report, the
+  dependency pack, the handoff and the interactive report all carried files over
+  the bound with no test naming them, and `src/cargo_health.rs` and
+  `src/handoff.rs` were over it only because their tests were still inline.
 - **The crate passes its own rules.** Production code carries no `unwrap`,
   `expect`, `panic!`, or `dbg!`: use `?`, `ok_or(...)?`, `unwrap_or`, or
   `match`. `tests/score_credibility_packs.rs` scans this repository with the
@@ -718,7 +803,19 @@ bodies of the same shape.
 - Every test that runs `cargo` or the built binary must set `CARGO_TARGET_DIR`
   to its own scratch directory. Without it, Cargo's artifact GC deletes rlibs
   the running test binaries still reference and `cargo test` fails
-  nondeterministically with "extern location does not exist".
+  nondeterministically with "extern location does not exist". The second failure
+  mode is quieter and was live in four places: a fixture already compiled under
+  an inherited target directory replays with no warning at all, so an oracle
+  reads as a scan that found nothing rather than as a cache hit.
+  `support::scan_target(workspace)` is the shared answer, keyed on the scanned
+  path so two fixtures never share a cache and one workspace scanned twice
+  always does. `execution::execute_into` is the same seam inside the crate, for
+  the unit tests that scan in process.
+- Unit tests that need a scratch directory call
+  `test_scratch::scratch(area, name)`. The file is reached from both crate roots
+  with `#[path]` rather than copied into each, because it had been written six
+  times and the copies had already drifted on whether a failed `create_dir_all`
+  refuses.
 - Shared helpers live in `tests/support/` and are pulled in with `mod support;`.
   Fixtures live under `tests/fixtures/<domain>/`, where frozen JSON oracles are
   compared field by field.
