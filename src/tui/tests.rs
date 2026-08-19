@@ -7,10 +7,16 @@
 //! where both of the defects this module was rewritten for were living.
 
 use super::*;
+use console::Key;
 use rust_doctor::presentation::{DiagnosticGroup, GroupDiagnostic};
 use rust_doctor::{AuditCategoryName, Severity};
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The interactive report passes the rule the linear one publishes. `tui.rs`
+/// carried a 535-line `impl App` that `oversized_unit` reports an impl block
+/// at five hundred, and no test named it: the frames and the input handlers
+/// have files of their own for that reason.
 
 #[test]
 fn the_viewport_follows_the_selection_in_both_directions() {
