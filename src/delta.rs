@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::internal_error::InternalError;
 use crate::policy::Producer;
 use crate::report::{Diagnostic, DiagnosticSpan};
+use crate::workspace_path;
 
 const STAGE: &str = "delta";
 pub(crate) const FINGERPRINT_VERSION: u8 = 1;
@@ -121,20 +122,23 @@ impl EvidenceLoader {
         }
     }
 
+    /// The source a published path names, when the workspace still holds it
+    /// inside itself.
+    ///
+    /// The path is decoded first. A path the report publishes is encoded, so
+    /// opening its spelling literally resolved to no file at all for every name
+    /// carrying a `%` or a control character, and every finding in such a file
+    /// silently lost its proof and fell back to its message.
     fn read_source(&mut self, root: &Path, logical_path: &str) -> Option<String> {
-        let relative = Path::new(logical_path);
-        if relative.is_absolute()
-            || !relative
-                .components()
-                .all(|component| matches!(component, Component::Normal(_)))
-        {
-            return None;
-        }
+        let relative = workspace_path::decode_normalized_relative(logical_path)?;
         let path = root.join(relative).canonicalize().ok()?;
         if !path.starts_with(root) {
             return None;
         }
-        let metadata = fs::metadata(&path).ok()?;
+        // Opening a path that is not a regular file is not merely useless:
+        // opening a named pipe blocks in the call itself, before any check on
+        // the handle could reject it.
+        let metadata = fs::symlink_metadata(&path).ok()?;
         let length = usize::try_from(metadata.len()).ok()?;
         if !metadata.is_file()
             || length > SOURCE_FILE_BYTES_LIMIT
@@ -142,11 +146,23 @@ impl EvidenceLoader {
         {
             return None;
         }
-        self.source_bytes_read += length;
+        self.source_bytes_read = self.source_bytes_read.checked_add(length)?;
+
+        // Canonicalizing and then opening has a replacement race, and the code
+        // frame closes it the same way: open the checked path, then confirm the
+        // handle and the live path still identify one file inside the workspace.
+        let file = File::open(&path).ok()?;
+        let opened = file.metadata().ok()?;
+        let revalidated = path.canonicalize().ok()?;
+        if !opened.is_file()
+            || !revalidated.starts_with(root)
+            || !workspace_path::same_file(&opened, &fs::metadata(&revalidated).ok()?)
+        {
+            return None;
+        }
+
         let mut source = String::with_capacity(length);
-        File::open(path)
-            .ok()?
-            .take(SOURCE_FILE_BYTES_LIMIT as u64)
+        file.take(SOURCE_FILE_BYTES_LIMIT as u64)
             .read_to_string(&mut source)
             .ok()?;
         (source.len() == length).then_some(source)

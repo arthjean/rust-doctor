@@ -600,6 +600,36 @@ fn adversarial_oracle_runs_the_complete_kernel_for_32_cases_and_20_identical_run
     assert_eq!(actual, expected);
 }
 
+/// A path the report publishes is encoded, so the evidence loader decodes it
+/// back before it opens anything.
+///
+/// `workspace_path` percent-encodes `%` and every control character of a
+/// published path. Opening the published spelling literally resolved to no file
+/// at all, so every finding in a file whose name carries one silently lost its
+/// proof and fell back to its message, which is the weakest identity the module
+/// has. The two excerpts differ here, so a proof that was read says introduced
+/// and a proof that was not says pre-existing.
+#[test]
+fn an_encoded_path_is_decoded_before_the_evidence_is_read() {
+    let baseline_root = root("encoded-base");
+    let current_root = root("encoded-current");
+    fs::write(baseline_root.join("src/100%.rs"), "todo!(\"old\");\n").unwrap();
+    fs::write(current_root.join("src/100%.rs"), "todo!(\"new\");\n").unwrap();
+
+    let published = "src/100%25.rs";
+    let baseline = vec![diagnostic("base", Some(published), Some(span(1, 1, 14)))];
+    let current = vec![diagnostic("current", Some(published), Some(span(1, 1, 14)))];
+
+    let delta = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
+
+    assert_eq!(delta.introduced, ["current"], "{delta:?}");
+    assert_eq!(delta.fixed.len(), 1, "{delta:?}");
+    assert_eq!(delta.fixed[0].id, "base", "{delta:?}");
+
+    fs::remove_dir_all(baseline_root).unwrap();
+    fs::remove_dir_all(current_root).unwrap();
+}
+
 /// US-003: a structural finding is matched on the identity its own pass
 /// computed, never on the message it published.
 ///
