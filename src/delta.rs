@@ -5,9 +5,11 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::internal_error::InternalError;
 use crate::policy::Producer;
 use crate::report::{Diagnostic, DiagnosticSpan};
 
+const STAGE: &str = "delta";
 pub(crate) const FINGERPRINT_VERSION: u8 = 1;
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 50_000;
 const PROOF_BYTES_LIMIT: usize = 65_536;
@@ -171,9 +173,9 @@ pub(crate) fn compute(
     current: &[Diagnostic],
     baseline_root: &Path,
     current_root: &Path,
-) -> Result<DeltaReport, crate::internal_error::InternalError> {
+) -> Result<DeltaReport, InternalError> {
     if baseline.len() > DIAGNOSTIC_LIMIT || current.len() > DIAGNOSTIC_LIMIT {
-        return Err(crate::baseline::limit_exceeded());
+        return Err(limit_exceeded());
     }
 
     let baseline_candidates = candidates(baseline, baseline_root);
@@ -184,6 +186,22 @@ pub(crate) fn compute(
         &baseline_candidates,
         &current_candidates,
     ))
+}
+
+/// The comparison refuses more diagnostics than it can pair, under its own
+/// stage.
+///
+/// It used to answer with the git baseline's own failure, so a run that hit the
+/// diagnostic ceiling published `stage: "baseline"` with
+/// `baseline-limit-exceeded` and told the reader their git snapshot exceeded a
+/// limit, which was true of nothing: the snapshot is fine, and nothing in this
+/// module shells out to git at all.
+fn limit_exceeded() -> InternalError {
+    InternalError::new(
+        STAGE,
+        "delta-limit-exceeded",
+        format!("Baseline comparison exceeds {DIAGNOSTIC_LIMIT} diagnostics on one side."),
+    )
 }
 
 fn candidates(diagnostics: &[Diagnostic], root: &Path) -> Vec<Candidate> {

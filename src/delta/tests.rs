@@ -342,7 +342,8 @@ fn multiset_matching_is_deterministic_and_bounded() {
 
     let over_limit = vec![diagnostic("same", None, None); DIAGNOSTIC_LIMIT + 1];
     let error = compute(&over_limit, &[], &baseline_root, &current_root).unwrap_err();
-    assert_eq!(error.code, "baseline-limit-exceeded");
+    assert_eq!(error.stage, "delta");
+    assert_eq!(error.code, "delta-limit-exceeded");
     fs::remove_dir_all(baseline_root).unwrap();
     fs::remove_dir_all(current_root).unwrap();
 }
