@@ -97,6 +97,21 @@ fn command(path: &Path, json: bool, cargo_home: &Path, target: &Path) -> Command
     command
 }
 
+/// The report, with the one line no two runs can agree on removed.
+///
+/// What the comparison below measures is that two identical scans render the
+/// same report. The header states how long the scan took, to a tenth of a
+/// second, and that is the one thing about it that is legitimately not
+/// deterministic: on a loaded runner the two runs print `0.1s` and `0.2s` and
+/// the assertion fails over the machine rather than over the product.
+fn without_elapsed(stdout: &[u8]) -> String {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter(|line| !line.starts_with("Scanned "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn inspect(path: &Path, json: bool, cargo_home: &Path, target: &Path) -> Output {
     command(path, json, cargo_home, target).output().unwrap()
 }
@@ -187,7 +202,10 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
     let terminal_a = inspect(&project, false, &cargo_home, &target);
     let terminal_b = inspect(&project, false, &cargo_home, &target);
     assert_eq!(terminal_a.status.code(), Some(0));
-    assert_eq!(terminal_a.stdout, terminal_b.stdout);
+    assert_eq!(
+        without_elapsed(&terminal_a.stdout),
+        without_elapsed(&terminal_b.stdout)
+    );
     let terminal = String::from_utf8_lossy(&terminal_a.stdout);
     // The default rendering exposes a single group, the one with the strongest
     // contribution. Every finding weighs one occurrence, since the scan
