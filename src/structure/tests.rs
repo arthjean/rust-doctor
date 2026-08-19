@@ -360,9 +360,12 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
     assert_eq!(unit.inventory.macro_calls.len(), 1);
 }
 
-/// EP-003, definition of done: a scan of this repository names
-/// `src/report.rs` and `src/audit.rs` as oversized and reports at least
-/// one cognitive complexity hotspot, through the same pass `inspect` runs.
+/// EP-003, definition of done: a scan of this repository names `src/report.rs` as oversized and
+/// reports at least one cognitive complexity hotspot, through the same pass `inspect` runs.
+///
+/// `src/audit.rs` used to be named here too, and no longer is: the audit block took its tests
+/// into a file of their own, and `the_audit_holds_the_size_bound_it_scores_for` is what keeps it
+/// there. The list below is what this pass still catches, not a wish list.
 #[test]
 fn the_self_scan_names_this_repository_s_own_hotspots() {
     let metadata = repository();
@@ -379,10 +382,14 @@ fn the_self_scan_names_this_repository_s_own_hotspots() {
         .filter(|finding| finding.definition.id == STRUCTURE_OVERSIZED_UNIT.id)
         .map(|finding| finding.path.as_str())
         .collect();
-    for expected in ["src/report.rs", "src/audit.rs"] {
+    assert!(
+        oversized_files.contains(&"src/report.rs"),
+        "src/report.rs is no longer named oversized: {oversized_files:?}"
+    );
+    for repaired in ["src/audit.rs", "src/audit/tests.rs"] {
         assert!(
-            oversized_files.contains(&expected),
-            "{expected} is no longer named oversized: {oversized_files:?}"
+            !oversized_files.contains(&repaired),
+            "{repaired} is oversized again: {oversized_files:?}"
         );
     }
 
