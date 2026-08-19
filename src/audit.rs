@@ -99,6 +99,11 @@ pub struct AuditCategory {
     pub occurrences: SeverityCounts,
 }
 
+/// The categories the report publishes, and the order it publishes them in.
+///
+/// The declaration order is that order: `Ord` derives from it, the tally map is keyed by it, and
+/// `Audit::is_valid` checks it. A second list restating the same sequence is a second place for
+/// it to be wrong, which is why there is none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum AuditCategoryName {
     Security,
@@ -182,6 +187,20 @@ pub(crate) enum ScoreDimension {
     Maintainability,
     Performance,
     Dependencies,
+}
+
+impl ScoreDimension {
+    /// Every dimension, in the order the report publishes them.
+    ///
+    /// This is the one list the scoring walks: `every_dimension_is_listed_once` stops compiling
+    /// when a dimension is declared and forgotten here.
+    const ALL: [Self; 5] = [
+        Self::Security,
+        Self::Reliability,
+        Self::Maintainability,
+        Self::Performance,
+        Self::Dependencies,
+    ];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,9 +311,8 @@ impl Audit {
     pub fn is_valid(&self) -> bool {
         let mut previous = None;
         let categories_are_valid = self.categories.iter().all(|category| {
-            let position = category_position(category.name);
-            let ordered = previous.is_none_or(|previous| previous < position);
-            previous = Some(position);
+            let ordered = previous.is_none_or(|previous| previous < category.name);
+            previous = Some(category.name);
             ordered && category.is_valid()
         });
         categories_are_valid
@@ -415,14 +433,22 @@ impl AuditScore {
 }
 
 impl ScoreDimensions {
+    /// The five dimensions, each scored by the same function.
+    ///
+    /// This and `value_for` are the two halves of the one mapping between a dimension and the
+    /// field the report publishes it under. Everything else walks `ScoreDimension::ALL`.
+    fn from_fn(mut score_for: impl FnMut(ScoreDimension) -> u8) -> Self {
+        Self {
+            security: score_for(ScoreDimension::Security),
+            reliability: score_for(ScoreDimension::Reliability),
+            maintainability: score_for(ScoreDimension::Maintainability),
+            performance: score_for(ScoreDimension::Performance),
+            dependencies: score_for(ScoreDimension::Dependencies),
+        }
+    }
+
     fn values(self) -> [u8; 5] {
-        [
-            self.security,
-            self.reliability,
-            self.maintainability,
-            self.performance,
-            self.dependencies,
-        ]
+        ScoreDimension::ALL.map(|dimension| self.value_for(dimension))
     }
 
     fn value_for(self, dimension: ScoreDimension) -> u8 {
@@ -462,26 +488,6 @@ impl AuditCategoryName {
             Self::Maintainability => "Maintainability",
             Self::Other => "Other",
         }
-    }
-}
-
-const ORDERED_CATEGORIES: [AuditCategoryName; 6] = [
-    AuditCategoryName::Security,
-    AuditCategoryName::Bugs,
-    AuditCategoryName::Performance,
-    AuditCategoryName::Dependencies,
-    AuditCategoryName::Maintainability,
-    AuditCategoryName::Other,
-];
-
-const fn category_position(category: AuditCategoryName) -> u8 {
-    match category {
-        AuditCategoryName::Security => 0,
-        AuditCategoryName::Bugs => 1,
-        AuditCategoryName::Performance => 2,
-        AuditCategoryName::Dependencies => 3,
-        AuditCategoryName::Maintainability => 4,
-        AuditCategoryName::Other => 5,
     }
 }
 
@@ -641,6 +647,11 @@ impl RuleAggregate {
     }
 }
 
+/// One tally per category that fired, in the order the report publishes them.
+///
+/// The map is keyed by the category itself, whose `Ord` is its declaration order, so it already
+/// comes out ordered: sorting it a second time against a hand-written list is how the two orders
+/// used to be able to disagree.
 fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
     let mut tallies = BTreeMap::<AuditCategoryName, AuditCategory>::new();
     for diagnostic in diagnostics {
@@ -654,10 +665,7 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
             .add(diagnostic.severity, diagnostic.occurrences);
     }
 
-    ORDERED_CATEGORIES
-        .into_iter()
-        .filter_map(|name| tallies.remove(&name))
-        .collect()
+    tallies.into_values().collect()
 }
 
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
@@ -843,13 +851,7 @@ fn calculate_dimensions(rules: &[RuleAggregate], removed: &BTreeSet<String>) -> 
             worst.and_then(tier_dimension_ceiling),
         )
     };
-    ScoreDimensions {
-        security: score_for(ScoreDimension::Security),
-        reliability: score_for(ScoreDimension::Reliability),
-        maintainability: score_for(ScoreDimension::Maintainability),
-        performance: score_for(ScoreDimension::Performance),
-        dependencies: score_for(ScoreDimension::Dependencies),
-    }
+    ScoreDimensions::from_fn(score_for)
 }
 
 fn dimension_score(penalty_quarters: u64) -> u8 {
@@ -858,15 +860,7 @@ fn dimension_score(penalty_quarters: u64) -> u8 {
 }
 
 fn weighted_score(dimensions: ScoreDimensions) -> u8 {
-    let numerator = [
-        ScoreDimension::Security,
-        ScoreDimension::Reliability,
-        ScoreDimension::Maintainability,
-        ScoreDimension::Performance,
-        ScoreDimension::Dependencies,
-    ]
-    .into_iter()
-    .fold(0u64, |sum, dimension| {
+    let numerator = ScoreDimension::ALL.into_iter().fold(0u64, |sum, dimension| {
         sum.saturating_add(
             u64::from(dimensions.value_for(dimension)) * dimension_weight_twice(dimension),
         )

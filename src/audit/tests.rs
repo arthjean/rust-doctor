@@ -31,6 +31,83 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
     }
 }
 
+/// The categories are published in their declaration order, and nothing restates that order.
+///
+/// `Ord` derives from the declaration, the tally map is keyed by it and `Audit::is_valid` checks
+/// it, so this is the one place the sequence itself is written down and frozen.
+#[test]
+fn the_categories_are_published_in_their_declaration_order() {
+    let declared = [
+        AuditCategoryName::Security,
+        AuditCategoryName::Bugs,
+        AuditCategoryName::Performance,
+        AuditCategoryName::Dependencies,
+        AuditCategoryName::Maintainability,
+        AuditCategoryName::Other,
+    ];
+    let mut sorted = declared;
+    sorted.sort();
+    assert_eq!(sorted, declared);
+
+    let tallies = category_tallies(&[
+        diagnostic_with_category(Some("maintainability")),
+        diagnostic_with_category(None),
+        diagnostic_with_category(Some("security")),
+    ]);
+    assert_eq!(
+        tallies
+            .iter()
+            .map(|tally| tally.name)
+            .collect::<Vec<_>>(),
+        [
+            AuditCategoryName::Security,
+            AuditCategoryName::Maintainability,
+            AuditCategoryName::Other,
+        ]
+    );
+}
+
+/// `ScoreDimension::ALL` names every dimension exactly once.
+///
+/// The match is exhaustive on purpose: a dimension declared and forgotten in `ALL` stops this
+/// file compiling, which no assertion over a length could catch.
+#[test]
+fn every_dimension_is_listed_once() {
+    for dimension in ScoreDimension::ALL {
+        match dimension {
+            ScoreDimension::Security
+            | ScoreDimension::Reliability
+            | ScoreDimension::Maintainability
+            | ScoreDimension::Performance
+            | ScoreDimension::Dependencies => {}
+        }
+    }
+    let distinct: BTreeSet<_> = ScoreDimension::ALL.into_iter().collect();
+    assert_eq!(distinct.len(), ScoreDimension::ALL.len());
+}
+
+fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
+    Diagnostic {
+        context: None,
+        id: format!("id-{}", category.unwrap_or("none")),
+        source: DiagnosticSource::Clippy,
+        code: Some(format!("clippy::{}", category.unwrap_or("bare"))),
+        base_severity: Severity::Warning,
+        severity: Severity::Warning,
+        category: category.map(str::to_owned),
+        message: "message".to_owned(),
+        help: None,
+        package: None,
+        target: None,
+        path: None,
+        span: None,
+        related: Vec::new(),
+        similarity_basis_points: None,
+        complexity: None,
+        occurrences: 1,
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct Oracle {
     schema_version: u8,
