@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::GroupLocation;
-use crate::terminal_text::{skip_c1_sequence, skip_escape_sequence};
+use crate::terminal_text::{escape_end, opens_escape};
 use crate::workspace_path;
 
 #[cfg(test)]
@@ -334,17 +334,8 @@ fn sanitize_line(source: &str) -> SanitizedLine {
     while let Some(character) = characters.get(index).copied() {
         let after = index.saturating_add(1);
         set_column(&mut source_columns, index, source_width);
-        if character == '\u{001b}' {
-            let next = skip_escape_sequence(&characters, index);
-            fill_columns(&mut source_columns, after, next, source_width);
-            index = next;
-            continue;
-        }
-        if matches!(
-            character,
-            '\u{0090}' | '\u{0098}' | '\u{009b}' | '\u{009d}' | '\u{009e}' | '\u{009f}'
-        ) {
-            let next = skip_c1_sequence(&characters, index);
+        if opens_escape(character) {
+            let next = escape_end(&characters, index);
             fill_columns(&mut source_columns, after, next, source_width);
             index = next;
             continue;
