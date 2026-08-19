@@ -13,6 +13,13 @@ fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
 
+/// The binary, scanning one workspace with an artifact cache of its own.
+fn scanning(workspace: &Path) -> Command {
+    let mut command = binary();
+    command.env("CARGO_TARGET_DIR", support::scan_target(workspace));
+    command
+}
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/projects")
@@ -26,7 +33,7 @@ fn kernel_fixture(name: &str) -> PathBuf {
 }
 
 fn inspect_json(path: &Path) -> Output {
-    binary()
+    scanning(path)
         .args(["inspect", "--json"])
         .arg(path)
         .output()
@@ -149,7 +156,7 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
         })
     }));
 
-    let compile_terminal = binary()
+    let compile_terminal = scanning(&fixture("compile-error"))
         .arg("inspect")
         .arg(fixture("compile-error"))
         .output()
@@ -192,7 +199,7 @@ fn failed_json_report_is_valid_and_returns_two() {
 
 #[test]
 fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
-    let default_path = binary()
+    let default_path = scanning(&fixture("clean"))
         .current_dir(fixture("clean"))
         .args(["inspect", "--json"])
         .output()
@@ -203,7 +210,7 @@ fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
         "Cargo.toml"
     );
 
-    let terminal = binary()
+    let terminal = scanning(&fixture("clippy-warning"))
         .args(["inspect"])
         .arg(fixture("clippy-warning"))
         .output()
@@ -262,7 +269,7 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
             && diagnostic["help"] == "Remove dbg! or replace it with intentional logging."
     }));
 
-    let terminal = binary()
+    let terminal = scanning(&kernel_fixture("dbg-macro"))
         .arg("inspect")
         .arg("--verbose")
         .arg(kernel_fixture("dbg-macro"))

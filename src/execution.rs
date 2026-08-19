@@ -268,6 +268,22 @@ fn execute_with_plan(
     programs: &Programs,
     plan: &PolicyPlan,
 ) -> ExecutionResult {
+    execute_into(prepared, programs, plan, None)
+}
+
+/// The same scan, told where Cargo may keep its artifacts.
+///
+/// A run of the tool passes `None` and lets the scanned workspace use its own
+/// `target/`. The tests pass a directory of their own, because they share one
+/// process: a fixture already compiled under the harness's inherited
+/// `CARGO_TARGET_DIR` replays with no warning at all, and the assertion then
+/// reads as a scan that found nothing rather than as a cache hit.
+fn execute_into(
+    prepared: PreparedInspection,
+    programs: &Programs,
+    plan: &PolicyPlan,
+    target_dir: Option<&Path>,
+) -> ExecutionResult {
     let environment = CommandEnvironment::default();
     let toolchain = match resolve_toolchain(programs, prepared.workspace_root(), &environment) {
         Ok(toolchain) => toolchain,
@@ -279,7 +295,7 @@ fn execute_with_plan(
         settings: &prepared.configuration.structure,
         environment: &environment,
     };
-    context.run(prepared.target, toolchain, None)
+    context.run(prepared.target, toolchain, target_dir)
 }
 
 impl ExecutionContext<'_> {

@@ -14,6 +14,26 @@ fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
 
+/// One artifact cache per scanned workspace.
+///
+/// Every scan below shells out to `cargo clippy` inside a fixture. A fixture
+/// already compiled under an inherited `CARGO_TARGET_DIR` replays with no
+/// warning at all, and the oracles then read as a regression in the report
+/// rather than as a cache hit: that is what
+/// `precision_matrix_matches_all_positive_and_negative_oracles_without_mutation`
+/// did whenever the suite ran under one shared directory.
+///
+/// The key is the workspace path rather than the test, because the rescan test
+/// edits a workspace and scans it twice and has to see Cargo rebuild it. Two
+/// tests running at once on two different fixtures never share a cache, and one
+/// test scanning one workspace twice always does.
+fn target_directory(workspace: &Path) -> PathBuf {
+    let key = blake3::hash(workspace.as_os_str().as_encoded_bytes()).to_hex();
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/precision-harness")
+        .join(&key[..16])
+}
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/kernel-contract")
@@ -24,6 +44,7 @@ fn inspect_json(path: &Path) -> Output {
     binary()
         .args(["inspect", "--json"])
         .arg(path)
+        .env("CARGO_TARGET_DIR", target_directory(path))
         .output()
         .expect("rust-doctor should start")
 }

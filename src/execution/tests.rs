@@ -9,12 +9,21 @@ use crate::repo_hygiene::{RepoError, RepoScan};
 use crate::source_kernel::{SourceError, SourceScan};
 use crate::structure::{StructureError, StructureScan};
 
+/// One artifact cache per scanned fixture, keyed by its path.
+///
+/// Every scan here really runs `cargo clippy`. Two fixtures never share a
+/// cache, one fixture scanned twice always does, and none of them inherits the
+/// harness's own `CARGO_TARGET_DIR`, under which an already compiled fixture
+/// replays with no diagnostic at all.
+fn scan_target_dir(path: &Path) -> PathBuf {
+    let key = blake3::hash(path.as_os_str().as_encoded_bytes()).to_hex();
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/execution-tests")
+        .join(&key[..16])
+}
+
 fn execute(path: &Path) -> ExecutionResult {
-    let prepared = match super::prepare(path) {
-        Ok(prepared) => prepared,
-        Err(result) => return *result,
-    };
-    super::execute(prepared, &PolicyPlan::default())
+    execute_with(path, &Programs::default())
 }
 
 fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
@@ -22,7 +31,12 @@ fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
         Ok(prepared) => prepared,
         Err(result) => return *result,
     };
-    execute_with_plan(prepared, programs, &PolicyPlan::default())
+    execute_into(
+        prepared,
+        programs,
+        &PolicyPlan::default(),
+        Some(&scan_target_dir(path)),
+    )
 }
 
 fn fixture(name: &str) -> PathBuf {

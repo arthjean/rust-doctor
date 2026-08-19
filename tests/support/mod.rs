@@ -120,6 +120,22 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
+/// One Cargo artifact cache per scanned workspace, keyed by its path.
+///
+/// A scan really runs `cargo clippy` inside the workspace it is given. A
+/// workspace already compiled under the harness's own inherited
+/// `CARGO_TARGET_DIR` can replay with no warning at all, and the assertion then
+/// reads as a scan that found nothing rather than as a cache hit: that is what
+/// `AGENTS.md` means by giving every test that runs Cargo a target directory of
+/// its own. Keying on the path rather than on the test means two tests scanning
+/// two fixtures never share a cache, and one test scanning one workspace twice
+/// always does, which is what a rescan test needs to see Cargo rebuild.
+pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
+    let key = blake3::hash(workspace.as_os_str().as_encoded_bytes()).to_hex();
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/scan-caches");
+    base.canonicalize().unwrap_or(base).join(&key[..16])
+}
+
 /// Projects a current report back onto the frozen bytes of v7.
 ///
 /// v8 had added the `audit` block, v9 the `tier` of every policy rule and the

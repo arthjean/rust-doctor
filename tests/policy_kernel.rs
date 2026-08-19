@@ -1,12 +1,29 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+use std::env;
 use std::path::Path;
 
 use rust_doctor::{InspectRequest, RuleLevel, Status, inspect};
 use serde_json::Value;
 
+/// Cargo's artifact cache is what this test measures against, so it must not
+/// share one. `inspect` shells out to `cargo clippy`, and a fixture already
+/// compiled under an inherited `CARGO_TARGET_DIR` replays with no warning at
+/// all: the representative diagnostics simply are not there, and the failure
+/// reads as a regression in the report rather than as a cache hit. Every other
+/// test that runs Cargo pins the directory the same way.
+///
+/// This binary carries one test, so the variable is set for the process rather
+/// than guarded per call.
+fn isolate_target_directory() {
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/policy-kernel-target");
+    // Single test, single thread: nothing else reads the environment here.
+    unsafe { env::set_var("CARGO_TARGET_DIR", &target) };
+}
+
 #[test]
 fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() {
+    isolate_target_directory();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let oracle: Value = serde_json::from_str(include_str!("fixtures/policy-gate/oracle.json"))
         .expect("policy oracle should be valid JSON");
