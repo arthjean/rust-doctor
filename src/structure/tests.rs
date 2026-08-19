@@ -362,14 +362,22 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
     assert_eq!(unit.inventory.macro_calls.len(), 1);
 }
 
-/// EP-003, definition of done: a scan of this repository names `src/report.rs` as oversized and
-/// reports at least one cognitive complexity hotspot, through the same pass `inspect` runs.
+/// EP-003, definition of done, inverted: a scan of this repository names no
+/// oversized unit and no complexity hotspot anywhere under `src/`, through the
+/// same pass `inspect` runs.
 ///
-/// `src/audit.rs` used to be named here too, and no longer is: the audit block took its tests
-/// into a file of their own, and `the_audit_holds_the_size_bound_it_scores_for` is what keeps it
-/// there. The list below is what this pass still catches, not a wish list.
+/// It used to assert the opposite, that `src/report.rs` was named oversized,
+/// which froze the crate's largest self-violation in place: repairing the file
+/// failed the suite. The rule's own evidence that it fires belongs on a
+/// fixture, and `tests/rule_evidence.json` names the two tests that carry it.
+/// What belongs here is the gate: the tool has to pass what it reports.
+///
+/// The nine `the_X_holds_the_size_bound` tests scattered across the crate stay,
+/// because each of them fails on its own module and says which one. This one
+/// covers every file none of them names, and the three units below the file
+/// level that none of them can see.
 #[test]
-fn the_self_scan_names_this_repository_s_own_hotspots() {
+fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
     let metadata = repository();
     let scan = analyze(
         &metadata,
@@ -378,33 +386,26 @@ fn the_self_scan_names_this_repository_s_own_hotspots() {
         &StructureSettings::default(),
     );
 
-    let oversized_files: Vec<&str> = scan
-        .findings
-        .iter()
-        .filter(|finding| finding.definition.id == STRUCTURE_OVERSIZED_UNIT.id)
-        .map(|finding| finding.path.as_str())
-        .collect();
-    assert!(
-        oversized_files.contains(&"src/report.rs"),
-        "src/report.rs is no longer named oversized: {oversized_files:?}"
-    );
-    for repaired in ["src/audit.rs", "src/audit/tests.rs"] {
-        assert!(
-            !oversized_files.contains(&repaired),
-            "{repaired} is oversized again: {oversized_files:?}"
-        );
-    }
+    let named = |rule: &str| -> Vec<String> {
+        scan.findings
+            .iter()
+            .filter(|finding| finding.definition.id == rule && finding.path.starts_with("src/"))
+            .map(|finding| format!("{}: {}", finding.path, finding.message))
+            .collect()
+    };
 
-    let hotspot = scan.findings.iter().find(|finding| {
-        finding.definition.id == STRUCTURE_COMPLEX_FUNCTION.id
-            && finding.context != Some(DiagnosticContext::Tests)
-            && finding.complexity.is_some_and(|figures| {
-                figures.cognitive >= StructureSettings::default().cognitive_threshold
-            })
-    });
+    let oversized = named(STRUCTURE_OVERSIZED_UNIT.id);
     assert!(
-        hotspot.is_some(),
-        "the self-scan reports no cognitive complexity hotspot"
+        oversized.is_empty(),
+        "the crate reports itself oversized:\n{}",
+        oversized.join("\n")
+    );
+
+    let tangled = named(STRUCTURE_COMPLEX_FUNCTION.id);
+    assert!(
+        tangled.is_empty(),
+        "the crate reports its own complexity hotspots:\n{}",
+        tangled.join("\n")
     );
 }
 
