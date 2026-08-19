@@ -152,7 +152,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         let report = report::from_baseline_execution(execution, &plan, scope);
         return match snapshot.cleanup() {
             Ok(()) => report,
-            Err(error) => report::baseline_cleanup_failure(report, error),
+            Err(error) => report::baseline_report_failure(report, error),
         };
     }
     report::from_execution_scoped(execution::execute(prepared, &plan), &plan, scope)
