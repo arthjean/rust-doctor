@@ -1,4 +1,4 @@
-use std::fs::{self, File, Metadata};
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
@@ -147,7 +147,7 @@ fn read_code_frame(
         fs::metadata(&revalidated).map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
     if !opened_metadata.is_file()
         || !revalidated.starts_with(&canonical_root)
-        || !same_file(&opened_metadata, &current_metadata)
+        || !workspace_path::same_file(&opened_metadata, &current_metadata)
     {
         return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
@@ -427,23 +427,4 @@ fn unavailable(
         reason,
         message: message.to_owned(),
     }
-}
-
-#[cfg(unix)]
-fn same_file(left: &Metadata, right: &Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    left.dev() == right.dev() && left.ino() == right.ino()
-}
-
-/// Off Unix there is no stable identity to compare: the handle-based file index
-/// and volume serial that would answer this exactly are still unstable in the
-/// standard library. Size, modification time and the read-only bit are what is
-/// reachable, and they are weaker: a swap that reproduces all three passes.
-/// That is the accepted floor rather than an oversight, and it is only ever the
-/// last of three checks, behind canonicalization and the workspace prefix.
-#[cfg(not(unix))]
-fn same_file(left: &Metadata, right: &Metadata) -> bool {
-    left.len() == right.len()
-        && left.modified().ok() == right.modified().ok()
-        && left.permissions().readonly() == right.permissions().readonly()
 }
