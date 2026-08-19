@@ -25,11 +25,9 @@ pub(super) fn collect(
         complete: source.errors.is_empty(),
     });
 
-    match (compiler, source) {
-        (Some(compiler), _) => compiler,
-        (None, Some(source)) => source,
-        (None, None) => target_root_inventory(metadata),
-    }
+    compiler
+        .or(source)
+        .unwrap_or_else(|| target_root_inventory(metadata))
 }
 
 fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
@@ -37,6 +35,9 @@ fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
         return SourceFileInventory::default();
     };
     let (_, roots, roots_are_complete) = workspace_targets(metadata, &workspace_root);
+    // Target roots are a floor on the source files, never the count: every module a root
+    // reaches is missing from it. Only a workspace with no target at all is counted exactly,
+    // which is why anything but an empty set reports as partial.
     SourceFileInventory {
         files: roots.len(),
         complete: roots.is_empty() && roots_are_complete,
@@ -69,7 +70,7 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
             Ok(paths) => files.extend(paths),
             Err(()) => {
                 complete = false;
-                if let Ok(Some(path)) =
+                if let Confined::Counted(path) =
                     confined_rust_file(&workspace_root, artifact.target.src_path.as_std_path())
                 {
                     files.insert(path);
@@ -78,6 +79,8 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
         }
     }
 
+    // Cargo answered with no artifact for a workspace that declares targets, so the dep-info
+    // inventory never happened: fall back to the roots and say the count is a floor.
     if expects_artifact && !saw_artifact {
         files.extend(target_roots);
         complete = false;
@@ -85,7 +88,7 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
 
     SourceFileInventory {
         files: files.len(),
-        complete: complete && (!expects_artifact || saw_artifact),
+        complete,
     }
 }
 
@@ -113,11 +116,11 @@ fn workspace_targets(
         packages.insert(package.id.clone());
         for target in &package.targets {
             match confined_rust_file(workspace_root, target.src_path.as_std_path()) {
-                Ok(Some(path)) => {
+                Confined::Counted(path) => {
                     files.insert(path);
                 }
-                Ok(None) => {}
-                Err(()) => complete = false,
+                Confined::Excluded => {}
+                Confined::Unresolved => complete = false,
             }
         }
     }
@@ -146,8 +149,12 @@ fn artifact_source_files(
         } else {
             workspace_root.join(dependency)
         };
-        if let Some(path) = confined_rust_file(workspace_root, &path)? {
-            files.insert(path);
+        match confined_rust_file(workspace_root, &path) {
+            Confined::Counted(path) => {
+                files.insert(path);
+            }
+            Confined::Excluded => {}
+            Confined::Unresolved => return Err(()),
         }
     }
     Ok(files)
@@ -184,49 +191,55 @@ fn parse_dep_info(contents: &[u8]) -> Result<Vec<PathBuf>, ()> {
     // Cargo dep-info is Makefile-like. We need only the first target's dependency list, so this
     // parser handles its escaping and continuations and fails closed on malformed input instead
     // of accepting the rest of the file as source inventory.
+    //
+    // The walk consumes the slice rather than indexing it: the bound on where the cursor may
+    // land is then the slice itself, not arithmetic a reader has to replay to trust the end.
     let separator = contents
         .windows(2)
-        .position(|window| window[0] == b':' && window[1].is_ascii_whitespace())
+        .position(|window| matches!(window, [b':', byte] if byte.is_ascii_whitespace()))
         .ok_or(())?;
     let mut dependencies = Vec::new();
     let mut token = Vec::new();
-    let mut index = separator + 1;
-    while index < contents.len() {
-        match contents[index] {
-            b'\n' | b'\r' => {
+    let mut rest = contents.get(separator + 1..).ok_or(())?;
+    while let Some((&byte, tail)) = rest.split_first() {
+        rest = match byte {
+            // The first rule ends at its first unescaped line break, and whatever follows
+            // describes another target.
+            b'\n' | b'\r' => break,
+            b'\\' => escape(tail, &mut token)?,
+            _ if byte.is_ascii_whitespace() => {
                 push_dependency(&mut dependencies, &mut token)?;
-                break;
+                tail
             }
-            byte if byte.is_ascii_whitespace() => {
-                push_dependency(&mut dependencies, &mut token)?;
-                index += 1;
-            }
-            b'\\' => {
-                let Some(next) = contents.get(index + 1).copied() else {
-                    return Err(());
-                };
-                if next == b'\n' {
-                    index += 2;
-                } else if next == b'\r' && contents.get(index + 2) == Some(&b'\n') {
-                    index += 3;
-                } else if matches!(next, b' ' | b'\t' | b'#' | b':' | b'\\') {
-                    token.push(next);
-                    index += 2;
-                } else {
-                    token.push(b'\\');
-                    index += 1;
-                }
-            }
-            byte => {
+            _ => {
                 token.push(byte);
-                index += 1;
+                tail
             }
-        }
+        };
     }
-    if index == contents.len() {
-        push_dependency(&mut dependencies, &mut token)?;
-    }
+    push_dependency(&mut dependencies, &mut token)?;
     Ok(dependencies)
+}
+
+/// Consumes one backslash escape and answers what is left after it.
+///
+/// Cargo escapes a space, a tab, a hash, a colon and a backslash inside a path, and continues a
+/// rule across lines with a backslash before the line break. Any other backslash stands for
+/// itself, so the byte after it is handed back unread rather than consumed.
+fn escape<'a>(tail: &'a [u8], token: &mut Vec<u8>) -> Result<&'a [u8], ()> {
+    match tail {
+        [b'\n', rest @ ..] => Ok(rest),
+        [b'\r', b'\n', rest @ ..] => Ok(rest),
+        [byte @ (b' ' | b'\t' | b'#' | b':' | b'\\'), rest @ ..] => {
+            token.push(*byte);
+            Ok(rest)
+        }
+        [_, ..] => {
+            token.push(b'\\');
+            Ok(tail)
+        }
+        [] => Err(()),
+    }
 }
 
 fn push_dependency(dependencies: &mut Vec<PathBuf>, token: &mut Vec<u8>) -> Result<(), ()> {
@@ -239,15 +252,31 @@ fn push_dependency(dependencies: &mut Vec<PathBuf>, token: &mut Vec<u8>) -> Resu
     Ok(())
 }
 
-fn confined_rust_file(workspace_root: &Path, path: &Path) -> Result<Option<PathBuf>, ()> {
+/// What one candidate path contributes to the inventory.
+///
+/// The three outcomes are not two: a path that is not workspace source is a fact, a path that
+/// could not be resolved is the absence of one. Only the second costs the inventory its
+/// completeness, and spelling them apart is what keeps a caller from trading one for the other.
+enum Confined {
+    /// Workspace source, canonicalized, to count once.
+    Counted(PathBuf),
+    /// Not workspace source: not Rust, not a file, or outside the workspace root.
+    Excluded,
+    /// The path did not resolve, so nothing can be said about what it holds.
+    Unresolved,
+}
+
+fn confined_rust_file(workspace_root: &Path, path: &Path) -> Confined {
     if path.extension() != Some(OsStr::new("rs")) {
-        return Ok(None);
+        return Confined::Excluded;
     }
-    let canonical = path.canonicalize().map_err(|_| ())?;
+    let Ok(canonical) = path.canonicalize() else {
+        return Confined::Unresolved;
+    };
     if !canonical.starts_with(workspace_root) || !canonical.is_file() {
-        return Ok(None);
+        return Confined::Excluded;
     }
-    Ok(Some(canonical))
+    Confined::Counted(canonical)
 }
 
 #[cfg(test)]
@@ -275,6 +304,39 @@ mod tests {
                 PathBuf::from("src/hash#tag.rs"),
             ]
         );
+    }
+
+    #[test]
+    fn dep_info_parser_carries_a_crlf_continuation_and_stops_at_the_first_rule() {
+        let dependencies = parse_dep_info(
+            concat!(
+                "target/file: src/a.rs \\\r\n",
+                "src/b.rs\r\n",
+                "target/other: src/c.rs\r\n",
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            dependencies,
+            [PathBuf::from("src/a.rs"), PathBuf::from("src/b.rs")]
+        );
+    }
+
+    /// A backslash before anything Cargo does not escape stands for itself, and the byte after
+    /// it is read again rather than swallowed: a lone carriage return still ends the rule.
+    #[test]
+    fn an_unrecognized_escape_keeps_its_backslash_and_yields_the_next_byte() {
+        assert_eq!(
+            parse_dep_info(b"target/file: src/a\\b.rs src/c\\\rignored.rs"),
+            Ok(vec![PathBuf::from("src/a\\b.rs"), PathBuf::from("src/c\\")])
+        );
+    }
+
+    #[test]
+    fn dep_info_parser_rejects_a_trailing_escape() {
+        assert_eq!(parse_dep_info(b"target/file: src/a.rs \\"), Err(()));
     }
 
     #[test]
