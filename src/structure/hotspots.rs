@@ -22,8 +22,8 @@
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
-use super::{Active, Observation, StructureSettings, Unit, test_context};
-use crate::policy::{RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT};
+use super::{Observation, StructureSettings, Unit, test_context};
+use crate::policy::{ActiveRules, RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT};
 use crate::report::ComplexityFigures;
 use crate::source_text::compact;
 
@@ -68,7 +68,7 @@ pub(super) struct Metrics {
 pub(super) fn observe(
     unit: &Unit<'_>,
     settings: &StructureSettings,
-    active: &Active,
+    active: &ActiveRules,
 ) -> Vec<(&'static RuleDefinition, Observation)> {
     let mut observations = Vec::new();
     if active.on(&STRUCTURE_OVERSIZED_UNIT) {
@@ -345,12 +345,12 @@ fn impl_label(block: &ast::Impl) -> String {
 mod tests {
     use super::*;
 
-    fn complexity_only() -> Active {
-        Active::of_rules([&STRUCTURE_COMPLEX_FUNCTION])
+    fn complexity_only() -> ActiveRules {
+        ActiveRules::from_rules([&STRUCTURE_COMPLEX_FUNCTION])
     }
 
-    fn size_only() -> Active {
-        Active::of_rules([&STRUCTURE_OVERSIZED_UNIT])
+    fn size_only() -> ActiveRules {
+        ActiveRules::from_rules([&STRUCTURE_OVERSIZED_UNIT])
     }
 
     fn unit(source: &str) -> Unit<'_> {
@@ -572,7 +572,7 @@ mod tests {
         let both = observe(
             &unit(&source),
             &StructureSettings::default(),
-            &Active::of_rules(RULES),
+            &ActiveRules::from_rules(RULES),
         );
         assert!(both.iter().any(|(rule, _)| rule.id == STRUCTURE_OVERSIZED_UNIT.id));
         assert!(both.iter().any(|(rule, _)| rule.id == STRUCTURE_COMPLEX_FUNCTION.id));
@@ -582,7 +582,7 @@ mod tests {
                 .all(|(rule, _)| rule.id == STRUCTURE_OVERSIZED_UNIT.id)
         );
         assert!(
-            observe(&unit(&source), &StructureSettings::default(), &Active::default()).is_empty()
+            observe(&unit(&source), &StructureSettings::default(), &ActiveRules::default()).is_empty()
         );
     }
 }

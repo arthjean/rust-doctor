@@ -24,10 +24,11 @@
 //! answering a question the walk answers exactly.
 //!
 //! One set of active rules. Every family asks the same question of the same
-//! plan, so `Active` is one set rather than a boolean pair per family: a pair
-//! per family is a place the next rule has to be declared twice, once to be
-//! read and once to be counted, and the counting is what a four-clause
-//! condition used to get wrong silently.
+//! plan, so [`ActiveRules`] is one set rather than a boolean pair per family.
+//! It lives in `policy` rather than here: the catalog already records which
+//! producer owns each rule, so the set derives from the plan itself and no
+//! producer keeps a second list. The dependency pack and the repository pass
+//! read the same one.
 //!
 //! One way into the family map, and one phase reporting its own partiality.
 //! `record_family` is the only writer, so no producer can insert over a family
@@ -36,14 +37,14 @@
 //! from a pass that merely finished late, and calling a complete report partial
 //! costs the score its authoritative flag for nothing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use cargo_metadata::Metadata;
 use ra_ap_syntax::ast::{self, HasAttrs};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
-use crate::policy::{PolicyPlan, RuleDefinition};
+use crate::policy::{ActiveRules, PolicyPlan, Producer, RuleDefinition};
 use crate::report::{ComplexityFigures, DiagnosticContext};
 use crate::source_kernel::{Enumeration, SourceUnit};
 use crate::source_text::{SourceSpan, compact, line_starts, source_span};
@@ -203,60 +204,86 @@ impl Summary {
     }
 }
 
-/// Which structural rules the policy leaves on.
+/// Every rule this pass produces, the union of what the four families declare.
 ///
-/// One set for the whole pass: `on` answers for a rule, and a family asks it
-/// about its own rules through `RULES`. There is nothing to keep in step when a
-/// tenth rule is admitted, because the set is derived from the tables the
-/// families publish.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct Active {
-    on: BTreeSet<&'static str>,
-}
-
-impl Active {
-    fn of(plan: &PolicyPlan) -> Self {
-        Self {
-            on: rules()
-                .filter(|rule| plan.is_active(rule.id))
-                .map(|rule| rule.id)
-                .collect(),
-        }
-    }
-
-    /// The set a test of one family names for itself.
-    #[cfg(test)]
-    fn of_rules(rules: impl IntoIterator<Item = &'static RuleDefinition>) -> Self {
-        Self {
-            on: rules.into_iter().map(|rule| rule.id).collect(),
-        }
-    }
-
-    fn on(&self, rule: &'static RuleDefinition) -> bool {
-        self.on.contains(rule.id)
-    }
-
-    fn any_of(&self, rules: &[&'static RuleDefinition]) -> bool {
-        rules.iter().any(|rule| self.on(rule))
-    }
-
-    fn any(&self) -> bool {
-        !self.on.is_empty()
-    }
-}
-
-/// Every rule this pass produces.
-///
-/// It is the union of what the four families declare, so a rule reaches the
-/// scan by being in its family's table and nowhere else.
-/// `the_pass_produces_every_catalogued_structural_rule` compares it against the
-/// catalogue, which is what stops a rule from being published and never run.
-fn rules() -> impl Iterator<Item = &'static RuleDefinition> {
+/// Activation itself comes from the catalog now, through
+/// [`ActiveRules::of`]: what these tables still decide is whether a family is
+/// walked at all. `the_pass_produces_every_catalogued_structural_rule`
+/// compares the union against the catalog, which is what stops a rule from
+/// being published, activated, and then never reached because the family that
+/// owns it skipped the unit.
+#[cfg(test)]
+pub(super) fn rules() -> impl Iterator<Item = &'static RuleDefinition> {
     suppression::RULES
         .into_iter()
         .chain(duplication::RULES)
         .chain(hotspots::RULES)
         .chain(manifest::RULES)
+}
+
+/// Whether a unit is one the detectors read at all.
+///
+/// A unit the parser could not read is skipped whole and said so: a normalized
+/// tree built over a recovered region describes the recovery, not the code. A
+/// generated file is skipped silently, because its size, its repetition and
+/// its exemptions describe the generator and there is nothing its author
+/// should act on.
+enum Readable {
+    Yes,
+    Generated,
+    Unparseable(StructureError),
+}
+
+impl Readable {
+    fn of(unit: &SourceUnit) -> Self {
+        if !unit.parses_cleanly() {
+            return Self::Unparseable(StructureError {
+                code: "parse-error",
+                message: format!(
+                    "Source path \"{}\" was skipped: the parser could not read it.",
+                    unit.relative_path()
+                ),
+            });
+        }
+        if is_generated(unit.source()) {
+            return Self::Generated;
+        }
+        Self::Yes
+    }
+}
+
+/// What every family takes from one readable unit.
+///
+/// Each is asked for its own table first, and every family the same way: a
+/// family with nothing left on has nothing to walk for.
+fn observe_unit(
+    analysed: &Unit<'_>,
+    settings: &StructureSettings,
+    active: &ActiveRules,
+    families: &mut BTreeMap<(&'static str, String), Family>,
+    functions: &mut Vec<duplication::Function>,
+    uses: &mut manifest::Uses,
+) {
+    if active.any_of(&suppression::RULES) {
+        for (definition, observation) in suppression::observe(analysed, active) {
+            record(families, definition.id, analysed.path, observation);
+        }
+    }
+    if active.any_of(&hotspots::RULES) {
+        for (definition, observation) in hotspots::observe(analysed, settings, active) {
+            record(families, definition.id, analysed.path, observation);
+        }
+    }
+    if active.any_of(&duplication::RULES) {
+        // Only the canonical form of each function is retained, never the tree
+        // it was read from, so the walk stays linear in memory whatever the
+        // size of the workspace.
+        functions.extend(duplication::observe(analysed));
+    }
+    // The two manifest detectors decide after the walk, on the whole
+    // workspace: what they take from a unit is what it reaches and what it
+    // reads, never a finding.
+    manifest::observe(analysed, active, uses);
 }
 
 /// Every node of one unit the detectors read, gathered in the traversal they
@@ -411,7 +438,7 @@ fn analyze_within(
     settings: &StructureSettings,
     budget: Duration,
 ) -> StructureScan {
-    let active = Active::of(plan);
+    let active = ActiveRules::of(plan, Producer::Structure);
     if !active.any() {
         return StructureScan::default();
     }
@@ -427,42 +454,22 @@ fn analyze_within(
             stopped = true;
             break;
         }
-        // A unit the parser could not read is skipped whole: a normalized tree
-        // built over a recovered region describes the recovery, not the code.
-        if !unit.parses_cleanly() {
-            errors.push(StructureError {
-                code: "parse-error",
-                message: format!(
-                    "Source path \"{}\" was skipped: the parser could not read it.",
-                    unit.relative_path()
-                ),
-            });
-            continue;
+        match Readable::of(unit) {
+            Readable::Yes => {}
+            Readable::Generated => continue,
+            Readable::Unparseable(error) => {
+                errors.push(error);
+                continue;
+            }
         }
-        // A generated file is nobody's writing: its size, its repetition and
-        // its exemptions describe the generator, so no structural detector
-        // reads it. It is skipped silently, because there is nothing its
-        // author should act on.
-        if is_generated(unit.source()) {
-            continue;
-        }
-        let analysed = Unit::of(unit, enumeration);
-        for (definition, observation) in suppression::observe(&analysed, &active) {
-            record(&mut families, definition.id, analysed.path, observation);
-        }
-        for (definition, observation) in hotspots::observe(&analysed, settings, &active) {
-            record(&mut families, definition.id, analysed.path, observation);
-        }
-        if active.any_of(&duplication::RULES) {
-            // Only the canonical form of each function is retained, never the
-            // tree it was read from, so the walk stays linear in memory
-            // whatever the size of the workspace.
-            functions.extend(duplication::observe(&analysed));
-        }
-        // The two manifest detectors decide after the walk, on the whole
-        // workspace: what they take from a unit is what it reaches and what
-        // it reads, never a finding.
-        manifest::observe(&analysed, &active, &mut uses);
+        observe_unit(
+            &Unit::of(unit, enumeration),
+            settings,
+            &active,
+            &mut families,
+            &mut functions,
+            &mut uses,
+        );
     }
 
     // The manifest detectors run on what the walk collected, and on the

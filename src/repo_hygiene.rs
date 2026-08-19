@@ -17,6 +17,7 @@ use serde::Deserialize;
 use crate::internal_error::InternalError;
 use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_status};
 use crate::policy::{
+    ActiveRules, Producer,
     PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT,
     RuleDefinition,
 };
@@ -93,44 +94,16 @@ fn inspect_with(
     mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
     probe: impl FnOnce(&str) -> IgnoreProbe,
 ) -> RepoScan {
-    let secret_files = plan.is_active(REPO_TRACKED_SECRET_FILE.id);
-    let credentials = plan.is_active(REPO_HARDCODED_CREDENTIAL.id);
-    let build_output = plan.is_active(REPO_UNIGNORED_BUILD_OUTPUT.id);
+    let active = ActiveRules::of(plan, Producer::Repo);
     let mut scan = RepoScan::default();
-    if !secret_files && !credentials && !build_output {
+    if !active.any() {
         return scan;
     }
 
-    let output = match run(&GitCall {
-        arguments: git_arguments(workspace_root, ["ls-files", "-z"]),
-        stdout_limit: MAX_OUTPUT_BYTES,
-        stage: STAGE,
-        failure: GitFailure::new(
-            "repo-not-a-repository",
-            "Repository hygiene skipped: the workspace is not a git repository.",
-        ),
-        overflow: GitFailure::new(
-            "repo-enumeration-truncated",
-            "Repository enumeration exceeded the supported size; repository hygiene was skipped.",
-        ),
-    }) {
+    let output = match enumerate_tracked(workspace_root, &mut run) {
         Ok(output) => output,
         Err(error) => {
-            match error.code {
-                // An absent workspace repository is a fact the criteria accept
-                // in silence; a broken git invocation degrades the same way
-                // because the two exits are indistinguishable from here.
-                "repo-not-a-repository" => {}
-                "git-unavailable" => scan.errors.push(RepoError {
-                    code: "git-unavailable",
-                    message: "Repository hygiene skipped: git was not available.",
-                }),
-                _ => scan.errors.push(RepoError {
-                    code: "repo-enumeration-truncated",
-                    message:
-                        "Repository enumeration exceeded the supported size; repository hygiene was skipped.",
-                }),
-            }
+            scan.errors.extend(error);
             return scan;
         }
     };
@@ -144,7 +117,7 @@ fn inspect_with(
     }
 
     for path in &paths {
-        if secret_files
+        if active.on(&REPO_TRACKED_SECRET_FILE)
             && !is_test_material(path)
             && is_secret_file_name(file_name(path))
             && let Some(published) = workspace_path::normalize_changed(path)
@@ -159,12 +132,12 @@ fn inspect_with(
                 context: None,
             });
         }
-        if credentials {
+        if active.on(&REPO_HARDCODED_CREDENTIAL) {
             scan_credentials(workspace_root, path, &mut scan);
         }
     }
 
-    if build_output
+    if active.on(&REPO_UNIGNORED_BUILD_OUTPUT)
         && let Some(directory) = build_directory(workspace_root)
         && probe(&directory) == IgnoreProbe::NotIgnored
         && let Some(published) = workspace_path::normalize_changed(&directory)
@@ -179,6 +152,42 @@ fn inspect_with(
     }
 
     scan
+}
+
+/// Everything git tracks, or the reason the pass abstains.
+///
+/// An absent workspace repository is a fact the criteria accept in silence,
+/// which is why the error is an `Option`: a broken git invocation degrades the
+/// same way, because the two exits are indistinguishable from here.
+fn enumerate_tracked(
+    workspace_root: &Path,
+    run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
+) -> Result<Vec<u8>, Option<RepoError>> {
+    run(&GitCall {
+        arguments: git_arguments(workspace_root, ["ls-files", "-z"]),
+        stdout_limit: MAX_OUTPUT_BYTES,
+        stage: STAGE,
+        failure: GitFailure::new(
+            "repo-not-a-repository",
+            "Repository hygiene skipped: the workspace is not a git repository.",
+        ),
+        overflow: GitFailure::new(
+            "repo-enumeration-truncated",
+            "Repository enumeration exceeded the supported size; repository hygiene was skipped.",
+        ),
+    })
+    .map_err(|error| match error.code {
+        "repo-not-a-repository" => None,
+        "git-unavailable" => Some(RepoError {
+            code: "git-unavailable",
+            message: "Repository hygiene skipped: git was not available.",
+        }),
+        _ => Some(RepoError {
+            code: "repo-enumeration-truncated",
+            message:
+                "Repository enumeration exceeded the supported size; repository hygiene was skipped.",
+        }),
+    })
 }
 
 /// Splits the NUL-separated `git ls-files -z` output into workspace-relative

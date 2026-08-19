@@ -2,6 +2,8 @@ use std::path::Path;
 
 use cargo_metadata::{Metadata, MetadataCommand};
 
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::policy::{
     Producer, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_UNREASONED_ALLOW,

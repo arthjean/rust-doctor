@@ -35,8 +35,8 @@ use std::collections::{BTreeMap, HashMap};
 use ra_ap_syntax::AstNode;
 
 use super::normalize::{self, Normalized};
-use super::{Active, Deadline, Member, Summary, Unit, test_context};
-use crate::policy::{
+use super::{Deadline, Member, Summary, Unit, test_context};
+use crate::policy::{ActiveRules, 
     RuleDefinition, STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
 };
 
@@ -180,7 +180,7 @@ pub(super) struct Grouping {
 }
 
 /// Families the collected functions form, exact ones first.
-pub(super) fn groups(functions: Vec<Function>, active: &Active, deadline: &Deadline) -> Grouping {
+pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &Deadline) -> Grouping {
     let exact = active.on(&STRUCTURE_DUPLICATE_FUNCTION_BODY);
     let near = active.on(&STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY);
 

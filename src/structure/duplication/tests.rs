@@ -9,17 +9,17 @@ fn unit(source: &str) -> Unit<'_> {
     Unit::probe(source, "src/lib.rs")
 }
 
-fn families(source: &str, active: &Active) -> Vec<Group> {
+fn families(source: &str, active: &ActiveRules) -> Vec<Group> {
     let functions = observe(&unit(source));
     groups(functions, active, &Deadline::new(Duration::from_secs(60))).groups
 }
 
-fn both() -> Active {
-    Active::of_rules(RULES)
+fn both() -> ActiveRules {
+    ActiveRules::from_rules(RULES)
 }
 
-fn exact() -> Active {
-    Active::of_rules([&STRUCTURE_DUPLICATE_FUNCTION_BODY])
+fn exact() -> ActiveRules {
+    ActiveRules::from_rules([&STRUCTURE_DUPLICATE_FUNCTION_BODY])
 }
 
 /// A function long enough to pass the floor, parameterized by the names and

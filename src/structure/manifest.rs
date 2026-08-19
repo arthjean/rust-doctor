@@ -27,8 +27,8 @@ use ra_ap_syntax::ast;
 use ra_ap_syntax::{AstNode, AstToken, SyntaxNode, SyntaxToken};
 use serde::Deserialize;
 
-use super::{Active, Deadline, Observation, Unit, is_generated, single_name};
-use crate::policy::{
+use super::{Deadline, Observation, Unit, is_generated, single_name};
+use crate::policy::{ActiveRules, 
     RuleDefinition, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_UNREFERENCED_FEATURE,
 };
 use crate::report::DiagnosticContext;
@@ -82,40 +82,15 @@ struct Reference {
 
 /// Reads one unit for both detectors, off the inventory its single traversal
 /// collected.
-pub(super) fn observe(unit: &Unit<'_>, active: &Active, uses: &mut Uses) {
+pub(super) fn observe(unit: &Unit<'_>, active: &ActiveRules, uses: &mut Uses) {
     let orphans = active.on(&STRUCTURE_ORPHAN_MODULE_FILE);
     let features = active.on(&STRUCTURE_UNREFERENCED_FEATURE);
     if orphans && unit.context == Some(DiagnosticContext::BuildScript) {
-        // Every string literal of the file, and only of this file: a package
-        // has one build script, so the tokens it writes are worth a walk of
-        // their own rather than a bucket every other unit would carry empty.
-        for token in significant(unit.tree.syntax()) {
-            if let Some(literal) = string_value(&token)
-                && literal.ends_with(".rs")
-                && let Some(name) = Path::new(&literal).file_name()
-            {
-                uses.scripted.insert(name.to_string_lossy().into_owned());
-            }
-        }
+        read_scripted_paths(unit, uses);
     }
     if orphans || features {
         for call in &unit.inventory.macro_calls {
-            match call.path().as_ref().and_then(single_name).as_deref() {
-                Some("include") if orphans => {
-                    if let Some(tree) = call.token_tree()
-                        && let Some(literal) = first_string(tree.syntax())
-                        && let Some(path) = included_path(unit.path, &literal)
-                    {
-                        uses.included.insert(path);
-                    }
-                }
-                Some("cfg") if features => {
-                    if let Some(tree) = call.token_tree() {
-                        read_features(unit, &significant(tree.syntax()), call.syntax(), uses);
-                    }
-                }
-                _ => {}
-            }
+            read_macro_call(unit, call, orphans, features, uses);
         }
     }
     if features {
@@ -125,6 +100,49 @@ pub(super) fn observe(unit: &Unit<'_>, active: &Active, uses: &mut Uses) {
                 read_features(unit, &significant(node), node, uses);
             }
         }
+    }
+}
+
+/// Every `.rs` file name a build script writes as a string literal.
+///
+/// Every literal of the file, and only of this file: a package has one build
+/// script, so the tokens it writes are worth a walk of their own rather than a
+/// bucket every other unit would carry empty.
+fn read_scripted_paths(unit: &Unit<'_>, uses: &mut Uses) {
+    for token in significant(unit.tree.syntax()) {
+        if let Some(literal) = string_value(&token)
+            && literal.ends_with(".rs")
+            && let Some(name) = Path::new(&literal).file_name()
+        {
+            uses.scripted.insert(name.to_string_lossy().into_owned());
+        }
+    }
+}
+
+/// What one macro call contributes: the file an `include!` reaches, or the
+/// features a `cfg!` reads.
+fn read_macro_call(
+    unit: &Unit<'_>,
+    call: &ast::MacroCall,
+    orphans: bool,
+    features: bool,
+    uses: &mut Uses,
+) {
+    match call.path().as_ref().and_then(single_name).as_deref() {
+        Some("include") if orphans => {
+            if let Some(tree) = call.token_tree()
+                && let Some(literal) = first_string(tree.syntax())
+                && let Some(path) = included_path(unit.path, &literal)
+            {
+                uses.included.insert(path);
+            }
+        }
+        Some("cfg") if features => {
+            if let Some(tree) = call.token_tree() {
+                read_features(unit, &significant(tree.syntax()), call.syntax(), uses);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -196,7 +214,7 @@ pub(super) struct Findings {
 pub(super) fn findings(
     metadata: &Metadata,
     enumeration: &Enumeration,
-    active: &Active,
+    active: &ActiveRules,
     uses: &Uses,
     deadline: &Deadline,
 ) -> Findings {
@@ -635,8 +653,8 @@ fn whole_file(source: &str) -> SourceSpan {
 mod tests {
     use super::*;
 
-    fn both() -> Active {
-        Active::of_rules(RULES)
+    fn both() -> ActiveRules {
+        ActiveRules::from_rules(RULES)
     }
 
     fn read(source: &str) -> Uses {
@@ -694,7 +712,7 @@ mod tests {
                 "#[cfg(feature = \"one\")]\nfn a() {}\ninclude!(\"other.rs\");\n",
                 "src/lib.rs",
             ),
-            &Active::default(),
+            &ActiveRules::default(),
             &mut uses,
         );
         assert!(uses.features.is_empty());
@@ -706,7 +724,7 @@ mod tests {
                 "#[cfg(feature = \"one\")]\nfn a() {}\ninclude!(\"other.rs\");\n",
                 "src/lib.rs",
             ),
-            &Active::of_rules([&STRUCTURE_ORPHAN_MODULE_FILE]),
+            &ActiveRules::from_rules([&STRUCTURE_ORPHAN_MODULE_FILE]),
             &mut orphans_only,
         );
         assert!(orphans_only.features.is_empty());

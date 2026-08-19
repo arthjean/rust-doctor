@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SyntaxNode};
 
-use super::{Active, Observation, Unit, single_name, test_context};
-use crate::policy::{
+use super::{Observation, Unit, single_name, test_context};
+use crate::policy::{ActiveRules, 
     RuleDefinition, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_STACKED_ALLOW,
     STRUCTURE_UNREASONED_ALLOW,
 };
@@ -35,7 +35,7 @@ pub(super) const RULES: [&RuleDefinition; 3] = [
 /// Every suppression finding of one unit.
 pub(super) fn observe(
     unit: &Unit<'_>,
-    active: &Active,
+    active: &ActiveRules,
 ) -> Vec<(&'static RuleDefinition, Observation)> {
     let mut observations = Vec::new();
     if active.on(&STRUCTURE_UNREASONED_ALLOW) {
@@ -322,7 +322,7 @@ mod tests {
     ) -> Vec<Observation> {
         let mut unit = Unit::probe(source, "src/lib.rs");
         unit.context = context;
-        observe(&unit, &Active::of_rules([rule]))
+        observe(&unit, &ActiveRules::from_rules([rule]))
             .into_iter()
             .map(|(_, observation)| observation)
             .collect()
@@ -516,11 +516,11 @@ mod tests {
     fn each_rule_answers_only_for_itself() {
         let source = "#![allow(dead_code)]\n#[allow(a)]\n#[allow(b)]\nfn stacked() {}";
         let unit = Unit::probe(source, "src/lib.rs");
-        let all = observe(&unit, &Active::of_rules(RULES));
+        let all = observe(&unit, &ActiveRules::from_rules(RULES));
         let mut named: Vec<&str> = all.iter().map(|(rule, _)| rule.id).collect();
         named.sort_unstable();
         named.dedup();
         assert_eq!(named.len(), 3, "{named:?}");
-        assert!(observe(&unit, &Active::default()).is_empty());
+        assert!(observe(&unit, &ActiveRules::default()).is_empty());
     }
 }

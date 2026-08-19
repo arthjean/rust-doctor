@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
@@ -328,6 +328,51 @@ impl PolicyPlan {
         self.rules
             .iter()
             .map(|planned| (planned.definition, planned.level, planned.source))
+    }
+}
+
+/// The rules of one producer that the plan left on.
+///
+/// A producer asks the plan once and reads the answer per finding, rather than
+/// hoisting one boolean per rule at the top of its entry point. A boolean per
+/// rule is a place the next rule has to be declared twice, once to be read and
+/// once to be counted, and the counting is what an eight-clause negated
+/// conjunction used to decide for a whole pass, silently. The set is derived
+/// from the catalog's own `producer` field, so no producer keeps a second list
+/// of the rules it owns.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveRules {
+    on: BTreeSet<&'static str>,
+}
+
+impl ActiveRules {
+    pub(crate) fn of(plan: &PolicyPlan, producer: Producer) -> Self {
+        Self {
+            on: plan
+                .active_rules(producer)
+                .map(|(definition, _)| definition.id)
+                .collect(),
+        }
+    }
+
+    /// The set a test of one family names for itself.
+    #[cfg(test)]
+    pub(crate) fn from_rules(rules: impl IntoIterator<Item = &'static RuleDefinition>) -> Self {
+        Self {
+            on: rules.into_iter().map(|rule| rule.id).collect(),
+        }
+    }
+
+    pub(crate) fn on(&self, rule: &'static RuleDefinition) -> bool {
+        self.on.contains(rule.id)
+    }
+
+    pub(crate) fn any_of(&self, rules: &[&'static RuleDefinition]) -> bool {
+        rules.iter().any(|rule| self.on(rule))
+    }
+
+    pub(crate) fn any(&self) -> bool {
+        !self.on.is_empty()
     }
 }
 
