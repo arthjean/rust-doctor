@@ -677,9 +677,9 @@ fn occurrence_steps_grow_then_saturate_without_panicking() {
         "a bounded step cannot saturate a dimension on its own",
     );
 
-    let ceiling = severity_penalty_quarters(Severity::Error)
-        * OCCURRENCE_STEPS[OCCURRENCE_STEPS.len() - 1].1;
+    let ceiling = severity_penalty_quarters(Severity::Error) * OCCURRENCE_CEILING;
     assert_eq!(dimension_score(ceiling), saturated.dimensions.security);
+    assert_eq!(occurrence_multiplier(usize::MAX), OCCURRENCE_CEILING);
 }
 
 /// Codebase size does not enter the scale: same rule profile and same

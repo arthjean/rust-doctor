@@ -544,25 +544,24 @@ pub(crate) const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
     }
 }
 
-/// Occurrence steps applied to a rule's penalty, published as inclusive upper
-/// bounds.
-pub(crate) const OCCURRENCE_STEPS: [(usize, u64); 4] = [(1, 1), (5, 2), (20, 3), (usize::MAX, 4)];
+/// Occurrence steps applied to a rule's penalty, as inclusive upper bounds.
+const OCCURRENCE_STEPS: [(usize, u64); 3] = [(1, 1), (5, 2), (20, 3)];
+
+/// What a count past the last step multiplies by. Naming the saturation is what removed the
+/// `usize::MAX` sentinel step, and with it the walk that had to index the table back out to
+/// find its own last row.
+const OCCURRENCE_CEILING: u64 = 4;
 
 /// Full scale of an adjudicated rate, matching the basis points the corpus
 /// publishes.
 const BASIS_POINTS: u64 = 10_000;
 
-/// Saturating multiplier: a rule can never go past the last step, whatever its
-/// occurrence count.
-pub(crate) const fn occurrence_multiplier(occurrences: usize) -> u64 {
-    let mut index = 0;
-    while index < OCCURRENCE_STEPS.len() {
-        if occurrences <= OCCURRENCE_STEPS[index].0 {
-            return OCCURRENCE_STEPS[index].1;
-        }
-        index += 1;
-    }
-    OCCURRENCE_STEPS[OCCURRENCE_STEPS.len() - 1].1
+/// Saturating multiplier: a rule can never go past the ceiling, whatever its occurrence count.
+fn occurrence_multiplier(occurrences: usize) -> u64 {
+    OCCURRENCE_STEPS
+        .into_iter()
+        .find_map(|(bound, multiplier)| (occurrences <= bound).then_some(multiplier))
+        .unwrap_or(OCCURRENCE_CEILING)
 }
 
 const fn capped(value: u8, ceiling: Option<u8>) -> u8 {
@@ -601,7 +600,7 @@ pub(crate) const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 
 impl RuleAggregate {
     /// Penalty in quarter points, scored severity times occurrence step.
-    pub(crate) const fn penalty_quarters(&self) -> u64 {
+    pub(crate) fn penalty_quarters(&self) -> u64 {
         match self.scored_severity {
             Some(severity) => severity_penalty_quarters(severity)
                 .saturating_mul(occurrence_multiplier(self.occurrences)),
@@ -609,7 +608,7 @@ impl RuleAggregate {
         }
     }
 
-    pub(crate) const fn contribution(&self) -> u64 {
+    pub(crate) fn contribution(&self) -> u64 {
         match self.dimension {
             Some(dimension) => self
                 .penalty_quarters()
@@ -628,7 +627,7 @@ impl RuleAggregate {
     /// and, on a rule measured at zero true positives, is advice to change
     /// correct code. An unmeasured rule keeps its full contribution: no
     /// measurement is not evidence of noise.
-    const fn expected_repair_value(&self) -> u64 {
+    fn expected_repair_value(&self) -> u64 {
         let kept = match self.noise {
             Some(noise) => BASIS_POINTS.saturating_sub(noise as u64),
             None => BASIS_POINTS,
