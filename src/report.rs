@@ -374,7 +374,7 @@ impl DiagnosticContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticSource {
     Rustc,
@@ -384,7 +384,7 @@ pub enum DiagnosticSource {
 }
 
 impl DiagnosticSource {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Rustc => "rustc",
             Self::Clippy => "clippy",
