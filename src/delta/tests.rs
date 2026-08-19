@@ -1,6 +1,7 @@
 use super::*;
 use crate::report::{DiagnosticSource, Severity};
-use serde_json::{Value, json};
+
+mod oracle;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
@@ -9,12 +10,96 @@ fn root(name: &str) -> PathBuf {
     let sequence = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target/delta-kernel")
-        .join(format!("{name}-{sequence}"));
+        .join(format!("{}-{name}-{sequence}", std::process::id()));
     if root.exists() {
         fs::remove_dir_all(&root).unwrap();
     }
     fs::create_dir_all(root.join("src")).unwrap();
     root
+}
+
+/// The line every oracle case starts from on both sides.
+const ORIGINAL: &str = "todo!();\n";
+
+/// A scratch tree removed when the test that made it ends.
+///
+/// Deleting at the end of a body leaves the tree behind on exactly the run whose
+/// fixture is worth keeping out of the next one: the one whose assertion failed.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn write_source(root: &Path, path: &str, source: &str) {
+    let path = root.join(path);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, source).unwrap();
+}
+
+/// Two source trees and the two diagnostic lists compared over them.
+///
+/// Naming the trees, writing them, listing the diagnostics, computing the delta
+/// and removing the trees is the whole shape of a test here, and spelling it out
+/// in each of them is what made three of them near-duplicates of one another.
+struct Scenario {
+    baseline_root: Scratch,
+    current_root: Scratch,
+    baseline: Vec<Diagnostic>,
+    current: Vec<Diagnostic>,
+}
+
+impl Scenario {
+    fn new(name: &str) -> Self {
+        Self::at(
+            root(&format!("{name}-base")),
+            root(&format!("{name}-current")),
+        )
+    }
+
+    /// A scenario under an existing pair of parents, which is how the oracle
+    /// keeps its thirty-two cases side by side.
+    fn under(baseline_parent: &Path, current_parent: &Path, name: &str) -> Self {
+        let baseline_root = baseline_parent.join(name);
+        let current_root = current_parent.join(name);
+        fs::create_dir_all(&baseline_root).unwrap();
+        fs::create_dir_all(&current_root).unwrap();
+        Self::at(baseline_root, current_root)
+    }
+
+    fn at(baseline_root: PathBuf, current_root: PathBuf) -> Self {
+        Self {
+            baseline_root: Scratch(baseline_root),
+            current_root: Scratch(current_root),
+            baseline: Vec::new(),
+            current: Vec::new(),
+        }
+    }
+
+    fn write_baseline(&self, path: &str, source: &str) {
+        write_source(&self.baseline_root.0, path, source);
+    }
+
+    fn write_current(&self, path: &str, source: &str) {
+        write_source(&self.current_root.0, path, source);
+    }
+
+    fn write_both(&self, path: &str, source: &str) {
+        self.write_baseline(path, source);
+        self.write_current(path, source);
+    }
+
+    fn delta(&self) -> DeltaReport {
+        compute(
+            &self.baseline,
+            &self.current,
+            &self.baseline_root.0,
+            &self.current_root.0,
+        )
+        .unwrap()
+    }
 }
 
 fn diagnostic(id: &str, path: Option<&str>, span: Option<DiagnosticSpan>) -> Diagnostic {
@@ -49,18 +134,7 @@ fn span(line: usize, start: usize, end: usize) -> DiagnosticSpan {
 }
 
 fn test_proof(source: &str, span: &DiagnosticSpan, remaining_budget: usize) -> Option<String> {
-    let requested = [
-        SourcePosition {
-            line: span.line_start,
-            column: span.column_start,
-        },
-        SourcePosition {
-            line: span.line_end,
-            column: span.column_end,
-        },
-    ];
-    let offsets = resolve_positions(source, &requested);
-    extract_proof(source, span, &offsets, remaining_budget)
+    extract_proof(source, &LineIndex::of(source), span, remaining_budget)
 }
 
 #[test]
@@ -74,13 +148,13 @@ fn proof_normalizes_unicode_whitespace_and_rejects_invalid_or_oversized_ranges()
             line_end: 2,
             column_end: 22,
         },
-        EVIDENCE_BYTES_LIMIT,
+        PROOF_BYTES_BUDGET,
     )
     .unwrap();
     assert_eq!(proof, "todo!( \"échec\" ) ;");
     let lf = "préfixe\n\t todo!(  \"échec\" ) ;\n";
     assert_eq!(
-        test_proof(lf, &span(2, 1, 22), EVIDENCE_BYTES_LIMIT).unwrap(),
+        test_proof(lf, &span(2, 1, 22), PROOF_BYTES_BUDGET).unwrap(),
         proof,
         "CRLF and LF must normalize identically"
     );
@@ -94,115 +168,265 @@ fn proof_normalizes_unicode_whitespace_and_rejects_invalid_or_oversized_ranges()
                 line_end: 3,
                 column_end: 9,
             },
-            EVIDENCE_BYTES_LIMIT,
+            PROOF_BYTES_BUDGET,
         )
         .unwrap(),
         "call( value, other)"
     );
-    assert!(test_proof(source, &span(0, 1, 2), EVIDENCE_BYTES_LIMIT).is_none());
-    assert!(test_proof(source, &span(2, 22, 1), EVIDENCE_BYTES_LIMIT).is_none());
+    assert!(test_proof(source, &span(0, 1, 2), PROOF_BYTES_BUDGET).is_none());
+    assert!(test_proof(source, &span(2, 22, 1), PROOF_BYTES_BUDGET).is_none());
 
     let oversized = "x".repeat(PROOF_BYTES_LIMIT + 1);
     assert!(
         test_proof(
             &oversized,
             &span(1, 1, PROOF_BYTES_LIMIT.saturating_add(2)),
-            EVIDENCE_BYTES_LIMIT,
+            PROOF_BYTES_BUDGET,
         )
         .is_none()
     );
 }
 
-#[test]
-fn same_file_matching_precedes_cross_file_and_preserves_copies() {
-    let baseline_root = root("copy-base");
-    let current_root = root("copy-current");
-    fs::write(baseline_root.join("src/original.rs"), "todo!();\n").unwrap();
-    fs::write(current_root.join("src/original.rs"), "todo!();\n").unwrap();
-    fs::write(current_root.join("src/a_copy.rs"), "todo!();\n").unwrap();
-    let baseline = vec![diagnostic(
-        "base-original",
-        Some("src/original.rs"),
-        Some(span(1, 1, 8)),
-    )];
-    let current = vec![
-        diagnostic("current-copy", Some("src/a_copy.rs"), Some(span(1, 1, 8))),
-        diagnostic(
-            "current-original",
-            Some("src/original.rs"),
-            Some(span(1, 1, 8)),
-        ),
-    ];
+/// What a delta is expected to say, as the three lists a reader checks.
+#[derive(Debug, PartialEq, Eq)]
+struct Verdict {
+    introduced: Vec<String>,
+    /// Each pairing as the current id and the baseline id it was matched with.
+    pre_existing: Vec<(String, String)>,
+    fixed: Vec<String>,
+    cross_file_matches: usize,
+}
 
-    let delta = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
+fn verdict(
+    introduced: &[&str],
+    pre_existing: &[(&str, &str)],
+    fixed: &[&str],
+    cross_file_matches: usize,
+) -> Verdict {
+    Verdict {
+        introduced: introduced.iter().map(|id| (*id).to_owned()).collect(),
+        pre_existing: pre_existing
+            .iter()
+            .map(|(current, baseline)| ((*current).to_owned(), (*baseline).to_owned()))
+            .collect(),
+        fixed: fixed.iter().map(|id| (*id).to_owned()).collect(),
+        cross_file_matches,
+    }
+}
 
-    assert_eq!(delta.introduced, ["current-copy"]);
-    assert_eq!(delta.pre_existing.len(), 1);
-    assert_eq!(delta.pre_existing[0].current_id, "current-original");
-    assert_eq!(delta.pre_existing[0].baseline_id, "base-original");
-    assert_eq!(delta.summary.cross_file_matches, 0);
-    assert!(delta.fixed.is_empty());
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
+/// One named comparison and the verdict it has to produce.
+///
+/// Writing two trees, naming two diagnostic lists and checking three vectors is
+/// one shape, and the six tests that each spelled it out were near-duplicates of
+/// one another and of nothing else. The shape is written once here and the cases
+/// are data, which is what the thirty-two-case oracle below already does.
+struct MatchingCase {
+    name: &'static str,
+    build: fn(&mut Scenario),
+    expected: Verdict,
+}
+
+impl Scenario {
+    fn verdict(&self) -> Verdict {
+        let delta = self.delta();
+        Verdict {
+            introduced: delta.introduced,
+            pre_existing: delta
+                .pre_existing
+                .into_iter()
+                .map(|matched| (matched.current_id, matched.baseline_id))
+                .collect(),
+            fixed: delta
+                .fixed
+                .into_iter()
+                .map(|diagnostic| diagnostic.id)
+                .collect(),
+            cross_file_matches: delta.summary.cross_file_matches,
+        }
+    }
+}
+
+/// What makes two diagnostics one finding, and what is deliberately left out of
+/// that answer.
+fn identity_cases() -> Vec<MatchingCase> {
+    vec![
+        MatchingCase {
+            name: "severity is not part of the identity",
+            build: |scenario| {
+                scenario.baseline = vec![diagnostic("base", None, None)];
+                scenario.current = vec![diagnostic("current", None, None)];
+                scenario.current[0].severity = Severity::Error;
+            },
+            expected: verdict(&[], &[("current", "base")], &[], 0),
+        },
+        MatchingCase {
+            name: "the rule is part of the identity",
+            build: |scenario| {
+                scenario.baseline = vec![diagnostic("base", None, None)];
+                scenario.current = vec![diagnostic("current", None, None)];
+                scenario.current[0].code = Some("clippy::dbg_macro".to_owned());
+            },
+            expected: verdict(&["current"], &[], &["base"], 0),
+        },
+        MatchingCase {
+            name: "the message is part of the identity",
+            build: |scenario| {
+                scenario.baseline = vec![diagnostic("base", None, None)];
+                scenario.current = vec![diagnostic("current", None, None)];
+                scenario.baseline[0].message = "old message".to_owned();
+            },
+            expected: verdict(&["current"], &[], &["base"], 0),
+        },
+        MatchingCase {
+            name: "changed code under an unchanged span is a different finding",
+            build: |scenario| {
+                scenario.write_baseline("src/changed.rs", ORIGINAL);
+                scenario.write_current("src/changed.rs", "todo!(\"changed\");\n");
+                scenario.baseline = vec![diagnostic(
+                    "base",
+                    Some("src/changed.rs"),
+                    Some(span(1, 1, 8)),
+                )];
+                scenario.current = vec![diagnostic(
+                    "current",
+                    Some("src/changed.rs"),
+                    Some(span(1, 1, 18)),
+                )];
+            },
+            expected: verdict(&["current"], &[], &["base"], 0),
+        },
+        // `workspace_path` percent-encodes `%` and every control character of a
+        // published path. Opening the published spelling literally resolved to
+        // no file at all, so every finding in a file whose name carries one
+        // silently lost its proof and fell back to its message, which is the
+        // weakest identity the module has. Here the two excerpts differ, so a
+        // proof that was read says introduced and a proof that was not says
+        // pre-existing.
+        MatchingCase {
+            name: "an encoded path is decoded before the evidence is read",
+            build: |scenario| {
+                scenario.write_baseline("src/100%.rs", "todo!(\"old\");\n");
+                scenario.write_current("src/100%.rs", "todo!(\"new\");\n");
+                let published = "src/100%25.rs";
+                scenario.baseline = vec![diagnostic("base", Some(published), Some(span(1, 1, 14)))];
+                scenario.current =
+                    vec![diagnostic("current", Some(published), Some(span(1, 1, 14)))];
+            },
+            expected: verdict(&["current"], &[], &["base"], 0),
+        },
+    ]
+}
+
+/// The order the passes run in, on the inputs that put two of them in
+/// competition.
+fn pairing_cases() -> Vec<MatchingCase> {
+    vec![
+        MatchingCase {
+            name: "a copy does not consume the original",
+            build: |scenario| {
+                scenario.write_both("src/original.rs", ORIGINAL);
+                scenario.write_current("src/a_copy.rs", ORIGINAL);
+                scenario.baseline = vec![diagnostic(
+                    "base-original",
+                    Some("src/original.rs"),
+                    Some(span(1, 1, 8)),
+                )];
+                scenario.current = vec![
+                    diagnostic("current-copy", Some("src/a_copy.rs"), Some(span(1, 1, 8))),
+                    diagnostic(
+                        "current-original",
+                        Some("src/original.rs"),
+                        Some(span(1, 1, 8)),
+                    ),
+                ];
+            },
+            expected: verdict(
+                &["current-copy"],
+                &[("current-original", "base-original")],
+                &[],
+                0,
+            ),
+        },
+        MatchingCase {
+            name: "the same proof in another file is a move",
+            build: |scenario| {
+                scenario.write_baseline("src/old.rs", ORIGINAL);
+                scenario.write_current("src/moved.rs", ORIGINAL);
+                scenario.baseline =
+                    vec![diagnostic("base", Some("src/old.rs"), Some(span(1, 1, 8)))];
+                scenario.current = vec![diagnostic(
+                    "moved",
+                    Some("src/moved.rs"),
+                    Some(span(1, 1, 8)),
+                )];
+            },
+            expected: verdict(&[], &[("moved", "base")], &[], 1),
+        },
+        // A finding whose proof could not be read falls back to its message on
+        // its own file; a finding that moved carries its proof to another file.
+        // When both claim the same baseline the message match on the original
+        // file wins, because the moved pass runs last. That is a decision rather
+        // than a consequence, and reversing the two would report the move as
+        // pre-existing and the proofless finding as introduced. It is asserted
+        // so changing it is a moved expectation rather than a silent shift in
+        // what `--scope baseline` calls new.
+        MatchingCase {
+            name: "a message match on the original file wins over a moved proof",
+            build: |scenario| {
+                scenario.write_both("src/old.rs", ORIGINAL);
+                scenario.write_current("src/new.rs", ORIGINAL);
+                scenario.baseline =
+                    vec![diagnostic("base", Some("src/old.rs"), Some(span(1, 1, 8)))];
+                scenario.current = vec![
+                    // No span, so no proof: only its message can identify it.
+                    diagnostic("unproven", Some("src/old.rs"), None),
+                    // The proof the baseline carries, in another file.
+                    diagnostic("moved", Some("src/new.rs"), Some(span(1, 1, 8))),
+                ];
+            },
+            expected: verdict(&["moved"], &[("unproven", "base")], &[], 0),
+        },
+        MatchingCase {
+            name: "two findings with no path at all pair on their message",
+            build: |scenario| {
+                scenario.baseline = vec![diagnostic("base", None, None)];
+                scenario.current = vec![diagnostic("current", None, None)];
+            },
+            expected: verdict(&[], &[("current", "base")], &[], 0),
+        },
+        MatchingCase {
+            name: "a proofless finding does not pair across paths",
+            build: |scenario| {
+                scenario.baseline = vec![diagnostic("base", None, None)];
+                scenario.current = vec![diagnostic("moved", Some("src/missing.rs"), None)];
+            },
+            expected: verdict(&["moved"], &[], &["base"], 0),
+        },
+    ]
 }
 
 #[test]
-fn move_matches_cross_file_but_changed_proof_is_fixed_and_introduced() {
-    let baseline_root = root("move-base");
-    let current_root = root("move-current");
-    fs::write(baseline_root.join("src/old.rs"), "todo!();\n").unwrap();
-    fs::write(current_root.join("src/moved.rs"), "todo!();\n").unwrap();
-    fs::write(current_root.join("src/changed.rs"), "todo!(\"changed\");\n").unwrap();
-    let baseline = vec![diagnostic("base", Some("src/old.rs"), Some(span(1, 1, 8)))];
-    let moved = vec![diagnostic(
-        "moved",
-        Some("src/moved.rs"),
-        Some(span(1, 1, 8)),
-    )];
-    let delta = compute(&baseline, &moved, &baseline_root, &current_root).unwrap();
-    assert!(delta.introduced.is_empty());
-    assert_eq!(delta.pre_existing.len(), 1);
-    assert_eq!(delta.summary.cross_file_matches, 1);
-
-    let changed = vec![diagnostic(
-        "changed",
-        Some("src/changed.rs"),
-        Some(span(1, 1, 18)),
-    )];
-    let delta = compute(&baseline, &changed, &baseline_root, &current_root).unwrap();
-    assert_eq!(delta.introduced, ["changed"]);
-    assert!(delta.pre_existing.is_empty());
-    assert_eq!(delta.fixed[0].id, "base");
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
-}
-
-#[test]
-fn unavailable_evidence_uses_only_same_path_source_code_and_message() {
-    let baseline_root = root("fallback-base");
-    let current_root = root("fallback-current");
-    let baseline = vec![diagnostic("base", None, None)];
-    let current = vec![diagnostic("current", None, None)];
-    let delta = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
-    assert_eq!(delta.pre_existing.len(), 1);
-
-    let moved = vec![diagnostic("moved", Some("src/missing.rs"), None)];
-    let delta = compute(&baseline, &moved, &baseline_root, &current_root).unwrap();
-    assert_eq!(delta.introduced, ["moved"]);
-    assert_eq!(delta.fixed[0].id, "base");
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
+fn every_matching_case_produces_the_verdict_it_names() {
+    for (index, case) in identity_cases()
+        .into_iter()
+        .chain(pairing_cases())
+        .enumerate()
+    {
+        let mut scenario = Scenario::new(&format!("case-{index:02}"));
+        (case.build)(&mut scenario);
+        assert_eq!(scenario.verdict(), case.expected, "case: {}", case.name);
+    }
 }
 
 #[test]
 fn source_file_over_the_source_kernel_bound_is_not_read() {
-    let root = root("source-limit");
-    let path = root.join("src/large.rs");
+    let root = Scratch(root("source-limit"));
+    let path = root.0.join("src/large.rs");
     File::create(&path)
         .unwrap()
         .set_len((SOURCE_FILE_BYTES_LIMIT + 1) as u64)
         .unwrap();
-    let mut loader = EvidenceLoader::new(&root);
+    let mut loader = EvidenceLoader::new(&root.0);
     let canonical_root = loader.root.clone().unwrap();
 
     assert!(
@@ -212,107 +436,53 @@ fn source_file_over_the_source_kernel_bound_is_not_read() {
     );
     assert_eq!(loader.source_bytes_read, 0);
     assert_eq!(loader.proof_bytes, 0);
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn aggregate_proof_budget_disables_the_first_excess_proof() {
-    let root = root("proof-budget");
-    fs::write(root.join("src/lib.rs"), "x\n").unwrap();
-    let mut loader = EvidenceLoader::new(&root);
-    loader.proof_bytes = EVIDENCE_BYTES_LIMIT;
+    let root = Scratch(root("proof-budget"));
+    fs::write(root.0.join("src/lib.rs"), "x\n").unwrap();
+    let mut loader = EvidenceLoader::new(&root.0);
+    loader.proof_bytes = PROOF_BYTES_BUDGET;
     let source = "x\n";
-    let requested = [
-        SourcePosition { line: 1, column: 1 },
-        SourcePosition { line: 1, column: 2 },
-    ];
-    let offsets = resolve_positions(source, &requested);
+    let lines = LineIndex::of(source);
 
-    assert!(loader.proof(source, &span(1, 1, 2), &offsets).is_none());
-    assert_eq!(loader.proof_bytes, EVIDENCE_BYTES_LIMIT);
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn severity_is_excluded_but_code_and_message_are_included() {
-    let baseline_root = root("domain-base");
-    let current_root = root("domain-current");
-    let mut baseline = diagnostic("base", None, None);
-    let mut current = diagnostic("current", None, None);
-    current.severity = Severity::Error;
-    let delta = compute(
-        std::slice::from_ref(&baseline),
-        std::slice::from_ref(&current),
-        &baseline_root,
-        &current_root,
-    )
-    .unwrap();
-    assert_eq!(delta.pre_existing.len(), 1);
-
-    current.code = Some("clippy::dbg_macro".to_owned());
-    let delta = compute(
-        std::slice::from_ref(&baseline),
-        std::slice::from_ref(&current),
-        &baseline_root,
-        &current_root,
-    )
-    .unwrap();
-    assert_eq!(delta.introduced, ["current"]);
-    current.code = baseline.code.clone();
-    baseline.message = "old message".to_owned();
-    let delta = compute(
-        std::slice::from_ref(&baseline),
-        std::slice::from_ref(&current),
-        &baseline_root,
-        &current_root,
-    )
-    .unwrap();
-    assert_eq!(delta.introduced, ["current"]);
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
+    assert!(loader.proof(source, &lines, &span(1, 1, 2)).is_none());
+    assert_eq!(loader.proof_bytes, PROOF_BYTES_BUDGET);
 }
 
 #[test]
 fn fallback_matching_reserves_unavailable_baselines_for_available_currents() {
-    let baseline = vec![
+    let baseline = [
         diagnostic("base-unavailable", None, None),
         diagnostic("base-stable", None, None),
     ];
-    let current = vec![
+    let current = [
         diagnostic("current-unavailable", None, None),
         diagnostic("current-stable", None, None),
     ];
     let baseline_candidates = vec![
         Candidate {
-            path: None,
-            fallback: fallback_key(&baseline[0]),
+            diagnostic: &baseline[0],
             fingerprint: None,
         },
         Candidate {
-            path: None,
-            fallback: fallback_key(&baseline[1]),
+            diagnostic: &baseline[1],
             fingerprint: Some(DeltaFingerprintV1([1; 32])),
         },
     ];
     let current_candidates = vec![
         Candidate {
-            path: None,
-            fallback: fallback_key(&current[0]),
+            diagnostic: &current[0],
             fingerprint: None,
         },
         Candidate {
-            path: None,
-            fallback: fallback_key(&current[1]),
+            diagnostic: &current[1],
             fingerprint: Some(DeltaFingerprintV1([2; 32])),
         },
     ];
 
-    let delta = match_candidates(
-        &baseline,
-        &current,
-        &baseline_candidates,
-        &current_candidates,
-    );
+    let delta = match_candidates(&baseline_candidates, &current_candidates);
 
     assert_eq!(delta.pre_existing.len(), 2);
     assert!(delta.introduced.is_empty());
@@ -321,313 +491,32 @@ fn fallback_matching_reserves_unavailable_baselines_for_available_currents() {
 
 #[test]
 fn multiset_matching_is_deterministic_and_bounded() {
-    let baseline_root = root("multiset-base");
-    let current_root = root("multiset-current");
-    let baseline = (0..32)
+    let mut scenario = Scenario::new("multiset");
+    scenario.baseline = (0..32)
         .map(|index| diagnostic(&format!("base-{index:02}"), None, None))
         .collect::<Vec<_>>();
-    let current = (0..40)
+    scenario.current = (0..40)
         .map(|index| diagnostic(&format!("current-{index:02}"), None, None))
         .collect::<Vec<_>>();
-    let expected = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
+    let expected = scenario.delta();
     for _ in 0..20 {
-        assert_eq!(
-            compute(&baseline, &current, &baseline_root, &current_root).unwrap(),
-            expected
-        );
+        assert_eq!(scenario.delta(), expected);
     }
     assert_eq!(expected.pre_existing.len(), 32);
     assert_eq!(expected.introduced.len(), 8);
     assert!(expected.fixed.is_empty());
 
-    let over_limit = vec![diagnostic("same", None, None); DIAGNOSTIC_LIMIT + 1];
-    let error = compute(&over_limit, &[], &baseline_root, &current_root).unwrap_err();
+    scenario.baseline = vec![diagnostic("same", None, None); DIAGNOSTIC_LIMIT + 1];
+    scenario.current = Vec::new();
+    let error = compute(
+        &scenario.baseline,
+        &scenario.current,
+        &scenario.baseline_root.0,
+        &scenario.current_root.0,
+    )
+    .unwrap_err();
     assert_eq!(error.stage, "delta");
     assert_eq!(error.code, "delta-limit-exceeded");
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
-}
-
-fn write_source(root: &Path, path: &str, source: &str) {
-    let path = root.join(path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, source).unwrap();
-}
-
-fn line_span(line: usize, source: &str) -> DiagnosticSpan {
-    let content = source.trim_end_matches('\n').trim_end_matches('\r');
-    span(line, 1, content.chars().count() + 1)
-}
-
-fn oracle_case(
-    index: usize,
-    baseline_parent: &Path,
-    current_parent: &Path,
-) -> (String, DeltaReport) {
-    let baseline_root = baseline_parent.join(format!("{index:02}"));
-    let current_root = current_parent.join(format!("{index:02}"));
-    fs::create_dir_all(&baseline_root).unwrap();
-    fs::create_dir_all(&current_root).unwrap();
-
-    let original = "todo!();\n";
-    write_source(&baseline_root, "src/original.rs", original);
-    write_source(&current_root, "src/original.rs", original);
-    let mut baseline = vec![diagnostic(
-        &format!("base-{index:02}"),
-        Some("src/original.rs"),
-        Some(span(1, 1, 8)),
-    )];
-    let mut current = vec![diagnostic(
-        &format!("current-{index:02}"),
-        Some("src/original.rs"),
-        Some(span(1, 1, 8)),
-    )];
-
-    let name = match index {
-        0 => {
-            let evidence = "let café = todo!();\n";
-            write_source(&baseline_root, "src/original.rs", evidence);
-            write_source(
-                &current_root,
-                "src/original.rs",
-                &format!("// shifted\n{evidence}"),
-            );
-            baseline[0].span = Some(line_span(1, evidence));
-            current[0].span = Some(line_span(2, evidence));
-            "unicode".to_owned()
-        }
-        1 => {
-            let baseline_source = "\t todo!(  \"échec\" ) ;\r\n";
-            let current_source = "todo!( \"échec\" ) ;\n";
-            write_source(&baseline_root, "src/original.rs", baseline_source);
-            write_source(&current_root, "src/original.rs", current_source);
-            baseline[0].span = Some(line_span(1, baseline_source));
-            current[0].span = Some(line_span(1, current_source));
-            "crlf-lf".to_owned()
-        }
-        2 => {
-            let baseline_source = "todo!(\t\"tabs\" );\n";
-            let current_source = "todo!( \"tabs\" );\n";
-            write_source(&baseline_root, "src/original.rs", baseline_source);
-            write_source(&current_root, "src/original.rs", current_source);
-            baseline[0].span = Some(line_span(1, baseline_source));
-            current[0].span = Some(line_span(1, current_source));
-            "tabs".to_owned()
-        }
-        3 => {
-            let baseline_source = "call(\n\tvalue,\nother)\n";
-            let current_source = "call( \n value,\t\nother)\n";
-            write_source(&baseline_root, "src/original.rs", baseline_source);
-            write_source(&current_root, "src/original.rs", current_source);
-            baseline[0].span = Some(DiagnosticSpan {
-                line_start: 1,
-                column_start: 1,
-                line_end: 3,
-                column_end: 7,
-            });
-            current[0].span = baseline[0].span.clone();
-            "multiline-span".to_owned()
-        }
-        4 => {
-            let source = "todo!();\ntodo!();\n";
-            write_source(&baseline_root, "src/original.rs", source);
-            write_source(&current_root, "src/original.rs", source);
-            baseline.push(diagnostic(
-                "base-duplicate",
-                Some("src/original.rs"),
-                Some(span(2, 1, 8)),
-            ));
-            current.push(diagnostic(
-                "current-duplicate",
-                Some("src/original.rs"),
-                Some(span(2, 1, 8)),
-            ));
-            "duplicates".to_owned()
-        }
-        5 => {
-            write_source(&current_root, "src/copy.rs", original);
-            current.insert(
-                0,
-                diagnostic("current-copy", Some("src/copy.rs"), Some(span(1, 1, 8))),
-            );
-            "copies".to_owned()
-        }
-        6 => {
-            baseline[0].code = None;
-            current[0].code = None;
-            "nullable-code".to_owned()
-        }
-        7 => {
-            current[0].severity = Severity::Error;
-            "severity-excluded".to_owned()
-        }
-        8..=15 => {
-            let moved_path = format!("src/moved-{:02}.rs", index - 8);
-            write_source(&current_root, &moved_path, " todo!();\n");
-            current[0].path = Some(moved_path);
-            current[0].span = Some(span(1, 2, 9));
-            format!("cross-file-stable-{:02}", index - 8)
-        }
-        16 => {
-            baseline[0].path = None;
-            baseline[0].span = None;
-            current[0].path = None;
-            current[0].span = None;
-            "pathless-fallback".to_owned()
-        }
-        17 => {
-            baseline[0].path = Some("src/missing.rs".to_owned());
-            current[0].path = Some("src/missing.rs".to_owned());
-            "missing-source-fallback".to_owned()
-        }
-        18 => {
-            let path = "src/current-only.rs";
-            write_source(&current_root, path, original);
-            baseline[0].path = Some(path.to_owned());
-            current[0].path = Some(path.to_owned());
-            "baseline-unavailable-fallback".to_owned()
-        }
-        19 => {
-            let path = "src/baseline-only.rs";
-            write_source(&baseline_root, path, original);
-            baseline[0].path = Some(path.to_owned());
-            current[0].path = Some(path.to_owned());
-            "current-unavailable-fallback".to_owned()
-        }
-        20..=23 => {
-            let prefix = if index == 23 {
-                "shared-prefix-shared-prefix-shared-prefix"
-            } else {
-                "evidence"
-            };
-            let baseline_source = format!("{prefix}-old\n");
-            let current_source = format!("{prefix}-new\n");
-            write_source(&baseline_root, "src/original.rs", &baseline_source);
-            write_source(&current_root, "src/original.rs", &current_source);
-            baseline[0].span = Some(line_span(1, &baseline_source));
-            current[0].span = Some(line_span(1, &current_source));
-            format!("changed-evidence-{:02}", index - 20)
-        }
-        24 => {
-            baseline[0].message = "old message".to_owned();
-            current[0].message = "new message".to_owned();
-            "changed-message-00".to_owned()
-        }
-        25 => {
-            current[0].code = Some("clippy::dbg_macro".to_owned());
-            "changed-code-00".to_owned()
-        }
-        26 => {
-            current[0].source = DiagnosticSource::Rustc;
-            "changed-source-00".to_owned()
-        }
-        27 => {
-            baseline[0].message = "shared prefix old".to_owned();
-            current[0].message = "shared prefix new".to_owned();
-            "changed-message-prefix-00".to_owned()
-        }
-        28..=29 => {
-            baseline.clear();
-            format!("introduced-only-{:02}", index - 28)
-        }
-        30..=31 => {
-            current.clear();
-            format!("fixed-only-{:02}", index - 30)
-        }
-        _ => unreachable!(),
-    };
-
-    let delta = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
-    (name, delta)
-}
-
-fn oracle_document(baseline_root: &Path, current_root: &Path) -> Value {
-    let cases = (0..32)
-        .map(|index| {
-            let (name, delta) = oracle_case(index, baseline_root, current_root);
-            json!({
-                "name": name,
-                "introduced": delta.summary.introduced,
-                "pre_existing": delta.summary.pre_existing,
-                "fixed": delta.summary.fixed,
-                "cross_file_matches": delta.summary.cross_file_matches,
-            })
-        })
-        .collect::<Vec<_>>();
-    json!({
-        "schema_version": 1,
-        "fingerprint_version": FINGERPRINT_VERSION,
-        "runs": 20,
-        "features": [
-            "unicode",
-            "crlf-lf",
-            "tabs",
-            "multiline-span",
-            "pathless",
-            "duplicates",
-            "copies",
-            "prefix-collisions",
-        ],
-        "cases": cases,
-    })
-}
-
-#[test]
-fn adversarial_oracle_runs_the_complete_kernel_for_32_cases_and_20_identical_runs() {
-    let baseline_root = root("oracle-base");
-    let current_root = root("oracle-current");
-    let actual = oracle_document(&baseline_root, &current_root);
-    for _ in 1..20 {
-        assert_eq!(
-            oracle_document(&baseline_root, &current_root),
-            actual,
-            "the complete evidence and matching kernel must be deterministic",
-        );
-    }
-
-    let fixture_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/baseline/delta-oracle.json");
-    if std::env::var_os("RUST_DOCTOR_UPDATE_DELTA_ORACLE").is_some() {
-        fs::write(
-            &fixture_path,
-            format!("{}\n", serde_json::to_string_pretty(&actual).unwrap()),
-        )
-        .unwrap();
-    }
-    let expected: Value = serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
-    assert_eq!(actual, expected);
-}
-
-/// A path the report publishes is encoded, so the evidence loader decodes it
-/// back before it opens anything.
-///
-/// `workspace_path` percent-encodes `%` and every control character of a
-/// published path. Opening the published spelling literally resolved to no file
-/// at all, so every finding in a file whose name carries one silently lost its
-/// proof and fell back to its message, which is the weakest identity the module
-/// has. The two excerpts differ here, so a proof that was read says introduced
-/// and a proof that was not says pre-existing.
-#[test]
-fn an_encoded_path_is_decoded_before_the_evidence_is_read() {
-    let baseline_root = root("encoded-base");
-    let current_root = root("encoded-current");
-    fs::write(baseline_root.join("src/100%.rs"), "todo!(\"old\");\n").unwrap();
-    fs::write(current_root.join("src/100%.rs"), "todo!(\"new\");\n").unwrap();
-
-    let published = "src/100%25.rs";
-    let baseline = vec![diagnostic("base", Some(published), Some(span(1, 1, 14)))];
-    let current = vec![diagnostic("current", Some(published), Some(span(1, 1, 14)))];
-
-    let delta = compute(&baseline, &current, &baseline_root, &current_root).unwrap();
-
-    assert_eq!(delta.introduced, ["current"], "{delta:?}");
-    assert_eq!(delta.fixed.len(), 1, "{delta:?}");
-    assert_eq!(delta.fixed[0].id, "base", "{delta:?}");
-
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
 }
 
 /// US-003: a structural finding is matched on the identity its own pass
@@ -640,8 +529,9 @@ fn an_encoded_path_is_decoded_before_the_evidence_is_read() {
 /// as fixed, which is the opposite of what a baseline scope is asked for.
 #[test]
 fn a_structural_finding_survives_the_count_its_message_states() {
-    let baseline_root = root("structural-baseline");
-    let current_root = root("structural-current");
+    let scenario = Scenario::new("structural");
+    let baseline_root = &scenario.baseline_root.0;
+    let current_root = &scenario.current_root.0;
 
     let mut before = diagnostic("family", Some("src/lib.rs"), Some(span(1, 1, 2)));
     before.source = DiagnosticSource::RustDoctor;
@@ -653,8 +543,8 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     let delta = compute(
         std::slice::from_ref(&before),
         &[grown],
-        &baseline_root,
-        &current_root,
+        baseline_root,
+        current_root,
     )
     .unwrap();
     assert_eq!(delta.summary.introduced, 0, "{delta:?}");
@@ -669,8 +559,8 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     let delta = compute(
         std::slice::from_ref(&before),
         &[moved],
-        &baseline_root,
-        &current_root,
+        baseline_root,
+        current_root,
     )
     .unwrap();
     assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
@@ -681,9 +571,57 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     let site = diagnostic("site", Some("src/lib.rs"), Some(span(1, 1, 2)));
     let mut reworded = site.clone();
     reworded.message = "another message".to_owned();
-    let delta = compute(&[site], &[reworded], &baseline_root, &current_root).unwrap();
+    let delta = compute(&[site], &[reworded], baseline_root, current_root).unwrap();
     assert_eq!(delta.summary.introduced, 1, "{delta:?}");
+}
 
-    fs::remove_dir_all(baseline_root).unwrap();
-    fs::remove_dir_all(current_root).unwrap();
+/// The one arithmetic the evidence rests on, at its edges.
+#[test]
+fn a_reported_position_resolves_to_the_byte_the_line_index_says() {
+    let source = "ab\ncd\n";
+    let lines = LineIndex::of(source);
+    let at = |line, column| lines.offset(source, SourcePosition { line, column });
+
+    assert_eq!(at(1, 1), Some(0));
+    assert_eq!(at(1, 2), Some(1));
+    // A line owns its terminator, so the newline is the last column it answers.
+    assert_eq!(at(1, 3), Some(2));
+    assert_eq!(at(1, 4), None);
+    assert_eq!(at(2, 1), Some(3));
+    // The empty line a trailing newline opens.
+    assert_eq!(at(3, 1), Some(6));
+    assert_eq!(at(3, 2), None);
+    assert_eq!(at(4, 1), None);
+    // Neither a line nor a column is ever zero.
+    assert_eq!(at(0, 1), None);
+    assert_eq!(at(1, 0), None);
+
+    // A file with no trailing newline answers the position one past its last
+    // character, which is what a span covering that line reports.
+    let unterminated = "é!";
+    let lines = LineIndex::of(unterminated);
+    let at = |line, column| lines.offset(unterminated, SourcePosition { line, column });
+    assert_eq!(at(1, 1), Some(0));
+    assert_eq!(at(1, 2), Some(2));
+    assert_eq!(at(1, 3), Some(3));
+    assert_eq!(at(1, 4), None);
+}
+
+/// Every file of the module stays under the bound `oversized_unit` reports at,
+/// tests included: the pass that decides what a branch introduced has to pass
+/// the rule it publishes.
+#[test]
+fn the_delta_holds_the_size_bound_it_matches_for() {
+    for own in [
+        include_str!("../delta.rs"),
+        include_str!("tests.rs"),
+        include_str!("tests/oracle.rs"),
+    ] {
+        let lines = own.lines().count();
+        assert!(
+            lines < crate::structure::FILE_LINES,
+            "a file of the delta is {lines} lines long, over the {} it publishes",
+            crate::structure::FILE_LINES
+        );
+    }
 }
