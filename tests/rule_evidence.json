@@ -199,7 +199,7 @@
     {
       "catches": "a path dependency resolving outside the scanned workspace",
       "id": "rust_doctor::cargo::path_dependency_outside_workspace",
-      "test": "src/cargo_health.rs::a_path_dependency_leaving_the_workspace_is_named_without_its_path"
+      "test": "src/cargo_health/tests.rs::a_path_dependency_leaving_the_workspace_is_named_without_its_path"
     },
     {
       "catches": "a [lints] entry that sets a catalogued, active rule to allow in the manifest",
