@@ -207,14 +207,18 @@ fn cargo_spawn_failure_is_classified_before_versions_or_scan() {
     assert!(result.scan.finished().is_none());
 }
 
+/// A preflight failure says what the toolchain said and what to do about it.
+///
+/// The message was `Clippy exited with status exit status: 101` and nothing
+/// else, with cargo's own line, the one naming the missing component, sent to
+/// `/dev/null` by the probe itself.
 #[test]
-fn nonzero_clippy_preflight_is_classified() {
+fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
     let error = tool_version(
-        Path::new("/bin/false"),
-        &["clippy", "--version"],
+        Path::new("/bin/sh"),
+        &["-c", "echo 'error: no such command: `clippy`' >&2; exit 101"],
         &fixture("clean"),
-        "clippy-unavailable",
-        "Clippy",
+        CLIPPY_PROBE,
         &CommandEnvironment::default(),
     )
     .unwrap_err();
@@ -222,6 +226,37 @@ fn nonzero_clippy_preflight_is_classified() {
     assert_eq!(
         (error.stage, error.code),
         ("execution", "clippy-unavailable")
+    );
+    assert!(
+        error.message.contains("no such command: `clippy`"),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.message.contains("rustup component add clippy"),
+        "{}",
+        error.message
+    );
+}
+
+/// A probe that says nothing still names its remedy, so the sentence closes
+/// either way.
+#[test]
+fn a_silent_preflight_failure_still_names_its_remedy() {
+    let error = tool_version(
+        Path::new("/bin/false"),
+        &["clippy", "--version"],
+        &fixture("clean"),
+        CLIPPY_PROBE,
+        &CommandEnvironment::default(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "Clippy could not report a version (exit status: 1). Clippy is required: \
+         install the component with `rustup component add clippy`, or add \
+         `components: clippy` to the toolchain step in CI."
     );
 }
 

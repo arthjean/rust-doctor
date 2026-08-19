@@ -598,10 +598,19 @@ whose git layer documents that every way out of it is bounded, and the scanned
 workspace's procedural macros are what decide how many diagnostics Cargo emits.
 `src/bounded_read.rs` is the one primitive both layers read streams through.
 
-Three versions or none. `Toolchain` is the three the report attributes its
-findings to, held by one `Option`: `resolve_toolchain` returns all three or
-fails before any producer starts, so a report naming a cargo and no rustc was a
-shape the type allowed and no code path could produce.
+Three versions or none, and each probe names its own remedy. `Toolchain` is the
+three the report attributes its findings to, held by one `Option`:
+`resolve_toolchain` returns all three or fails before any producer starts, so a
+report naming a cargo and no rustc was a shape the type allowed and no code path
+could produce. Clippy is one of the three, so a toolchain without the component
+fails the scan at stage `execution` before anything runs, which is why the
+generated workflow and every CI that runs this tool install `components:
+clippy`. A `Probe` carries what its tool is called and what to do when it fails,
+and a probe reads both of its streams bounded, stderr on a thread of its own, so
+the failure quotes what the toolchain itself said. The message used to be
+`Clippy exited with status exit status: 101` and nothing more: it named neither
+the missing component nor the one command that installs it, and stderr, where
+cargo had already written both, was sent to `/dev/null`.
 
 `the_execution_holds_the_size_bound_it_scans_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. The module was
