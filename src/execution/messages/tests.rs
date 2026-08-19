@@ -138,7 +138,7 @@ fn a_future_reason_is_kept_and_a_cut_object_is_not() {
         CapturedMessage::Known(message)
             if matches!(message.as_ref(), Message::BuildFinished(_))
     ));
-    assert!(matches!(collected.messages[1], CapturedMessage::Unknown(_)));
+    assert!(matches!(collected.messages[1], CapturedMessage::Unknown));
 }
 
 /// A severity the toolchain has not published yet reaches the report as it was

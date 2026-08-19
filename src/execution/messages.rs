@@ -51,7 +51,12 @@ pub(crate) struct ScanExecution {
 pub(crate) enum CapturedMessage {
     Compiler(CompilerMessageData),
     Known(Box<Message>),
-    Unknown(Value),
+    /// A message Cargo emitted under a reason this crate does not model. It is
+    /// counted, never read: retaining the `Value` kept one parsed document per
+    /// unrecognized message alive for the whole scan, up to
+    /// `MESSAGE_MAX_COUNT` of them, and the only thing any reader ever asked
+    /// of the variant was that it existed.
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -243,7 +248,7 @@ fn capture_json_line(line: &str, collected: &mut CollectedMessages) {
     );
     if !known_reason {
         if reason.is_some() {
-            collected.messages.push(CapturedMessage::Unknown(value));
+            collected.messages.push(CapturedMessage::Unknown);
         } else {
             collected.malformed_messages += 1;
         }
