@@ -126,11 +126,34 @@ pub fn render_terminal_with_presentation<W: Write>(
         return Err(RenderError::InvalidReport);
     }
     let options = options.normalized();
-    let issue_count = presentation.issue_count;
+    let writer = &mut writer;
 
-    render_scope(&mut writer, report, options)?;
+    // The report is its sections, in order. Nothing is composed inline here:
+    // a line written straight into the entry point is a section nobody named,
+    // and eight of them are what made this function the report's own worst
+    // complexity hotspot.
+    render_scope(writer, report, options)?;
+    render_scanned(writer, report, options)?;
+    render_findings(writer, presentation, options)?;
+    render_totals(writer, presentation, options)?;
+    render_categories(writer, report, options)?;
+    render_configuration(writer, report, options)?;
+    render_delta(writer, report, options)?;
+    render_gate(writer, report, options)?;
+    render_scan_errors(writer, report, options)?;
+    render_advisories(writer, presentation, options)?;
+    render_score(writer, report, options)?;
+    render_links(writer, report, options)
+}
+
+/// What the scan covered and how long it took.
+fn render_scanned<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
     line(
-        &mut writer,
+        writer,
         &format!(
             "Scanned {} files in {:.1}s",
             report.audit.source_files,
@@ -138,39 +161,65 @@ pub fn render_terminal_with_presentation<W: Write>(
         ),
         options,
         Style::Accent,
-    )?;
+    )
+}
 
-    if issue_count == 0 {
-        line(&mut writer, "No issues found.", options, Style::Success)?;
-    } else if options.verbose {
-        for group in &presentation.groups {
-            render_group(&mut writer, group, options, false, true)?;
-        }
-    } else if let Some(group) = presentation.groups.first() {
-        render_group(&mut writer, group, options, true, false)?;
+/// The findings themselves: all of them under `--verbose`, the worst one
+/// otherwise, and a sentence when there are none.
+fn render_findings<W: Write>(
+    writer: &mut W,
+    presentation: &ReportPresentation,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    if presentation.issue_count == 0 {
+        return line(writer, "No issues found.", options, Style::Success);
     }
+    if options.verbose {
+        for group in &presentation.groups {
+            render_group(writer, group, options, GroupView::Full)?;
+        }
+        return Ok(());
+    }
+    let Some(group) = presentation.groups.first() else {
+        return Ok(());
+    };
+    render_group(writer, group, options, GroupView::Top)
+}
 
+/// The rule below the findings, the two totals, and the hint that the rest is
+/// one flag away.
+fn render_totals<W: Write>(
+    writer: &mut W,
+    presentation: &ReportPresentation,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
     line(
-        &mut writer,
+        writer,
         &"─".repeat(options.width.min(48)),
         options,
         Style::Muted,
     )?;
     line(
-        &mut writer,
+        writer,
         &format!(
-            "All {issue_count} occurrences across {} findings",
-            presentation.finding_count
+            "All {} occurrences across {} findings",
+            presentation.issue_count, presentation.finding_count
         ),
         options,
         Style::Heading,
-    )?;
-    render_categories(&mut writer, report, options)?;
-    render_legacy_context(&mut writer, report, options)?;
+    )
+}
 
+/// A rule firing across enough files that fixing it one site at a time is the
+/// wrong plan.
+fn render_advisories<W: Write>(
+    writer: &mut W,
+    presentation: &ReportPresentation,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
     if !options.verbose && !presentation.groups.is_empty() {
         line(
-            &mut writer,
+            writer,
             "Run with --verbose to see every issue.",
             options,
             Style::Muted,
@@ -178,7 +227,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     }
     for advisory in &presentation.migration_advisories {
         line(
-            &mut writer,
+            writer,
             &format!(
                 "Migration advisory: {} appears {} times across {} files.",
                 advisory.rule_id, advisory.occurrences, advisory.files
@@ -187,31 +236,29 @@ pub fn render_terminal_with_presentation<W: Write>(
             Style::Warning,
         )?;
     }
-
-    render_score(&mut writer, report, options)?;
-    if report.status != Status::Failed {
-        if let Ok(url) = report.audit.share_url() {
-            line(
-                &mut writer,
-                &format!("Share: {url}"),
-                options,
-                Style::Accent,
-            )?;
-        }
-        line(
-            &mut writer,
-            &format!("Docs: {DOCS_URL}"),
-            options,
-            Style::Muted,
-        )?;
-        line(
-            &mut writer,
-            &format!("GitHub: {GITHUB_URL}"),
-            options,
-            Style::Muted,
-        )?;
-    }
     Ok(())
+}
+
+/// Where to take the report next. A failed scan gets none of them: it has no
+/// score to share and nothing the docs would explain.
+fn render_links<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    if report.status == Status::Failed {
+        return Ok(());
+    }
+    if let Ok(url) = report.audit.share_url() {
+        line(writer, &format!("Share: {url}"), options, Style::Accent)?;
+    }
+    line(writer, &format!("Docs: {DOCS_URL}"), options, Style::Muted)?;
+    line(
+        writer,
+        &format!("GitHub: {GITHUB_URL}"),
+        options,
+        Style::Muted,
+    )
 }
 
 fn render_scope<W: Write>(
@@ -240,22 +287,46 @@ fn render_scope<W: Write>(
     line(writer, &description, options, Style::Heading)
 }
 
+/// How much of a group the report is drawing.
+///
+/// The two used to be two positional booleans, `top` and `all_locations`,
+/// naming four combinations for the two that exist: the summary shows the
+/// worst group with its first location, the verbose run shows every group with
+/// every location. A call site read `(.., true, false)`, which said nothing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GroupView {
+    /// The single worst group, heading it as the top finding.
+    Top,
+    /// One group among all of them, with every location it carries.
+    Full,
+}
+
+impl GroupView {
+    /// How many of the group's diagnostics get a location and a code frame.
+    /// The summary shows one; the verbose run shows them all, and `usize::MAX`
+    /// is what `take` reads as all of them.
+    const fn location_limit(self) -> usize {
+        match self {
+            Self::Top => 1,
+            Self::Full => usize::MAX,
+        }
+    }
+}
+
 fn render_group<W: Write>(
     writer: &mut W,
     group: &DiagnosticGroup,
     options: TerminalOptions<'_>,
-    top: bool,
-    all_locations: bool,
+    view: GroupView,
 ) -> Result<(), RenderError> {
-    let heading = if top {
-        format!("Top {}: {}", group.severity, group.title)
-    } else {
-        format!(
+    let heading = match view {
+        GroupView::Top => format!("Top {}: {}", group.severity, group.title),
+        GroupView::Full => format!(
             "{}: {} ({} occurrences)",
             capitalize(group.severity.to_string()),
             group.title,
             group.occurrences
-        )
+        ),
     };
     line(writer, &heading, options, severity_style(group.severity))?;
     line(
@@ -265,12 +336,7 @@ fn render_group<W: Write>(
         Style::Accent,
     )?;
 
-    let diagnostics: Box<dyn Iterator<Item = _>> = if all_locations {
-        Box::new(group.diagnostics.iter())
-    } else {
-        Box::new(group.diagnostics.iter().take(1))
-    };
-    for diagnostic in diagnostics {
+    for diagnostic in group.diagnostics.iter().take(view.location_limit()) {
         line(writer, &diagnostic.message, options, Style::Plain)?;
         if let Some(help) = &diagnostic.help {
             line(writer, &format!("Help: {help}"), options, Style::Muted)?;
@@ -286,46 +352,9 @@ fn render_group<W: Write>(
                 Style::Muted,
             )?;
         }
-        render_related(writer, diagnostic, options, all_locations)?;
-        let Some(location) = diagnostic.location() else {
-            continue;
-        };
-        match code_frame(options.workspace_root, &location) {
-            Ok(frame) => {
-                line(writer, &frame.location, options, Style::Accent)?;
-                // The gutter comes from the frame rather than from a constant,
-                // so a source row and the caret row under it agree on where the
-                // text begins whatever line numbers the frame carries. The four
-                // columns are the floor the report has always drawn at, not a
-                // ceiling on what a line number may need.
-                let gutter = frame.gutter_width().max(FRAME_GUTTER_COLUMNS);
-                let indent = " ".repeat(gutter.saturating_add(3));
-                for source in frame.lines {
-                    let prefix = if source.primary { ">" } else { " " };
-                    frame_line(
-                        writer,
-                        &format!("{prefix} {:>gutter$} | {}", source.number, source.text),
-                        options,
-                        Style::Plain,
-                    )?;
-                    if let Some(marker) = source.marker {
-                        let spaces = marker.column_start.saturating_sub(1);
-                        let carets = marker.column_end.saturating_sub(marker.column_start).max(1);
-                        frame_line(
-                            writer,
-                            &format!("{indent}| {}{}", " ".repeat(spaces), "^".repeat(carets)),
-                            options,
-                            Style::Warning,
-                        )?;
-                    }
-                }
-            }
-            Err(unavailable) => {
-                if let Some(location) = unavailable.location {
-                    line(writer, &location, options, Style::Accent)?;
-                }
-                line(writer, &unavailable.message, options, Style::Muted)?;
-            }
+        render_related(writer, diagnostic, options, view)?;
+        if let Some(location) = diagnostic.location() {
+            render_code_frame(writer, &location, options)?;
         }
     }
     line(
@@ -334,6 +363,51 @@ fn render_group<W: Write>(
         options,
         Style::Muted,
     )
+}
+
+/// The source window around one finding, or the reason there is none.
+fn render_code_frame<W: Write>(
+    writer: &mut W,
+    location: &crate::presentation::GroupLocation,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let frame = match code_frame(options.workspace_root, location) {
+        Ok(frame) => frame,
+        Err(unavailable) => {
+            if let Some(location) = unavailable.location {
+                line(writer, &location, options, Style::Accent)?;
+            }
+            return line(writer, &unavailable.message, options, Style::Muted);
+        }
+    };
+    line(writer, &frame.location, options, Style::Accent)?;
+    // The gutter comes from the frame rather than from a constant, so a source
+    // row and the caret row under it agree on where the text begins whatever
+    // line numbers the frame carries. The four columns are the floor the
+    // report has always drawn at, not a ceiling on what a line number may
+    // need.
+    let gutter = frame.gutter_width().max(FRAME_GUTTER_COLUMNS);
+    let indent = " ".repeat(gutter.saturating_add(3));
+    for source in frame.lines {
+        let prefix = if source.primary { ">" } else { " " };
+        frame_line(
+            writer,
+            &format!("{prefix} {:>gutter$} | {}", source.number, source.text),
+            options,
+            Style::Plain,
+        )?;
+        if let Some(marker) = source.marker {
+            let spaces = marker.column_start.saturating_sub(1);
+            let carets = marker.column_end.saturating_sub(marker.column_start).max(1);
+            frame_line(
+                writer,
+                &format!("{indent}| {}{}", " ".repeat(spaces), "^".repeat(carets)),
+                options,
+                Style::Warning,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Other sites a structural finding spans.
@@ -345,10 +419,10 @@ fn render_related<W: Write>(
     writer: &mut W,
     diagnostic: &GroupDiagnostic,
     options: TerminalOptions<'_>,
-    all_locations: bool,
+    view: GroupView,
 ) -> Result<(), RenderError> {
     const MAX_RELATED: usize = 3;
-    if !all_locations || diagnostic.related.is_empty() {
+    if view != GroupView::Full || diagnostic.related.is_empty() {
         return Ok(());
     }
     for location in diagnostic.related.iter().take(MAX_RELATED) {
@@ -400,110 +474,127 @@ fn render_categories<W: Write>(
     Ok(())
 }
 
-fn render_legacy_context<W: Write>(
+/// How the run was configured, when a policy reached the report.
+fn render_configuration<W: Write>(
     writer: &mut W,
     report: &InspectReport,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    if let Some(policy) = &report.policy {
-        let source = match policy.blocking.source {
-            crate::BlockingLevelSource::Default => "default",
-            crate::BlockingLevelSource::Config => "config",
-            crate::BlockingLevelSource::Request => "request",
-        };
-        let configuration = policy
-            .config_file
+    let Some(policy) = &report.policy else {
+        return Ok(());
+    };
+    let source = match policy.blocking.source {
+        crate::BlockingLevelSource::Default => "default",
+        crate::BlockingLevelSource::Config => "config",
+        crate::BlockingLevelSource::Request => "request",
+    };
+    let configuration = policy
+        .config_file
+        .as_deref()
+        .map_or_else(|| "none loaded".to_owned(), |file| format!("{file} loaded"));
+    line(
+        writer,
+        &format!(
+            "Configuration: {configuration}; blocking {} ({source})",
+            policy.blocking.level
+        ),
+        options,
+        Style::Muted,
+    )
+}
+
+/// What a baseline comparison found, and every finding the branch fixed.
+///
+/// The two used to sit at opposite ends of one grab-bag function with three
+/// unrelated sections between them, each testing `report.delta` again.
+fn render_delta<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let Some(delta) = &report.delta else {
+        return Ok(());
+    };
+    line(
+        writer,
+        &format!(
+            "Delta: +{} introduced; ={} pre-existing; -{} fixed; {} cross-file matches.",
+            delta.summary.introduced,
+            delta.summary.pre_existing,
+            delta.summary.fixed,
+            delta.summary.cross_file_matches
+        ),
+        options,
+        Style::Muted,
+    )?;
+    for diagnostic in &delta.fixed {
+        let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
+        let (line_number, column) = diagnostic
+            .span
+            .as_ref()
+            .map_or((0, 0), |span| (span.line_start, span.column_start));
+        let code = diagnostic
+            .code
             .as_deref()
-            .map_or_else(|| "none loaded".to_owned(), |file| format!("{file} loaded"));
+            .map_or_else(String::new, |code| format!(" [{code}]"));
         line(
             writer,
             &format!(
-                "Configuration: {configuration}; blocking {} ({source})",
-                policy.blocking.level
+                "Fixed: {path}:{line_number}:{column} {}{code} {}",
+                diagnostic.severity, diagnostic.message
             ),
             options,
-            Style::Muted,
+            Style::Success,
         )?;
     }
-    if let Some(delta) = &report.delta {
+    if delta.introduced.is_empty() && delta.fixed.is_empty() {
+        return Ok(());
+    }
+    line(
+        writer,
+        "Baseline details remain available in the JSON report.",
+        options,
+        Style::Muted,
+    )
+}
+
+/// The gate's verdict, evaluated or not.
+fn render_gate<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let description = match (report.gate.status, report.gate.blocking_diagnostics) {
+        (GateStatus::Passed | GateStatus::Failed, Some(count)) => format!(
+            "Gate {}: blocking {}, {count} blocking diagnostic(s)",
+            report.gate.status, report.gate.blocking
+        ),
+        _ => format!("Gate not evaluated: blocking {}", report.gate.blocking),
+    };
+    line(writer, &description, options, Style::Muted)
+}
+
+/// Every stage that failed, on a scan that did not complete.
+fn render_scan_errors<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let heading = match report.status {
+        Status::Complete => return Ok(()),
+        Status::Incomplete => "Scan incomplete",
+        Status::Failed => "Scan failed",
+    };
+    for error in &report.errors {
         line(
             writer,
             &format!(
-                "Delta: +{} introduced; ={} pre-existing; -{} fixed; {} cross-file matches.",
-                delta.summary.introduced,
-                delta.summary.pre_existing,
-                delta.summary.fixed,
-                delta.summary.cross_file_matches
+                "{heading}: {} ({}/{})",
+                error.message, error.stage, error.code
             ),
             options,
-            Style::Muted,
+            Style::Warning,
         )?;
-        for diagnostic in &delta.fixed {
-            let path = diagnostic.path.as_deref().unwrap_or("<unknown>");
-            let (line_number, column) = diagnostic
-                .span
-                .as_ref()
-                .map_or((0, 0), |span| (span.line_start, span.column_start));
-            let code = diagnostic
-                .code
-                .as_deref()
-                .map_or_else(String::new, |code| format!(" [{code}]"));
-            line(
-                writer,
-                &format!(
-                    "Fixed: {path}:{line_number}:{column} {}{code} {}",
-                    diagnostic.severity, diagnostic.message
-                ),
-                options,
-                Style::Success,
-            )?;
-        }
-    }
-    match (report.gate.status, report.gate.blocking_diagnostics) {
-        (GateStatus::Passed | GateStatus::Failed, Some(count)) => line(
-            writer,
-            &format!(
-                "Gate {}: blocking {}, {} blocking diagnostic(s)",
-                report.gate.status, report.gate.blocking, count
-            ),
-            options,
-            Style::Muted,
-        )?,
-        _ => line(
-            writer,
-            &format!("Gate not evaluated: blocking {}", report.gate.blocking),
-            options,
-            Style::Muted,
-        )?,
-    }
-    if report.status != Status::Complete {
-        let heading = match report.status {
-            Status::Incomplete => "Scan incomplete",
-            Status::Failed => "Scan failed",
-            Status::Complete => "Scan",
-        };
-        for error in &report.errors {
-            line(
-                writer,
-                &format!(
-                    "{heading}: {} ({}/{})",
-                    error.message, error.stage, error.code
-                ),
-                options,
-                Style::Warning,
-            )?;
-        }
-    }
-    if let Some(delta) = &report.delta {
-        let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
-        if !introduced.is_empty() || !delta.fixed.is_empty() {
-            line(
-                writer,
-                "Baseline details remain available in the JSON report.",
-                options,
-                Style::Muted,
-            )?;
-        }
     }
     Ok(())
 }
@@ -641,27 +732,31 @@ fn severity_style(severity: crate::Severity) -> Style {
     }
 }
 
+/// One line of prose: sanitized, then wrapped onto as many rows as it needs.
 fn line<W: Write>(
     writer: &mut W,
     content: &str,
     options: TerminalOptions<'_>,
     style: Style,
 ) -> Result<(), RenderError> {
-    let sanitized = sanitize(content);
-    for bounded in wrap(&sanitized, options.width) {
+    for bounded in wrap(&sanitize(content), options.width) {
         write_styled(writer, &bounded, options.color, style)?;
     }
     Ok(())
 }
 
+/// One row of a code frame: sanitized, then cut rather than wrapped.
+///
+/// A source line and the caret row under it are aligned by column, so wrapping
+/// either of them would put the caret under the wrong text. This is the only
+/// thing that separates it from [`line`].
 fn frame_line<W: Write>(
     writer: &mut W,
     content: &str,
     options: TerminalOptions<'_>,
     style: Style,
 ) -> Result<(), RenderError> {
-    let sanitized = sanitize(content);
-    let bounded = truncate(&sanitized, options.width);
+    let bounded = truncate(&sanitize(content), options.width);
     write_styled(writer, &bounded, options.color, style)
 }
 
