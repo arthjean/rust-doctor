@@ -275,59 +275,112 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Line> {
     if width == 0 {
         return vec![Line::blank()];
     }
-    let mut lines = Vec::new();
-    let mut current = Line::blank();
-    let mut used = 0usize;
+    let mut wrapping = Wrapping::new(width);
     let mut pending_space = false;
-
     for span in spans {
         for (index, word) in span.text.split(' ').enumerate() {
-            if index > 0 {
-                pending_space = true;
-            }
+            // The separator survives an empty word, so a run of spaces still
+            // separates the words around it by exactly one column.
+            pending_space |= index > 0;
             if word.is_empty() {
                 continue;
             }
-            let mut remainder = word;
-            loop {
-                let word_width = display_width(remainder);
-                let separator = usize::from(pending_space && used > 0);
-                if used > 0 && used + separator + word_width.min(width) > width {
-                    lines.push(std::mem::replace(&mut current, Line::blank()));
-                    used = 0;
-                    pending_space = false;
-                }
-                if pending_space && used > 0 {
-                    current.push(Span::raw(" ".to_owned(), span.style, None));
-                    used += 1;
-                }
-                pending_space = false;
-                if word_width <= width {
-                    current.push(Span::raw(
-                        remainder.to_owned(),
-                        span.style,
-                        span.link.clone(),
-                    ));
-                    used += word_width;
-                    break;
-                }
-                // A word wider than the box, a long path or URL: it is cut on a
-                // column boundary rather than pushed past the edge.
-                let (head, tail) = split_at_width(remainder, width - used);
-                current.push(Span::raw(head, span.style, span.link.clone()));
-                lines.push(std::mem::replace(&mut current, Line::blank()));
-                used = 0;
-                remainder = tail;
-                if remainder.is_empty() {
-                    break;
-                }
+            wrapping.place(word, span, &mut pending_space);
+        }
+    }
+    wrapping.finish()
+}
+
+/// The line under construction, and the lines already closed.
+///
+/// The four variables this replaced were mutated by five branches of a nested
+/// loop, which is what made `wrap_spans` the crate's own worst
+/// cognitive-complexity hotspot: what a reader had to hold was not the
+/// algorithm but where each of them could next change. Here the line is one
+/// value, `close` and `push` are the only two things that happen to it, and
+/// `remaining` cannot go negative in a crate that builds with
+/// `overflow-checks`.
+struct Wrapping {
+    lines: Vec<Line>,
+    current: Line,
+    used: usize,
+    width: usize,
+}
+
+impl Wrapping {
+    const fn new(width: usize) -> Self {
+        Self {
+            lines: Vec::new(),
+            current: Line::blank(),
+            used: 0,
+            width,
+        }
+    }
+
+    const fn is_empty(&self) -> bool {
+        self.used == 0
+    }
+
+    /// Columns left on the line under construction.
+    const fn remaining(&self) -> usize {
+        self.width.saturating_sub(self.used)
+    }
+
+    /// Would this many columns, plus a separator, run past the edge?
+    const fn overflows(&self, columns: usize, separator: usize) -> bool {
+        self.used.saturating_add(separator).saturating_add(columns) > self.width
+    }
+
+    fn close(&mut self) {
+        self.lines
+            .push(std::mem::replace(&mut self.current, Line::blank()));
+        self.used = 0;
+    }
+
+    fn push(&mut self, text: String, style: Style, link: Option<String>) {
+        self.used = self.used.saturating_add(display_width(&text));
+        self.current.push(Span::raw(text, style, link));
+    }
+
+    /// Places one word, breaking the line before it and, if it is wider than
+    /// the box on its own, inside it.
+    fn place(&mut self, word: &str, span: &Span, pending_space: &mut bool) {
+        let mut remainder = word;
+        loop {
+            let word_width = display_width(remainder);
+            let separator = usize::from(*pending_space && !self.is_empty());
+            if !self.is_empty() && self.overflows(word_width.min(self.width), separator) {
+                self.close();
+                *pending_space = false;
+            }
+            if *pending_space && !self.is_empty() {
+                // The separator carries the style around it and never a link:
+                // a space is not part of what the link points at.
+                self.push(" ".to_owned(), span.style, None);
+            }
+            *pending_space = false;
+            if word_width <= self.width {
+                self.push(remainder.to_owned(), span.style, span.link.clone());
+                return;
+            }
+            // A word wider than the box, a long path or URL: it is cut on a
+            // column boundary rather than pushed past the edge.
+            let (head, tail) = split_at_width(remainder, self.remaining());
+            self.push(head, span.style, span.link.clone());
+            self.close();
+            remainder = tail;
+            if remainder.is_empty() {
+                return;
             }
         }
     }
-    if !current.is_blank() || lines.is_empty() {
-        lines.push(current);
+
+    fn finish(mut self) -> Vec<Line> {
+        if !self.current.is_blank() || self.lines.is_empty() {
+            self.lines.push(self.current);
+        }
+        self.lines
     }
-    lines
 }
 
 fn split_at_width(content: &str, width: usize) -> (String, &str) {

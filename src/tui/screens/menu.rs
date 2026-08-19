@@ -175,26 +175,35 @@ pub fn handoff_title() -> Vec<Line> {
     vec![Line::text("Choose how to continue", Style::BOLD).indented(HORIZONTAL_PADDING_COLUMNS)]
 }
 
-pub fn ci_recommendation_title(width: usize) -> Vec<Line> {
-    let mut lines = vec![
-        Line::text("Add Rust Doctor to GitHub Actions first", Style::BOLD)
-            .indented(HORIZONTAL_PADDING_COLUMNS),
-    ];
+/// Either GitHub Actions screen: its own heading, then the justification both
+/// of them carry. The two used to be two functions identical but for the
+/// heading, which the tool's own `duplicate_function_body` named.
+fn ci_title(heading: Line, width: usize) -> Vec<Line> {
+    let mut lines = vec![heading];
     lines.extend(ci_justification(width));
     lines
 }
 
+/// The recommendation screen, reached before the reader has chosen anything.
+pub fn ci_recommendation_title(width: usize) -> Vec<Line> {
+    ci_title(
+        Line::text("Add Rust Doctor to GitHub Actions first", Style::BOLD)
+            .indented(HORIZONTAL_PADDING_COLUMNS),
+        width,
+    )
+}
+
+/// The setup screen, which asks rather than recommends.
 pub fn ci_setup_title(width: usize) -> Vec<Line> {
-    let mut lines = vec![
+    ci_title(
         Line::blank()
             .with(Span::new("?", Style::color(Color::Cyan).bold()))
             .with(Span::new(
                 " Add Rust Doctor to GitHub Actions?",
                 Style::BOLD,
             )),
-    ];
-    lines.extend(ci_justification(width));
-    lines
+        width,
+    )
 }
 
 pub fn ci_justification(width: usize) -> Vec<Line> {
