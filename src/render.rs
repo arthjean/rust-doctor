@@ -384,7 +384,11 @@ fn render_categories<W: Write>(
             writer,
             &format!(
                 "{}: {} errors, {} warnings, {} info, {} unknown (occurrences)",
-                category.name, category.errors, category.warnings, category.info, category.unknown
+                category.name,
+                category.occurrences.errors,
+                category.occurrences.warnings,
+                category.occurrences.info,
+                category.occurrences.unknown
             ),
             options,
             Style::Plain,

@@ -65,6 +65,15 @@ impl SeverityCounts {
         self.total = self.total.saturating_add(count);
     }
 
+    /// Adds every bucket of another count into this one.
+    fn merge(&mut self, other: Self) {
+        self.errors = self.errors.saturating_add(other.errors);
+        self.warnings = self.warnings.saturating_add(other.warnings);
+        self.info = self.info.saturating_add(other.info);
+        self.unknown = self.unknown.saturating_add(other.unknown);
+        self.total = self.total.saturating_add(other.total);
+    }
+
     const fn is_coherent(self) -> bool {
         self.errors
             .saturating_add(self.warnings)
@@ -83,15 +92,9 @@ impl SeverityCounts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditCategory {
     pub name: AuditCategoryName,
-    /// Historical alias of `occurrences.errors`, kept for consumers of the
-    /// previous schema.
-    pub errors: usize,
-    pub warnings: usize,
-    pub info: usize,
-    pub unknown: usize,
     pub distinct: SeverityCounts,
     pub occurrences: SeverityCounts,
 }
@@ -274,15 +277,16 @@ impl Audit {
             return Err(ShareError::InvalidPayload);
         }
 
-        let mut errors = 0usize;
-        let mut warnings = 0usize;
-        let mut info = 0usize;
-        for category in &self.categories {
-            errors = errors.saturating_add(category.errors);
-            warnings = warnings.saturating_add(category.warnings);
-            info = info.saturating_add(category.info);
-        }
-        build_share_url(score.value, errors, warnings, info, self.source_files)
+        // The counts the block already publishes, not a third summation over the same
+        // categories that nothing kept in step with the first two.
+        let (_, occurrences) = self.totals();
+        build_share_url(
+            score.value,
+            occurrences.errors,
+            occurrences.warnings,
+            occurrences.info,
+            self.source_files,
+        )
     }
 
     pub fn is_valid(&self) -> bool {
@@ -303,16 +307,8 @@ impl Audit {
         self.categories.iter().fold(
             (SeverityCounts::default(), SeverityCounts::default()),
             |(mut distinct, mut occurrences), category| {
-                for (target, source) in [
-                    (&mut distinct, category.distinct),
-                    (&mut occurrences, category.occurrences),
-                ] {
-                    target.errors = target.errors.saturating_add(source.errors);
-                    target.warnings = target.warnings.saturating_add(source.warnings);
-                    target.info = target.info.saturating_add(source.info);
-                    target.unknown = target.unknown.saturating_add(source.unknown);
-                    target.total = target.total.saturating_add(source.total);
-                }
+                distinct.merge(category.distinct);
+                occurrences.merge(category.occurrences);
                 (distinct, occurrences)
             },
         )
@@ -339,10 +335,6 @@ impl AuditCategory {
     fn empty(name: AuditCategoryName) -> Self {
         Self {
             name,
-            errors: 0,
-            warnings: 0,
-            info: 0,
-            unknown: 0,
             distinct: SeverityCounts::default(),
             occurrences: SeverityCounts::default(),
         }
@@ -353,10 +345,29 @@ impl AuditCategory {
             && self.distinct.is_coherent()
             && self.occurrences.is_coherent()
             && self.occurrences.covers(self.distinct)
-            && self.errors == self.occurrences.errors
-            && self.warnings == self.occurrences.warnings
-            && self.info == self.occurrences.info
-            && self.unknown == self.occurrences.unknown
+    }
+}
+
+impl Serialize for AuditCategory {
+    /// The four bare severity members are the schema-v7 spelling of `occurrences`, projected
+    /// from it rather than stored beside it.
+    ///
+    /// Held as fields, they were a second copy of one fact: a recopy pass wrote them, four
+    /// clauses of `is_valid` checked they still agreed, and `share_url` summed the copy while
+    /// `totals` summed the original. A projection cannot disagree with its source.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("AuditCategory", 7)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("errors", &self.occurrences.errors)?;
+        state.serialize_field("warnings", &self.occurrences.warnings)?;
+        state.serialize_field("info", &self.occurrences.info)?;
+        state.serialize_field("unknown", &self.occurrences.unknown)?;
+        state.serialize_field("distinct", &self.distinct)?;
+        state.serialize_field("occurrences", &self.occurrences)?;
+        state.end()
     }
 }
 
@@ -646,13 +657,6 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
     ORDERED_CATEGORIES
         .into_iter()
         .filter_map(|name| tallies.remove(&name))
-        .map(|mut tally| {
-            tally.errors = tally.occurrences.errors;
-            tally.warnings = tally.occurrences.warnings;
-            tally.info = tally.occurrences.info;
-            tally.unknown = tally.occurrences.unknown;
-            tally
-        })
         .collect()
 }
 

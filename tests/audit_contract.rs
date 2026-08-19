@@ -184,7 +184,7 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     // The default targets compile each unit only once: one occurrence per
     // distinct diagnostic, where `--all-targets` produced two for the same
     // site.
-    assert_eq!(report.audit.categories[0].warnings, 3);
+    assert_eq!(report.audit.categories[0].occurrences.warnings, 3);
     assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
     // `clippy::todo` is tier P2: the Reliability dimension is capped at 75 and
