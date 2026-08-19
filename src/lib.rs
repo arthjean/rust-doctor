@@ -37,6 +37,13 @@ pub use policy::{
     BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, RuleLevel, RuleLevelSource,
     RuleOverride, RuleTier, catalog,
 };
+/// The file length `rust_doctor::structure::oversized_unit` reports at.
+///
+/// Published because the binary crate holds the same bound over its own files
+/// and must not restate the number: `src/tui/` and `src/handoff.rs` are
+/// compiled into the binary, not the library, and a second `1000` written
+/// there is a second place to keep in step with the rule.
+pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
 pub use report::{
     Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,

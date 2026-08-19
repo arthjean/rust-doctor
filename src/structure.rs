@@ -53,11 +53,11 @@ use crate::source_text::{SourceSpan, compact, line_starts, source_span};
 mod benchmark;
 mod duplication;
 mod hotspots;
-/// The file length `oversized_unit` reports at. Reachable crate-wide for the
-/// tests alone: two modules assert that their own files hold this bound, and
-/// the second of them reads the number rather than restating it.
-#[cfg(test)]
-pub(crate) use hotspots::FILE_LINES;
+/// The file length `oversized_unit` reports at. Published rather than kept
+/// crate-private because eleven modules assert that their own files hold this
+/// bound and none of them restates the number, and three of those modules are
+/// compiled into the binary rather than into this library.
+pub use hotspots::FILE_LINES;
 mod manifest;
 mod normalize;
 mod suppression;
