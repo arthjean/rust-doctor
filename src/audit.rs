@@ -37,6 +37,15 @@ pub struct Audit {
     pub source_files: usize,
     pub categories: Vec<AuditCategory>,
     pub score: Option<AuditScore>,
+    /// Whether `source_files` counted the workspace or is a floor on it.
+    ///
+    /// Rebuilding the block for a narrower scope needs this fact and nothing else about the
+    /// original scan, and the block used to recover it from `score.authoritative`, which also
+    /// carries the status and whether every diagnostic was catalogued. One uncatalogued rule
+    /// anywhere therefore made every later scope non-authoritative, for a reason that had
+    /// nothing to do with the inventory. It stays private because it is not published: the
+    /// wire shape is the three members above.
+    inventory_is_complete: bool,
 }
 
 /// Per-severity count of a single quantity.
@@ -239,7 +248,7 @@ struct PendingRule {
 
 impl Audit {
     pub fn build(source_files: usize, status: Status, diagnostics: &[Diagnostic]) -> Self {
-        Self::build_with_authority(source_files, status == Status::Complete, diagnostics)
+        Self::build_with_inventory(source_files, true, status, diagnostics)
     }
 
     pub(crate) fn build_from_inventory(
@@ -247,16 +256,13 @@ impl Audit {
         status: Status,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        Self::build_with_authority(
-            inventory.files,
-            status == Status::Complete && inventory.complete,
-            diagnostics,
-        )
+        Self::build_with_inventory(inventory.files, inventory.complete, status, diagnostics)
     }
 
-    fn build_with_authority(
+    fn build_with_inventory(
         source_files: usize,
-        analysis_is_authoritative: bool,
+        inventory_is_complete: bool,
+        status: Status,
         diagnostics: &[Diagnostic],
     ) -> Self {
         let categories = category_tallies(diagnostics);
@@ -269,20 +275,21 @@ impl Audit {
                 .iter()
                 .filter(|diagnostic| crate::report::DiagnosticContext::weighs(diagnostic)),
         );
-        let score = (source_files > 0).then(|| score(&aggregation, analysis_is_authoritative));
+        let scan_is_complete = status == Status::Complete && inventory_is_complete;
+        let score = (source_files > 0).then(|| score(&aggregation, scan_is_complete));
         Self {
             source_files,
             categories,
             score,
+            inventory_is_complete,
         }
     }
 
     pub(crate) fn rebuild_for_scope(&self, status: Status, diagnostics: &[Diagnostic]) -> Self {
-        let inventory_is_authoritative =
-            self.score.as_ref().is_some_and(|score| score.authoritative);
-        Self::build_with_authority(
+        Self::build_with_inventory(
             self.source_files,
-            status == Status::Complete && inventory_is_authoritative,
+            self.inventory_is_complete,
+            status,
             diagnostics,
         )
     }

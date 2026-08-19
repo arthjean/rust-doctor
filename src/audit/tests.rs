@@ -371,6 +371,7 @@ fn invalid_score_state_is_rejected_before_sharing() {
     let audit = Audit {
         source_files: 1,
         categories: Vec::new(),
+        inventory_is_complete: true,
         score: Some(AuditScore {
             model: SCORE_MODEL.to_owned(),
             value: 101,

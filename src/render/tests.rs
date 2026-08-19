@@ -205,21 +205,16 @@ fn wide_dynamic_text_respects_terminal_columns() {
 
 #[test]
 fn partial_and_missing_scores_suppress_share_and_projection() {
+    // The score is made partial by the scan that produced it, not by poking the flag: the audit
+    // has to stay reproducible from its own diagnostics or the report refuses to render.
     let mut partial = report();
-    partial.audit.score.as_mut().unwrap().authoritative = false;
-    partial
-        .audit
-        .score
-        .as_mut()
-        .unwrap()
-        .projected_after_top_three = None;
-    partial
-        .audit
-        .score
-        .as_mut()
-        .unwrap()
-        .projected_rule_ids
-        .clear();
+    partial.status = Status::Incomplete;
+    partial.complete = false;
+    partial.audit = Audit::build(1, Status::Incomplete, &partial.diagnostics);
+    let score = partial.audit.score.as_ref().unwrap();
+    assert!(!score.authoritative);
+    assert_eq!(score.projected_after_top_three, None);
+    assert!(score.projected_rule_ids.is_empty());
     let output = rendered(&partial, 80, false, false);
     assert!(output.contains("Core partial"));
     assert!(!output.contains("Share:"));
