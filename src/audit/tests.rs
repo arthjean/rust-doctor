@@ -212,6 +212,10 @@ struct DensityExpectation {
 #[derive(Debug, Deserialize)]
 struct ScoreCase {
     name: String,
+    /// Denominator the case is scored against, recorded rather than derived
+    /// from the file count: core-v3 reads a density, so a case whose line count
+    /// is inferred by the test is a case the record cannot be replayed from.
+    production_lines: usize,
     source_files: usize,
     complete: bool,
     diagnostics: Vec<OracleDiagnostic>,
@@ -241,21 +245,6 @@ struct ShareCase {
     #[serde(default)]
     lines: usize,
     expected: Option<String>,
-}
-
-/// Projects a current audit back onto the shape the version-2 oracle froze.
-///
-/// That record was taken before the score had a denominator to publish, so the
-/// projection consists solely of removing the members added since. This is the
-/// condition that makes a frozen archive durable, and the same one
-/// `project_v11_wire_to_v7` holds for the report: a schema that adds projects,
-/// a schema that moves the value of an existing field does not.
-fn projected_onto_oracle(audit: &Audit) -> serde_json::Value {
-    let mut value = serde_json::to_value(audit).expect("a valid audit should serialize");
-    if let Some(members) = value.as_object_mut() {
-        members.remove("production_lines");
-    }
-    value
 }
 
 fn oracle() -> Oracle {
@@ -427,17 +416,17 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
         };
         let audit = Audit::build(
             case.source_files,
-            case.source_files * 100,
+            case.production_lines,
             status,
             &diagnostics,
         );
         assert_eq!(
-            projected_onto_oracle(&audit),
+            serde_json::to_value(&audit).unwrap_or(Value::Null),
             case.expected_audit,
             "{}",
             case.name
         );
-        let input = aggregate_rules(case.source_files * 100, &diagnostics);
+        let input = aggregate_rules(case.production_lines, &diagnostics);
         let counted: Vec<_> = input
             .rules
             .into_iter()

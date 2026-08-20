@@ -359,6 +359,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 0,
         "score": null,
         "source_files": 0
       },
@@ -366,6 +367,7 @@
         "clippy::permissions_set_readonly_false"
       ],
       "name": "zero-files-retains-real-categories-without-artificial-score",
+      "production_lines": 0,
       "source_files": 0
     },
     {
@@ -373,6 +375,7 @@
       "diagnostics": [],
       "expected_audit": {
         "categories": [],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -394,6 +397,7 @@
       },
       "expected_counted_rule_ids": [],
       "name": "clean",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -544,6 +548,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 700,
         "score": {
           "applied_ceiling": 65,
           "authoritative": true,
@@ -579,6 +584,7 @@
         "rust_doctor::cargo::missing_lockfile"
       ],
       "name": "five-dimensions-and-projection-order",
+      "production_lines": 700,
       "source_files": 7
     },
     {
@@ -615,6 +621,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 3000,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -641,6 +648,7 @@
         "clippy::indexing_slicing"
       ],
       "name": "one-site-over-three-kilolines",
+      "production_lines": 3000,
       "source_files": 30
     },
     {
@@ -971,6 +979,7 @@
             "warnings": 50
           }
         ],
+        "production_lines": 3000,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -997,6 +1006,7 @@
         "clippy::indexing_slicing"
       ],
       "name": "fifty-sites-cost-strictly-more-than-one",
+      "production_lines": 3000,
       "source_files": 30
     },
     {
@@ -1033,6 +1043,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1059,6 +1070,7 @@
         "clippy::indexing_slicing"
       ],
       "name": "the-kiloline-floor-protects-a-tiny-workspace",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1095,6 +1107,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 1000,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1120,6 +1133,7 @@
         "rust_doctor::cargo::missing_lockfile"
       ],
       "name": "a-manifest-rule-on-a-small-workspace",
+      "production_lines": 1000,
       "source_files": 10
     },
     {
@@ -1156,6 +1170,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 100000,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1181,6 +1196,7 @@
         "rust_doctor::cargo::missing_lockfile"
       ],
       "name": "a-manifest-rule-on-a-large-workspace",
+      "production_lines": 100000,
       "source_files": 1000
     },
     {
@@ -1223,6 +1239,7 @@
             "warnings": 2
           }
         ],
+        "production_lines": 200,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1248,6 +1265,7 @@
         "clippy::mut_mutex_lock"
       ],
       "name": "severity-conflict-keeps-highest",
+      "production_lines": 200,
       "source_files": 2
     },
     {
@@ -1284,6 +1302,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
@@ -1305,6 +1324,7 @@
       },
       "expected_counted_rule_ids": [],
       "name": "missing-code-is-partial-without-message-fallback",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1341,6 +1361,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
@@ -1362,6 +1383,7 @@
       },
       "expected_counted_rule_ids": [],
       "name": "unknown-category-falls-into-the-other-bucket",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1398,6 +1420,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
@@ -1419,6 +1442,7 @@
       },
       "expected_counted_rule_ids": [],
       "name": "unknown-severity-is-partial",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1461,6 +1485,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": 65,
           "authoritative": false,
@@ -1484,6 +1509,7 @@
         "clippy::permissions_set_readonly_false"
       ],
       "name": "an-unknown-severity-beside-a-scored-site-keeps-the-rule-penalty",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1520,6 +1546,7 @@
             "warnings": 0
           }
         ],
+        "production_lines": 100,
         "score": {
           "applied_ceiling": 65,
           "authoritative": false,
@@ -1543,6 +1570,7 @@
         "clippy::permissions_set_readonly_false"
       ],
       "name": "incomplete-scan-keeps-numeric-score-but-not-projection",
+      "production_lines": 100,
       "source_files": 1
     },
     {
@@ -1579,6 +1607,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": 40,
           "authoritative": true,
@@ -1604,6 +1633,7 @@
         "rust_doctor::source::dynamic_shell_command"
       ],
       "name": "p0-caps-the-dimension-and-the-overall-score",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -1640,6 +1670,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": 65,
           "authoritative": true,
@@ -1665,6 +1696,7 @@
         "clippy::unimplemented"
       ],
       "name": "p1-caps-higher-than-p0",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -1701,6 +1733,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1726,6 +1759,7 @@
         "clippy::todo"
       ],
       "name": "p2-caps-the-dimension-only",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -1762,6 +1796,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
@@ -1787,6 +1822,7 @@
         "clippy::dbg_macro"
       ],
       "name": "p3-imposes-no-ceiling",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -1829,6 +1865,7 @@
             "warnings": 2
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": 40,
           "authoritative": true,
@@ -1856,6 +1893,7 @@
         "rust_doctor::source::disabled_tls_verification"
       ],
       "name": "the-worst-tier-of-a-dimension-wins",
+      "production_lines": 300,
       "source_files": 3
     },
     {
@@ -1892,6 +1930,7 @@
             "warnings": 1
           }
         ],
+        "production_lines": 300,
         "score": {
           "applied_ceiling": 40,
           "authoritative": false,
@@ -1915,6 +1954,7 @@
         "rust_doctor::source::disabled_tls_verification"
       ],
       "name": "an-incomplete-scan-is-still-capped",
+      "production_lines": 300,
       "source_files": 3
     }
   ],
