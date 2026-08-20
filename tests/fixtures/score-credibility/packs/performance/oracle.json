@@ -3,12 +3,12 @@
   "story": "US-074",
   "label": "performance",
   "score": {
-    "value": 96,
+    "value": 89,
     "dimensions": {
       "security": 100,
       "reliability": 100,
       "maintainability": 100,
-      "performance": 75,
+      "performance": 29,
       "dependencies": 100
     }
   },

@@ -232,7 +232,9 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     let mut flat = report();
     flat.diagnostics[0].code = Some("clippy::dbg_macro".to_owned());
     flat.diagnostics[0].category = Some("maintainability".to_owned());
-    flat.audit = Audit::build(1, 100, Status::Complete, &flat.diagnostics);
+    // Five hundred kilolines: one `dbg!` in a workspace that size is a density the exponential
+    // cannot round away from a hundred, which is what makes the projection flat.
+    flat.audit = Audit::build(5_000, 500_000, Status::Complete, &flat.diagnostics);
     let score = flat.audit.score.as_ref().unwrap();
     assert_eq!(score.projected_after_top_three, Some(score.value));
     assert!(!score.projected_rule_ids.is_empty());

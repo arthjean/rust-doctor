@@ -189,7 +189,11 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     // Since EP-001 of the suppression PRD, the crate-level exemption of the
     // test crate is also reported under its own rule, so the category list is
     // looked up by name rather than by position.
-    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 99);
+    //
+    // Under core-v3 the number the exclusion produces is 72, not 99: this fixture is a handful
+    // of lines, so it divides by the two-kiloline floor, and two weighing sites are a density of
+    // one. What the mark buys is the distance to 51, which is what the four would have scored.
+    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 72);
     let maintainability = report["audit"]["categories"]
         .as_array()
         .expect("categories should be an array")
@@ -543,7 +547,9 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
 
     // US-008: the family inside `#[cfg(test)]` and the one inside the build
     // script are marked, stay published, and stay counted. Only the two shipped
-    // families weigh, which is what keeps the score at 100 with four findings.
+    // families weigh, which is what leaves maintainability at 72 with four findings published:
+    // two weighing sites over the two-kiloline floor this fixture is far below. Four would have
+    // scored 51, and that gap is the mark being observable rather than declarative.
     let marks: Vec<&str> = exact
         .iter()
         .map(|finding| finding["context"].as_str().unwrap_or("shipped"))
@@ -551,8 +557,8 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert_eq!(marks, ["build-script", "shipped", "tests"], "{exact:#?}");
     assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
     assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 8);
-    assert_eq!(report["audit"]["score"]["value"], 100);
-    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 97);
+    assert_eq!(report["audit"]["score"]["value"], 96);
+    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 72);
 
     // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();

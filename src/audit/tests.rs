@@ -8,8 +8,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::*;
-use crate::policy::CATALOG;
+use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
+
+mod scale;
 
 /// The block passes the rule the score it computes ranks. `oversized_unit` reports a file at a
 /// thousand lines, and this module holds that bound: these tests and the source inventory have
@@ -19,8 +21,10 @@ use crate::report::{DiagnosticSource, DiagnosticSpan};
 fn the_audit_holds_the_size_bound_it_scores_for() {
     for own in [
         include_str!("../audit.rs"),
+        include_str!("density.rs"),
         include_str!("source_inventory.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/scale.rs"),
     ] {
         let lines = own.lines().count();
         assert!(
@@ -98,7 +102,7 @@ fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
     in_tests.occurrences = 40;
     in_tests.context = Some(crate::report::DiagnosticContext::Tests);
 
-    let aggregation = aggregate_rules([&in_tests]);
+    let aggregation = aggregate_rules(100, [&in_tests]);
     let rule = aggregation
         .rules
         .first()
@@ -135,6 +139,24 @@ fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
     }
 }
 
+/// The producer names the oracle spells, paired with the enum they name.
+const PRODUCERS: [(&str, Producer); 5] = [
+    ("cargo-health", Producer::CargoHealth),
+    ("clippy", Producer::Clippy),
+    ("repo", Producer::Repo),
+    ("source-kernel", Producer::SourceKernel),
+    ("structure", Producer::Structure),
+];
+
+/// The dimension names the oracle spells, paired with the enum they name.
+const DIMENSIONS: [(&str, ScoreDimension); 5] = [
+    ("dependencies", ScoreDimension::Dependencies),
+    ("maintainability", ScoreDimension::Maintainability),
+    ("performance", ScoreDimension::Performance),
+    ("reliability", ScoreDimension::Reliability),
+    ("security", ScoreDimension::Security),
+];
+
 #[derive(Debug, Deserialize)]
 struct Oracle {
     schema_version: u8,
@@ -143,9 +165,9 @@ struct Oracle {
     category_mappings: BTreeMap<String, CategoryExpectation>,
     rule_tiers: BTreeMap<String, String>,
     tier_ceilings: Vec<TierCeilingExpectation>,
-    occurrence_steps: Vec<OccurrenceStepExpectation>,
+    denominators: Vec<DenominatorExpectation>,
     score_boundaries: Vec<ScoreBoundaryExpectation>,
-    rounding_cases: Vec<RoundingExpectation>,
+    density_cases: Vec<DensityExpectation>,
     score_cases: Vec<ScoreCase>,
     share_cases: Vec<ShareCase>,
 }
@@ -158,9 +180,9 @@ struct TierCeilingExpectation {
 }
 
 #[derive(Debug, Deserialize)]
-struct OccurrenceStepExpectation {
-    occurrences: usize,
-    multiplier: u64,
+struct DenominatorExpectation {
+    producer: String,
+    per_kiloline: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,8 +201,9 @@ struct ScoreBoundaryExpectation {
 }
 
 #[derive(Debug, Deserialize)]
-struct RoundingExpectation {
-    penalty_quarters: u64,
+struct DensityExpectation {
+    dimension: String,
+    density: f64,
     score: u8,
 }
 
@@ -235,7 +258,7 @@ fn projected_onto_oracle(audit: &Audit) -> serde_json::Value {
 
 fn oracle() -> Oracle {
     serde_json::from_str(include_str!(
-        "../../tests/fixtures/local-cli-experience/audit-core-v2.json"
+        "../../tests/fixtures/local-cli-experience/audit-core-v3.json"
     ))
     .expect("audit oracle should be valid")
 }
@@ -280,7 +303,7 @@ fn severity(value: &str) -> Option<Severity> {
 #[test]
 fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
     let oracle = oracle();
-    assert_eq!(oracle.schema_version, 2);
+    assert_eq!(oracle.schema_version, 3);
     assert_eq!(oracle.model, SCORE_MODEL);
     for (category, expected) in oracle.category_mappings {
         let (display, dimension) = category_mapping(&category).expect("mapped category");
@@ -324,12 +347,22 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
         previous = Some(current);
     }
 
-    for expected in oracle.occurrence_steps {
+    for expected in oracle.denominators {
+        let producer = PRODUCERS
+            .iter()
+            .find(|(name, _)| *name == expected.producer)
+            .map(|(_, producer)| *producer)
+            .unwrap_or_else(|| {
+                unreachable!(
+                    "the oracle names a producer the catalog does not: {}",
+                    expected.producer
+                )
+            });
         assert_eq!(
-            occurrence_multiplier(expected.occurrences),
-            expected.multiplier,
-            "{} occurrences",
-            expected.occurrences
+            DensityScope::of(producer) == DensityScope::PerKiloline,
+            expected.per_kiloline,
+            "{}",
+            expected.producer
         );
     }
     for expected in oracle.score_boundaries {
@@ -351,12 +384,23 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
             expected.name
         );
     }
-    for expected in oracle.rounding_cases {
+    for expected in oracle.density_cases {
+        let dimension = DIMENSIONS
+            .iter()
+            .find(|(name, _)| *name == expected.dimension)
+            .map(|(_, dimension)| *dimension)
+            .unwrap_or_else(|| {
+                unreachable!(
+                    "the oracle names a dimension the score does not: {}",
+                    expected.dimension
+                )
+            });
         assert_eq!(
-            dimension_score(expected.penalty_quarters),
+            density::dimension_score(expected.density, dimension),
             expected.score,
-            "penalty {} quarters",
-            expected.penalty_quarters
+            "{} at density {}",
+            expected.dimension,
+            expected.density
         );
         let dimensions = ScoreDimensions {
             security: expected.score,
@@ -391,7 +435,7 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
             "{}",
             case.name
         );
-        let input = aggregate_rules(&diagnostics);
+        let input = aggregate_rules(case.source_files * 100, &diagnostics);
         let counted: Vec<_> = input
             .rules
             .into_iter()
@@ -504,26 +548,34 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
 /// Under `core-v1`, saturating the twelve rules left the score at 96,
 /// label `Great`: the additive scale was structurally unable to go down.
 /// Under `core-v2` the worst observed tier caps the score, so the same
-/// catalog reaches the `Critical` band.
+/// catalog reaches the `Critical` band. Under `core-v3` the workspace has to be named for the
+/// question to mean anything: sixty-two rules firing once is a catastrophe in a hundred lines
+/// and an ordinary Tuesday in a hundred thousand, so this fires them across fifty kilolines,
+/// which is a workspace the corpus would recognize.
 #[test]
 fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
-    let audit = Audit::build(1, 100, Status::Complete, &diagnostics);
+    let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
 
-    assert_eq!(score.value, 40);
+    assert_eq!(score.value, 26);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
     assert!(score.authoritative);
 
-    assert_eq!(score.dimensions.security, 20);
-    assert_eq!(score.dimensions.reliability, 50);
-    assert_eq!(score.dimensions.maintainability, 76);
+    // Two of the five are the density and three are not, which is the whole model in one score.
+    // `security` and `dependencies` fall on their own: security reads a lambda of one, and the
+    // eleven manifest rules are charged per workspace, so neither is diluted by fifty kilolines.
+    // `performance` is its `P2` ceiling and `security` would be capped at twenty if the curve had
+    // not already taken it below.
+    assert_eq!(score.dimensions.security, 0);
+    assert_eq!(score.dimensions.reliability, 34);
+    assert_eq!(score.dimensions.maintainability, 42);
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.
     assert_eq!(score.dimensions.performance, 75);
-    assert_eq!(score.dimensions.dependencies, 50);
+    assert_eq!(score.dimensions.dependencies, 4);
     assert!(
         score
             .dimensions
@@ -535,14 +587,19 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     );
 }
 
+/// One diagnostic per distinct site, which is what a core-v3 numerator counts.
+///
+/// The last member of a tuple is a number of sites and not a number of occurrences: the score
+/// charges a rule for the places a reader has to go and look at, so a rule firing sixty times
+/// is sixty diagnostics here, each in a file of its own.
 fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
-    rules
-        .iter()
-        .enumerate()
-        .map(
-            |(index, (code, category, severity, occurrences))| Diagnostic {
+    let mut diagnostics = Vec::new();
+    for (rule, (code, category, severity, sites)) in rules.iter().enumerate() {
+        for site in 0..*sites {
+            let index = diagnostics.len();
+            diagnostics.push(Diagnostic {
                 context: None,
-                id: format!("finding-{index}"),
+                id: format!("finding-{rule}-{site}"),
                 source: DiagnosticSource::Clippy,
                 code: Some((*code).to_owned()),
                 base_severity: *severity,
@@ -552,15 +609,16 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
                 help: None,
                 package: None,
                 target: None,
-                path: None,
+                path: Some(format!("src/{index}.rs")),
                 span: None,
                 related: Vec::new(),
                 similarity_basis_points: None,
                 complexity: None,
-                occurrences: *occurrences,
-            },
-        )
-        .collect()
+                occurrences: 1,
+            });
+        }
+    }
+    diagnostics
 }
 
 /// The rule that fires most is not the rule worth fixing first.
@@ -684,6 +742,62 @@ fn an_incomplete_scan_caps_and_names_neither_a_projection_nor_a_withholding() {
     }
 }
 
+/// The promise the report makes is the score with those three rules gone, not an estimate of it.
+///
+/// The projection is rescored through the same path the published value takes, ceilings
+/// included, which is what this replays: score once, drop every diagnostic the three named rules
+/// raised, score again, and the two numbers have to be the same. It is the one claim a reader
+/// acts on, and the contribution the ranking orders by is deliberately computed without the
+/// ceilings, so the two are separate facts and only this one is published.
+#[test]
+fn the_projection_is_the_score_the_named_repairs_actually_reach() {
+    let profile = [
+        ("clippy::dbg_macro", "maintainability", Severity::Warning, 9),
+        ("clippy::todo", "correctness", Severity::Warning, 6),
+        (
+            "rust_doctor::cargo::duplicate_major_versions",
+            "dependencies",
+            Severity::Warning,
+            3,
+        ),
+        ("clippy::string_slice", "reliability", Severity::Warning, 2),
+    ];
+    let diagnostics = diagnostics_for(&profile);
+    let score = Audit::build(20, 20_000, Status::Complete, &diagnostics)
+        .score
+        .expect("twenty kilolines is a scorable workspace");
+
+    assert!(score.authoritative);
+    assert_eq!(score.projected_rule_ids.len(), 3);
+    let named: BTreeSet<&str> = score
+        .projected_rule_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+
+    let repaired: Vec<_> = diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .code
+                .as_deref()
+                .is_none_or(|code| !named.contains(code))
+        })
+        .collect();
+    let after = Audit::build(20, 20_000, Status::Complete, &repaired)
+        .score
+        .expect("repairing findings never makes a workspace unscorable");
+
+    assert_eq!(
+        score.projected_after_top_three,
+        Some(after.value),
+        "the projection promised {:?} and the repair reaches {}",
+        score.projected_after_top_three,
+        after.value
+    );
+    assert!(after.value > score.value, "the three repairs are worth points");
+}
+
 fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
     scored_at(Status::Complete, rules)
 }
@@ -750,76 +864,6 @@ fn only_the_worst_tier_applies_per_dimension_and_overall() {
     assert_eq!(mixed.value, 40);
 }
 
-/// The steps tell an isolated occurrence from a systematic practice,
-/// without letting a single rule saturate its dimension.
-#[test]
-fn occurrence_steps_grow_then_saturate_without_panicking() {
-    let single = scored(&[("clippy::stepped", "security", Severity::Error, 1)]);
-    let fifty = scored(&[("clippy::stepped", "security", Severity::Error, 50)]);
-    assert!(
-        fifty.value < single.value,
-        "{} should be under {}",
-        fifty.value,
-        single.value
-    );
-
-    let thousand = scored(&[("clippy::stepped", "security", Severity::Error, 1_000)]);
-    let saturated = scored(&[("clippy::stepped", "security", Severity::Error, usize::MAX)]);
-    assert_eq!(thousand.dimensions.security, fifty.dimensions.security);
-    assert_eq!(saturated.dimensions.security, fifty.dimensions.security);
-    assert!(
-        saturated.dimensions.security > 0,
-        "a bounded step cannot saturate a dimension on its own",
-    );
-
-    let ceiling = severity_penalty_quarters(Severity::Error) * OCCURRENCE_CEILING;
-    assert_eq!(dimension_score(ceiling), saturated.dimensions.security);
-    assert_eq!(occurrence_multiplier(usize::MAX), OCCURRENCE_CEILING);
-}
-
-/// Codebase size does not enter the scale: same rule profile and same
-/// occurrences, same score.
-#[test]
-fn the_score_is_invariant_to_codebase_size() {
-    let rules = [
-        ("clippy::todo", "correctness", Severity::Warning, 12),
-        ("clippy::dbg_macro", "maintainability", Severity::Warning, 3),
-    ];
-    let small = Audit::build(4, 400, Status::Complete, &diagnostics_for(&rules));
-    let large = Audit::build(4_000, 400_000, Status::Complete, &diagnostics_for(&rules));
-    assert_eq!(
-        small.score.map(|score| score.value),
-        large.score.map(|score| score.value)
-    );
-}
-
-/// A rule's penalty recomputes from the published fields alone: severity,
-/// occurrences, category and tier.
-#[test]
-fn a_rule_penalty_is_reproducible_from_published_fields() {
-    let rules = [
-        ("clippy::todo", "correctness", Severity::Warning, 7),
-        (
-            "rust_doctor::source::dynamic_shell_command",
-            "security",
-            Severity::Error,
-            2,
-        ),
-    ];
-    let diagnostics = diagnostics_for(&rules);
-    let aggregation = aggregate_rules(&diagnostics);
-
-    for (code, _, severity, occurrences) in rules {
-        let aggregate = aggregation
-            .rules
-            .iter()
-            .find(|rule| rule.id == code)
-            .expect("the rule should be aggregated");
-        let expected = severity_penalty_quarters(severity) * occurrence_multiplier(occurrences);
-        assert_eq!(aggregate.penalty_quarters(), expected, "{code}");
-    }
-}
-
 /// A diagnostic with no catalog category stays counted: both quantities of
 /// the categories reconstitute the report population exactly.
 #[test]
@@ -851,7 +895,7 @@ fn every_diagnostic_lands_in_exactly_one_bucket() {
     let audit = Audit::build(1, 100, Status::Incomplete, &diagnostics);
     let (distinct, occurrences) = audit.totals();
 
-    assert_eq!(distinct.total, 3);
+    assert_eq!(distinct.total, 5);
     assert_eq!(occurrences.total, 6);
     assert_eq!(distinct.errors, 1);
     assert_eq!(occurrences.errors, 2);
@@ -888,3 +932,5 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
         Some(false)
     );
 }
+
+

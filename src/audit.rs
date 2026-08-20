@@ -12,7 +12,10 @@ use crate::policy::RuleTier;
 use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceMeasurement;
 
+mod density;
 mod source_inventory;
+
+use density::{DensityScope, Scale, calculate_dimensions, contributions};
 
 /// The workspace the score is computed against: how much of it there is, and
 /// whether that is the workspace or a floor on it.
@@ -33,7 +36,7 @@ pub(crate) fn source_file_inventory(
     source_inventory::collect(metadata, scan, measurement)
 }
 
-pub const SCORE_MODEL: &str = "core-v2";
+pub const SCORE_MODEL: &str = "core-v3";
 const SHARE_BASE_URL: &str = "https://rust-doctor.com/share";
 const MAX_SHARED_COUNT: usize = 1_000_000;
 
@@ -225,24 +228,35 @@ impl ScoreDimension {
 pub(crate) struct RuleAggregate {
     pub(crate) id: String,
     pub(crate) effective_severity: Severity,
-    scored_severity: Option<Severity>,
     pub(crate) category: Option<AuditCategoryName>,
     dimension: Option<ScoreDimension>,
+    /// What this rule's findings are counted against, read off the catalog's `producer` field.
+    scope: DensityScope,
     tier: Option<RuleTier>,
     /// Every occurrence the report publishes for this rule, which is what the reader is shown.
     pub(crate) occurrences: usize,
-    /// The subset of them the score charges for. The two differ by exactly the diagnostics
-    /// outside production code: counted and displayed, never penalized.
-    scored_occurrences: usize,
+    /// What this rule adds to its dimension's numerator: its distinct scored sites, each
+    /// weighted by its severity. A site is one diagnostic, so a clone family naming K members
+    /// through `related` weighs one and not K, and the diagnostics outside production code are
+    /// counted in `occurrences` and weigh nothing here.
+    numerator: u64,
     /// Adjudicated false-positive rate on the pinned corpus, in basis points.
     /// It ranks what to repair first and enters no penalty: what a rule costs
     /// the score is what it reported here, whatever it costs elsewhere.
     noise: Option<u16>,
+    /// Millionths of a point of weighted score that removing this rule's sites recovers.
+    ///
+    /// It is stored rather than computed on demand because under core-v3 it is not a property of
+    /// the rule: the same numerator is worth different points depending on the whole set of rules
+    /// around it, the tier ceilings they impose and the scale they are divided by. So it is
+    /// computed once, where all three are known, and read from there by everything that ranks.
+    contribution: u64,
 }
 
 #[derive(Debug)]
 pub(crate) struct RuleAggregation {
     pub(crate) rules: Vec<RuleAggregate>,
+    scale: Scale,
     diagnostics_are_authoritative: bool,
 }
 
@@ -252,11 +266,11 @@ struct PendingRule {
     severity: Severity,
     category: Option<AuditCategoryName>,
     dimension: Option<ScoreDimension>,
-    scored_severity: Option<Severity>,
+    scope: DensityScope,
     mapping_conflict: bool,
     tier: Option<RuleTier>,
     occurrences: usize,
-    scored_occurrences: usize,
+    numerator: u64,
     noise: Option<u16>,
 }
 
@@ -300,9 +314,12 @@ impl Audit {
         // `summary`. What the score sets aside is decided inside `aggregate_rules`, so the two
         // callers of it cannot disagree on the population.
         let categories = category_tallies(diagnostics);
-        let aggregation = aggregate_rules(diagnostics.iter());
+        let aggregation = aggregate_rules(production_lines, diagnostics.iter());
         let scan_is_complete = status == Status::Complete && inventory_is_complete;
-        let score = (source_files > 0).then(|| score(&aggregation, scan_is_complete));
+        // No source and no line are the same refusal: core-v3 scores a density, and a density
+        // over nothing is not a hundred out of a hundred, it is an answer the scan cannot give.
+        let score = is_scorable_workspace(source_files, production_lines)
+            .then(|| score(&aggregation, scan_is_complete));
         Self {
             source_files,
             production_lines,
@@ -354,7 +371,8 @@ impl Audit {
             ordered && category.is_valid()
         });
         categories_are_valid
-            && (self.source_files > 0) == self.score.is_some()
+            && is_scorable_workspace(self.source_files, self.production_lines)
+                == self.score.is_some()
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
     }
 
@@ -596,24 +614,17 @@ const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
     }
 }
 
-/// Occurrence steps applied to a rule's penalty, as inclusive upper bounds.
-const OCCURRENCE_STEPS: [(usize, u64); 3] = [(1, 1), (5, 2), (20, 3)];
-
-/// What a count past the last step multiplies by. Naming the saturation is what removed the
-/// `usize::MAX` sentinel step, and with it the walk that had to index the table back out to
-/// find its own last row.
-const OCCURRENCE_CEILING: u64 = 4;
-
 /// Full scale of an adjudicated rate, matching the basis points the corpus
 /// publishes.
 const BASIS_POINTS: u64 = 10_000;
 
-/// Saturating multiplier: a rule can never go past the ceiling, whatever its occurrence count.
-fn occurrence_multiplier(occurrences: usize) -> u64 {
-    OCCURRENCE_STEPS
-        .into_iter()
-        .find_map(|(bound, multiplier)| (occurrences <= bound).then_some(multiplier))
-        .unwrap_or(OCCURRENCE_CEILING)
+/// Whether a workspace holds enough for a score to mean anything.
+///
+/// One condition rather than two places that have to agree: `build_with_inventory` gates the
+/// score on it and `is_valid` checks the gate held, so a block carrying a score over no source
+/// refuses to serialize instead of publishing a hundred over nothing.
+const fn is_scorable_workspace(source_files: usize, production_lines: usize) -> bool {
+    source_files > 0 && production_lines > 0
 }
 
 const fn capped(value: u8, ceiling: Option<u8>) -> u8 {
@@ -631,15 +642,6 @@ fn worse_tier(current: Option<RuleTier>, candidate: Option<RuleTier>) -> Option<
     }
 }
 
-const fn severity_penalty_quarters(severity: Severity) -> u64 {
-    match severity {
-        Severity::Error => 6,
-        Severity::Warning => 3,
-        Severity::Info => 1,
-        Severity::Unknown => 0,
-    }
-}
-
 const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
     match dimension {
         ScoreDimension::Security => 4,
@@ -651,22 +653,16 @@ const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 }
 
 impl RuleAggregate {
-    /// Penalty in quarter points, scored severity times occurrence step.
-    fn penalty_quarters(&self) -> u64 {
-        match self.scored_severity {
-            Some(severity) => severity_penalty_quarters(severity)
-                .saturating_mul(occurrence_multiplier(self.scored_occurrences)),
-            None => 0,
-        }
-    }
-
-    pub(crate) fn contribution(&self) -> u64 {
-        match self.dimension {
-            Some(dimension) => self
-                .penalty_quarters()
-                .saturating_mul(dimension_weight_twice(dimension)),
-            None => 0,
-        }
+    /// What removing this rule's sites recovers, in millionths of a point of weighted score.
+    ///
+    /// Under core-v2 this was the rule's own penalty, which is why it could be recomputed from
+    /// the rule alone. Under core-v3 the penalty is a density read through a curve, so what a
+    /// rule costs depends on everything sharing its dimension: the same site is worth more on a
+    /// clean dimension than on a saturated one. The number is therefore the answer to the
+    /// reader's actual question, the points the score gives back, and it is computed once by
+    /// `aggregate_rules` where the whole set and the scale are both known.
+    pub(crate) const fn contribution(&self) -> u64 {
+        self.contribution
     }
 
     /// What repairing this rule is expected to be worth, which is what it costs
@@ -694,7 +690,7 @@ impl RuleAggregate {
     }
 
     const fn is_scorable(&self) -> bool {
-        self.scored_severity.is_some() && self.dimension.is_some()
+        self.numerator > 0 && self.dimension.is_some()
     }
 }
 
@@ -720,7 +716,7 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
 }
 
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
-    let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new());
+    let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new(), aggregation.scale);
     let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
     let (projected, withheld) = rank_repairs(&aggregation.rules);
     let projected_rule_ids: Vec<String> = projected
@@ -735,7 +731,7 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     let (projected_rule_ids, withheld_rule_ids, projected_after_top_three) = if authoritative {
         let after = (!projected_rule_ids.is_empty()).then(|| {
             let removed: BTreeSet<_> = projected_rule_ids.iter().cloned().collect();
-            ScoredState::of(&aggregation.rules, &removed).value
+            ScoredState::of(&aggregation.rules, &removed, aggregation.scale).value
         });
         let withheld_rule_ids = withheld.iter().map(|rule| rule.id.clone()).collect();
         (projected_rule_ids, withheld_rule_ids, after)
@@ -795,8 +791,8 @@ struct ScoredState {
 }
 
 impl ScoredState {
-    fn of(rules: &[RuleAggregate], removed: &BTreeSet<String>) -> Self {
-        let dimensions = calculate_dimensions(rules, removed);
+    fn of(rules: &[RuleAggregate], removed: &BTreeSet<String>, scale: Scale) -> Self {
+        let dimensions = calculate_dimensions(rules, removed, scale);
         let worst_tier = rules
             .iter()
             .filter(|rule| !removed.contains(&rule.id))
@@ -815,11 +811,16 @@ impl ScoredState {
 ///
 /// The score and the report body read the same aggregates. What separates them is not the
 /// population but which figures they use: a diagnostic outside production code is counted in
-/// `occurrences` and left out of `scored_occurrences`, so it stays visible and costs no points,
+/// `occurrences` and weighs nothing in `numerator`, so it stays visible and costs no points,
 /// and it never decides whether the diagnostics are authoritative. That set-aside used to live
 /// at one of the two call sites, so the contribution the body ranked by was not the one the
 /// score charged, and a rule that only ever fired in a test was ranked as if it had.
+///
+/// The scale comes in rather than out because a density needs a denominator: the same rule
+/// firing at the same sites is worth different points in a two-kiloline crate and in a
+/// seven-hundred-kiloline one, and that is the whole reason this model exists.
 pub(crate) fn aggregate_rules<'a>(
+    production_lines: usize,
     diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> RuleAggregation {
     let mut diagnostics_are_authoritative = true;
@@ -830,9 +831,18 @@ pub(crate) fn aggregate_rules<'a>(
             diagnostics_are_authoritative &= !weighs;
             continue;
         };
+        let definition = crate::policy::find(rule_id);
         let mapping = diagnostic.category.as_deref().and_then(category_mapping);
-        let scores = weighs && diagnostic.severity != Severity::Unknown && mapping.is_some();
+        let weight = density::severity_weight(diagnostic.severity);
+        let scores = weighs && weight.is_some() && mapping.is_some();
         if weighs && !scores {
+            diagnostics_are_authoritative = false;
+        }
+        // A rule the catalog cannot resolve has no producer to read a denominator off, so it is
+        // counted against the workspace and the flag says the score was computed over something
+        // the catalog does not describe. The scope has to be total: there is no third answer a
+        // density could be divided by.
+        if weighs && definition.is_none() {
             diagnostics_are_authoritative = false;
         }
         let rule = rules.entry(rule_id.to_owned()).or_insert(PendingRule {
@@ -840,34 +850,26 @@ pub(crate) fn aggregate_rules<'a>(
             severity: diagnostic.severity,
             category: None,
             dimension: None,
-            scored_severity: None,
+            scope: definition.map_or(DensityScope::Workspace, |definition| {
+                DensityScope::of(definition.producer)
+            }),
             mapping_conflict: false,
-            tier: crate::policy::find(rule_id).map(|definition| definition.tier),
+            tier: definition.map(|definition| definition.tier),
             occurrences: 0,
-            scored_occurrences: 0,
+            numerator: 0,
             noise: crate::policy::corpus_noise(rule_id),
         });
         rule.occurrences = rule.occurrences.saturating_add(diagnostic.occurrences);
-        // Every occurrence in production code moves the step, including one the score can put no
-        // severity on: what a rule costs grows with how often it fired, and an occurrence the
-        // catalog could not read is still an occurrence.
-        if weighs {
-            rule.scored_occurrences = rule
-                .scored_occurrences
-                .saturating_add(diagnostic.occurrences);
-        }
         if diagnostic.severity.rank() < rule.severity.rank() {
             rule.severity = diagnostic.severity;
         }
-        if scores && let Some((category, dimension)) = mapping {
-            rule.scored_severity =
-                Some(rule.scored_severity.map_or(diagnostic.severity, |current| {
-                    if diagnostic.severity.rank() < current.rank() {
-                        diagnostic.severity
-                    } else {
-                        current
-                    }
-                }));
+        if scores
+            && let Some((category, dimension)) = mapping
+            && let Some(weight) = weight
+        {
+            // One diagnostic is one distinct site, whatever it counts in `occurrences`: a clone
+            // family names its K members through `related` and is one place to go and look.
+            rule.numerator = rule.numerator.saturating_add(weight);
             if rule.dimension.is_some_and(|current| current != dimension) {
                 rule.mapping_conflict = true;
                 diagnostics_are_authoritative = false;
@@ -881,49 +883,33 @@ pub(crate) fn aggregate_rules<'a>(
             rule.category = Some(category);
         }
     }
+    let scale = Scale::of(production_lines);
+    let mut rules: Vec<RuleAggregate> = rules
+        .into_values()
+        .map(|rule| RuleAggregate {
+            id: rule.id,
+            effective_severity: rule.severity,
+            category: (!rule.mapping_conflict).then_some(rule.category).flatten(),
+            dimension: (!rule.mapping_conflict && rule.numerator > 0)
+                .then_some(rule.dimension)
+                .flatten(),
+            scope: rule.scope,
+            tier: rule.tier,
+            occurrences: rule.occurrences,
+            numerator: rule.numerator,
+            noise: rule.noise,
+            contribution: 0,
+        })
+        .collect();
+    let recovered = contributions(&rules, scale);
+    for (rule, contribution) in rules.iter_mut().zip(recovered) {
+        rule.contribution = contribution;
+    }
     RuleAggregation {
-        rules: rules
-            .into_values()
-            .map(|rule| RuleAggregate {
-                id: rule.id,
-                effective_severity: rule.severity,
-                scored_severity: rule.scored_severity,
-                category: (!rule.mapping_conflict).then_some(rule.category).flatten(),
-                dimension: (!rule.mapping_conflict && rule.scored_severity.is_some())
-                    .then_some(rule.dimension)
-                    .flatten(),
-                tier: rule.tier,
-                occurrences: rule.occurrences,
-                scored_occurrences: rule.scored_occurrences,
-                noise: rule.noise,
-            })
-            .collect(),
+        rules,
+        scale,
         diagnostics_are_authoritative,
     }
-}
-
-fn calculate_dimensions(rules: &[RuleAggregate], removed: &BTreeSet<String>) -> ScoreDimensions {
-    let score_for = |dimension| {
-        let (penalty, worst) = rules
-            .iter()
-            .filter(|rule| rule.dimension == Some(dimension) && !removed.contains(&rule.id))
-            .fold((0u64, None), |(penalty, worst), rule| {
-                (
-                    penalty.saturating_add(rule.penalty_quarters()),
-                    worse_tier(worst, rule.scoring_tier()),
-                )
-            });
-        capped(
-            dimension_score(penalty),
-            worst.and_then(tier_dimension_ceiling),
-        )
-    };
-    ScoreDimensions::from_fn(score_for)
-}
-
-fn dimension_score(penalty_quarters: u64) -> u8 {
-    let remaining_quarters = 400u64.saturating_sub(penalty_quarters);
-    u8::try_from((remaining_quarters.saturating_add(2) / 4).min(100)).unwrap_or(100)
 }
 
 fn weighted_score(dimensions: ScoreDimensions) -> u8 {

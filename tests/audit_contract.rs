@@ -28,7 +28,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
         .score
         .as_ref()
         .expect("clean score should exist");
-    assert_eq!(score.model, "core-v2");
+    assert_eq!(score.model, "core-v3");
     assert_eq!(score.value, 100);
     assert_eq!(score.label, ScoreLabel::Great);
     assert!(score.authoritative);

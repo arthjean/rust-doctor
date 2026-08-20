@@ -112,7 +112,7 @@ impl GroupDiagnostic {
 
 impl ReportPresentation {
     pub fn derive(report: &InspectReport) -> Self {
-        Self::from_diagnostics(&report.diagnostics)
+        Self::from_diagnostics(report.audit.production_lines, &report.diagnostics)
     }
 
     pub fn derive_terminal(report: &InspectReport) -> Self {
@@ -121,6 +121,7 @@ impl ReportPresentation {
         };
         let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
         Self::from_diagnostics(
+            report.audit.production_lines,
             report
                 .diagnostics
                 .iter()
@@ -128,13 +129,23 @@ impl ReportPresentation {
         )
     }
 
-    fn from_diagnostics<'a>(diagnostics: impl IntoIterator<Item = &'a Diagnostic>) -> Self {
+    /// The line count comes from the audit block the report already carries.
+    ///
+    /// The body ranks by what repairing a rule is worth, which under core-v3 is a number of
+    /// points on a curve rather than a property of the rule, so it cannot be computed without
+    /// the denominator the score divides by. Reading it off the same block the score was built
+    /// from is what keeps the order the reader is given and the points they are promised the
+    /// same answer.
+    fn from_diagnostics<'a>(
+        production_lines: usize,
+        diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
+    ) -> Self {
         let diagnostics: Vec<_> = diagnostics.into_iter().collect();
         let issue_count = diagnostics.iter().fold(0usize, |total, diagnostic| {
             total.saturating_add(diagnostic.occurrences)
         });
         let finding_count = diagnostics.len();
-        let groups = diagnostic_groups(&diagnostics);
+        let groups = diagnostic_groups(production_lines, &diagnostics);
         let migration_advisories = migration_advisories(&groups);
         Self {
             groups,
@@ -145,8 +156,8 @@ impl ReportPresentation {
     }
 }
 
-fn diagnostic_groups(diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
-    let mut aggregates: BTreeMap<_, _> = aggregate_rules(diagnostics.iter().copied())
+fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
+    let mut aggregates: BTreeMap<_, _> = aggregate_rules(production_lines, diagnostics.iter().copied())
         .rules
         .into_iter()
         .map(|aggregate| (aggregate.id.clone(), aggregate))
@@ -312,7 +323,10 @@ mod tests {
     }
 
     fn report(diagnostics: Vec<Diagnostic>) -> InspectReport {
-        let audit = Audit::build(1, 100, Status::Complete, &diagnostics);
+        // Five kilolines of production source: a denominator with room in it, so a rule that
+        // costs the score more than another still reads as costing more once the exponential
+        // has been applied to both.
+        let audit = Audit::build(50, 5_000, Status::Complete, &diagnostics);
         InspectReport {
             schema_version: 8,
             audit,
@@ -388,20 +402,30 @@ mod tests {
             .iter()
             .map(|group| group.rule_id.as_str())
             .collect();
+        // The three errors lead the warning, and among them the order is what repairing each is
+        // expected to be worth. Under core-v3 that is not the same as how loud each one is: the
+        // four security sites hold their dimension near zero, where there is almost nothing left
+        // to recover, while the one maintainability site sits on a dimension still worth fifty
+        // points. So the lone `low_error` leads two rules that fired more often than it did.
         assert_eq!(
             ids,
             [
+                "clippy::low_error",
                 "clippy::same_warning",
                 "clippy::security_error",
-                "clippy::low_error",
                 "clippy::many_warnings"
             ]
         );
-        assert_eq!(presentation.groups[0].occurrences, 5);
-        assert_eq!(presentation.groups[0].severity, Severity::Error);
-        assert_eq!(presentation.groups[0].title, "Same warning");
+        let same_warning = presentation
+            .groups
+            .iter()
+            .find(|group| group.rule_id == "clippy::same_warning")
+            .expect("the two same_warning findings should be one group");
+        assert_eq!(same_warning.occurrences, 5);
+        assert_eq!(same_warning.severity, Severity::Error);
+        assert_eq!(same_warning.title, "Same warning");
         assert_eq!(
-            presentation.groups[0].rule_url,
+            same_warning.rule_url,
             "https://rust-doctor.com/rules/clippy%3A%3Asame_warning"
         );
     }

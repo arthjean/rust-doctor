@@ -90,7 +90,7 @@ Lists, which gain the identifier in alphabetical position:
   the whole Clippy producer, which only prunes the scan when it names every one.
 - `tests/fixtures/rule-scaling-kernel/oracle.json`:
   `compatibility.policy_clippy_pruning.inactive_rules`.
-- `tests/fixtures/local-cli-experience/audit-core-v2.json`: `rule_tiers`.
+- `tests/fixtures/local-cli-experience/audit-core-v3.json`: `rule_tiers`.
 
 Frozen bytes and hashes, which are regenerated from the observed run:
 

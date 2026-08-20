@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! End-to-end proofs of the `core-v2` model: tier capping, occurrence steps,
+//! End-to-end proofs of the `core-v3` model: tier capping, the density penalty,
 //! reconciled counts and schema contract.
 
 use std::collections::BTreeMap;
@@ -42,7 +42,7 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert!(score.authoritative);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
-    assert_eq!(score.model, "core-v2");
+    assert_eq!(score.model, "core-v3");
 
     // The dimension of the P0 finding is capped, so is the P1 one, and the
     // dimension carrying only a P3 keeps its additive score.
@@ -107,7 +107,13 @@ fn every_published_rule_carries_a_closed_tier() {
     }
 }
 
-/// US-065: the penalty of every rule recomputes from the report alone.
+/// US-065: the score of every dimension recomputes from the report alone.
+///
+/// The recomputation is written out here rather than called: `src/audit/density.rs` is the
+/// implementation, and a test that asks it for the answer proves only that it agrees with
+/// itself. Everything this needs is published, which is the claim: the distinct sites are the
+/// diagnostics, their weight is their severity, their denominator is named by the prefix of
+/// their rule id, and the line count they divide by is `audit.production_lines`.
 #[test]
 fn the_score_is_reproducible_from_the_published_report() {
     let report = json_report(&adversarial());
@@ -124,10 +130,12 @@ fn the_score_is_reproducible_from_the_published_report() {
         })
         .collect();
 
-    let mut penalties: BTreeMap<&str, (u64, Option<&str>)> = BTreeMap::new();
-    let mut occurrences: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut severities: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut dimensions: BTreeMap<&str, &str> = BTreeMap::new();
+    let production_lines = report["audit"]["production_lines"].as_u64().unwrap();
+    // The kiloline floor: below two kilolines a workspace is scored on what it holds rather
+    // than on how little of it there is.
+    let kilolines = (production_lines as f64 / 1000.0).max(2.0);
+
+    let mut densities: BTreeMap<&str, (f64, Option<&str>)> = BTreeMap::new();
     for diagnostic in report["diagnostics"].as_array().unwrap() {
         let Some(code) = diagnostic["code"].as_str() else {
             continue;
@@ -135,20 +143,12 @@ fn the_score_is_reproducible_from_the_published_report() {
         let Some(dimension) = dimension_of(diagnostic["category"].as_str()) else {
             continue;
         };
-        *occurrences.entry(code).or_default() +=
-            usize::try_from(diagnostic["occurrences"].as_u64().unwrap()).unwrap();
-        let severity = diagnostic["severity"].as_str().unwrap();
-        let current = severities.entry(code).or_insert(severity);
-        if severity_quarters(severity) > severity_quarters(current) {
-            *current = severity;
-        }
-        dimensions.insert(code, dimension);
-    }
-    for (code, severity) in severities {
-        let penalty = severity_quarters(severity) * occurrence_multiplier(occurrences[code]);
-        let dimension = dimensions[code];
-        let entry = penalties.entry(dimension).or_insert((0, None));
-        entry.0 += penalty;
+        let Some(weight) = severity_weight(diagnostic["severity"].as_str().unwrap()) else {
+            continue;
+        };
+        // One diagnostic is one distinct site, whatever it counts in `occurrences`.
+        let entry = densities.entry(dimension).or_insert((0.0, None));
+        entry.0 += weight / denominator(code, kilolines);
         // The worst tier of a dimension is the smallest published name, `P0`
         // first. A rule outside the catalog carries none and caps nothing.
         if let Some(tier) = tiers.get(code).map(String::as_str)
@@ -167,11 +167,11 @@ fn the_score_is_reproducible_from_the_published_report() {
     ];
     let published = &report["audit"]["score"]["dimensions"];
     for (dimension, _) in WEIGHTS {
-        let (penalty, tier) = penalties.get(dimension).copied().unwrap_or((0, None));
-        let additive = ((400 - penalty + 2) / 4).min(100);
+        let (density, tier) = densities.get(dimension).copied().unwrap_or((0.0, None));
+        let decayed = (100.0 * (-density / lambda(dimension)).exp()).round() as u64;
         let expected = tier
             .and_then(dimension_ceiling)
-            .map_or(additive, |ceiling| additive.min(ceiling));
+            .map_or(decayed, |ceiling| decayed.min(ceiling));
         assert_eq!(
             published[dimension].as_u64().unwrap(),
             expected,
@@ -184,7 +184,7 @@ fn the_score_is_reproducible_from_the_published_report() {
         .map(|(dimension, weight)| published[dimension].as_u64().unwrap() * weight)
         .sum();
     let weighted = ((numerator + 6) / 13).min(100);
-    let worst = penalties.values().filter_map(|(_, tier)| *tier).min();
+    let worst = densities.values().filter_map(|(_, tier)| *tier).min();
     let expected = worst
         .and_then(overall_ceiling)
         .map_or(weighted, |ceiling| weighted.min(ceiling));
@@ -210,21 +210,34 @@ fn dimension_of(category: Option<&str>) -> Option<&'static str> {
     }
 }
 
-fn severity_quarters(severity: &str) -> u64 {
+/// What one distinct site of this severity adds to its dimension's numerator. `unknown` weighs
+/// nothing at all: it is the absence of a measurement, not a small one.
+fn severity_weight(severity: &str) -> Option<f64> {
     match severity {
-        "error" => 6,
-        "warning" => 3,
-        "info" => 1,
-        _ => 0,
+        "error" => Some(2.0),
+        "warning" | "info" => Some(1.0),
+        _ => None,
     }
 }
 
-fn occurrence_multiplier(occurrences: usize) -> u64 {
-    match occurrences {
-        0 | 1 => 1,
-        2..=5 => 2,
-        6..=20 => 3,
-        _ => 4,
+/// What a finding is divided by, named by the prefix of the rule that raised it. A per-site
+/// producer divides by production kilolines; a producer speaking about the workspace itself
+/// divides by one, because a missing lockfile is not less serious in a large repository.
+fn denominator(code: &str, kilolines: f64) -> f64 {
+    if code.starts_with("rust_doctor::cargo::") || code.starts_with("rust_doctor::repo::") {
+        1.0
+    } else {
+        kilolines
+    }
+}
+
+/// The density that costs a dimension 63 points, in sites per denominator.
+fn lambda(dimension: &str) -> f64 {
+    match dimension {
+        "security" => 1.0,
+        "reliability" => 10.0,
+        "maintainability" | "dependencies" => 3.0,
+        _ => 4.0,
     }
 }
 
@@ -334,31 +347,60 @@ fn an_inconsistent_model_is_rejected_before_publication() {
     score.model = "core-v1".to_owned();
     assert!(!report.audit.is_valid());
     assert!(serde_json::to_vec(&report).is_err());
+
+    // A stored report from the previous model is refused rather than reinterpreted. There is no
+    // dual-model path: the value beside the name was computed by a penalty this binary no longer
+    // has, so reading it as core-v3 would publish a number nothing here can reproduce.
+    let score = report.audit.score.as_mut().unwrap();
+    score.model = "core-v2".to_owned();
+    assert!(!report.audit.is_valid());
+    assert!(serde_json::to_vec(&report).is_err());
+
+    let score = report.audit.score.as_mut().unwrap();
+    score.model = "core-v3".to_owned();
+    assert!(report.audit.is_valid());
+    assert!(report.is_valid());
 }
 
 /// US-067: no historical field of the score contract disappeared or changed
-/// type between `core-v1` and `core-v2`.
+/// type between `core-v1` and the model shipping today.
+///
+/// The chain is checked against the live oracle rather than against the previous archive.
+/// `audit-core-v2.json` is kept beside it as the record of what the middle model published, and
+/// diffing the two is how a regeneration is read; it is not what guards the contract, since an
+/// archive compared only to another archive stops saying anything about the binary.
+///
+/// One section of the v1 oracle has no successor. `rounding_cases` was keyed on
+/// `penalty_quarters`, the unit of the retired additive penalty, so it named an input of the
+/// model rather than a field of the report: `density_cases` is what replaced it. Every section
+/// that describes the published shape is still here, and still equal.
 #[test]
-fn the_core_v2_oracle_preserves_every_historical_field() {
+fn the_current_oracle_preserves_every_historical_field() {
     let previous: Value = serde_json::from_str(include_str!(
         "fixtures/local-cli-experience/audit-core-v1.json"
     ))
     .expect("the frozen migration oracle should stay readable");
     let current: Value = serde_json::from_str(include_str!(
-        "fixtures/local-cli-experience/audit-core-v2.json"
+        "fixtures/local-cli-experience/audit-core-v3.json"
     ))
-    .expect("the core-v2 oracle should be valid");
+    .expect("the core-v3 oracle should be valid");
 
     assert_eq!(previous["model"], "core-v1");
-    assert_eq!(current["model"], "core-v2");
+    assert_eq!(current["model"], "core-v3");
     for section in previous.as_object().unwrap().keys() {
+        if section == "rounding_cases" {
+            continue;
+        }
         assert!(
             current.get(section).is_some(),
             "section {section} disappeared from the contract"
         );
     }
+    assert!(
+        current.get("density_cases").is_some(),
+        "the retired rounding table has no successor"
+    );
     assert_eq!(previous["score_boundaries"], current["score_boundaries"]);
-    assert_eq!(previous["rounding_cases"], current["rounding_cases"]);
     assert_eq!(previous["share_cases"], current["share_cases"]);
     assert_eq!(previous["category_mappings"], current["category_mappings"]);
 

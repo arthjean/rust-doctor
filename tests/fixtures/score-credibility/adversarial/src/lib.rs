@@ -1,7 +1,7 @@
 //! Reference adversarial fixture of the score model.
 //!
 //! It gathers the defects the score-credibility-kernel PRD measures as
-//! coexisting with a score of 99 under `core-v1`. Under `core-v2`, the command
+//! coexisting with a score of 99 under `core-v1`. Under `core-v3`, the command
 //! injection carries tier `P0`, so the overall score can no longer exceed its
 //! cap whatever the average of the other dimensions.
 //!

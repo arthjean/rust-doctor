@@ -7,7 +7,7 @@
     "dimensions": {
       "security": 100,
       "reliability": 50,
-      "maintainability": 99,
+      "maintainability": 85,
       "performance": 100,
       "dependencies": 100
     }

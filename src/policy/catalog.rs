@@ -51,7 +51,7 @@ pub fn catalog() -> Vec<CatalogEntry> {
 /// Criticality of a rule, independent of `default_level` and of the effective
 /// severity of a diagnostic.
 ///
-/// The tier only drives the `core-v2` score: it imposes a cap on the dimension
+/// The tier only drives the `core-v3` score: it imposes a cap on the dimension
 /// concerned and on the overall score. It enters neither `base_severity` nor
 /// `fingerprint()`, so it moves no baseline.
 ///
