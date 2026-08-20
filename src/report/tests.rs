@@ -169,7 +169,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
     let gate = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error);
     InspectReport {
         schema_version: SCHEMA_VERSION,
-        audit: Audit::build(1, Status::Complete, &diagnostics),
+        audit: Audit::build(1, 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
         policy: None,
@@ -555,6 +555,7 @@ fn complete_analysis_side(
             true,
             true,
         )),
+        source_measurement: None,
         source: Some(crate::source_kernel::SourceScan {
             candidates: vec![crate::source_kernel::Candidate {
                 definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
@@ -570,7 +571,7 @@ fn complete_analysis_side(
                 },
             }],
             errors: Vec::new(),
-            counters: crate::source_kernel::SourceCounters::default(),
+            counters: crate::source_kernel::AnalysisCounters::default(),
         }),
         error: None,
     }
@@ -718,6 +719,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         toolchain: None,
         scan: ClippyExecution::Finished(scan(Vec::new(), 0, true, true)),
         source: None,
+        source_measurement: None,
         error: None,
     });
     assert_eq!(complete.status, Status::Complete);
@@ -746,6 +748,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
             false,
         )),
         source: None,
+        source_measurement: None,
         error: None,
     });
     assert_eq!(incomplete.status, Status::Incomplete);
@@ -769,6 +772,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         toolchain: None,
         scan: ClippyExecution::NotRun,
         source: None,
+        source_measurement: None,
         error: Some(InternalError {
             stage: "metadata",
             code: "cargo-metadata",
@@ -824,7 +828,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
             code: "parse-error",
             message: "Source path \"src/broken.rs\" contains 1 parse errors.".to_owned(),
         }],
-        counters: source_kernel::SourceCounters::default(),
+        counters: source_kernel::AnalysisCounters::default(),
     };
     let report = from_execution(ExecutionResult {
         manifest_path: Some(workspace.join("Cargo.toml")),
@@ -835,6 +839,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         toolchain: None,
         scan: ClippyExecution::Finished(scan(compiler_messages, 0, true, true)),
         source: Some(source),
+        source_measurement: None,
         error: None,
     });
 

@@ -312,7 +312,7 @@ mod tests {
     }
 
     fn report(diagnostics: Vec<Diagnostic>) -> InspectReport {
-        let audit = Audit::build(1, Status::Complete, &diagnostics);
+        let audit = Audit::build(1, 100, Status::Complete, &diagnostics);
         InspectReport {
             schema_version: 8,
             audit,

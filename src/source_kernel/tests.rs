@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use cargo_metadata::{Metadata, MetadataCommand};
 use ra_ap_syntax::{Edition, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
+mod measurement;
+
 use super::walk::enumerate_with_limits;
 use super::*;
 
@@ -13,30 +15,57 @@ use crate::policy::{
     STRUCTURE_STACKED_ALLOW, STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE,
 };
 
-fn scan(metadata: &Metadata) -> SourceScan {
+/// One pass over a fixture, both halves of it.
+///
+/// Production keeps them apart, because the walk runs on every plan and the
+/// detectors only on a plan that solicits them; a test scanning one fixture
+/// wants to assert on both, and on the errors as one list the way the report
+/// publishes them at stage `source`.
+struct Scanned {
+    candidates: Vec<Candidate>,
+    errors: Vec<SourceError>,
+    counters: AnalysisCounters,
+    walk: WalkCounters,
+    production_lines: usize,
+    complete: bool,
+}
+
+fn scan(metadata: &Metadata) -> Scanned {
     scan_for_plan(metadata, &PolicyPlan::default())
 }
 
-/// Reproduces the gate `execution` applies: the workspace is walked only
-/// when a producer reading source text still has an active rule, so a
-/// pruned policy proves an absence of IO rather than an empty result.
-fn scan_for_plan(metadata: &Metadata, plan: &PolicyPlan) -> SourceScan {
-    if !enumeration_required(plan) {
-        return SourceScan::default();
-    }
-    inspect(&enumerate(metadata), plan)
+fn scan_for_plan(metadata: &Metadata, plan: &PolicyPlan) -> Scanned {
+    scan_enumeration(enumerate(metadata), LIMITS, plan)
 }
 
-fn scan_with_limits(metadata: &Metadata, limits: Limits) -> SourceScan {
-    inspect_with_limits(
-        &enumerate_with_limits(metadata, limits),
+fn scan_with_limits(metadata: &Metadata, limits: Limits) -> Scanned {
+    scan_enumeration(
+        enumerate_with_limits(metadata, limits),
         limits,
         &PolicyPlan::default(),
     )
 }
 
-fn solicitations(counters: &SourceCounters, id: &str) -> usize {
-    counters.analysis.predicates.get(id).copied().unwrap_or_default()
+fn scan_enumeration(enumeration: Enumeration, limits: Limits, plan: &PolicyPlan) -> Scanned {
+    let walk_counters = enumeration.counters.clone();
+    let scan = inspect_with_limits(&enumeration, limits, plan);
+    let measurement = enumeration.into_measurement();
+    let mut errors = measurement.errors;
+    errors.extend(scan.errors);
+    errors.sort();
+    errors.dedup();
+    Scanned {
+        candidates: scan.candidates,
+        errors,
+        counters: scan.counters,
+        walk: walk_counters,
+        production_lines: measurement.production_lines,
+        complete: measurement.complete,
+    }
+}
+
+fn solicitations(counters: &AnalysisCounters, id: &str) -> usize {
+    counters.predicates.get(id).copied().unwrap_or_default()
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -71,16 +100,6 @@ static SILENT: Detector = Detector {
     node: SyntaxKind::SOURCE_FILE,
     inspect: silent,
 };
-
-/// Whether a plan asks for anything the walk feeds.
-///
-/// A helper of these tests alone: the orchestrator asks the plan directly, and
-/// answering the same question in two modules is how the two drifted apart.
-fn enumeration_required(plan: &PolicyPlan) -> bool {
-    [Producer::SourceKernel, Producer::Structure]
-        .into_iter()
-        .any(|producer| plan.active_rules(producer).next().is_some())
-}
 
 const REGISTERED: [&Detector; 2] = DETECTORS;
 
@@ -124,7 +143,7 @@ fn synthetic_enumeration(source: &str) -> Enumeration {
     }
 }
 
-fn analyze(source: &str, detectors: &[&'static Detector]) -> (Vec<&'static str>, SourceCounters) {
+fn analyze(source: &str, detectors: &[&'static Detector]) -> (Vec<&'static str>, AnalysisCounters) {
     let (candidates, counters, _) = analyze_with_limits(source, detectors, LIMITS);
     (candidates, counters)
 }
@@ -133,7 +152,7 @@ fn analyze_with_limits(
     source: &str,
     detectors: &[&'static Detector],
     limits: Limits,
-) -> (Vec<&'static str>, SourceCounters, Vec<SourceError>) {
+) -> (Vec<&'static str>, AnalysisCounters, Vec<SourceError>) {
     let enumeration = synthetic_enumeration(source);
     let registry = Registry::new(detectors.iter().copied());
     let mut findings = Findings::default();
@@ -204,18 +223,19 @@ fn policy_prunes_source_io_and_each_inactive_predicate() {
         .with_rule(STRUCTURE_OVERSIZED_UNIT.id, RuleLevel::Off)
         .with_rule(STRUCTURE_UNREFERENCED_FEATURE.id, RuleLevel::Off);
     let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-    assert!(!enumeration_required(&all_off));
+    // The walk still runs, since the score is measured against the workspace
+    // whatever the plan asked for; what a pruned policy proves is that no
+    // detector was solicited.
     let scanned = scan_for_plan(&metadata, &all_off);
     assert!(scanned.candidates.is_empty());
     assert!(scanned.errors.is_empty());
-    assert_eq!(scanned.counters.walk, WalkCounters::default());
-    assert_eq!(scanned.counters.analysis.nodes_visited, 0);
-    assert!(scanned.counters.analysis.predicates.is_empty());
+    assert_eq!(scanned.counters.nodes_visited, 0);
+    assert!(scanned.counters.predicates.is_empty());
 
     let shell_off = PolicyInput::default().with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off);
     let shell_off = PolicyPlan::compile(&shell_off).expect("policy should compile");
     let scanned = scan_for_plan(&metadata, &shell_off);
-    assert!(scanned.counters.walk.files_read > 0);
+    assert!(scanned.counters.nodes_visited > 0);
     assert!(solicitations(&scanned.counters, SOURCE_DISABLED_TLS.id) > 0);
     assert_eq!(solicitations(&scanned.counters, SOURCE_DYNAMIC_SHELL.id), 0);
     assert!(
@@ -297,7 +317,7 @@ fn run(user: &str) {
 
     let (expected, counters) = analyze(source, &REGISTERED);
     assert_eq!(expected, [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]);
-    assert_eq!(counters.analysis.nodes_visited, nodes);
+    assert_eq!(counters.nodes_visited, nodes);
     for detector in REGISTERED {
         assert_eq!(
             solicitations(&counters, detector.definition.id),
@@ -309,16 +329,16 @@ fn run(user: &str) {
 
     let permuted = analyze(source, &[REGISTERED[1], REGISTERED[0]]);
     assert_eq!(permuted.0, expected);
-    assert_eq!(permuted.1.analysis.nodes_visited, nodes);
+    assert_eq!(permuted.1.nodes_visited, nodes);
 
     let single = analyze(source, &[REGISTERED[0]]);
-    assert_eq!(single.1.analysis.nodes_visited, nodes);
+    assert_eq!(single.1.nodes_visited, nodes);
     assert_eq!(solicitations(&single.1, SOURCE_DYNAMIC_SHELL.id), 0);
 
     // A registered detector that emits nothing leaves the result unchanged.
     let with_silent = analyze(source, &[REGISTERED[0], &SILENT, REGISTERED[1]]);
     assert_eq!(with_silent.0, expected);
-    assert_eq!(with_silent.1.analysis.nodes_visited, nodes);
+    assert_eq!(with_silent.1.nodes_visited, nodes);
     assert_eq!(solicitations(&with_silent.1, SILENT_RULE.id), 1);
 }
 
@@ -416,7 +436,7 @@ fn run(user: &str) { let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo
 fn corpus_follows_modules_once_and_emits_only_closed_predicates() {
     let scanned = scan(&metadata("precision"));
     assert!(scanned.errors.is_empty(), "{:?}", scanned.errors);
-    assert_eq!(scanned.counters.walk.files_read, 13);
+    assert_eq!(scanned.walk.files_read, 13);
     assert_eq!(scanned.candidates.len(), 13, "{:?}", scanned.candidates);
     assert!(
         scanned
@@ -467,7 +487,7 @@ fn partial_failures_are_private_deduplicated_and_preserve_valid_findings() {
         ]
     );
     assert_eq!(scanned.candidates.len(), 2, "{:?}", scanned.candidates);
-    assert_eq!(scanned.counters.walk.files_read, 5);
+    assert_eq!(scanned.walk.files_read, 5);
     assert!(
         scanned
             .candidates
@@ -489,7 +509,7 @@ fn partial_failures_are_private_deduplicated_and_preserve_valid_findings() {
 #[test]
 fn existing_and_missing_roots_outside_the_workspace_are_never_read() {
     let existing = scan(&metadata("external-root"));
-    assert_eq!(existing.counters.walk.files_read, 0);
+    assert_eq!(existing.walk.files_read, 0);
     assert!(existing.candidates.is_empty());
     assert_eq!(existing.errors.len(), 1);
     assert_eq!(existing.errors[0].code, "path-outside-workspace");
@@ -505,7 +525,7 @@ fn existing_and_missing_roots_outside_the_workspace_are_never_read() {
         .join("../missing-external-main.rs");
     missing_metadata.packages[0].targets[0].src_path = missing;
     let missing = scan(&missing_metadata);
-    assert_eq!(missing.counters.walk.files_read, 0);
+    assert_eq!(missing.walk.files_read, 0);
     assert!(missing.candidates.is_empty());
     assert_eq!(missing.errors.len(), 1);
     assert_eq!(missing.errors[0].code, "path-outside-workspace");
@@ -549,7 +569,7 @@ fn symlinks_outside_the_workspace_are_rejected_before_reading() {
         .other_options(["--offline".to_owned()]);
     let scanned = scan(&command.exec().unwrap());
 
-    assert_eq!(scanned.counters.walk.files_read, 1);
+    assert_eq!(scanned.walk.files_read, 1);
     assert_eq!(scanned.errors.len(), 1);
     assert_eq!(scanned.errors[0].code, "path-outside-workspace");
     assert!(
@@ -585,15 +605,15 @@ fn invalid_utf8_is_a_private_read_failure_that_still_charges_the_byte_budget() {
     let scanned = scan(&metadata);
     fs::remove_file(path).unwrap();
 
-    assert_eq!(scanned.counters.walk.files_read, 1);
+    assert_eq!(scanned.walk.files_read, 1);
     assert_eq!(scanned.errors.len(), 1);
     assert_eq!(scanned.errors[0].code, "read-failed");
     assert!(!scanned.errors[0].message.contains(env!("CARGO_MANIFEST_DIR")));
     // The two bytes left the disk, so the budget was charged for them even
     // though no unit came out. A walk that charged only what decoded could
     // read the per-file limit over and over with the total never moving.
-    assert!(scanned.counters.walk.bytes_read > 0);
-    assert!(scanned.counters.walk.bytes_read < clean.counters.walk.bytes_read);
+    assert!(scanned.walk.bytes_read > 0);
+    assert!(scanned.walk.bytes_read < clean.walk.bytes_read);
 }
 
 #[test]
@@ -615,7 +635,7 @@ fn target_editions_do_not_override_the_package_edition() {
     let scanned = scan(&metadata);
 
     assert!(scanned.errors.is_empty(), "{:?}", scanned.errors);
-    assert_eq!(scanned.counters.walk.files_read, 11);
+    assert_eq!(scanned.walk.files_read, 11);
     assert_eq!(scanned.candidates.len(), 13);
     assert!(
         scanned
@@ -646,13 +666,18 @@ fn unsupported_package_editions_fail_closed() {
 #[test]
 fn file_total_unit_and_depth_limits_stop_the_required_work() {
     let metadata = metadata("precision");
-    for (limits, limit) in [
+    // The last member is whether the limit cost the walk a file. Four of the
+    // five refuse to load one, so the line count is a floor; the alias budget
+    // is spent after the file is a unit, so it truncates what the detectors
+    // resolve and never what the count saw.
+    for (limits, limit, exhaustive) in [
         (
             Limits {
                 file_bytes: 1,
                 ..LIMITS
             },
             Limit::FileBytes,
+            false,
         ),
         (
             Limits {
@@ -660,14 +685,16 @@ fn file_total_unit_and_depth_limits_stop_the_required_work() {
                 ..LIMITS
             },
             Limit::TotalBytes,
+            false,
         ),
-        (Limits { units: 0, ..LIMITS }, Limit::SourceUnits),
+        (Limits { units: 0, ..LIMITS }, Limit::SourceUnits, false),
         (
             Limits {
                 module_depth: 0,
                 ..LIMITS
             },
             Limit::ModuleDepth,
+            false,
         ),
         (
             Limits {
@@ -675,6 +702,7 @@ fn file_total_unit_and_depth_limits_stop_the_required_work() {
                 ..LIMITS
             },
             Limit::AliasBindings,
+            true,
         ),
     ] {
         let scanned = scan_with_limits(&metadata, limits);
@@ -689,6 +717,7 @@ fn file_total_unit_and_depth_limits_stop_the_required_work() {
             1,
             "{limit:?}"
         );
+        assert_eq!(scanned.complete, exhaustive, "{limit:?}");
     }
 }
 
@@ -711,6 +740,8 @@ fn an_exhausted_byte_budget_stops_the_walk_instead_of_skipping_a_file() {
         },
     );
     assert!(exhausted.units().count() < complete_units);
+    assert!(complete.complete);
+    assert!(!exhausted.complete);
     assert_eq!(
         exhausted
             .errors
@@ -875,8 +906,8 @@ fn pinned_real_world_evaluation_probe() {
     println!(
         "RUST_DOCTOR_SOURCE_EVALUATION={}",
         serde_json::json!({
-            "files_read": scanned.counters.walk.files_read,
-            "bytes_parsed": scanned.counters.walk.bytes_read,
+            "files_read": scanned.walk.files_read,
+            "bytes_parsed": scanned.walk.bytes_read,
             "counts": counts,
             "source_errors": errors,
             "findings": findings,
@@ -898,6 +929,7 @@ fn the_kernel_holds_the_size_bound_it_enumerates_for() {
         include_str!("detectors.rs"),
         include_str!("references.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/measurement.rs"),
         include_str!("walk.rs"),
     ] {
         let lines = own.lines().count();

@@ -39,7 +39,7 @@ use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer};
 use crate::repo_hygiene::{self, RepoScan};
 use crate::scan_target::{self, ResolvedScanTarget};
-use crate::source_kernel::{self, SourceScan};
+use crate::source_kernel::{self, SourceMeasurement, SourceScan};
 use crate::structure::{self, StructureScan};
 use crate::terminal_text::{sanitize, truncate};
 
@@ -67,6 +67,10 @@ pub(crate) struct ExecutionResult {
     pub(crate) toolchain: Option<Toolchain>,
     pub(crate) scan: ClippyExecution,
     pub(crate) source: Option<SourceScan>,
+    /// What the walk saw, on every plan that reached a workspace, including one
+    /// with no native rule active. The score divides by it, so it cannot be
+    /// conditional on a rule set the reader is free to switch off.
+    pub(crate) source_measurement: Option<SourceMeasurement>,
     pub(crate) structure: Option<StructureScan>,
     pub(crate) cargo_health: Option<CargoHealthScan>,
     pub(crate) repo: Option<RepoScan>,
@@ -95,6 +99,7 @@ impl ExecutionResult {
             toolchain: None,
             scan: ClippyExecution::NotRun,
             source: None,
+            source_measurement: None,
             structure: None,
             cargo_health: None,
             repo: None,
@@ -109,11 +114,20 @@ impl ExecutionResult {
     /// fifth is one arm here, and both the completeness verdict and the
     /// published error list follow from it.
     pub(crate) fn producer_errors(&self) -> impl Iterator<Item = ProducerError<'_>> {
-        let source = self.source.iter().flat_map(|scan| {
-            scan.errors
+        // Two sources at one stage: what the walk refused, which every plan
+        // produces, and what soliciting the detectors produced, which only a
+        // plan with a source rule active does.
+        let walked = self.source_measurement.iter().flat_map(|measurement| {
+            measurement
+                .errors
                 .iter()
                 .map(|error| ProducerError::new("source", error.code, &error.message))
         });
+        let source = walked.chain(self.source.iter().flat_map(|scan| {
+            scan.errors
+                .iter()
+                .map(|error| ProducerError::new("source", error.code, &error.message))
+        }));
         let structure = self.structure.iter().flat_map(|scan| {
             scan.errors
                 .iter()
@@ -368,30 +382,31 @@ impl ExecutionContext<'_> {
         // the dependency-truth rules read crate references off the same units,
         // and enumerating the workspace twice for any of them would double the
         // only expensive part of each.
-        let (source, structure) = if source_rules || structure_rules || dependency_truth {
-            let enumeration = source_kernel::enumerate(&metadata);
-            let scans = (
-                source_rules.then(|| source_kernel::inspect(&enumeration, self.plan)),
-                structure_rules
-                    .then(|| structure::analyze(&metadata, &enumeration, self.plan, self.settings)),
+        //
+        // It runs whatever the plan asked for, because the walk is also the
+        // measurement: the score divides by the production lines it counts, and
+        // a plan with every native rule off still has a score. What the plan
+        // decides is which detectors are solicited, never whether the workspace
+        // is measured.
+        let enumeration = source_kernel::enumerate(&metadata);
+        let source = source_rules.then(|| source_kernel::inspect(&enumeration, self.plan));
+        let structure = structure_rules
+            .then(|| structure::analyze(&metadata, &enumeration, self.plan, self.settings));
+        // Both dependency-truth rules belong to the dependency pack, so a
+        // plan that asks for either has already put a scan here to merge
+        // into.
+        if let Some(scan) = cargo_health.as_mut().filter(|_| dependency_truth) {
+            let references = source_kernel::references::collect(&enumeration);
+            cargo_health::inspect_dependency_truth(
+                &metadata,
+                &enumeration,
+                &references,
+                self.plan,
+                scan,
             );
-            // Both dependency-truth rules belong to the dependency pack, so a
-            // plan that asks for either has already put a scan here to merge
-            // into.
-            if let Some(scan) = cargo_health.as_mut().filter(|_| dependency_truth) {
-                let references = source_kernel::references::collect(&enumeration);
-                cargo_health::inspect_dependency_truth(
-                    &metadata,
-                    &enumeration,
-                    &references,
-                    self.plan,
-                    scan,
-                );
-            }
-            scans
-        } else {
-            (None, None)
-        };
+        }
+        // Taken last, once every producer above has read the units.
+        let source_measurement = Some(enumeration.into_measurement());
 
         ExecutionResult {
             manifest_path: Some(manifest_path),
@@ -399,6 +414,7 @@ impl ExecutionContext<'_> {
             toolchain: Some(toolchain),
             scan,
             source,
+            source_measurement,
             structure,
             cargo_health,
             repo,

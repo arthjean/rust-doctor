@@ -10,22 +10,27 @@ use cargo_metadata::Metadata;
 use crate::execution::ScanExecution;
 use crate::policy::RuleTier;
 use crate::report::{Diagnostic, Severity, Status};
-use crate::source_kernel::SourceScan;
+use crate::source_kernel::SourceMeasurement;
 
 mod source_inventory;
 
+/// The workspace the score is computed against: how much of it there is, and
+/// whether that is the workspace or a floor on it.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SourceFileInventory {
     pub(crate) files: usize,
+    /// Lines of production Rust the walk counted. Test code is excluded, since
+    /// the score charges for what ships.
+    pub(crate) production_lines: usize,
     pub(crate) complete: bool,
 }
 
 pub(crate) fn source_file_inventory(
     metadata: &Metadata,
     scan: Option<&ScanExecution>,
-    source: Option<&SourceScan>,
+    measurement: Option<&SourceMeasurement>,
 ) -> SourceFileInventory {
-    source_inventory::collect(metadata, scan, source)
+    source_inventory::collect(metadata, scan, measurement)
 }
 
 pub const SCORE_MODEL: &str = "core-v2";
@@ -35,6 +40,10 @@ const MAX_SHARED_COUNT: usize = 1_000_000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {
     pub source_files: usize,
+    /// Lines of production Rust the scan counted, test code excluded. Zero when
+    /// the workspace holds none, and a floor on it whenever
+    /// `inventory_is_complete` is false.
+    pub production_lines: usize,
     pub categories: Vec<AuditCategory>,
     pub score: Option<AuditScore>,
     /// Whether `source_files` counted the workspace or is a floor on it.
@@ -252,8 +261,21 @@ struct PendingRule {
 }
 
 impl Audit {
-    pub fn build(source_files: usize, status: Status, diagnostics: &[Diagnostic]) -> Self {
-        Self::build_with_inventory(source_files, true, status, diagnostics)
+    pub fn build(
+        source_files: usize,
+        production_lines: usize,
+        status: Status,
+        diagnostics: &[Diagnostic],
+    ) -> Self {
+        Self::build_with_inventory(
+            SourceFileInventory {
+                files: source_files,
+                production_lines,
+                complete: true,
+            },
+            status,
+            diagnostics,
+        )
     }
 
     pub(crate) fn build_from_inventory(
@@ -261,15 +283,19 @@ impl Audit {
         status: Status,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        Self::build_with_inventory(inventory.files, inventory.complete, status, diagnostics)
+        Self::build_with_inventory(inventory, status, diagnostics)
     }
 
     fn build_with_inventory(
-        source_files: usize,
-        inventory_is_complete: bool,
+        inventory: SourceFileInventory,
         status: Status,
         diagnostics: &[Diagnostic],
     ) -> Self {
+        let SourceFileInventory {
+            files: source_files,
+            production_lines,
+            complete: inventory_is_complete,
+        } = inventory;
         // Both quantities count everything the report publishes, FR-06 requires them to equal
         // `summary`. What the score sets aside is decided inside `aggregate_rules`, so the two
         // callers of it cannot disagree on the population.
@@ -279,6 +305,7 @@ impl Audit {
         let score = (source_files > 0).then(|| score(&aggregation, scan_is_complete));
         Self {
             source_files,
+            production_lines,
             categories,
             score,
             inventory_is_complete,
@@ -287,8 +314,11 @@ impl Audit {
 
     pub(crate) fn rebuild_for_scope(&self, status: Status, diagnostics: &[Diagnostic]) -> Self {
         Self::build_with_inventory(
-            self.source_files,
-            self.inventory_is_complete,
+            SourceFileInventory {
+                files: self.source_files,
+                production_lines: self.production_lines,
+                complete: self.inventory_is_complete,
+            },
             status,
             diagnostics,
         )
@@ -312,6 +342,7 @@ impl Audit {
             occurrences.warnings,
             occurrences.info,
             self.source_files,
+            self.production_lines,
         )
     }
 
@@ -348,8 +379,9 @@ impl Serialize for Audit {
         if !self.is_valid() {
             return Err(S::Error::custom("invalid audit state"));
         }
-        let mut state = serializer.serialize_struct("Audit", 3)?;
+        let mut state = serializer.serialize_struct("Audit", 4)?;
         state.serialize_field("source_files", &self.source_files)?;
+        state.serialize_field("production_lines", &self.production_lines)?;
         state.serialize_field("categories", &self.categories)?;
         state.serialize_field("score", &self.score)?;
         state.end()
@@ -919,9 +951,10 @@ fn build_share_url(
     warnings: usize,
     info: usize,
     source_files: usize,
+    production_lines: usize,
 ) -> Result<String, ShareError> {
     if score > 100
-        || [errors, warnings, info, source_files]
+        || [errors, warnings, info, source_files, production_lines]
             .into_iter()
             .any(|count| count > MAX_SHARED_COUNT)
     {
@@ -934,6 +967,7 @@ fn build_share_url(
         ("w", warnings),
         ("i", info),
         ("f", source_files),
+        ("l", production_lines),
     ] {
         if count > 0 {
             let _ = write!(url, "&{key}={count}");

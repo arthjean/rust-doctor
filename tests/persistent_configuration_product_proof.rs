@@ -427,7 +427,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 14);
+            assert_eq!(report["schema_version"], 15);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
             assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 62);
             let rule_ids: Vec<_> = report["policy"]["rules"]
@@ -621,7 +621,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 14);
+        assert_eq!(report["schema_version"], 15);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

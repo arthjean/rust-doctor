@@ -128,16 +128,12 @@ pub(crate) struct SourceError {
 pub(crate) struct SourceScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<SourceError>,
-    pub(crate) counters: SourceCounters,
-}
-
-/// One counter group per phase. Each half is carried whole rather than copied
-/// field by field, so a counter added to either reaches the report without a
-/// second place to keep in step.
-#[derive(Debug, Default)]
-pub(crate) struct SourceCounters {
-    pub(crate) walk: WalkCounters,
-    pub(crate) analysis: AnalysisCounters,
+    /// What soliciting the detectors did. What the walk did belongs to
+    /// `SourceMeasurement`, which every plan produces, and is not copied here:
+    /// a scan exists only when a source rule is active, and the walk is
+    /// measured whether one is or not.
+    #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
+    pub(crate) counters: AnalysisCounters,
 }
 
 /// What the walk did.
@@ -283,6 +279,10 @@ pub(crate) struct Enumeration {
     contexts: TargetContexts,
     errors: Vec<SourceError>,
     counters: WalkCounters,
+    /// Whether every file the walk reached became a unit. A default
+    /// enumeration is not a walk that read everything, it is a walk that never
+    /// happened, so it says so.
+    complete: bool,
 }
 
 impl Enumeration {
@@ -293,6 +293,68 @@ impl Enumeration {
     pub(crate) const fn contexts(&self) -> &TargetContexts {
         &self.contexts
     }
+
+    /// What the walk measured, lifted out of the enumeration.
+    ///
+    /// Taken by value at the end of the run, once every producer has read the
+    /// units: the counts outlive the trees they were taken from, and nothing
+    /// else here does.
+    pub(crate) fn into_measurement(mut self) -> SourceMeasurement {
+        let production_lines = self.production_lines();
+        self.errors.sort();
+        self.errors.dedup();
+        SourceMeasurement {
+            files_read: self.counters.files_read,
+            production_lines,
+            complete: self.complete,
+            errors: self.errors,
+        }
+    }
+
+    /// Lines of production source the walk enumerated.
+    ///
+    /// One file counts once however many units reached it: the same path parsed
+    /// under two editions is two units over one text. A path is production when
+    /// any unit of it is, which is the bias `context` already takes, since a
+    /// file the library and an integration test both reach is shipped code.
+    ///
+    /// A line is what `str::lines` calls one, blanks and comments included, so
+    /// a file whose last line carries no terminator still contributes it once.
+    fn production_lines(&self) -> usize {
+        let mut per_path: BTreeMap<&Path, (usize, bool)> = BTreeMap::new();
+        for (identity, unit) in &self.units {
+            let counted = per_path
+                .entry(identity.path.as_path())
+                .or_insert_with(|| (unit.source().lines().count(), false));
+            counted.1 |= !unit.is_test_code(&self.contexts);
+        }
+        per_path
+            .values()
+            .filter(|(_, is_production)| *is_production)
+            .map(|(lines, _)| lines)
+            .sum()
+    }
+}
+
+/// What the walk measured, whatever the plan asked of it.
+///
+/// The walk runs on every plan, including one with no native rule active, so
+/// this is what a scan publishes about the workspace itself: how many files it
+/// read, how much production source they hold, whether every file it reached
+/// was actually read, and what it could not read. `SourceScan` is what the
+/// detectors found; this is what the walk saw, and the two are separate
+/// because a Clippy-only plan produces the second and never the first.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct SourceMeasurement {
+    pub(crate) files_read: usize,
+    /// Lines of every unit no target reaches as test material. The score
+    /// divides by this, so it counts the population the score charges on.
+    pub(crate) production_lines: usize,
+    /// Whether every file the walk reached was read. A file skipped for a
+    /// bound, or one that did not decode, makes both counts a floor on the
+    /// workspace rather than the workspace itself.
+    pub(crate) complete: bool,
+    pub(crate) errors: Vec<SourceError>,
 }
 
 /// Does any producer reading source text still have an active rule? When none
@@ -350,7 +412,7 @@ impl Registry {
 #[derive(Debug, Default)]
 struct Findings {
     candidates: BTreeMap<CandidateKey, Candidate>,
-    counters: SourceCounters,
+    counters: AnalysisCounters,
     errors: Vec<SourceError>,
 }
 
@@ -376,14 +438,10 @@ fn inspect_with_limits(enumeration: &Enumeration, limits: Limits, plan: &PolicyP
         return SourceScan::default();
     }
 
-    let mut findings = Findings {
-        errors: enumeration.errors.clone(),
-        counters: SourceCounters {
-            walk: enumeration.counters.clone(),
-            ..SourceCounters::default()
-        },
-        ..Findings::default()
-    };
+    // The walk's own refusals and counters belong to the measurement, which
+    // every plan produces. What is collected here is what soliciting the
+    // detectors produced, and nothing else, so neither is published twice.
+    let mut findings = Findings::default();
     for unit in enumeration.units.values() {
         analyze_unit(unit, enumeration, &registry, limits, &mut findings);
     }
@@ -429,11 +487,10 @@ fn analyze_unit(
     };
 
     for node in tree.syntax().descendants() {
-        findings.counters.analysis.nodes_visited += 1;
+        findings.counters.nodes_visited += 1;
         for detector in registry.for_kind(node.kind()) {
             *findings
                 .counters
-                .analysis
                 .predicates
                 .entry(detector.definition.id)
                 .or_default() += 1;

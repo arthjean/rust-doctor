@@ -70,6 +70,7 @@ fn clean_result() -> ExecutionResult {
             errors: Vec::new(),
         }),
         source: None,
+        source_measurement: None,
         structure: None,
         cargo_health: None,
         repo: None,

@@ -30,6 +30,50 @@ use super::{
     WalkCounters, literal_string, push_error, push_limit_error,
 };
 
+/// What the walk could not read, and whether anything was lost with it.
+///
+/// The two are held together because they are one fact: a refusal that costs
+/// the walk a file also costs the measurement its exactness, and the only way
+/// to keep the second true as refusals are added is to make recording the
+/// first the thing that sets it. The alternative, deriving the flag from the
+/// error list afterwards, is what the crate already learned not to do: the one
+/// error a file survives is the parse error at the end of `load_unit`, so a
+/// derivation reads either the code or the message back out, and control flow
+/// through a display string moves when the string does.
+struct Refusals {
+    errors: Vec<SourceError>,
+    every_file_was_read: bool,
+}
+
+impl Default for Refusals {
+    fn default() -> Self {
+        Self {
+            errors: Vec::new(),
+            every_file_was_read: true,
+        }
+    }
+}
+
+impl Refusals {
+    /// A file the walk will not read. The counts become a floor.
+    fn lost(&mut self, error: SourceError) {
+        self.errors.push(error);
+        self.every_file_was_read = false;
+    }
+
+    /// A file a bound refused. The counts become a floor.
+    fn lost_to_limit(&mut self, limit: Limit, maximum: impl std::fmt::Display) {
+        push_limit_error(&mut self.errors, limit, maximum);
+        self.every_file_was_read = false;
+    }
+
+    /// A file the walk read and kept, reported for what is wrong inside it.
+    /// The unit exists, so its lines are counted and nothing is a floor.
+    fn kept(&mut self, code: &'static str, message: String) {
+        push_error(&mut self.errors, code, message);
+    }
+}
+
 /// One file to visit, and the module context it is visited in. Two targets
 /// reaching the same file produce two items: the file is parsed once, but each
 /// traversal contributes its own reachability.
@@ -68,20 +112,20 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
             ..Enumeration::default()
         };
     };
-    let mut errors = Vec::new();
-    let mut queue = source_roots(metadata, &mut errors);
+    let mut refusals = Refusals::default();
+    let mut queue = source_roots(metadata, &mut refusals);
     let mut units = BTreeMap::<Identity, SourceUnit>::new();
     let mut counters = WalkCounters::default();
 
     while let Some(work) = queue.pop_first() {
         if work.depth > limits.module_depth {
-            push_limit_error(&mut errors, Limit::ModuleDepth, limits.module_depth);
+            refusals.lost_to_limit(Limit::ModuleDepth, limits.module_depth);
             continue;
         }
         let canonical = match confine(&workspace_root, &work.lexical_path) {
             Ok(canonical) => canonical,
             Err(error) => {
-                errors.push(error);
+                refusals.lost(error);
                 continue;
             }
         };
@@ -96,7 +140,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 if occupancy >= limits.units {
-                    push_limit_error(&mut errors, Limit::SourceUnits, limits.units);
+                    refusals.lost_to_limit(Limit::SourceUnits, limits.units);
                     break;
                 }
                 let loaded = load_unit(
@@ -104,7 +148,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
                     &workspace_root,
                     limits,
                     &mut counters,
-                    &mut errors,
+                    &mut refusals,
                 );
                 match loaded {
                     Loaded::Unit(unit) => entry.insert(unit),
@@ -121,30 +165,32 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         {
             continue;
         }
-        queue.extend(module_requests(unit, &work, &workspace_root, &mut errors));
+        queue.extend(module_requests(unit, &work, &workspace_root, &mut refusals));
     }
 
     Enumeration {
         units,
         tables: crate_alias_tables(metadata),
         contexts: target_contexts(metadata),
-        errors,
+        errors: refusals.errors,
         counters,
+        complete: refusals.every_file_was_read,
     }
 }
 
-fn source_roots(metadata: &Metadata, errors: &mut Vec<SourceError>) -> BTreeSet<WorkItem> {
+fn source_roots(metadata: &Metadata, refusals: &mut Refusals) -> BTreeSet<WorkItem> {
     let mut roots = BTreeSet::new();
     for package in workspace_packages(metadata) {
         let Some(edition) = syntax_edition(package.edition.to_string().as_str()) else {
-            push_error(
-                errors,
-                "parse-error",
-                format!(
+            // Every file of the package goes with it, so this is a loss even
+            // though nothing was opened.
+            refusals.lost(SourceError {
+                code: "parse-error",
+                message: format!(
                     "Package \"{}\" uses unsupported Rust edition \"{}\".",
                     package.name, package.edition
                 ),
-            );
+            });
             continue;
         };
         for (target_index, target) in package.targets.iter().enumerate() {
@@ -225,7 +271,7 @@ fn load_unit(
     workspace_root: &Path,
     limits: Limits,
     counters: &mut WalkCounters,
-    errors: &mut Vec<SourceError>,
+    refusals: &mut Refusals,
 ) -> Loaded {
     let relative_path = relative_path(workspace_root, &identity.path);
     // One shape for every reason a file cannot become a unit, so the path is
@@ -238,25 +284,25 @@ fn load_unit(
     let metadata = match fs::metadata(&identity.path) {
         Ok(metadata) if metadata.is_file() => metadata,
         Ok(_) => {
-            errors.push(refused("is not a regular file"));
+            refusals.lost(refused("is not a regular file"));
             return Loaded::Skipped;
         }
         Err(_) => {
-            errors.push(refused("could not be inspected"));
+            refusals.lost(refused("could not be inspected"));
             return Loaded::Skipped;
         }
     };
     if metadata.len() > limits.file_bytes {
-        push_limit_error(errors, Limit::FileBytes, limits.file_bytes);
+        refusals.lost_to_limit(Limit::FileBytes, limits.file_bytes);
         return Loaded::Skipped;
     }
     if counters.bytes_read.saturating_add(metadata.len()) > limits.total_bytes {
-        push_limit_error(errors, Limit::TotalBytes, limits.total_bytes);
+        refusals.lost_to_limit(Limit::TotalBytes, limits.total_bytes);
         return Loaded::BudgetExhausted;
     }
 
     let Ok(file) = File::open(&identity.path) else {
-        errors.push(refused("could not be opened"));
+        refusals.lost(refused("could not be opened"));
         return Loaded::Skipped;
     };
     // One byte past the largest read that could still be admitted, so a file
@@ -265,7 +311,7 @@ fn load_unit(
     let read_limit = limits.file_bytes.min(remaining).saturating_add(1);
     let mut bytes = Vec::with_capacity(metadata.len().min(read_limit) as usize);
     if file.take(read_limit).read_to_end(&mut bytes).is_err() {
-        errors.push(refused("could not be read"));
+        refusals.lost(refused("could not be read"));
         return Loaded::Skipped;
     }
     // The budget charges what left the disk, not what survived decoding. A file
@@ -273,15 +319,15 @@ fn load_unit(
     // read the per-file limit over and over with the total never moving.
     counters.bytes_read = counters.bytes_read.saturating_add(bytes.len() as u64);
     if bytes.len() as u64 > limits.file_bytes {
-        push_limit_error(errors, Limit::FileBytes, limits.file_bytes);
+        refusals.lost_to_limit(Limit::FileBytes, limits.file_bytes);
         return Loaded::Skipped;
     }
     if counters.bytes_read > limits.total_bytes {
-        push_limit_error(errors, Limit::TotalBytes, limits.total_bytes);
+        refusals.lost_to_limit(Limit::TotalBytes, limits.total_bytes);
         return Loaded::BudgetExhausted;
     }
     let Ok(source) = String::from_utf8(bytes) else {
-        errors.push(refused("is not valid UTF-8"));
+        refusals.lost(refused("is not valid UTF-8"));
         return Loaded::Skipped;
     };
     counters.files_read += 1;
@@ -289,8 +335,7 @@ fn load_unit(
     let parse = SourceFile::parse(&source, identity.edition);
     let parse_errors = parse.errors();
     if !parse_errors.is_empty() {
-        push_error(
-            errors,
+        refusals.kept(
             "parse-error",
             format!(
                 "Source path \"{relative_path}\" contains {} parse errors.",
@@ -314,7 +359,7 @@ fn module_requests(
     unit: &SourceUnit,
     work: &WorkItem,
     workspace_root: &Path,
-    errors: &mut Vec<SourceError>,
+    refusals: &mut Refusals,
 ) -> Vec<WorkItem> {
     let tree = unit.tree();
     let mut requests = Vec::new();
@@ -343,7 +388,7 @@ fn module_requests(
             ],
             PathAttribute::Literal(path) => vec![base.join(path)],
             PathAttribute::Invalid => {
-                errors.push(unresolved("has no supported literal path"));
+                refusals.lost(unresolved("has no supported literal path"));
                 continue;
             }
         };
@@ -351,7 +396,7 @@ fn module_requests(
             .into_iter()
             .partition(|path| lexically_within_workspace(workspace_root, path));
         for path in &escaping {
-            errors.push(outside_workspace(workspace_root, path));
+            refusals.lost(outside_workspace(workspace_root, path));
         }
         if confined.is_empty() {
             continue;
@@ -361,18 +406,17 @@ fn module_requests(
         let path = match (existing.next(), existing.next()) {
             (Some(path), None) => path,
             (Some(_), Some(_)) => {
-                push_error(
-                    errors,
-                    "module-ambiguous",
-                    format!(
+                refusals.lost(SourceError {
+                    code: "module-ambiguous",
+                    message: format!(
                         "Module \"{name}\" declared in \"{}\" has both supported file forms.",
                         unit.relative_path()
                     ),
-                );
+                });
                 continue;
             }
             (None, _) => {
-                errors.push(unresolved("could not be resolved"));
+                refusals.lost(unresolved("could not be resolved"));
                 continue;
             }
         };

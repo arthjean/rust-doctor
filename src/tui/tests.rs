@@ -325,7 +325,7 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
     };
     InspectReport {
         schema_version: rust_doctor::SCHEMA_VERSION,
-        audit: Audit::build(0, status, &[]),
+        audit: Audit::build(0, 0, status, &[]),
         status,
         complete: status == Status::Complete,
         policy: None,

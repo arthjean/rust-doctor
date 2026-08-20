@@ -150,6 +150,7 @@ pub(crate) fn baseline_report_failure(
     error: InternalError,
 ) -> InspectReport {
     let source_files = report.audit.source_files;
+    let production_lines = report.audit.production_lines;
     report.status = Status::Failed;
     report.complete = false;
     report.diagnostics.clear();
@@ -160,7 +161,12 @@ pub(crate) fn baseline_report_failure(
         message: error.message,
     }];
     report.summary = Summary::default();
-    report.audit = Audit::build(source_files, report.status, &report.diagnostics);
+    report.audit = Audit::build(
+        source_files,
+        production_lines,
+        report.status,
+        &report.diagnostics,
+    );
     force_baseline_gate(report)
 }
 
@@ -201,7 +207,7 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                 audit::source_file_inventory(
                     metadata,
                     result.scan.finished(),
-                    result.source.as_ref(),
+                    result.source_measurement.as_ref(),
                 )
             });
     let audit = Audit::build_from_inventory(source_inventory, status, &diagnostics);
@@ -346,7 +352,7 @@ pub(crate) fn scope_failure(error: InternalError, blocking: BlockingLevel) -> In
 fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectReport {
     InspectReport {
         schema_version: SCHEMA_VERSION,
-        audit: Audit::build(0, Status::Failed, &[]),
+        audit: Audit::build(0, 0, Status::Failed, &[]),
         status: Status::Failed,
         complete: false,
         policy: None,

@@ -59,7 +59,7 @@ fn report() -> InspectReport {
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
         schema_version: rust_doctor::SCHEMA_VERSION,
-        audit: Audit::build(1, Status::Complete, &diagnostics),
+        audit: Audit::build(1, 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
         policy: None,

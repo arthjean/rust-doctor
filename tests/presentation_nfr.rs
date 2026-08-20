@@ -97,8 +97,8 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 14,
-        audit: Audit::build(DIAGNOSTICS, Status::Complete, &diagnostics),
+        schema_version: 15,
+        audit: Audit::build(DIAGNOSTICS, DIAGNOSTICS * 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
         policy: None,
@@ -130,6 +130,7 @@ fn fixture_report() -> InspectReport {
 fn presentation_pipeline(report: &mut InspectReport) {
     report.audit = Audit::build(
         report.audit.source_files,
+        report.audit.production_lines,
         report.status,
         &report.diagnostics,
     );

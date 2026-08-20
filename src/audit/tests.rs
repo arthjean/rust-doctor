@@ -107,7 +107,7 @@ fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
     assert_eq!(rule.contribution(), 0, "and costs the score nothing");
     assert!(aggregation.diagnostics_are_authoritative);
 
-    let audit = Audit::build(1, Status::Complete, &[in_tests]);
+    let audit = Audit::build(1, 100, Status::Complete, &[in_tests]);
     let score = audit.score.as_ref().expect("a scored workspace");
     assert_eq!(score.value, 100);
     assert!(score.projected_rule_ids.is_empty());
@@ -209,7 +209,28 @@ struct ShareCase {
     warnings: usize,
     info: usize,
     files: usize,
+    /// Production lines, absent from the two frozen oracles: they were taken
+    /// before the count existed, and a count of zero is omitted from the
+    /// query, so their expected URLs still hold. What the new key does is
+    /// asserted by `the_share_url_carries_the_production_line_count`.
+    #[serde(default)]
+    lines: usize,
     expected: Option<String>,
+}
+
+/// Projects a current audit back onto the shape the version-2 oracle froze.
+///
+/// That record was taken before the score had a denominator to publish, so the
+/// projection consists solely of removing the members added since. This is the
+/// condition that makes a frozen archive durable, and the same one
+/// `project_v11_wire_to_v7` holds for the report: a schema that adds projects,
+/// a schema that moves the value of an existing field does not.
+fn projected_onto_oracle(audit: &Audit) -> serde_json::Value {
+    let mut value = serde_json::to_value(audit).expect("a valid audit should serialize");
+    if let Some(members) = value.as_object_mut() {
+        members.remove("production_lines");
+    }
+    value
 }
 
 fn oracle() -> Oracle {
@@ -358,9 +379,14 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
         } else {
             Status::Incomplete
         };
-        let audit = Audit::build(case.source_files, status, &diagnostics);
+        let audit = Audit::build(
+            case.source_files,
+            case.source_files * 100,
+            status,
+            &diagnostics,
+        );
         assert_eq!(
-            serde_json::to_value(&audit).unwrap(),
+            projected_onto_oracle(&audit),
             case.expected_audit,
             "{}",
             case.name
@@ -386,6 +412,7 @@ fn versioned_share_oracle_matches_public_query_bounds() {
             case.warnings,
             case.info,
             case.files,
+            case.lines,
         )
         .ok();
         assert_eq!(actual, case.expected);
@@ -397,6 +424,7 @@ fn versioned_share_oracle_matches_public_query_bounds() {
 fn invalid_score_state_is_rejected_before_sharing() {
     let audit = Audit {
         source_files: 1,
+        production_lines: 100,
         categories: Vec::new(),
         inventory_is_complete: true,
         score: Some(AuditScore {
@@ -423,8 +451,24 @@ fn invalid_score_state_is_rejected_before_sharing() {
     assert_eq!(audit.share_url(), Err(ShareError::InvalidPayload));
     assert!(serde_json::to_vec(&audit).is_err());
     assert_eq!(
-        build_share_url(100, 1_000_001, 0, 0, 1),
+        build_share_url(100, 1_000_001, 0, 0, 1, 100),
         Err(ShareError::InvalidPayload)
+    );
+    // The line count is bounded like every other published count.
+    assert_eq!(
+        build_share_url(100, 0, 0, 0, 1, 1_000_001),
+        Err(ShareError::InvalidPayload)
+    );
+}
+
+/// The denominator the score is computed against travels with the score.
+#[test]
+fn the_share_url_carries_the_production_line_count() {
+    let audit = Audit::build(3, 420, Status::Complete, &[]);
+
+    assert_eq!(
+        audit.share_url(),
+        Ok("https://rust-doctor.com/share?s=100&f=3&l=420".to_owned())
     );
 }
 
@@ -464,7 +508,7 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
 #[test]
 fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
-    let audit = Audit::build(1, Status::Complete, &diagnostics);
+    let audit = Audit::build(1, 100, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
 
     assert_eq!(score.value, 40);
@@ -645,7 +689,7 @@ fn scored(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
 }
 
 fn scored_at(status: Status, rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
-    Audit::build(1, status, &diagnostics_for(rules))
+    Audit::build(1, 100, status, &diagnostics_for(rules))
         .score
         .expect("a scored audit should exist")
 }
@@ -654,7 +698,7 @@ fn scored_at(status: Status, rules: &[(&str, &str, Severity, usize)]) -> AuditSc
 /// outside the catalog.
 #[test]
 fn a_clean_codebase_scores_one_hundred_without_any_ceiling() {
-    let clean = Audit::build(1, Status::Complete, &[])
+    let clean = Audit::build(1, 100, Status::Complete, &[])
         .score
         .expect("a scored audit should exist");
     assert_eq!(clean.value, 100);
@@ -741,8 +785,8 @@ fn the_score_is_invariant_to_codebase_size() {
         ("clippy::todo", "correctness", Severity::Warning, 12),
         ("clippy::dbg_macro", "maintainability", Severity::Warning, 3),
     ];
-    let small = Audit::build(4, Status::Complete, &diagnostics_for(&rules));
-    let large = Audit::build(4_000, Status::Complete, &diagnostics_for(&rules));
+    let small = Audit::build(4, 400, Status::Complete, &diagnostics_for(&rules));
+    let large = Audit::build(4_000, 400_000, Status::Complete, &diagnostics_for(&rules));
     assert_eq!(
         small.score.map(|score| score.value),
         large.score.map(|score| score.value)
@@ -804,7 +848,7 @@ fn every_diagnostic_lands_in_exactly_one_bucket() {
         occurrences: 2,
     });
 
-    let audit = Audit::build(1, Status::Incomplete, &diagnostics);
+    let audit = Audit::build(1, 100, Status::Incomplete, &diagnostics);
     let (distinct, occurrences) = audit.totals();
 
     assert_eq!(distinct.total, 3);
@@ -831,6 +875,7 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
     let audit = Audit::build_from_inventory(
         SourceFileInventory {
             files: 1,
+            production_lines: 40,
             complete: false,
         },
         Status::Complete,

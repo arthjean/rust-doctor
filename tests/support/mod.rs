@@ -143,14 +143,15 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// v11 the `related` locations of a finding that spans several sites, v12 the
 /// `similarity_basis_points` of a near-duplicate family, v13 the `complexity`
 /// figures of a hotspot, v14 the `corpus_noise_basis_points` of a policy rule
-/// and the `withheld_rule_ids` of the score. No historical field is removed or
+/// and the `withheld_rule_ids` of the score, v15 the `production_lines` the
+/// score's denominator is counted from. No historical field is removed or
 /// retyped, so the projection consists solely of removing the members added
 /// since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
 pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":14,\"audit\":";
+    const PREFIX: &[u8] = b"{\"schema_version\":15,\"audit\":";
     let payload = output
         .strip_prefix(PREFIX)
         .expect("schema v11 should start with its audit member");

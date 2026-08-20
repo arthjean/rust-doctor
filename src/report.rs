@@ -33,7 +33,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 14;
+pub const SCHEMA_VERSION: u8 = 15;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {

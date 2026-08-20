@@ -8,26 +8,42 @@ use cargo_metadata::{Artifact, Message, Metadata, PackageId};
 
 use super::SourceFileInventory;
 use crate::execution::{CapturedMessage, ScanExecution};
-use crate::source_kernel::SourceScan;
+use crate::source_kernel::SourceMeasurement;
 
 // This is one budget for the complete scan, not one allowance per artifact. Otherwise a
 // workspace with many dep-info files could multiply the limit without bound.
 const DEP_INFO_BYTES_LIMIT: u64 = 8 * 1024 * 1024;
 
+/// What the score is computed against.
+///
+/// The file count has three possible sources, preferred in order of exactness:
+/// what the compiler actually built, what the walk actually read, and the
+/// target roots, which are a floor. The line count has one, the walk, because
+/// it is the only pass that decoded the files; a scan with no walk publishes
+/// no lines rather than an estimate of them.
+///
+/// The two are counted against the same workspace but not by the same pass, so
+/// the inventory is complete only when both halves are.
 pub(super) fn collect(
     metadata: &Metadata,
     scan: Option<&ScanExecution>,
-    source: Option<&SourceScan>,
+    measurement: Option<&SourceMeasurement>,
 ) -> SourceFileInventory {
     let compiler = scan.map(|scan| compiler_inventory(metadata, &scan.messages));
-    let source = source.map(|source| SourceFileInventory {
-        files: source.counters.walk.files_read,
-        complete: source.errors.is_empty(),
+    let walked = measurement.map(|measurement| SourceFileInventory {
+        files: measurement.files_read,
+        production_lines: measurement.production_lines,
+        complete: measurement.complete,
     });
 
-    compiler
-        .or(source)
-        .unwrap_or_else(|| target_root_inventory(metadata))
+    let files = compiler
+        .or(walked)
+        .unwrap_or_else(|| target_root_inventory(metadata));
+    SourceFileInventory {
+        files: files.files,
+        production_lines: walked.map_or(0, |walked| walked.production_lines),
+        complete: files.complete && walked.is_none_or(|walked| walked.complete),
+    }
 }
 
 fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
@@ -40,6 +56,7 @@ fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
     // which is why anything but an empty set reports as partial.
     SourceFileInventory {
         files: roots.len(),
+        production_lines: 0,
         complete: roots.is_empty() && roots_are_complete,
     }
 }
@@ -88,6 +105,7 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
 
     SourceFileInventory {
         files: files.len(),
+        production_lines: 0,
         complete,
     }
 }

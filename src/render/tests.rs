@@ -73,7 +73,7 @@ fn report() -> InspectReport {
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
         schema_version: crate::report::SCHEMA_VERSION,
-        audit: Audit::build(1, Status::Complete, &diagnostics),
+        audit: Audit::build(1, 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
         policy: None,
@@ -210,7 +210,7 @@ fn partial_and_missing_scores_suppress_share_and_projection() {
     let mut partial = report();
     partial.status = Status::Incomplete;
     partial.complete = false;
-    partial.audit = Audit::build(1, Status::Incomplete, &partial.diagnostics);
+    partial.audit = Audit::build(1, 100, Status::Incomplete, &partial.diagnostics);
     let score = partial.audit.score.as_ref().unwrap();
     assert!(!score.authoritative);
     assert_eq!(score.projected_after_top_three, None);
@@ -232,7 +232,7 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     let mut flat = report();
     flat.diagnostics[0].code = Some("clippy::dbg_macro".to_owned());
     flat.diagnostics[0].category = Some("maintainability".to_owned());
-    flat.audit = Audit::build(1, Status::Complete, &flat.diagnostics);
+    flat.audit = Audit::build(1, 100, Status::Complete, &flat.diagnostics);
     let score = flat.audit.score.as_ref().unwrap();
     assert_eq!(score.projected_after_top_three, Some(score.value));
     assert!(!score.projected_rule_ids.is_empty());
@@ -243,7 +243,7 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     let mut raising = report();
     raising.diagnostics[0].code = Some("rust_doctor::source::dynamic_shell_command".to_owned());
     raising.diagnostics[0].category = Some("security".to_owned());
-    raising.audit = Audit::build(1, Status::Complete, &raising.diagnostics);
+    raising.audit = Audit::build(1, 100, Status::Complete, &raising.diagnostics);
     let score = raising.audit.score.as_ref().unwrap();
     assert_eq!(score.value, 40);
     assert_eq!(score.projected_after_top_three, Some(100));
@@ -271,7 +271,7 @@ fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
     failed.status = Status::Failed;
     failed.complete = false;
     failed.diagnostics.clear();
-    failed.audit = Audit::build(12, Status::Failed, &failed.diagnostics);
+    failed.audit = Audit::build(12, 1_200, Status::Failed, &failed.diagnostics);
     failed.summary = Summary::default();
     failed.errors = vec![ReportError {
         stage: "execution".to_owned(),
@@ -342,7 +342,7 @@ fn baseline_hides_pre_existing_details_and_keeps_introduced_and_fixed() {
             cross_file_matches: 1,
         },
     });
-    report.audit = Audit::build(1, Status::Complete, &report.diagnostics[..1]);
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics[..1]);
     report.summary = Summary::from_diagnostics(&report.diagnostics);
 
     let output = rendered(&report, 100, false, false);
@@ -399,7 +399,7 @@ fn the_terminal_says_why_a_noisy_rule_is_missing_from_what_to_fix() {
             2,
         ),
     ];
-    report.audit = Audit::build(1, Status::Complete, &report.diagnostics);
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
     report.summary = Summary::from_diagnostics(&report.diagnostics);
 
     let output = rendered(&report, 100, false, false);

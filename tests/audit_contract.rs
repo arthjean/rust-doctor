@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use rust_doctor::{
     CategoryOverride, InspectRequest, RuleLevel, RuleOverride, RuleTier, ScoreLabel, ShareError,
-    Status, inspect,
+    Status, catalog, inspect,
 };
 use serde_json::Value;
 
@@ -18,9 +18,10 @@ fn report_v9_exposes_one_canonical_audit_block() {
         "tests/fixtures/projects/clean",
     )));
     let value = serde_json::to_value(&clean).unwrap();
-    assert_eq!(clean.schema_version, 14);
+    assert_eq!(clean.schema_version, 15);
     assert_eq!(clean.status, Status::Complete);
     assert_eq!(clean.audit.source_files, 1);
+    assert_eq!(clean.audit.production_lines, 5);
     assert!(clean.audit.categories.is_empty());
     let score = clean
         .audit
@@ -35,7 +36,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
     assert!(score.projected_rule_ids.is_empty());
     assert_eq!(
         clean.audit.share_url().unwrap(),
-        "https://rust-doctor.com/share?s=100&f=1"
+        "https://rust-doctor.com/share?s=100&f=1&l=5"
     );
     let audit_keys: Vec<_> = value["audit"]
         .as_object()
@@ -43,7 +44,10 @@ fn report_v9_exposes_one_canonical_audit_block() {
         .keys()
         .map(String::as_str)
         .collect();
-    assert_eq!(audit_keys, ["categories", "score", "source_files"]);
+    assert_eq!(
+        audit_keys,
+        ["categories", "production_lines", "score", "source_files"]
+    );
 }
 
 #[test]
@@ -66,8 +70,11 @@ fn incomplete_and_unscorable_reports_keep_existing_outcome_without_a_share() {
     assert!(!report.errors.is_empty());
 }
 
+/// The walk is what the score divides by, so it runs on a plan that asked for
+/// no rule at all. This used to fall back to counting the metadata roots, which
+/// is why the inventory came back partial and the score non-authoritative.
 #[test]
-fn metadata_roots_keep_a_partial_inventory_when_code_producers_are_disabled() {
+fn the_walk_gives_a_plan_with_every_producer_off_an_exact_denominator() {
     let report = [
         "correctness",
         "dependencies",
@@ -87,11 +94,80 @@ fn metadata_roots_keep_a_partial_inventory_when_code_producers_are_disabled() {
 
     assert_eq!(report.status, Status::Complete);
     assert_eq!(report.audit.source_files, 1);
+    assert_eq!(report.audit.production_lines, 5);
     assert_eq!(
         report.audit.score.as_ref().map(|score| score.authoritative),
-        Some(false)
+        Some(true)
     );
     assert!(report.scan.command.is_none());
+}
+
+/// A reader is free to switch every native rule off and keep Clippy. The
+/// denominator is not theirs to switch off with them.
+#[test]
+fn a_clippy_only_plan_still_publishes_the_production_line_count() {
+    let request = catalog()
+        .iter()
+        .map(|entry| entry.id)
+        .filter(|id| id.starts_with("rust_doctor::"))
+        .fold(
+            InspectRequest::new(fixture("tests/fixtures/kernel-contract/todo")),
+            |request, id| request.with_rule_override(RuleOverride::new(id, RuleLevel::Off)),
+        );
+    let report = inspect(request);
+
+    assert_eq!(report.status, Status::Complete);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.id.starts_with("rust_doctor::")),
+        "no native rule was left on"
+    );
+    assert!(report.scan.command.is_some(), "Clippy still ran");
+    assert_eq!(report.audit.production_lines, 18);
+    assert_eq!(
+        report.audit.score.as_ref().map(|score| score.authoritative),
+        Some(true)
+    );
+}
+
+/// The count answers for the workspace, never for the rule set the reader
+/// happens to have on.
+#[test]
+fn the_production_line_count_is_the_same_with_the_native_rules_on_or_off() {
+    let with_everything = inspect(InspectRequest::new(fixture(
+        "tests/fixtures/kernel-contract/todo",
+    )));
+    let clippy_only = catalog()
+        .iter()
+        .map(|entry| entry.id)
+        .filter(|id| id.starts_with("rust_doctor::"))
+        .fold(
+            InspectRequest::new(fixture("tests/fixtures/kernel-contract/todo")),
+            |request, id| request.with_rule_override(RuleOverride::new(id, RuleLevel::Off)),
+        );
+
+    assert_eq!(
+        with_everything.audit.production_lines,
+        inspect(clippy_only).audit.production_lines
+    );
+}
+
+/// Two scans of the same workspace publish the same denominator.
+#[test]
+fn two_scans_of_one_workspace_publish_the_same_production_line_count() {
+    let first = inspect(InspectRequest::new(fixture(
+        "tests/fixtures/kernel-contract/todo",
+    )));
+    let second = inspect(InspectRequest::new(fixture(
+        "tests/fixtures/kernel-contract/todo",
+    )));
+    assert_eq!(
+        first.audit.production_lines,
+        second.audit.production_lines
+    );
+    assert_eq!(first.audit.production_lines, 18);
 }
 
 #[test]
@@ -100,6 +176,7 @@ fn no_rust_files_never_produce_an_artificial_score() {
         "tests/fixtures/local-cli-experience/no-rust",
     )));
     assert_eq!(report.audit.source_files, 0);
+    assert_eq!(report.audit.production_lines, 0);
     assert!(report.audit.score.is_none());
     assert_eq!(report.audit.share_url(), Err(ShareError::ScoreUnavailable));
 }
@@ -195,7 +272,7 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.value, 94);
     assert_eq!(
         report.audit.share_url().unwrap(),
-        "https://rust-doctor.com/share?s=94&w=3&f=1"
+        "https://rust-doctor.com/share?s=94&w=3&f=1&l=18"
     );
 }
 

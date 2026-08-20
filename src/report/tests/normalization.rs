@@ -286,6 +286,7 @@ fn malformed_messages_make_a_started_scan_incomplete() {
             errors: Vec::new(),
         }),
         source: None,
+        source_measurement: None,
         error: None,
     };
     let report = from_execution(result);
@@ -330,6 +331,7 @@ fn incomplete_scan_reports_each_distinct_normative_cause_once() {
             errors: vec![duplicate],
         }),
         source: None,
+        source_measurement: None,
         error: None,
     };
     let report = from_execution(result);
@@ -380,6 +382,7 @@ fn missing_exit_and_build_finished_have_explicit_causes() {
             errors: Vec::new(),
         }),
         source: None,
+        source_measurement: None,
         error: None,
     };
     let report = from_execution(result);
@@ -429,6 +432,7 @@ fn repo_errors_surface_at_stage_repo_and_make_the_scan_incomplete() {
             true,
         )),
         source: None,
+        source_measurement: None,
         error: None,
     };
     let report = from_execution(result);

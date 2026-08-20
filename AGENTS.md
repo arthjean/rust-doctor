@@ -826,7 +826,7 @@ bodies of the same shape.
   untrusted code. `CORPUS_NOISE` mirrors the healthy rates today; switching that
   reference is a product decision, not a consequence of a number.
 - **The JSON report is versioned.** Any change to the report shape bumps
-  `SCHEMA_VERSION` in `src/report.rs`, currently 14, and the frozen v7 archive
+  `SCHEMA_VERSION` in `src/report.rs`, currently 15, and the frozen v7 archive
   keeps projecting: `project_v11_wire_to_v7` in `tests/support/mod.rs` strips
   the members added since, which is what proves no historical field ever
   disappeared or changed type.
