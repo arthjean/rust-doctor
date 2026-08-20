@@ -109,6 +109,10 @@ fn repository() -> OracleRepository {
     successful_git(&root, &["init", "--quiet"]);
     successful_git(&root, &["config", "user.name", AUTHOR_NAME]);
     successful_git(&root, &["config", "user.email", AUTHOR_EMAIL]);
+    // The oracle pins commit hashes, so a commit object has to be exactly what
+    // its inputs say. A machine that signs commits by default writes the
+    // signature into the object and moves every hash below.
+    successful_git(&root, &["config", "commit.gpgsign", "false"]);
     successful_git(&root, &["add", "."]);
     let base_commit = commit(&root, "base", "2000-01-01T00:00:00Z");
     successful_git(&root, &["branch", "-M", "head"]);
@@ -365,6 +369,7 @@ fn git_2_55_oracle_covers_the_twenty_four_normative_cases() {
     successful_git(&clean, &["init", "--quiet"]);
     successful_git(&clean, &["config", "user.name", AUTHOR_NAME]);
     successful_git(&clean, &["config", "user.email", AUTHOR_EMAIL]);
+    successful_git(&clean, &["config", "commit.gpgsign", "false"]);
     write(clean.join("tracked"), "clean\n");
     successful_git(&clean, &["add", "tracked"]);
     let clean_base = commit(&clean, "clean", "2000-01-05T00:00:00Z");
@@ -380,6 +385,7 @@ fn git_2_55_oracle_covers_the_twenty_four_normative_cases() {
     successful_git(&sha256, &["init", "--quiet", "--object-format=sha256"]);
     successful_git(&sha256, &["config", "user.name", AUTHOR_NAME]);
     successful_git(&sha256, &["config", "user.email", AUTHOR_EMAIL]);
+    successful_git(&sha256, &["config", "commit.gpgsign", "false"]);
     write(sha256.join("tracked"), "sha256\n");
     successful_git(&sha256, &["add", "tracked"]);
     let sha256_oid = commit(&sha256, "sha256", "2000-01-06T00:00:00Z");
