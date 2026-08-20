@@ -25,10 +25,10 @@
     {
       "id": "EP-003",
       "title": "The recalibration",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5
     },
     {
       "id": "EP-004",
@@ -200,71 +200,78 @@
       "id": "US-012",
       "title": "Regenerate tests/corpus.json under core-v3",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "Measurement taken 2026-08-20 from the pinned clone cache under cargo 1.97.1, clippy 0.1.97 and rustc 1.97.1, replayed with RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS=600 and both corpus paths outside this repository. All 18 observations regenerate byte for byte through the_published_observations_reproduce_the_pinned_corpus_run and the_agent_population_reproduces_from_the_local_cache, each carrying model core-v3, the production line count the scan measured and the five per-dimension densities the score recomputes from. Healthy, score over production lines: smol 99/129, async-channel 95/1388, log 90/5745, anyhow 86/4113, serde_json 86/18301, bytes 84/9881, ripgrep 80/46287, fd 75/4676, hexyl 74/2010, thiserror 73/3096. Agent: ralph-os 85/11653, coda 84/40599, mdr 83/5031, claudes-c-compiler 77/186696, ostendo 76/16184, artifexprocal 75/10843, syncvibe 74/13432, vibesql 68/429278. NFR-5, computed from the recorded densities: repairing 90 % of the sites of every dimension moves the median of the 18 from 81.5 to 97.5, 16.0 points, against the 8 required. Spearman rho between production lines and score is -0.2947 over the 18, inside the month-1 bound of 0.30 and outside the month-6 bound of 0.20. CORPUS_NOISE is untouched, since this PRD adjudicates nothing: findings_digest, distinct, occurrences, rules, precision, gate and the reviewed sample are unchanged and only the score block, the line count, the lambda table and score_distribution moved. One pre-existing defect blocked the replay and was repaired in the same pass: the reviewed-site loop of the_published_observations_reproduce_the_pinned_corpus_run read the whole reviewed list against the healthy artifacts directory, so it looked for an agent repository under the healthy reports and died on a missing file rather than on a verdict nobody can locate; it now filters to Population::Healthy, which is what its agent counterpart already did.",
+      "review_note": "Reproduced in full during the review: 32 tests of corpus_precision green in 112 s from the local clone cache, including the two reproduction gates, the_published_catalog_matches_the_shipped_policy and each_population_publishes_its_own_rate_from_its_own_sites. Everything the story claims untouched is untouched: adjudication, catalog, gate, manifest, precision, rules, toolchain, trust_boundary and every findings digest are byte for byte those of HEAD, and only the score block, production_lines, lambdas and score_distribution moved. The harness recomputes each density independently of the crate rather than reading it back, mirroring aggregate_rules and DensityScope, so the record is a second opinion on the score rather than a transcript of it. One scope-adjacent harness change rides along in tests/support/mod.rs: is_git_bookkeeping replaces the .git/index filter and also excludes every .lock under .git, since a concurrent git process leaves one behind and made the deterministic report compare unequal to itself. The exclusion is component-wise, so .github/** is unaffected, and its only consumer is repository_evidence in tests/rule_scaling_surfaces.rs."
     },
     {
       "id": "US-013",
       "title": "Redefine score_distribution to publish spread",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-012"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "score_distribution is now a container over the two populations rather than one population and a boolean. Each of healthy and agent publishes bands, ceilings_applied, collapsed_into_one_band, collapsed_into_one_value, maximum, median_centi, minimum, spread and values, and the block publishes the combined minimum, maximum, spread and separation_centi. Measured 2026-08-20: healthy 73 to 99, spread 26, median 85.0, 8 Great and 2 Needs work; agent 68 to 85, spread 17, median 76.5, 6 Great and 2 Needs work; combined 68 to 99, spread 31, separation 8.50 points. collapsed_into_one_band is retained and false for both, and the floor is now a number rather than that boolean: MINIMUM_SPREAD in tests/support/corpus.rs is 20, the month-1 goal, and the_corpus_score_distribution_is_published_with_its_spread fails naming the spread it measured when a model falls under it. Medians are held in hundredths because a population of ten has no middle member and the record is integer arithmetic throughout."
     },
     {
       "id": "US-014",
       "title": "Freeze the lambda table against the measured spread",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "The provisional lambda table is frozen as shipped, not recalibrated. Measured against the regenerated corpus it clears every month-1 goal: spread 31 against 20, separation 8.50 against 5, 14 of 18 in the top band against 17, Spearman rho -0.2947 against 0.30. Recalibrating on top of a table that already passes would have fabricated a second measurement and forced a second regeneration of every local oracle, so the story pins what was measured. tests/corpus.json records the table under lambdas, beside the toolchain it already recorded, and src/audit/tests/lambda_freeze.rs holds the three assertions: the recorded table equals the shipped one and names the dimension that moved otherwise, no lambda is zero, and each of the 18 recorded scores recomputes from its recorded densities through the same path Audit::build walks, curve then dimension ceiling then weighted mean then overall ceiling then label. Proven by mutation: lambda_performance moved from 4.0 to 5.0 fails with \"lambda_performance moved: the corpus was measured at Some(4000000) millionths and the shipped table is at 5000000\". The module doc states that lambda_reliability and lambda_maintainability are calibrated on the healthy population alone, because the agent population is scanned with every Clippy rule off. The test lives inside the crate because its only caller would otherwise have been a new public symbol on the library with no production referent."
     },
     {
       "id": "US-015",
       "title": "Re-freeze the local audit oracle",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "audit-core-v3.json was written by EP-002 and is what versioned_oracle_covers_categories_labels_scores_and_rule_identity compares against; this story finished it. Each of its 20 score cases, 19 of which carry a score, now records production_lines explicitly rather than having the test derive it from source_files, and each expected_audit publishes the same count, so a case is replayable from the record alone. The projection that stripped production_lines before comparing is gone with it: projected_onto_oracle existed to project a current audit onto the version-2 shape and was still being applied to the version-3 oracle, hiding the one field core-v3 is computed against. The comparison is serde_json::to_value against the recorded object, field by field, never a string equality. audit-core-v2.json is unchanged and is named as the archive of the previous model by the doc comment of the_current_oracle_preserves_every_historical_field in tests/score_credibility_kernel.rs:369. AC5 and AC6 have no subject here: this oracle is a table replayed in process through Audit::build, so no fixture of this story is produced by a scan and no target directory is involved. The fixtures that are produced by a scan already go through support::scan_target."
     },
     {
       "id": "US-016",
       "title": "Record the dogfood delta on this repository",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-012"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "Scan of this repository, 2026-08-20, release binary of this branch, --scope full, in an isolated CARGO_TARGET_DIR: 89 out of 100, Great, 58 source files, 35275 production lines, authoritative. Dimensions: security 100, reliability 91, maintainability 92, performance 100, dependencies 51. worst_tier P2, applied_ceiling null. Against the core-v2 value of 94 the delta is -5 points, and dependencies is the dimension responsible: it is the only one under 92, and it is a workspace-scoped producer, so its density is a raw count of distinct sites divided by 1 rather than by 35.3 kilolines. rust_doctor::cargo::duplicate_major_versions is the top of the projection, which puts the score at 97 if the three named rules are repaired. The band this repository claims is unchanged: 89 is Great, as 94 was. dogfood.yml enforces no score threshold, so nothing was moved: its gate is the tool's own exit code, non-zero on a diagnostic at or above the blocking level, and on a pull request it runs in baseline scope, which reports only what the change introduces. This branch introduces no production diagnostic. no_unit_of_this_crate_s_own_source_is_a_hotspot passes, and every file of src/audit/ stays under 1000 lines, the largest being src/audit.rs at 966 and src/audit/tests.rs at 927, with the new src/audit/tests/lambda_freeze.rs at 202 and listed by the_audit_holds_the_size_bound_it_scores_for.",
+      "review_note": "Reproduced from the release binary of this branch: 89 out of 100, Great, authoritative, 58 source files, 35275 production lines, security 100, reliability 91, maintainability 92, performance 100, dependencies 51, worst_tier P2, applied_ceiling null, projection 97 headed by rust_doctor::cargo::duplicate_major_versions. Every number the note states matches. One pre-existing failure is outside this epic and was not repaired: git_2_55_oracle_covers_the_twenty_four_normative_cases disagrees on base_commit because the machine's global git configuration sets commit.gpgsign true with gpg.format ssh, and the fixture builder isolates only user.name and user.email, so every fixture commit carries a signature and hashes differently. Reproduced identically in a clean worktree of HEAD, so the epic did not introduce it, and it passes under GIT_CONFIG_GLOBAL=/dev/null, which is the condition CI runs under. The smallest correction is -c commit.gpgsign=false on the fixture's git invocations, and it belongs to whoever owns that oracle."
     },
     {
       "id": "US-017",
