@@ -25,11 +25,21 @@ clean the rest is:
 One P0 finding makes a hundred P3 repairs worth nothing. Read `audit.score.worst_tier`
 and `audit.score.applied_ceiling` first, and repair what sets the ceiling.
 
-Under the ceiling a rule costs points by severity times an occurrence step (one
-site, then two to five, then six to twenty, then more), summed over five
-weighted dimensions: security counts double, reliability one and a half, and
-maintainability, performance and dependencies once each. Findings in test code
-stay visible and cost nothing.
+Under the ceiling the score is a density, not a tally. The model is `core-v3`,
+published as `audit.score.model`, and each dimension scores
+`round(100 * exp(-D / lambda))`. D counts one distinct site per diagnostic, an
+error weighing two and a warning or an info one, over the size of what was
+scanned: Clippy, the source detectors and the structural pass divide by the
+workspace's production kilolines, floored at two, so the same finding costs a
+small crate more than a large one, while the manifest and repository rules
+divide by nothing, since a workspace has one `Cargo.toml` whatever its size.
+Lambda is the density at which a dimension falls to 37, tightest on security
+and most forgiving on reliability. The five dimensions combine at weights 4 for
+security, 3 for reliability and 2 each for maintainability, performance and
+dependencies, and the result lands in one of three bands: 75 and above reads
+`Great`, 50 to 74 `Needs work`, below 50 `Critical`. A clone family is one site
+whatever its `related` array names, and findings outside production code stay
+visible and cost nothing.
 
 The report names the shortlist itself. `audit.score.projected_rule_ids` is the
 three rules worth repairing first, each discounted by the false-positive rate

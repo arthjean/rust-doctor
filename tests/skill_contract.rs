@@ -3,14 +3,16 @@
 //! `skills/rust-doctor/` ships the commands an agent runs and the rule ids it
 //! names. A flag the CLI does not accept is a skill that dies on its first
 //! step, and a rule id the catalog does not carry is a fix recipe for a finding
-//! nobody can trigger. Both are checked against the shipped binary rather than
-//! against a copy of what it once accepted.
+//! nobody can trigger. The score it explains is the same kind of copy: a model
+//! name or a band boundary the binary no longer computes is an agent reading a
+//! number against a scale that was retired. All four are checked against the
+//! shipped binary rather than against a copy of what it once accepted.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rust_doctor::catalog;
+use rust_doctor::{catalog, score_block};
 
 fn skill_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/rust-doctor")
@@ -111,5 +113,72 @@ fn the_skill_states_the_size_of_the_catalog_it_scans_with() {
     assert!(
         text.contains(&stated),
         "SKILL.md should state `{stated}`, the catalog it ships beside"
+    );
+}
+
+/// The three bands the reports label a value by, spelled the way `SKILL.md`
+/// has to spell them. Derived from `label_for` rather than restated here, so a
+/// band the model moves or gains fails on the document that describes it.
+fn bands_sentence() -> String {
+    let mut bands: Vec<(u8, u8, &'static str)> = Vec::new();
+    for value in 0..=100u8 {
+        let label = score_block::label_for(value).as_str();
+        match bands.last_mut() {
+            Some(band) if band.2 == label => band.1 = value,
+            _ => bands.push((value, value, label)),
+        }
+    }
+    bands.reverse();
+    let last = bands.len().saturating_sub(1);
+    let mut previous: Option<u8> = None;
+    let mut parts = Vec::new();
+    for (index, (low, high, label)) in bands.iter().enumerate() {
+        parts.push(if index == 0 {
+            format!("{low} and above reads `{label}`")
+        } else if index == last {
+            format!("below {} `{label}`", previous.unwrap_or(*low))
+        } else {
+            format!("{low} to {high} `{label}`")
+        });
+        previous = Some(*low);
+    }
+    parts.join(", ")
+}
+
+#[test]
+fn the_skill_names_the_score_model_the_binary_computes() {
+    let shipped = rust_doctor::SCORE_MODEL;
+    assert!(
+        skill_document("SKILL.md").contains(shipped),
+        "SKILL.md describes the score without naming `{shipped}`, the model it is computed under"
+    );
+    for (path, text) in skill_documents() {
+        for named in text
+            .split_whitespace()
+            .map(bare)
+            .filter(|token| token.starts_with("core-v"))
+        {
+            assert_eq!(
+                named,
+                shipped,
+                "{} names `{named}`, a model this binary no longer computes",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn the_bands_the_skill_states_are_the_bands_the_reports_label_by() {
+    let stated = bands_sentence();
+    // Compared against the document with its line breaks flattened, since where
+    // markdown wraps a sentence is not something the score decides.
+    let text = skill_document("SKILL.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        text.contains(&stated),
+        "SKILL.md should state the bands as `{stated}`"
     );
 }
