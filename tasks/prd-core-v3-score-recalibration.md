@@ -254,7 +254,7 @@ Replace the occurrence step function with a density, the linear dimension score 
 
 **Acceptance Criteria:**
 - [ ] Given a workspace under 2000 production lines, when the density is computed, then the denominator is 2.0 kilolines
-- [ ] Given a workspace of 120 lines with 3 distinct maintainability sites, when it is scored, then the maintainability dimension is at least 80
+- [ ] Given a workspace of 120 lines with 3 distinct maintainability sites, when it is scored, then the maintainability dimension is the value the floor produces, `round(100 * exp(-1.5 / lambda_maintainability))`, which is 61 under the provisional lambda of 3.0, rather than the 0 the same three sites score against their own 0.12 kilolines. The absolute value is not a target here: US-014 freezes the lambda table against the measured corpus spread, and this criterion is the floor doing its work, not the calibration
 - [ ] Given a workspace with zero production lines, when the audit is built, then no score is published, which is the existing `(source_files > 0).then(...)` gate at `src/audit.rs:279` extended to the line count
 - [ ] Given a workspace with zero production lines and zero diagnostics, when the report is built, then it is valid and carries no score rather than a 100
 - [ ] The floor constant is named, carries a doc comment stating the case it protects, and is asserted in a test naming that case
