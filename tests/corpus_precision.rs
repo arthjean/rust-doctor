@@ -1444,7 +1444,20 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     // production families alone, so a site declared production while the report
     // marked it as test material would move the denominator of a published rate
     // without moving a single finding.
-    for site in &published.adjudication.reviewed {
+    //
+    // Healthy sites only. The two populations are replayed into artifact
+    // directories of their own, so the reports this one wrote are the ten of
+    // the healthy manifest and nothing else; the agent sites are located by
+    // `the_agent_population_reproduces_from_the_local_cache`, against the
+    // reports of its own replay. Reading the whole list here looked for an
+    // agent repository under the healthy reports and died on a missing file
+    // rather than on a verdict nobody can locate.
+    for site in published
+        .adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.population == Population::Healthy)
+    {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
         let report: Value = serde_json::from_slice(&bytes).unwrap();
         let findings = curated_findings(&report);
