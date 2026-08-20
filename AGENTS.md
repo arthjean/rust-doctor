@@ -151,20 +151,24 @@ declares the rule has to pass it.
 ## The score block
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
-the report publishes, the five dimensions and their weights, the tier ceilings,
-the occurrence steps and the ranking of what to repair first.
+the report publishes, the five dimensions and their weights, the tier ceilings
+and the ranking of what to repair first. `src/audit/density.rs` is the core-v3
+penalty itself, the severity weights, the per-producer denominators, the
+kiloline floor and the exponential the density is read through.
 `src/audit/source_inventory.rs` is the source-file count the score is computed
 against, read from Cargo's dep-info rather than from a walk of its own, and
-`src/audit/tests.rs` carries the tests.
+`src/audit/tests.rs` carries the tests, with `src/audit/tests/scale.rs` holding
+what the score does when the workspace changes size.
 
 Five rules hold it together, and each of them replaced something that had a
 cost.
 
 One aggregation, and the set-aside inside it. `aggregate_rules` reads every
 diagnostic the report publishes and decides for itself which of them the score
-charges for, so `occurrences` is what the reader is shown and
-`scored_occurrences` is what the score bills. The filter used to sit at one of
-the two call sites instead: the report body ranked by a cost computed over a
+charges for, so `occurrences` is what the reader is shown and `numerator` is
+what the score bills: one distinct site per diagnostic, weighed by severity,
+whatever a clone family names through `related`. The filter used to sit at one
+of the two call sites instead: the report body ranked by a cost computed over a
 population the score never charged, and a rule that only ever fired in a test
 was ranked as though it had cost points.
 
@@ -208,9 +212,10 @@ under the 1000 lines `oversized_unit` reports, tests included. This was one
 file of 1624 lines, one of the two that
 `the_self_scan_names_this_repository_s_own_hotspots` froze as oversized, and the
 only module of the crate near the bound with no such test: the block that
-computes the score has to pass the rule it scores. The named occurrence ceiling
-came out of the same move, since the `usize::MAX` sentinel step was what forced
-the table to be indexed back out to find its own last row.
+computes the score has to pass the rule it scores. `density.rs` and
+`tests/scale.rs` came out of the same bound, since core-v3 carries a curve, a
+lambda table and its own denominators, and the pair of them would have taken
+`src/audit.rs` back over the thousand lines it reports at.
 
 ## The agent skill
 
