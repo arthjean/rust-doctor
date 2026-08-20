@@ -28,7 +28,6 @@ pub(crate) struct FileState {
 pub(crate) struct GitRepositoryState {
     pub(crate) config_hash: String,
     pub(crate) head: String,
-    pub(crate) index_hash: String,
     pub(crate) objects_hash: String,
     pub(crate) refs_hash: String,
     pub(crate) status_hash: String,
@@ -331,8 +330,17 @@ fn hash_git_output(root: &Path, arguments: &[&str]) -> String {
 }
 
 pub(crate) fn git_repository_state(root: &Path) -> GitRepositoryState {
+    // `.git/index` is excluded, and no field hashes its bytes. The file carries a stat cache that
+    // git rewrites on its own whenever the recorded mtimes are racy, which a scan reading the
+    // repository is enough to trigger and which this function's own git commands trigger too. Two
+    // captures taken around a scan that mutated nothing then disagree, and the comparison blames
+    // the scan for a rewrite it never asked for. What the index means is its entries, and
+    // `tracked_files_hash` below already compares those through `git ls-files -s`; the bytes around
+    // them are a cache, so hashing them asserted a stability git does not offer.
+    let index = Path::new(".git").join("index").to_string_lossy().into_owned();
     let content = content_states(root)
         .into_iter()
+        .filter(|(path, _)| *path != index)
         .map(|(path, (hash, length))| format!("{path}\0{hash}\0{length}"))
         .collect::<Vec<_>>()
         .join("\n");
@@ -345,7 +353,6 @@ pub(crate) fn git_repository_state(root: &Path) -> GitRepositoryState {
     GitRepositoryState {
         head: trimmed(&["rev-parse", "HEAD"]),
         tree: trimmed(&["rev-parse", "HEAD^{tree}"]),
-        index_hash: hash_git_output(root, &["hash-object", ".git/index"]),
         refs_hash: hash_git_output(root, &["show-ref"]),
         tracked_files_hash: hash_git_output(root, &["ls-files", "-s"]),
         status_hash: hash_git_output(root, &["status", "--porcelain=v2", "--untracked-files=all"]),
