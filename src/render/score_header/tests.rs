@@ -301,3 +301,31 @@ fn the_frame_the_animation_freezes_on_is_the_frame_a_static_render_draws() {
         assert_eq!(last_frame(&animated), rendered(value, label, 100, true));
     }
 }
+
+/// One bar arithmetic for the two reports. The linear block asks
+/// [`score_block::bar_width`] for its width and [`score_block::bar_fill`] for
+/// its fill, which is what the interactive report draws from: the copy this
+/// module used to keep is how the two once disagreed on the rounding and on
+/// the guard column.
+#[test]
+fn the_two_reports_size_and_fill_their_bar_from_the_same_model() {
+    for width in [
+        super::super::MIN_WIDTH,
+        score_block::MIN_BLOCK_COLUMNS,
+        61,
+        80,
+        200,
+    ] {
+        let layout = Layout::new(&score(60, ScoreLabel::NeedsWork, true), width);
+        assert_eq!(Some(layout.bar_width), score_block::bar_width(width));
+        for value in [0u8, 37, 73, 100] {
+            let bar = bar(value, layout.bar_width);
+            assert_eq!(
+                bar.matches('█').count(),
+                score_block::bar_fill(value, layout.bar_width),
+                "the bar of {value} at {width} columns"
+            );
+            assert_eq!(display_width(&bar), layout.bar_width);
+        }
+    }
+}

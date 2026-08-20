@@ -251,6 +251,68 @@ fn no_screen_overflows_the_terminal_it_was_resolved_for() {
     }
 }
 
+/// The block at the narrowest terminal the interactive report draws one in.
+///
+/// Forty columns is over `score_block::MIN_BLOCK_COLUMNS`, so the block is
+/// drawn rather than folded into a single line, and every row still leaves the
+/// guard column the rewind needs. The frame comes from `App::frame`, the entry
+/// point the loop paints through, so the geometry asserted here is the geometry
+/// a reader gets.
+#[test]
+fn the_block_fits_forty_columns_at_every_score_the_report_publishes() {
+    for value in [0u8, 37, 73, 100] {
+        let report = scored_report(value);
+        let presentation = presentation(&["clippy::a", "clippy::b"]);
+        let session = session(&report, &presentation, Path::new("."));
+        let mut app = App::new(&session);
+        app.view = View::Issues;
+
+        let layout = resolve_layout(40, 40, app.entries.len());
+        assert!(
+            layout.shows_viewer_score_header,
+            "forty columns by forty rows draws the block"
+        );
+        assert!(layout.score_header_width >= score_block::MIN_BLOCK_COLUMNS);
+        let bar_width = score_block::bar_width(layout.score_header_width)
+            .expect("the block fits forty columns");
+
+        let frame: Vec<String> = app
+            .frame(layout)
+            .iter()
+            .map(|line| line.render(false, false))
+            .collect();
+        let label = score_block::label_for(value);
+        let faces = score_block::face_rows(label);
+        let block = frame
+            .get(..score_block::BLOCK_ROWS)
+            .expect("the block opens the screen");
+        assert!(block[0].starts_with(&format!(
+            "  {}  {value} / {} {}",
+            faces[0],
+            score_block::PERFECT_SCORE,
+            score_block::label_text(label, true)
+        )));
+        assert!(block[1].starts_with(&format!("  {}  ", faces[1])));
+        assert_eq!(
+            block[1].matches('\u{2588}').count(),
+            score_block::bar_fill(value, bar_width),
+            "the bar of {value} at forty columns"
+        );
+        assert_eq!(
+            block[1].matches('\u{2591}').count(),
+            bar_width - score_block::bar_fill(value, bar_width)
+        );
+        assert!(block[2].contains(score_block::BRANDING_NAME));
+        assert_eq!(block[3], format!("  {}  ", faces[3]));
+        for row in block {
+            assert!(
+                rust_doctor::terminal_text::display_width(row) <= 40 - score_block::RIGHT_EDGE_SAFETY_COLUMNS,
+                "at {value}, {row:?} reaches the guard column"
+            );
+        }
+    }
+}
+
 // ------------------------------------------------------------- fixtures
 
 fn landing_cursor(view: &View) -> Option<usize> {
@@ -316,6 +378,37 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
         issue_count: rule_ids.len(),
         finding_count: rule_ids.len(),
     }
+}
+
+/// The report with a score of `value` on it.
+///
+/// The interactive report validates nothing: it draws the block the audit
+/// published. That the four values below are values core-v3 really produces,
+/// and that each carries the band `score_block::label_for` gives it, is what
+/// the linear report's own test establishes over reports the audit built.
+fn scored_report(value: u8) -> InspectReport {
+    use rust_doctor::{AuditScore, ScoreDimensions};
+
+    let mut report = report(Status::Complete, &[]);
+    report.audit.score = Some(AuditScore {
+        model: rust_doctor::SCORE_MODEL.to_owned(),
+        value,
+        label: score_block::label_for(value),
+        authoritative: true,
+        dimensions: ScoreDimensions {
+            security: value,
+            reliability: value,
+            maintainability: value,
+            performance: value,
+            dependencies: value,
+        },
+        worst_tier: None,
+        applied_ceiling: None,
+        projected_after_top_three: None,
+        projected_rule_ids: Vec::new(),
+        withheld_rule_ids: Vec::new(),
+    });
+    report
 }
 
 fn report(status: Status, stages: &[&str]) -> InspectReport {

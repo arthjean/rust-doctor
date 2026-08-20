@@ -925,3 +925,23 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
 }
 
 
+
+/// One band table for the score and for both reports. `score_label` is what
+/// the audit publishes and `score_block::label_for` is what the two reports
+/// label a value the audit did not label itself, the projected gain among
+/// them: a second set of thresholds is how a projection could read `Great`
+/// under a score the block called `Needs work`.
+#[test]
+fn the_bands_the_score_publishes_are_the_bands_the_reports_label_by() {
+    for value in 0..=100u8 {
+        assert_eq!(
+            score_label(value),
+            crate::score_block::label_for(value),
+            "the band of {value}"
+        );
+    }
+    assert_eq!(score_label(75), ScoreLabel::Great);
+    assert_eq!(score_label(74), ScoreLabel::NeedsWork);
+    assert_eq!(score_label(50), ScoreLabel::NeedsWork);
+    assert_eq!(score_label(49), ScoreLabel::Critical);
+}

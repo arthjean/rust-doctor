@@ -318,7 +318,11 @@ impl Layout {
             faces: score_block::face_rows(score.label),
             branding: branding.truncated(available),
             available,
-            bar_width: available.min(score_block::BAR_MAX_WIDTH_CHARS),
+            // The width both reports draw their bar at, from the one function
+            // that sizes it rather than from a second `min` written here.
+            // `super::MIN_WIDTH` guarantees a box wide enough, so the box that
+            // carries no bar at all is a shape this report never renders.
+            bar_width: score_block::bar_width(width).unwrap_or(available),
             label_text: score_block::label_text(score.label, score.authoritative),
         }
     }

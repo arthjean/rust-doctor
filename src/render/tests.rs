@@ -70,10 +70,30 @@ fn report() -> InspectReport {
         complexity: None,
         occurrences: 1,
     }];
+    report_of(diagnostics, 1, 100)
+}
+
+/// The report a set of diagnostics produces over a workspace of `source_files`
+/// files and `production_lines` lines of production Rust.
+///
+/// The audit is built from the diagnostics rather than written down beside
+/// them, because every entry point of this report replays
+/// `InspectReport::is_valid`, which recomputes the whole block: a score poked
+/// into a fixture never reaches a renderer.
+fn report_of(
+    diagnostics: Vec<Diagnostic>,
+    source_files: usize,
+    production_lines: usize,
+) -> InspectReport {
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
         schema_version: crate::report::SCHEMA_VERSION,
-        audit: Audit::build(1, 100, Status::Complete, &diagnostics),
+        audit: Audit::build(
+            source_files,
+            production_lines,
+            Status::Complete,
+            &diagnostics,
+        ),
         status: Status::Complete,
         complete: true,
         policy: None,
@@ -435,5 +455,151 @@ fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
         similarity_basis_points: None,
         complexity: None,
         occurrences,
+    }
+}
+
+// -------------------------------------------- the four values of the block
+
+/// The five rules the search fires, one per dimension the score reads, each
+/// catalogued so the block stays authoritative: an uncatalogued rule drops the
+/// flag and the label reads `Core partial` instead of its band.
+const PER_KILOLINE_RULES: [(&str, &str); 3] = [
+    ("clippy::expect_used", "reliability"),
+    ("clippy::dbg_macro", "maintainability"),
+    ("clippy::manual_memcpy", "performance"),
+];
+const WORKSPACE_RULE: (&str, &str) = ("rust_doctor::cargo::test_only_dependency", "dependencies");
+const SECURITY_RULE: (&str, &str) = (
+    "rust_doctor::source::disabled_tls_verification",
+    "security",
+);
+
+/// `count` distinct sites of one rule. One diagnostic is one site, so the
+/// numerator of its dimension is the count itself at warning severity.
+fn sites(rule: (&str, &str), count: usize) -> impl Iterator<Item = Diagnostic> {
+    let (code, category) = rule;
+    (0..count).map(move |index| Diagnostic {
+        id: format!("{code}-{index}"),
+        path: Some(format!("src/site{index}.rs")),
+        ..diagnostic(code, category, 1)
+    })
+}
+
+/// A workspace of `production_lines` lines holding `count` sites in each of the
+/// four dimensions with no ceiling below the top band, and `security` sites in
+/// the one that caps the whole score at forty.
+fn scored(count: usize, security: usize, production_lines: usize) -> InspectReport {
+    let diagnostics: Vec<Diagnostic> = PER_KILOLINE_RULES
+        .into_iter()
+        .chain([WORKSPACE_RULE])
+        .flat_map(|rule| sites(rule, count))
+        .chain(sites(SECURITY_RULE, security))
+        .collect();
+    report_of(diagnostics, count.max(1), production_lines)
+}
+
+fn value_of(report: &InspectReport) -> u8 {
+    report.audit.score.as_ref().map_or(0, |score| score.value)
+}
+
+/// A report whose audit really scores `target`, found rather than declared.
+///
+/// The value cannot be written into the block: every entry point of this
+/// report replays `InspectReport::is_valid`, which recomputes the score from
+/// the diagnostics and the line count. So the four values the block has to
+/// draw are searched for over the two knobs core-v3 reads, how many sites
+/// fired and how large the workspace is. A density only falls as its
+/// denominator grows, so the score is monotonic in the line count and a
+/// bisection lands on the smallest workspace reaching the target; the helper
+/// answers nothing rather than a neighbor.
+fn scoring(target: u8) -> Option<InspectReport> {
+    const COUNTS: [usize; 11] = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
+    const SECURITY: [usize; 3] = [0, 12, 60];
+    for security in SECURITY {
+        for count in COUNTS {
+            let (mut low, mut high) = (1usize, 4_000_000usize);
+            while low < high {
+                let middle = low + (high - low) / 2;
+                if value_of(&scored(count, security, middle)) >= target {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            let report = scored(count, security, low);
+            if value_of(&report) == target {
+                return Some(report);
+            }
+        }
+    }
+    None
+}
+
+/// The rows of the block, at the width every entry point normalizes to.
+fn block_rows(report: &InspectReport) -> Vec<String> {
+    let output = rendered(report, MIN_WIDTH, false, false);
+    let label = crate::score_block::label_text(
+        report.audit.score.as_ref().expect("a scored report").label,
+        true,
+    );
+    let start = output
+        .lines()
+        .position(|line| line.contains(&format!("/ {} {label}", crate::score_block::PERFECT_SCORE)))
+        .expect("the block draws its score line");
+    output
+        .lines()
+        .skip(start)
+        .take(crate::score_block::BLOCK_ROWS)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The four values of the story, drawn through the report itself at the width
+/// it guarantees. Each one is a workspace the audit really scored: the bar, the
+/// face and the band are what core-v3 produced, not what a fixture claimed.
+#[test]
+fn the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes() {
+    for target in [0u8, 37, 73, 100] {
+        let report = scoring(target).expect("the search reaches every value the block draws");
+        let score = report.audit.score.as_ref().expect("a scored report");
+        assert_eq!(score.value, target);
+        assert!(score.authoritative, "a catalogued rule set scores for real");
+        assert_eq!(
+            score.label,
+            crate::score_block::label_for(target),
+            "the band of {target}"
+        );
+
+        let rows = block_rows(&report);
+        let faces = crate::score_block::face_rows(score.label);
+        let bar_width = crate::score_block::bar_width(MIN_WIDTH).expect("the block fits");
+        let filled = crate::score_block::bar_fill(target, bar_width);
+        let expected = [
+            format!(
+                "  {}  {target} / {} {}",
+                faces[0],
+                crate::score_block::PERFECT_SCORE,
+                crate::score_block::label_text(score.label, true)
+            ),
+            format!(
+                "  {}  {}{}",
+                faces[1],
+                "█".repeat(filled),
+                "░".repeat(bar_width - filled)
+            ),
+            format!("  {}  {}", faces[2], crate::score_block::BRANDING_NAME),
+            format!("  {}", faces[3]),
+        ];
+        assert_eq!(rows.len(), crate::score_block::BLOCK_ROWS);
+        for (row, expected) in rows.iter().zip(expected) {
+            assert!(
+                row.starts_with(expected.trim_end()),
+                "at {target}, {row:?} does not start with {expected:?}"
+            );
+            assert!(
+                display_width(row) <= MIN_WIDTH,
+                "at {target}, {row:?} overflows {MIN_WIDTH} columns"
+            );
+        }
     }
 }
