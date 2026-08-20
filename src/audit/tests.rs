@@ -11,6 +11,7 @@ use super::*;
 use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
 
+mod lambda_freeze;
 mod scale;
 
 /// The block passes the rule the score it computes ranks. `oversized_unit` reports a file at a
@@ -24,6 +25,7 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
         include_str!("density.rs"),
         include_str!("source_inventory.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/lambda_freeze.rs"),
         include_str!("tests/scale.rs"),
     ] {
         let lines = own.lines().count();

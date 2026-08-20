@@ -104,7 +104,7 @@ impl Scale {
 /// correctness lints fire densely on code nobody would call broken. No λ may be zero, which is
 /// what `no_lambda_is_zero` holds: a zero λ divides by nothing and takes every density to
 /// infinity.
-const fn lambda(dimension: ScoreDimension) -> f64 {
+pub(super) const fn lambda(dimension: ScoreDimension) -> f64 {
     match dimension {
         ScoreDimension::Security => 1.0,
         ScoreDimension::Reliability => 10.0,
