@@ -3,7 +3,7 @@
     "file": "tasks/prd-core-v3-score-recalibration.md",
     "title": "core-v3 Score Recalibration",
     "created_at": "2026-08-20",
-    "status": "IN_PROGRESS"
+    "status": "DONE"
   },
   "epics": [
     {
@@ -33,10 +33,10 @@
     {
       "id": "EP-004",
       "title": "What reads the score",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 3,
-      "stories_done": 0
+      "stories_done": 3
     }
   ],
   "stories": [
@@ -277,43 +277,49 @@
       "id": "US-017",
       "title": "The two reports render the recalibrated score",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "Proved at MIN_WIDTH through the linear renderer with reports whose audit really scores 0, 37, 73 and 100 (src/render/tests.rs, the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes) and at 40 columns through the interactive frame loop (src/tui/tests.rs, the_block_fits_forty_columns_at_every_score_the_report_publishes). Both reports now size the bar from score_block::bar_width.",
+      "review_note": "Reviewed 2026-08-20 from the real entry points rather than from the diff. The linear block is reached through render::render_terminal_with_presentation, which normalizes every terminal option to MIN_WIDTH = 80, itself asserted at compile time to be at least score_block::MIN_BLOCK_COLUMNS; the interactive block is reached through App::frame at 40 columns. the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes renders 0, 37, 73 and 100 through the linear renderer, and the_block_fits_forty_columns_at_every_score_the_report_publishes through the interactive one, on audits that really compute those four values: report_of bisects over site count, security count and production lines, and Audit::is_valid recomputes the score, so no case is a poked number. render_failure still draws no block, and the label is score_block::label_for in both reports, asserted against the audit bands by the_bands_the_score_publishes_are_the_bands_the_reports_label_by. AC5 is proven by deletion: the linear report's `available.min(BAR_MAX_WIDTH_CHARS)` copy is gone and both reports size their bar through score_block::bar_width, with the_two_reports_size_and_fill_their_bar_from_the_same_model comparing the two. One NON_BLOCKING repair applied, comment only and behavior-identical: src/render/score_header.rs described the shared call as \"the width the interactive report draws its bar at\", which is exactly the second reading the story removes; it now names the width both reports draw at and why MIN_WIDTH makes the fallback unreachable."
     },
     {
       "id": "US-018",
       "title": "The share URL and the agent skill carry the new model",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-011"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "The share payload names the model right after the score (src/audit.rs, build_share_url), SKILL.md describes core-v3, and tests/skill_contract.rs refuses a retired model name or a band the reports do not label by.",
+      "review_note": "Reviewed 2026-08-20. The payload is reached from render_links and is built from counts alone: `?s=<score>&m=core-v3&e=&w=&i=&f=&l=<production lines>`, no path, no environment variable, no user data, and a new grammar assertion in tests/score_credibility_kernel.rs holds the query to alphanumerics, `=`, `&` and `-`. The model is named first and never omitted, so the page can never guess which scale a number was read on; the archive comparison in the credibility kernel inserts `&m=` rather than dropping it, which is what proves no historical field disappeared. SCORE_MODEL is not a test-only export: audit.rs reads it in Audit::is_valid, in the report it builds and in the share URL, and the re-export on the library is the published contract the oracles compare against. SKILL.md is checked against the binary by the_skill_names_the_score_model_the_binary_computes, which rejects any `core-v*` token that is not the shipped model across every markdown file of the skill, and the bands it states are derived from score_block::label_for rather than restated. references/expert-review.md states no score threshold, so it had nothing to move. ShareError still renders without panic, tests/skill_contract.rs passes, and no surface says core-v2 outside the frozen v2 archive, the tests that name it as history and the comments that explain the change."
     },
     {
       "id": "US-019",
       "title": "Spike: measure whether verbosity is a profitable strategy",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-012"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-20",
+      "completed_at": "2026-08-20",
+      "reviewed_at": "2026-08-20",
+      "completion_note": "Measured on hexyl at its pinned commit, outside this repository and off the network. Padding is profitable at every measured ratio: +100 % rule-free filler moves 74 to 84 and crosses the band edge, duplicated functions 74 to 83 for one extra duplicate_function_body. Break-even is 2.99 detected maintainability sites per padded kiloline against 0.05 measured. Written up with the follow-up in tasks/spike-core-v3-verbosity.md.",
+      "review_note": "Reviewed 2026-08-20, and the measurement was independently replayed rather than read. From the pinned hexyl clone in the local cache, offline, with a CARGO_TARGET_DIR per variant, this review reproduced the whole table: base 74 at 2010 production lines with dimensions 100/39/37/88/100, rule-free 76 / 80 / 84 and duplicated 75 / 79 / 83 at +10 %, +50 % and +100 %, and the duplicated filler adding exactly one rust_doctor::structure::duplicate_function_body family whatever the number of copies. The verdict and the ratio are stated, the follow-up is filed in the document with each mitigation refused against a Non-Goal or against the admission procedure, no corpus source is committed and nothing reached the network. One BLOCKING finding against AC3 was found and repaired in the document: it reported the duplicated generator's detection rate as 0.50 sites per kiloline at +10 % and concluded the detection side was off by a factor of six at its most favorable point, where the measured rates are 4.95 at +10 %, 0.99 at +50 % and 0.50 at +100 %. Detection therefore opens above the 2.99 maintainability break-even and crosses it at about 335 padded lines, which is visible in the measurement the document already published: maintainability falls 37 to 35 at +10 % before rising to 46 and 56. The corrected paragraph states the three rates, the crossing, that path, and why the total rises anyway; the overall verdict, padding profitable at every measured ratio, is unchanged. The reliability break-even of 8.46 was checked and is correct rather than a disagreement with the corpus record's 9.4577: 17 of hexyl's 18 reliability sites are per-kiloline and the eighteenth is workspace-scoped, so only the first term dilutes. That clarification was added rather than the number changed."
     }
   ]
 }
