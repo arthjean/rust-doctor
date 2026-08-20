@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use support::corpus::{
     ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
-    GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, Manifest, ManifestEntry, Observation,
+    GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, MINIMUM_SPREAD, Manifest, ManifestEntry, Observation,
     PrecisionStatus, Population, Provenance, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite,
     RuleObservation, RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict,
     artifact,
@@ -741,7 +741,11 @@ fn two_computations_of_the_precision_report_are_identical() {
         serde_json::to_string(&second).unwrap()
     );
     assert_eq!(
-        serde_json::to_string(&score_distribution(&artifact.observations)).unwrap(),
+        serde_json::to_string(&score_distribution(
+            &artifact.observations,
+            &artifact.agent_population.observations
+        ))
+        .unwrap(),
         serde_json::to_string(&artifact.score_distribution).unwrap()
     );
 }
@@ -768,6 +772,7 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
         name: "probe".to_owned(),
         occurrences: findings,
         outcome: RepositoryOutcome::Processed,
+        production_lines: 0,
         rules: vec![RuleObservation {
             distinct: findings,
             id: id.to_owned(),
@@ -921,32 +926,81 @@ fn an_unobserved_rule_is_named_unproven_without_being_refused() {
 #[test]
 fn the_corpus_score_distribution_is_published_with_its_spread() {
     let artifact = artifact();
-    let distribution = score_distribution(&artifact.observations);
+    let distribution = score_distribution(
+        &artifact.observations,
+        &artifact.agent_population.observations,
+    );
     assert_eq!(distribution, artifact.score_distribution);
-    assert_eq!(
-        distribution.values.len(),
-        artifact
-            .observations
-            .iter()
-            .filter(|observation| observation.score.is_some())
-            .count()
-    );
-    assert!(distribution.minimum <= distribution.maximum);
-    assert_eq!(distribution.collapsed_into_one_band, distribution.bands.len() <= 1);
-    assert_eq!(
-        distribution.collapsed_into_one_value,
-        distribution
-            .values
-            .iter()
-            .map(|value| value.value)
-            .collect::<BTreeSet<_>>()
-            .len()
-            <= 1
+
+    // The spread is the criterion, not the collapse. A boolean saying the
+    // measurement did not collapse says nothing about how far the model
+    // separates: what the record has to carry is the distance itself, against a
+    // floor a future model has to clear rather than a state it happened to be
+    // in.
+    assert!(
+        distribution.spread >= MINIMUM_SPREAD,
+        "the model spreads {} points over the two populations, under the {MINIMUM_SPREAD} the corpus requires",
+        distribution.spread
     );
     assert_eq!(
-        distribution.bands.iter().map(|band| band.repositories).sum::<usize>(),
-        distribution.values.len()
+        distribution.spread,
+        distribution.maximum - distribution.minimum
     );
+    assert_eq!(
+        distribution.separation_centi,
+        i64::try_from(distribution.healthy.median_centi).unwrap()
+            - i64::try_from(distribution.agent.median_centi).unwrap()
+    );
+    assert_eq!(
+        distribution.minimum,
+        distribution.healthy.minimum.min(distribution.agent.minimum)
+    );
+    assert_eq!(
+        distribution.maximum,
+        distribution.healthy.maximum.max(distribution.agent.maximum)
+    );
+
+    for (population, observations) in [
+        (&distribution.healthy, &artifact.observations),
+        (&distribution.agent, &artifact.agent_population.observations),
+    ] {
+        assert_eq!(
+            population.values.len(),
+            observations
+                .iter()
+                .filter(|observation| observation.score.is_some())
+                .count()
+        );
+        assert!(population.minimum <= population.maximum);
+        assert_eq!(population.spread, population.maximum - population.minimum);
+        assert_eq!(population.collapsed_into_one_band, population.bands.len() <= 1);
+        assert!(
+            !population.collapsed_into_one_band,
+            "every repository of a population falls in one band, which measures nothing"
+        );
+        assert_eq!(
+            population.collapsed_into_one_value,
+            population
+                .values
+                .iter()
+                .map(|value| value.value)
+                .collect::<BTreeSet<_>>()
+                .len()
+                <= 1
+        );
+        assert_eq!(
+            population.bands.iter().map(|band| band.repositories).sum::<usize>(),
+            population.values.len()
+        );
+        // The median falls on a whole or a half point, never anywhere else: it
+        // is one member of an odd population, or the mean of the two straddling
+        // the middle of an even one.
+        assert_eq!(population.median_centi % 50, 0);
+        assert!(
+            population.median_centi >= population.minimum * 100
+                && population.median_centi <= population.maximum * 100
+        );
+    }
 }
 
 #[test]

@@ -3103,6 +3103,7 @@
         "name": "claudes-c-compiler",
         "occurrences": 1741,
         "outcome": "processed",
+        "production_lines": 186696,
         "rules": [
           {
             "distinct": 1,
@@ -3147,8 +3148,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1005356,
+              "name": "reliability",
+              "score": 75,
+              "worst_tier": "P2"
+            },
+            {
+              "density_micro": 6004414,
+              "name": "maintainability",
+              "score": 14,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1000000,
+              "name": "dependencies",
+              "score": 72,
+              "worst_tier": "P2"
+            }
+          ],
           "label": "Great",
-          "value": 88,
+          "model": "core-v3",
+          "value": 77,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -3162,6 +3196,7 @@
         "name": "ostendo",
         "occurrences": 149,
         "outcome": "processed",
+        "production_lines": 16184,
         "rules": [
           {
             "distinct": 4,
@@ -3206,8 +3241,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1000000,
+              "name": "reliability",
+              "score": 90,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 3274839,
+              "name": "maintainability",
+              "score": 34,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 4000000,
+              "name": "dependencies",
+              "score": 26,
+              "worst_tier": "P2"
+            }
+          ],
           "label": "Great",
-          "value": 94,
+          "model": "core-v3",
+          "value": 76,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -3221,6 +3289,7 @@
         "name": "artifexprocal",
         "occurrences": 156,
         "outcome": "processed",
+        "production_lines": 10843,
         "rules": [
           {
             "distinct": 1,
@@ -3270,8 +3339,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1000000,
+              "name": "reliability",
+              "score": 90,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 2397860,
+              "name": "maintainability",
+              "score": 45,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 9000000,
+              "name": "dependencies",
+              "score": 5,
+              "worst_tier": "P2"
+            }
+          ],
           "label": "Great",
-          "value": 94,
+          "model": "core-v3",
+          "value": 75,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -3285,6 +3387,7 @@
         "name": "mdr",
         "occurrences": 62,
         "outcome": "processed",
+        "production_lines": 5031,
         "rules": [
           {
             "distinct": 1,
@@ -3319,8 +3422,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1000000,
+              "name": "reliability",
+              "score": 90,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 3577818,
+              "name": "maintainability",
+              "score": 30,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1000000,
+              "name": "dependencies",
+              "score": 72,
+              "worst_tier": "P2"
+            }
+          ],
           "label": "Great",
-          "value": 95,
+          "model": "core-v3",
+          "value": 83,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -3334,6 +3470,7 @@
         "name": "ralph-os",
         "occurrences": 49,
         "outcome": "processed",
+        "production_lines": 11653,
         "rules": [
           {
             "distinct": 1,
@@ -3373,8 +3510,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1171630,
+              "name": "reliability",
+              "score": 75,
+              "worst_tier": "P2"
+            },
+            {
+              "density_micro": 3003518,
+              "name": "maintainability",
+              "score": 37,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 0,
+              "name": "dependencies",
+              "score": 100,
+              "worst_tier": null
+            }
+          ],
           "label": "Great",
-          "value": 93,
+          "model": "core-v3",
+          "value": 85,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -3388,6 +3558,7 @@
         "name": "vibesql",
         "occurrences": 9984,
         "outcome": "processed",
+        "production_lines": 429278,
         "rules": [
           {
             "distinct": 19,
@@ -3447,8 +3618,41 @@
         ],
         "score": {
           "applied_ceiling": null,
-          "label": "Great",
-          "value": 87,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1058237,
+              "name": "reliability",
+              "score": 75,
+              "worst_tier": "P2"
+            },
+            {
+              "density_micro": 3438331,
+              "name": "maintainability",
+              "score": 32,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 19000000,
+              "name": "dependencies",
+              "score": 0,
+              "worst_tier": "P2"
+            }
+          ],
+          "label": "Needs work",
+          "model": "core-v3",
+          "value": 68,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -3462,6 +3666,7 @@
         "name": "syncvibe",
         "occurrences": 103,
         "outcome": "processed",
+        "production_lines": 13432,
         "rules": [
           {
             "distinct": 5,
@@ -3506,8 +3711,41 @@
         ],
         "score": {
           "applied_ceiling": null,
-          "label": "Great",
-          "value": 89,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1074449,
+              "name": "reliability",
+              "score": 75,
+              "worst_tier": "P2"
+            },
+            {
+              "density_micro": 2233472,
+              "name": "maintainability",
+              "score": 47,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 5000000,
+              "name": "dependencies",
+              "score": 19,
+              "worst_tier": "P2"
+            }
+          ],
+          "label": "Needs work",
+          "model": "core-v3",
+          "value": 74,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -3521,6 +3759,7 @@
         "name": "coda",
         "occurrences": 271,
         "outcome": "processed",
+        "production_lines": 40599,
         "rules": [
           {
             "distinct": 1,
@@ -3560,8 +3799,41 @@
         ],
         "score": {
           "applied_ceiling": null,
+          "dimensions": [
+            {
+              "density_micro": 0,
+              "name": "security",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 1295574,
+              "name": "reliability",
+              "score": 75,
+              "worst_tier": "P2"
+            },
+            {
+              "density_micro": 3349836,
+              "name": "maintainability",
+              "score": 33,
+              "worst_tier": "P3"
+            },
+            {
+              "density_micro": 0,
+              "name": "performance",
+              "score": 100,
+              "worst_tier": null
+            },
+            {
+              "density_micro": 0,
+              "name": "dependencies",
+              "score": 100,
+              "worst_tier": null
+            }
+          ],
           "label": "Great",
-          "value": 92,
+          "model": "core-v3",
+          "value": 84,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -4740,7 +5012,7 @@
       "tier": "P3"
     }
   ],
-  "epic": "EP-005 of the suppression, dependency and hygiene PRD",
+  "epic": "EP-003 of the core-v3 score recalibration PRD",
   "gate": {
     "admitted": [
       "clippy::arc_with_non_send_sync",
@@ -4871,7 +5143,7 @@
     ],
     "verdict": "passed"
   },
-  "generated_at": "2026-08-10",
+  "generated_at": "2026-08-20",
   "harness": {
     "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
     "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
@@ -4883,6 +5155,28 @@
     ],
     "skipped": 0
   },
+  "lambdas": [
+    {
+      "lambda_micro": 1000000,
+      "name": "security"
+    },
+    {
+      "lambda_micro": 10000000,
+      "name": "reliability"
+    },
+    {
+      "lambda_micro": 3000000,
+      "name": "maintainability"
+    },
+    {
+      "lambda_micro": 4000000,
+      "name": "performance"
+    },
+    {
+      "lambda_micro": 3000000,
+      "name": "dependencies"
+    }
+  ],
   "manifest": {
     "repositories": [
       {
@@ -5038,6 +5332,7 @@
       "name": "anyhow",
       "occurrences": 69,
       "outcome": "processed",
+      "production_lines": 4113,
       "rules": [
         {
           "distinct": 3,
@@ -5092,8 +5387,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 1215658,
+            "name": "reliability",
+            "score": 75,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 2188184,
+            "name": "maintainability",
+            "score": 48,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 94,
+        "model": "core-v3",
+        "value": 86,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5107,6 +5435,7 @@
       "name": "async-channel",
       "occurrences": 30,
       "outcome": "processed",
+      "production_lines": 1388,
       "rules": [
         {
           "distinct": 1,
@@ -5141,8 +5470,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 500000,
+            "name": "reliability",
+            "score": 95,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 1000000,
+            "name": "maintainability",
+            "score": 72,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 99,
+        "model": "core-v3",
+        "value": 95,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -5156,6 +5518,7 @@
       "name": "bytes",
       "occurrences": 152,
       "outcome": "processed",
+      "production_lines": 9881,
       "rules": [
         {
           "distinct": 3,
@@ -5215,8 +5578,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 4149378,
+            "name": "reliability",
+            "score": 66,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 2125291,
+            "name": "maintainability",
+            "score": 49,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 93,
+        "model": "core-v3",
+        "value": 84,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5230,6 +5626,7 @@
       "name": "fd",
       "occurrences": 75,
       "outcome": "processed",
+      "production_lines": 4676,
       "rules": [
         {
           "distinct": 1,
@@ -5299,8 +5696,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 8912746,
+            "name": "reliability",
+            "score": 41,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 1924722,
+            "name": "maintainability",
+            "score": 53,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 1000000,
+            "name": "dependencies",
+            "score": 72,
+            "worst_tier": "P2"
+          }
+        ],
         "label": "Great",
-        "value": 90,
+        "model": "core-v3",
+        "value": 75,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5314,6 +5744,7 @@
       "name": "hexyl",
       "occurrences": 34,
       "outcome": "processed",
+      "production_lines": 2010,
       "rules": [
         {
           "distinct": 3,
@@ -5373,8 +5804,41 @@
       ],
       "score": {
         "applied_ceiling": null,
-        "label": "Great",
-        "value": 98,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 9457711,
+            "name": "reliability",
+            "score": 39,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 2985075,
+            "name": "maintainability",
+            "score": 37,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 497512,
+            "name": "performance",
+            "score": 88,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
+        "label": "Needs work",
+        "model": "core-v3",
+        "value": 74,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -5388,6 +5852,7 @@
       "name": "log",
       "occurrences": 49,
       "outcome": "processed",
+      "production_lines": 5745,
       "rules": [
         {
           "distinct": 4,
@@ -5437,8 +5902,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 1914708,
+            "name": "reliability",
+            "score": 75,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 1044386,
+            "name": "maintainability",
+            "score": 71,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 94,
+        "model": "core-v3",
+        "value": 90,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5452,6 +5950,7 @@
       "name": "ripgrep",
       "occurrences": 812,
       "outcome": "processed",
+      "production_lines": 46287,
       "rules": [
         {
           "distinct": 4,
@@ -5546,8 +6045,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 7956597,
+            "name": "reliability",
+            "score": 45,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 1728347,
+            "name": "maintainability",
+            "score": 56,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 151230,
+            "name": "performance",
+            "score": 96,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 91,
+        "model": "core-v3",
+        "value": 80,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5561,6 +6093,7 @@
       "name": "serde_json",
       "occurrences": 175,
       "outcome": "processed",
+      "production_lines": 18301,
       "rules": [
         {
           "distinct": 3,
@@ -5630,8 +6163,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 2568166,
+            "name": "reliability",
+            "score": 75,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 2404240,
+            "name": "maintainability",
+            "score": 45,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 93,
+        "model": "core-v3",
+        "value": 86,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -5645,6 +6211,7 @@
       "name": "smol",
       "occurrences": 4,
       "outcome": "processed",
+      "production_lines": 129,
       "rules": [
         {
           "distinct": 1,
@@ -5659,8 +6226,41 @@
       ],
       "score": {
         "applied_ceiling": null,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 500000,
+            "name": "reliability",
+            "score": 95,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "maintainability",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
         "label": "Great",
-        "value": 100,
+        "model": "core-v3",
+        "value": 99,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -5674,6 +6274,7 @@
       "name": "thiserror",
       "occurrences": 113,
       "outcome": "processed",
+      "production_lines": 3096,
       "rules": [
         {
           "distinct": 3,
@@ -5738,8 +6339,41 @@
       ],
       "score": {
         "applied_ceiling": null,
-        "label": "Great",
-        "value": 93,
+        "dimensions": [
+          {
+            "density_micro": 0,
+            "name": "security",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 10335917,
+            "name": "reliability",
+            "score": 36,
+            "worst_tier": "P2"
+          },
+          {
+            "density_micro": 4844961,
+            "name": "maintainability",
+            "score": 20,
+            "worst_tier": "P3"
+          },
+          {
+            "density_micro": 0,
+            "name": "performance",
+            "score": 100,
+            "worst_tier": null
+          },
+          {
+            "density_micro": 0,
+            "name": "dependencies",
+            "score": 100,
+            "worst_tier": null
+          }
+        ],
+        "label": "Needs work",
+        "model": "core-v3",
+        "value": 73,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -6480,71 +7114,144 @@
       "true_positives": 0
     }
   ],
-  "schema_version": 2,
+  "schema_version": 3,
   "score_distribution": {
-    "bands": [
-      {
-        "label": "Great",
-        "repositories": 10
-      }
-    ],
-    "ceilings_applied": 0,
-    "collapsed_into_one_band": true,
-    "collapsed_into_one_value": false,
-    "maximum": 100,
-    "minimum": 90,
-    "values": [
-      {
-        "label": "Great",
-        "name": "anyhow",
-        "value": 94
-      },
-      {
-        "label": "Great",
-        "name": "async-channel",
-        "value": 99
-      },
-      {
-        "label": "Great",
-        "name": "bytes",
-        "value": 93
-      },
-      {
-        "label": "Great",
-        "name": "fd",
-        "value": 90
-      },
-      {
-        "label": "Great",
-        "name": "hexyl",
-        "value": 98
-      },
-      {
-        "label": "Great",
-        "name": "log",
-        "value": 94
-      },
-      {
-        "label": "Great",
-        "name": "ripgrep",
-        "value": 91
-      },
-      {
-        "label": "Great",
-        "name": "serde_json",
-        "value": 93
-      },
-      {
-        "label": "Great",
-        "name": "smol",
-        "value": 100
-      },
-      {
-        "label": "Great",
-        "name": "thiserror",
-        "value": 93
-      }
-    ]
+    "agent": {
+      "bands": [
+        {
+          "label": "Great",
+          "repositories": 6
+        },
+        {
+          "label": "Needs work",
+          "repositories": 2
+        }
+      ],
+      "ceilings_applied": 0,
+      "collapsed_into_one_band": false,
+      "collapsed_into_one_value": false,
+      "maximum": 85,
+      "median_centi": 7650,
+      "minimum": 68,
+      "spread": 17,
+      "values": [
+        {
+          "label": "Great",
+          "name": "claudes-c-compiler",
+          "value": 77
+        },
+        {
+          "label": "Great",
+          "name": "ostendo",
+          "value": 76
+        },
+        {
+          "label": "Great",
+          "name": "artifexprocal",
+          "value": 75
+        },
+        {
+          "label": "Great",
+          "name": "mdr",
+          "value": 83
+        },
+        {
+          "label": "Great",
+          "name": "ralph-os",
+          "value": 85
+        },
+        {
+          "label": "Needs work",
+          "name": "vibesql",
+          "value": 68
+        },
+        {
+          "label": "Needs work",
+          "name": "syncvibe",
+          "value": 74
+        },
+        {
+          "label": "Great",
+          "name": "coda",
+          "value": 84
+        }
+      ]
+    },
+    "healthy": {
+      "bands": [
+        {
+          "label": "Great",
+          "repositories": 8
+        },
+        {
+          "label": "Needs work",
+          "repositories": 2
+        }
+      ],
+      "ceilings_applied": 0,
+      "collapsed_into_one_band": false,
+      "collapsed_into_one_value": false,
+      "maximum": 99,
+      "median_centi": 8500,
+      "minimum": 73,
+      "spread": 26,
+      "values": [
+        {
+          "label": "Great",
+          "name": "anyhow",
+          "value": 86
+        },
+        {
+          "label": "Great",
+          "name": "async-channel",
+          "value": 95
+        },
+        {
+          "label": "Great",
+          "name": "bytes",
+          "value": 84
+        },
+        {
+          "label": "Great",
+          "name": "fd",
+          "value": 75
+        },
+        {
+          "label": "Needs work",
+          "name": "hexyl",
+          "value": 74
+        },
+        {
+          "label": "Great",
+          "name": "log",
+          "value": 90
+        },
+        {
+          "label": "Great",
+          "name": "ripgrep",
+          "value": 80
+        },
+        {
+          "label": "Great",
+          "name": "serde_json",
+          "value": 86
+        },
+        {
+          "label": "Great",
+          "name": "smol",
+          "value": 99
+        },
+        {
+          "label": "Needs work",
+          "name": "thiserror",
+          "value": 73
+        }
+      ]
+    },
+    "maximum": 99,
+    "minimum": 68,
+    "separation_centi": 850,
+    "spread": 31
   },
   "toolchain": {
     "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",

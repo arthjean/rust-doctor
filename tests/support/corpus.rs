@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use rust_doctor::{RuleTier, catalog};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -75,6 +76,15 @@ pub(crate) struct CorpusArtifact {
     pub(crate) gate: GateOutcome,
     pub(crate) generated_at: String,
     pub(crate) harness: HarnessEvidence,
+    /// λ table the measurement was taken under, one entry per dimension.
+    ///
+    /// Recorded beside the toolchain and for the same reason: the toolchain
+    /// decides which diagnostics were produced and λ decides what they cost, so
+    /// a corpus that names neither is a set of numbers nobody can place. The
+    /// freeze test in `src/audit/tests/lambda_freeze.rs` compares it against the
+    /// shipped table, so moving a λ without regenerating this file fails there
+    /// and names the dimension that moved.
+    pub(crate) lambdas: Vec<LambdaObservation>,
     pub(crate) manifest: Manifest,
     pub(crate) network_in_automated_tests: bool,
     pub(crate) observations: Vec<Observation>,
@@ -221,6 +231,17 @@ pub(crate) fn rust_line_count(root: &Path) -> u64 {
     total
 }
 
+/// One dimension of the λ table the corpus was measured under.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LambdaObservation {
+    /// Name the report publishes the dimension under.
+    pub(crate) name: String,
+    /// λ in millionths, so the record is integer arithmetic like the rest of
+    /// this file and two writings of it produce identical bytes.
+    pub(crate) lambda_micro: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Toolchain {
@@ -295,6 +316,15 @@ pub(crate) struct Observation {
     pub(crate) name: String,
     pub(crate) occurrences: u64,
     pub(crate) outcome: RepositoryOutcome,
+    /// Production lines the scan measured, which is the denominator every
+    /// per-kiloline density of `score.dimensions` is read against.
+    ///
+    /// Recorded on the observation rather than beside the score, because it is
+    /// what makes the density reproducible from the record alone: a reader
+    /// holding this count, the λ table and the recorded densities recomputes
+    /// the published score without the scan. Zero on a repository that was
+    /// skipped or that failed, since a scan that never ran measured no source.
+    pub(crate) production_lines: u64,
     pub(crate) rules: Vec<RuleObservation>,
     pub(crate) score: Option<ScoreObservation>,
     pub(crate) status: String,
@@ -312,8 +342,39 @@ pub(crate) struct RuleObservation {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ScoreObservation {
     pub(crate) applied_ceiling: Option<u64>,
+    pub(crate) dimensions: Vec<DimensionObservation>,
     pub(crate) label: String,
+    /// Model the score was computed under, published by the binary itself. A
+    /// corpus is a measurement of one model, and a record that does not name
+    /// which one is a rate nobody can place.
+    pub(crate) model: String,
     pub(crate) value: u64,
+    pub(crate) worst_tier: Option<String>,
+}
+
+/// One dimension of a recorded score, with the density it was computed from.
+///
+/// The report publishes the dimension score and not the density behind it, so
+/// the harness recovers the density from the diagnostics the report carries: one
+/// distinct site per production diagnostic, weighed by severity, summed per rule
+/// and divided by the denominator the rule's producer chose.
+///
+/// Recomputing rather than reading is the point. The recovered density is
+/// compared against the published score by the λ freeze test, so a density that
+/// does not explain the number the binary printed fails the corpus instead of
+/// being recorded beside it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DimensionObservation {
+    /// Weighted distinct sites over the denominator, in millionths, so two
+    /// computations of the record produce identical bytes.
+    pub(crate) density_micro: u64,
+    /// Name the report publishes the dimension under.
+    pub(crate) name: String,
+    /// Dimension score the binary published, ceiling included.
+    pub(crate) score: u64,
+    /// Worst tier among the rules that scored in this dimension, which is what
+    /// caps it.
     pub(crate) worst_tier: Option<String>,
 }
 
@@ -482,9 +543,47 @@ pub(crate) struct GateRefusal {
     pub(crate) reason: RefusalReason,
 }
 
+/// Minimum spread the model must achieve over the two populations, in points.
+///
+/// A scale that cannot separate ranks nothing, whatever its range, so the
+/// record carries the floor rather than a boolean saying the last measurement
+/// happened to clear it. The number is the month-1 goal of the core-v3
+/// recalibration PRD; raising it is a deliberate recalibration, and a model
+/// that falls under it fails
+/// `the_corpus_score_distribution_is_published_with_its_spread` naming the
+/// spread it measured.
+pub(crate) const MINIMUM_SPREAD: u64 = 20;
+
+/// What the score does over the two pinned populations.
+///
+/// core-v2 published one population and a boolean saying it had collapsed into
+/// a single band, which measured nothing beyond the collapse itself. What a
+/// scale has to prove is that it separates, so each population publishes its
+/// own spread and its own median, and the block publishes the distance between
+/// the two medians: a model that cannot tell agent-written code from code
+/// nobody wants disturbed ranks nothing, however wide its range.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ScoreDistribution {
+    pub(crate) agent: PopulationDistribution,
+    pub(crate) healthy: PopulationDistribution,
+    /// Highest score of the two populations together.
+    pub(crate) maximum: u64,
+    /// Lowest score of the two populations together.
+    pub(crate) minimum: u64,
+    /// Healthy median less agent median, in hundredths of a point. Signed,
+    /// because a model that scores the agent population higher is a fact the
+    /// record has to be able to state rather than a case it cannot represent.
+    pub(crate) separation_centi: i64,
+    /// Maximum less minimum over the two populations, which is what
+    /// `MINIMUM_SPREAD` bounds from below.
+    pub(crate) spread: u64,
+}
+
+/// The distribution of one population, published for each of the two.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PopulationDistribution {
     pub(crate) bands: Vec<ScoreBand>,
     pub(crate) ceilings_applied: usize,
     /// Every score carries the same label. This is the exact question of the
@@ -495,7 +594,11 @@ pub(crate) struct ScoreDistribution {
     /// band.
     pub(crate) collapsed_into_one_value: bool,
     pub(crate) maximum: u64,
+    /// Middle score, in hundredths of a point, since a population of even size
+    /// has no middle member and its median falls between two.
+    pub(crate) median_centi: u64,
     pub(crate) minimum: u64,
+    pub(crate) spread: u64,
     pub(crate) values: Vec<ScoreValue>,
 }
 
@@ -789,6 +892,7 @@ fn skipped_observation(entry: &ManifestEntry) -> Observation {
         name: entry.name.clone(),
         occurrences: 0,
         outcome: RepositoryOutcome::Skipped,
+        production_lines: 0,
         rules: Vec::new(),
         score: None,
         status: "skipped".to_owned(),
@@ -805,10 +909,135 @@ fn failed_observation(entry: &ManifestEntry, exit_code: i32) -> Observation {
         name: entry.name.clone(),
         occurrences: 0,
         outcome: RepositoryOutcome::Failed,
+        production_lines: 0,
         rules: Vec::new(),
         score: None,
         status: "failed".to_owned(),
     }
+}
+
+/// The five dimensions, in the order the score declares them.
+///
+/// Restated here rather than read off the report, because the report publishes
+/// a map: a dimension dropped from the published object would silently leave
+/// the record one row shorter instead of failing.
+const DIMENSION_NAMES: [&str; 5] = [
+    "security",
+    "reliability",
+    "maintainability",
+    "performance",
+    "dependencies",
+];
+
+/// Dimension a rule category is scored under.
+fn dimension_of(category: &str) -> Option<&'static str> {
+    match category {
+        "security" => Some("security"),
+        "correctness" | "reliability" => Some("reliability"),
+        "performance" => Some("performance"),
+        "cargo" | "dependencies" => Some("dependencies"),
+        "maintainability" => Some("maintainability"),
+        _ => None,
+    }
+}
+
+/// What one distinct site weighs, by the severity the report published. An
+/// unknown severity weighs nothing and costs the scan its authoritative flag,
+/// which the observation records separately.
+fn severity_weight(severity: &str) -> Option<u64> {
+    match severity {
+        "error" => Some(2),
+        "warning" | "info" => Some(1),
+        _ => None,
+    }
+}
+
+/// Denominator the producer that raised a rule divides by, read off the rule's
+/// own identifier.
+///
+/// The prefix is the contract: `validate_catalog` refuses any other, so the
+/// five producers are exactly these heads, and the two that judge the manifests
+/// and the tracked tree rather than the source divide by the workspace. A rule
+/// the catalog does not hold has no producer to ask and is counted against the
+/// workspace, which is what the binary does with it.
+fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f64 {
+    let per_kiloline = shipped.contains_key(rule)
+        && (rule.starts_with("clippy::")
+            || rule.starts_with("rust_doctor::source::")
+            || rule.starts_with("rust_doctor::structure::"));
+    if per_kiloline { kilolines } else { 1.0 }
+}
+
+/// The density behind each published dimension, recovered from the diagnostics.
+///
+/// This is deliberately an independent recomputation rather than a call into
+/// the crate: a density recovered through the same helper the binary used would
+/// agree with the published score by construction and prove nothing. What makes
+/// it evidence is that the λ freeze test reads these densities back, rescores
+/// them through the shipped curve and compares against the score the binary
+/// printed, so a recomputation that drifts from the model fails the corpus.
+///
+/// One distinct site per production diagnostic, weighed by severity, summed per
+/// rule in identifier order and divided by the denominator its producer chose:
+/// the same additions in the same sequence as `DimensionState`, so the float is
+/// the same float.
+fn dimension_observations(report: &Value, production_lines: u64) -> Vec<DimensionObservation> {
+    let shipped: BTreeMap<&str, RuleTier> =
+        catalog().into_iter().map(|rule| (rule.id, rule.tier)).collect();
+    let kilolines = (production_lines as f64 / 1000.0).max(2.0);
+
+    let mut scored: BTreeMap<&str, (&'static str, u64, Option<RuleTier>)> = BTreeMap::new();
+    for diagnostic in report["diagnostics"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        // A diagnostic marked with a non-production context stays published and
+        // counted, and weighs nothing.
+        if !diagnostic["context"].is_null() {
+            continue;
+        }
+        let (Some(rule), Some(category), Some(severity)) = (
+            diagnostic["code"].as_str().filter(|code| !code.is_empty()),
+            diagnostic["category"].as_str(),
+            diagnostic["severity"].as_str(),
+        ) else {
+            continue;
+        };
+        let (Some(dimension), Some(weight)) = (dimension_of(category), severity_weight(severity))
+        else {
+            continue;
+        };
+        let entry = scored
+            .entry(rule)
+            .or_insert((dimension, 0, shipped.get(rule).copied()));
+        entry.1 = entry.1.saturating_add(weight);
+    }
+
+    let published = &report["audit"]["score"]["dimensions"];
+    DIMENSION_NAMES
+        .into_iter()
+        .map(|name| {
+            let mut density = 0.0;
+            let mut worst: Option<RuleTier> = None;
+            for (rule, (dimension, numerator, tier)) in &scored {
+                if *dimension != name {
+                    continue;
+                }
+                density += *numerator as f64 / divisor(rule, &shipped, kilolines);
+                worst = match (worst, *tier) {
+                    (Some(current), Some(candidate)) => Some(current.min(candidate)),
+                    (current, candidate) => current.or(candidate),
+                };
+            }
+            DimensionObservation {
+                density_micro: (density * 1_000_000.0).round() as u64,
+                name: name.to_owned(),
+                score: published[name].as_u64().unwrap_or_default(),
+                worst_tier: worst.map(|tier| tier.as_str().to_owned()),
+            }
+        })
+        .collect()
 }
 
 fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observation {
@@ -823,9 +1052,12 @@ fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observa
         occurrences += finding.occurrences;
     }
 
+    let production_lines = report["audit"]["production_lines"].as_u64().unwrap_or_default();
     let score = report["audit"]["score"].as_object().map(|score| ScoreObservation {
         applied_ceiling: score["applied_ceiling"].as_u64(),
+        dimensions: dimension_observations(report, production_lines),
         label: score["label"].as_str().unwrap_or_default().to_owned(),
+        model: score["model"].as_str().unwrap_or_default().to_owned(),
         value: score["value"].as_u64().unwrap_or_default(),
         worst_tier: score["worst_tier"].as_str().map(str::to_owned),
     });
@@ -843,6 +1075,7 @@ fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observa
         } else {
             RepositoryOutcome::Processed
         },
+        production_lines,
         rules: rules
             .into_iter()
             .map(|(id, (distinct, occurrences))| RuleObservation {
@@ -1146,7 +1379,27 @@ pub(crate) fn gate(
 
 /// Distribution of the corpus scores, published to observe whether tier capping
 /// crushes every score into a single band.
-pub(crate) fn score_distribution(observations: &[Observation]) -> ScoreDistribution {
+/// The distribution of both populations, and the distance between them.
+pub(crate) fn score_distribution(
+    healthy: &[Observation],
+    agent: &[Observation],
+) -> ScoreDistribution {
+    let healthy = population_distribution(healthy);
+    let agent = population_distribution(agent);
+    let minimum = healthy.minimum.min(agent.minimum);
+    let maximum = healthy.maximum.max(agent.maximum);
+    ScoreDistribution {
+        maximum,
+        minimum,
+        separation_centi: i64::try_from(healthy.median_centi).unwrap_or_default()
+            - i64::try_from(agent.median_centi).unwrap_or_default(),
+        spread: maximum.saturating_sub(minimum),
+        agent,
+        healthy,
+    }
+}
+
+fn population_distribution(observations: &[Observation]) -> PopulationDistribution {
     let values: Vec<_> = observations
         .iter()
         .filter_map(|observation| {
@@ -1163,8 +1416,10 @@ pub(crate) fn score_distribution(observations: &[Observation]) -> ScoreDistribut
         *bands.entry(value.label.as_str()).or_insert(0) += 1;
     }
     let distinct_bands = bands.len();
+    let maximum = values.iter().map(|value| value.value).max().unwrap_or_default();
+    let minimum = values.iter().map(|value| value.value).min().unwrap_or_default();
 
-    ScoreDistribution {
+    PopulationDistribution {
         bands: bands
             .into_iter()
             .map(|(label, repositories)| ScoreBand {
@@ -1188,9 +1443,29 @@ pub(crate) fn score_distribution(observations: &[Observation]) -> ScoreDistribut
             .collect::<BTreeSet<_>>()
             .len()
             <= 1,
-        maximum: values.iter().map(|value| value.value).max().unwrap_or_default(),
-        minimum: values.iter().map(|value| value.value).min().unwrap_or_default(),
+        maximum,
+        median_centi: median_centi(&values),
+        minimum,
+        spread: maximum.saturating_sub(minimum),
         values,
+    }
+}
+
+/// Median of a population in hundredths of a point.
+///
+/// An even population has no middle member, so its median is the mean of the
+/// two that straddle the middle and can land on a half point. Hundredths rather
+/// than halves because the record derives `Eq`, and a rational median stored as
+/// a float is a record two machines can disagree on.
+fn median_centi(values: &[ScoreValue]) -> u64 {
+    let mut sorted: Vec<u64> = values.iter().map(|value| value.value).collect();
+    sorted.sort_unstable();
+    let middle = sorted.len() / 2;
+    match (sorted.len(), sorted.get(middle), middle.checked_sub(1).and_then(|index| sorted.get(index))) {
+        (0, _, _) => 0,
+        (length, Some(upper), Some(lower)) if length % 2 == 0 => (lower + upper) * 50,
+        (_, Some(middle), _) => middle * 100,
+        _ => 0,
     }
 }
 
