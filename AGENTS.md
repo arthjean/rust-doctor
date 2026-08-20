@@ -907,6 +907,27 @@ A new rule is admitted on measured precision, not on intuition. The gate refuses
 default activation only for a zero-tolerance tier rule with a confirmed false
 positive; every other rule is published with its measured noise rate.
 
+The record is also the calibration of the score. Each of the eighteen
+observations carries the production line count the scan measured and, per
+dimension, the density that count was the denominator of, so the published score
+recomputes from the record alone. The file records the λ table beside the
+toolchain version for the same reason both are pinned: the toolchain decides
+which diagnostics exist and λ decides what they cost, and a λ moved without a
+new measurement republishes every recorded score under a model that never
+produced it. `src/audit/tests/lambda_freeze.rs` is what refuses that, naming the
+dimension whose λ moved. λ_reliability and λ_maintainability are calibrated on
+the healthy population alone, since the agent population is scanned with every
+Clippy rule off and those two dimensions are where the Clippy rules concentrate.
+
+`score_distribution` is what the scale proves about itself: each population
+publishes its own minimum, maximum, spread, median and band counts, and the
+block publishes the distance between the two medians. `MINIMUM_SPREAD` in
+`tests/support/corpus.rs` is the floor the model has to clear over the two
+populations together, and a measurement under it fails
+`the_corpus_score_distribution_is_published_with_its_spread` naming the spread
+it measured. core-v2 published one population and a boolean saying it had
+collapsed into a single band, which measured nothing beyond the collapse.
+
 ## Admitting a rule
 
 Two records admit a rule, and they answer different questions.
