@@ -33,7 +33,7 @@ pub mod terminal_text;
 mod workspace_path;
 
 pub use audit::{
-    Audit, AuditCategory, AuditCategoryName, AuditScore, ScoreDimensions, ScoreLabel,
+    Audit, AuditCategory, AuditCategoryName, AuditScore, SCORE_MODEL, ScoreDimensions, ScoreLabel,
     SeverityCounts, ShareError,
 };
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};

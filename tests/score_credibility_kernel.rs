@@ -401,7 +401,25 @@ fn the_current_oracle_preserves_every_historical_field() {
         "the retired rounding table has no successor"
     );
     assert_eq!(previous["score_boundaries"], current["score_boundaries"]);
-    assert_eq!(previous["share_cases"], current["share_cases"]);
+    // The share cases name the same counts and refuse the same payloads. What
+    // moved is that the query now names the model it is a reading of, right
+    // after the score, so the archive is compared with that one key inserted
+    // rather than dropped from the comparison.
+    let archived_cases = previous["share_cases"].as_array().unwrap();
+    let published_cases = current["share_cases"].as_array().unwrap();
+    assert_eq!(archived_cases.len(), published_cases.len());
+    for (archived, published) in archived_cases.iter().zip(published_cases) {
+        let mut expected = archived.clone();
+        if let Some(url) = archived["expected"].as_str() {
+            let score = &archived["score"];
+            expected["expected"] = Value::String(url.replacen(
+                &format!("?s={score}"),
+                &format!("?s={score}&m={}", rust_doctor::SCORE_MODEL),
+                1,
+            ));
+        }
+        assert_eq!(&expected, published);
+    }
     assert_eq!(previous["category_mappings"], current["category_mappings"]);
 
     let historical_score = &previous["score_cases"][1]["expected_audit"]["score"];

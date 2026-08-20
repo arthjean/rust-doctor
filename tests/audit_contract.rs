@@ -36,7 +36,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
     assert!(score.projected_rule_ids.is_empty());
     assert_eq!(
         clean.audit.share_url().unwrap(),
-        "https://rust-doctor.com/share?s=100&f=1&l=5"
+        "https://rust-doctor.com/share?s=100&m=core-v3&f=1&l=5"
     );
     let audit_keys: Vec<_> = value["audit"]
         .as_object()
@@ -270,9 +270,19 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.worst_tier, Some(RuleTier::P2));
     assert_eq!(score.applied_ceiling, None);
     assert_eq!(score.value, 94);
-    assert_eq!(
-        report.audit.share_url().unwrap(),
-        "https://rust-doctor.com/share?s=94&w=3&f=1&l=18"
+    let share = report.audit.share_url().unwrap();
+    assert_eq!(share, "https://rust-doctor.com/share?s=94&m=core-v3&w=3&f=1&l=18");
+    // The payload names the model and counts what was measured, and its grammar
+    // is what keeps everything else out: a query made of keys, digits and the
+    // model name can carry no path, no environment variable and no user data,
+    // whatever the workspace this ran against was called.
+    let query = share
+        .strip_prefix("https://rust-doctor.com/share?")
+        .expect("the share url is built on the published base");
+    assert!(
+        query.chars().all(|character| character.is_ascii_alphanumeric()
+            || matches!(character, '=' | '&' | '-')),
+        "the share payload carries something that is not a count: {query}"
     );
 }
 

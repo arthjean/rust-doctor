@@ -947,7 +947,11 @@ fn build_share_url(
         return Err(ShareError::InvalidPayload);
     }
 
-    let mut url = format!("{SHARE_BASE_URL}?s={score}");
+    // The model comes first and is never omitted: every number after it is a
+    // reading of one scale, and a payload that names none is a score the page
+    // it opens has to guess the meaning of. `core-v2` and `core-v3` publish
+    // the same shape over the same rules for very different values.
+    let mut url = format!("{SHARE_BASE_URL}?s={score}&m={SCORE_MODEL}");
     for (key, count) in [
         ("e", errors),
         ("w", warnings),

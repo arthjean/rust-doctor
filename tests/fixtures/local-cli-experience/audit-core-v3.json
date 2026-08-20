@@ -1961,7 +1961,7 @@
   "share_cases": [
     {
       "errors": 1,
-      "expected": "https://rust-doctor.com/share?s=52&e=1&w=13&f=130",
+      "expected": "https://rust-doctor.com/share?s=52&m=core-v3&e=1&w=13&f=130",
       "files": 130,
       "info": 0,
       "score": 52,
@@ -1969,7 +1969,7 @@
     },
     {
       "errors": 0,
-      "expected": "https://rust-doctor.com/share?s=0",
+      "expected": "https://rust-doctor.com/share?s=0&m=core-v3",
       "files": 0,
       "info": 0,
       "score": 0,
@@ -1977,7 +1977,7 @@
     },
     {
       "errors": 1000000,
-      "expected": "https://rust-doctor.com/share?s=100&e=1000000&w=1000000&i=1000000&f=1000000",
+      "expected": "https://rust-doctor.com/share?s=100&m=core-v3&e=1000000&w=1000000&i=1000000&f=1000000",
       "files": 1000000,
       "info": 1000000,
       "score": 100,

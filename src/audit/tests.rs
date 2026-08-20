@@ -503,7 +503,7 @@ fn the_share_url_carries_the_production_line_count() {
 
     assert_eq!(
         audit.share_url(),
-        Ok("https://rust-doctor.com/share?s=100&f=3&l=420".to_owned())
+        Ok("https://rust-doctor.com/share?s=100&m=core-v3&f=3&l=420".to_owned())
     );
 }
 
