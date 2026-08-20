@@ -329,18 +329,32 @@ fn hash_git_output(root: &Path, arguments: &[&str]) -> String {
         .to_string()
 }
 
+/// Whether a path is bookkeeping git owns rather than content a scan may touch.
+///
+/// Two of those exist. `.git/index` carries a stat cache that git rewrites on its own whenever the
+/// recorded mtimes are racy, which a scan reading the repository is enough to trigger and which
+/// this function's own git commands trigger too. And every `.lock` under `.git/` belongs to a git
+/// process that is writing beside the file it names: `git maintenance run --auto`, which git
+/// starts detached after a commit, holds `.git/objects/maintenance.lock` for as long as it runs,
+/// so whether a capture sees it depends on when that background process exits and on nothing the
+/// scan did.
+///
+/// Two captures taken around a scan that mutated nothing then disagree, and the comparison blames
+/// the scan for housekeeping it never asked for. What both files stand for is compared already:
+/// the index means its entries, which `tracked_files_hash` reads through `git ls-files -s`, and a
+/// lock means an update to a ref, an object or the index, which `refs_hash`, `objects_hash` and
+/// the same `tracked_files_hash` all read once it is released. The bytes around them are a cache
+/// and a mutex, so hashing them asserted a stability git does not offer.
+fn is_git_bookkeeping(path: &str) -> bool {
+    let relative = Path::new(path);
+    relative == Path::new(".git").join("index")
+        || (relative.starts_with(".git") && path.ends_with(".lock"))
+}
+
 pub(crate) fn git_repository_state(root: &Path) -> GitRepositoryState {
-    // `.git/index` is excluded, and no field hashes its bytes. The file carries a stat cache that
-    // git rewrites on its own whenever the recorded mtimes are racy, which a scan reading the
-    // repository is enough to trigger and which this function's own git commands trigger too. Two
-    // captures taken around a scan that mutated nothing then disagree, and the comparison blames
-    // the scan for a rewrite it never asked for. What the index means is its entries, and
-    // `tracked_files_hash` below already compares those through `git ls-files -s`; the bytes around
-    // them are a cache, so hashing them asserted a stability git does not offer.
-    let index = Path::new(".git").join("index").to_string_lossy().into_owned();
     let content = content_states(root)
         .into_iter()
-        .filter(|(path, _)| *path != index)
+        .filter(|(path, _)| !is_git_bookkeeping(path))
         .map(|(path, (hash, length))| format!("{path}\0{hash}\0{length}"))
         .collect::<Vec<_>>()
         .join("\n");
