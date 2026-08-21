@@ -22,14 +22,24 @@ first, and the `adjudication.criterion` field of `tests/corpus.json`, which is
 the definition every verdict is measured against. Verify the suite is green
 before starting, so a failure during the run belongs to this work.
 
+Nothing below asks for a figure to be computed by hand. Every statistic this
+protocol publishes is recomputed by the suite from the record you write: what
+this skill has to get right is the record, not the arithmetic over it.
+
 ## What the harness already enforces
 
-Four invariants hold whatever you do. They catch a corrupted sample, never
+Six invariants hold whatever you do. They catch a corrupted sample, never
 hearsay, which reads exactly like a real verdict and is yours to keep out:
 
 - The rate is derived, never written. `precision()` in `tests/support/corpus.rs`
   computes every published rate from `adjudication.reviewed` alone, and a test
   asserts the published field equals the recomputation.
+- The interval and the separation are derived from the same sample, so a rate
+  that settles nothing against the threshold says so rather than reading like a
+  measurement.
+- The agreement of the two passes is derived from `adjudication.agreement.pairs`
+  alone: every row of `adjudication.agreement.coefficients` is recomputed by the
+  suite, and a row edited by hand fails naming the rule and the field.
 - A reviewed site must name a finding the corpus actually produced, at its
   published `path` and `line`, and in its published `context`. Both are checked
   in `the_published_observations_reproduce_the_pinned_corpus_run`.
@@ -65,23 +75,62 @@ than the cost of the rule. A test enforces this restriction.
 **Done when** the population count is stated and every entry carries a
 repository, a path and a line drawn from a report, not from memory.
 
-## Step 2: Sample by stride
+## Step 2: Draw the sample, and record the draw
 
 From a population of `n` sites, take `k = min(target, n)` at indices
 `floor(i * n / k)` for `i` in `[0, k)`. A regular stride from the first site, so
-the sample follows the same distribution as the findings a user receives. This
-is the method `adjudication.sampling` publishes, and the reason it is a stride
-rather than a random draw is reproducibility: anyone can recompute which sites
-were reviewed.
+the sample follows the same distribution as the findings a user receives, and
+reproducible rather than random: anyone can recompute which sites were reviewed.
 
-Sites already present in `adjudication.reviewed` stay. Deepening a sample means
-recomputing the stride for the new `k` and adjudicating the sites it adds, not
-re-judging the ones already recorded, whose verdicts remain valid observations
-of the same population.
+The draw is data, not a sentence. Record it in `adjudication.sampling_plan`,
+one row per `(rule, population)`:
 
-**Done when** the stride is listed, and every already-recorded site is either
-inside it or named as sitting outside it. A stride that silently drops a
-recorded verdict changes the published rate without saying so.
+```json
+{
+  "indices": [0, 3, 6],
+  "observed": 9,
+  "population": "healthy",
+  "rule": "clippy::indexing_slicing",
+  "target": 3
+}
+```
+
+`observed` is the population you just counted, `target` the sample you asked
+for, and `indices` the positions the stride landed on, into that same canonical
+order. The suite recomputes `indices` from `observed` and `target`, refuses a
+target the population cannot supply, and refuses a plan whose selected count
+disagrees with the sites the record adjudicated.
+
+Enrol the scope in `adjudication.adjudicated_after_cutoff`, which is what places
+the sample under this protocol:
+
+```json
+{
+  "population": "healthy",
+  "rule": "clippy::indexing_slicing"
+}
+```
+
+Once enrolled, every reviewed site of that `(rule, population)` has to carry an
+agreeing pair. A scope enrolled with no plan, and a plan for a scope nobody
+enrolled, are both refused: a sample judged before `adjudication.protocol_cutoff`
+carries neither, and that absence is the fact rather than a row of zeros.
+
+Sites already present in `adjudication.reviewed` stay in the sample the rate is
+computed over, and deepening means recomputing the stride for the new `k` and
+adjudicating the sites it adds. But enrolling the scope puts every one of its
+published verdicts under the protocol, so a site recorded before the cutoff
+under a single pass has to be judged again as a pair before the scope is
+enrolled: its verdict remains a valid observation, and the protocol still has
+no second pass behind it. Deepening without enrolling leaves the draw
+unrecorded, which is the defect `adjudication.sampling_plan` exists against, so
+the order is to pair the retained sites first and enrol the scope once every
+one of them is backed.
+
+**Done when** the plan is written, the scope is enrolled, and every
+already-recorded site is either inside the stride or named as sitting outside
+it. A stride that silently drops a recorded verdict changes the published rate
+without saying so.
 
 ## Step 3: Adjudicate, with the code in front of you
 
@@ -105,29 +154,68 @@ safety, or when the context makes the flagged behavior the intended one.
 Confirming the pattern is present is a different, mechanical check that proves
 the span is not corrupted and says nothing about value.
 
-Each site produces a verdict, a one-sentence justification naming what in the
-code decided it, and the context read from the report rather than guessed.
-
 **Two independent passes.** Judge the sample twice, each pass blind to the
-other's verdicts. Where the two agree, the verdict stands. Where they disagree,
-the site goes to Arthur: a disagreement is the signal that the site is hard, and
-an agent settling its own tie removes exactly the information the second pass
-was there to produce. Report the disagreement count, it is the honest measure of
-how much the sample can be trusted.
+other's verdicts. Delegating each pass to a separate subagent, with no shared
+context and no mention of any prior verdict, is what makes the second pass
+independent rather than a rereading.
 
-Delegating each pass to a separate subagent, with no shared context and no
-mention of any prior verdict, is what makes the second pass independent rather
-than a rereading.
+Where the two agree, the verdict stands. Where they disagree, the site is
+escalated to Arthur and stays escalated. **An escalation is never resolved by an
+agent**, including by a third pass, a tie-break, or a rereading by either judge:
+a disagreement is the signal that the site is hard, and an agent settling its
+own tie removes exactly the information the second pass was there to produce.
+A disagreeing pair stays out of `adjudication.reviewed` until a human verdict
+arrives, and the absence of a reviewed site is what escalation means: no field
+says so, and none can be forged.
 
 **Done when** every site in the stride carries two verdicts from sites that were
-opened, the agreement count and Cohen's kappa are computed, and the disagreeing
-sites are listed with both justifications. Kappa is undefined when neither pass
-produced a single verdict of one kind: report that rather than a perfect
-agreement figure, which in that case measures nothing.
+opened, the record is written as in Step 4, and
+`cargo test --test corpus_statistics` recomputes
+`adjudication.agreement.coefficients` clean from the pairs. Report the number of
+disagreements and list them with both justifications; the coefficients are the
+suite's job, not yours.
 
-## Step 4: Record the sites
+## Step 4: Record the pairs and the sites they back
 
-Add each site to `adjudication.reviewed` in `tests/corpus.json`:
+A judged site is one pair in `adjudication.agreement.pairs`, whatever the two
+passes concluded:
+
+```json
+{
+  "context": "production",
+  "independence": "separate_context",
+  "line": 67,
+  "passes": [
+    {
+      "judge": "claude-opus-5",
+      "justification": "What in the code decided the first pass.",
+      "verdict": "false_positive"
+    },
+    {
+      "judge": "claude-opus-5",
+      "justification": "What in the code decided the second pass.",
+      "verdict": "false_positive"
+    }
+  ],
+  "path": "src/buf/buf_impl.rs",
+  "population": "healthy",
+  "repository": "bytes",
+  "rule": "clippy::indexing_slicing"
+}
+```
+
+`judge` names the model that produced that pass, and `unrecorded` is reserved
+for the passes of the 2026-08-11 run whose identity was never captured: a pass
+produced under this record names its model. `independence` says how the two
+passes were kept apart, and it is a fact about the run rather than a label:
+`separate_context` for two passes of one model in two contexts, which reduces
+variance but not self-preference bias, since both share the generation
+distribution of the tool they judge; `separate_model` for two passes from
+different families, which reduces both. A pair declared `separate_model` whose
+two passes name one judge is refused.
+
+A pair whose passes agree, and only such a pair, also carries its verdict into
+`adjudication.reviewed`:
 
 ```json
 {
@@ -135,6 +223,7 @@ Add each site to `adjudication.reviewed` in `tests/corpus.json`:
   "justification": "One sentence naming what in the code decided the verdict.",
   "line": 67,
   "path": "src/buf/buf_impl.rs",
+  "population": "healthy",
   "provenance": "agent",
   "repository": "bytes",
   "rule": "clippy::indexing_slicing",
@@ -153,19 +242,28 @@ fills with reformatting:
 json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 ```
 
-## Step 5: Regenerate what derives from the sites
+## Step 5: Regenerate what derives from the record
 
+- `adjudication.agreement.coefficients`: one row per `(rule, population)`
+  carrying at least one pair, and every number in it recomputed from the pairs.
+  Do not write one by hand: run the suite, read the recomputation it names in
+  its failure, and copy that.
+- `adjudication.agreement.escalations_open`: the number of disagreeing pairs,
+  recomputed the same way.
 - `precision`: for the target rule, `reviewed` is the new count,
   `false_positives` and `true_positives` the tallies, the rate is
-  `false_positives * 10000 / reviewed` in integer arithmetic, and `provenance`
-  the sorted distinct provenances of its sites.
+  `false_positives * 10000 / reviewed` in integer arithmetic, `doubly_judged`
+  the sites an agreeing pair backs, `judges` the sorted distinct judges of those
+  pairs, the interval and the separation the recomputation over that sample, and
+  `provenance` the sorted distinct provenances of its sites.
 - `gate`: a rule above `threshold_basis_points` joins `noisy_on_healthy_code`,
   one below leaves it. A `P0` rule with a confirmed false positive is refused
   and loses default activation; nothing else is refused.
 - `adjudication.sampling`: state the new `k` for this rule and why, as the entry
-  for `duplicate_function_body` already does. The published method has to
-  describe what was actually done, including any site excluded for disagreement
-  and the resulting count.
+  for `duplicate_function_body` already does. It states no count and no
+  coefficient: every quantity now lives in `adjudication.sampling_plan` and in
+  the recomputed blocks above, and a number written in prose is a number no test
+  compares.
 
 **Done when** `cargo test --test corpus_precision` passes without the cache,
 which is the harness recomputing every rate from the sites and comparing it to
@@ -175,24 +273,26 @@ what you wrote.
 
 ```bash
 cargo test --test corpus_precision
+cargo test --test corpus_agreement --test corpus_statistics
 RUST_DOCTOR_CORPUS_DIR=<cache> RUST_DOCTOR_CORPUS_ARTIFACTS=<scratch> \
   cargo test --test corpus_precision -- the_published_observations_reproduce_the_pinned_corpus_run
 cargo test
 cargo clippy --all-targets --no-deps -- -D warnings
 ```
 
-The second command is the one that matters and the one it is tempting to skip:
+The third command is the one that matters and the one it is tempting to skip:
 without the cache the position and context checks return silently, and a site
 with a wrong line passes every other test in the suite.
 
 ## Step 7: Report
 
 State the rule, the population size, the sample before and after, the rate
-before and after, the disagreement count between the two passes, and any site
-escalated to Arthur. When the rate moves materially, say which direction and
-what the added sites had in common: a rate that collapses when the sample grows
-means the first five sites were not representative, and that is a finding about
-the method, not only about the rule.
+before and after and what its interval settles against the threshold, the
+number of disagreements between the two passes, and every site escalated to
+Arthur. When the rate moves materially, say which direction and what the added
+sites had in common: a rate that collapses when the sample grows means the first
+five sites were not representative, and that is a finding about the method, not
+only about the rule.
 
 Commit with a Conventional Commit, for instance
 `test(corpus): adjudicate clippy::indexing_slicing on forty sites`.
@@ -211,6 +311,13 @@ is exactly what invalidates a rate.
 Cause: the sample was drawn from the whole population instead of the production
 subpopulation. Solution: filter findings with no `context` field before the
 stride, and recompute.
+
+### The suite says a reviewed site has no pair behind it
+
+Cause: the scope is enrolled in `adjudication.adjudicated_after_cutoff` and a
+verdict was published without recording the two passes that produced it.
+Solution: write the pair. If only one pass was ever run, the honest repair is to
+run the second, not to unenrol the scope.
 
 ### The rate is unchanged but the gate moved
 
