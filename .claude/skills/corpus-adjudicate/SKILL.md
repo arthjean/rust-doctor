@@ -273,16 +273,27 @@ what you wrote.
 
 ```bash
 cargo test --test corpus_precision
-cargo test --test corpus_agreement --test corpus_statistics
+cargo test --test corpus_agreement --test corpus_statistics --test corpus_position
 RUST_DOCTOR_CORPUS_DIR=<cache> RUST_DOCTOR_CORPUS_ARTIFACTS=<scratch> \
-  cargo test --test corpus_precision -- the_published_observations_reproduce_the_pinned_corpus_run
+  cargo test --test corpus_precision
 cargo test
 cargo clippy --all-targets --no-deps -- -D warnings
 ```
 
 The third command is the one that matters and the one it is tempting to skip:
-without the cache the position and context checks return silently, and a site
-with a wrong line passes every other test in the suite.
+without the cache, nothing locates the sites you added, and a site with a wrong
+line passes every other test in the suite. It runs the whole crate rather than
+one test because both populations have to be located before the run may say so.
+
+It is also what unblocks `cargo test`. A site you add moves the digest in
+`adjudication.position_proof`, and `tests/corpus_position.rs` recomputes that
+digest offline on every run, so the suite is red until a reproduction confirms
+the new sites. That run writes `<scratch>/position-proof.json` once it has
+located every published site of both populations: copy its four members into
+`adjudication.position_proof` and the suite goes green. Never edit the digest by
+hand. It is the one field in the record whose only honest source is a run, and
+forging it publishes a position nothing has ever seen, which is the whole defect
+this block exists to make impossible.
 
 ## Step 7: Report
 
