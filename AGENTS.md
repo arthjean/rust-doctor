@@ -898,10 +898,29 @@ RUST_DOCTOR_CORPUS_ARTIFACTS=<scratch outside this repository> \
 cargo test --test corpus_precision
 ```
 
-Both paths must sit outside this repository. The reproduction tests return
-silently when the variables are unset, and
+Both paths must sit outside this repository. The reproduction tests print why
+they are skipping when neither variable is set, and
 `no_corpus_repository_is_committed_in_this_repository` fails if corpus code is
 ever committed here.
+
+Every site the record publishes is anchored to a run that located it.
+`adjudication.position_proof` is a blake3 digest over the identity of every
+reviewed site and every adjudicated pair, with the toolchain and the date of the
+run that confirmed them, and `tests/corpus_position.rs` recomputes it from the
+record on every `cargo test`, offline. So a site typed in by hand, at a line no
+scan ever reported, fails the suite naming the count of sites it hashed and
+saying a reproduction is required. Only the gated run rewrites the digest, and
+only once it has located every published site of both populations against a live
+scan: it writes `position-proof.json` beside the artifacts, which is what a pull
+request copies into the record. Pairs are anchored as well as reviewed sites,
+since a pair whose two passes disagreed carries no reviewed site at all and the
+escalation queue would otherwise be the one part of the record nothing has ever
+located.
+
+A run that names neither directory prints why it is skipping the reproduction
+instead of passing in silence, and a run that names one of the two fails: half a
+configuration is a reproduction that was attempted and cannot be trusted, not a
+machine without a clone cache.
 
 A new rule is admitted on measured precision, not on intuition. The gate refuses
 default activation only for a zero-tolerance tier rule with a confirmed false

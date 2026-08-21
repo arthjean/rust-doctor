@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde_json::Value;
 
 use support::corpus::agreement::Agreement;
+use support::corpus::position::{PositionProof, attest, published_sites};
+use support::corpus::reproduction;
 use support::corpus::{
     ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, CorpusArtifact,
     EXPECTED_REPOSITORIES,
@@ -840,6 +842,14 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
         adjudicated_after_cutoff: Vec::new(),
         agreement: Agreement::default(),
         criterion: "probe".to_owned(),
+        // A synthetic record is anchored to no run: `corpus_position.rs` is
+        // what asserts the proof against the shipped record.
+        position_proof: PositionProof {
+            date: "2026-08-21".to_owned(),
+            digest: "probe".to_owned(),
+            sites: 0,
+            toolchain: "probe".to_owned(),
+        },
         protocol_cutoff: "2026-08-21".to_owned(),
         provenance: "probe".to_owned(),
         sampling: "probe".to_owned(),
@@ -1360,19 +1370,13 @@ fn the_density_ratio_is_published_for_both_populations_whatever_its_verdict() {
 /// subdirectory so the healthy reproduction can run concurrently.
 #[test]
 fn the_agent_population_reproduces_from_the_local_cache() {
-    let (Some(cache), Some(artifacts)) = (
-        env::var_os(CACHE_DIRECTORY_ENV),
-        env::var_os(ARTIFACTS_DIRECTORY_ENV),
-    ) else {
+    let Some((cache, root)) = reproduction::requested().directories(Path::new(env!("CARGO_MANIFEST_DIR")))
+    else {
         return;
     };
-    let cache = PathBuf::from(cache);
-    let artifacts = PathBuf::from(artifacts).join("agent-replay");
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR"));
-    assert!(
-        !artifacts.starts_with(repository) && !cache.starts_with(repository),
-        "the corpus and its artifacts belong outside this repository"
-    );
+    // The replay writes under a subdirectory of its own; the attestation goes
+    // beside the healthy one, at the root the two populations share.
+    let artifacts = root.join("agent-replay");
     let published = artifact();
     let population = &published.agent_population;
     let binary = binary();
@@ -1388,20 +1392,20 @@ fn the_agent_population_reproduces_from_the_local_cache() {
     }
     assert_eq!(replayed.observations, population.observations);
 
-    // Every site drawn from this population names a finding it actually
+    // Every site this population publishes names a finding it actually
     // produced, at its published position and in its published context. The
     // healthy corpus has the same check against its own reports; without this
     // one the agent sites would be the only verdicts in the file that nothing
     // can locate.
-    for site in &published
-        .adjudication
-        .reviewed
-        .iter()
-        .filter(|site| site.population == Population::Agent)
-        .collect::<Vec<_>>()
-    {
+    //
+    // Reviewed sites and pairs both, which is what `published_sites` unions: a
+    // pair whose two passes disagreed carries no reviewed site by construction,
+    // so hashing the reviewed list alone would leave the whole escalation queue
+    // anchored to nothing. Confirming them is what entitles this run to attest.
+    let mut confirmed = 0u64;
+    for site in published_sites(&published.adjudication, Population::Agent) {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository)))
-            .expect("a report for every repository a reviewed site names");
+            .expect("a report for every repository a published site names");
         let report: Value = serde_json::from_slice(&bytes).unwrap();
         let located: Vec<_> = curated_findings(&report)
             .into_iter()
@@ -1411,7 +1415,7 @@ fn the_agent_population_reproduces_from_the_local_cache() {
             .collect();
         assert!(
             !located.is_empty(),
-            "reviewed site absent from the agent population: {}/{} at {}:{}",
+            "published site absent from the agent population: {}/{} at {}:{}",
             site.repository,
             site.rule,
             site.path,
@@ -1419,7 +1423,7 @@ fn the_agent_population_reproduces_from_the_local_cache() {
         );
         assert!(
             located.iter().any(|finding| site.context.matches(finding.context)),
-            "reviewed site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
+            "site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
             site.context,
             located.first().and_then(|finding| finding.context),
             site.repository,
@@ -1427,7 +1431,9 @@ fn the_agent_population_reproduces_from_the_local_cache() {
             site.path,
             site.line
         );
+        confirmed += 1;
     }
+    attest(&root, &published, Population::Agent, confirmed);
 
     // The selection evidence recounts from the pinned history alone.
     for entry in &population.repositories {
@@ -1474,19 +1480,10 @@ fn the_agent_population_reproduces_from_the_local_cache() {
 
 #[test]
 fn the_published_observations_reproduce_the_pinned_corpus_run() {
-    let (Some(cache), Some(artifacts)) = (
-        env::var_os(CACHE_DIRECTORY_ENV),
-        env::var_os(ARTIFACTS_DIRECTORY_ENV),
-    ) else {
+    let Some((cache, artifacts)) = reproduction::requested().directories(Path::new(env!("CARGO_MANIFEST_DIR")))
+    else {
         return;
     };
-    let cache = PathBuf::from(cache);
-    let artifacts = PathBuf::from(artifacts);
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR"));
-    assert!(
-        !artifacts.starts_with(repository) && !cache.starts_with(repository),
-        "the corpus and its artifacts belong outside this repository"
-    );
     let published = artifact();
     let binary = binary();
 
@@ -1559,12 +1556,11 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     // reports of its own replay. Reading the whole list here looked for an
     // agent repository under the healthy reports and died on a missing file
     // rather than on a verdict nobody can locate.
-    for site in published
-        .adjudication
-        .reviewed
-        .iter()
-        .filter(|site| site.population == Population::Healthy)
-    {
+    // Reviewed sites and pairs both: an escalated site has no reviewed entry by
+    // construction, so the reviewed list alone anchors every verdict and leaves
+    // the escalation queue pointing at positions nothing has ever located.
+    let mut confirmed = 0u64;
+    for site in published_sites(&published.adjudication, Population::Healthy) {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
         let report: Value = serde_json::from_slice(&bytes).unwrap();
         let findings = curated_findings(&report);
@@ -1576,7 +1572,7 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
             .collect();
         assert!(
             !located.is_empty(),
-            "reviewed site absent from the corpus: {}/{} at {}:{}",
+            "published site absent from the corpus: {}/{} at {}:{}",
             site.repository,
             site.rule,
             site.path,
@@ -1584,7 +1580,7 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
         );
         assert!(
             located.iter().any(|finding| site.context.matches(finding.context)),
-            "reviewed site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
+            "site published as {:?} while the report marked it {:?}: {}/{} at {}:{}",
             site.context,
             located.first().and_then(|finding| finding.context),
             site.repository,
@@ -1592,5 +1588,11 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
             site.path,
             site.line
         );
+        confirmed += 1;
     }
+
+    // Only a run that has just located every site of both populations rewrites
+    // the digest the always-on test compares against. The other population
+    // attests from its own replay; whichever finishes second writes the proof.
+    attest(&artifacts, &published, Population::Healthy, confirmed);
 }

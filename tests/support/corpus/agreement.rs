@@ -27,7 +27,11 @@ use super::{Adjudication, Population, SiteContext, Verdict};
 /// through 3 were bumped by hand and checked by nothing, so the field cost
 /// nothing to move and proved nothing once moved: a reader could not tell a
 /// coordinated schema change from a typo.
-pub(crate) const SCHEMA_VERSION: u64 = 4;
+///
+/// 5 adds `adjudication.position_proof`, and it is a required member of a shape
+/// that denies unknown fields: a reader of 4 refuses this file and this harness
+/// refuses a 4. The two are different shapes, so they are different numbers.
+pub(crate) const SCHEMA_VERSION: u64 = 5;
 
 /// How the two passes of a pair were kept apart.
 ///
@@ -328,7 +332,9 @@ pub(crate) fn protocol_defects(adjudication: &Adjudication) -> Vec<String> {
     defects
 }
 
-fn is_iso_date(value: &str) -> bool {
+/// Read by the position proof as well, which dates the run that confirmed the
+/// sites rather than the record. One spelling of a date, checked in one place.
+pub(crate) fn is_iso_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 10
         && bytes

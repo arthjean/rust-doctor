@@ -1405,6 +1405,12 @@
       ]
     },
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
+    "position_proof": {
+      "date": "2026-08-21",
+      "digest": "7f4822cd52a4fb83188ecc00fdd29c5ee779ba66edb4ed765eec8d8c3df96049",
+      "sites": 395,
+      "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+    },
     "protocol_cutoff": "2026-08-21",
     "provenance": "Who produced each verdict. \"human\" names a site a person read and judged. \"agent\" names a site adjudicated by an agent under the published protocol: the site read in the pinned source with its surrounding code, blind to any prior verdict, with a disagreement between independent passes escalated rather than settled by the agent. \"unrecorded\" names the sites judged before this field existed, whose author is not established; they are published as they were measured rather than reattributed after the fact. A rate mixing provenances is worth its weakest one, and no verdict, whoever produced it, is certified beyond the agreement two trained reviewers reach with each other.",
     "reviewed": [
@@ -9920,7 +9926,7 @@
       "true_positives": 0
     }
   ],
-  "schema_version": 4,
+  "schema_version": 5,
   "score_distribution": {
     "agent": {
       "bands": [

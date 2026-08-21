@@ -19,11 +19,14 @@ pub(crate) mod agreement;
 pub(crate) mod coefficients;
 pub(crate) mod comparison;
 pub(crate) mod interval;
+pub(crate) mod position;
+pub(crate) mod reproduction;
 pub(crate) mod sampling;
 
 use agreement::{Agreement, ProtocolScope};
 use comparison::RateComparison;
 use interval::Separation;
+use position::PositionProof;
 use sampling::SamplingPlan;
 
 /// Published threshold, in basis points. The rate is computed in integer
@@ -427,6 +430,12 @@ pub(crate) struct Adjudication {
     pub(crate) adjudicated_after_cutoff: Vec<ProtocolScope>,
     pub(crate) agreement: Agreement,
     pub(crate) criterion: String,
+    /// Digest anchoring every published site to a run that located it.
+    ///
+    /// Sits here rather than beside `harness`, which is evidence about the scan,
+    /// because what it anchors is the adjudication: a site is a claim this block
+    /// makes, and the proof is what a run that saw it leaves behind.
+    pub(crate) position_proof: PositionProof,
     /// Date from which a verdict must be backed by a double pass.
     ///
     /// The protocol applies forward. The verdicts produced before it stay
@@ -950,7 +959,7 @@ fn remove_if_present(path: &Path) {
     }
 }
 
-fn write_atomically(path: &Path, bytes: &[u8]) {
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) {
     let parent = path.parent().expect("an artifact file should sit in a directory");
     fs::create_dir_all(parent).expect("an artifact directory should be creatable");
     let staging = parent.join(format!(

@@ -20,6 +20,7 @@ use support::corpus::agreement::{
     AdjudicatedPair, Agreement, ENROLLED_RULES, Independence, PROTOCOL_JUDGE, Pass, ProtocolScope,
     SCHEMA_VERSION, agreement_defects, escalations_open, protocol_defects,
 };
+use support::corpus::position::PositionProof;
 use support::corpus::sampling::{PROTOCOL_TARGET, SamplingPlan, sampling_defects, stride};
 use support::corpus::{
     Adjudication, CatalogRule, Observation, Population, PrecisionStatus, Provenance,
@@ -108,6 +109,14 @@ fn adjudication(reviewed: Vec<ReviewedSite>, pairs: Vec<AdjudicatedPair>) -> Adj
         adjudicated_after_cutoff: Vec::new(),
         agreement,
         criterion: "probe".to_owned(),
+        // A synthetic record is anchored to no run at all: what the proof is
+        // worth is asserted in `corpus_position.rs`, against the shipped one.
+        position_proof: PositionProof {
+            date: CUTOFF.to_owned(),
+            digest: "probe".to_owned(),
+            sites: 0,
+            toolchain: "probe".to_owned(),
+        },
         protocol_cutoff: CUTOFF.to_owned(),
         provenance: "probe".to_owned(),
         reviewed,
@@ -176,7 +185,7 @@ fn defect_naming(defects: &[String], needle: &str) -> String {
 #[test]
 fn the_artifact_declares_the_schema_version_the_harness_reads() {
     assert_eq!(artifact().schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 4);
+    assert_eq!(SCHEMA_VERSION, 5);
 }
 
 /// Exactly two passes, enforced by the shape.
