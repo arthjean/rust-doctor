@@ -14,11 +14,13 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+use serde_json::Value;
 use support::corpus::coefficients::coefficients;
 use support::corpus::agreement::{
     AdjudicatedPair, Agreement, Independence, Pass, ProtocolScope, SCHEMA_VERSION,
     agreement_defects, escalations_open, protocol_defects,
 };
+use support::corpus::sampling::{SamplingPlan, sampling_defects, stride};
 use support::corpus::{
     Adjudication, CatalogRule, Observation, Population, PrecisionStatus, Provenance,
     RepositoryOutcome, ReviewedSite, RuleObservation, RuleTrigger, SiteContext, TriggerVerification,
@@ -100,6 +102,7 @@ fn adjudication(reviewed: Vec<ReviewedSite>, pairs: Vec<AdjudicatedPair>) -> Adj
         provenance: "probe".to_owned(),
         reviewed,
         sampling: "probe".to_owned(),
+        sampling_plan: Vec::new(),
         trigger_verification: TriggerVerification {
             confirmed: 0,
             findings: 0,
@@ -272,6 +275,7 @@ fn the_published_record_of_the_double_pass_carries_no_defect() {
     let artifact = artifact();
     assert_eq!(agreement_defects(&artifact.adjudication), Vec::<String>::new());
     assert_eq!(protocol_defects(&artifact.adjudication), Vec::<String>::new());
+    assert_eq!(sampling_defects(&artifact.adjudication), Vec::<String>::new());
 }
 
 /// The three sites of 2026-08-11 are findable, with both verdicts and both
@@ -561,4 +565,164 @@ fn an_unsorted_or_repeated_enrolment_is_named() {
         &protocol_defects(&record),
         "adjudicated_after_cutoff is not sorted and unique",
     );
+}
+
+// ---------------------------------------------------------------------------
+// US-009: the draw, replayed rather than described
+// ---------------------------------------------------------------------------
+
+/// A plan drawing `target` sites out of `observed`, its indices computed.
+///
+/// Built through `stride` rather than with a literal list, because a helper
+/// that states the indices is a helper that can agree with a wrong plan: what
+/// the tests below forge is always the published list, never the arithmetic.
+fn plan(observed: u64, target: u64) -> SamplingPlan {
+    SamplingPlan {
+        indices: stride(observed, target),
+        observed,
+        population: Population::Healthy,
+        rule: RULE.to_owned(),
+        target,
+    }
+}
+
+/// The stride spreads the draw over the whole population and never past it.
+#[test]
+fn the_stride_selects_positions_across_the_ordered_population() {
+    assert_eq!(stride(10, 4), vec![0, 2, 5, 7]);
+    assert_eq!(stride(9, 3), vec![0, 3, 6]);
+    // A target the population cannot supply draws the population, which is what
+    // `k = min(target, n)` means and why an exhaustive sample is not a special
+    // case anyone has to write down.
+    assert_eq!(stride(3, 5), vec![0, 1, 2]);
+    assert_eq!(stride(0, 5), Vec::<u64>::new());
+    assert_eq!(stride(5, 0), Vec::<u64>::new());
+
+    for (observed, target) in [(400_u64, 40_u64), (41, 40), (7, 1), (1, 1)] {
+        let selected = stride(observed, target);
+        assert_eq!(selected.len() as u64, target.min(observed));
+        assert!(selected.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(selected.iter().all(|index| *index < observed));
+    }
+}
+
+/// The published indices are the ones the stride selects, not a list beside it.
+#[test]
+fn a_plan_publishes_the_indices_its_own_stride_selects() {
+    let honest = adjudication_planned(3, plan(9, 3));
+    assert_eq!(sampling_defects(&honest), Vec::<String>::new());
+
+    let mut forged = honest.clone();
+    forged.sampling_plan[0].indices = vec![0, 1, 2];
+    let named = defect_naming(&sampling_defects(&forged), "the stride selects");
+    assert!(named.contains(RULE), "{named}");
+}
+
+/// A target the observed population cannot supply is named with the rule.
+#[test]
+fn a_target_over_the_observed_population_is_named_with_the_rule() {
+    let mut forged = adjudication_planned(3, plan(9, 3));
+    forged.sampling_plan[0].target = 40;
+    forged.sampling_plan[0].indices = stride(9, 40);
+    let named = defect_naming(&sampling_defects(&forged), "over a population of 9");
+    assert!(named.contains(RULE), "{named}");
+
+    let mut empty = adjudication_planned(3, plan(9, 3));
+    empty.sampling_plan[0].target = 0;
+    empty.sampling_plan[0].indices = Vec::new();
+    defect_naming(&sampling_defects(&empty), "publishes a target of zero");
+}
+
+/// The sites the plan selected are the sites the record adjudicated.
+///
+/// An open escalation counts: the stride drew it, two passes judged it, and it
+/// stays out of `reviewed` until a human settles it. Counting only the
+/// published verdicts would report a scope with three escalations as a draw
+/// three sites short of what it selected, which is the opposite of the fact.
+#[test]
+fn the_sites_a_plan_selected_are_the_sites_the_record_adjudicated() {
+    let escalating = {
+        let reviewed: Vec<ReviewedSite> = (1..=2).map(|line| site(line, Verdict::TruePositive)).collect();
+        let mut pairs: Vec<AdjudicatedPair> =
+            (1..=2).map(|line| agreeing(line, Verdict::TruePositive)).collect();
+        pairs.push(disagreeing(3));
+        let mut record = adjudication(reviewed, pairs);
+        record.adjudicated_after_cutoff = enrolled();
+        record.sampling_plan = vec![plan(9, 3)];
+        record
+    };
+    assert_eq!(escalating.agreement.escalations_open, 1);
+    assert_eq!(escalating.reviewed.len(), 2);
+    assert_eq!(sampling_defects(&escalating), Vec::<String>::new());
+
+    let mut short = adjudication_planned(3, plan(9, 3));
+    short.reviewed.pop();
+    short.agreement.pairs.pop();
+    let named = defect_naming(&sampling_defects(&short), "adjudicated 2 sites against the 3");
+    assert!(named.contains(RULE), "{named}");
+}
+
+/// A scope adjudicated under the protocol publishes its draw, or is named.
+#[test]
+fn an_enrolled_scope_with_no_sampling_plan_is_named_with_the_cutoff() {
+    let mut record = adjudication_planned(3, plan(9, 3));
+    record.sampling_plan.clear();
+    let named = defect_naming(&sampling_defects(&record), "with no sampling plan");
+    assert!(named.contains(CUTOFF), "{named}");
+    assert!(named.contains(RULE), "{named}");
+}
+
+/// Two plans for one scope are two accounts of one draw.
+#[test]
+fn two_plans_for_one_scope_are_named() {
+    let mut record = adjudication_planned(3, plan(9, 3));
+    record.sampling_plan.push(plan(9, 3));
+    defect_naming(&sampling_defects(&record), "publishes two sampling plans");
+}
+
+/// A scope adjudicated before the cutoff carries no plan, and the absence is
+/// the fact rather than a row of zeros.
+#[test]
+fn a_scope_adjudicated_before_the_cutoff_carries_no_plan() {
+    let artifact = artifact();
+    assert_eq!(
+        artifact.adjudication.adjudicated_after_cutoff,
+        Vec::<ProtocolScope>::new()
+    );
+    assert_eq!(artifact.adjudication.sampling_plan, Vec::<SamplingPlan>::new());
+    assert_eq!(
+        sampling_defects(&artifact.adjudication),
+        Vec::<String>::new()
+    );
+
+    let mut unenrolled = adjudication_planned(3, plan(9, 3));
+    unenrolled.adjudicated_after_cutoff.clear();
+    let named = defect_naming(&sampling_defects(&unenrolled), "is adjudicated before the cutoff");
+    assert!(named.contains(RULE), "{named}");
+    assert!(named.contains(CUTOFF), "{named}");
+}
+
+/// A plan is a member of the record, refused at read time like the rest of it.
+#[test]
+fn a_plan_with_an_unknown_member_fails_deserialization() {
+    let honest = plan(9, 3);
+    let mut value = serde_json::to_value(&honest).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .insert("method".to_owned(), Value::String("stride".to_owned()));
+    let refused = serde_json::from_value::<SamplingPlan>(value);
+    assert!(refused.is_err(), "{refused:?}");
+}
+
+/// A record whose enrolled scope carries `sites` agreeing pairs and one plan.
+fn adjudication_planned(sites: u64, drawn: SamplingPlan) -> Adjudication {
+    let reviewed: Vec<ReviewedSite> = (1..=sites).map(|line| site(line, Verdict::TruePositive)).collect();
+    let pairs: Vec<AdjudicatedPair> = (1..=sites)
+        .map(|line| agreeing(line, Verdict::TruePositive))
+        .collect();
+    let mut record = adjudication(reviewed, pairs);
+    record.adjudicated_after_cutoff = enrolled();
+    record.sampling_plan = vec![drawn];
+    record
 }

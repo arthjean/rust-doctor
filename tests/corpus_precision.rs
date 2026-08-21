@@ -819,6 +819,7 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
         protocol_cutoff: "2026-08-21".to_owned(),
         provenance: "probe".to_owned(),
         sampling: "probe".to_owned(),
+        sampling_plan: Vec::new(),
         trigger_verification: TriggerVerification {
             confirmed: reviewed,
             findings: reviewed,

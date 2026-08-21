@@ -18,9 +18,11 @@ use serde_json::Value;
 pub(crate) mod agreement;
 pub(crate) mod coefficients;
 pub(crate) mod interval;
+pub(crate) mod sampling;
 
 use agreement::{Agreement, ProtocolScope};
 use interval::Separation;
+use sampling::SamplingPlan;
 
 /// Published threshold, in basis points. The rate is computed in integer
 /// arithmetic so that two runs of the report produce identical bytes.
@@ -421,6 +423,14 @@ pub(crate) struct Adjudication {
     pub(crate) provenance: String,
     pub(crate) reviewed: Vec<ReviewedSite>,
     pub(crate) sampling: String,
+    /// The draw of every scope adjudicated after the cutoff, one row each.
+    ///
+    /// Empty today, for the reason `adjudicated_after_cutoff` is: every
+    /// published verdict predates the protocol, and the sentence in `sampling`
+    /// is the only account those draws ever had. A scope enrolled under the
+    /// protocol publishes its plan here, and a plan nobody enrolled is refused
+    /// rather than kept as an empty row.
+    pub(crate) sampling_plan: Vec<SamplingPlan>,
     pub(crate) trigger_verification: TriggerVerification,
 }
 
