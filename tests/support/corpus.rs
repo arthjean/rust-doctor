@@ -403,10 +403,11 @@ pub(crate) struct DimensionObservation {
 pub(crate) struct Adjudication {
     /// The `(rule, population)` samples adjudicated after `protocol_cutoff`.
     ///
-    /// Empty today: every one of the two hundred and seventy-three published
-    /// verdicts predates the cutoff and is re-adjudicated by nothing. A sample
-    /// judged under the protocol is enrolled here, and every reviewed site of
-    /// an enrolled sample has to carry an agreeing pair.
+    /// The three structural rules of the agent population are enrolled here,
+    /// and nothing else: every other published verdict predates the cutoff and
+    /// is re-adjudicated by nothing. Every reviewed site of an enrolled sample
+    /// has to carry an agreeing pair, which is what makes the enrolment a
+    /// claim the suite can refuse rather than a label.
     pub(crate) adjudicated_after_cutoff: Vec<ProtocolScope>,
     pub(crate) agreement: Agreement,
     pub(crate) criterion: String,
@@ -425,11 +426,10 @@ pub(crate) struct Adjudication {
     pub(crate) sampling: String,
     /// The draw of every scope adjudicated after the cutoff, one row each.
     ///
-    /// Empty today, for the reason `adjudicated_after_cutoff` is: every
-    /// published verdict predates the protocol, and the sentence in `sampling`
-    /// is the only account those draws ever had. A scope enrolled under the
-    /// protocol publishes its plan here, and a plan nobody enrolled is refused
-    /// rather than kept as an empty row.
+    /// One per enrolled scope, and only there: a verdict that predates the
+    /// protocol has the sentence in `sampling` as the only account its draw
+    /// ever had, and a plan nobody enrolled is refused rather than kept as an
+    /// empty row.
     pub(crate) sampling_plan: Vec<SamplingPlan>,
     pub(crate) trigger_verification: TriggerVerification,
 }
@@ -534,7 +534,7 @@ pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 pub(crate) struct RulePrecision {
     /// Sites of this rate backed by an agreeing pair. Zero when the rate rests
     /// on verdicts produced before the protocol cutoff, which is what every
-    /// rate published today rests on.
+    /// rate but the three structural rates of the agent population rests on.
     pub(crate) doubly_judged: u64,
     pub(crate) false_positive_rate_basis_points: Option<u64>,
     pub(crate) false_positives: Option<u64>,

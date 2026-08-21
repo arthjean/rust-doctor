@@ -1,6 +1,19 @@
 {
   "adjudication": {
-    "adjudicated_after_cutoff": [],
+    "adjudicated_after_cutoff": [
+      {
+        "population": "agent",
+        "rule": "rust_doctor::structure::duplicate_function_body"
+      },
+      {
+        "population": "agent",
+        "rule": "rust_doctor::structure::near_duplicate_function_body"
+      },
+      {
+        "population": "agent",
+        "rule": "rust_doctor::structure::oversized_unit"
+      }
+    ],
     "agreement": {
       "coefficients": [
         {
@@ -17,9 +30,54 @@
             "first_only_false_positive": 0,
             "second_only_false_positive": 3
           }
+        },
+        {
+          "ac1_basis_points": 9109,
+          "agreed": 19,
+          "kappa_basis_points": 8864,
+          "kappa_status": "defined",
+          "pairs": 20,
+          "population": "agent",
+          "rule": "rust_doctor::structure::duplicate_function_body",
+          "table": {
+            "both_false_positive": 6,
+            "both_true_positive": 13,
+            "first_only_false_positive": 1,
+            "second_only_false_positive": 0
+          }
+        },
+        {
+          "ac1_basis_points": 10000,
+          "agreed": 20,
+          "kappa_basis_points": 10000,
+          "kappa_status": "defined",
+          "pairs": 20,
+          "population": "agent",
+          "rule": "rust_doctor::structure::near_duplicate_function_body",
+          "table": {
+            "both_false_positive": 10,
+            "both_true_positive": 10,
+            "first_only_false_positive": 0,
+            "second_only_false_positive": 0
+          }
+        },
+        {
+          "ac1_basis_points": 10000,
+          "agreed": 20,
+          "kappa_basis_points": 10000,
+          "kappa_status": "defined",
+          "pairs": 20,
+          "population": "agent",
+          "rule": "rust_doctor::structure::oversized_unit",
+          "table": {
+            "both_false_positive": 1,
+            "both_true_positive": 19,
+            "first_only_false_positive": 0,
+            "second_only_false_positive": 0
+          }
         }
       ],
-      "escalations_open": 3,
+      "escalations_open": 4,
       "pairs": [
         {
           "context": "production",
@@ -83,6 +141,1266 @@
           "population": "healthy",
           "repository": "thiserror",
           "rule": "rust_doctor::structure::complex_function"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 61,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "run_sync chains nine banner-commented phases in one body: meter, display and pattern_gen connection, session creation, patch generation, the measurement loop, grayscale analysis, 1D LUT generation, the tiered 3D LUT with its Alpha 7 downsample, and upload plus completion. Each phase sets its own CalibrationState and touches distinct collaborators, so extracting them is mechanical.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "In crates/calibration-engine/src/lut3d_flow.rs, run_sync runs six sequential phases separated by its own comments: connecting meter, display and pattern_gen, creating the session, the per-patch measurement loop, GreyscaleAnalyzer analysis, 1D and 3D LUT generation, and the upload plus completion block. Each phase reads and writes only self.state, the stores and the event channel, so extracting connect_devices, measure_patches, generate_luts and upload_corrections is mechanical.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/calibration-engine/src/lut3d_flow.rs",
+          "population": "agent",
+          "repository": "artifexprocal",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "The file holds one impl block with 36 encoder methods, and its own header enumerates the families it stacks (MOV, LEA, PUSH/POP, ALU, TEST, IMUL, shifts, bit operations, setcc/cmovcc, jumps, calls, exchange). The encoder directory already splits by family into sse.rs, system.rs, x87.rs and registers.rs, all under 400 lines, so the same split applies here.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "src/backend/i686/assembler/encoder/gp_integer.rs holds one impl of 36 independent encoders (encode_mov and its six operand helpers, push and pop, encode_alu at 210 lines, test, imul, shifts, bswap, bit_count, bsr_bsf, bt, setcc, cmovcc, jmp, ljmp, jcc, call, xchg, cmpxchg, xadd), and the module header itself lists twelve unrelated instruction families. It sits inside an encoder directory that already splits by category, so splitting the mov, ALU, shift, bit and control-flow groups follows the layout already in use.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/i686/assembler/encoder/gp_integer.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 100,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "substitute_riscv_asm_operands is a hand-rolled character scanner taking nine parallel operand slices, and its while loop carries five independent branches: %z[name], %zN, %lo and %hi passthrough, %[name] and positional %N. The %z handling alone runs about 65 lines and duplicates the name lookup the %[name] branch performs, so both a helper per modifier and an operand struct are available.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "substitute_riscv_asm_operands in src/backend/riscv/codegen/inline_asm.rs is one char cursor loop carrying seven separate branches: %%, the %z modifier with its own named and positional sublookups spanning about seventy lines, %lo, %hi, %[name], %N, and the passthrough. The %z[name] and %[name] lookups repeat the same op_names scan, so extracting a lookup helper plus one function per modifier removes both the length and the duplication.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/riscv/codegen/inline_asm.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Despite its name, types.rs holds three concerns: the LineInfo, LineKind, ExtKind and MoveSize declarations (lines 11 to 200), the classification pass (classify_line, classify_mov_ext, classify_arith_ext, about 320 lines), and roughly thirty free utilities including register_family_fast, REG_NAMES, scan_register_refs, memrchr and write_rbp_pattern. The peephole directory already has a passes subdirectory to model the split on.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "src/backend/x86/codegen/peephole/types.rs stacks three concerns its own header names: the LineInfo, LineKind, ExtKind and MoveSize declarations, classify_line at 182 lines, and roughly thirty free helpers covering register naming (register_family_fast, reg_digit_to_id, reg_id_to_name), rbp parsing (parse_rbp_offset, parse_store_to_rbp_str), condition codes (parse_setcc, invert_cc) and byte formatting (write_u32_digits). The type declarations share no state with the parsers, so a types, classify and parse split is straightforward.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/x86/codegen/peephole/types.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "The file mixes a 275-line parse_type_specifier flag collector with a separate struct, union and enum group (parse_struct_or_union, parse_struct_field_declarators, consume_struct_field_qualifiers, parse_enum_specifier) that runs about 300 lines and shares nothing but the Parser receiver. Sibling modules declarators.rs, statements.rs and expressions.rs show the parser is already split along exactly this kind of seam.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "src/frontend/parser/types.rs carries one impl Parser whose parse_type_specifier alone spans 269 lines, plus separable groups for struct and union fields (parse_struct_fields, parse_struct_field_declarators, consume_struct_field_qualifiers), enums (parse_enum_specifier, parse_enum_variants, register_enum_constants), typeof, and abstract declarator suffixes. The file already lives in a parser directory, so moving the struct and enum groups into sibling modules needs no signature change.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/frontend/parser/types.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 87,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "lower_function_call runs sequential, independently testable phases: stripping no-op Deref layers, unwrapping AddressOf on a function name, resolving _Generic selections, dispatching __builtin_ and error-attribute functions, computing the sret and two-register return convention, lowering arguments with implicit casts and complex decomposition, then emitting the call. Each phase reads only the expression and produces one named value.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "lower_function_call in src/ir/lowering/expr_calls.rs chains distinct stages: stripping Deref and AddressOf wrappers, resolving _Generic, builtin and error-function dispatch, classifying the sret and two-register return convention, lowering and decomposing arguments, a 35-line five-level-deep num_fixed_args computation over param_ctypes, the sret alloca prologue, then four post-call return paths. The file already hosts helpers such as unpack_two_reg_return, so pulling out the return convention and the variadic fixed-argument count follows the existing pattern.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/ir/lowering/expr_calls.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 584,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "compute_decl_info returns a five-element tuple (alloc_size, elem_size, is_array, is_pointer, array_dim_strides) and branches into four self-contained size computations: simple or typedef pointer, array of pointers including the function-pointer-array dim ordering, pointer to array with its trailing-pointer counting, and the plain array or scalar case. Each branch is a nameable helper and the tuple is a struct waiting to be declared.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "compute_decl_info in src/ir/lowering/types.rs returns a five-element tuple and branches into three independent cases: plain pointer, pointer combined with array (which itself splits into array-of-pointers with its last_ptr_pos dimension collection and pointer-to-array with its trailing_ptr_count analysis), and the remaining array case. Each branch computes its own sizes and strides from derived and resolved_ctype only, so one function per declarator shape is a direct extraction.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/ir/lowering/types.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "movepicker.rs stacks four independent units plus tests: the History tables with their bonus and aging math (lines 21 to 186), the staged MovePicker itself (188 to 920), a 200-line is_pseudo_legal validator that touches no picker state, QMovePicker (1180 to 1326), and six separate test modules from line 1327 on. History and is_pseudo_legal are natural sibling files.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "src/movepicker.rs stacks four unrelated units plus five test modules: the History table struct with its scoring and aging methods, the staged MovePicker with generate_and_score_captures, quiets and evasions, a standalone is_pseudo_legal validator of 200 lines, and QMovePicker. The pseudo-legality checker touches no picker state and already has three test modules devoted to it, so moving history and pseudo_legal into sibling files is a clean cut.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/movepicker.rs",
+          "population": "agent",
+          "repository": "coda",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 235,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "apply_font_change bundles two independent strategies plus a resize drain: the slide path builds a full-screen buffer, computes Kitty font stepping parameters, and runs a dissolve loop nested five levels deep (frame, row, span, char, cell padding) while interleaving font step batches, and the plain path then switches on font_capability. The dissolve frame renderer alone is an obvious extraction.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "apply_font_change in src/render/engine/font.rs nests the whole scatter-dissolve renderer inside its slide-transition branch: a per-row, per-span, per-char loop computing dimmed colors and a hash threshold, six levels deep, followed by Kitty font step batching, frame pacing, and then the plain stepping path and the resize drain. Extracting render_dissolve_frame and a font stepping helper leaves the top level as the phase sequence it already describes in its doc comment.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/render/engine/font.rs",
+          "population": "agent",
+          "repository": "ostendo",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 148,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "The TableSchema impl runs 45 methods across four unrelated groups: six with_* builder constructors (with_primary_key through with_all_constraint_types), read accessors (get_column, column_count, primary_key_effective_collations), column mutations (add_column, remove_column, rename_column, set_column_nullable, set_column_default), and constraint mutations (add and drop for check, unique and foreign key). Splitting into per-concern impl blocks changes no call site.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "The TableSchema impl in crates/vibesql-catalog/src/table.rs carries about forty methods in four clear groups: builders (with_primary_key, with_unique_constraints, with_foreign_keys, with_all_constraints, with_all_constraint_types, with_storage_format), plain accessors, column mutation (add_column, remove_column, rename_column, set_column_nullable, set_column_default), and constraint mutation (add and drop for check, unique and foreign key). Rust allows an inherent impl to be split across files, so each group can move without touching a single call site.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-catalog/src/table.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 99,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "check_child_references_impl is two phases joined by one vector: a 140-line collection loop over every catalog table and each of its foreign keys, extracting parent key values and scanning the child table under an MVCC snapshot, followed by a 100-line dispatch matching Restrict, NoAction, Cascade, SetNull and SetDefault. The intermediate actions_to_perform tuple is already the seam between them.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "check_child_references_impl in crates/vibesql-executor/src/delete/integrity.rs is two phases joined by a five-element tuple vector: a nested scan over every catalog table and each of its foreign keys that resolves parent indices, filters NULL keys and probes the child table with scan_visible, then a second loop matching ReferentialAction to raise, cascade or queue. Collecting the actions and applying them are independent and share only actions_to_perform, so the split is direct.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/delete/integrity.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 13,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "eval_between opens with three dispatch prologues (row value constructor operands, scalar subquery against row-value bounds, the mixed row-value misuse check), then defines a 35-line transform_for_collation closure handling NOCASE and RTRIM over four SqlValue variants, then runs affinity resolution and the reversed-bounds and negation comparisons. The collation transform is a pure function that belongs beside the other collation helpers.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "eval_between in crates/vibesql-executor/src/evaluator/expressions/predicates.rs opens with three dispatch prologues (row value constructors, a scalar subquery against row-value bounds, and the RowValueMisused guard), then defines transform_for_collation as a 25-line closure duplicating NOCASE and RTRIM handling per SqlValue variant, then handles reversed bounds, affinity and the three-valued result. The collation transform is a pure function that belongs beside the collation module, and the row-value prologue is already delegating.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/evaluator/expressions/predicates.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 323,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "try_extract_subqueries_to_joins carries two blocks of about 45 lines each, one for the left operand and one for the right of the And arm, that repeat the same In, Exists and scalar-comparison dispatch with only the sibling expression swapped, followed by two more symmetric recursive branches. One helper taking the candidate side and its remainder collapses all four.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "try_extract_subqueries_to_joins in crates/vibesql-executor/src/optimizer/subquery_to_join/mod.rs repeats the same 45-line In, Exists and scalar-comparison dispatch three times: once for the left side of a BinaryOp And, once for the right side with only the retained operand swapped, and a third time inside the Conjunction arm. One helper taking the candidate child and the surviving predicate folds all three.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/optimizer/subquery_to_join/mod.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 14,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "evaluate is a single 569-line match over Expression whose arms are fully independent: Cast recurses then calls cast_value, Between reimplements symmetric bound swapping and three-valued logic, InList runs its own NULL bookkeeping loop, and Like re-derives text coercion across the SqlValue variants. Each arm is 50 to 150 lines and depends only on its own sub-expressions, so one function per arm is the direct decomposition.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "evaluate in crates/vibesql-executor/src/select/executor/aggregation/evaluation/simple.rs is a single match of about thirteen arms whose bodies are self-contained: BETWEEN with its symmetric swap and three-valued combination runs 70 lines, LIKE with its text coercion and ESCAPE validation runs 135, GLOB another 90, plus IN list, POSITION, TRIM, INTERVAL, EXTRACT, Conjunction and Disjunction. Each arm reads only its own sub-expressions, group_rows and the evaluator, so one function per predicate is a mechanical lift.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/executor/aggregation/evaluation/simple.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 20,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "extract_column_refs is an exhaustive visitor over the Expression enum: every arm is one to three recursive calls, and the tail lists the terminal variants (Literal, Wildcard, CurrentDate, Placeholder and friends) explicitly with no wildcard arm. The length is set by the width of the AST, not by logic, and splitting the match would surrender the exhaustiveness check that forces every new variant to be handled.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "extract_column_refs in crates/vibesql-executor/src/select/executor/validation/column_refs.rs is an exhaustive match over the Expression enum where nearly every arm is one to five lines of recursion into its children, and the terminal arms are a single grouped pattern listing Literal, Wildcard, CurrentDate, the placeholders and the rest. Its length tracks the variant count, and splitting it would break the exhaustiveness check that makes the compiler flag a newly added variant.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/executor/validation/column_refs.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "The file holds 44 tests already grouped by banner comments per function under test: range extraction, where_clause_fully_satisfied, composite predicates, prefix predicates, residual where clause building, and IN-list composites. The predicate directory next to it is already split into range.rs, composite.rs, in_list.rs and expression_index.rs, so the test groups map one to one onto existing modules.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "crates/vibesql-executor/src/select/scan/index_scan/predicate/tests.rs holds 44 test functions and already marks its own seams with banner comments: range predicate extraction, composite index extraction, prefix equality (issue 3175), residual WHERE building, composite IN predicates, composite key satisfaction, and range contradiction detection. Those six sections are independent and share only the imports, so a tests directory with one file per section needs no restructuring of the assertions.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/scan/index_scan/predicate/tests.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "recursive_cte_tests.rs carries 33 tests in two banner-separated groups, UNION versus UNION ALL semantics (deduplication, early termination, cycle detection, type mixing) and traversal ordering with LIMIT, ORDER BY, priority queue and BFS versus DFS, each with its own local helpers (ints, strs). The sibling tests directory already splits by narrow feature, with the aggregate suites alone spread over eleven files.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "crates/vibesql-executor/src/tests/recursive_cte_tests.rs carries 33 tests in three groups its own banners separate: UNION versus UNION ALL semantics with cycle detection, the issue 5941 block on lazy recursion under LIMIT and ORDER BY priority-queue traversal with its ints and strs helpers, and a trailing validation cluster (circular reference, duplicate WITH name, column count mismatch, arity with an unresolvable wildcard). Hoisting execute_sql into a shared helper module lets the three groups sit in separate files.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/tests/recursive_cte_tests.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 88,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_add_column holds a type and generated-clause prologue, a DEFAULT clause read twice for ordering, and then an 80-line constraint loop with six arms (NOT NULL, PRIMARY KEY, UNIQUE, REFERENCES with optional column list, CHECK with verbatim source capture, DEFAULT). The comments in the CHECK and generated arms say they mirror create/table.rs and create/constraints.rs, so a shared column-constraint parser is the stated target.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_add_column in crates/vibesql-parser/src/parser/alter.rs is a prologue (optional data type, generated clause before and after DEFAULT, the mutual exclusion guard) followed by a 78-line constraint loop with six token arms for NOT NULL, PRIMARY KEY, UNIQUE, REFERENCES with its optional column list, CHECK with source text capture, and a trailing DEFAULT. The comments state the CHECK and constraint arms mirror create/constraints.rs, so extracting the loop into a shared column-constraint parser both shortens this function and removes the duplication it admits to.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-parser/src/parser/alter.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 81,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Cursor::execute is a 60-line prepare prologue (statement cache lookup, parameter substitution, parse, cache insert) followed by a match over ten Statement variants, where CreateTable, DropTable and the other schema changers each repeat the same statement-cache and schema-cache clearing block. Extracting prepare and the cache invalidation leaves a thin dispatch.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Cursor::execute in crates/vibesql-python-bindings/src/cursor.rs is a statement cache prologue followed by a match on Statement whose arms each run 15 to 30 lines of the same shape: lock the database, call the matching executor, map the error, store QueryResultData. The CreateTable and DropTable arms repeat the stmt_cache clear plus clear_schema_cache block verbatim, so one dispatch helper per statement kind plus a shared schema-change routine removes both the length and the copy.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-python-bindings/src/cursor.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 144,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "The HnswIndex impl runs 32 methods in four separable groups: parameter accessors, graph construction (build and a 110-line insert with select_neighbors and prune_neighbors), tombstone removal and compaction (unlink, should_compact, compact, thresholds, take_compacted), and query (search plus search_layer). The four distance functions (compute_distance, l2_distance, cosine_distance, inner_product_distance) touch no index state at all.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "The HnswIndex impl in crates/vibesql-storage/src/database/indexes/hnsw.rs mixes four groups: parameter accessors, graph mutation (insert at 110 lines, remove, unlink), the compaction policy (should_compact, compact, removed_count, compaction_threshold, auto_compact, take_compacted), search (search, search_layer, select_neighbors, prune_neighbors), and four distance metrics (l2_distance, cosine_distance, inner_product_distance behind compute_distance) that read no graph state at all. The metric functions and the compaction group both lift out without touching the layer structures.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-storage/src/database/indexes/hnsw.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::oversized_unit"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 71,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read update_state in crates/calibration-storage/src/profiling_session_store.rs beside update_state in crates/calibration-storage/src/session_store.rs: both recompute the epoch millisecond stamp, classify the terminal states with the same matches! arm list, and branch into two execute calls, so only the table name and the parameter list differ and one helper taking the two SQL strings would serve both.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read beside it the update_state at crates/calibration-storage/src/session_store.rs:90-110: both compute the same millisecond timestamp, derive is_terminal from the same three state names, and branch the same way, with only the UPDATE text and the params row differing, so one shared helper taking the table and the terminal columns serves both.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/calibration-storage/src/profiling_session_store.rs",
+          "population": "agent",
+          "repository": "artifexprocal",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 212,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_br and encode_blr in src/backend/arm/assembler/encoder/compare_branch.rs are three-statement encoders whose whole difference is the fixed AArch64 opcode word (0xd61f0000 against 0xd63f0000); one register fetch and one shift are not a scaffold worth factoring, and the per-mnemonic function is the readable form for an instruction table.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_blr at src/backend/arm/assembler/encoder/compare_branch.rs:219-224 differs from encode_br only in the base opcode word 0xd63f0000 against 0xd61f0000; the body is a three-statement register fetch and shift, so the whole difference lives in one erased literal and there is no scaffold worth factoring.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/arm/assembler/encoder/compare_branch.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 6,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_dmb and encode_dsb in src/backend/arm/assembler/encoder/system.rs each restate the same twelve-arm barrier option table verbatim, differing only in the error text and the base word, so a shared barrier_option helper plus one opcode argument would serve both without changing behavior.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_dsb at src/backend/arm/assembler/encoder/system.rs:30-52 repeats encode_dmb in full: the same twelve-arm barrier option table, the same fallback to 0b1111 and the same shift by eight, with only the error text and the base word changing, which one helper taking a mnemonic and a base word would serve.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/arm/assembler/encoder/system.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 42,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "emit_load_pair_indirect_impl in src/backend/arm/codegen/i128_ops.rs and emit_call_move_f32_to_acc_impl in src/backend/i686/codegen/calls.rs share nothing but a run of self.state.emit calls: the assembly literals are the entire content of each function and they belong to different target architectures, so there is no shared meaning a parameter could carry.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "emit_i128_add_impl at src/backend/riscv/codegen/i128_ops.rs:71-76 shares with emit_load_pair_indirect_impl nothing but four self.state.emit calls; every member is a different backend's literal assembly sequence, so the erased strings are the entire content and factoring them removes the per-target instructions themselves.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/arm/codegen/i128_ops.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 101,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_st_num in src/backend/i686/assembler/encoder/registers.rs is a character for character copy of parse_st_num in src/backend/x86/assembler/encoder/registers.rs, including the doc comment, the range check and the three error strings, and nothing in it is target specific, so one shared definition would serve both encoders.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_st_num at src/backend/x86/assembler/encoder/registers.rs:259-273 is a word for word copy of the i686 one, same st(n) prefix and suffix checks, same range bound of seven and same three error strings, so a single shared definition serves both encoders with no behavior change.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/i686/assembler/encoder/registers.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 260,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_alu_reg and encode_alu_reg_w in src/backend/riscv/assembler/encoder/base.rs are four-statement wrappers over encode_r whose only difference is the OP_OP against OP_OP_32 opcode constant; the delegation is already minimal and each name maps to one RISC-V instruction form the decoder table refers to.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_alu_reg_w at src/backend/riscv/assembler/encoder/base.rs:283-288 differs from encode_alu_reg only in passing OP_OP_32 instead of OP_OP to encode_r; the body is three register fetches and one delegating call, already parameterized on funct3 and funct7, so the residue is a single opcode constant.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/riscv/assembler/encoder/base.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 500,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_csrw, encode_csrs and encode_csrc in src/backend/riscv/assembler/encoder/pseudo.rs repeat the same immediate against register branch three times, each masking the zimm to five bits and calling encode_i twice, with only the two funct3 constants moving, so one helper parameterized on those two values covers all three.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_csrs at src/backend/riscv/assembler/encoder/pseudo.rs:510-518 repeats encode_csrw's whole control flow: the csr fetch, the immediate form detected with matches! and masked to five bits, the early return, then the register form, with only the two three-bit funct codes differing, which two parameters would carry.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/riscv/assembler/encoder/pseudo.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1113,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_avx_extract_imm8 and encode_avx_extract_byte in src/backend/x86/assembler/encoder/avx.rs carry the same two-arm operand match, the same VEX emission, modrm and imm8 push, and the same relocation adjustment, with the L bit passed to emit_vex as the single difference, which one extra parameter would supply.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "encode_avx_extract_byte at src/backend/x86/assembler/encoder/avx.rs:1301-1333 duplicates the whole two-arm operand match of encode_avx_extract_imm8, register and memory paths, relocation index and addend adjustment included, differing only in the VEX L bit set to zero instead of one, which one parameter serves.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/x86/assembler/encoder/avx.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 175,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "resolve_has_builtin_call_bytes and resolve_has_attribute_call_bytes in src/frontend/preprocessor/expr_eval.rs run the identical byte scanner (skip blanks, require the paren, read the identifier, skip to the closing paren) and diverge only on the final is_supported_builtin against is_supported_attribute call, which a predicate argument would carry.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "resolve_has_attribute_call_bytes at src/frontend/preprocessor/expr_eval.rs:202-227 repeats the byte scanner of resolve_has_builtin_call_bytes exactly: whitespace skip, parenthesis check, identifier span, close-paren skip, with only the final is_supported_* predicate differing, so one function taking that predicate serves both.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/frontend/preprocessor/expr_eval.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 130,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "record_crossply and record_cancel in src/threats.rs both clone and sort the add and sub index slices and run the same merge loop counting matched pairs as two; only the pair of atomic counters they charge differs, so one counting helper feeding two call sites would serve without touching the measurement.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "record_cancel at src/threats.rs:142-156 repeats record_crossply's sorted-copy merge loop that counts matched indices two at a time; only the two atomic counters it feeds differ, so one counting helper plus two thin recorders keeps the cancellation arithmetic in a single place.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/threats.rs",
+          "population": "agent",
+          "repository": "coda",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 112,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "load_sqlite and load_duckdb in crates/vibesql-bench-common/src/tpch/schema.rs sit behind separate cargo features and drive different connection types through their own per-engine loader functions; the parallel shape is the point of a cross-engine benchmark harness, and collapsing it would need identifier concatenation across feature gates.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "load_duckdb at crates/vibesql-bench-common/src/tpch/schema.rs:161-180 mirrors load_sqlite over a different engine: a distinct connection type and eight distinct per-engine loader functions, so the two are parallel benchmark harnesses per backend and nothing but the call order is actually shared.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-bench-common/src/tpch/schema.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 439,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "eval_trim in crates/vibesql-executor/src/evaluator/combined/predicates.rs is a verbatim copy of eval_trim in crates/vibesql-executor/src/evaluator/expressions/predicates.rs, same signature, same NULL handling, same removal character extraction and same three position arms, so the two evaluators can share one definition and stop drifting apart.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "eval_trim at crates/vibesql-executor/src/evaluator/expressions/predicates.rs:262-351 is the same eighty-line body as the combined evaluator's: identical NULL passthrough, identical TypeMismatch construction, identical removal-character default and the same three TrimPosition arms, a verbatim copy one definition would serve.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/evaluator/combined/predicates.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 422,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "st_point_from_text and st_line_from_text in crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs repeat the arity check, the WKT argument extraction, the parse and the geometry variant assertion, with only the function name in the error strings and the matches! variant moving, which one helper taking a label and a variant test would serve.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "st_line_from_text at crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs:451-478 repeats st_point_from_text's arity check, NULL passthrough, string extraction, parse_wkt call and geometry variant guard, with only the function name in three messages and the matched Geometry variant differing.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 292,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "compute_partition in crates/vibesql-executor/src/memory/external_aggregate.rs is identical to compute_partition in crates/vibesql-executor/src/memory/external_hash_join.rs: the same AHasher construction, the same hash_sql_value loop and the same mask, so one free function taking the key slice and the mask would keep the two operators partitioning the same way by construction.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "compute_partition at crates/vibesql-executor/src/memory/external_hash_join.rs:266-274 is identical to the external aggregate one: same AHasher, same hash_sql_value loop and same mask, so a free function taking the values and the mask keeps one partitioning policy for both spilling operators.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/memory/external_aggregate.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 164,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "max_f64_filtered and max_i64_filtered in crates/vibesql-executor/src/select/columnar/simd_ops/aggregate/minmax.rs repeat the same four-way unrolled reduction, tail loop and sentinel test, differing only in the element type and the identity value, which a macro over (type, sentinel, comparison) would generate without changing the emitted code.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "max_i64_filtered at crates/vibesql-executor/src/select/columnar/simd_ops/aggregate/minmax.rs:251-292 repeats max_f64_filtered's four-way unrolled accumulator loop, tail loop and sentinel comparison verbatim, differing only in element type and sentinel, which a macro over type, sentinel and op emits unchanged.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/columnar/simd_ops/aggregate/minmax.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 352,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "build_window_map in crates/vibesql-executor/src/select/executor/aggregation/window.rs mirrors the one in crates/vibesql-executor/src/select/window/collection.rs, and the comment on the adjacent validate_window_override records the choice: the GROUP BY window path resolves specs independently of the non-aggregate path, so the copy is a documented decision rather than an oversight.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "build_window_map at crates/vibesql-executor/src/select/window/collection.rs:10-30 is byte-identical to the aggregation copy, and it depends on nothing but the AST definitions it is handed, so the module note about the GROUP BY path resolving specs independently covers the sibling validator, not this pure map builder.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/executor/aggregation/window.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 17,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "create_test_db in crates/vibesql-executor/src/tests/expression_index_dml_tests.rs and in crates/vibesql-executor/src/tests/order_by_compaction_tests.rs is a three-line fixture (new database, case insensitive identifiers, return), and each test module keeping its own setup self-contained costs nothing worth a shared module.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "create_test_db at crates/vibesql-executor/src/tests/order_by_compaction_tests.rs:22-26 is the same three-line fixture as the one in the expression index tests: a Database::new, one case sensitivity setter and a return, a per-module test fixture too small to carry a shared scaffold.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/tests/expression_index_dml_tests.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1133,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "execute_before_statement_triggers_in_schema and execute_after_statement_triggers_in_schema in crates/vibesql-executor/src/trigger_execution.rs share the recursion guard, the trigger lookup, the statement granularity filter, the recursive_triggers suppression check and the SkipRow propagation, with TriggerTiming::Before against TriggerTiming::After as the single difference a parameter would carry.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "execute_after_statement_triggers_in_schema at crates/vibesql-executor/src/trigger_execution.rs:1248-1276 repeats the before variant entirely: same recursion guard, same statement granularity filter, same recursive_triggers suppression and same SkipRow short circuit, with only TriggerTiming::After differing.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/trigger_execution.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 30,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_drop_assertion in crates/vibesql-parser/src/parser/advanced_objects/assertion.rs and parse_drop_sequence in crates/vibesql-parser/src/parser/advanced_objects/sequence.rs repeat the same CASCADE or RESTRICT resolution, comment included, which one parser helper returning the boolean would serve while each keeps its own keyword and AST node.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "parse_drop_sequence at crates/vibesql-parser/src/parser/advanced_objects/sequence.rs:76-94 repeats parse_drop_assertion's shape and, in particular, the CASCADE or RESTRICT default handling defined by the SQL standard, a policy that must stay identical across DROP statements and is duplicated rather than shared.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-parser/src/parser/advanced_objects/assertion.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 63,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "DetRng in crates/vibesql-storage/benches/hnsw_recall_benchmark.rs mirrors the one inside the cfg(test) module of crates/vibesql-storage/src/database/indexes/hnsw.rs, and its doc comment says so; a benchmark target cannot import a test-only item, so the copy is forced rather than careless.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "The DetRng next_u64 at crates/vibesql-storage/src/database/indexes/hnsw.rs:819-826 lives inside the cfg(test) module opened at line 674, so the benchmark target cannot reach it; the xorshift copy is forced by the test and bench target boundary and the bench comment states the reason.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-storage/benches/hnsw_recall_benchmark.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 19,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read connect in crates/hal-displays/src/devicecontrol_client.rs beside display_patch in crates/hal-patterns/src/devicecontrol_client.rs: both build a URL from base_url, POST a JSON body, map the transport failure to ConnectionFailed and re-check the status with the same message text. Only the endpoint, the payload and the error enum differ, an incidental divergence one post_json helper per client would serve.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `connect` in crates/hal-displays/src/devicecontrol_client.rs beside `display_patch` in crates/hal-patterns/src/devicecontrol_client.rs: both repeat the same seven-line POST scaffold (format the url off base_url, post a serde_json body, send, map_err into a ConnectionFailed variant, then check status and build a second ConnectionFailed), and only the endpoint, the payload keys and the error enum differ. That divergence is incidental and one private post_json helper per client would serve it.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/hal-displays/src/devicecontrol_client.rs",
+          "population": "agent",
+          "repository": "artifexprocal",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 618,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read encode_div at 618 to 628 beside encode_adc at 774 to 782 in src/backend/arm/assembler/encoder/data_processing.rs: both fetch three registers and an sf bit, then fold one instruction word. The whole difference is the AArch64 bit layout each opcode requires, so these are per-instruction encoders meant to read alike, not a scaffold one definition could serve.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `encode_div` in src/backend/arm/assembler/encoder/data_processing.rs beside `encode_adc` in the same file and `encode_neon_fcvtl` in src/backend/arm/assembler/encoder/neon.rs: each pulls its operand registers then composes one distinct AArch64 bit pattern documented against the instruction format. This is deliberate parallel structure, one encoder per opcode, and the only shared part is the operand fetch, so nothing factors without hiding the layout each function exists to state.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/arm/assembler/encoder/data_processing.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1589,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read encode_neon_elem at 1589 to 1610 beside encode_neon_float_elem at 1612 to 1635 in src/backend/arm/assembler/encoder/neon.rs: both decode a RegLane operand and assemble a by-element word, but the integer form resolves size through neon_arr_to_q_size and masks rm to four bits at size 01, while the float form maps 2s, 4s and 2d and derives h, l and m from sz. The divergence is the encoding format itself, one function per instruction shape.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `encode_neon_elem` beside `encode_neon_float_elem` in src/backend/arm/assembler/encoder/neon.rs: they share the lane operand match and the final word composition, but each derives (q, size) and the (h, l, m) lane index bits from its own encoding table, integer by-element against float by-element. The two mirror each other because the ARM formats do, and each is written flat to be checked line by line against the manual.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/arm/assembler/encoder/neon.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1139,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read prep_i128_binop in src/backend/arm/codegen/emit.rs beside prep_i128_binop at 827 to 838 in src/backend/x86/codegen/emit.rs: both load lhs and rhs into a register pair for a 128-bit operation, but one emits mov x2, x0 style AArch64 and the other pushq and popq with a reg_cache invalidation. Every statement is target specific, so the parallel shape is the per-backend contract rather than duplication.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `prep_i128_binop` in src/backend/arm/codegen/emit.rs beside `prep_i128_binop` in src/backend/x86/codegen/emit.rs and `emit_i128_prep_binop_impl` in src/backend/i686/codegen/i128_ops.rs: all three load a 128-bit pair for a binary op, but each emits a different instruction sequence into different register pairs (x2:x3 and x4:x5, rax:rdx with pushq, esp-relative pushl). The parallel is forced by the three target architectures and there is no common body left to factor.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/arm/codegen/emit.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 218,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read emit_alloca_aligned_addr_impl at 218 to 226 beside emit_alloca_aligned_addr_to_acc_impl at 228 to 237 in src/backend/arm/codegen/memory.rs: both read alloca_over_align, add the slot offset, load align minus one and mask with the negated alignment through x17. The only separation is the destination register (x9 versus x0) plus a trailing invalidate_acc, an incidental divergence one function taking the register would serve.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `emit_alloca_aligned_addr_impl` beside `emit_alloca_aligned_addr_to_acc_impl` in src/backend/arm/codegen/memory.rs: both fetch alloca_over_align, add the slot offset, load align-1, add, load -align and mask, five lines of alignment arithmetic identical apart from the destination register name and a trailing invalidate_acc. The register is parameter-shaped, so one helper taking it would serve both without changing the emitted code.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/arm/codegen/memory.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 194,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read encode_mov_mem_reg at 194 to 214 beside encode_mov_reg_mem at 216 to 236 in src/backend/i686/assembler/encoder/gp_integer.rs: the segment override match with its three arms and the 0x66 operand-size prefix are repeated word for word, and the entire remaining difference is the opcode pair (0x8A and 0x8B versus 0x88 and 0x89) and which operand supplies the register number. One prefix helper plus a base opcode parameter would serve both.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `encode_mov_mem_reg` beside `encode_mov_reg_mem` in src/backend/i686/assembler/encoder/gp_integer.rs: the register lookup, the fs/gs segment prefix match and the 0x66 operand-size prefix are twelve identical lines, and the only divergence is the opcode pair (0x8A/0x8B against 0x88/0x89). That prefix block is a nontrivial scaffold one helper taking the opcode bytes would serve, so the divergence reads as copy-paste rather than as a per-format table.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/i686/assembler/encoder/gp_integer.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 457,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read emit_alloca_aligned_addr_impl at 457 to 464 beside emit_alloca_aligned_addr_to_acc_impl at 466 to 474 in src/backend/i686/codegen/memory.rs: both read alloca_over_align, take the slot reference, then leal, addl align minus one and andl the negated alignment. Only the target register (%ecx versus %eax) and the trailing invalidate_acc separate them, which one parameterized emitter would cover.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `emit_alloca_aligned_addr_impl` beside `emit_alloca_aligned_addr_to_acc_impl` in src/backend/i686/codegen/memory.rs: both take alloca_over_align, compute slot_ref, then emit leal, addl $align-1 and andl $-align, differing only in the destination register (%ecx against %eax) and the trailing invalidate_acc. The separation is incidental and one parameterized helper covers both bodies.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/backend/i686/codegen/memory.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 122,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read encode_v_arith_vv at 122 to 131 beside encode_v_arith_vx at 133 to 141 in src/backend/riscv/assembler/encoder/vector.rs: both gather operands and OR a single word, but vv reads a third vector register with funct3 000 while vx reads a scalar register with funct3 100, and the crypto members swap in OP_V_CRYPTO with fixed fields. The divergence is the RVV operand format of each instruction, deliberate one encoder per opcode.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `encode_v_arith_vv` beside `encode_v_arith_vx` and `encode_vmv_v_i` in src/backend/riscv/assembler/encoder/vector.rs: each fetches its operands by kind (vreg, gpr or 5-bit immediate) and composes one RVV word whose funct3 and funct6 fields the doc comment above it spells out. These are deliberate per-format encoders and the differing operand kinds and field layouts are the content, not incidental divergence.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/riscv/assembler/encoder/vector.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1286,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read emit_inline_asm at 1286 to 1291 beside emit_inline_asm_with_segs at 1293 to 1297 in src/backend/x86/codegen/emit.rs: each is a three-statement delegation that forwards to a common inline-asm routine, emits callee-saved clobber annotations and invalidates the register cache. The second calls a different callee with an extra seg_overrides argument, so the entire difference lives in the delegated name and nothing is left to factor.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `emit_inline_asm` beside `emit_inline_asm_with_segs` in src/backend/x86/codegen/emit.rs: each body is a three-line delegation to a different common implementation (one without seg_overrides, one taking it) followed by the same clobber annotation and cache invalidation. The whole difference lives in the callee name and its extra argument, which is too short a delegation to factor.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/backend/x86/codegen/emit.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 221,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read lower_builtin_isnan at 221 to 236 beside lower_builtin_isfinite at 255 to 270 in src/ir/lowering/expr_builtins_fpclass.rs: the empty-args guard, lower_fp_classify_arg, the whole F128 libcall and classify_result_to_bool branch, and the bitcast plus fp_masks prologue are repeated verbatim, with only the final mask and comparison differing. That prologue is a scaffold one helper taking the libcall name would serve for all four builtins.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `lower_builtin_isnan` beside `lower_builtin_isfinite` in src/ir/lowering/expr_builtins_fpclass.rs: both repeat the same eight-line scaffold (empty-args guard, lower_fp_classify_arg, the F128 libcall branch with classify_result_to_bool, bitcast_float_to_int, fp_masks) and diverge only in the libc symbol string and the final comparison operator. Both are parameter-shaped, so one classify helper would serve the family.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/ir/lowering/expr_builtins_fpclass.rs",
+          "population": "agent",
+          "repository": "claudes-c-compiler",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 167,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read bishop_attacks_setwise_avx2 beside rook_attacks_setwise_avx2 in src/setwise.rs: both splat bb, mask the empty squares with notwrap, run kogge_stone_fill, shift4 and fold4_or in the same six statements, differing only in the four direction constants and which lanes carry a file mask. One macro or a const generic wrapper would emit both bodies unchanged.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `bishop_attacks_setwise_avx2` beside `rook_attacks_setwise_avx2` in src/setwise.rs: both build a four-lane notwrap mask, broadcast the bitboard, and the mask over !occ, run kogge_stone_fill, shift4 and fold4_or, with the entire divergence sitting in the direction constants and which lanes get a file mask. Those are const generic and value parameters already, so one monomorphized definition serves both without changing the generated code.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/setwise.rs",
+          "population": "agent",
+          "repository": "coda",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 903,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read load_item_sqlite at 903 to 919 beside load_item_duckdb at 1258 to 1274 in crates/vibesql-bench-common/src/tpcc/schema.rs: the same TPC-C item loading loop, differing only in the connection type and the driver params macro, each gated behind its own cargo feature. This is one benchmark loader replayed under a second engine harness, which is what the file exists to do.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `load_item_sqlite` beside `load_item_duckdb` in crates/vibesql-bench-common/src/tpcc/schema.rs: the two load the same TPCC item table but against different connection types and different params macros (rusqlite::params! against duckdb::params!), each behind its own cfg feature gate. This is one loader per benchmark harness, mirrored on purpose, and the two crate APIs leave nothing common to factor.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-bench-common/src/tpcc/schema.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 90,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read create_role at 90 to 97 in crates/vibesql-catalog/src/store/privileges.rs beside create_schema at 8 to 15 in crates/vibesql-catalog/src/store/schemas.rs: both are the four-line contains-then-insert idiom, but one guards a role set and the other a schema map keyed by name with its own error variant and a constructed Schema value. The shared body is short and its whole difference is the erased names and types.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `create_role` in crates/vibesql-catalog/src/store/privileges.rs beside `create_schema` in crates/vibesql-catalog/src/store/schemas.rs: each is a five-line guard that checks its own collection for the name, returns its own AlreadyExists variant and inserts. The collections differ (a set of names against a map to Schema values) and the whole remaining difference is the erased names, so there is no nontrivial scaffold to lift.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-catalog/src/store/privileges.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 58,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read setup at 58 to 74 in crates/vibesql-executor/src/delete/tests/trigger_phase_count.rs beside setup at 47 to 56 in crates/vibesql-executor/tests/insert_view_default_values_tests.rs: both are a run of exec calls building a fixture, and the entire difference is the DDL each test needs, BEFORE and AFTER DELETE triggers on t1 against an INSTEAD OF INSERT trigger on a view. These are per-test fixtures written out for legibility.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `setup` in crates/vibesql-executor/src/delete/tests/trigger_phase_count.rs beside `setup_table` in crates/vibesql-executor/src/update/tests/trigger_phase_value.rs and `setup` in crates/vibesql-executor/tests/insert_view_default_values_tests.rs: each issues its own DDL script (different tables, triggers and seed rows) through the same exec helper. These are per-file test fixtures written to read alike, and the difference is entirely the SQL each scenario needs.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/delete/tests/trigger_phase_count.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 509,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read st_geom_from_wkb at 509 to 552 beside st_point_from_wkb at 554 to 597 in crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs: the arity guard, the NULL short circuit, the binary extraction match and the ten-line optional SRID block are repeated verbatim, and only a geometry-kind check separates them. One constructor taking the function name and the expected kind would serve, and st_line_from_wkb repeats it again below.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `st_geom_from_wkb` beside `st_point_from_wkb` in crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs: both repeat the arity check, the NULL passthrough, the Varchar/Character binary decode, the wkb_to_geometry call and a fourteen-line optional SRID match, with only the function name in the error strings and one extra geometry-kind check separating them. One helper taking the name and an expected kind serves the whole family.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 172,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read new_function_context at 172 to 177 in crates/vibesql-executor/src/procedural/function.rs beside create_test_db at 17 to 22 in crates/vibesql-executor/src/tests/expression_index_dml_tests.rs: each constructs a value, sets one flag and returns it, over unrelated types (ExecutionContext against Database). The shared body is the three-statement builder idiom whose whole difference is the erased names.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `new_function_context` in crates/vibesql-executor/src/procedural/function.rs beside `create_test_db` in crates/vibesql-executor/src/tests/expression_index_dml_tests.rs: each is a three-line constructor that builds a value, sets one flag on it and returns it. The types and the flags are unrelated (an ExecutionContext against a Database in a test module), so the entire difference lives in the erased names.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/procedural/function.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 43,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read columnar_hash_join_inner at 43 to 82 beside columnar_hash_join_left_outer at 84 to 125 in crates/vibesql-executor/src/select/join/hash_join/columnar/mod.rs: the pair of key-column lookups with their identical ColumnarColumnNotFound construction is repeated in all three functions, and only which side builds the hash table plus the probe and gather callees change. One key-column helper and a join-kind parameter would serve.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `columnar_hash_join_inner` beside `columnar_hash_join_left_outer` and `columnar_hash_join_right_outer` in crates/vibesql-executor/src/select/join/hash_join/columnar/mod.rs: the twelve-line key column extraction, including the ColumnarColumnNotFound construction with its two named fields, is verbatim in all three, and only the build side and the probe/gather pair differ. The lookup is a nontrivial scaffold one helper would serve, leaving the join semantics as the real body.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/select/join/hash_join/columnar/mod.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 51,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read c1_db at 51 to 58 beside b3_db at 108 to 115 in crates/vibesql-executor/src/tests/select_having_projection.rs: both open a database, run one CREATE TABLE and loop over a literal row table inserting. The whole difference is the schema and the fixture rows, test data written inline for legibility rather than a scaffold with a factorable core.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `c1_db` beside `b3_db` in crates/vibesql-executor/src/tests/select_having_projection.rs: each builds a fresh Database, runs one CREATE TABLE and loops over a literal tuple array of seed rows. The two tables and their rows are the fixtures the e_select-4.13 and e_select-4.12 cases need, so the shared body is a short builder whose whole difference is the erased SQL and data.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/vibesql-executor/src/tests/select_having_projection.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 61,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read parse_show_tables at 61 to 90 beside parse_show_databases at 92 to 113 in crates/vibesql-parser/src/parser/introspection.rs: the optional LIKE block and the optional WHERE block are repeated word for word, and only the extra FROM clause and the returned statement struct differ. Two small helpers for the optional clauses would serve both, and parse_show_columns below repeats the same blocks a third time.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `parse_show_tables` beside `parse_show_databases` in crates/vibesql-parser/src/parser/introspection.rs: the optional LIKE and optional WHERE blocks are twelve identical lines in both (and again in parse_show_columns below them), with only the leading keyword, the optional FROM and the AST struct differing. Those trailing clauses are a shared grammar fragment one helper returning the pair would serve.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-parser/src/parser/introspection.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 89,
+          "passes": [
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read brute_force_knn at 89 to 108 in crates/vibesql-storage/benches/hnsw_recall_benchmark.rs beside the same function at 844 to 863 in crates/vibesql-storage/src/database/indexes/hnsw.rs: identical filter over live ids, L2 scoring, sort_by on the partial comparison and take-k, separated only by indentation and by Ordering being spelled through std::cmp in the bench copy. That is a copied helper, not a comparison pair.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5",
+              "justification": "Read `brute_force_knn` in crates/vibesql-storage/benches/hnsw_recall_benchmark.rs beside `brute_force_knn` in the test module of crates/vibesql-storage/src/database/indexes/hnsw.rs: the signature, the doc comment and the body (filter on live, L2 distance, sort_by on partial_cmp, take k) match word for word apart from the Ordering path spelling. This is the same ground-truth oracle copied into two places, not a comparison pair.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "crates/vibesql-storage/benches/hnsw_recall_benchmark.rs",
+          "population": "agent",
+          "repository": "vibesql",
+          "rule": "rust_doctor::structure::near_duplicate_function_body"
         }
       ]
     },
@@ -3092,10 +4410,744 @@
         "repository": "ripgrep",
         "rule": "rust_doctor::structure::unreferenced_feature",
         "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "run_sync chains nine banner-commented phases in one body: meter, display and pattern_gen connection, session creation, patch generation, the measurement loop, grayscale analysis, 1D LUT generation, the tiered 3D LUT with its Alpha 7 downsample, and upload plus completion. Each phase sets its own CalibrationState and touches distinct collaborators, so extracting them is mechanical.",
+        "line": 61,
+        "path": "crates/calibration-engine/src/lut3d_flow.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "artifexprocal",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The file holds one impl block with 36 encoder methods, and its own header enumerates the families it stacks (MOV, LEA, PUSH/POP, ALU, TEST, IMUL, shifts, bit operations, setcc/cmovcc, jumps, calls, exchange). The encoder directory already splits by family into sse.rs, system.rs, x87.rs and registers.rs, all under 400 lines, so the same split applies here.",
+        "line": 1,
+        "path": "src/backend/i686/assembler/encoder/gp_integer.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "substitute_riscv_asm_operands is a hand-rolled character scanner taking nine parallel operand slices, and its while loop carries five independent branches: %z[name], %zN, %lo and %hi passthrough, %[name] and positional %N. The %z handling alone runs about 65 lines and duplicates the name lookup the %[name] branch performs, so both a helper per modifier and an operand struct are available.",
+        "line": 100,
+        "path": "src/backend/riscv/codegen/inline_asm.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Despite its name, types.rs holds three concerns: the LineInfo, LineKind, ExtKind and MoveSize declarations (lines 11 to 200), the classification pass (classify_line, classify_mov_ext, classify_arith_ext, about 320 lines), and roughly thirty free utilities including register_family_fast, REG_NAMES, scan_register_refs, memrchr and write_rbp_pattern. The peephole directory already has a passes subdirectory to model the split on.",
+        "line": 1,
+        "path": "src/backend/x86/codegen/peephole/types.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The file mixes a 275-line parse_type_specifier flag collector with a separate struct, union and enum group (parse_struct_or_union, parse_struct_field_declarators, consume_struct_field_qualifiers, parse_enum_specifier) that runs about 300 lines and shares nothing but the Parser receiver. Sibling modules declarators.rs, statements.rs and expressions.rs show the parser is already split along exactly this kind of seam.",
+        "line": 1,
+        "path": "src/frontend/parser/types.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "lower_function_call runs sequential, independently testable phases: stripping no-op Deref layers, unwrapping AddressOf on a function name, resolving _Generic selections, dispatching __builtin_ and error-attribute functions, computing the sret and two-register return convention, lowering arguments with implicit casts and complex decomposition, then emitting the call. Each phase reads only the expression and produces one named value.",
+        "line": 87,
+        "path": "src/ir/lowering/expr_calls.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "compute_decl_info returns a five-element tuple (alloc_size, elem_size, is_array, is_pointer, array_dim_strides) and branches into four self-contained size computations: simple or typedef pointer, array of pointers including the function-pointer-array dim ordering, pointer to array with its trailing-pointer counting, and the plain array or scalar case. Each branch is a nameable helper and the tuple is a struct waiting to be declared.",
+        "line": 584,
+        "path": "src/ir/lowering/types.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "movepicker.rs stacks four independent units plus tests: the History tables with their bonus and aging math (lines 21 to 186), the staged MovePicker itself (188 to 920), a 200-line is_pseudo_legal validator that touches no picker state, QMovePicker (1180 to 1326), and six separate test modules from line 1327 on. History and is_pseudo_legal are natural sibling files.",
+        "line": 1,
+        "path": "src/movepicker.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "coda",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "apply_font_change bundles two independent strategies plus a resize drain: the slide path builds a full-screen buffer, computes Kitty font stepping parameters, and runs a dissolve loop nested five levels deep (frame, row, span, char, cell padding) while interleaving font step batches, and the plain path then switches on font_capability. The dissolve frame renderer alone is an obvious extraction.",
+        "line": 235,
+        "path": "src/render/engine/font.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "ostendo",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The TableSchema impl runs 45 methods across four unrelated groups: six with_* builder constructors (with_primary_key through with_all_constraint_types), read accessors (get_column, column_count, primary_key_effective_collations), column mutations (add_column, remove_column, rename_column, set_column_nullable, set_column_default), and constraint mutations (add and drop for check, unique and foreign key). Splitting into per-concern impl blocks changes no call site.",
+        "line": 148,
+        "path": "crates/vibesql-catalog/src/table.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "check_child_references_impl is two phases joined by one vector: a 140-line collection loop over every catalog table and each of its foreign keys, extracting parent key values and scanning the child table under an MVCC snapshot, followed by a 100-line dispatch matching Restrict, NoAction, Cascade, SetNull and SetDefault. The intermediate actions_to_perform tuple is already the seam between them.",
+        "line": 99,
+        "path": "crates/vibesql-executor/src/delete/integrity.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "eval_between opens with three dispatch prologues (row value constructor operands, scalar subquery against row-value bounds, the mixed row-value misuse check), then defines a 35-line transform_for_collation closure handling NOCASE and RTRIM over four SqlValue variants, then runs affinity resolution and the reversed-bounds and negation comparisons. The collation transform is a pure function that belongs beside the other collation helpers.",
+        "line": 13,
+        "path": "crates/vibesql-executor/src/evaluator/expressions/predicates.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "try_extract_subqueries_to_joins carries two blocks of about 45 lines each, one for the left operand and one for the right of the And arm, that repeat the same In, Exists and scalar-comparison dispatch with only the sibling expression swapped, followed by two more symmetric recursive branches. One helper taking the candidate side and its remainder collapses all four.",
+        "line": 323,
+        "path": "crates/vibesql-executor/src/optimizer/subquery_to_join/mod.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "evaluate is a single 569-line match over Expression whose arms are fully independent: Cast recurses then calls cast_value, Between reimplements symmetric bound swapping and three-valued logic, InList runs its own NULL bookkeeping loop, and Like re-derives text coercion across the SqlValue variants. Each arm is 50 to 150 lines and depends only on its own sub-expressions, so one function per arm is the direct decomposition.",
+        "line": 14,
+        "path": "crates/vibesql-executor/src/select/executor/aggregation/evaluation/simple.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "extract_column_refs is an exhaustive visitor over the Expression enum: every arm is one to three recursive calls, and the tail lists the terminal variants (Literal, Wildcard, CurrentDate, Placeholder and friends) explicitly with no wildcard arm. The length is set by the width of the AST, not by logic, and splitting the match would surrender the exhaustiveness check that forces every new variant to be handled.",
+        "line": 20,
+        "path": "crates/vibesql-executor/src/select/executor/validation/column_refs.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The file holds 44 tests already grouped by banner comments per function under test: range extraction, where_clause_fully_satisfied, composite predicates, prefix predicates, residual where clause building, and IN-list composites. The predicate directory next to it is already split into range.rs, composite.rs, in_list.rs and expression_index.rs, so the test groups map one to one onto existing modules.",
+        "line": 1,
+        "path": "crates/vibesql-executor/src/select/scan/index_scan/predicate/tests.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "recursive_cte_tests.rs carries 33 tests in two banner-separated groups, UNION versus UNION ALL semantics (deduplication, early termination, cycle detection, type mixing) and traversal ordering with LIMIT, ORDER BY, priority queue and BFS versus DFS, each with its own local helpers (ints, strs). The sibling tests directory already splits by narrow feature, with the aggregate suites alone spread over eleven files.",
+        "line": 1,
+        "path": "crates/vibesql-executor/src/tests/recursive_cte_tests.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parse_add_column holds a type and generated-clause prologue, a DEFAULT clause read twice for ordering, and then an 80-line constraint loop with six arms (NOT NULL, PRIMARY KEY, UNIQUE, REFERENCES with optional column list, CHECK with verbatim source capture, DEFAULT). The comments in the CHECK and generated arms say they mirror create/table.rs and create/constraints.rs, so a shared column-constraint parser is the stated target.",
+        "line": 88,
+        "path": "crates/vibesql-parser/src/parser/alter.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Cursor::execute is a 60-line prepare prologue (statement cache lookup, parameter substitution, parse, cache insert) followed by a match over ten Statement variants, where CreateTable, DropTable and the other schema changers each repeat the same statement-cache and schema-cache clearing block. Extracting prepare and the cache invalidation leaves a thin dispatch.",
+        "line": 81,
+        "path": "crates/vibesql-python-bindings/src/cursor.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The HnswIndex impl runs 32 methods in four separable groups: parameter accessors, graph construction (build and a 110-line insert with select_neighbors and prune_neighbors), tombstone removal and compaction (unlink, should_compact, compact, thresholds, take_compacted), and query (search plus search_layer). The four distance functions (compute_distance, l2_distance, cosine_distance, inner_product_distance) touch no index state at all.",
+        "line": 144,
+        "path": "crates/vibesql-storage/src/database/indexes/hnsw.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read update_state in crates/calibration-storage/src/profiling_session_store.rs beside update_state in crates/calibration-storage/src/session_store.rs: both recompute the epoch millisecond stamp, classify the terminal states with the same matches! arm list, and branch into two execute calls, so only the table name and the parameter list differ and one helper taking the two SQL strings would serve both.",
+        "line": 71,
+        "path": "crates/calibration-storage/src/profiling_session_store.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "artifexprocal",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "encode_br and encode_blr in src/backend/arm/assembler/encoder/compare_branch.rs are three-statement encoders whose whole difference is the fixed AArch64 opcode word (0xd61f0000 against 0xd63f0000); one register fetch and one shift are not a scaffold worth factoring, and the per-mnemonic function is the readable form for an instruction table.",
+        "line": 212,
+        "path": "src/backend/arm/assembler/encoder/compare_branch.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "encode_dmb and encode_dsb in src/backend/arm/assembler/encoder/system.rs each restate the same twelve-arm barrier option table verbatim, differing only in the error text and the base word, so a shared barrier_option helper plus one opcode argument would serve both without changing behavior.",
+        "line": 6,
+        "path": "src/backend/arm/assembler/encoder/system.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "emit_load_pair_indirect_impl in src/backend/arm/codegen/i128_ops.rs and emit_call_move_f32_to_acc_impl in src/backend/i686/codegen/calls.rs share nothing but a run of self.state.emit calls: the assembly literals are the entire content of each function and they belong to different target architectures, so there is no shared meaning a parameter could carry.",
+        "line": 42,
+        "path": "src/backend/arm/codegen/i128_ops.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parse_st_num in src/backend/i686/assembler/encoder/registers.rs is a character for character copy of parse_st_num in src/backend/x86/assembler/encoder/registers.rs, including the doc comment, the range check and the three error strings, and nothing in it is target specific, so one shared definition would serve both encoders.",
+        "line": 101,
+        "path": "src/backend/i686/assembler/encoder/registers.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "encode_alu_reg and encode_alu_reg_w in src/backend/riscv/assembler/encoder/base.rs are four-statement wrappers over encode_r whose only difference is the OP_OP against OP_OP_32 opcode constant; the delegation is already minimal and each name maps to one RISC-V instruction form the decoder table refers to.",
+        "line": 260,
+        "path": "src/backend/riscv/assembler/encoder/base.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "encode_csrw, encode_csrs and encode_csrc in src/backend/riscv/assembler/encoder/pseudo.rs repeat the same immediate against register branch three times, each masking the zimm to five bits and calling encode_i twice, with only the two funct3 constants moving, so one helper parameterized on those two values covers all three.",
+        "line": 500,
+        "path": "src/backend/riscv/assembler/encoder/pseudo.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "encode_avx_extract_imm8 and encode_avx_extract_byte in src/backend/x86/assembler/encoder/avx.rs carry the same two-arm operand match, the same VEX emission, modrm and imm8 push, and the same relocation adjustment, with the L bit passed to emit_vex as the single difference, which one extra parameter would supply.",
+        "line": 1113,
+        "path": "src/backend/x86/assembler/encoder/avx.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "resolve_has_builtin_call_bytes and resolve_has_attribute_call_bytes in src/frontend/preprocessor/expr_eval.rs run the identical byte scanner (skip blanks, require the paren, read the identifier, skip to the closing paren) and diverge only on the final is_supported_builtin against is_supported_attribute call, which a predicate argument would carry.",
+        "line": 175,
+        "path": "src/frontend/preprocessor/expr_eval.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "record_crossply and record_cancel in src/threats.rs both clone and sort the add and sub index slices and run the same merge loop counting matched pairs as two; only the pair of atomic counters they charge differs, so one counting helper feeding two call sites would serve without touching the measurement.",
+        "line": 130,
+        "path": "src/threats.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "coda",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "load_sqlite and load_duckdb in crates/vibesql-bench-common/src/tpch/schema.rs sit behind separate cargo features and drive different connection types through their own per-engine loader functions; the parallel shape is the point of a cross-engine benchmark harness, and collapsing it would need identifier concatenation across feature gates.",
+        "line": 112,
+        "path": "crates/vibesql-bench-common/src/tpch/schema.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "eval_trim in crates/vibesql-executor/src/evaluator/combined/predicates.rs is a verbatim copy of eval_trim in crates/vibesql-executor/src/evaluator/expressions/predicates.rs, same signature, same NULL handling, same removal character extraction and same three position arms, so the two evaluators can share one definition and stop drifting apart.",
+        "line": 439,
+        "path": "crates/vibesql-executor/src/evaluator/combined/predicates.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "st_point_from_text and st_line_from_text in crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs repeat the arity check, the WKT argument extraction, the parse and the geometry variant assertion, with only the function name in the error strings and the matches! variant moving, which one helper taking a label and a variant test would serve.",
+        "line": 422,
+        "path": "crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "compute_partition in crates/vibesql-executor/src/memory/external_aggregate.rs is identical to compute_partition in crates/vibesql-executor/src/memory/external_hash_join.rs: the same AHasher construction, the same hash_sql_value loop and the same mask, so one free function taking the key slice and the mask would keep the two operators partitioning the same way by construction.",
+        "line": 292,
+        "path": "crates/vibesql-executor/src/memory/external_aggregate.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "max_f64_filtered and max_i64_filtered in crates/vibesql-executor/src/select/columnar/simd_ops/aggregate/minmax.rs repeat the same four-way unrolled reduction, tail loop and sentinel test, differing only in the element type and the identity value, which a macro over (type, sentinel, comparison) would generate without changing the emitted code.",
+        "line": 164,
+        "path": "crates/vibesql-executor/src/select/columnar/simd_ops/aggregate/minmax.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "create_test_db in crates/vibesql-executor/src/tests/expression_index_dml_tests.rs and in crates/vibesql-executor/src/tests/order_by_compaction_tests.rs is a three-line fixture (new database, case insensitive identifiers, return), and each test module keeping its own setup self-contained costs nothing worth a shared module.",
+        "line": 17,
+        "path": "crates/vibesql-executor/src/tests/expression_index_dml_tests.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "execute_before_statement_triggers_in_schema and execute_after_statement_triggers_in_schema in crates/vibesql-executor/src/trigger_execution.rs share the recursion guard, the trigger lookup, the statement granularity filter, the recursive_triggers suppression check and the SkipRow propagation, with TriggerTiming::Before against TriggerTiming::After as the single difference a parameter would carry.",
+        "line": 1133,
+        "path": "crates/vibesql-executor/src/trigger_execution.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "parse_drop_assertion in crates/vibesql-parser/src/parser/advanced_objects/assertion.rs and parse_drop_sequence in crates/vibesql-parser/src/parser/advanced_objects/sequence.rs repeat the same CASCADE or RESTRICT resolution, comment included, which one parser helper returning the boolean would serve while each keeps its own keyword and AST node.",
+        "line": 30,
+        "path": "crates/vibesql-parser/src/parser/advanced_objects/assertion.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "DetRng in crates/vibesql-storage/benches/hnsw_recall_benchmark.rs mirrors the one inside the cfg(test) module of crates/vibesql-storage/src/database/indexes/hnsw.rs, and its doc comment says so; a benchmark target cannot import a test-only item, so the copy is forced rather than careless.",
+        "line": 63,
+        "path": "crates/vibesql-storage/benches/hnsw_recall_benchmark.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read connect in crates/hal-displays/src/devicecontrol_client.rs beside display_patch in crates/hal-patterns/src/devicecontrol_client.rs: both build a URL from base_url, POST a JSON body, map the transport failure to ConnectionFailed and re-check the status with the same message text. Only the endpoint, the payload and the error enum differ, an incidental divergence one post_json helper per client would serve.",
+        "line": 19,
+        "path": "crates/hal-displays/src/devicecontrol_client.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "artifexprocal",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read encode_div at 618 to 628 beside encode_adc at 774 to 782 in src/backend/arm/assembler/encoder/data_processing.rs: both fetch three registers and an sf bit, then fold one instruction word. The whole difference is the AArch64 bit layout each opcode requires, so these are per-instruction encoders meant to read alike, not a scaffold one definition could serve.",
+        "line": 618,
+        "path": "src/backend/arm/assembler/encoder/data_processing.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read encode_neon_elem at 1589 to 1610 beside encode_neon_float_elem at 1612 to 1635 in src/backend/arm/assembler/encoder/neon.rs: both decode a RegLane operand and assemble a by-element word, but the integer form resolves size through neon_arr_to_q_size and masks rm to four bits at size 01, while the float form maps 2s, 4s and 2d and derives h, l and m from sz. The divergence is the encoding format itself, one function per instruction shape.",
+        "line": 1589,
+        "path": "src/backend/arm/assembler/encoder/neon.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read prep_i128_binop in src/backend/arm/codegen/emit.rs beside prep_i128_binop at 827 to 838 in src/backend/x86/codegen/emit.rs: both load lhs and rhs into a register pair for a 128-bit operation, but one emits mov x2, x0 style AArch64 and the other pushq and popq with a reg_cache invalidation. Every statement is target specific, so the parallel shape is the per-backend contract rather than duplication.",
+        "line": 1139,
+        "path": "src/backend/arm/codegen/emit.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read emit_alloca_aligned_addr_impl at 218 to 226 beside emit_alloca_aligned_addr_to_acc_impl at 228 to 237 in src/backend/arm/codegen/memory.rs: both read alloca_over_align, add the slot offset, load align minus one and mask with the negated alignment through x17. The only separation is the destination register (x9 versus x0) plus a trailing invalidate_acc, an incidental divergence one function taking the register would serve.",
+        "line": 218,
+        "path": "src/backend/arm/codegen/memory.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read encode_mov_mem_reg at 194 to 214 beside encode_mov_reg_mem at 216 to 236 in src/backend/i686/assembler/encoder/gp_integer.rs: the segment override match with its three arms and the 0x66 operand-size prefix are repeated word for word, and the entire remaining difference is the opcode pair (0x8A and 0x8B versus 0x88 and 0x89) and which operand supplies the register number. One prefix helper plus a base opcode parameter would serve both.",
+        "line": 194,
+        "path": "src/backend/i686/assembler/encoder/gp_integer.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read emit_alloca_aligned_addr_impl at 457 to 464 beside emit_alloca_aligned_addr_to_acc_impl at 466 to 474 in src/backend/i686/codegen/memory.rs: both read alloca_over_align, take the slot reference, then leal, addl align minus one and andl the negated alignment. Only the target register (%ecx versus %eax) and the trailing invalidate_acc separate them, which one parameterized emitter would cover.",
+        "line": 457,
+        "path": "src/backend/i686/codegen/memory.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read encode_v_arith_vv at 122 to 131 beside encode_v_arith_vx at 133 to 141 in src/backend/riscv/assembler/encoder/vector.rs: both gather operands and OR a single word, but vv reads a third vector register with funct3 000 while vx reads a scalar register with funct3 100, and the crypto members swap in OP_V_CRYPTO with fixed fields. The divergence is the RVV operand format of each instruction, deliberate one encoder per opcode.",
+        "line": 122,
+        "path": "src/backend/riscv/assembler/encoder/vector.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read emit_inline_asm at 1286 to 1291 beside emit_inline_asm_with_segs at 1293 to 1297 in src/backend/x86/codegen/emit.rs: each is a three-statement delegation that forwards to a common inline-asm routine, emits callee-saved clobber annotations and invalidates the register cache. The second calls a different callee with an extra seg_overrides argument, so the entire difference lives in the delegated name and nothing is left to factor.",
+        "line": 1286,
+        "path": "src/backend/x86/codegen/emit.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read lower_builtin_isnan at 221 to 236 beside lower_builtin_isfinite at 255 to 270 in src/ir/lowering/expr_builtins_fpclass.rs: the empty-args guard, lower_fp_classify_arg, the whole F128 libcall and classify_result_to_bool branch, and the bitcast plus fp_masks prologue are repeated verbatim, with only the final mask and comparison differing. That prologue is a scaffold one helper taking the libcall name would serve for all four builtins.",
+        "line": 221,
+        "path": "src/ir/lowering/expr_builtins_fpclass.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "claudes-c-compiler",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read bishop_attacks_setwise_avx2 beside rook_attacks_setwise_avx2 in src/setwise.rs: both splat bb, mask the empty squares with notwrap, run kogge_stone_fill, shift4 and fold4_or in the same six statements, differing only in the four direction constants and which lanes carry a file mask. One macro or a const generic wrapper would emit both bodies unchanged.",
+        "line": 167,
+        "path": "src/setwise.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "coda",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read load_item_sqlite at 903 to 919 beside load_item_duckdb at 1258 to 1274 in crates/vibesql-bench-common/src/tpcc/schema.rs: the same TPC-C item loading loop, differing only in the connection type and the driver params macro, each gated behind its own cargo feature. This is one benchmark loader replayed under a second engine harness, which is what the file exists to do.",
+        "line": 903,
+        "path": "crates/vibesql-bench-common/src/tpcc/schema.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read create_role at 90 to 97 in crates/vibesql-catalog/src/store/privileges.rs beside create_schema at 8 to 15 in crates/vibesql-catalog/src/store/schemas.rs: both are the four-line contains-then-insert idiom, but one guards a role set and the other a schema map keyed by name with its own error variant and a constructed Schema value. The shared body is short and its whole difference is the erased names and types.",
+        "line": 90,
+        "path": "crates/vibesql-catalog/src/store/privileges.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read setup at 58 to 74 in crates/vibesql-executor/src/delete/tests/trigger_phase_count.rs beside setup at 47 to 56 in crates/vibesql-executor/tests/insert_view_default_values_tests.rs: both are a run of exec calls building a fixture, and the entire difference is the DDL each test needs, BEFORE and AFTER DELETE triggers on t1 against an INSTEAD OF INSERT trigger on a view. These are per-test fixtures written out for legibility.",
+        "line": 58,
+        "path": "crates/vibesql-executor/src/delete/tests/trigger_phase_count.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read st_geom_from_wkb at 509 to 552 beside st_point_from_wkb at 554 to 597 in crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs: the arity guard, the NULL short circuit, the binary extraction match and the ten-line optional SRID block are repeated verbatim, and only a geometry-kind check separates them. One constructor taking the function name and the expected kind would serve, and st_line_from_wkb repeats it again below.",
+        "line": 509,
+        "path": "crates/vibesql-executor/src/evaluator/functions/spatial/constructors.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read new_function_context at 172 to 177 in crates/vibesql-executor/src/procedural/function.rs beside create_test_db at 17 to 22 in crates/vibesql-executor/src/tests/expression_index_dml_tests.rs: each constructs a value, sets one flag and returns it, over unrelated types (ExecutionContext against Database). The shared body is the three-statement builder idiom whose whole difference is the erased names.",
+        "line": 172,
+        "path": "crates/vibesql-executor/src/procedural/function.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read columnar_hash_join_inner at 43 to 82 beside columnar_hash_join_left_outer at 84 to 125 in crates/vibesql-executor/src/select/join/hash_join/columnar/mod.rs: the pair of key-column lookups with their identical ColumnarColumnNotFound construction is repeated in all three functions, and only which side builds the hash table plus the probe and gather callees change. One key-column helper and a join-kind parameter would serve.",
+        "line": 43,
+        "path": "crates/vibesql-executor/src/select/join/hash_join/columnar/mod.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read c1_db at 51 to 58 beside b3_db at 108 to 115 in crates/vibesql-executor/src/tests/select_having_projection.rs: both open a database, run one CREATE TABLE and loop over a literal row table inserting. The whole difference is the schema and the fixture rows, test data written inline for legibility rather than a scaffold with a factorable core.",
+        "line": 51,
+        "path": "crates/vibesql-executor/src/tests/select_having_projection.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read parse_show_tables at 61 to 90 beside parse_show_databases at 92 to 113 in crates/vibesql-parser/src/parser/introspection.rs: the optional LIKE block and the optional WHERE block are repeated word for word, and only the extra FROM clause and the returned statement struct differ. Two small helpers for the optional clauses would serve both, and parse_show_columns below repeats the same blocks a third time.",
+        "line": 61,
+        "path": "crates/vibesql-parser/src/parser/introspection.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Read brute_force_knn at 89 to 108 in crates/vibesql-storage/benches/hnsw_recall_benchmark.rs beside the same function at 844 to 863 in crates/vibesql-storage/src/database/indexes/hnsw.rs: identical filter over live ids, L2 scoring, sort_by on the partial comparison and take-k, separated only by indentation and by Ordering being spelled through std::cmp in the bench copy. That is a copied helper, not a comparison pair.",
+        "line": 89,
+        "path": "crates/vibesql-storage/benches/hnsw_recall_benchmark.rs",
+        "population": "agent",
+        "provenance": "agent",
+        "repository": "vibesql",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "verdict": "true_positive"
       }
     ],
-    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. The agreement of those passes is published per rule and population in adjudication.agreement.coefficients, which the suite recomputes from the pairs on record: no count and no coefficient is stated here, because a number written in prose is a number no test compares.",
-    "sampling_plan": [],
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. The agreement of those passes is published per rule and population in adjudication.agreement.coefficients, which the suite recomputes from the pairs on record: no count and no coefficient is stated here, because a number written in prose is a number no test compares. The three structural rules of the agent population are drawn by that same stride over their production-context subpopulation, at the target their plan publishes, with the population, the target and the positions the stride landed on recorded in adjudication.sampling_plan and the draw enrolled in adjudication.adjudicated_after_cutoff.",
+    "sampling_plan": [
+      {
+        "indices": [
+          0,
+          11,
+          22,
+          33,
+          45,
+          56,
+          67,
+          79,
+          90,
+          101,
+          113,
+          124,
+          135,
+          146,
+          158,
+          169,
+          180,
+          192,
+          203,
+          214
+        ],
+        "observed": 226,
+        "population": "agent",
+        "rule": "rust_doctor::structure::duplicate_function_body",
+        "target": 20
+      },
+      {
+        "indices": [
+          0,
+          10,
+          20,
+          30,
+          40,
+          51,
+          61,
+          71,
+          81,
+          91,
+          102,
+          112,
+          122,
+          132,
+          142,
+          153,
+          163,
+          173,
+          183,
+          193
+        ],
+        "observed": 204,
+        "population": "agent",
+        "rule": "rust_doctor::structure::near_duplicate_function_body",
+        "target": 20
+      },
+      {
+        "indices": [
+          0,
+          41,
+          82,
+          124,
+          165,
+          207,
+          248,
+          289,
+          331,
+          372,
+          414,
+          455,
+          496,
+          538,
+          579,
+          621,
+          662,
+          703,
+          745,
+          786
+        ],
+        "observed": 828,
+        "population": "agent",
+        "rule": "rust_doctor::structure::oversized_unit",
+        "target": 20
+      }
+    ],
     "trigger_verification": {
       "confirmed": 575,
       "findings": 575,
@@ -4813,36 +6865,44 @@
         "true_positives": null
       },
       {
-        "doubly_judged": 0,
-        "false_positive_rate_basis_points": null,
-        "false_positives": null,
+        "doubly_judged": 19,
+        "false_positive_rate_basis_points": 3157,
+        "false_positives": 6,
         "findings": 1476,
         "id": "rust_doctor::structure::duplicate_function_body",
-        "interval_high_basis_points": null,
-        "interval_low_basis_points": null,
-        "judges": [],
-        "provenance": [],
-        "reviewed": 0,
-        "separation": null,
-        "status": "incomplete",
+        "interval_high_basis_points": 5399,
+        "interval_low_basis_points": 1536,
+        "judges": [
+          "claude-opus-5"
+        ],
+        "provenance": [
+          "agent"
+        ],
+        "reviewed": 19,
+        "separation": "above",
+        "status": "measured",
         "tier": "P3",
-        "true_positives": null
+        "true_positives": 13
       },
       {
-        "doubly_judged": 0,
-        "false_positive_rate_basis_points": null,
-        "false_positives": null,
+        "doubly_judged": 20,
+        "false_positive_rate_basis_points": 5000,
+        "false_positives": 10,
         "findings": 1120,
         "id": "rust_doctor::structure::near_duplicate_function_body",
-        "interval_high_basis_points": null,
-        "interval_low_basis_points": null,
-        "judges": [],
-        "provenance": [],
-        "reviewed": 0,
-        "separation": null,
-        "status": "incomplete",
+        "interval_high_basis_points": 7007,
+        "interval_low_basis_points": 2993,
+        "judges": [
+          "claude-opus-5"
+        ],
+        "provenance": [
+          "agent"
+        ],
+        "reviewed": 20,
+        "separation": "above",
+        "status": "measured",
         "tier": "P3",
-        "true_positives": null
+        "true_positives": 10
       },
       {
         "doubly_judged": 0,
@@ -4863,20 +6923,24 @@
         "true_positives": 15
       },
       {
-        "doubly_judged": 0,
-        "false_positive_rate_basis_points": null,
-        "false_positives": null,
+        "doubly_judged": 20,
+        "false_positive_rate_basis_points": 500,
+        "false_positives": 1,
         "findings": 948,
         "id": "rust_doctor::structure::oversized_unit",
-        "interval_high_basis_points": null,
-        "interval_low_basis_points": null,
-        "judges": [],
-        "provenance": [],
-        "reviewed": 0,
-        "separation": null,
-        "status": "incomplete",
+        "interval_high_basis_points": 2361,
+        "interval_low_basis_points": 89,
+        "judges": [
+          "claude-opus-5"
+        ],
+        "provenance": [
+          "agent"
+        ],
+        "reviewed": 20,
+        "separation": "indecisive",
+        "status": "measured",
         "tier": "P3",
-        "true_positives": null
+        "true_positives": 19
       },
       {
         "doubly_judged": 0,

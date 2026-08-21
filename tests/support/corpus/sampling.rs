@@ -45,6 +45,15 @@ pub(crate) struct SamplingPlan {
     pub(crate) target: u64,
 }
 
+/// Sites drawn per rule under the protocol.
+///
+/// Twenty rather than the five the pre-protocol samples took, for the reason
+/// `sampling` states about the healthy draw of the same rules: five sites
+/// resolve steps of twenty points and cannot place a rule against a threshold
+/// of five percent, so a five-site rate on this population would be published
+/// indecisive by construction rather than by measurement.
+pub(crate) const PROTOCOL_TARGET: u64 = 20;
+
 /// The positions a stride of `target` sites lands on over `observed` sites.
 ///
 /// `k = min(target, observed)` and position `i` is `floor(i * observed / k)`,

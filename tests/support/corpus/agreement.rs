@@ -138,14 +138,34 @@ pub(crate) struct Agreement {
 ///
 /// The cutoff is a date, and a reviewed site carries none: what says whether a
 /// verdict falls under the protocol is the sample it belongs to. Naming those
-/// samples is what makes the rule enforceable without stamping a date on two
-/// hundred and seventy-three sites that predate the question.
+/// samples is what makes the rule enforceable without stamping a date on the
+/// sites that predate the question.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProtocolScope {
     pub(crate) population: Population,
     pub(crate) rule: String,
 }
+
+/// The rules adjudicated under the protocol, in the order the record publishes
+/// them, all on the agent population.
+///
+/// Named once here rather than restated by each test that reads the enrolment,
+/// because two lists of the same three rules is how a scope drops out of one
+/// of them and keeps passing the other.
+pub(crate) const ENROLLED_RULES: [&str; 3] = [
+    "rust_doctor::structure::duplicate_function_body",
+    "rust_doctor::structure::near_duplicate_function_body",
+    "rust_doctor::structure::oversized_unit",
+];
+
+/// The judge behind every pass produced under the protocol.
+///
+/// One name, because the two passes of a pair are separated by their context
+/// and not by their model: `Independence::SeparateContext` is what each pair
+/// declares, and a second model would be a different claim recorded under the
+/// same field.
+pub(crate) const PROTOCOL_JUDGE: &str = "claude-opus-5";
 
 /// Number of pairs whose two passes disagreed.
 pub(crate) fn escalations_open(agreement: &Agreement) -> u64 {

@@ -21,7 +21,8 @@ use serde_json::Value;
 
 use support::corpus::agreement::Agreement;
 use support::corpus::{
-    ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
+    ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, CorpusArtifact,
+    EXPECTED_REPOSITORIES,
     GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, MINIMUM_SPREAD, Manifest, ManifestEntry, Observation,
     PrecisionStatus, Population, Provenance, RefusalReason, RepositoryOutcome, RepositoryShape, ReviewedSite,
     RuleObservation, RuleTrigger, SiteContext, THRESHOLD_BASIS_POINTS, TriggerVerification, Verdict,
@@ -547,11 +548,34 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
 #[test]
 fn a_published_rate_carries_the_provenance_of_its_verdicts() {
     let artifact = artifact();
-    let computed = precision(&artifact.catalog, &artifact.observations, &artifact.adjudication);
+    check_provenance(&artifact, Population::Healthy);
+    check_provenance(&artifact, Population::Agent);
+}
+
+/// The same assertion on one population, sites and rates drawn from that side
+/// alone.
+///
+/// The population selects both, because three rules now carry sites on each:
+/// a map built over every reviewed site would hand the healthy rate of
+/// `duplicate_function_body` the provenance of the agent verdicts it never
+/// rested on, which is the crossing `each_population_publishes_its_own_rate`
+/// exists against.
+fn check_provenance(artifact: &CorpusArtifact, population: Population) {
+    let computed = precision_of(
+        &artifact.catalog,
+        match population {
+            Population::Agent => &artifact.agent_population.observations,
+            Population::Healthy => &artifact.observations,
+        },
+        &artifact.adjudication,
+        population,
+    );
 
     let mut declared: BTreeMap<&str, BTreeSet<Provenance>> = BTreeMap::new();
     for site in &artifact.adjudication.reviewed {
-        declared.entry(site.rule.as_str()).or_default().insert(site.provenance);
+        if site.population == population {
+            declared.entry(site.rule.as_str()).or_default().insert(site.provenance);
+        }
     }
 
     let mut measured = 0usize;

@@ -17,10 +17,10 @@ use std::fs;
 use serde_json::Value;
 use support::corpus::coefficients::coefficients;
 use support::corpus::agreement::{
-    AdjudicatedPair, Agreement, Independence, Pass, ProtocolScope, SCHEMA_VERSION,
-    agreement_defects, escalations_open, protocol_defects,
+    AdjudicatedPair, Agreement, ENROLLED_RULES, Independence, PROTOCOL_JUDGE, Pass, ProtocolScope,
+    SCHEMA_VERSION, agreement_defects, escalations_open, protocol_defects,
 };
-use support::corpus::sampling::{SamplingPlan, sampling_defects, stride};
+use support::corpus::sampling::{PROTOCOL_TARGET, SamplingPlan, sampling_defects, stride};
 use support::corpus::{
     Adjudication, CatalogRule, Observation, Population, PrecisionStatus, Provenance,
     RepositoryOutcome, ReviewedSite, RuleObservation, RuleTrigger, SiteContext, TriggerVerification,
@@ -37,6 +37,16 @@ const ESCALATED: [(&str, &str, u64); 3] = [
     ("thiserror", "impl/src/expand.rs", 31),
     ("thiserror", "impl/src/expand.rs", 221),
 ];
+
+/// The site the agent-population passes disagreed on, kept apart from the three
+/// above because it is a different rule on a different population: one list
+/// covering both would let a queue emptied on one side be refilled by the other
+/// and still count.
+const ESCALATED_AGENT: [(&str, &str, u64); 1] = [(
+    "vibesql",
+    "crates/vibesql-executor/src/select/executor/aggregation/window.rs",
+    352,
+)];
 
 fn site(line: u64, verdict: Verdict) -> ReviewedSite {
     ReviewedSite {
@@ -318,13 +328,58 @@ fn the_three_escalations_of_the_double_pass_are_findable_with_both_justification
     }
 }
 
+/// The escalation of the agent population is findable the same way.
+///
+/// One site of the twenty drawn for `duplicate_function_body` split on whether
+/// a module note about the GROUP BY path covers the map builder beside the
+/// validator it was written for. It stays out of `reviewed`, which is why that
+/// rate rests on nineteen sites and not twenty, and it is not settled toward
+/// the verdict the other nineteen carry.
+#[test]
+fn the_escalation_of_the_agent_population_is_findable_with_both_justifications() {
+    let artifact = artifact();
+    for (repository, path, line) in ESCALATED_AGENT {
+        let found = artifact
+            .adjudication
+            .agreement
+            .pairs
+            .iter()
+            .find(|pair| pair.repository == repository && pair.path == path && pair.line == line);
+        assert!(found.is_some(), "escalation absent: {repository}/{path}:{line}");
+        let Some(found) = found else { continue };
+        assert_eq!(found.rule, "rust_doctor::structure::duplicate_function_body");
+        assert_eq!(found.population, Population::Agent);
+        assert_eq!(found.context, SiteContext::Production);
+        assert_eq!(found.independence, Independence::SeparateContext);
+        assert!(!found.agrees());
+        assert_eq!(found.verdict(), None);
+        for judged in &found.passes {
+            assert_eq!(judged.judge, PROTOCOL_JUDGE);
+            assert!(!judged.justification.trim().is_empty());
+        }
+
+        // Escalated means unpublished: a site the passes split on carries no
+        // verdict in `reviewed`, which is the whole difference between an open
+        // escalation and a settled one.
+        assert!(
+            !artifact.adjudication.reviewed.iter().any(|site| {
+                site.repository == repository && site.path == path && site.line == line
+            }),
+            "{repository}/{path}:{line} is escalated and published"
+        );
+    }
+}
+
 /// The queue is a number a test recomputes, not a sentence in a document.
 #[test]
 fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
     let artifact = artifact();
     let agreement = &artifact.adjudication.agreement;
     assert_eq!(agreement.escalations_open, escalations_open(agreement));
-    assert_eq!(agreement.escalations_open, ESCALATED.len() as u64);
+    assert_eq!(
+        agreement.escalations_open,
+        (ESCALATED.len() + ESCALATED_AGENT.len()) as u64
+    );
 
     let mut forged = adjudication(vec![site(7, Verdict::TruePositive)], vec![disagreeing(9)]);
     forged.agreement.escalations_open = 0;
@@ -432,8 +487,9 @@ fn a_published_rate_names_the_judges_behind_it() {
     assert_eq!(rate.status, PrecisionStatus::Measured);
     assert_eq!(rate.judges, vec!["judge-a", "judge-b", "judge-c"]);
 
-    // Today no published rate rests on a pair, so every judge list is empty
-    // and says so rather than naming a judge nobody recorded.
+    // No healthy rate rests on a pair, so every judge list on that side is
+    // empty and says so rather than naming a judge nobody recorded. The agent
+    // side is the other case, asserted where the enrolment is.
     for rate in artifact().precision {
         assert_eq!(rate.judges, Vec::<String>::new(), "{}", rate.id);
     }
@@ -451,10 +507,10 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    assert_eq!(counts.get(&Provenance::Agent), Some(&163));
+    assert_eq!(counts.get(&Provenance::Agent), Some(&222));
     assert_eq!(counts.get(&Provenance::Unrecorded), Some(&110));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 273);
+    assert_eq!(artifact.adjudication.reviewed.len(), 332);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite
@@ -487,22 +543,41 @@ fn a_sample_adjudicated_under_the_protocol_passes_when_every_site_carries_a_pair
     assert!(protocol_defects(&record).is_empty());
 }
 
-/// The published verdicts predate the cutoff and are re-adjudicated by nothing.
+/// Only an enrolled scope is judged under the protocol, and every site of one
+/// carries a pair.
+///
+/// The two directions are one assertion. A rate outside the enrolment resting
+/// on a double pass would be a protocol claimed over verdicts nobody enrolled;
+/// a rate inside it whose sites are not all backed would be an enrolment
+/// claimed over verdicts nobody judged twice. `protocol_defects` refuses the
+/// second, and `doubly_judged` counted against the enrolment is what refuses
+/// the first.
 #[test]
-fn every_published_verdict_predates_the_cutoff_and_is_readjudicated_by_nothing() {
+fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
     let artifact = artifact();
     assert_eq!(artifact.adjudication.protocol_cutoff, CUTOFF);
     assert_eq!(
         artifact.adjudication.adjudicated_after_cutoff,
-        Vec::<ProtocolScope>::new()
+        ENROLLED_RULES
+            .iter()
+            .map(|rule| ProtocolScope {
+                population: Population::Agent,
+                rule: (*rule).to_owned(),
+            })
+            .collect::<Vec<ProtocolScope>>()
     );
     assert!(protocol_defects(&artifact.adjudication).is_empty());
-    for rate in artifact
-        .precision
-        .iter()
-        .chain(&artifact.agent_population.precision)
-    {
+
+    for rate in &artifact.precision {
         assert_eq!(rate.doubly_judged, 0, "{}", rate.id);
+    }
+    for rate in &artifact.agent_population.precision {
+        if ENROLLED_RULES.contains(&rate.id.as_str()) {
+            assert_eq!(rate.doubly_judged, rate.reviewed, "{}", rate.id);
+            assert_eq!(rate.judges, vec![PROTOCOL_JUDGE.to_owned()], "{}", rate.id);
+        } else {
+            assert_eq!(rate.doubly_judged, 0, "{}", rate.id);
+        }
     }
 }
 
@@ -680,16 +755,24 @@ fn two_plans_for_one_scope_are_named() {
     defect_naming(&sampling_defects(&record), "publishes two sampling plans");
 }
 
-/// A scope adjudicated before the cutoff carries no plan, and the absence is
-/// the fact rather than a row of zeros.
+/// The scopes carrying a plan are the enrolled ones, and a scope adjudicated
+/// before the cutoff carries none: the absence is the fact rather than a row of
+/// zeros.
 #[test]
-fn a_scope_adjudicated_before_the_cutoff_carries_no_plan() {
+fn the_planned_scopes_are_the_enrolled_ones_and_nothing_else() {
     let artifact = artifact();
-    assert_eq!(
-        artifact.adjudication.adjudicated_after_cutoff,
-        Vec::<ProtocolScope>::new()
-    );
-    assert_eq!(artifact.adjudication.sampling_plan, Vec::<SamplingPlan>::new());
+    let planned: Vec<&str> = artifact
+        .adjudication
+        .sampling_plan
+        .iter()
+        .map(|plan| plan.rule.as_str())
+        .collect();
+    assert_eq!(planned, ENROLLED_RULES.to_vec());
+    for plan in &artifact.adjudication.sampling_plan {
+        assert_eq!(plan.population, Population::Agent);
+        assert_eq!(plan.target, PROTOCOL_TARGET);
+        assert_eq!(plan.indices, stride(plan.observed, plan.target));
+    }
     assert_eq!(
         sampling_defects(&artifact.adjudication),
         Vec::<String>::new()

@@ -21,6 +21,7 @@ use support::corpus::coefficients::{
     Coefficient, KappaStatus, coefficient_defects, coefficients,
 };
 use support::corpus::interval::{Separation, interval_defects, separation, wilson_95};
+use support::corpus::sampling::PROTOCOL_TARGET;
 use support::corpus::{
     MINIMUM_REVIEWED_SITES, Population, PrecisionStatus, RulePrecision, SiteContext,
     THRESHOLD_BASIS_POINTS, Verdict, artifact, artifact_path, gate,
@@ -746,4 +747,109 @@ fn no_published_rate_is_withheld_by_what_its_interval_settles() {
             .filter(|rule| rule.false_positive_rate_basis_points.is_some())
             .count()
     );
+}
+
+// ---------------------------------------------------------------------------
+// US-013: no structural rule of the agent population is left unjudged
+// ---------------------------------------------------------------------------
+
+/// The structural rules the agent population observes and has never judged.
+///
+/// Frozen by name, the way `CLEARED_BLIND` is and for the same reason: the
+/// four rules that dominate this population's score carry a rate, and these
+/// three are the debt that remains. A rule leaving this list is a measurement
+/// and a rule entering it is a rate that went away, so both move an assertion
+/// rather than a count nobody reads. Between them they account for a hundred
+/// and twenty-five findings against the four thousand the measured rules do,
+/// which is why the debt is named rather than blocking.
+const UNJUDGED_ON_AGENT_CODE: [&str; 3] = [
+    "rust_doctor::structure::crate_level_allow",
+    "rust_doctor::structure::unreasoned_allow_attribute",
+    "rust_doctor::structure::unreferenced_feature",
+];
+
+/// Every structural rule this population observes carries a verdict, or is
+/// named in the frozen debt.
+///
+/// The failure names the offending rule, because the whole point of the list
+/// is that a reader learns which rule went unjudged without diffing sixty-two
+/// rows: a rate on the population the tool exists for is the number its score
+/// ranks by, and a rule with no verdict there is ranked on a healthy-code
+/// estimate of what it costs somewhere else.
+#[test]
+fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict() {
+    let artifact = artifact();
+    let debt: BTreeSet<&str> = UNJUDGED_ON_AGENT_CODE.into_iter().collect();
+
+    let mut judged = 0usize;
+    for rule in &artifact.agent_population.precision {
+        if !rule.id.starts_with("rust_doctor::structure::") || rule.findings == 0 {
+            continue;
+        }
+        if debt.contains(rule.id.as_str()) {
+            assert_eq!(rule.reviewed, 0, "{} is judged and still named as debt", rule.id);
+            continue;
+        }
+        assert!(
+            rule.reviewed > 0,
+            "{} is observed on agent-written code and judged by nothing",
+            rule.id
+        );
+        judged += 1;
+    }
+    assert_eq!(judged, 6);
+
+    // The debt is the debt of this population, never of the record: each of
+    // the three carries a healthy rate, so what is missing is the second
+    // answer and not the first.
+    for id in UNJUDGED_ON_AGENT_CODE {
+        let healthy = artifact.precision.iter().find(|rule| rule.id == id).unwrap();
+        assert_eq!(healthy.status, PrecisionStatus::Measured, "{id}");
+    }
+}
+
+/// A sample that settles nothing at twenty sites is published as such.
+///
+/// `oversized_unit` reports one false positive in twenty on agent-written
+/// code, a point estimate landing exactly on the threshold, and the interval
+/// its sample supports spans it. Deepening the sample until the bound moves is
+/// how a record ends up publishing the sample size that produced the answer
+/// its author wanted, so the indecisive verdict is the published one and the
+/// rate is published beside it rather than withheld.
+#[test]
+fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened() {
+    let artifact = artifact();
+    let rule = artifact
+        .agent_population
+        .precision
+        .iter()
+        .find(|rule| rule.id == "rust_doctor::structure::oversized_unit")
+        .unwrap();
+
+    assert_eq!(rule.reviewed, PROTOCOL_TARGET);
+    assert_eq!(rule.false_positives, Some(1));
+    assert_eq!(
+        rule.false_positive_rate_basis_points,
+        Some(THRESHOLD_BASIS_POINTS)
+    );
+    assert_eq!(rule.separation, Some(Separation::Indecisive));
+    let low = rule.interval_low_basis_points.unwrap();
+    let high = rule.interval_high_basis_points.unwrap();
+    assert!(low <= THRESHOLD_BASIS_POINTS && THRESHOLD_BASIS_POINTS <= high);
+    assert_eq!((low, high), wilson_95(1, PROTOCOL_TARGET));
+
+    // The other two rates of the same draw separate, which is what says the
+    // indecision is this rule's sample and not the target the protocol takes.
+    for id in [
+        "rust_doctor::structure::duplicate_function_body",
+        "rust_doctor::structure::near_duplicate_function_body",
+    ] {
+        let other = artifact
+            .agent_population
+            .precision
+            .iter()
+            .find(|rule| rule.id == id)
+            .unwrap();
+        assert_eq!(other.separation, Some(Separation::Above), "{id}");
+    }
 }
