@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
 
+use support::corpus::agreement::Agreement;
 use support::corpus::{
     ARTIFACTS_DIRECTORY_ENV, Adjudication, CACHE_DIRECTORY_ENV, CatalogRule, EXPECTED_REPOSITORIES,
     GateVerdict, HarnessPaths, MINIMUM_REVIEWED_SITES, MINIMUM_SPREAD, Manifest, ManifestEntry, Observation,
@@ -788,7 +789,10 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
 /// sample, not from `findings`.
 fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudication {
     Adjudication {
+        adjudicated_after_cutoff: Vec::new(),
+        agreement: Agreement::default(),
         criterion: "probe".to_owned(),
+        protocol_cutoff: "2026-08-21".to_owned(),
         provenance: "probe".to_owned(),
         sampling: "probe".to_owned(),
         trigger_verification: TriggerVerification {

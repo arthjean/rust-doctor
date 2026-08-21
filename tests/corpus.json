@@ -1,6 +1,76 @@
 {
   "adjudication": {
+    "adjudicated_after_cutoff": [],
+    "agreement": {
+      "escalations_open": 3,
+      "pairs": [
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 340,
+          "passes": [
+            {
+              "judge": "unrecorded",
+              "justification": "Four near-identical matcher constructions differing by the ignore filename each reads, which one parameterized helper could carry without changing behavior, so the measured branch count is decomposable rather than forced.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "unrecorded",
+              "justification": "The four matcher constructions differ by which ignore file they read and by what each absence means, and folding them into one helper would scatter that per-file handling, so the flat sequence is the clearest available form.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "crates/ignore/src/dir.rs",
+          "population": "healthy",
+          "repository": "ripgrep",
+          "rule": "rust_doctor::structure::complex_function"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 31,
+          "passes": [
+            {
+              "judge": "unrecorded",
+              "justification": "Four independent code generators stacked in one function, each producing a distinct piece of the derived implementation, and a named helper per generator would carry each one without changing what is emitted.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "unrecorded",
+              "justification": "The generators share the parsed input and are emitted as one expansion, so splitting them scatters a single decision about the derived output across several places a maintainer would have to reassemble to read it.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "impl/src/expand.rs",
+          "population": "healthy",
+          "repository": "thiserror",
+          "rule": "rust_doctor::structure::complex_function"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 221,
+          "passes": [
+            {
+              "judge": "unrecorded",
+              "justification": "Four independent code generators stacked in one function, each producing a distinct piece of the derived implementation, and a named helper per generator would carry each one without changing what is emitted.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "unrecorded",
+              "justification": "The generators share the parsed input and are emitted as one expansion, so splitting them scatters a single decision about the derived output across several places a maintainer would have to reassemble to read it.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "impl/src/expand.rs",
+          "population": "healthy",
+          "repository": "thiserror",
+          "rule": "rust_doctor::structure::complex_function"
+        }
+      ]
+    },
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
+    "protocol_cutoff": "2026-08-21",
     "provenance": "Who produced each verdict. \"human\" names a site a person read and judged. \"agent\" names a site adjudicated by an agent under the published protocol: the site read in the pinned source with its surrounding code, blind to any prior verdict, with a disagreement between independent passes escalated rather than settled by the agent. \"unrecorded\" names the sites judged before this field existed, whose author is not established; they are published as they were measured rather than reattributed after the fact. A rate mixing provenances is worth its weakest one, and no verdict, whoever produced it, is certified beyond the agreement two trained reviewers reach with each other.",
     "reviewed": [
       {
@@ -3841,10 +3911,12 @@
     ],
     "precision": [
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::arc_with_non_send_sync",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3852,10 +3924,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::await_holding_lock",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3863,10 +3937,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::await_holding_refcell_ref",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3874,10 +3950,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::dbg_macro",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3885,10 +3963,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::exit",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3896,10 +3976,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::expect_used",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3907,10 +3989,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::format_collect",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3918,10 +4002,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::indexing_slicing",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3929,10 +4015,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::large_types_passed_by_value",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3940,10 +4028,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::manual_memcpy",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3951,10 +4041,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::mem_forget",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3962,10 +4054,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::missing_safety_doc",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3973,10 +4067,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::mut_mutex_lock",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3984,10 +4080,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::non_send_fields_in_send_ty",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -3995,10 +4093,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::panic",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4006,10 +4106,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::panic_in_result_fn",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4017,10 +4119,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::permissions_set_readonly_false",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4028,10 +4132,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::print_stderr",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4039,10 +4145,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::print_stdout",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4050,10 +4158,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::ptr_arg",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4061,10 +4171,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::rc_buffer",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4072,10 +4184,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::rc_mutex",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4083,10 +4197,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::redundant_allocation",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4094,10 +4210,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::stable_sort_primitive",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4105,10 +4223,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::string_slice",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4116,10 +4236,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::suspicious_command_arg_space",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4127,10 +4249,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::todo",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4138,10 +4262,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::too_many_arguments",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4149,10 +4275,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::type_complexity",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4160,10 +4288,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::unimplemented",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4171,10 +4301,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::unnecessary_to_owned",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4182,10 +4314,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::unreachable",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4193,10 +4327,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::unused_async",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4204,10 +4340,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::unwrap_used",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4215,10 +4353,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::useless_vec",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4226,10 +4366,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::vec_init_then_push",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4237,10 +4379,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "clippy::zombie_processes",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4248,10 +4392,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 28,
         "id": "rust_doctor::cargo::duplicate_major_versions",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4259,10 +4405,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": 0,
         "false_positives": 0,
         "findings": 3,
         "id": "rust_doctor::cargo::missing_lockfile",
+        "judges": [],
         "provenance": [
           "agent"
         ],
@@ -4272,10 +4420,12 @@
         "true_positives": 3
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4283,10 +4433,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::permissive_lint_table",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4294,10 +4446,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::permissive_rustflags",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4305,10 +4459,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::release_debug_symbols",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4316,10 +4472,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 3,
         "id": "rust_doctor::cargo::test_only_dependency",
+        "judges": [],
         "provenance": [],
         "reviewed": 2,
         "status": "incomplete",
@@ -4327,10 +4485,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::unbounded_registry_dependency",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4338,10 +4498,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 8,
         "id": "rust_doctor::cargo::unchecked_release_overflow",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4349,10 +4511,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::cargo::unpinned_git_dependency",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4360,10 +4524,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 5,
         "id": "rust_doctor::cargo::unused_dependency",
+        "judges": [],
         "provenance": [],
         "reviewed": 4,
         "status": "incomplete",
@@ -4371,10 +4537,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::repo::hardcoded_credential",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4382,10 +4550,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::repo::tracked_secret_file",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4393,10 +4563,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::repo::unignored_build_output",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4404,10 +4576,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::source::disabled_tls_verification",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4415,10 +4589,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::source::dynamic_shell_command",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "unobserved",
@@ -4426,10 +4602,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": 7000,
         "false_positives": 28,
         "findings": 1609,
         "id": "rust_doctor::structure::complex_function",
+        "judges": [],
         "provenance": [
           "agent"
         ],
@@ -4439,10 +4617,12 @@
         "true_positives": 12
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 43,
         "id": "rust_doctor::structure::crate_level_allow",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4450,10 +4630,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 1476,
         "id": "rust_doctor::structure::duplicate_function_body",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4461,10 +4643,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 1120,
         "id": "rust_doctor::structure::near_duplicate_function_body",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4472,10 +4656,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": 625,
         "false_positives": 1,
         "findings": 16,
         "id": "rust_doctor::structure::orphan_module_file",
+        "judges": [],
         "provenance": [
           "agent"
         ],
@@ -4485,10 +4671,12 @@
         "true_positives": 15
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 948,
         "id": "rust_doctor::structure::oversized_unit",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4496,10 +4684,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": 5000,
         "false_positives": 1,
         "findings": 2,
         "id": "rust_doctor::structure::stacked_allow_attribute",
+        "judges": [],
         "provenance": [
           "agent"
         ],
@@ -4509,10 +4699,12 @@
         "true_positives": 1
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 80,
         "id": "rust_doctor::structure::unreasoned_allow_attribute",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -4520,10 +4712,12 @@
         "true_positives": null
       },
       {
+        "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 2,
         "id": "rust_doctor::structure::unreferenced_feature",
+        "judges": [],
         "provenance": [],
         "reviewed": 0,
         "status": "incomplete",
@@ -6381,10 +6575,12 @@
   ],
   "precision": [
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::arc_with_non_send_sync",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6392,10 +6588,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::await_holding_lock",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6403,10 +6601,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::await_holding_refcell_ref",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6414,10 +6614,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::dbg_macro",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6425,10 +6627,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 10,
       "id": "clippy::exit",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6438,10 +6642,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 8000,
       "false_positives": 4,
       "findings": 23,
       "id": "clippy::expect_used",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6451,10 +6657,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::format_collect",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6462,10 +6670,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 40,
       "findings": 246,
       "id": "clippy::indexing_slicing",
+      "judges": [],
       "provenance": [
         "agent",
         "unrecorded"
@@ -6476,10 +6686,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::large_types_passed_by_value",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6487,10 +6699,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::manual_memcpy",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6498,10 +6712,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 1,
       "findings": 1,
       "id": "clippy::mem_forget",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6511,10 +6727,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
       "findings": 2,
       "id": "clippy::missing_safety_doc",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6524,10 +6742,12 @@
       "true_positives": 2
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::mut_mutex_lock",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6535,10 +6755,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::non_send_fields_in_send_ty",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6546,10 +6768,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 11,
       "id": "clippy::panic",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6559,10 +6783,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 46,
       "id": "clippy::panic_in_result_fn",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6572,10 +6798,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::permissions_set_readonly_false",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6583,10 +6811,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 9,
       "id": "clippy::print_stderr",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6596,10 +6826,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::print_stdout",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6607,10 +6839,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
       "findings": 1,
       "id": "clippy::ptr_arg",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6620,10 +6854,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
       "findings": 6,
       "id": "clippy::rc_buffer",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6633,10 +6869,12 @@
       "true_positives": 5
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::rc_mutex",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6644,10 +6882,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::redundant_allocation",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6655,10 +6895,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
       "findings": 1,
       "id": "clippy::stable_sort_primitive",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6668,10 +6910,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 40,
       "findings": 40,
       "id": "clippy::string_slice",
+      "judges": [],
       "provenance": [
         "agent",
         "unrecorded"
@@ -6682,10 +6926,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::suspicious_command_arg_space",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6693,10 +6939,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::todo",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6704,10 +6952,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 1,
       "findings": 1,
       "id": "clippy::too_many_arguments",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6717,10 +6967,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 2,
       "id": "clippy::type_complexity",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "incomplete",
@@ -6728,10 +6980,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unimplemented",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6739,10 +6993,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unnecessary_to_owned",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6750,10 +7006,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 8000,
       "false_positives": 4,
       "findings": 23,
       "id": "clippy::unreachable",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6763,10 +7021,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::unused_async",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6774,10 +7034,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 117,
       "id": "clippy::unwrap_used",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6787,10 +7049,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::useless_vec",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6798,10 +7062,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::vec_init_then_push",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6809,10 +7075,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "clippy::zombie_processes",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6820,10 +7088,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 0,
       "false_positives": 0,
       "findings": 1,
       "id": "rust_doctor::cargo::duplicate_major_versions",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6833,10 +7103,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::missing_lockfile",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6844,10 +7116,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::path_dependency_outside_workspace",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6855,10 +7129,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::permissive_lint_table",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6866,10 +7142,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::permissive_rustflags",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6877,10 +7155,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::release_debug_symbols",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6888,10 +7168,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::test_only_dependency",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6899,10 +7181,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6910,10 +7194,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 3333,
       "false_positives": 1,
       "findings": 3,
       "id": "rust_doctor::cargo::unchecked_release_overflow",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -6923,10 +7209,12 @@
       "true_positives": 2
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unpinned_git_dependency",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6934,10 +7222,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::cargo::unused_dependency",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6945,10 +7235,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::hardcoded_credential",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6956,10 +7248,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::tracked_secret_file",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6967,10 +7261,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::repo::unignored_build_output",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6978,10 +7274,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::source::disabled_tls_verification",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -6989,10 +7287,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::source::dynamic_shell_command",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -7000,10 +7300,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 8709,
       "false_positives": 27,
       "findings": 34,
       "id": "rust_doctor::structure::complex_function",
+      "judges": [],
       "provenance": [
         "agent",
         "unrecorded"
@@ -7014,10 +7316,12 @@
       "true_positives": 4
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 33,
       "id": "rust_doctor::structure::crate_level_allow",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7027,10 +7331,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 4000,
       "false_positives": 8,
       "findings": 134,
       "id": "rust_doctor::structure::duplicate_function_body",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7040,10 +7346,12 @@
       "true_positives": 12
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 8000,
       "false_positives": 4,
       "findings": 98,
       "id": "rust_doctor::structure::near_duplicate_function_body",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7053,10 +7361,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
       "id": "rust_doctor::structure::orphan_module_file",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "unobserved",
@@ -7064,10 +7374,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 8000,
       "false_positives": 4,
       "findings": 58,
       "id": "rust_doctor::structure::oversized_unit",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7077,10 +7389,12 @@
       "true_positives": 1
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 1,
       "id": "rust_doctor::structure::stacked_allow_attribute",
+      "judges": [],
       "provenance": [],
       "reviewed": 0,
       "status": "incomplete",
@@ -7088,10 +7402,12 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7101,10 +7417,12 @@
       "true_positives": 0
     },
     {
+      "doubly_judged": 0,
       "false_positive_rate_basis_points": 10000,
       "false_positives": 5,
       "findings": 7,
       "id": "rust_doctor::structure::unreferenced_feature",
+      "judges": [],
       "provenance": [
         "unrecorded"
       ],
@@ -7114,7 +7432,7 @@
       "true_positives": 0
     }
   ],
-  "schema_version": 3,
+  "schema_version": 4,
   "score_distribution": {
     "agent": {
       "bands": [

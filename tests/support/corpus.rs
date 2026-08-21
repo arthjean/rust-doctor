@@ -15,6 +15,10 @@ use rust_doctor::{RuleTier, catalog};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub(crate) mod agreement;
+
+use agreement::{Agreement, ProtocolScope};
+
 /// Published threshold, in basis points. The rate is computed in integer
 /// arithmetic so that two runs of the report produce identical bytes.
 pub(crate) const THRESHOLD_BASIS_POINTS: u64 = 500;
@@ -392,7 +396,22 @@ pub(crate) struct DimensionObservation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Adjudication {
+    /// The `(rule, population)` samples adjudicated after `protocol_cutoff`.
+    ///
+    /// Empty today: every one of the two hundred and seventy-three published
+    /// verdicts predates the cutoff and is re-adjudicated by nothing. A sample
+    /// judged under the protocol is enrolled here, and every reviewed site of
+    /// an enrolled sample has to carry an agreeing pair.
+    pub(crate) adjudicated_after_cutoff: Vec<ProtocolScope>,
+    pub(crate) agreement: Agreement,
     pub(crate) criterion: String,
+    /// Date from which a verdict must be backed by a double pass.
+    ///
+    /// The protocol applies forward. The verdicts produced before it stay
+    /// single-pass and keep the provenance they were measured under: recording
+    /// them as pairs would mean inventing a second justification for each, and
+    /// a fabricated pass is worse evidence than an honest single one.
+    pub(crate) protocol_cutoff: String,
     /// What the provenance of a verdict means and what the reader may conclude
     /// from each value. Published beside the rates, because a sample judged by
     /// an agent and one judged by a person are not the same evidence.
@@ -500,11 +519,20 @@ pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RulePrecision {
+    /// Sites of this rate backed by an agreeing pair. Zero when the rate rests
+    /// on verdicts produced before the protocol cutoff, which is what every
+    /// rate published today rests on.
+    pub(crate) doubly_judged: u64,
     pub(crate) false_positive_rate_basis_points: Option<u64>,
     pub(crate) false_positives: Option<u64>,
     /// Population observed on the corpus. Never the denominator of the rate.
     pub(crate) findings: u64,
     pub(crate) id: String,
+    /// Distinct judges behind the pairs backing this rate, sorted. Empty when
+    /// no site of the rate carries a pair, the way `provenance` is empty when
+    /// no rate is published: it rides the rate for the same reason, since who
+    /// judged a sample is what decides how much a reader can lean on it.
+    pub(crate) judges: Vec<String>,
     /// Distinct provenances of the verdicts this rate rests on, sorted. Empty
     /// when no rate is published. It rides the rate rather than staying buried
     /// in the site list, because this is where a reader looks: a rate is worth
@@ -1251,6 +1279,11 @@ pub(crate) fn precision_of(
         .map(|site| site.rule.as_str())
         .collect();
 
+    // What the double pass backs, read once for the whole population rather
+    // than per rule: a rate says how many of its sites carry a pair and which
+    // judges produced them, and both answers come from the same map.
+    let backing = agreement::backing(&adjudication.agreement);
+
     catalog
         .iter()
         .map(|rule| {
@@ -1262,10 +1295,12 @@ pub(crate) fn precision_of(
                 .sum();
             if findings == 0 {
                 return RulePrecision {
+                    doubly_judged: 0,
                     false_positive_rate_basis_points: None,
                     false_positives: None,
                     findings: 0,
                     id: id.to_owned(),
+                    judges: Vec::new(),
                     provenance: Vec::new(),
                     reviewed: 0,
                     status: PrecisionStatus::Unobserved,
@@ -1282,10 +1317,12 @@ pub(crate) fn precision_of(
                 && !stale.contains(id);
             if !publishable {
                 return RulePrecision {
+                    doubly_judged: 0,
                     false_positive_rate_basis_points: None,
                     false_positives: None,
                     findings,
                     id: id.to_owned(),
+                    judges: Vec::new(),
                     provenance: Vec::new(),
                     reviewed: count,
                     status: PrecisionStatus::Incomplete,
@@ -1300,13 +1337,32 @@ pub(crate) fn precision_of(
                 .count() as u64;
             let provenance: BTreeSet<Provenance> =
                 reviewed.iter().map(|site| site.provenance).collect();
+            let mut doubly_judged = 0u64;
+            let mut judges: BTreeSet<&str> = BTreeSet::new();
+            for site in reviewed {
+                let identity = (
+                    site.rule.as_str(),
+                    population,
+                    site.repository.as_str(),
+                    site.path.as_str(),
+                    site.line,
+                );
+                if let Some(pair) = backing.get(&identity) {
+                    doubly_judged += 1;
+                    for pass in &pair.passes {
+                        judges.insert(pass.judge.as_str());
+                    }
+                }
+            }
             RulePrecision {
+                doubly_judged,
                 false_positive_rate_basis_points: Some(
                     false_positives.saturating_mul(10_000) / count,
                 ),
                 false_positives: Some(false_positives),
                 findings,
                 id: id.to_owned(),
+                judges: judges.into_iter().map(str::to_owned).collect(),
                 provenance: provenance.into_iter().collect(),
                 reviewed: count,
                 status: PrecisionStatus::Measured,
