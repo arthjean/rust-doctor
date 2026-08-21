@@ -3,13 +3,18 @@ name: Corpus
 # The analogue of React Doctor's delta-audit.yml: replay the pinned corpus and
 # check that the published measurement still reproduces.
 #
-# Manual only, and deliberately not nightly. The test asserts strict equality
-# against tests/corpus.json, which was recorded under one exact toolchain
-# (rustc 1.97.1 / clippy 0.1.97, named in the artifact's `toolchain` block).
-# Nothing in the corpus floats: repositories are pinned by commit and the
-# toolchain is pinned here, so a scheduled run can only ever repeat the same
-# answer at the cost of compiling eighteen repositories. Run it when a rule
-# changes, which is when the answer can change.
+# By hand, and on a pull request that edits the record itself. Deliberately not
+# nightly: the test asserts strict equality against tests/corpus.json, which was
+# recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in the
+# artifact's `toolchain` block). Nothing in the corpus floats: repositories are
+# pinned by commit and the toolchain is pinned here, so a scheduled run can only
+# ever repeat the same answer at the cost of compiling eighteen repositories.
+#
+# A pull request that edits the record is the one case where the answer can have
+# changed without anyone running this by hand, and it is the case where a site
+# can be added to the file with no run behind it. The position proof is what
+# refuses that offline, and this trigger is what lets a pull request rewrite it:
+# the two are the same gate, seen from the two sides.
 #
 # TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
 # scanning runs `cargo clippy`, which executes their build scripts and
@@ -20,10 +25,28 @@ name: Corpus
 
 on:
   workflow_dispatch:
+  # The record and the harness that reads it, and nothing else. A pull request
+  # touching none of these four paths never starts this job: the filter is what
+  # decides, not a condition inside a job that has already booted a runner and
+  # cloned eighteen repositories to find out it had nothing to do.
+  #
+  # tests/support/corpus/ is here for the same reason tests/support/corpus.rs
+  # is: the harness is what recomputes the published numbers from the record,
+  # so a change to either can move the measurement without touching the record.
+  pull_request:
+    paths:
+      - tests/corpus.json
+      - tests/corpus_precision.rs
+      - tests/support/corpus.rs
+      - tests/support/corpus/**
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  # Per branch rather than per workflow, now that a pull request can start this
+  # job: one queue for every open branch would serialize three-hour runs behind
+  # each other. A new push to a pull request supersedes the run it obsoletes,
+  # and a manual run is never cancelled, since nothing is coming to replace it.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -43,6 +66,47 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Before the toolchain, and before a single clone. This job replays a
+      # pinned corpus out of a cache; what it costs when the cache is not there
+      # is eighteen third-party repositories fetched over the network, so the
+      # first thing it does is find out.
+      #
+      # Restore and save are separate steps because the main action publishes
+      # only `cache-hit`, an exact match, and the case that has to be told apart
+      # here is an exact match from a prefix match from nothing at all. That is
+      # `cache-matched-key`, which only the restore action publishes.
+      #
+      # `runner.temp` is spelled literally rather than read from the environment
+      # the next step writes, since a `with:` block is evaluated before any step
+      # of this job has run. The two spellings are asserted equal below.
+      - name: Restore the clone cache
+        id: clones
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          # Keyed on the record itself: a new pinned revision changes the file,
+          # which moves the key. The prefix is what a pull request editing the
+          # record lands on, which is every pull request this trigger fires for:
+          # the newest cache of an earlier record is restored, and the
+          # materialization below tops up the repositories whose revision moved.
+          # One shallow fetch, not eighteen.
+          key: corpus-clones-${{ hashFiles('tests/corpus.json') }}
+          restore-keys: corpus-clones-
+
+      # A pull request that matched no cache at all would clone eighteen
+      # third-party repositories to answer a question about a diff, and would do
+      # it silently. Name the key that was missed and stop. A manual run on the
+      # base branch is what seeds the cache, and it is the run allowed to pay
+      # that cost.
+      - name: Require the clone cache on a pull request
+        if: github.event_name == 'pull_request' && steps.clones.outputs.cache-matched-key == ''
+        run: |
+          echo "No clone cache matched ${{ steps.clones.outputs.cache-primary-key }},"
+          echo "and nothing matched the prefix corpus-clones- either."
+          echo "Seed it with a manual run on the base branch, then re-run this job:"
+          echo "  gh workflow run corpus.yml"
+          exit 1
+
       # Both paths must sit outside the repository: the reproduction test
       # refuses to run otherwise, because a corpus checkout inside the working
       # tree would be scanned as if it were part of this crate. The runner temp
@@ -57,6 +121,10 @@ jobs:
             echo "RUST_DOCTOR_CORPUS_ARTIFACTS=$RUNNER_TEMP/corpus-artifacts"
           } >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/corpus-cache" "$RUNNER_TEMP/corpus-artifacts"
+          # The cache was restored into the literal spelling of this path one
+          # step earlier. If the two ever disagree, the restore lands somewhere
+          # nothing reads and the job silently re-clones the whole corpus.
+          test "$RUNNER_TEMP/corpus-cache" = "${{ runner.temp }}/corpus-cache"
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -69,14 +137,6 @@ jobs:
         with:
           prefix-key: "v1-rust"
           key: corpus
-
-      # Keyed on the manifest itself: a new pinned revision changes the file,
-      # which invalidates the cache and re-clones. Nothing else does.
-      - name: Restore the clone cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.RUST_DOCTOR_CORPUS_DIR }}
-          key: corpus-clones-${{ hashFiles('tests/corpus.json') }}
 
       # One shallow fetch of the exact revision per repository, across both
       # populations: `manifest.repositories` is the healthy public code,
@@ -101,8 +161,32 @@ jobs:
             git -C "$repository" checkout --quiet --detach FETCH_HEAD
           done
 
+      # Save what the materialization topped up, under the key of the record
+      # this run replayed. A pull request that pins a new revision leaves the
+      # next one a cache that already holds it, which is what keeps the prefix
+      # restore one fetch behind rather than eighteen.
+      - name: Save the clone cache
+        if: steps.clones.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          key: ${{ steps.clones.outputs.cache-primary-key }}
+
       - name: Reproduce
         run: cargo test --locked --test corpus_precision
+
+      # The reproduction writes the position proof once it has located every
+      # published site of both populations. That file is what anchors the record
+      # offline, and a pull request that adds a site is expected to copy it into
+      # tests/corpus.json: keep it whether the job passed or not.
+      - name: Upload the position proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-position-proof
+          path: ${{ env.RUST_DOCTOR_CORPUS_ARTIFACTS }}/position-proof.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # The reproduction test writes the replayed observations next to the
       # artifacts when they differ from the published ones. That file is the
