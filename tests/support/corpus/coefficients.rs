@@ -88,6 +88,22 @@ impl ContingencyTable {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Coefficient {
+    /// Gwet's AC1 in basis points, defined wherever the row holds a pair.
+    ///
+    /// Beside kappa rather than instead of it, which is the standard response
+    /// in the annotation literature and not a choice between the two. Kappa
+    /// collapses at high prevalence: with most sites judged the same way,
+    /// agreement by chance is already high, so the correction eats an
+    /// agreement of nine sites in ten and publishes a coefficient that reads
+    /// as moderate. AC1 was built against exactly that, its chance term does
+    /// not inflate with prevalence, and it stays defined where kappa does not.
+    ///
+    /// Not an `Option`: a row that holds a pair holds an AC1, so absence is
+    /// refused at deserialization rather than checked afterwards. Signed for
+    /// the reason kappa is, and this is not hypothetical: the three escalated
+    /// sites of 2026-08-11 are two passes that agreed on nothing, which is an
+    /// AC1 of minus one whole.
+    pub(crate) ac1_basis_points: i64,
     pub(crate) agreed: u64,
     /// Cohen's kappa in basis points, absent exactly when it is undefined.
     ///
@@ -120,6 +136,7 @@ pub(crate) fn coefficients(agreement: &Agreement) -> Vec<Coefficient> {
         .map(|((rule, population), table)| {
             let kappa = kappa(&table);
             Coefficient {
+                ac1_basis_points: to_basis_points(ac1(&table)),
                 agreed: table.agreed(),
                 kappa_basis_points: kappa.map(to_basis_points),
                 kappa_status: match kappa {
@@ -154,6 +171,34 @@ fn kappa(table: &ContingencyTable) -> Option<f64> {
     let second = second as f64 / n;
     let expected = first * second + (1.0 - first) * (1.0 - second);
     Some((observed - expected) / (1.0 - expected))
+}
+
+/// Gwet's AC1 over one table.
+///
+/// One table for both coefficients, so two figures over the same pairs can
+/// never disagree about what those pairs were. What separates them is the
+/// chance term alone: kappa multiplies the two margins, which is what makes it
+/// collapse when both lean the same way, while AC1 reads the prevalence of one
+/// category across both passes and corrects by `2 p (1 - p)`. That term is at
+/// most one half, so the denominator never approaches zero and the coefficient
+/// is defined on every table that holds a pair, including the no-variance case
+/// kappa has to decline.
+///
+/// A table with no pair yields zero, which no published row can carry: a
+/// `(rule, population)` reaches this function only by having been counted at
+/// least once.
+fn ac1(table: &ContingencyTable) -> f64 {
+    let pairs = table.pairs();
+    if pairs == 0 {
+        return 0.0;
+    }
+
+    let n = pairs as f64;
+    let (first, second) = table.margins();
+    let observed = table.agreed() as f64 / n;
+    let prevalence = (first as f64 / n + second as f64 / n) / 2.0;
+    let expected = 2.0 * prevalence * (1.0 - prevalence);
+    (observed - expected) / (1.0 - expected)
 }
 
 /// A coefficient in signed basis points, rounded half away from zero.
@@ -192,6 +237,11 @@ pub(crate) fn coefficient_defects(agreement: &Agreement) -> Vec<String> {
                 ));
             }
         };
+        compare(
+            "ac1_basis_points",
+            stored.ac1_basis_points.to_string(),
+            row.ac1_basis_points.to_string(),
+        );
         compare("agreed", stored.agreed.to_string(), row.agreed.to_string());
         compare("pairs", stored.pairs.to_string(), row.pairs.to_string());
         compare(

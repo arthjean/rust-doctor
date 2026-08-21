@@ -4,6 +4,7 @@
     "agreement": {
       "coefficients": [
         {
+          "ac1_basis_points": -10000,
           "agreed": 0,
           "kappa_basis_points": null,
           "kappa_status": "undefined_no_variance",

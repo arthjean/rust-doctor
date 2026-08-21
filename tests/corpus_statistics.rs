@@ -310,6 +310,10 @@ fn the_published_coefficients_are_the_coefficients_recomputed_from_the_pairs() {
             row.kappa_status == KappaStatus::Defined,
             "{row:?}"
         );
+        assert!(
+            (-10_000..=10_000).contains(&row.ac1_basis_points),
+            "{row:?}"
+        );
     }
 }
 
@@ -332,7 +336,11 @@ fn a_hand_edited_coefficient_is_refused_naming_the_rule_and_the_field() {
     };
 
     for (field, edit) in [
-        ("agreed", (|row: &mut Coefficient| row.agreed += 1) as fn(&mut Coefficient)),
+        (
+            "ac1_basis_points",
+            (|row: &mut Coefficient| row.ac1_basis_points += 1) as fn(&mut Coefficient),
+        ),
+        ("agreed", |row: &mut Coefficient| row.agreed += 1),
         ("pairs", |row: &mut Coefficient| row.pairs += 1),
         ("kappa_basis_points", |row: &mut Coefficient| {
             row.kappa_basis_points = Some(10_000)
@@ -486,6 +494,147 @@ fn the_sampling_prose_states_no_agreement_quantity() {
     // length assertions of `corpus_precision` hold it to.
     assert!(artifact.adjudication.sampling.len() > 80);
     assert!(artifact.adjudication.sampling.contains("stride"));
+}
+
+// ---------------------------------------------------------------------------
+// US-008: a coefficient that does not collapse at high prevalence
+// ---------------------------------------------------------------------------
+
+/// An agreement whose table holds the four given cells, one pair per site.
+///
+/// Built from counts rather than from a list of verdicts, because what a
+/// coefficient reads is the table and what a reader disagreeing with a
+/// coefficient recomputes by hand is the table: a test that states the four
+/// cells states the input of both figures at once.
+fn tabled(
+    both_false_positive: u64,
+    both_true_positive: u64,
+    first_only_false_positive: u64,
+    second_only_false_positive: u64,
+) -> Agreement {
+    let mut pairs = Vec::new();
+    let mut line = 0;
+    let mut push = |count: u64, first: Verdict, second: Verdict, pairs: &mut Vec<AdjudicatedPair>| {
+        for _ in 0..count {
+            line += 1;
+            pairs.push(pair(line, "clippy::probe", first, second));
+        }
+    };
+    push(
+        both_false_positive,
+        Verdict::FalsePositive,
+        Verdict::FalsePositive,
+        &mut pairs,
+    );
+    push(
+        both_true_positive,
+        Verdict::TruePositive,
+        Verdict::TruePositive,
+        &mut pairs,
+    );
+    push(
+        first_only_false_positive,
+        Verdict::FalsePositive,
+        Verdict::TruePositive,
+        &mut pairs,
+    );
+    push(
+        second_only_false_positive,
+        Verdict::TruePositive,
+        Verdict::FalsePositive,
+        &mut pairs,
+    );
+    recorded(pairs)
+}
+
+/// AC1 is published wherever a pair is, kappa only where the passes varied.
+///
+/// Both behaviors are asserted on the same row, because the point is not that
+/// two coefficients exist: it is that the row kappa has to decline is a row a
+/// reader still gets an agreement figure for. The artifact's own row is that
+/// case today, and the no-variance row on the other side of it is the one an
+/// unguarded kappa would have published as perfect agreement.
+#[test]
+fn ac1_is_published_where_kappa_declines_on_the_same_pairs() {
+    let artifact = artifact();
+    let published = artifact
+        .adjudication
+        .agreement
+        .coefficients
+        .iter()
+        .find(|row| row.kappa_status == KappaStatus::UndefinedNoVariance);
+    let published = published.expect("the artifact publishes a row with no variance");
+    assert_eq!(published.kappa_basis_points, None);
+    assert!(published.pairs > 0, "{published:?}");
+    // Two passes that agreed on nothing, which is an AC1 of minus one whole:
+    // negative is representable, and it is the value the record actually
+    // carries rather than a case invented to exercise the sign.
+    assert_eq!(published.ac1_basis_points, -10_000, "{published:?}");
+
+    let unanimous = tabled(0, 3, 0, 0);
+    let row = &unanimous.coefficients[0];
+    assert_eq!(row.kappa_status, KappaStatus::UndefinedNoVariance);
+    assert_eq!(row.kappa_basis_points, None);
+    assert_eq!(row.ac1_basis_points, 10_000, "{row:?}");
+}
+
+/// At high prevalence the same pairs read materially higher under AC1.
+///
+/// The 2026-08-11 shape: twenty-nine pairs, twenty-six agreed, most sites
+/// judged the same way. Kappa reads that as moderate, which is the documented
+/// prevalence paradox and the reason AC1 is published beside it. The ordering
+/// is what is asserted, never the two values: the claim is that one coefficient
+/// does not collapse where the other does, and freezing the figures would make
+/// this test a copy of the arithmetic it is checking.
+#[test]
+fn a_prevalence_skewed_agreement_reads_higher_under_ac1_than_under_kappa() {
+    let skewed = tabled(3, 23, 2, 1);
+    let row = &skewed.coefficients[0];
+    assert_eq!(row.pairs, 29, "{row:?}");
+    assert_eq!(row.agreed, 26, "{row:?}");
+    assert_eq!(row.kappa_status, KappaStatus::Defined, "{row:?}");
+    let kappa = row.kappa_basis_points.unwrap_or_default();
+    assert!(
+        row.ac1_basis_points > kappa + 1_000,
+        "AC1 {} does not read materially above kappa {kappa}",
+        row.ac1_basis_points
+    );
+
+    // And where prevalence is balanced the two agree about the same pairs,
+    // which is what says the gap above is the prevalence and not the formula.
+    let balanced = tabled(13, 13, 2, 1);
+    let row = &balanced.coefficients[0];
+    let kappa = row.kappa_basis_points.unwrap_or_default();
+    assert!(
+        (row.ac1_basis_points - kappa).abs() < 1_000,
+        "AC1 {} and kappa {kappa} disagree on a balanced table",
+        row.ac1_basis_points
+    );
+}
+
+/// A negative AC1 clamped by hand fails, naming the rule and the field.
+#[test]
+fn a_hand_clamped_negative_ac1_is_refused() {
+    let mut opposed = tabled(0, 0, 0, 3);
+    assert_eq!(opposed.coefficients[0].ac1_basis_points, -10_000);
+    opposed.coefficients[0].ac1_basis_points = 0;
+    let named = defect_naming(&coefficient_defects(&opposed), "ac1_basis_points");
+    assert!(named.contains("clippy::probe"), "{named}");
+}
+
+/// A row that states an agreement and no AC1 is not a row this schema holds.
+///
+/// The field is not an `Option`, so the refusal is the deserialization itself
+/// rather than a check written after it: a row holding a pair holds an AC1, and
+/// the only way to publish one without is to invent a shape the reader rejects.
+#[test]
+fn a_coefficient_row_without_an_ac1_fails_deserialization() {
+    let honest = &tabled(0, 2, 1, 0).coefficients[0];
+    let mut value = serde_json::to_value(honest).unwrap();
+    let object = value.as_object_mut().unwrap();
+    assert!(object.remove("ac1_basis_points").is_some());
+    let refused = serde_json::from_value::<Coefficient>(value);
+    assert!(refused.is_err(), "{refused:?}");
 }
 
 // ---------------------------------------------------------------------------
