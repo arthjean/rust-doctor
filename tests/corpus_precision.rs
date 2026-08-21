@@ -741,6 +741,30 @@ fn two_computations_of_the_precision_report_are_identical() {
         serde_json::to_string(&first).unwrap(),
         serde_json::to_string(&second).unwrap()
     );
+
+    // The interval rides the rate, so it rides this too: the bounds come out of
+    // a floating-point computation, and a statistic two runs can disagree on is
+    // a record neither of them can reproduce. IEEE-754 mandates correctly
+    // rounded arithmetic and square root, which is what makes the equality
+    // above hold over the bounds rather than merely over the counts.
+    let bounds: Vec<_> = first
+        .iter()
+        .zip(&second)
+        .map(|(first, second)| {
+            assert_eq!(first.id, second.id);
+            assert_eq!(
+                (first.interval_low_basis_points, first.interval_high_basis_points, first.separation),
+                (second.interval_low_basis_points, second.interval_high_basis_points, second.separation),
+                "{} bounds differ between two computations",
+                first.id
+            );
+            first.interval_low_basis_points
+        })
+        .collect();
+    assert!(
+        bounds.iter().any(Option::is_some),
+        "no rate carries an interval at all"
+    );
     assert_eq!(
         serde_json::to_string(&score_distribution(
             &artifact.observations,

@@ -17,8 +17,10 @@ use serde_json::Value;
 
 pub(crate) mod agreement;
 pub(crate) mod coefficients;
+pub(crate) mod interval;
 
 use agreement::{Agreement, ProtocolScope};
+use interval::Separation;
 
 /// Published threshold, in basis points. The rate is computed in integer
 /// arithmetic so that two runs of the report produce identical bytes.
@@ -529,6 +531,17 @@ pub(crate) struct RulePrecision {
     /// Population observed on the corpus. Never the denominator of the rate.
     pub(crate) findings: u64,
     pub(crate) id: String,
+    /// Upper and lower bound of the Wilson 95 % interval of the rate, in basis
+    /// points, present exactly when the rate is.
+    ///
+    /// A rate is a sample, and twenty of the twenty-four healthy rates rest on
+    /// five sites or fewer. Published beside the point estimate rather than
+    /// left to a reader with a calculator, because the ranking the report does
+    /// reads the point estimate alone: what the interval changes is not the
+    /// order, it is whether whoever decides to change the order can see what
+    /// the order rests on.
+    pub(crate) interval_high_basis_points: Option<u64>,
+    pub(crate) interval_low_basis_points: Option<u64>,
     /// Distinct judges behind the pairs backing this rate, sorted. Empty when
     /// no site of the rate carries a pair, the way `provenance` is empty when
     /// no rate is published: it rides the rate for the same reason, since who
@@ -542,6 +555,9 @@ pub(crate) struct RulePrecision {
     pub(crate) provenance: Vec<Provenance>,
     /// Sites actually read back. This is the denominator of the published rate.
     pub(crate) reviewed: u64,
+    /// What the interval settles against the published threshold, present
+    /// exactly when the rate is.
+    pub(crate) separation: Option<Separation>,
     pub(crate) status: PrecisionStatus,
     pub(crate) tier: String,
     pub(crate) true_positives: Option<u64>,
@@ -554,6 +570,16 @@ pub(crate) struct GateOutcome {
     /// unproven rule appears there: the two following lists annotate it, they
     /// do not disqualify it.
     pub(crate) admitted: Vec<String>,
+    /// Rules the gate admits with a rate whose interval settles nothing: not
+    /// named noisy, and not separated from the threshold by their own sample.
+    ///
+    /// The gate's only positive statement used to rest entirely on these. Five
+    /// rules carry a measured rate and are not called noisy, on ten sites in
+    /// total, and not one of their intervals separates the rule from the
+    /// threshold it is being cleared against. Naming them is what stops
+    /// `verdict: passed` from reading as a measurement where it is an absence
+    /// of one.
+    pub(crate) indecisive: Vec<String>,
     /// Rules whose noise rate on healthy code exceeds the published threshold.
     /// Named so that their contribution to the score can be decided, never to
     /// remove their default activation: the corpus measures what they cost on
@@ -1301,9 +1327,12 @@ pub(crate) fn precision_of(
                     false_positives: None,
                     findings: 0,
                     id: id.to_owned(),
+                    interval_high_basis_points: None,
+                    interval_low_basis_points: None,
                     judges: Vec::new(),
                     provenance: Vec::new(),
                     reviewed: 0,
+                    separation: None,
                     status: PrecisionStatus::Unobserved,
                     tier: rule.tier.clone(),
                     true_positives: None,
@@ -1323,9 +1352,12 @@ pub(crate) fn precision_of(
                     false_positives: None,
                     findings,
                     id: id.to_owned(),
+                    interval_high_basis_points: None,
+                    interval_low_basis_points: None,
                     judges: Vec::new(),
                     provenance: Vec::new(),
                     reviewed: count,
+                    separation: None,
                     status: PrecisionStatus::Incomplete,
                     tier: rule.tier.clone(),
                     true_positives: None,
@@ -1355,6 +1387,10 @@ pub(crate) fn precision_of(
                     }
                 }
             }
+            // The interval and the point estimate come from the same two
+            // counts, so a rate can never be published without the bounds that
+            // say what it settles.
+            let (low, high) = interval::wilson_95(false_positives, count);
             RulePrecision {
                 doubly_judged,
                 false_positive_rate_basis_points: Some(
@@ -1363,9 +1399,12 @@ pub(crate) fn precision_of(
                 false_positives: Some(false_positives),
                 findings,
                 id: id.to_owned(),
+                interval_high_basis_points: Some(high),
+                interval_low_basis_points: Some(low),
                 judges: judges.into_iter().map(str::to_owned).collect(),
                 provenance: provenance.into_iter().collect(),
                 reviewed: count,
+                separation: Some(interval::separation(low, high, THRESHOLD_BASIS_POINTS)),
                 status: PrecisionStatus::Measured,
                 tier: rule.tier.clone(),
                 true_positives: Some(count - false_positives),
@@ -1391,6 +1430,7 @@ pub(crate) fn gate(
     let measured: BTreeMap<&str, &RulePrecision> =
         precision.iter().map(|rule| (rule.id.as_str(), rule)).collect();
     let mut admitted = Vec::new();
+    let mut indecisive = Vec::new();
     let mut noisy_on_healthy_code = Vec::new();
     let mut refused = Vec::new();
     let mut unproven = Vec::new();
@@ -1416,6 +1456,11 @@ pub(crate) fn gate(
         }
         if rate > threshold_basis_points {
             noisy_on_healthy_code.push(id.to_owned());
+        } else if separation_of(measure, threshold_basis_points) != Some(Separation::Below) {
+            // Admitted on a sample that separates it from nothing. The two
+            // lists are disjoint by construction: a rule the gate names noisy
+            // is not a rule it clears, whatever its interval spans.
+            indecisive.push(id.to_owned());
         }
         admitted.push(id.to_owned());
     }
@@ -1427,11 +1472,20 @@ pub(crate) fn gate(
             GateVerdict::Failed
         },
         admitted,
+        indecisive,
         noisy_on_healthy_code,
         refused,
         threshold_basis_points,
         unproven,
     }
+}
+
+/// What a measured rate settles against a threshold, from the bounds it
+/// publishes rather than from a second computation of them.
+fn separation_of(measure: &RulePrecision, threshold_basis_points: u64) -> Option<Separation> {
+    let low = measure.interval_low_basis_points?;
+    let high = measure.interval_high_basis_points?;
+    Some(interval::separation(low, high, threshold_basis_points))
 }
 
 /// Distribution of the corpus scores, published to observe whether tier capping
