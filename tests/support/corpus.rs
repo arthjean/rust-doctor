@@ -17,10 +17,12 @@ use serde_json::Value;
 
 pub(crate) mod agreement;
 pub(crate) mod coefficients;
+pub(crate) mod comparison;
 pub(crate) mod interval;
 pub(crate) mod sampling;
 
 use agreement::{Agreement, ProtocolScope};
+use comparison::RateComparison;
 use interval::Separation;
 use sampling::SamplingPlan;
 
@@ -111,6 +113,13 @@ pub(crate) struct CorpusArtifact {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AgentPopulation {
+    /// Rules of this population carrying a published rate.
+    ///
+    /// The count rather than the list, because the list is `precision` itself:
+    /// what a reader cannot get from it at a glance is how much of the catalog
+    /// this population has measured at all, which is the number that says how
+    /// much of the ranking still rests on a healthy-code estimate.
+    pub(crate) measured_rules: u64,
     pub(crate) observations: Vec<Observation>,
     /// Per-rule precision on this population, derived from the sites of
     /// `adjudication.reviewed` marked `agent`, exactly as `precision` is derived
@@ -121,6 +130,13 @@ pub(crate) struct AgentPopulation {
     /// here, so no Clippy rule can ever carry a rate on this side, and a shared
     /// row would have to publish a hole for most of the catalog.
     pub(crate) precision: Vec<RulePrecision>,
+    /// The two rates of every rule measured on both populations, and the
+    /// signed distance between them.
+    ///
+    /// Published rather than left to a reader with two lists and a
+    /// calculator: the two rates answer two different questions, and the gap
+    /// between them is the only reason both are measured.
+    pub(crate) rate_comparison: Vec<RateComparison>,
     pub(crate) repositories: Vec<AgentRepository>,
     pub(crate) scan_arguments: Vec<String>,
     pub(crate) selection_criterion: String,

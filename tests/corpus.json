@@ -5233,6 +5233,7 @@
     }
   },
   "agent_population": {
+    "measured_rules": 7,
     "observations": [
       {
         "authoritative": true,
@@ -6991,6 +6992,32 @@
         "status": "incomplete",
         "tier": "P3",
         "true_positives": null
+      }
+    ],
+    "rate_comparison": [
+      {
+        "agent_basis_points": 7000,
+        "gap_basis_points": -1709,
+        "healthy_basis_points": 8709,
+        "rule": "rust_doctor::structure::complex_function"
+      },
+      {
+        "agent_basis_points": 3157,
+        "gap_basis_points": -843,
+        "healthy_basis_points": 4000,
+        "rule": "rust_doctor::structure::duplicate_function_body"
+      },
+      {
+        "agent_basis_points": 5000,
+        "gap_basis_points": -3000,
+        "healthy_basis_points": 8000,
+        "rule": "rust_doctor::structure::near_duplicate_function_body"
+      },
+      {
+        "agent_basis_points": 500,
+        "gap_basis_points": -7500,
+        "healthy_basis_points": 8000,
+        "rule": "rust_doctor::structure::oversized_unit"
       }
     ],
     "repositories": [

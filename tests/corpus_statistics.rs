@@ -20,6 +20,7 @@ use support::corpus::agreement::{AdjudicatedPair, Agreement, Independence, Pass}
 use support::corpus::coefficients::{
     Coefficient, KappaStatus, coefficient_defects, coefficients,
 };
+use support::corpus::comparison::{RateComparison, comparison_defects};
 use support::corpus::interval::{Separation, interval_defects, separation, wilson_95};
 use support::corpus::sampling::PROTOCOL_TARGET;
 use support::corpus::{
@@ -806,6 +807,131 @@ fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict
         let healthy = artifact.precision.iter().find(|rule| rule.id == id).unwrap();
         assert_eq!(healthy.status, PrecisionStatus::Measured, "{id}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// US-014: what the two rates of one rule say next to each other
+// ---------------------------------------------------------------------------
+
+/// The rules measured on both populations, in the order the comparison
+/// publishes them.
+const COMPARED: [&str; 4] = [
+    "rust_doctor::structure::complex_function",
+    "rust_doctor::structure::duplicate_function_body",
+    "rust_doctor::structure::near_duplicate_function_body",
+    "rust_doctor::structure::oversized_unit",
+];
+
+/// The comparison and the count are recomputed from the two precision lists.
+#[test]
+fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
+    let artifact = artifact();
+    let population = &artifact.agent_population;
+    assert_eq!(
+        comparison_defects(
+            &artifact.precision,
+            &population.precision,
+            population.measured_rules,
+            &population.rate_comparison,
+        ),
+        Vec::<String>::new()
+    );
+
+    assert_eq!(population.measured_rules, 7);
+    assert_eq!(
+        measured(&population.precision).len() as u64,
+        population.measured_rules
+    );
+    let compared: Vec<&str> = population
+        .rate_comparison
+        .iter()
+        .map(|row| row.rule.as_str())
+        .collect();
+    assert_eq!(compared, COMPARED.to_vec());
+
+    // The gap is the finding, and on all four rules it points the same way:
+    // every structural rule measured on both sides is wrong less often on
+    // agent-written code than on the healthy corpus the score was calibrated
+    // against. Asserted rather than described, because a sign that flips is
+    // the one thing this row exists to make visible.
+    for row in &population.rate_comparison {
+        assert!(row.gap_basis_points < 0, "{}", row.rule);
+        assert_eq!(
+            row.gap_basis_points,
+            i64::from(u32::try_from(row.agent_basis_points).unwrap())
+                - i64::from(u32::try_from(row.healthy_basis_points).unwrap()),
+            "{}",
+            row.rule
+        );
+    }
+}
+
+/// A rule measured on one population alone carries no comparison row.
+///
+/// An absence is not a rate of nought: subtracting a rate the other population
+/// never measured from the one it did would publish a gap the size of the
+/// whole rate, pointing at a population that never observed the rule.
+#[test]
+fn a_rule_measured_on_one_population_alone_is_not_compared() {
+    let artifact = artifact();
+    let compared: BTreeSet<&str> = artifact
+        .agent_population
+        .rate_comparison
+        .iter()
+        .map(|row| row.rule.as_str())
+        .collect();
+    let one_sided: Vec<&str> = measured(&artifact.agent_population.precision)
+        .iter()
+        .map(|rule| rule.id.as_str())
+        .filter(|id| !compared.contains(id))
+        .collect();
+    assert_eq!(
+        one_sided,
+        vec![
+            "rust_doctor::cargo::missing_lockfile",
+            "rust_doctor::structure::orphan_module_file",
+            "rust_doctor::structure::stacked_allow_attribute",
+        ]
+    );
+    for id in one_sided {
+        let healthy = artifact.precision.iter().find(|rule| rule.id == id).unwrap();
+        assert_ne!(healthy.status, PrecisionStatus::Measured, "{id}");
+    }
+}
+
+/// A hand-edited comparison is refused, and the failure names the rule and the
+/// field.
+#[test]
+fn a_hand_edited_comparison_is_refused_naming_the_rule_and_the_field() {
+    let artifact = artifact();
+    let population = &artifact.agent_population;
+    let honest = population.rate_comparison.clone();
+
+    for (mutate, needle) in [
+        ((|row: &mut RateComparison| row.agent_basis_points += 1) as fn(&mut RateComparison), "publishes an agent rate of"),
+        (|row| row.healthy_basis_points += 1, "publishes a healthy rate of"),
+        (|row| row.gap_basis_points += 1, "publishes a gap of"),
+    ] {
+        let mut forged = honest.clone();
+        mutate(&mut forged[0]);
+        let defects = comparison_defects(
+            &artifact.precision,
+            &population.precision,
+            population.measured_rules,
+            &forged,
+        );
+        let named = defect_naming(&defects, needle);
+        assert!(named.contains(COMPARED[0]), "{named}");
+    }
+
+    // And the count is the other half of the block, refused the same way.
+    let defects = comparison_defects(
+        &artifact.precision,
+        &population.precision,
+        population.measured_rules + 1,
+        &honest,
+    );
+    defect_naming(&defects, "publishes measured_rules");
 }
 
 /// A sample that settles nothing at twenty sites is published as such.
