@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub(crate) mod agreement;
+pub(crate) mod coefficients;
 
 use agreement::{Agreement, ProtocolScope};
 

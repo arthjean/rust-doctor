@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::coefficients::Coefficient;
 use super::{Adjudication, Population, SiteContext, Verdict};
 
 /// Schema version of the corpus artifact.
@@ -119,6 +120,10 @@ impl AdjudicatedPair {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Agreement {
+    /// Agreement of the two passes over each `(rule, population)` carrying at
+    /// least one pair, recomputed from those pairs by the suite rather than
+    /// written by whoever ran the adjudication.
+    pub(crate) coefficients: Vec<Coefficient>,
     /// Sites the two passes disagreed on and a human has not settled.
     ///
     /// Published because a queue nobody can count is a queue nobody works, and

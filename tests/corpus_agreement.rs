@@ -14,6 +14,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+use support::corpus::coefficients::coefficients;
 use support::corpus::agreement::{
     AdjudicatedPair, Agreement, Independence, Pass, ProtocolScope, SCHEMA_VERSION,
     agreement_defects, escalations_open, protocol_defects,
@@ -85,10 +86,12 @@ fn disagreeing(line: u64) -> AdjudicatedPair {
 }
 
 fn adjudication(reviewed: Vec<ReviewedSite>, pairs: Vec<AdjudicatedPair>) -> Adjudication {
-    let agreement = Agreement {
+    let mut agreement = Agreement {
+        coefficients: Vec::new(),
         escalations_open: pairs.iter().filter(|pair| !pair.agrees()).count() as u64,
         pairs,
     };
+    agreement.coefficients = coefficients(&agreement);
     Adjudication {
         adjudicated_after_cutoff: Vec::new(),
         agreement,

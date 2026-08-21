@@ -2,6 +2,22 @@
   "adjudication": {
     "adjudicated_after_cutoff": [],
     "agreement": {
+      "coefficients": [
+        {
+          "agreed": 0,
+          "kappa_basis_points": null,
+          "kappa_status": "undefined_no_variance",
+          "pairs": 3,
+          "population": "healthy",
+          "rule": "rust_doctor::structure::complex_function",
+          "table": {
+            "both_false_positive": 0,
+            "both_true_positive": 0,
+            "first_only_false_positive": 0,
+            "second_only_false_positive": 3
+          }
+        }
+      ],
       "escalations_open": 3,
       "pairs": [
         {
@@ -3077,7 +3093,7 @@
         "verdict": "false_positive"
       }
     ],
-    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. Observed agreement was 35 of 35 on both Clippy rules, where the absence of variance leaves Cohen's kappa undefined and the agreement therefore says less than it appears to, and 26 of 29 on complex_function, for a kappa of 0.53.",
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. The agreement of those passes is published per rule and population in adjudication.agreement.coefficients, which the suite recomputes from the pairs on record: no count and no coefficient is stated here, because a number written in prose is a number no test compares.",
     "trigger_verification": {
       "confirmed": 575,
       "findings": 575,
