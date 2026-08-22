@@ -19,6 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::interval::{NOMINAL_COVERAGE_SITES, difference_95};
 use super::{PrecisionStatus, RulePrecision};
 
 /// One rule's rate on both populations, and the distance between them.
@@ -31,6 +32,25 @@ use super::{PrecisionStatus, RulePrecision};
 #[serde(deny_unknown_fields)]
 pub(crate) struct RateComparison {
     pub(crate) agent_basis_points: u64,
+    /// Whether either arm holds fewer sites than `NOMINAL_COVERAGE_SITES`.
+    ///
+    /// Published on the row rather than left to the reader to derive from the
+    /// two precision blocks, because the fact qualifies this interval and a
+    /// qualification a reader has to go and assemble is a qualification most
+    /// readers never see.
+    pub(crate) below_nominal_coverage: bool,
+    /// The upper bound of the difference interval, in signed basis points.
+    pub(crate) difference_high_basis_points: i64,
+    /// The lower bound of the difference interval, in signed basis points.
+    pub(crate) difference_low_basis_points: i64,
+    /// The method the two bounds come from, named beside them.
+    ///
+    /// A closed vocabulary rather than free text, and on the row rather than
+    /// once for the block, because an interval whose method is not published is
+    /// a pair of numbers a reader cannot check: three methods in common use
+    /// give three different answers on these samples, and two of them give an
+    /// answer that reaches outside the scale.
+    pub(crate) difference_method: DifferenceMethod,
     /// Agent rate minus healthy rate, in basis points. Signed, because the
     /// sign is the finding: a rule wrong more often on the code this tool
     /// exists for than on the code it was calibrated against is the case the
@@ -38,6 +58,45 @@ pub(crate) struct RateComparison {
     pub(crate) gap_basis_points: i64,
     pub(crate) healthy_basis_points: u64,
     pub(crate) rule: String,
+    /// What the difference interval settles about the two populations.
+    pub(crate) verdict: ComparisonVerdict,
+}
+
+/// The interval the two bounds of a row were computed with.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DifferenceMethod {
+    /// Newcombe's method 10, the hybrid score interval, at 95 %.
+    ///
+    /// Spelled out rather than left to `rename_all`, which renders the trailing
+    /// digits as `score95`: the record names the confidence level the way
+    /// `wilson_95` does, separated from the method it qualifies.
+    #[serde(rename = "newcombe_hybrid_score_95")]
+    NewcombeHybridScore95,
+}
+
+/// What a difference interval settles about the two populations of one rule.
+///
+/// Both comparisons are strict and are stated once, in `verdict_of`. An
+/// interval whose bound lands exactly on zero contains zero: the sample places
+/// the two populations at the same rate rather than apart, which is the same
+/// strictness `separation` applies against the gate threshold.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ComparisonVerdict {
+    /// The interval contains zero: the two samples cannot be told apart.
+    Indistinguishable,
+    /// The interval excludes zero: the two populations differ on this rule.
+    Separated,
+}
+
+/// What an interval excluding zero settles, stated once.
+pub(crate) fn verdict_of(low: i64, high: i64) -> ComparisonVerdict {
+    if low > 0 || high < 0 {
+        ComparisonVerdict::Separated
+    } else {
+        ComparisonVerdict::Indistinguishable
+    }
 }
 
 /// Rules of one population carrying a published rate.
@@ -60,12 +119,25 @@ pub(crate) fn rate_comparison(
             let agent_rate = rate_of(measure)?;
             let counterpart = healthy.iter().find(|rule| rule.id == measure.id)?;
             let healthy_rate = rate_of(counterpart)?;
+            // Healthy first, agent second, so the interval is an interval for
+            // agent minus healthy: the same subtraction, in the same order, as
+            // the gap published beside it.
+            let (low, high) = difference_95(
+                (counterpart.false_positives?, counterpart.reviewed),
+                (measure.false_positives?, measure.reviewed),
+            );
             Some(RateComparison {
                 agent_basis_points: agent_rate,
+                below_nominal_coverage: counterpart.reviewed < NOMINAL_COVERAGE_SITES
+                    || measure.reviewed < NOMINAL_COVERAGE_SITES,
+                difference_high_basis_points: high,
+                difference_low_basis_points: low,
+                difference_method: DifferenceMethod::NewcombeHybridScore95,
                 gap_basis_points: i64::try_from(agent_rate).unwrap_or(i64::MAX)
                     - i64::try_from(healthy_rate).unwrap_or(i64::MAX),
                 healthy_basis_points: healthy_rate,
                 rule: measure.id.clone(),
+                verdict: verdict_of(low, high),
             })
         })
         .collect()
@@ -138,6 +210,59 @@ pub(crate) fn comparison_defects(
             defects.push(format!(
                 "{id} publishes a gap of {} against {} recomputed",
                 published.gap_basis_points, recomputed.gap_basis_points
+            ));
+        }
+        if published.difference_low_basis_points != recomputed.difference_low_basis_points {
+            defects.push(format!(
+                "{id} publishes difference_low_basis_points {} against {} recomputed",
+                published.difference_low_basis_points, recomputed.difference_low_basis_points
+            ));
+        }
+        if published.difference_high_basis_points != recomputed.difference_high_basis_points {
+            defects.push(format!(
+                "{id} publishes difference_high_basis_points {} against {} recomputed",
+                published.difference_high_basis_points, recomputed.difference_high_basis_points
+            ));
+        }
+        if published.difference_method != recomputed.difference_method {
+            defects.push(format!(
+                "{id} publishes difference_method {:?} against {:?} recomputed",
+                published.difference_method, recomputed.difference_method
+            ));
+        }
+        if published.below_nominal_coverage != recomputed.below_nominal_coverage {
+            defects.push(format!(
+                "{id} publishes below_nominal_coverage {} against {} recomputed",
+                published.below_nominal_coverage, recomputed.below_nominal_coverage
+            ));
+        }
+        // Recomputed from the published bounds rather than from the recomputed
+        // ones, so a verdict edited to disagree with the interval printed above
+        // it is named here even where the two bounds themselves are honest.
+        let expected_verdict = verdict_of(
+            published.difference_low_basis_points,
+            published.difference_high_basis_points,
+        );
+        if published.verdict != expected_verdict {
+            defects.push(format!(
+                "{id} publishes verdict {:?} against {expected_verdict:?} its own interval settles",
+                published.verdict
+            ));
+        }
+        if published.difference_low_basis_points > published.difference_high_basis_points {
+            defects.push(format!(
+                "{id} publishes a difference interval [{}, {}] whose bounds are inverted",
+                published.difference_low_basis_points, published.difference_high_basis_points
+            ));
+        }
+        if !(published.difference_low_basis_points..=published.difference_high_basis_points)
+            .contains(&published.gap_basis_points)
+        {
+            defects.push(format!(
+                "{id} publishes a gap of {} outside its own difference interval [{}, {}]",
+                published.gap_basis_points,
+                published.difference_low_basis_points,
+                published.difference_high_basis_points
             ));
         }
     }

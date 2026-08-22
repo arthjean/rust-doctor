@@ -1428,9 +1428,10 @@ pub(crate) fn precision_of(
             let (low, high) = interval::wilson_95(false_positives, count);
             RulePrecision {
                 doubly_judged,
-                false_positive_rate_basis_points: Some(
-                    false_positives.saturating_mul(10_000) / count,
-                ),
+                false_positive_rate_basis_points: Some(interval::rate_basis_points(
+                    false_positives,
+                    count,
+                )),
                 false_positives: Some(false_positives),
                 findings,
                 id: id.to_owned(),
