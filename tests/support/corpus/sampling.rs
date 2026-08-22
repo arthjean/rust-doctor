@@ -56,19 +56,50 @@ pub(crate) struct SamplingPlan {
     pub(crate) observed: u64,
     pub(crate) population: Population,
     pub(crate) rule: String,
-    /// Sites asked for. Never above `observed`: a target the population cannot
-    /// supply is a plan that did not describe the draw that happened.
+    /// Sites asked for. Never above `observed`, because a target the population
+    /// cannot supply is a plan that did not describe the draw that happened,
+    /// and never below `target_floor`, because the protocol's target is a floor
+    /// rather than a quota: a scope reviewed exhaustively asks for its whole
+    /// population and is still a scope drawn under the protocol.
+    ///
+    /// Defaulted rather than required, so that the target a scope is read at is
+    /// the scope's own value wherever it states one and `PROTOCOL_TARGET`
+    /// wherever it does not. Every reader goes through this field: a reader
+    /// comparing against the constant reads the protocol instead of the draw,
+    /// and reports a deepened scope as a plan that asked for the wrong number.
+    #[serde(default = "protocol_target")]
     pub(crate) target: u64,
 }
 
-/// Sites drawn per rule under the protocol.
+/// Sites drawn per rule under the protocol, as a floor rather than a quota.
 ///
 /// Twenty rather than the five the pre-protocol samples took, for the reason
 /// `sampling` states about the healthy draw of the same rules: five sites
 /// resolve steps of twenty points and cannot place a rule against a threshold
 /// of five percent, so a five-site rate on this population would be published
 /// indecisive by construction rather than by measurement.
+///
+/// A floor because the number below it is the defect and the number above it is
+/// a better measurement: a scope whose population the reviewer can exhaust asks
+/// for all of it, and the interval it publishes is the one the whole
+/// subpopulation supports rather than the one twenty sites do.
 pub(crate) const PROTOCOL_TARGET: u64 = 20;
+
+/// `PROTOCOL_TARGET`, as the function `serde` defaults an absent target from.
+fn protocol_target() -> u64 {
+    PROTOCOL_TARGET
+}
+
+/// The smallest target a scope of `observed` sites may publish.
+///
+/// The protocol's target bounded by the population, because a population that
+/// cannot supply twenty sites is not a scope that under-asked: the stride draws
+/// every site it has, and `orphan_module_file` observing twelve production
+/// sites asks for twelve. Bounding here rather than at each reader is what
+/// keeps the exhausted case from being a special case anyone writes down twice.
+pub(crate) fn target_floor(observed: u64) -> u64 {
+    PROTOCOL_TARGET.min(observed)
+}
 
 /// The positions a stride of `target` sites lands on over `observed` sites.
 ///
@@ -129,6 +160,13 @@ pub(crate) fn sampling_defects(adjudication: &Adjudication) -> Vec<String> {
             defects.push(format!(
                 "{label} publishes a target of {} over a population of {}",
                 plan.target, plan.observed
+            ));
+        }
+        let floor = target_floor(plan.observed);
+        if plan.target < floor {
+            defects.push(format!(
+                "{label} publishes a target of {} below the floor of {floor}",
+                plan.target
             ));
         }
         let expected = stride(plan.observed, plan.target);
