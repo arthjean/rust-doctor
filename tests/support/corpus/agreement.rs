@@ -162,17 +162,22 @@ pub(crate) struct ProtocolScope {
     pub(crate) rule: String,
 }
 
-/// The rules adjudicated under the protocol, in the order the record publishes
-/// them, all on the agent population.
+/// The scopes adjudicated under the protocol, in the order the record publishes
+/// them, which is `ProtocolScope`'s own: population first, rule second.
 ///
 /// Named once here rather than restated by each test that reads the enrolment,
-/// because two lists of the same four rules is how a scope drops out of one
-/// of them and keeps passing the other.
-pub(crate) const ENROLLED_RULES: [&str; 4] = [
-    "rust_doctor::structure::duplicate_function_body",
-    "rust_doctor::structure::near_duplicate_function_body",
-    "rust_doctor::structure::orphan_module_file",
-    "rust_doctor::structure::oversized_unit",
+/// because two lists of the same scopes is how one drops out of one of them and
+/// keeps passing the other. A scope and not a rule, since the two healthy
+/// scopes deepened to their whole production subpopulation carry the same two
+/// rule ids the agent population already had: a list of rules could no longer
+/// say which side of the record a double pass was run on.
+pub(crate) const ENROLLED_SCOPES: [(Population, &str); 6] = [
+    (Population::Agent, "rust_doctor::structure::duplicate_function_body"),
+    (Population::Agent, "rust_doctor::structure::near_duplicate_function_body"),
+    (Population::Agent, "rust_doctor::structure::orphan_module_file"),
+    (Population::Agent, "rust_doctor::structure::oversized_unit"),
+    (Population::Healthy, "rust_doctor::structure::near_duplicate_function_body"),
+    (Population::Healthy, "rust_doctor::structure::oversized_unit"),
 ];
 
 /// The judge behind every pass produced under the protocol.

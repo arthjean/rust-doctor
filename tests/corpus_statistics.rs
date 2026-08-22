@@ -22,7 +22,7 @@ use support::corpus::coefficients::{
 };
 use support::corpus::comparison::{RateComparison, comparison_defects};
 use support::corpus::interval::{Separation, interval_defects, separation, wilson_95};
-use support::corpus::sampling::PROTOCOL_TARGET;
+use support::corpus::sampling::{PROTOCOL_TARGET, target_floor};
 use support::corpus::{
     MINIMUM_REVIEWED_SITES, Population, PrecisionStatus, RulePrecision, SiteContext,
     THRESHOLD_BASIS_POINTS, Verdict, artifact, artifact_path, gate,
@@ -252,6 +252,7 @@ fn pass(judge: &str, verdict: Verdict) -> Pass {
 fn pair(line: u64, rule: &str, first: Verdict, second: Verdict) -> AdjudicatedPair {
     AdjudicatedPair {
         context: SiteContext::Production,
+        family: None,
         independence: Independence::SeparateContext,
         line,
         passes: [pass("judge-a", first), pass("judge-b", second)],
@@ -487,7 +488,7 @@ fn the_sampling_prose_states_no_agreement_quantity() {
     assert_eq!(
         numbers(&prose),
         BTreeSet::from([
-            "0", "08", "09", "11", "20", "2026", "241", "31", "34", "40", "5"
+            "0", "08", "09", "11", "20", "2026", "241", "30", "31", "34", "40", "46", "5"
         ]),
         "the sampling prose carries a number this field is not allowed to state"
     );
@@ -956,7 +957,19 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
 
     // Below the protocol target because the population is, which is the one
     // way a scope under this protocol reviews fewer sites than it asks for.
+    // Compared against the scope's own target rather than against the constant:
+    // the target is a floor, so a scope reviewed exhaustively publishes a
+    // target above it, and only the target the plan recorded says what this
+    // draw actually asked for.
+    let plan = artifact
+        .adjudication
+        .sampling_plan
+        .iter()
+        .find(|plan| plan.rule == rule.id && plan.population == Population::Agent)
+        .unwrap();
     assert!(rule.reviewed < PROTOCOL_TARGET);
+    assert_eq!(plan.target, rule.reviewed);
+    assert_eq!(plan.target, target_floor(plan.observed));
     assert_eq!(rule.false_positives, Some(1));
     assert_eq!(rule.false_positive_rate_basis_points, Some(833));
     assert_eq!(rule.separation, Some(Separation::Indecisive));
