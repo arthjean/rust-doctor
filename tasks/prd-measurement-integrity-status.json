@@ -3,7 +3,7 @@
     "file": "tasks/prd-measurement-integrity.md",
     "title": "The Measurement the Ranking Rests On",
     "created_at": "2026-08-22",
-    "status": "IN_PROGRESS"
+    "status": "DONE"
   },
   "epics": [
     {
@@ -25,10 +25,10 @@
     {
       "id": "EP-003",
       "title": "The ranking reads a smoothed rate, and an unmeasured rule is not free",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5
     }
   ],
   "stories": [
@@ -202,70 +202,70 @@
       "id": "US-013",
       "title": "CORPUS_NOISE carries the Laplace-smoothed rate, recomputed by its own test",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-22",
+      "completed_at": "2026-08-22",
+      "reviewed_at": "2026-08-22"
     },
     {
       "id": "US-014",
       "title": "A rule the corpus never adjudicated is ranked at half its contribution",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-22",
+      "completed_at": "2026-08-22",
+      "reviewed_at": "2026-08-22"
     },
     {
       "id": "US-015",
       "title": "The smoothing is frozen the way the lambda table is",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-22",
+      "completed_at": "2026-08-22",
+      "reviewed_at": "2026-08-22"
     },
     {
       "id": "US-016",
       "title": "The report names the sample a rule's rate rests on",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-22",
+      "completed_at": "2026-08-22",
+      "reviewed_at": "2026-08-22"
     },
     {
       "id": "US-017",
       "title": "A family whose every member is non-production stops being published as production",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-013",
         "US-014"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-08-22",
+      "completed_at": "2026-08-22",
+      "reviewed_at": "2026-08-22"
     }
   ]
 }
