@@ -1194,7 +1194,21 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// and no unignored target directory, and none ships full debug symbols
 /// unstripped. `crate_level_allow` and `unchecked_release_overflow` left the
 /// same day, both observed and adjudicated, both published above the threshold.
-const ADMISSION_DEBT: [&str; 38] = [
+///
+/// `crate_level_allow` and `unreasoned_allow_attribute` returned on 2026-08-22
+/// with EP-003 of the measurement integrity PRD, which the one-way rule also
+/// normally forbids, and for the reason the three entries of 2026-08-04 were
+/// admitted: this is the withdrawal of a measurement that rested on a site the
+/// correction took out of the population. Both rested on exactly five reviewed
+/// sites, and one of the five was the `anyhow` family spanning `build.rs` and
+/// `tests/test_ffi.rs`. Its two members disagree on their Cargo target kind, so
+/// the family carried no context and was read as production; under the
+/// corrected family layer it takes the mark of its anchor and leaves the
+/// production subpopulation a structural rate is drawn from. Four sites cannot
+/// publish a rate, so both are `incomplete`, and both are ranked at the
+/// unmeasured half weight rather than at a rate measured over a population they
+/// are no longer in.
+const ADMISSION_DEBT: [&str; 40] = [
     "clippy::arc_with_non_send_sync",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
@@ -1231,8 +1245,10 @@ const ADMISSION_DEBT: [&str; 38] = [
     "rust_doctor::repo::unignored_build_output",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::stacked_allow_attribute",
+    "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 
 /// The threshold is enforceable here, and nowhere else: this test fails as soon

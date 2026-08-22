@@ -4959,8 +4959,8 @@
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
     "position_proof": {
       "date": "2026-08-22",
-      "digest": "8c2a1542548fdb29d356309afea773a91018e279c62c228bdccf8cb4a3ccdba3",
-      "sites": 673,
+      "digest": "2b3c827d5f910e969d4e686ac3553f2fb20d0a6b6779a0beee4c76c4bb5e322e",
+      "sites": 671,
       "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
     },
     "protocol_cutoff": "2026-08-21",
@@ -7345,18 +7345,6 @@
         "provenance": "agent",
         "repository": "thiserror",
         "rule": "rust_doctor::structure::complex_function",
-        "verdict": "false_positive"
-      },
-      {
-        "context": "production",
-        "family": "02b3f81ee6b0a2aa48d9fad69ef9ec5c6200f73dc4d917eaa073d0fc4e41cf57",
-        "justification": "The anchor is the build script's own file-wide allow of one pedantic formatting lint, and the family also names tests/test_ffi.rs. Neither file is shipped, but the two members disagree on their Cargo target kind so no unanimous context is stamped and the family weighs on the score. The exemption is right where it sits, and its scope is the file because the file is one hundred lines of build probe.",
-        "line": 1,
-        "path": "build.rs",
-        "population": "healthy",
-        "provenance": "unrecorded",
-        "repository": "anyhow",
-        "rule": "rust_doctor::structure::crate_level_allow",
         "verdict": "false_positive"
       },
       {
@@ -10157,18 +10145,6 @@
       },
       {
         "context": "production",
-        "family": "4fe1b29f967d5b3de7840e04559922032477592920880b3c19aa4c84ea284320",
-        "justification": "A deliberate opt-out of a widely disputed style lint, in a build script and a test file; the maintainer's position is public and a reason string would add nothing.",
-        "line": 1,
-        "path": "build.rs",
-        "population": "healthy",
-        "provenance": "unrecorded",
-        "repository": "anyhow",
-        "rule": "rust_doctor::structure::unreasoned_allow_attribute",
-        "verdict": "false_positive"
-      },
-      {
-        "context": "production",
         "family": "158f1f035301f7c120851f3cf0785d202fd5b779b531b4f52f36cefa25ad03fa",
         "justification": "The capitalized Ok constructor deliberately mirrors Result::Ok for the documented inference case; the allow is the intended construct.",
         "line": 648,
@@ -11177,7 +11153,7 @@
               "worst_tier": "P2"
             },
             {
-              "density_micro": 3421761,
+              "density_micro": 3409679,
               "name": "maintainability",
               "score": 32,
               "worst_tier": "P3"
@@ -13014,11 +12990,9 @@
       "clippy::unwrap_used",
       "rust_doctor::cargo::unchecked_release_overflow",
       "rust_doctor::structure::complex_function",
-      "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::duplicate_function_body",
       "rust_doctor::structure::near_duplicate_function_body",
       "rust_doctor::structure::oversized_unit",
-      "rust_doctor::structure::unreasoned_allow_attribute",
       "rust_doctor::structure::unreferenced_feature"
     ],
     "refused": [],
@@ -13060,8 +13034,10 @@
       "rust_doctor::repo::unignored_build_output",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::orphan_module_file",
-      "rust_doctor::structure::stacked_allow_attribute"
+      "rust_doctor::structure::stacked_allow_attribute",
+      "rust_doctor::structure::unreasoned_allow_attribute"
     ],
     "verdict": "passed"
   },
@@ -13317,15 +13293,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 1215658,
+            "density_micro": 972526,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 2188184,
+            "density_micro": 1945052,
             "name": "maintainability",
-            "score": 48,
+            "score": 52,
             "worst_tier": "P3"
           },
           {
@@ -13343,7 +13319,7 @@
         ],
         "label": "Great",
         "model": "core-v3",
-        "value": 86,
+        "value": 87,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -13981,9 +13957,9 @@
             "worst_tier": "P2"
           },
           {
-            "density_micro": 1714663,
+            "density_micro": 1692680,
             "name": "maintainability",
-            "score": 56,
+            "score": 57,
             "worst_tier": "P3"
           },
           {
@@ -15207,21 +15183,19 @@
     },
     {
       "doubly_judged": 0,
-      "false_positive_rate_basis_points": 10000,
-      "false_positives": 5,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
       "findings": 33,
       "id": "rust_doctor::structure::crate_level_allow",
-      "interval_high_basis_points": 10000,
-      "interval_low_basis_points": 5655,
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
       "judges": [],
-      "provenance": [
-        "unrecorded"
-      ],
-      "reviewed": 5,
-      "separation": "above",
-      "status": "measured",
+      "provenance": [],
+      "reviewed": 4,
+      "separation": null,
+      "status": "incomplete",
       "tier": "P2",
-      "true_positives": 0
+      "true_positives": null
     },
     {
       "doubly_judged": 0,
@@ -15315,21 +15289,19 @@
     },
     {
       "doubly_judged": 0,
-      "false_positive_rate_basis_points": 10000,
-      "false_positives": 5,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
       "findings": 68,
       "id": "rust_doctor::structure::unreasoned_allow_attribute",
-      "interval_high_basis_points": 10000,
-      "interval_low_basis_points": 5655,
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
       "judges": [],
-      "provenance": [
-        "unrecorded"
-      ],
-      "reviewed": 5,
-      "separation": "above",
-      "status": "measured",
+      "provenance": [],
+      "reviewed": 4,
+      "separation": null,
+      "status": "incomplete",
       "tier": "P3",
-      "true_positives": 0
+      "true_positives": null
     },
     {
       "doubly_judged": 0,
@@ -15350,7 +15322,7 @@
       "true_positives": 0
     }
   ],
-  "schema_version": 6,
+  "schema_version": 7,
   "score_distribution": {
     "agent": {
       "bands": [
@@ -15435,7 +15407,7 @@
         {
           "label": "Great",
           "name": "anyhow",
-          "value": 86
+          "value": 87
         },
         {
           "label": "Great",
@@ -15488,6 +15460,10 @@
     "minimum": 68,
     "separation_centi": 850,
     "spread": 31
+  },
+  "smoothing": {
+    "prior_false_positives": 1,
+    "prior_sites": 2
   },
   "toolchain": {
     "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",

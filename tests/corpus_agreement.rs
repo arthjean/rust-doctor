@@ -218,7 +218,7 @@ fn defect_naming(defects: &[String], needle: &str) -> String {
 #[test]
 fn the_artifact_declares_the_schema_version_the_harness_reads() {
     assert_eq!(artifact().schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 6);
+    assert_eq!(SCHEMA_VERSION, 7);
 }
 
 /// Exactly two passes, enforced by the shape.
@@ -625,9 +625,9 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
         *counts.entry(site.provenance).or_default() += 1;
     }
     assert_eq!(counts.get(&Provenance::Agent), Some(&354));
-    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&100));
+    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&98));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 454);
+    assert_eq!(artifact.adjudication.reviewed.len(), 452);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite

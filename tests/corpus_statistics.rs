@@ -755,7 +755,8 @@ fn no_published_rate_is_withheld_by_what_its_interval_settles() {
 // US-013: no structural rule of the agent population is left unjudged
 // ---------------------------------------------------------------------------
 
-/// The structural rules the agent population observes and has never judged.
+/// The structural rules the agent population observes and has never judged,
+/// each beside the answer the healthy population still holds for it.
 ///
 /// Frozen by name, the way `CLEARED_BLIND` is and for the same reason: the
 /// four rules that dominate this population's score carry a rate, and these
@@ -764,10 +765,21 @@ fn no_published_rate_is_withheld_by_what_its_interval_settles() {
 /// rather than a count nobody reads. Between them they account for a hundred
 /// and twenty-five findings against the four thousand the measured rules do,
 /// which is why the debt is named rather than blocking.
-const UNJUDGED_ON_AGENT_CODE: [&str; 3] = [
-    "rust_doctor::structure::crate_level_allow",
-    "rust_doctor::structure::unreasoned_allow_attribute",
-    "rust_doctor::structure::unreferenced_feature",
+///
+/// The second column is what the debt costs today. `unreferenced_feature`
+/// still answers on healthy code, so what is missing there is the second
+/// answer and not the first. The other two lost even that on 2026-08-22, when
+/// the context of a non-production family stopped being read as production and
+/// took their only two `anyhow` sites out of the reviewed population: a rule
+/// with neither rate is ranked by the smoothed default and nothing else, which
+/// is the state this column exists to make visible rather than infer.
+const UNJUDGED_ON_AGENT_CODE: [(&str, PrecisionStatus); 3] = [
+    ("rust_doctor::structure::crate_level_allow", PrecisionStatus::Incomplete),
+    (
+        "rust_doctor::structure::unreasoned_allow_attribute",
+        PrecisionStatus::Incomplete,
+    ),
+    ("rust_doctor::structure::unreferenced_feature", PrecisionStatus::Measured),
 ];
 
 /// Every structural rule this population observes carries a verdict, or is
@@ -781,7 +793,7 @@ const UNJUDGED_ON_AGENT_CODE: [&str; 3] = [
 #[test]
 fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict() {
     let artifact = artifact();
-    let debt: BTreeSet<&str> = UNJUDGED_ON_AGENT_CODE.into_iter().collect();
+    let debt: BTreeSet<&str> = UNJUDGED_ON_AGENT_CODE.into_iter().map(|(id, _)| id).collect();
 
     let mut judged = 0usize;
     for rule in &artifact.agent_population.precision {
@@ -801,12 +813,12 @@ fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict
     }
     assert_eq!(judged, 6);
 
-    // The debt is the debt of this population, never of the record: each of
-    // the three carries a healthy rate, so what is missing is the second
-    // answer and not the first.
-    for id in UNJUDGED_ON_AGENT_CODE {
+    // What the debt costs, rule by rule, on the other population. Asserted as
+    // the frozen column rather than as one status for the three, so a rate
+    // that comes back and a rate that goes away are both a moved assertion.
+    for (id, healthy_status) in UNJUDGED_ON_AGENT_CODE {
         let healthy = artifact.precision.iter().find(|rule| rule.id == id).unwrap();
-        assert_eq!(healthy.status, PrecisionStatus::Measured, "{id}");
+        assert_eq!(healthy.status, healthy_status, "{id}");
     }
 }
 

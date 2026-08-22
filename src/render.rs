@@ -691,7 +691,7 @@ fn render_score<W: Write>(
             &format!(
                 "Fix the top {} rules to reach a projected {projected}/100: {}",
                 score.projected_rule_ids.len(),
-                score.projected_rule_ids.join(", ")
+                named_with_measurement(&score.projected_rule_ids)
             ),
             options,
             Style::Accent,
@@ -703,14 +703,54 @@ fn render_score<W: Write>(
     Ok(())
 }
 
+/// How a rule's rate is qualified wherever the ranking names the rule.
+///
+/// A rate published alone cannot be weighed. Thirty-three percent measured on
+/// one adjudicated site and thirty-three measured on forty are the same number
+/// and not the same claim, and the difference is exactly what the ranking's
+/// smoothing acts on, invisibly, in the rate it produces. So the sample is
+/// printed beside the rate wherever a rule is named.
+///
+/// A rule the corpus never adjudicated is named as unmeasured rather than shown
+/// as a number. It is ranked at the middle of the interval, and printing that
+/// middle as a measurement would publish an assumption as an observation.
+fn measurement_note(id: &str) -> String {
+    match crate::policy::corpus_measurement(id) {
+        Some(measurement) => {
+            let percent = (u32::from(measurement.noise_basis_points()) + 50) / 100;
+            let sites = measurement.reviewed();
+            let unit = if sites == 1 { "site" } else { "sites" };
+            format!(" ({percent}% noise on {sites} {unit})")
+        }
+        None => " (unmeasured)".to_owned(),
+    }
+}
+
+fn named_with_measurement(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| format!("{id}{}", measurement_note(id)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Why the loudest rule is missing from what to fix.
 ///
 /// The rule with the most findings is often the one the corpus found most often
 /// wrong, so a list that drops it without a word reads as a defect of the tool.
 /// Two names carry the point; past that a count does, because the sentence is
 /// there to explain an absence, not to enumerate one.
+///
+/// The sentence says the discount emptied the value rather than that the corpus
+/// adjudicated no true positive, which is what it used to say and what the
+/// smoothed rate can no longer support: no smoothed rate reaches ten thousand
+/// basis points, so a rule reaches this list by having little enough left after
+/// the discount rather than by having been adjudicated wrong everywhere.
 fn withheld_sentence(withheld: &[String]) -> Option<String> {
-    let named: Vec<&str> = withheld.iter().take(2).map(String::as_str).collect();
+    let named: Vec<String> = withheld
+        .iter()
+        .take(2)
+        .map(|id| format!("{id}{}", measurement_note(id)))
+        .collect();
     let subject = match (named.as_slice(), withheld.len()) {
         ([], _) => return None,
         ([only], _) => format!("{only} reports here but is"),
@@ -722,7 +762,8 @@ fn withheld_sentence(withheld: &[String]) -> Option<String> {
         _ => return None,
     };
     Some(format!(
-        "{subject} left out: the corpus adjudicated no true positive for them on healthy code."
+        "{subject} left out: once the rate the corpus adjudicated is applied, nothing \
+         worth repairing is left."
     ))
 }
 

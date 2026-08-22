@@ -18,7 +18,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
         "tests/fixtures/projects/clean",
     )));
     let value = serde_json::to_value(&clean).unwrap();
-    assert_eq!(clean.schema_version, 15);
+    assert_eq!(clean.schema_version, 16);
     assert_eq!(clean.status, Status::Complete);
     assert_eq!(clean.audit.source_files, 1);
     assert_eq!(clean.audit.production_lines, 5);

@@ -27,7 +27,7 @@ pub(crate) use catalog::{
     STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_STACKED_ALLOW,
     STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, find,
 };
-pub(crate) use noise::corpus_noise;
+pub(crate) use noise::{CorpusMeasurement, UNMEASURED_NOISE_BASIS_POINTS, corpus_measurement};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]

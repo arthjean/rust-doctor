@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use cargo_metadata::Metadata;
 
 use crate::execution::ScanExecution;
-use crate::policy::RuleTier;
+use crate::policy::{CorpusMeasurement, RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceMeasurement;
 
@@ -240,7 +240,8 @@ pub(crate) struct RuleAggregate {
     /// through `related` weighs one and not K, and the diagnostics outside production code are
     /// counted in `occurrences` and weigh nothing here.
     numerator: u64,
-    /// Adjudicated false-positive rate on the pinned corpus, in basis points.
+    /// Smoothed false-positive rate the pinned corpus adjudicated, in basis
+    /// points, or `None` for a rule it never adjudicated.
     /// It ranks what to repair first and enters no penalty: what a rule costs
     /// the score is what it reported here, whatever it costs elsewhere.
     noise: Option<u16>,
@@ -668,18 +669,25 @@ impl RuleAggregate {
     /// What repairing this rule is expected to be worth, which is what it costs
     /// the score discounted by how often the corpus found it wrong.
     ///
-    /// A rule the corpus adjudicated at 100 % false positives is expected to be
-    /// worth nothing to repair, whatever its volume, and volume is exactly what
-    /// the noisiest rules have the most of. Ranking by contribution alone told
-    /// the user to fix the rule that fires most, which is not the same question
-    /// and, on a rule measured at zero true positives, is advice to change
-    /// correct code. An unmeasured rule keeps its full contribution: no
-    /// measurement is not evidence of noise.
+    /// A rule the corpus adjudicated wrong on nearly every site it showed is
+    /// expected to be worth little to repair, whatever its volume, and volume
+    /// is exactly what the noisiest rules have the most of. Ranking by
+    /// contribution alone told the user to fix the rule that fires most, which
+    /// is not the same question and, on a rule measured wrong almost
+    /// everywhere, is advice to change correct code.
+    ///
+    /// An unmeasured rule is discounted at `UNMEASURED_NOISE_BASIS_POINTS`, the
+    /// middle of the interval, rather than kept whole. No measurement is not
+    /// evidence of correctness either, and the corpus has adjudicated 24 of the
+    /// 62 catalogued rules: keeping the other 38 undiscounted put every one of
+    /// them ahead of every rule the corpus ever confirmed, so the ranking read
+    /// as a list of what nobody has checked. It is the same smoothing at no
+    /// observations rather than a threshold of its own, so the first site the
+    /// corpus adjudicates moves the rule off the middle in whichever direction
+    /// it was adjudicated.
     pub(crate) fn expected_repair_value(&self) -> u64 {
-        let kept = match self.noise {
-            Some(noise) => BASIS_POINTS.saturating_sub(noise as u64),
-            None => BASIS_POINTS,
-        };
+        let noise = self.noise.unwrap_or(UNMEASURED_NOISE_BASIS_POINTS);
+        let kept = BASIS_POINTS.saturating_sub(noise as u64);
         self.contribution().saturating_mul(kept) / BASIS_POINTS
     }
 
@@ -756,11 +764,17 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
 /// The rules that cost the score anything, split by whether repairing them is worth something,
 /// each half ordered by what it is worth to the reader.
 ///
-/// The two halves are one question asked once. A rule the corpus adjudicated at no true positive
-/// is expected to be worth nothing to repair, whatever its volume, and volume is exactly what the
+/// The two halves are one question asked once. A rule whose expected repair value rounds away is
+/// expected to be worth nothing to repair, whatever its volume, and volume is exactly what the
 /// noisiest rules have the most of: it is withheld rather than ranked last, because naming it
 /// would still be telling the reader to go and change correct code. It is published all the same,
 /// loudest first, so its absence from the projection reads as a measurement and not as a defect.
+///
+/// The threshold is unchanged by the smoothing and the partition it produces is not. No smoothed
+/// rate reaches ten thousand basis points, so a rule adjudicated wrong on every site it showed
+/// keeps a small share of its contribution and rejoins the projection unless that share rounds
+/// away. That is the intended reading: forty sites all adjudicated wrong is strong evidence and
+/// still not proof, and the sample it rests on is printed beside it wherever the report names it.
 fn rank_repairs(rules: &[RuleAggregate]) -> (Vec<&RuleAggregate>, Vec<&RuleAggregate>) {
     let (mut projected, mut withheld): (Vec<_>, Vec<_>) = rules
         .iter()
@@ -857,7 +871,8 @@ pub(crate) fn aggregate_rules<'a>(
             tier: definition.map(|definition| definition.tier),
             occurrences: 0,
             numerator: 0,
-            noise: crate::policy::corpus_noise(rule_id),
+            noise: crate::policy::corpus_measurement(rule_id)
+                .map(CorpusMeasurement::noise_basis_points),
         });
         rule.occurrences = rule.occurrences.saturating_add(diagnostic.occurrences);
         if diagnostic.severity.rank() < rule.severity.rank() {

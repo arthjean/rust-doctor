@@ -1,0 +1,17 @@
+[package]
+name = "structure-duplicate-across-non-production"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bench]]
+name = "measure"
+path = "benches/measure.rs"
+harness = false
+
+[[test]]
+name = "probe"
+path = "tests/probe.rs"

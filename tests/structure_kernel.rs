@@ -565,6 +565,36 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert!(!rendered.contains(repository().to_str().unwrap()));
 }
 
+/// US-017: a family whose every member is non-production stops being published
+/// as production.
+///
+/// The fixture holds exactly one family, and its two members sit in two
+/// different non-production targets: one in the bench, one in the integration
+/// test. Unanimity on the mark itself would answer `None` there, since
+/// `benchmark` and `tests` are not the same value, and the family would be
+/// published unmarked and charged against the eleven production lines the crate
+/// really ships. The mark the family takes is the anchor's, so the pass answers
+/// `benchmark` and the score stays at 100.
+#[test]
+fn a_family_split_across_two_non_production_targets_is_not_charged_to_production() {
+    let report = published(InspectRequest::new(fixture("duplicate-across-non-production")));
+
+    let exact = rule_findings(&report, DUPLICATE);
+    assert_eq!(exact.len(), 1, "{exact:#?}");
+    assert_eq!(exact[0]["context"], "benchmark");
+    assert_eq!(exact[0]["path"], "benches/measure.rs");
+    assert_eq!(exact[0]["related"][0]["path"], "tests/probe.rs");
+    assert_eq!(exact[0]["occurrences"], 2);
+
+    // The family is published and counted, and it weighs nothing: the crate
+    // ships one function and no copy of it.
+    assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 2);
+    assert_eq!(report["audit"]["production_lines"], 11);
+    assert_eq!(report["audit"]["score"]["value"], 100);
+    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 100);
+    assert_eq!(report["audit"]["score"]["authoritative"], true);
+}
+
 /// US-006, US-007: switching a duplication rule off removes its findings and
 /// leaves the other one untouched.
 #[test]

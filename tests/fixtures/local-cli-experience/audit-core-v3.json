@@ -568,9 +568,6 @@
             "clippy::manual_memcpy"
           ],
           "value": 65,
-          "withheld_rule_ids": [
-            "clippy::indexing_slicing"
-          ],
           "worst_tier": "P1"
         },
         "source_files": 7
@@ -634,12 +631,11 @@
           },
           "label": "Great",
           "model": "core-v3",
-          "projected_after_top_three": null,
-          "projected_rule_ids": [],
-          "value": 99,
-          "withheld_rule_ids": [
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
             "clippy::indexing_slicing"
           ],
+          "value": 99,
           "worst_tier": "P3"
         },
         "source_files": 30
@@ -992,12 +988,11 @@
           },
           "label": "Great",
           "model": "core-v3",
-          "projected_after_top_three": null,
-          "projected_rule_ids": [],
-          "value": 81,
-          "withheld_rule_ids": [
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
             "clippy::indexing_slicing"
           ],
+          "value": 81,
           "worst_tier": "P3"
         },
         "source_files": 30
@@ -1056,12 +1051,11 @@
           },
           "label": "Great",
           "model": "core-v3",
-          "projected_after_top_three": null,
-          "projected_rule_ids": [],
-          "value": 99,
-          "withheld_rule_ids": [
+          "projected_after_top_three": 100,
+          "projected_rule_ids": [
             "clippy::indexing_slicing"
           ],
+          "value": 99,
           "worst_tier": "P3"
         },
         "source_files": 1

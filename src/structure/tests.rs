@@ -280,6 +280,41 @@ fn a_family_is_marked_only_when_every_member_agrees() {
     assert_eq!(unanimous_context(&[]), None);
 }
 
+/// A family no member of which ships takes the mark of its anchor.
+///
+/// The members disagree on which non-production context they carry, and each of
+/// them is right about itself: this is the family layer, where the question is
+/// not what one unit is but whether the family weighs, and it does not. The
+/// abstention `source_kernel::unanimous` performs over a unit reached by
+/// disagreeing traversals answers a different question, and stays.
+///
+/// The anchor rather than one of the two kinds because the anchor is the site
+/// the family is reported at, so the mark the reader is shown is the mark of
+/// the file they are sent to.
+#[test]
+fn a_family_no_member_of_which_ships_takes_the_mark_of_its_anchor() {
+    let benched = Member {
+        context: Some(DiagnosticContext::Benchmark),
+        ..member("benches/throughput.rs")
+    };
+    let tested = Member {
+        context: Some(DiagnosticContext::Tests),
+        ..member("tests/integration.rs")
+    };
+
+    assert_eq!(
+        unanimous_context(&[benched.clone(), tested.clone()]),
+        Some(DiagnosticContext::Benchmark)
+    );
+    assert_eq!(
+        unanimous_context(&[tested.clone(), benched.clone()]),
+        Some(DiagnosticContext::Tests)
+    );
+    // One member that ships is the whole family shipping: the straddling case
+    // keeps abstaining to production, unchanged.
+    assert_eq!(unanimous_context(&[benched, tested, member("src/lib.rs")]), None);
+}
+
 /// One key, one family: the first arrival says what the family is, and
 /// every later one adds a member to it. Recording is a merge, never a
 /// replacement, whichever producer the members come from.

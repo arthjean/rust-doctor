@@ -105,6 +105,17 @@ pub(crate) struct CorpusArtifact {
     pub(crate) precision: Vec<RulePrecision>,
     pub(crate) schema_version: u64,
     pub(crate) score_distribution: ScoreDistribution,
+    /// Pseudo-counts every published rate is read through by the ranking.
+    ///
+    /// Recorded for the reason `lambdas` and `toolchain` are: the toolchain
+    /// decides which diagnostics exist, λ decides what they cost, and the
+    /// smoothing decides what a measured rate is worth once the sample it rests
+    /// on is taken into account. `precision` publishes the raw counts and the
+    /// raw share, which is the measurement; the smoothing is what turns it into
+    /// the number the report ranks by, so a record naming the first and not the
+    /// second cannot be replayed into the ranking it produced. The freeze test
+    /// in `src/policy/noise.rs` compares it against the shipped constant.
+    pub(crate) smoothing: Smoothing,
     pub(crate) toolchain: Toolchain,
     pub(crate) trust_boundary: TrustBoundary,
 }
@@ -268,6 +279,17 @@ pub(crate) struct LambdaObservation {
     /// λ in millionths, so the record is integer arithmetic like the rest of
     /// this file and two writings of it produce identical bytes.
     pub(crate) lambda_micro: u64,
+}
+
+/// The pseudo-counts the ranking reads every measured rate through: the
+/// Beta(1,1) posterior, one imagined false positive over two imagined sites.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Smoothing {
+    /// Imagined false positives added to every sample's numerator.
+    pub(crate) prior_false_positives: u64,
+    /// Imagined sites added to every sample's denominator.
+    pub(crate) prior_sites: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

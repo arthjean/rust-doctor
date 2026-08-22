@@ -12,6 +12,7 @@ use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
 
 mod lambda_freeze;
+mod ranking;
 mod scale;
 
 /// The block passes the rule the score it computes ranks. `oversized_unit` reports a file at a
@@ -26,6 +27,7 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
         include_str!("source_inventory.rs"),
         include_str!("tests.rs"),
         include_str!("tests/lambda_freeze.rs"),
+        include_str!("tests/ranking.rs"),
         include_str!("tests/scale.rs"),
     ] {
         let lines = own.lines().count();
@@ -610,91 +612,6 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
         }
     }
     diagnostics
-}
-
-/// The rule that fires most is not the rule worth fixing first.
-///
-/// `clippy::indexing_slicing` is adjudicated at 10000 basis points on the
-/// pinned corpus, forty reviewed sites and no true positive, while
-/// `rust_doctor::cargo::duplicate_major_versions` sits at zero. Ranking by
-/// contribution alone put the noisy rule first because volume is exactly
-/// what it has the most of, which is advice to go and change correct code.
-#[test]
-fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
-    let score = scored(&[
-        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
-        (
-            "rust_doctor::cargo::duplicate_major_versions",
-            "dependencies",
-            Severity::Warning,
-            2,
-        ),
-    ]);
-
-    assert_eq!(
-        score.projected_rule_ids,
-        vec!["rust_doctor::cargo::duplicate_major_versions".to_owned()],
-        "a rule measured at no true positive is left out rather than ranked last"
-    );
-}
-
-/// Absence of a measurement is not evidence of noise.
-#[test]
-fn a_rule_the_corpus_never_adjudicated_keeps_its_full_rank() {
-    let score = scored(&[
-        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
-        ("rust_doctor::repo::tracked_secret_file", "security", Severity::Warning, 1),
-    ]);
-
-    assert_eq!(
-        score.projected_rule_ids,
-        vec!["rust_doctor::repo::tracked_secret_file".to_owned()],
-        "an unmeasured rule is ranked on its contribution, undiscounted"
-    );
-}
-
-/// A workspace whose every scoring rule is measured wrong has nothing worth
-/// repairing, and the report says so by naming nothing.
-#[test]
-fn nothing_is_projected_when_every_scoring_rule_is_measured_wrong() {
-    let score = scored(&[
-        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
-        ("clippy::string_slice", "reliability", Severity::Warning, 12),
-    ]);
-
-    assert!(score.projected_rule_ids.is_empty());
-    assert_eq!(score.projected_after_top_three, None);
-    assert!(score.value < 100, "the findings still cost the score");
-}
-
-/// What the ranking dropped is named, in the order that makes the omission
-/// legible: the loudest first, since that is the one a reader misses.
-#[test]
-fn the_rules_the_ranking_dropped_are_published_loudest_first() {
-    let score = scored(&[
-        ("clippy::string_slice", "reliability", Severity::Warning, 2),
-        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
-        (
-            "rust_doctor::cargo::duplicate_major_versions",
-            "dependencies",
-            Severity::Warning,
-            2,
-        ),
-    ]);
-
-    assert_eq!(
-        score.withheld_rule_ids,
-        vec![
-            "clippy::indexing_slicing".to_owned(),
-            "clippy::string_slice".to_owned()
-        ]
-    );
-    assert!(
-        !score
-            .withheld_rule_ids
-            .contains(&"rust_doctor::cargo::duplicate_major_versions".to_owned()),
-        "a rule the corpus found right is never withheld"
-    );
 }
 
 /// An incomplete scan still scores and still caps, and it names neither what to fix next nor

@@ -382,14 +382,24 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
 
     let one = withheld_sentence(&["clippy::indexing_slicing".to_owned()])
         .expect("one withheld rule is a sentence");
-    assert!(one.contains("clippy::indexing_slicing reports here but is left out"));
+    assert!(
+        one.contains("clippy::indexing_slicing (98% noise on 40 sites) reports here but is left \
+                      out"),
+        "{one}"
+    );
 
     let two = withheld_sentence(&[
         "clippy::indexing_slicing".to_owned(),
         "clippy::string_slice".to_owned(),
     ])
     .expect("two withheld rules are a sentence");
-    assert!(two.contains("clippy::indexing_slicing and clippy::string_slice report here"));
+    assert!(
+        two.contains(
+            "clippy::indexing_slicing (98% noise on 40 sites) and clippy::string_slice (98% \
+             noise on 40 sites) report here"
+        ),
+        "{two}"
+    );
 
     let many = withheld_sentence(&[
         "clippy::indexing_slicing".to_owned(),
@@ -399,7 +409,10 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     ])
     .expect("four withheld rules are a sentence");
     assert!(
-        many.contains("clippy::indexing_slicing, clippy::string_slice and 2 more"),
+        many.contains(
+            "clippy::indexing_slicing (98% noise on 40 sites), clippy::string_slice (98% noise \
+             on 40 sites) and 2 more"
+        ),
         "{many}"
     );
     assert!(
@@ -408,10 +421,17 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     );
 }
 
-/// A reader who misses the loudest rule from what to fix finds out why in
-/// the same breath, without opening the JSON.
+/// A reader can weigh the ranking, because every rule it names carries the
+/// sample its rate rests on.
+///
+/// The loud rule is measured wrong on all forty sites the corpus reviewed and
+/// the quiet one right on the one site it showed, so the quiet one leads
+/// despite thirty times fewer findings. Without the two samples printed beside
+/// the two rates, that order reads as a defect of the tool: a reader who sees
+/// the rule with sixty findings ranked second has no way to tell a measurement
+/// from a bug.
 #[test]
-fn the_terminal_says_why_a_noisy_rule_is_missing_from_what_to_fix() {
+fn the_terminal_names_the_sample_behind_every_rate_it_ranks_by() {
     let mut report = report();
     report.diagnostics = vec![
         diagnostic("clippy::indexing_slicing", "reliability", 60),
@@ -426,14 +446,71 @@ fn the_terminal_says_why_a_noisy_rule_is_missing_from_what_to_fix() {
 
     let output = rendered(&report, 100, false, false);
 
+    // The report wraps at the terminal width, so the two names are looked for in
+    // the whole frame rather than on the line the projection starts on.
+    let unwrapped = output.replace('\n', " ");
     assert!(
-        output.contains("Fix the top 1 rules"),
-        "the quiet rule is what the report recommends: {output}"
+        unwrapped.find("rust_doctor::cargo::duplicate_major_versions (33% noise on 1 site)")
+            < unwrapped.find("clippy::indexing_slicing (98% noise on 40 sites)"),
+        "the rule measured right on its one site leads, and both samples are named: {output}"
+    );
+}
+
+/// A rule the corpus never adjudicated is named as unmeasured, never as a rate.
+///
+/// It is ranked at the middle of the interval, and printing that middle as a
+/// percentage would publish an assumption as an observation. `clippy::todo` is
+/// catalogued and carries no entry in the shipped table.
+#[test]
+fn the_terminal_names_an_unmeasured_rule_as_unmeasured() {
+    let mut report = report();
+    report.diagnostics = vec![diagnostic("clippy::todo", "maintainability", 4)];
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    report.summary = Summary::from_diagnostics(&report.diagnostics);
+
+    let output = rendered(&report, 100, false, false);
+
+    assert!(
+        output.contains("clippy::todo (unmeasured)"),
+        "an unmeasured rule is named, not scored: {output}"
     );
     assert!(
-        output.contains("clippy::indexing_slicing reports here but is left out"),
-        "the loud rule's absence is explained: {output}"
+        !output.contains("clippy::todo (50%"),
+        "the half-weight default is a ranking choice, never published as a measurement: {output}"
     );
+}
+
+/// The added text is bounded by the terminal like every other line.
+///
+/// Forty columns is the narrowest the interactive report ever draws at, and the
+/// linear one normalizes to `MIN_WIDTH` below it. Either way no row may pass the
+/// width the writer was given: the rule ids the ranking names are long, and the
+/// sample note lengthens each of them.
+#[test]
+fn the_measurement_note_never_pushes_a_row_past_the_width() {
+    let mut report = report();
+    report.diagnostics = vec![
+        diagnostic("clippy::indexing_slicing", "reliability", 60),
+        diagnostic(
+            "rust_doctor::cargo::duplicate_major_versions",
+            "dependencies",
+            2,
+        ),
+    ];
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    report.summary = Summary::from_diagnostics(&report.diagnostics);
+
+    for width in [40, 80, 120] {
+        let output = rendered(&report, width, false, false);
+        let bound = width.max(MIN_WIDTH);
+        for row in output.lines() {
+            assert!(
+                display_width(row) <= bound,
+                "a row of {} columns at width {width}: {row}",
+                display_width(row)
+            );
+        }
+    }
 }
 
 fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {

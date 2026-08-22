@@ -20,8 +20,8 @@ use crate::audit::{Audit, SeverityCounts};
 use crate::delta::DeltaReport;
 use crate::git_scope::{ScopeReport, ScopeRequest};
 use crate::policy::{
-    BlockingLevel, BlockingLevelSource, CategoryOverride, PolicyInput, PolicyPlan, RuleLevel,
-    RuleLevelSource, RuleOverride, RuleTier,
+    BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PolicyInput,
+    PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
 };
 
 mod assembly;
@@ -33,7 +33,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 15;
+pub const SCHEMA_VERSION: u8 = 16;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -129,7 +129,7 @@ pub struct PolicyRuleReport {
     pub tier: RuleTier,
     pub level: RuleLevel,
     pub source: RuleLevelSource,
-    /// Adjudicated false-positive rate of this rule on the pinned corpus, in
+    /// Smoothed false-positive rate of this rule on the pinned corpus, in
     /// basis points, absent when the corpus never adjudicated it.
     ///
     /// It is published because it ranks: the report tells the user what to fix
@@ -138,6 +138,15 @@ pub struct PolicyRuleReport {
     /// omission reads as a defect of the tool rather than a measurement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corpus_noise_basis_points: Option<u16>,
+    /// How many sites the rate above rests on.
+    ///
+    /// A rate published alone is a rate the reader cannot weigh: one adjudicated
+    /// site and forty adjudicated sites are two different claims, and the
+    /// smoothing that separates them is invisible in the rate it produces. The
+    /// two members move together, so a rule carrying neither is a rule the
+    /// corpus never adjudicated rather than a rule measured at zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corpus_reviewed_sites: Option<u64>,
 }
 
 impl PolicyReport {
@@ -150,13 +159,18 @@ impl PolicyReport {
             },
             rules: plan
                 .effective_rules()
-                .map(|(definition, level, source)| PolicyRuleReport {
-                    id: definition.id.to_owned(),
-                    category: definition.category.to_owned(),
-                    tier: definition.tier,
-                    level,
-                    source,
-                    corpus_noise_basis_points: crate::policy::corpus_noise(definition.id),
+                .map(|(definition, level, source)| {
+                    let measurement = crate::policy::corpus_measurement(definition.id);
+                    PolicyRuleReport {
+                        id: definition.id.to_owned(),
+                        category: definition.category.to_owned(),
+                        tier: definition.tier,
+                        level,
+                        source,
+                        corpus_noise_basis_points: measurement
+                            .map(CorpusMeasurement::noise_basis_points),
+                        corpus_reviewed_sites: measurement.map(CorpusMeasurement::reviewed),
+                    }
                 })
                 .collect(),
         }

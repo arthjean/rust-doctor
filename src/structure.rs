@@ -616,17 +616,18 @@ fn findings(
 /// A family straddling production and a test target stays unmarked and keeps
 /// weighing on the score: the shipped half of it is still shipped.
 ///
-/// A family whose members are all non-production but of disagreeing kinds is
-/// unmarked by the same rule and weighs too, which is a defect and not the case
-/// above. It is the family layer, not the unit layer: each member's own context
-/// is correct, and the abstention `source_kernel::unanimous` performs over a
-/// unit reached by disagreeing traversals is a different rule over a different
-/// disagreement. Abstaining is right there, where the unit may still ship, and
-/// wrong here, where no member of the family ships under any reading.
+/// A family whose members are all non-production but of disagreeing kinds
+/// publishes the mark of its anchor. It is the family layer, not the unit
+/// layer: each member's own context is correct, and the abstention
+/// `source_kernel::unanimous` performs over a unit reached by disagreeing
+/// traversals is a different rule over a different disagreement. Abstaining is
+/// right there, where the unit may still ship, and wrong here, where no member
+/// of the family ships under any reading. The anchor rather than one of the
+/// kinds because the anchor is the site the family is reported at, so the mark
+/// the reader sees is the mark of the file they are sent to.
 ///
-/// The repair is three lines, taking the mark of the anchor whenever every
-/// member carries one, and its cost was measured on 2026-08-22 against the
-/// pinned corpus rather than estimated. It is not where it looks. The four
+/// The repair is three lines, and its cost was measured on 2026-08-22 against
+/// the pinned corpus rather than estimated. It is not where it looks. The four
 /// agent structural scopes do not move at all: the two families it corrects,
 /// both in `vibesql`, are anchored under `examples/` and `benches/`, which
 /// `every_reviewed_structural_site_is_production_context` already keeps out of
@@ -642,14 +643,15 @@ fn findings(
 /// What that price is really made of is the raw model reading an absent rate as
 /// a perfect one: `expected_repair_value` retains the whole contribution of a
 /// rule nothing measured, so withholding a rate promotes the rule rather than
-/// demoting it. Laplace smoothing is what removes the price, not a deeper
+/// demoting it. Laplace smoothing is what removed the price, not a deeper
 /// sample, since it ranks four false positives out of four at 8333 basis points
-/// instead of at nothing. So the repair is US-017, blocked by US-013 and
-/// US-014, and it costs three lines the day those land.
+/// instead of at nothing, and an absent rate at 5000 instead of at zero.
 fn unanimous_context(members: &[Member]) -> Option<DiagnosticContext> {
     let mut contexts = members.iter().map(|member| member.context);
-    let first = contexts.next().flatten()?;
-    contexts.all(|context| context == Some(first)).then_some(first)
+    let anchor = contexts.next().flatten()?;
+    contexts
+        .all(|context| context.is_some())
+        .then_some(anchor)
 }
 
 /// Does a recognized generator header open this file?

@@ -38,7 +38,12 @@ use super::{Adjudication, Population, SiteContext, Verdict};
 /// without saying whether the samples can tell the two populations apart. It
 /// also adds `family` to a reviewed site and to a pair, present exactly on the
 /// structural rules, whose unit is a family and not a position.
-pub(crate) const SCHEMA_VERSION: u64 = 6;
+///
+/// 7 adds `smoothing`, the pseudo-counts the ranking reads every published rate
+/// through. Required for the same reason `lambdas` is: `precision` publishes
+/// the raw counts and the raw share, and the number the report actually ranks
+/// by is neither of the two until the smoothing is named.
+pub(crate) const SCHEMA_VERSION: u64 = 7;
 
 /// How the two passes of a pair were kept apart.
 ///
