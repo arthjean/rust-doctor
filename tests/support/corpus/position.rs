@@ -65,6 +65,11 @@ pub(crate) struct PositionProof {
 /// escalation queue was the one part of the record no run has ever confirmed.
 pub(crate) struct PublishedSite<'a> {
     pub(crate) context: SiteContext,
+    /// The family digest a structural site claims, `None` on every other rule.
+    /// What a reproduction checks with it is that the position it located is
+    /// the anchor of the family that was judged, and not another family whose
+    /// anchor drifted onto the same line.
+    pub(crate) family: Option<&'a str>,
     pub(crate) line: u64,
     pub(crate) path: &'a str,
     pub(crate) repository: &'a str,
@@ -83,6 +88,7 @@ pub(crate) fn published_sites(
         .filter(|site| site.population == population)
         .map(|site| PublishedSite {
             context: site.context,
+            family: site.family.as_deref(),
             line: site.line,
             path: site.path.as_str(),
             repository: site.repository.as_str(),
@@ -96,6 +102,7 @@ pub(crate) fn published_sites(
                 .filter(|pair| pair.population == population)
                 .map(|pair| PublishedSite {
                     context: pair.context,
+                    family: pair.family.as_deref(),
                     line: pair.line,
                     path: pair.path.as_str(),
                     repository: pair.repository.as_str(),
@@ -103,14 +110,16 @@ pub(crate) fn published_sites(
                 }),
         )
         .collect();
-    sites.sort_unstable_by_key(|site| (site.rule, site.repository, site.path, site.line));
-    sites.dedup_by_key(|site| (site.rule, site.repository, site.path, site.line));
+    sites.sort_unstable_by_key(|site| (site.rule, site.repository, site.path, site.line, site.family));
+    sites.dedup_by_key(|site| (site.rule, site.repository, site.path, site.line, site.family));
     sites
 }
 
 /// One hashed line. The kind is part of it, so that moving a site between
 /// `reviewed` and `pairs`, which is exactly what resolving an escalation does,
-/// moves the digest.
+/// moves the digest. The family is part of it too: a structural verdict is a
+/// verdict about a family, so a site republished at the same position under a
+/// family nobody judged is a site nobody has confirmed.
 fn identity_line(
     kind: &str,
     population: Population,
@@ -118,8 +127,12 @@ fn identity_line(
     repository: &str,
     path: &str,
     line: u64,
+    family: Option<&str>,
 ) -> String {
-    format!("{kind}\t{population:?}\t{rule}\t{repository}\t{path}\t{line}")
+    format!(
+        "{kind}\t{population:?}\t{rule}\t{repository}\t{path}\t{line}\t{}",
+        family.unwrap_or_default()
+    )
 }
 
 /// The sorted identities the digest is taken over.
@@ -135,6 +148,7 @@ fn identity_lines(adjudication: &Adjudication) -> Vec<String> {
                 &site.repository,
                 &site.path,
                 site.line,
+                site.family.as_deref(),
             )
         })
         .chain(adjudication.agreement.pairs.iter().map(|pair| {
@@ -145,6 +159,7 @@ fn identity_lines(adjudication: &Adjudication) -> Vec<String> {
                 &pair.repository,
                 &pair.path,
                 pair.line,
+                pair.family.as_deref(),
             )
         }))
         .collect();

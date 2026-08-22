@@ -31,7 +31,14 @@ use super::{Adjudication, Population, SiteContext, Verdict};
 /// 5 adds `adjudication.position_proof`, and it is a required member of a shape
 /// that denies unknown fields: a reader of 4 refuses this file and this harness
 /// refuses a 4. The two are different shapes, so they are different numbers.
-pub(crate) const SCHEMA_VERSION: u64 = 5;
+///
+/// 6 adds the difference interval, its method, its coverage flag and its
+/// verdict to every `rate_comparison` row, all five required for the same
+/// reason: a row carrying a gap and no interval is a row that states a distance
+/// without saying whether the samples can tell the two populations apart. It
+/// also adds `family` to a reviewed site and to a pair, present exactly on the
+/// structural rules, whose unit is a family and not a position.
+pub(crate) const SCHEMA_VERSION: u64 = 6;
 
 /// How the two passes of a pair were kept apart.
 ///
@@ -70,6 +77,10 @@ pub(crate) struct Pass {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AdjudicatedPair {
     pub(crate) context: SiteContext,
+    /// The structural family this pair judged, spelled as `ReviewedSite` spells
+    /// it and asserted equal to it wherever both exist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) family: Option<String>,
     pub(crate) independence: Independence,
     pub(crate) line: u64,
     /// Exactly two passes, enforced by the shape rather than by a check: a
@@ -264,6 +275,78 @@ pub(crate) fn agreement_defects(adjudication: &Adjudication) -> Vec<String> {
             "escalations_open published {} against {open} disagreeing pairs",
             agreement.escalations_open
         ));
+    }
+
+    defects
+}
+
+/// Prefix of every rule whose unit is a family rather than a position.
+///
+/// One spelling, read by the two directions of `family_defects`: a predicate
+/// written twice is how the presence check and the absence check end up
+/// disagreeing about which rules the record is talking about.
+const STRUCTURAL_PREFIX: &str = "rust_doctor::structure::";
+
+/// Closed defects of the family anchoring, each naming the site.
+///
+/// Both directions, for the reason the pair coupling is checked both ways: a
+/// structural site with no family is a verdict about a family nobody can name,
+/// and a family on a rule whose unit is a position is a second identity beside
+/// one that already settles the question. The third check is the one the two
+/// shapes make possible at all: a pair and the reviewed site it backs are one
+/// judgment of one family, so a disagreement between them is a verdict
+/// republished under a family it was never produced against.
+pub(crate) fn family_defects(adjudication: &Adjudication) -> Vec<String> {
+    let mut defects = Vec::new();
+
+    let mut check = |rule: &str, family: Option<&String>, label: String| {
+        match (rule.starts_with(STRUCTURAL_PREFIX), family) {
+            (true, None) => defects.push(format!("structural site with no family: {label}")),
+            (false, Some(_)) => defects.push(format!(
+                "family published on a rule whose unit is a position: {label}"
+            )),
+            (true, Some(digest)) if digest.trim().is_empty() => {
+                defects.push(format!("site with an empty family: {label}"));
+            }
+            _ => {}
+        }
+    };
+    for site in &adjudication.reviewed {
+        let label = format!(
+            "{} on {:?} at {}/{}:{}",
+            site.rule, site.population, site.repository, site.path, site.line
+        );
+        check(&site.rule, site.family.as_ref(), label);
+    }
+    for pair in &adjudication.agreement.pairs {
+        check(&pair.rule, pair.family.as_ref(), pair.label());
+    }
+
+    let published: BTreeMap<SiteIdentity<'_>, Option<&String>> = adjudication
+        .reviewed
+        .iter()
+        .map(|site| {
+            (
+                (
+                    site.rule.as_str(),
+                    site.population,
+                    site.repository.as_str(),
+                    site.path.as_str(),
+                    site.line,
+                ),
+                site.family.as_ref(),
+            )
+        })
+        .collect();
+    for pair in &adjudication.agreement.pairs {
+        if let Some(site) = published.get(&pair.identity())
+            && *site != pair.family.as_ref()
+        {
+            defects.push(format!(
+                "pair and reviewed site publish different families: {}",
+                pair.label()
+            ));
+        }
     }
 
     defects

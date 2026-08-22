@@ -540,6 +540,19 @@ pub(crate) enum Provenance {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReviewedSite {
     pub(crate) context: SiteContext,
+    /// The structural family this site belongs to, for a rule whose unit is a
+    /// family rather than a position.
+    ///
+    /// `structural_identity` in `src/delta.rs` is the same fact under the same
+    /// predicate: the identity of a `Producer::Structure` finding is the digest
+    /// of the family, not its span and not its message, because every
+    /// structural message states a count the next edit moves. A site of one of
+    /// those rules is a claim about the family, and the position it is
+    /// published at is only where the anchor happened to sit. Absent on every
+    /// other rule, where the position is the unit and a second identity would
+    /// be a second answer to a question the path and the line already settle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) family: Option<String>,
     pub(crate) justification: String,
     pub(crate) line: u64,
     pub(crate) path: String,
@@ -1197,6 +1210,9 @@ pub(crate) struct Finding<'a> {
     /// placed earlier would reorder every published `findings_digest` without
     /// a single finding having changed.
     pub(crate) context: Option<&'a str>,
+    /// The diagnostic's identity, which for a structural rule is the digest of
+    /// the family it reports. Last for the reason `context` is.
+    pub(crate) id: &'a str,
 }
 
 pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
@@ -1215,6 +1231,7 @@ pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
             path: diagnostic["path"].as_str().unwrap_or_default(),
             rule: diagnostic["code"].as_str().unwrap_or_default(),
             context: diagnostic["context"].as_str(),
+            id: diagnostic["id"].as_str().unwrap_or_default(),
         })
         .collect();
     findings.sort_unstable();

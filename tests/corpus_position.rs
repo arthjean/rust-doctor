@@ -24,20 +24,43 @@ use std::process::Command;
 
 use support::corpus::reproduction::{Reproduction, decide};
 use support::corpus::position::{PositionProof, position_defects, published_sites, recompute};
+use support::corpus::agreement::family_defects;
 use support::corpus::{Population, Provenance, ReviewedSite, SiteContext, Verdict, artifact};
 
 /// The three sites the two passes of 2026-08-11 disagreed on, which live in
 /// `pairs` alone: an escalation has no reviewed site, so hashing `reviewed`
 /// would leave the whole escalation queue anchored to nothing.
-const ESCALATED: [(&str, &str, u64); 3] = [
-    ("ripgrep", "crates/ignore/src/dir.rs", 340),
-    ("thiserror", "impl/src/expand.rs", 31),
-    ("thiserror", "impl/src/expand.rs", 221),
+///
+/// The rule is part of the identity, not decoration. Two rules report at one
+/// position: `oversized_unit` anchors a file at the line its first item starts
+/// on, which is where `complex_function` reports the function that made the
+/// file oversized, so a triple of repository, path and line reads a reviewed
+/// site of one rule as a published verdict on the other's escalation.
+const ESCALATED: [(&str, &str, &str, u64); 3] = [
+    (
+        "rust_doctor::structure::complex_function",
+        "ripgrep",
+        "crates/ignore/src/dir.rs",
+        340,
+    ),
+    (
+        "rust_doctor::structure::complex_function",
+        "thiserror",
+        "impl/src/expand.rs",
+        31,
+    ),
+    (
+        "rust_doctor::structure::complex_function",
+        "thiserror",
+        "impl/src/expand.rs",
+        221,
+    ),
 ];
 
 fn probe_site() -> ReviewedSite {
     ReviewedSite {
         context: SiteContext::Production,
+        family: None,
         justification: "a site nobody scanned".to_owned(),
         line: 1,
         path: "src/lib.rs".to_owned(),
@@ -108,18 +131,24 @@ fn a_site_removed_by_hand_is_refused_the_same_way() {
 fn an_escalated_site_is_anchored_through_its_pair() {
     let artifact = artifact();
     let sites = published_sites(&artifact.adjudication, Population::Healthy);
-    for (repository, path, line) in ESCALATED {
+    for (rule, repository, path, line) in ESCALATED {
         assert!(
             sites.iter().any(|site| {
-                site.repository == repository && site.path == path && site.line == line
+                site.rule == rule
+                    && site.repository == repository
+                    && site.path == path
+                    && site.line == line
             }),
-            "the escalated site {repository}/{path}:{line} is what a reproduction has to locate"
+            "the escalated site {rule} at {repository}/{path}:{line} is what a reproduction has to locate"
         );
         assert!(
             !artifact.adjudication.reviewed.iter().any(|site| {
-                site.repository == repository && site.path == path && site.line == line
+                site.rule == rule
+                    && site.repository == repository
+                    && site.path == path
+                    && site.line == line
             }),
-            "an escalated site carries no published verdict: {repository}/{path}:{line}"
+            "an escalated site carries no published verdict: {rule} at {repository}/{path}:{line}"
         );
     }
 
@@ -146,6 +175,7 @@ fn resolving_an_escalation_moves_the_digest() {
     let mut forged = artifact.clone();
     forged.adjudication.reviewed.push(ReviewedSite {
         context: escalated.context,
+        family: escalated.family.clone(),
         justification: "settled by a human".to_owned(),
         line: escalated.line,
         path: escalated.path.clone(),
@@ -299,5 +329,110 @@ fn both_variables_set_is_a_reproduction() {
             artifacts: PathBuf::from("/scratch"),
             cache: PathBuf::from("/cache"),
         }
+    );
+}
+
+/// A structural verdict is a verdict about a family, and the record says which.
+///
+/// `structural_identity` in `src/delta.rs` is the same fact under the same
+/// predicate: a structural diagnostic is identified by its family digest and
+/// not by the position it is anchored at, because the anchor moves with every
+/// edit above it while the family survives the count its own message states. A
+/// site published at a position with no family names a verdict a reproduction
+/// can locate and cannot check it judged the same thing.
+#[test]
+fn every_structural_site_names_the_family_it_judges() {
+    let artifact = artifact();
+    assert_eq!(family_defects(&artifact.adjudication), Vec::<String>::new());
+
+    let structural = artifact
+        .adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.rule.starts_with("rust_doctor::structure::"))
+        .count();
+    let named = artifact
+        .adjudication
+        .reviewed
+        .iter()
+        .filter(|site| site.family.is_some())
+        .count();
+    assert_eq!(structural, named);
+    assert!(structural > 0);
+}
+
+/// A structural site with no family is a verdict about a family nobody can
+/// name.
+#[test]
+fn a_structural_site_with_no_family_is_named() {
+    let mut forged = artifact();
+    let site = forged
+        .adjudication
+        .reviewed
+        .iter_mut()
+        .find(|site| site.family.is_some())
+        .expect("the record publishes a structural site");
+    site.family = None;
+    defect_naming(&family_defects(&forged.adjudication), "structural site with no family");
+}
+
+/// A family on a rule whose unit is a position is a second identity beside one
+/// the path and the line already settle.
+#[test]
+fn a_family_on_a_positional_rule_is_named() {
+    let mut forged = artifact();
+    let site = forged
+        .adjudication
+        .reviewed
+        .iter_mut()
+        .find(|site| !site.rule.starts_with("rust_doctor::structure::"))
+        .expect("the record publishes a Clippy site");
+    site.family = Some("0".repeat(64));
+    defect_naming(
+        &family_defects(&forged.adjudication),
+        "family published on a rule whose unit is a position",
+    );
+}
+
+/// A pair and the reviewed site it backs are one judgment of one family, so a
+/// site republished under another family is a verdict nobody produced against
+/// it.
+#[test]
+fn a_pair_and_its_site_disagreeing_on_the_family_are_named() {
+    let mut forged = artifact();
+    let label = {
+        let pair = forged
+            .adjudication
+            .agreement
+            .pairs
+            .iter_mut()
+            .find(|pair| pair.agrees() && pair.family.is_some())
+            .expect("the record publishes an agreeing structural pair");
+        pair.family = Some("0".repeat(64));
+        pair.label()
+    };
+    let named = defect_naming(
+        &family_defects(&forged.adjudication),
+        "pair and reviewed site publish different families",
+    );
+    assert!(named.contains(&label), "{named}");
+}
+
+/// The family is part of what the proof hashes, so a site republished at the
+/// same position under another family is a site no run has confirmed.
+#[test]
+fn a_family_edited_by_hand_moves_the_digest() {
+    let artifact = artifact();
+    let mut forged = artifact.clone();
+    let site = forged
+        .adjudication
+        .reviewed
+        .iter_mut()
+        .find(|site| site.family.is_some())
+        .expect("the record publishes a structural site");
+    site.family = Some("0".repeat(64));
+    assert_ne!(
+        recompute(&forged.adjudication).0,
+        recompute(&artifact.adjudication).0
     );
 }

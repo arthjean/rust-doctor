@@ -938,6 +938,7 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
         reviewed: (0..reviewed)
             .map(|index| ReviewedSite {
                 context: SiteContext::Production,
+                family: None,
                 justification: "probe".to_owned(),
                 line: index + 1,
                 path: "src/lib.rs".to_owned(),
@@ -1503,6 +1504,22 @@ fn the_agent_population_reproduces_from_the_local_cache() {
             site.path,
             site.line
         );
+        // The family is what a structural verdict is about. `structural_identity`
+        // in `src/delta.rs` identifies a structural diagnostic by its family
+        // digest and not by the position it is anchored at, precisely because
+        // the anchor moves with the next edit above it, so locating the
+        // position alone confirms a line and not the family that was judged.
+        if let Some(family) = site.family {
+            assert!(
+                located.iter().any(|finding| finding.id == family),
+                "site anchors family {family} where the report locates {:?}: {}/{} at {}:{}",
+                located.iter().map(|finding| finding.id).collect::<Vec<&str>>(),
+                site.repository,
+                site.rule,
+                site.path,
+                site.line
+            );
+        }
         confirmed += 1;
     }
     attest(&root, &published, Population::Agent, confirmed);
@@ -1660,6 +1677,22 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
             site.path,
             site.line
         );
+        // The family is what a structural verdict is about. `structural_identity`
+        // in `src/delta.rs` identifies a structural diagnostic by its family
+        // digest and not by the position it is anchored at, precisely because
+        // the anchor moves with the next edit above it, so locating the
+        // position alone confirms a line and not the family that was judged.
+        if let Some(family) = site.family {
+            assert!(
+                located.iter().any(|finding| finding.id == family),
+                "site anchors family {family} where the report locates {:?}: {}/{} at {}:{}",
+                located.iter().map(|finding| finding.id).collect::<Vec<&str>>(),
+                site.repository,
+                site.rule,
+                site.path,
+                site.line
+            );
+        }
         confirmed += 1;
     }
 
