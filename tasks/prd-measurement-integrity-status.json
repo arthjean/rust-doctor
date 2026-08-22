@@ -9,10 +9,10 @@
     {
       "id": "EP-001",
       "title": "The published context tells the truth about out-of-line test modules",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 8,
-      "stories_done": 7
+      "stories_done": 8
     },
     {
       "id": "EP-002",
@@ -27,7 +27,7 @@
       "title": "The ranking reads a smoothed rate, and an unmeasured rule is not free",
       "status": "TODO",
       "priority": "P1",
-      "stories_total": 4,
+      "stories_total": 5,
       "stories_done": 0
     }
   ],
@@ -104,14 +104,14 @@
       "id": "US-006",
       "title": "Reproduce the corpus and republish the record under the corrected context",
       "epic": "EP-001",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-002"
       ],
       "started_at": "2026-08-22",
-      "completed_at": null,
+      "completed_at": "2026-08-22",
       "reviewed_at": "2026-08-22"
     },
     {
@@ -247,6 +247,21 @@
       "size": "M",
       "blocked_by": [
         "US-013"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-017",
+      "title": "A family whose every member is non-production stops being published as production",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-013",
+        "US-014"
       ],
       "started_at": null,
       "completed_at": null,

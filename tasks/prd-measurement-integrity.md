@@ -197,7 +197,7 @@ Close the gap between what `test_context` says a test gate is and what the walk 
 **Acceptance Criteria:**
 - [ ] Given the gated reproduction is run with both environment variables set, when it completes, then all tests of `corpus_precision` pass and `position-proof.json` is written beside the artifacts.
 - [ ] Given the reproduction output, when the record is updated, then `position_proof` is copied from the run rather than hand-written, and `tests/corpus_position.rs` recomputes it offline on the next `cargo test`.
-- [ ] Given the corrected classification, when the observations are recomputed, then the agent production duplication families that are entirely test code number 0, down from 31 of 430, and the count is stated in the commit message.
+- [ ] Given the corrected classification, when the observations are recomputed, then no agent production duplication family has every member reached only through a `#[cfg(test)]` module declaration, the families that are entirely test code fall from 31 of 430 to 2 of 393, and both counts are stated in the commit message. The two that remain are a different defect, at the family layer rather than the unit layer, and US-017 carries it: the count is stated here so that the residual is a named debt rather than a number nobody compared.
 - [ ] Given a scope falls below `MINIMUM_REVIEWED_SITES` after reclassification, then its `PrecisionStatus` becomes `Incomplete` and its rate is withheld rather than published from a shortened sample.
 - [ ] Given `structural_density` is recomputed, then both populations' line counts and densities move together and `ratio_milli` is republished, with the previous value 1509 stated for comparison.
 - [ ] Given the record changes, then `the_published_catalog_matches_the_shipped_policy` and `the_noise_the_score_ranks_by_matches_the_adjudicated_rate` both pass, regenerating `CORPUS_NOISE` if the rates moved.
@@ -305,7 +305,7 @@ Take the two structural scopes whose healthy rate rests on five sites to their w
 
 Replace the raw point estimate in the ranking key with the Laplace-smoothed rate, so the sample size matters, the twelve-way tie at zero resolves, and measuring a rule can move it either way.
 
-**Definition of Done:** `expected_repair_value` reads a smoothed rate for every catalogued rule, no rule is ranked at exactly zero or at full weight for want of a measurement, and the smoothing is frozen against the record the way lambda is.
+**Definition of Done:** `expected_repair_value` reads a smoothed rate for every catalogued rule, no rule is ranked at exactly zero or at full weight for want of a measurement, the smoothing is frozen against the record the way lambda is, and the family-layer classification EP-001 left at 2 of 393 is repaired, which the smoothing is what makes affordable.
 
 #### US-013: `CORPUS_NOISE` carries the Laplace-smoothed rate, recomputed by its own test
 **Description:** As a report reader, I want a rule's ranking discount to reflect how many sites its rate was measured on, so that a rule adjudicated once is not treated like a rule adjudicated forty times.
@@ -364,6 +364,26 @@ Replace the raw point estimate in the ranking key with the Laplace-smoothed rate
 - [ ] Given the terminal is 40 columns wide, when the report renders, then the added text does not push any row past the guard column and no frame wraps.
 - [ ] Given a report is rendered for a scan that failed, then the added text is not rendered: `render_failure` stays two sections.
 
+#### US-017: A family whose every member is non-production stops being published as production
+**Description:** As a maintainer, I want the residual EP-001 defect repaired once an unmeasured rule is no longer ranked as a perfect one, so that correcting a classification cannot cost the report its ranking.
+
+This is the debt US-006 recorded at 2 of 393. `unanimous_context` (`src/structure.rs:618`) abstains when the members of a family carry different non-production contexts, and the abstention reads as production. That is the family layer, not the unit layer: each member's own context is right, and the abstention `source_kernel::unanimous` performs is a different rule over a different disagreement, correct there because the unit may still ship and wrong here because no member ships under any reading.
+
+It sits in EP-003 rather than in EP-001 for one measured reason. The repair is three lines, and its cost falls on the healthy population, not the agent one: one `anyhow` family spanning `build.rs` and `tests/test_ffi.rs` is a reviewed site of `crate_level_allow` and of `unreasoned_allow_attribute`, both resting on exactly `MINIMUM_REVIEWED_SITES`. Correcting the mark takes each to four sites, withholds both rates per FR-13, and both are 10000 basis points in `CORPUS_NOISE`, so under the raw model they would be ranked at full contribution: two rules the corpus measured wrong on every site it looked at would lead the report. Laplace smoothing is what removes that price, since an absent rate stops meaning a perfect one.
+
+**Priority:** P1
+**Size:** S (2 pts)
+**Dependencies:** Blocked by US-013, US-014
+
+**Acceptance Criteria:**
+- [ ] Given a family whose every member carries a non-production context and whose members disagree on which, when the context is published, then it is the anchor's and the family stops weighing on the score.
+- [ ] Given a family straddling production and non-production, then it keeps abstaining to production and keeps weighing, unchanged: FR-04 governs the unit layer and this story changes the family layer alone.
+- [ ] Given a fixture family whose two members are a bench target and an integration test, when it is scanned, then a named test asserts the published context, so the family layer carries evidence of its own rather than resting on the unit-layer tests.
+- [ ] Given the corpus is reproduced after the change, then the agent production duplication families that are entirely test code number 0, down from the 2 US-006 recorded, and both counts are stated in the commit message.
+- [ ] Given `crate_level_allow` and `unreasoned_allow_attribute` lose the `anyhow` site spanning `build.rs` and `tests/test_ffi.rs`, then each falls to 4 reviewed sites, publishes `PrecisionStatus::Incomplete`, and leaves `CORPUS_NOISE`.
+- [ ] Given both leave the table, when the report ranks, then each is ranked at 5000 basis points per FR-10 rather than at full contribution, and the before and after ranks of both are stated.
+- [ ] Given the record changes, then the gated reproduction is run again and `position_proof` is rewritten by the run, never by hand.
+
 ## Functional Requirements
 
 - FR-01: The walk must record, per traversal reaching a unit, whether the module declaration that named it was gated by `#[cfg(test)]`, and must propagate that gate transitively to modules the gated file declares.
@@ -379,6 +399,7 @@ Replace the raw point estimate in the ranking key with the Laplace-smoothed rate
 - FR-11: The system must NOT change what a diagnostic costs the score as a consequence of any change in this PRD: the discount applies to the ranking key alone.
 - FR-12: The system must NOT rewrite `position_proof` outside the gated reproduction run.
 - FR-13: A scope whose reviewed sample falls below `MINIMUM_REVIEWED_SITES` must publish `PrecisionStatus::Incomplete` and withhold its rate rather than publish it from a shortened sample.
+- FR-14: A structural family whose every member carries a non-production context must publish its anchor's context, whether or not the members agree on which; a family straddling production and non-production must keep abstaining to production. FR-04 governs the unit layer, this governs the family layer, and the two disagreements are not the same disagreement.
 
 ## Non-Functional Requirements
 
@@ -410,6 +431,7 @@ Replace the raw point estimate in the ranking key with the Laplace-smoothed rate
 | 13 | Exhausted population | A scope whose target exceeds its population | `k = min(target, n)`; the plan records that the sample is the population | none |
 | 14 | Disagreeing new pair | A re-adjudicated pair whose two passes disagree | No reviewed site is published, `escalations_open` rises, no agent tie-breaks | the record shows the pair as escalated |
 | 15 | Smoothing constant moved | The pseudo-counts are edited without regenerating the table | A named test fails saying the smoothing changed and every rate must be regenerated | the failure names both values |
+| 16 | Family of divergent non-production kinds | Every member non-production, a bench and an integration test, no two agreeing | The anchor's context is published and the family stops weighing (FR-14) | none |
 
 ## Risks & Mitigations
 
