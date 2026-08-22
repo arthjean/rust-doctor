@@ -934,14 +934,16 @@ fn a_hand_edited_comparison_is_refused_naming_the_rule_and_the_field() {
     defect_naming(&defects, "publishes measured_rules");
 }
 
-/// A sample that settles nothing at twenty sites is published as such.
+/// A sample that settles nothing is published as such rather than deepened.
 ///
-/// `oversized_unit` reports one false positive in twenty on agent-written
-/// code, a point estimate landing exactly on the threshold, and the interval
-/// its sample supports spans it. Deepening the sample until the bound moves is
-/// how a record ends up publishing the sample size that produced the answer
-/// its author wanted, so the indecisive verdict is the published one and the
-/// rate is published beside it rather than withheld.
+/// `orphan_module_file` reports one false positive on agent-written code over
+/// a production population of twelve, which is every site the population can
+/// supply: the stride is the whole list, so there is no deeper sample to draw.
+/// The interval that census supports still spans the threshold, and the
+/// indecisive verdict is the published one, the rate beside it rather than
+/// withheld. Drawing more sites until the bound moves is how a record ends up
+/// publishing the sample size that produced the answer its author wanted, and
+/// here it is not even available: what the scope has is what it observed.
 #[test]
 fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened() {
     let artifact = artifact();
@@ -949,26 +951,27 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
         .agent_population
         .precision
         .iter()
-        .find(|rule| rule.id == "rust_doctor::structure::oversized_unit")
+        .find(|rule| rule.id == "rust_doctor::structure::orphan_module_file")
         .unwrap();
 
-    assert_eq!(rule.reviewed, PROTOCOL_TARGET);
+    // Below the protocol target because the population is, which is the one
+    // way a scope under this protocol reviews fewer sites than it asks for.
+    assert!(rule.reviewed < PROTOCOL_TARGET);
     assert_eq!(rule.false_positives, Some(1));
-    assert_eq!(
-        rule.false_positive_rate_basis_points,
-        Some(THRESHOLD_BASIS_POINTS)
-    );
+    assert_eq!(rule.false_positive_rate_basis_points, Some(833));
     assert_eq!(rule.separation, Some(Separation::Indecisive));
     let low = rule.interval_low_basis_points.unwrap();
     let high = rule.interval_high_basis_points.unwrap();
     assert!(low <= THRESHOLD_BASIS_POINTS && THRESHOLD_BASIS_POINTS <= high);
-    assert_eq!((low, high), wilson_95(1, PROTOCOL_TARGET));
+    assert_eq!((low, high), wilson_95(1, rule.reviewed));
 
-    // The other two rates of the same draw separate, which is what says the
-    // indecision is this rule's sample and not the target the protocol takes.
+    // The other three rates of the same draw separate, which is what says the
+    // indecision is this rule's population and not the target the protocol
+    // takes or the way the four were judged.
     for id in [
         "rust_doctor::structure::duplicate_function_body",
         "rust_doctor::structure::near_duplicate_function_body",
+        "rust_doctor::structure::oversized_unit",
     ] {
         let other = artifact
             .agent_population

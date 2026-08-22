@@ -70,7 +70,13 @@ For a `rust_doctor::structure::*` rule, restrict the population to findings with
 no `context` field, which is what production means: a family marked as test,
 bench, example or build-script material is published but weighs nothing, and
 measuring the rule over those families publishes the cost of an idiom rather
-than the cost of the rule. A test enforces this restriction.
+than the cost of the rule. Then drop what sits on a test path anyway, a finding
+anchored under a tests, benches or examples directory or in a file named
+tests.rs, even where the scan attributed no context to it. That second
+predicate is the one
+`every_reviewed_structural_site_is_production_context` applies to what the
+record may publish, so a population wider than it is a population whose stride
+lands on positions no reviewed site can occupy.
 
 **Done when** the population count is stated and every entry carries a
 repository, a path and a line drawn from a report, not from memory.
@@ -100,6 +106,34 @@ for, and `indices` the positions the stride landed on, into that same canonical
 order. The suite recomputes `indices` from `observed` and `target`, refuses a
 target the population cannot supply, and refuses a plan whose selected count
 disagrees with the sites the record adjudicated.
+
+A population that changes size does not keep its sample: the stride recomputes
+every position from `observed`, so a scope that loses two percent of its sites
+redraws almost everything and orphans verdicts that were paid for. A plan
+redrawn over a corrected population names those verdicts in `carried_over`, the
+positions the earlier plan drew that the population still holds, into the new
+canonical order:
+
+```json
+{
+  "carried_over": [4],
+  "indices": [0, 3, 6],
+  "observed": 9,
+  "population": "healthy",
+  "rule": "clippy::probe",
+  "target": 3
+}
+```
+
+The carry-over extends the sample and never edits the draw: `target` stays the
+protocol's and `indices` stays the stride, and a carried position that the
+stride also selects, that repeats, or that sits at or past `observed`, is
+refused. It is not sentiment about wasted work. Both options cost the same
+adjudication, since the sites the new stride adds have to be judged either way,
+and what separates them is the sample the rate is then computed over: the
+carried sites are a uniform draw over almost the same ordered list, so the union
+of the two draws is a fair superset rather than a subpopulation with a shape of
+its own.
 
 Enrol the scope in `adjudication.adjudicated_after_cutoff`, which is what places
 the sample under this protocol:

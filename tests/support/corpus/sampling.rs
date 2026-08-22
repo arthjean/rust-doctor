@@ -29,6 +29,22 @@ use super::{Adjudication, Population};
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SamplingPlan {
+    /// Positions of sites an earlier plan of this scope drew, still present in
+    /// the population, whose verdicts the record keeps.
+    ///
+    /// A population that changes size does not keep its sample: the stride
+    /// recomputes every position from `observed`, so a scope that loses two
+    /// percent of its sites redraws almost everything and orphans verdicts that
+    /// were paid for. Carrying them is not sentiment about wasted work. Both
+    /// options cost the same adjudication, and what separates them is the
+    /// sample the rate is then computed over: the carried sites are a uniform
+    /// draw over almost the same ordered list, so the union of the two draws is
+    /// a fair superset rather than a subpopulation with a shape of its own.
+    ///
+    /// Empty for a scope drawn once, which is the ordinary case and why the
+    /// member defaults: a plan that carries nothing says so by holding nothing.
+    #[serde(default)]
+    pub(crate) carried_over: Vec<u64>,
     /// Positions the stride landed on, into the canonically ordered population.
     ///
     /// Stored rather than derived at read time, so that a plan whose arithmetic
@@ -122,6 +138,7 @@ pub(crate) fn sampling_defects(adjudication: &Adjudication) -> Vec<String> {
                 plan.indices
             ));
         }
+        defects.extend(carry_defects(plan, &label));
     }
 
     let mut adjudicated: BTreeMap<(&str, Population), u64> = BTreeMap::new();
@@ -155,13 +172,63 @@ pub(crate) fn sampling_defects(adjudication: &Adjudication) -> Vec<String> {
             .get(&(scope.rule.as_str(), scope.population))
             .copied()
             .unwrap_or_default();
-        let selected = plan.indices.len() as u64;
+        // The stride and the carry-over together, because a carried site was
+        // judged and its verdict is published: counting the stride alone would
+        // report a deepened scope as having adjudicated more sites than it
+        // drew, which is the opposite of the fact.
+        let selected = (plan.indices.len() + plan.carried_over.len()) as u64;
         if judged != selected {
             defects.push(format!(
-                "{label} adjudicated {judged} sites against the {selected} its stride selects"
+                "{label} adjudicated {judged} sites against the {selected} its plan accounts for"
             ));
         }
     }
 
+    defects
+}
+
+/// Closed defects of one plan's carry-over, each naming the scope.
+///
+/// The carry-over extends the sample and never edits the draw, so a position it
+/// names has to be a position of the same population that the stride did not
+/// select. A duplicate is one verdict counted twice, a position the stride also
+/// drew is the same site counted twice under two names, and a position at or
+/// past `observed` is a site the corrected population no longer holds.
+fn carry_defects(plan: &SamplingPlan, label: &str) -> Vec<String> {
+    let mut defects = Vec::new();
+    if plan
+        .carried_over
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
+    {
+        defects.push(format!(
+            "{label} publishes a carry-over that is not sorted and unique: {:?}",
+            plan.carried_over
+        ));
+    }
+    let drawn: BTreeSet<u64> = plan.indices.iter().copied().collect();
+    let shared: Vec<u64> = plan
+        .carried_over
+        .iter()
+        .copied()
+        .filter(|position| drawn.contains(position))
+        .collect();
+    if !shared.is_empty() {
+        defects.push(format!(
+            "{label} carries over {shared:?}, which its own stride selects"
+        ));
+    }
+    let outside: Vec<u64> = plan
+        .carried_over
+        .iter()
+        .copied()
+        .filter(|position| *position >= plan.observed)
+        .collect();
+    if !outside.is_empty() {
+        defects.push(format!(
+            "{label} carries over {outside:?}, outside a population of {}",
+            plan.observed
+        ));
+    }
     defects
 }

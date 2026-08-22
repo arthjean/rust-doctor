@@ -39,15 +39,27 @@ const ESCALATED: [(&str, &str, u64); 3] = [
     ("thiserror", "impl/src/expand.rs", 221),
 ];
 
-/// The site the agent-population passes disagreed on, kept apart from the three
-/// above because it is a different rule on a different population: one list
-/// covering both would let a queue emptied on one side be refilled by the other
-/// and still count.
-const ESCALATED_AGENT: [(&str, &str, u64); 1] = [(
-    "vibesql",
-    "crates/vibesql-executor/src/select/executor/aggregation/window.rs",
-    352,
-)];
+/// The two sites the agent-population passes disagreed on, kept apart from the
+/// three above because it is a different rule on a different population: one
+/// list covering both would let a queue emptied on one side be refilled by the
+/// other and still count.
+///
+/// The second was drawn by the redraw of August 2026, over the population the
+/// out-of-line `#[cfg(test)]` correction shrank. The first survived that
+/// correction and was never re-judged, which is the rule holding: an
+/// escalation is not resolved by giving it to two more agents.
+const ESCALATED_AGENT: [(&str, &str, u64); 2] = [
+    (
+        "vibesql",
+        "crates/vibesql-bench-common/src/tpcc/data.rs",
+        70,
+    ),
+    (
+        "vibesql",
+        "crates/vibesql-executor/src/select/executor/aggregation/window.rs",
+        352,
+    ),
+];
 
 fn site(line: u64, verdict: Verdict) -> ReviewedSite {
     ReviewedSite {
@@ -516,10 +528,10 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    assert_eq!(counts.get(&Provenance::Agent), Some(&222));
+    assert_eq!(counts.get(&Provenance::Agent), Some(&285));
     assert_eq!(counts.get(&Provenance::Unrecorded), Some(&110));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 332);
+    assert_eq!(artifact.adjudication.reviewed.len(), 395);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite
@@ -662,6 +674,7 @@ fn an_unsorted_or_repeated_enrolment_is_named() {
 /// the tests below forge is always the published list, never the arithmetic.
 fn plan(observed: u64, target: u64) -> SamplingPlan {
     SamplingPlan {
+        carried_over: Vec::new(),
         indices: stride(observed, target),
         observed,
         population: Population::Healthy,
@@ -746,6 +759,54 @@ fn the_sites_a_plan_selected_are_the_sites_the_record_adjudicated() {
     assert!(named.contains(RULE), "{named}");
 }
 
+/// A deepened scope accounts for its stride and for what it carried over.
+///
+/// The carry-over is the mechanism a scope reaches for when its population
+/// moved under it: the stride is redrawn at the same target over the corrected
+/// order, and the sites the previous draw judged that the new one does not
+/// select stay in the record at their corrected positions. Both halves are
+/// sites somebody opened, so both count against what the record adjudicated.
+#[test]
+fn a_plan_accounts_for_its_carry_over_as_well_as_its_stride() {
+    let carried = {
+        let mut drawn = plan(9, 3);
+        drawn.carried_over = vec![4, 7];
+        adjudication_planned(5, drawn)
+    };
+    assert_eq!(sampling_defects(&carried), Vec::<String>::new());
+
+    let mut short = carried.clone();
+    short.reviewed.pop();
+    short.agreement.pairs.pop();
+    let named = defect_naming(&sampling_defects(&short), "adjudicated 4 sites against the 5");
+    assert!(named.contains(RULE), "{named}");
+}
+
+/// A carried position the stride also selects is one site counted twice.
+///
+/// The carry-over extends the sample, it never edits the draw, so the two lists
+/// are disjoint by construction. A position in both would inflate what the plan
+/// says it accounts for without a single extra site having been opened, which
+/// is the one way a carry-over could launder a short sample into a full one.
+#[test]
+fn a_carried_position_the_stride_also_draws_is_named() {
+    let mut forged = adjudication_planned(3, plan(9, 3));
+    forged.sampling_plan[0].carried_over = vec![3];
+    let named = defect_naming(&sampling_defects(&forged), "which its own stride selects");
+    assert!(named.contains(RULE), "{named}");
+
+    let mut unsorted = adjudication_planned(5, plan(9, 3));
+    unsorted.sampling_plan[0].carried_over = vec![7, 4];
+    defect_naming(
+        &sampling_defects(&unsorted),
+        "carry-over that is not sorted and unique",
+    );
+
+    let mut outside = adjudication_planned(4, plan(9, 3));
+    outside.sampling_plan[0].carried_over = vec![9];
+    defect_naming(&sampling_defects(&outside), "outside a population of 9");
+}
+
 /// A scope adjudicated under the protocol publishes its draw, or is named.
 #[test]
 fn an_enrolled_scope_with_no_sampling_plan_is_named_with_the_cutoff() {
@@ -779,7 +840,11 @@ fn the_planned_scopes_are_the_enrolled_ones_and_nothing_else() {
     assert_eq!(planned, ENROLLED_RULES.to_vec());
     for plan in &artifact.adjudication.sampling_plan {
         assert_eq!(plan.population, Population::Agent);
-        assert_eq!(plan.target, PROTOCOL_TARGET);
+        // The target is the protocol's, bounded by what the population can
+        // supply: `orphan_module_file` observes twelve production sites, and a
+        // plan asking for twenty over twelve describes a draw that never
+        // happened.
+        assert_eq!(plan.target, PROTOCOL_TARGET.min(plan.observed));
         assert_eq!(plan.indices, stride(plan.observed, plan.target));
     }
     assert_eq!(

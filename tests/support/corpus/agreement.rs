@@ -155,11 +155,12 @@ pub(crate) struct ProtocolScope {
 /// them, all on the agent population.
 ///
 /// Named once here rather than restated by each test that reads the enrolment,
-/// because two lists of the same three rules is how a scope drops out of one
+/// because two lists of the same four rules is how a scope drops out of one
 /// of them and keeps passing the other.
-pub(crate) const ENROLLED_RULES: [&str; 3] = [
+pub(crate) const ENROLLED_RULES: [&str; 4] = [
     "rust_doctor::structure::duplicate_function_body",
     "rust_doctor::structure::near_duplicate_function_body",
+    "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::oversized_unit",
 ];
 

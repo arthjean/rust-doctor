@@ -33,13 +33,15 @@ use support::corpus::{Population, Provenance, ReviewedSite, SiteContext, Verdict
 ///
 /// Listed rather than inferred, because the point of the check is that
 /// everything else does resolve: `i`, `k` and `n` are the arithmetic of the
-/// stride, one is a rule the sampling prose already names, and one is a test.
-/// A sixth exception is a field that quietly stopped existing.
-const NOT_FIELDS: [&str; 5] = [
+/// stride, one is a rule the sampling prose already names, and two are tests
+/// the procedure tells the reader to run against. A seventh exception is a
+/// field that quietly stopped existing.
+const NOT_FIELDS: [&str; 6] = [
     "i",
     "k",
     "n",
     "duplicate_function_body",
+    "every_reviewed_structural_site_is_production_context",
     "the_published_observations_reproduce_the_pinned_corpus_run",
 ];
 
@@ -58,6 +60,7 @@ fn skill_text() -> String {
 fn record() -> Value {
     let mut document = serde_json::to_value(artifact()).unwrap();
     let exemplar = SamplingPlan {
+        carried_over: vec![4],
         indices: stride(9, 3),
         observed: 9,
         population: Population::Healthy,
