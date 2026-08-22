@@ -163,15 +163,44 @@ struct Identity {
     edition: Edition,
 }
 
-/// Identity of a unit's reach. It carries only the identity of the package and
-/// of the target: crate aliases live in a table indexed by package, so adding
-/// a detector aimed at another crate does not widen this shared structure.
+/// Identity of a unit's reach, and what that one traversal knows about the
+/// file's context. It carries only the identity of the package and of the
+/// target: crate aliases live in a table indexed by package, so adding a
+/// detector aimed at another crate does not widen this shared structure.
+///
+/// `test_gated` is the third member because the gate is a property of the
+/// traversal and not of the file. A file reached by a gated declaration and by
+/// an ungated one contributes two entries here, so `unanimous` sees the
+/// disagreement and abstains, which is the same rule the package and the target
+/// are already decided by. Stamped on the unit instead, the second reach would
+/// have overwritten the first and silenced shipped code.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Reachability {
     package_id: String,
     package_name: String,
     target_key: String,
     target_name: String,
+    /// Did this traversal pass through a `#[cfg(test)]` module declaration on
+    /// its way to the file? Set by `walk::module_requests`, which is where the
+    /// declaration is read, and inherited by everything the gated file declares.
+    test_gated: bool,
+}
+
+impl Reachability {
+    /// Non-production mark of this one traversal.
+    ///
+    /// Cargo's target kind answers first, because it is what the manifest
+    /// declares: a file a bench target reaches is bench material whatever its
+    /// own declarations say. For a target Cargo calls production, a library or
+    /// a binary, the declaration gate is the only thing that can say the file
+    /// is test material, and it does.
+    fn context(&self, contexts: &TargetContexts) -> Option<DiagnosticContext> {
+        contexts
+            .get(&self.target_key)
+            .copied()
+            .flatten()
+            .or_else(|| self.test_gated.then_some(DiagnosticContext::Tests))
+    }
 }
 
 /// Non-production mark of every workspace target, keyed the way `Reachability`
@@ -238,20 +267,21 @@ impl SourceUnit {
             .map(|reach| reach.package_id.as_str())
     }
 
-    /// Non-production context of the unit, when every target that reaches it
+    /// Non-production context of the unit, when every traversal that reaches it
     /// agrees on one. A file the library and an integration test both reach is
-    /// left unmarked, because silencing shipped code is the expensive mistake.
+    /// left unmarked, because silencing shipped code is the expensive mistake,
+    /// and so is a file one declaration gates and another does not.
+    ///
+    /// Two different non-production contexts are not unanimous either: a file a
+    /// bench target reaches and a `#[cfg(test)]` declaration also names is
+    /// neither, and the abstention keeps it weighing.
     pub(crate) fn context(&self, contexts: &TargetContexts) -> Option<DiagnosticContext> {
-        unanimous(
-            self.reachability
-                .iter()
-                .map(|reach| contexts.get(&reach.target_key).copied().flatten()),
-        )
-        .flatten()
+        unanimous(self.reachability.iter().map(|reach| reach.context(contexts))).flatten()
     }
 
-    /// Is every target that reaches this unit test, bench or example material,
-    /// as Cargo names its kind? This is the authoritative answer, and the one
+    /// Is every traversal that reaches this unit test, bench or example
+    /// material, as Cargo names its target kind or as the declaration that
+    /// named the file gates it? This is the authoritative answer, and the one
     /// the dependency rules classify a reference by.
     pub(crate) fn is_test_target(&self, contexts: &TargetContexts) -> bool {
         matches!(
@@ -260,11 +290,16 @@ impl SourceUnit {
         )
     }
 
-    /// Does this unit hold test material? Cargo's target kind answers first and
-    /// covers `tests/`, `benches/` and `examples/` targets wherever they are
-    /// configured to sit; the path convention then covers what no target names
-    /// on its own, a `tests` module file the library reaches. A rule that stays
-    /// quiet in test code asks this, never a path by itself.
+    /// Does this unit hold test material? Three sources answer, and each covers
+    /// what the other two cannot. Cargo's target kind covers `tests/`,
+    /// `benches/` and `examples/` targets wherever a manifest configures them
+    /// to sit. The `#[cfg(test)]` gate of the declaration that named the file
+    /// covers the out-of-line test module, which is no Cargo target and sits
+    /// wherever the declaration points, `src/foo/tests.rs` included; both reach
+    /// this through `is_test_target`. The path convention then covers the one
+    /// case neither names, an ungated `tests` directory the library reaches,
+    /// where nothing in the source says what the directory name says. A rule
+    /// that stays quiet in test code asks this, never a path by itself.
     fn is_test_code(&self, contexts: &TargetContexts) -> bool {
         self.is_test_target(contexts) || path_contains_tests_segment(&self.relative_path)
     }

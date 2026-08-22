@@ -149,10 +149,14 @@ fn reachability_carries_only_package_and_target_identity() {
     let fields: Vec<_> = declaration
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
+        .filter(|line| !line.is_empty() && !line.starts_with("//"))
         .map(|line| line.trim_end_matches(',').to_owned())
         .collect();
 
+    // `test_gated` is a fact about the traversal that reached the file, the way
+    // the four others are facts about the target it was reached from: what this
+    // list refuses is a field named after a crate or a rule, which is a
+    // detector keeping its state in the reachability of every file.
     assert_eq!(
         fields,
         [
@@ -160,6 +164,7 @@ fn reachability_carries_only_package_and_target_identity() {
             "package_name: String",
             "target_key: String",
             "target_name: String",
+            "test_gated: bool",
         ]
     );
 }

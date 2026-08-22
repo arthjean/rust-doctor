@@ -208,6 +208,9 @@ fn source_roots(metadata: &Metadata, refusals: &mut Refusals) -> BTreeSet<WorkIt
                     package_name: package.name.to_string(),
                     target_key: target_key(&package.id.repr, target_index),
                     target_name: target.name.clone(),
+                    // A target Cargo names is reached by nothing: there is no
+                    // declaration above it to carry a gate.
+                    test_gated: false,
                 },
                 depth: 0,
             });
@@ -422,11 +425,17 @@ fn module_requests(
         };
 
         let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
+        // The gate travels with the file the declaration resolved to, never
+        // with the lexical spelling, and a gated file gates everything it
+        // declares in turn: the whole subtree of a `#[cfg(test)] mod tests;` is
+        // compiled only under `cfg(test)`, not just its root file.
+        let mut reachability = work.reachability.clone();
+        reachability.test_gated |= is_test_gate(&module);
         requests.push(WorkItem {
             lexical_path: path,
             edition: work.edition,
             module_directory: module_directory_for_file(&resolved),
-            reachability: work.reachability.clone(),
+            reachability,
             depth: work.depth + 1,
         });
     }
@@ -472,6 +481,69 @@ fn path_attribute(module: &ast::Module) -> PathAttribute {
         (None, _) => PathAttribute::Absent,
         (Some(Some(path)), None) => PathAttribute::Literal(path),
         _ => PathAttribute::Invalid,
+    }
+}
+
+/// Nesting of `all(...)` the gate reader descends before it stops answering.
+///
+/// A budget on work, not a judgement on meaning: the predicate comes out of a
+/// file this walk did not write, and a recursive reader with no floor is a
+/// stack depth the scanned workspace chooses. A predicate nested deeper than
+/// this is read as no gate, which is the answer that keeps the file weighing.
+const CFG_NESTING_LIMIT: usize = 32;
+
+/// Is this `mod` declaration gated by `#[cfg(test)]`?
+///
+/// The accepted grammar, stated once, here, beside the only code that reads it.
+/// `test` is a gate wherever it stands as the bare predicate: at the top of the
+/// `cfg`, or inside an `all(...)` at any depth this reader follows, since every
+/// arm of an `all` has to hold for the module to be compiled. Nothing else is.
+/// `not(test)` compiles the module out of a test build, which is the opposite
+/// claim. `any(test, ...)` leaves the module compiled outside tests whenever
+/// another arm holds, so the conservative reading refuses it. `feature =
+/// "test-util"` is a string, never the `test` predicate, however it is spelled,
+/// and `test = "..."` is a key rather than the bare predicate.
+///
+/// Refusing is always the safe answer: a declaration this reader does not
+/// recognize leaves its file weighing on the score, and silencing shipped code
+/// is the only mistake the context can make expensive.
+fn is_test_gate(module: &ast::Module) -> bool {
+    module.attrs().any(|attribute| match attribute.meta() {
+        Some(ast::Meta::CfgMeta(cfg)) => cfg
+            .cfg_predicate()
+            .is_some_and(|predicate| predicate_gates(&predicate, 0)),
+        _ => false,
+    })
+}
+
+/// Does this `cfg` predicate gate on `test`?
+///
+/// The parser hands the attribute over already typed: an atom is one predicate,
+/// with or without a value, and a composite is a keyword and the predicates
+/// written inside its parentheses. So the whitelist above is read off the shape
+/// rather than searched for in the text. Only `all` is descended, and a nesting
+/// deeper than `CFG_NESTING_LIMIT` answers no gate.
+fn predicate_gates(predicate: &ast::CfgPredicate, depth: usize) -> bool {
+    if depth > CFG_NESTING_LIMIT {
+        return false;
+    }
+    match predicate {
+        // `test`, and never `test = "..."`: a value makes it a key, and the
+        // gate is the bare predicate.
+        ast::CfgPredicate::CfgAtom(atom) => {
+            atom.eq_token().is_none()
+                && atom
+                    .ident_token()
+                    .is_some_and(|identifier| identifier.text() == "test")
+        }
+        ast::CfgPredicate::CfgComposite(composite) => {
+            composite
+                .keyword()
+                .is_some_and(|keyword| keyword.text() == "all")
+                && composite
+                    .cfg_predicates()
+                    .any(|inner| predicate_gates(&inner, depth + 1))
+        }
     }
 }
 
@@ -652,6 +724,46 @@ mod tests {
             module_directory_for_file(Path::new("/workspace/src/nested/mod.rs")),
             PathBuf::from("/workspace/src/nested")
         );
+    }
+
+    fn declaration(attribute: &str) -> ast::Module {
+        let source = format!("{attribute}\nmod gated;\n");
+        SourceFile::parse(&source, Edition::Edition2024)
+            .tree()
+            .syntax()
+            .descendants()
+            .find_map(ast::Module::cast)
+            .expect("the fixture declares one module")
+    }
+
+    /// `test` is the bare predicate, and `test = "..."` is a key that happens to
+    /// be spelled with the same word. The `test-gate` fixture carries every
+    /// other form of the grammar, through the walk that reads it; this one lives
+    /// here because a `cfg` the compiler has no value for is a warning the
+    /// fixture would then publish uncatalogued, costing its own scan the
+    /// authoritative flag to assert one line of grammar.
+    #[test]
+    fn a_key_named_test_is_not_the_test_predicate() {
+        assert!(is_test_gate(&declaration("#[cfg(test)]")));
+        assert!(!is_test_gate(&declaration("#[cfg(test = \"yes\")]")));
+    }
+
+    /// The nesting limit is a budget on the work of reading a predicate this
+    /// walk did not write, never a judgement on what the predicate means. A
+    /// predicate nested past it is read as no gate, which is the answer that
+    /// leaves the file weighing on the score: refusing is always the safe side.
+    #[test]
+    fn a_predicate_nested_past_the_limit_is_read_as_no_gate() {
+        let nested = |depth: usize| {
+            let mut predicate = "test".to_owned();
+            for _ in 0..depth {
+                predicate = format!("all({predicate})");
+            }
+            format!("#[cfg({predicate})]")
+        };
+
+        assert!(is_test_gate(&declaration(&nested(CFG_NESTING_LIMIT))));
+        assert!(!is_test_gate(&declaration(&nested(CFG_NESTING_LIMIT + 1))));
     }
 
     /// Two targets of the same package never share a key, and the two tables

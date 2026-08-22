@@ -371,6 +371,7 @@ mod tests {
                 // the same package from sharing a context entry.
                 target_key: format!("{package}:{path}"),
                 target_name: package.to_owned(),
+                test_gated: false,
             }]),
             traversals: BTreeSet::new(),
         }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use cargo_metadata::{Metadata, MetadataCommand};
 use ra_ap_syntax::{Edition, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
+mod gate;
 mod measurement;
 
 use super::walk::enumerate_with_limits;
@@ -121,6 +122,7 @@ fn synthetic_unit(source: &str) -> SourceUnit {
             package_name: "synthetic".to_owned(),
             target_key: "synthetic:0".to_owned(),
             target_name: "synthetic".to_owned(),
+            test_gated: false,
         }]),
         traversals: BTreeSet::new(),
     }
@@ -811,6 +813,7 @@ fn a_unit_publishes_only_what_every_reacher_agrees_on() {
         package_name: package.to_owned(),
         target_key: format!("{package}:{target}"),
         target_name: format!("target-{target}"),
+        test_gated: false,
     };
 
     let mut unit = synthetic_unit("pub fn probe() {}");
