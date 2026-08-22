@@ -13,7 +13,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -659,7 +659,36 @@ fn each_population_publishes_its_own_rate_from_its_own_sites() {
     );
 }
 
-/// A structural rate is a production rate.
+/// Sites the record calls production on a path Cargo reads as test material.
+///
+/// Empty, and an entry is a debt rather than an exemption: every one of them is
+/// a site whose rate is measured over code the score is not supposed to charge
+/// for. An entry is `(repository, path, line)` and needs a written reason
+/// beside it saying why that path is production despite its spelling.
+const PRODUCTION_ON_A_TEST_PATH: &[(&str, &str, u64)] = &[];
+
+/// What Cargo's own directory convention says a workspace-relative path is.
+///
+/// Deliberately a second reader rather than the crate's: `DiagnosticContext`
+/// is crate-private, and a test that asks the scanner what the scanner decided
+/// cannot catch the scanner deciding it wrong. The outermost matching directory
+/// wins, so `benches/tests.rs` is a bench, and the `tests.rs` file name answers
+/// only for a file no directory above it claims.
+fn conventional_target(path: &str) -> Option<&'static str> {
+    let path = Path::new(path);
+    path.parent()
+        .into_iter()
+        .flat_map(Path::components)
+        .find_map(|component| match component {
+            Component::Normal(name) if name == "tests" => Some("tests"),
+            Component::Normal(name) if name == "benches" => Some("benches"),
+            Component::Normal(name) if name == "examples" => Some("examples"),
+            _ => None,
+        })
+        .or_else(|| (path.file_name()? == "tests.rs").then_some("tests"))
+}
+
+/// A structural rate is a production rate, and the path is what says so.
 ///
 /// A family marked as a test, benchmark, example or build-script context is
 /// published and counted but does not weigh on the score, and healthy test
@@ -667,6 +696,15 @@ fn each_population_publishes_its_own_rate_from_its_own_sites() {
 /// structural rule over those families publishes the cost of an idiom rather
 /// than the cost of the rule, so the sample is drawn from the production
 /// subpopulation and this test is what keeps it there.
+///
+/// Two assertions, and only the second can catch a misclassification. The
+/// record has to agree with itself, every reviewed structural site carrying the
+/// production context. But that field is copied from the scan that located the
+/// site, so a scan that called an out-of-line `#[cfg(test)]` module production
+/// wrote the very value this test would be reading back: eleven agent sites
+/// under a `tests/` directory passed it for exactly that reason. The path is
+/// evidence the scan did not produce, which is why it is read here from a
+/// reader of this file's own.
 #[test]
 fn every_reviewed_structural_site_is_production_context() {
     let artifact = artifact();
@@ -678,7 +716,7 @@ fn every_reviewed_structural_site_is_production_context() {
         .collect();
 
     assert!(!structural.is_empty());
-    for site in structural {
+    for site in &structural {
         assert_eq!(
             site.context,
             SiteContext::Production,
@@ -689,6 +727,40 @@ fn every_reviewed_structural_site_is_production_context() {
             site.line
         );
     }
+
+    let allowed: BTreeSet<(&str, &str, u64)> = PRODUCTION_ON_A_TEST_PATH.iter().copied().collect();
+    let mut charged: Vec<String> = Vec::new();
+    for site in &structural {
+        let key = (site.repository.as_str(), site.path.as_str(), site.line);
+        if allowed.contains(&key) {
+            continue;
+        }
+        if let Some(directory) = conventional_target(&site.path) {
+            charged.push(format!(
+                "{}/{} at {}:{} is under {directory}/",
+                site.repository, site.rule, site.path, site.line
+            ));
+        }
+    }
+    assert!(
+        charged.is_empty(),
+        "{} reviewed structural sites are measured on test material:\n{}",
+        charged.len(),
+        charged.join("\n")
+    );
+
+    let published: BTreeSet<(&str, &str, u64)> = structural
+        .iter()
+        .map(|site| (site.repository.as_str(), site.path.as_str(), site.line))
+        .collect();
+    let stale: Vec<&(&str, &str, u64)> = PRODUCTION_ON_A_TEST_PATH
+        .iter()
+        .filter(|entry| !published.contains(*entry))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "the allow list names sites the record no longer publishes: {stale:?}"
+    );
 }
 
 #[test]
