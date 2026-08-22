@@ -37,8 +37,8 @@ pub(crate) const CORPUS_NOISE: [(&str, u16); 24] = [
     ("rust_doctor::structure::complex_function", 8709),
     ("rust_doctor::structure::crate_level_allow", 10000),
     ("rust_doctor::structure::duplicate_function_body", 4000),
-    ("rust_doctor::structure::near_duplicate_function_body", 8000),
-    ("rust_doctor::structure::oversized_unit", 8000),
+    ("rust_doctor::structure::near_duplicate_function_body", 6333),
+    ("rust_doctor::structure::oversized_unit", 3333),
     ("rust_doctor::structure::unreasoned_allow_attribute", 10000),
     ("rust_doctor::structure::unreferenced_feature", 10000),
 ];
