@@ -409,6 +409,74 @@ fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
     );
 }
 
+/// A family every member of which is test material is never published as
+/// production, on this repository's own source.
+///
+/// Separate from the hotspot gate above, which asks a different question of a
+/// different population: that one filters on `src/` and names two rules, this
+/// one reads every finding the pass publishes and asks what context it carries.
+///
+/// The structural pass is where the whole population lives. It is the only
+/// producer whose finding spans several files, so it is the only one that can
+/// straddle a test file and a shipped one, and it is the only one that reads
+/// every enumerated file: the scan runs `cargo clippy --workspace` without
+/// `--all-targets`, so no Clippy diagnostic is ever raised inside a
+/// `#[cfg(test)]` module.
+///
+/// `src/cargo_health/tests.rs` and `tests/cargo_health_product_proof.rs` are
+/// what this froze. The two carry one near-duplicate family, the second is an
+/// integration test target Cargo names, and the first was reached only through
+/// `#[cfg(test)] mod tests;`, which nothing read: the family straddled a test
+/// context and a production one, abstained, and the tool charged itself for a
+/// duplication between two test files.
+#[test]
+fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
+    let metadata = repository();
+    let scan = analyze(
+        &metadata,
+        &enumerate(&metadata),
+        &PolicyPlan::default(),
+        &StructureSettings::default(),
+    );
+
+    /// Is this path test material by its position alone? Read here from the
+    /// path and nowhere else, so the assertion cannot agree with the scan by
+    /// asking the scan.
+    fn is_test_path(path: &str) -> bool {
+        let mut components = path.split('/').collect::<Vec<_>>();
+        let file = components.pop().unwrap_or_default();
+        components
+            .iter()
+            .any(|component| matches!(*component, "tests" | "benches" | "examples"))
+            || file == "tests.rs"
+    }
+
+    let misfiled: Vec<String> = scan
+        .findings
+        .iter()
+        .filter(|finding| finding.context.is_none())
+        .filter(|finding| {
+            is_test_path(&finding.path)
+                && finding
+                    .related
+                    .iter()
+                    .all(|member| is_test_path(&member.path))
+        })
+        .map(|finding| {
+            let members: Vec<&str> = std::iter::once(finding.path.as_str())
+                .chain(finding.related.iter().map(|member| member.path.as_str()))
+                .collect();
+            format!("{}: {}", finding.definition.id, members.join(", "))
+        })
+        .collect();
+
+    assert!(
+        misfiled.is_empty(),
+        "the crate charges itself for findings that are entirely test code:\n{}",
+        misfiled.join("\n")
+    );
+}
+
 /// The pass no longer names its own root as oversized: extracting the
 /// suppression rules and the benchmark is what took it back under the bound
 /// it publishes.
