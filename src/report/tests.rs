@@ -907,3 +907,23 @@ fn twenty_mixed_permutations_render_identically() {
     }
     assert_eq!(seen.len(), 20);
 }
+
+/// The convention is Cargo's, and the outermost directory that matches decides:
+/// a file under `benches/` is bench material whatever it is named, and the
+/// `tests.rs` spelling only answers for a file no directory above it claims.
+/// Everything else is unmarked, because a file this reader does not recognize
+/// has to keep weighing on the score.
+#[test]
+fn a_conventional_path_names_the_target_it_belongs_to() {
+    let context = DiagnosticContext::from_conventional_path;
+    assert_eq!(context("src/tests/mod.rs"), Some(DiagnosticContext::Tests));
+    assert_eq!(context("tests/regression/case.rs"), Some(DiagnosticContext::Tests));
+    assert_eq!(context("src/modules/tests.rs"), Some(DiagnosticContext::Tests));
+    assert_eq!(context("benches/tests.rs"), Some(DiagnosticContext::Benchmark));
+    assert_eq!(context("examples/demo.rs"), Some(DiagnosticContext::Example));
+    assert_eq!(context("src/lib.rs"), None);
+    // A directory, not a stem: `tests_util` is a package name, and
+    // `src/latest.rs` merely ends in the four letters the file name is read on.
+    assert_eq!(context("tests_util/src/lib.rs"), None);
+    assert_eq!(context("src/latest.rs"), None);
+}

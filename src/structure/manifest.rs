@@ -320,7 +320,13 @@ fn orphans(
                         package.name
                     ),
                     span: whole_file(&source),
-                    context: None,
+                    // Nothing reaches this file, so the two readings the rest
+                    // of the pass relies on are both silent on it: no Cargo
+                    // target names it and no `mod` declaration carries a gate
+                    // to it. Its path is the only evidence left, and an
+                    // unreached file under `tests/` is dead test material, not
+                    // a defect of the shipped code.
+                    context: DiagnosticContext::from_conventional_path(&relative),
                     complexity: None,
                 },
             ));

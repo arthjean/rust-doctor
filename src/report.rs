@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use serde::ser::{Error as _, SerializeStruct};
 use serde::{Serialize, Serializer};
@@ -368,6 +368,35 @@ impl DiagnosticContext {
             "custom-build" => Some(Self::BuildScript),
             _ => None,
         })
+    }
+
+    /// Closed reading of a workspace-relative path, for a file no Cargo target
+    /// and no module declaration speaks for.
+    ///
+    /// This is the last evidence there is, and the only producer that needs it
+    /// is the orphan walk: a file compiled by nothing is reached by nothing, so
+    /// neither the target kind above nor the `cfg(test)` gate the source walk
+    /// propagates has anything to say about it. The convention is Cargo's own,
+    /// `tests/`, `benches/` and `examples/`, read on the outermost directory
+    /// that matches, so `benches/tests.rs` is a bench and not a test. A file
+    /// named `tests.rs` is the module spelling of the same convention and is
+    /// read last, since a directory above it is the stronger claim.
+    ///
+    /// Anything else is not marked, for the reason `from_target_kinds` gives:
+    /// silencing a defect of the shipped code is the only mistake this field
+    /// can make expensive.
+    pub(crate) fn from_conventional_path(path: &str) -> Option<Self> {
+        let path = Path::new(path);
+        path.parent()
+            .into_iter()
+            .flat_map(Path::components)
+            .find_map(|component| match component {
+                Component::Normal(name) if name == "tests" => Some(Self::Tests),
+                Component::Normal(name) if name == "benches" => Some(Self::Benchmark),
+                Component::Normal(name) if name == "examples" => Some(Self::Example),
+                _ => None,
+            })
+            .or_else(|| (path.file_name()? == "tests.rs").then_some(Self::Tests))
     }
 
     /// Does a diagnostic weigh on the score and on the gate?
