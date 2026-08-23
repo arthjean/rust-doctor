@@ -516,7 +516,7 @@ fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
 /// suppression rules and the benchmark is what took it back under the bound
 /// it publishes.
 #[test]
-fn the_pass_holds_its_own_size_bound() {
+fn the_structure_holds_the_size_bound_it_reports_for() {
     for own in [
         include_str!("../structure.rs"),
         include_str!("benchmark.rs"),

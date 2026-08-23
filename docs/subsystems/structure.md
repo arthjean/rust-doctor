@@ -29,8 +29,8 @@ fact: reading the clock afterwards cannot tell a pass that stopped from a pass
 that merely finished late, and calling a complete report partial drops the
 score's authoritative flag for nothing.
 
-`the_pass_holds_its_own_size_bound` keeps every file of the module under the 1000
-lines `oversized_unit` reports, tests included. That is why the suppression
-rules, the benchmark and the two largest test modules have files of their own:
-the pass has to pass its own rule.
+`the_structure_holds_the_size_bound_it_reports_for` keeps every file of the
+module under the 1000 lines `oversized_unit` reports, tests included. That is
+why the suppression rules, the benchmark and the two largest test modules have
+files of their own: the pass has to pass its own rule.
 
