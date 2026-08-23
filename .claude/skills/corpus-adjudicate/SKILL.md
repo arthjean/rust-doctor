@@ -17,8 +17,8 @@ One word governs the whole run. A verdict reached without opening the code is
 from the tool's own claim. Hearsay is not a weaker verdict, it is not a verdict,
 and it never enters the measurement. Everything below exists to keep it out.
 
-Read the "The pinned corpus" and "Admitting a rule" sections of `AGENTS.md`
-first, and the `adjudication.criterion` field of `tests/corpus.json`, which is
+Read the "The pinned corpus" and "Admitting a rule" sections of
+`docs/catalog-and-corpus.md` first, and the `adjudication.criterion` field of `tests/corpus.json`, which is
 the definition every verdict is measured against. Verify the suite is green
 before starting, so a failure during the run belongs to this work.
 

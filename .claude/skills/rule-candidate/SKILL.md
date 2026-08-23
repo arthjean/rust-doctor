@@ -10,8 +10,8 @@ every lint of the toolchain. Triage walks that list in batches and turns each
 lint into one of three states. Nothing here edits the catalog; retaining a lint
 only hands it to `rule-admit`.
 
-Read the "Admitting a rule" and "The candidate queue" sections of `AGENTS.md`
-before starting.
+Read the "Admitting a rule" and "The candidate queue" sections of
+`docs/catalog-and-corpus.md` before starting.
 
 ## Step 1: Read the queue
 

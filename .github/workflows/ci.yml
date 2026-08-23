@@ -53,6 +53,20 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --no-deps --locked -- -D warnings
 
+  # AGENTS.md is loaded into every agent session before the first tool call, so
+  # its size is a per-session cost rather than a documentation preference. The
+  # ceilings in docs/doc-budgets.json ratchet down, and this job is what makes
+  # moving one a visible edit instead of a drift.
+  docs:
+    name: Documentation budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify documentation budgets
+        run: bash scripts/verify-doc-budgets.sh
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

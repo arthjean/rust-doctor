@@ -1,0 +1,26 @@
+{
+  "_comment": "Every markdown file under docs/, plus the always-loaded map, is listed here. `budgets` carries the standing documents and their word ceilings: verify-doc-budgets.sh fails a file over its ceiling, and fails a file under 85 percent of it so that deleting words lowers the ceiling in the same commit. A new ceiling is the word count plus 5 percent. Raising one is a deliberate edit, justified in the pull request. `frozen` carries the measurement records, which have no ceiling because they are not guidance and are not edited. A file in neither list fails the script, so a new document cannot be the way out of a budget.",
+  "budgets": {
+    "AGENTS.md": 1149,
+    "docs/agent-skill.md": 262,
+    "docs/catalog-and-corpus.md": 1347,
+    "docs/ci-workflows.md": 524,
+    "docs/publishing.md": 727,
+    "docs/testing.md": 960,
+    "docs/subsystems/audit.md": 741,
+    "docs/subsystems/delta.md": 689,
+    "docs/subsystems/execution.md": 613,
+    "docs/subsystems/git-and-scope.md": 506,
+    "docs/subsystems/policy.md": 493,
+    "docs/subsystems/reporting.md": 2084,
+    "docs/subsystems/source-kernel.md": 470,
+    "docs/subsystems/structure.md": 328
+  },
+  "frozen": [
+    "docs/agent-population-precision-2026-08.md",
+    "docs/resampling-containment-2026-08.md",
+    "docs/structural-precision-2026-08.md",
+    "docs/suppression-precision-2026-08.md",
+    "docs/top-rules-precision-2026-08.md"
+  ]
+}

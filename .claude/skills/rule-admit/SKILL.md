@@ -10,8 +10,8 @@ around it is written out by hand, so the work is less about the rule than about
 leaving nothing out of sync. Everything below is enforced by a test: skipping a
 step fails the suite, it does not slip through.
 
-Read the "Admitting a rule" and "Invariants the tests enforce" sections of
-`AGENTS.md` first. Verify the suite is green before starting, so that a failure
+Read the "Admitting a rule" section of `docs/catalog-and-corpus.md` and
+"Invariants the tests enforce" in `docs/testing.md` first. Verify the suite is green before starting, so that a failure
 during the run belongs to the rule.
 
 ## Step 1: Record what the rule catches
