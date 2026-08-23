@@ -13,6 +13,22 @@ its members draw from. `report/assembly.rs` builds one from an execution,
 text a scan produced, and the tests sit in `report/tests.rs` and
 `report/tests/normalization.rs`.
 
+Any change to that shape bumps `SCHEMA_VERSION`, and the frozen v7 archive keeps
+projecting from it. `project_current_wire_to_v7` in `tests/support/mod.rs` is
+that projection, and its doc comment is the ledger of what each version added:
+v8 the `audit` block, v9 the `tier` of every policy rule and the two named
+quantities of `summary`, v10 a diagnostic's `context`, v11 its `related`
+locations, v12 `similarity_basis_points`, v13 `complexity`, v14
+`corpus_noise_basis_points` and `withheld_rule_ids`, v15 `production_lines`, v16
+`corpus_reviewed_sites`. No historical field was ever removed or retyped, so the
+projection is only the removal of what came after, and `scan.command` is the one
+member dropped from both sides: it records what actually ran, so it moves
+whenever the catalog widens or the scope shifts. That is what makes a frozen
+archive durable. A schema that adds projects; a schema that moves the value of
+an existing field does not. The prefix the projection strips is built from
+`rust_doctor::SCHEMA_VERSION` rather than retyped, so a bump reaches it without
+an edit.
+
 Four rules hold it together, and each of them replaced something that had a
 cost.
 
