@@ -45,8 +45,8 @@
   reference is a product decision, not a consequence of a number.
 - **The JSON report is versioned**, currently 16. Any change to the report
   shape bumps `SCHEMA_VERSION` in `src/report.rs`, and the frozen v7 archive
-  keeps projecting: `project_v11_wire_to_v7` in `tests/support/mod.rs` strips
-  the members added since, which is what proves no historical field ever
+  keeps projecting: `project_current_wire_to_v7` in `tests/support/mod.rs`
+  strips the members added since, which is what proves no historical field ever
   disappeared or changed type.
 - **Dependencies are pinned exactly** (`= 1.8.5`, not `^1.8`) in `Cargo.toml`,
   and `Cargo.lock` is committed. The `missing_lockfile` detector requires it for

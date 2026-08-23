@@ -279,7 +279,7 @@ fn normalized_for_entry(report: &Value) -> Value {
 }
 
 fn v5_compatible_output(output: &[u8]) -> Vec<u8> {
-    let projected = support::project_v11_wire_to_v7(output);
+    let projected = support::project_current_wire_to_v7(output);
     let output = std::str::from_utf8(&projected).unwrap();
     let output = output.replacen("\"schema_version\":7", "\"schema_version\":5", 1);
     output

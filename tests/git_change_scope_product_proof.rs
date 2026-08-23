@@ -243,7 +243,7 @@ fn diagnostic_id_hash(report: &Value) -> String {
 }
 
 fn v6_compatible_output(output: &[u8]) -> Vec<u8> {
-    let projected = support::project_v11_wire_to_v7(output);
+    let projected = support::project_current_wire_to_v7(output);
     std::str::from_utf8(&projected)
         .unwrap()
         .replacen("\"schema_version\":7", "\"schema_version\":6", 1)

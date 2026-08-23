@@ -150,11 +150,14 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
-pub(crate) fn project_v11_wire_to_v7(output: &[u8]) -> Vec<u8> {
-    const PREFIX: &[u8] = b"{\"schema_version\":16,\"audit\":";
+pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
+    let prefix = format!(
+        "{{\"schema_version\":{},\"audit\":",
+        rust_doctor::SCHEMA_VERSION
+    );
     let payload = output
-        .strip_prefix(PREFIX)
-        .expect("schema v11 should start with its audit member");
+        .strip_prefix(prefix.as_bytes())
+        .expect("the current wire should open on its schema version and its audit member");
     let suffix = &payload[value_end(payload, 0)..];
     let mut projected = Vec::with_capacity(output.len());
     projected.extend_from_slice(b"{\"schema_version\":7");
