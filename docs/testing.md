@@ -9,7 +9,7 @@
   `src/report.rs` was oversized, which froze the crate's largest self-violation
   in place: repairing the file failed the suite. Evidence that a rule fires
   belongs on a fixture, and `tests/rule_evidence.json` names the tests that
-  carry it; what belongs in a self-scan is the gate. The eleven
+  carry it; what belongs in a self-scan is the gate. The fourteen
   `the_X_holds_the_size_bound` tests stay beside it, because each fails on its
   own module and says which one. Four of them are new: the report, the
   dependency pack, the handoff and the interactive report all carried files over
@@ -43,7 +43,7 @@
   Clippy rule can never carry an `agent` rate, since Clippy is switched off on
   untrusted code. `CORPUS_NOISE` mirrors the healthy rates today; switching that
   reference is a product decision, not a consequence of a number.
-- **The JSON report is versioned**, currently 15. Any change to the report
+- **The JSON report is versioned**, currently 16. Any change to the report
   shape bumps `SCHEMA_VERSION` in `src/report.rs`, and the frozen v7 archive
   keeps projecting: `project_v11_wire_to_v7` in `tests/support/mod.rs` strips
   the members added since, which is what proves no historical field ever

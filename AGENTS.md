@@ -105,7 +105,7 @@ what enforce that, one per module, each naming its own, and two of them cover
   `adjudication.position_proof` anchors every published site to a run that
   located it. [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
 - Any change to the report shape bumps `SCHEMA_VERSION` in `src/report.rs`,
-  currently 15, and the frozen v7 archive keeps projecting.
+  currently 16, and the frozen v7 archive keeps projecting.
   [docs/subsystems/reporting.md](docs/subsystems/reporting.md)
 
 ## Testing
@@ -131,8 +131,8 @@ what enforce that, one per module, each naming its own, and two of them cover
   `npm/rust-doctor/package.json` and `bun.lock`, then a `v<version>` tag whose
   note already exists at `.github/releases/v<version>.md`.
   [docs/publishing.md](docs/publishing.md) and `.claude/skills/release`
-- Four workflows settle four different questions, and three of them are pinned
-  to toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
+- Four workflows settle four different questions, and every one of them pins
+  toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
 - `skills/rust-doctor/` ships inside the crate and is checked against `--help`
   and `catalog()` by `tests/skill_contract.rs`.
   [docs/agent-skill.md](docs/agent-skill.md)
