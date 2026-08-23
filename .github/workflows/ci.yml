@@ -56,9 +56,10 @@ jobs:
   # AGENTS.md is loaded into every agent session before the first tool call, so
   # its size is a per-session cost rather than a documentation preference. The
   # ceilings in docs/doc-budgets.json ratchet down, and this job is what makes
-  # moving one a visible edit instead of a drift.
+  # moving one a visible edit instead of a drift. The references gate runs
+  # beside it; the third gate, tests/docs_contract.rs, runs under `cargo test`.
   docs:
-    name: Documentation budgets
+    name: Documentation gates
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -66,6 +67,9 @@ jobs:
 
       - name: Verify documentation budgets
         run: bash scripts/verify-doc-budgets.sh
+
+      - name: Verify documentation references
+        run: bash scripts/verify-doc-refs.sh
 
   test:
     name: Tests (${{ matrix.os }})

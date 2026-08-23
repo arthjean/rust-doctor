@@ -9,7 +9,7 @@
 #
 # `frozen` holds the measurement records, which carry no ceiling. A markdown
 # file under docs/ that is in neither list fails, because otherwise the way out
-# of a ceiling is a new unlisted file.
+# of a ceiling is a new unlisted file. docs/doc-gates.md holds the reasoning.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

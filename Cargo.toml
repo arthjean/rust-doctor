@@ -17,7 +17,17 @@ categories = ["development-tools", "command-line-utilities"]
 # is written rather than what it does, and `.github/` is what publishes rather
 # than what is published. `skills/` stays: `src/skill.rs` embeds it with
 # `include_str!`, so a tarball without it does not compile.
-exclude = ["npm/", "tasks/", "docs/", "scripts/", ".claude/", ".github/"]
+# `tests/docs_contract.rs` goes with them: it reads the documents under
+# `docs/`, which a tarball does not carry.
+exclude = [
+    "npm/",
+    "tasks/",
+    "docs/",
+    "scripts/",
+    "tests/docs_contract.rs",
+    ".claude/",
+    ".github/",
+]
 
 [lib]
 path = "src/lib.rs"

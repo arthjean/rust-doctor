@@ -15,6 +15,10 @@
   dependency pack, the handoff and the interactive report all carried files over
   the bound with no test naming them, and `src/cargo_health.rs` and
   `src/handoff.rs` were over it only because their tests were still inline.
+- **The documents state what the binary computes**
+  (`tests/docs_contract.rs`). The catalog size, the schema version, the bounds
+  and the counts are recomputed rather than reread.
+  [doc-gates.md](doc-gates.md)
 - **The crate passes its own rules.** Production code carries no `unwrap`,
   `expect`, `panic!`, or `dbg!`: use `?`, `ok_or(...)?`, `unwrap_or`, or
   `match`. `tests/score_credibility_packs.rs` scans this repository with the

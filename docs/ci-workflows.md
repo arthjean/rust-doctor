@@ -34,7 +34,7 @@ counter assertions that prove the near-duplicate scoring stays nominated rather
 than pairwise hold on any machine and are never relaxed.
 
 The toolchain is pinned to 1.97.1 in every workflow rather than tracking
-`stable`. Clippy's diagnostics are the product: 37 of the 62
-catalogued rules are Clippy lints, and `tests/corpus.json` records the exact Clippy
+`stable`. Clippy's diagnostics are the product: 37 curated lints of the 62
+catalogued rules are its own, and `tests/corpus.json` records the exact Clippy
 version its measurement was taken under.
 

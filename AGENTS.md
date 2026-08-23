@@ -21,9 +21,10 @@ the authoritative flag dropped.
 **One home per fact.** This file is the map, not the record. Every rule below is
 one to three lines and names the document that holds the reasoning behind it.
 Read that document before editing the subsystem it covers, and write new
-reasoning there rather than here. `docs/doc-budgets.json` caps this file and
-each linked document; `bash scripts/verify-doc-budgets.sh` checks them and CI
-replays it.
+reasoning there rather than here. Three gates hold that shape: a word ceiling
+on this file and on each document it links, a check that every path they cite
+resolves, and a test that recomputes the numbers they state from the binary.
+CI replays all three. [docs/doc-gates.md](docs/doc-gates.md)
 
 ## Trust boundary
 
@@ -49,6 +50,7 @@ and no user data.
 | Node launcher tests | `cd npm/rust-doctor && bun test tests` |
 | Packed launcher smoke | `cd npm/rust-doctor && bun run smoke:packed` |
 | Documentation budgets | `bash scripts/verify-doc-budgets.sh` |
+| Documentation references | `bash scripts/verify-doc-refs.sh` |
 
 Use `bun` under `npm/rust-doctor/`, never `npm` or `pnpm`. Run the lint and
 test commands before calling a change complete: `.github/workflows/ci.yml`
