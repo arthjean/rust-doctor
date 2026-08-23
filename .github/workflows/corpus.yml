@@ -3,7 +3,7 @@ name: Corpus
 # The analogue of React Doctor's delta-audit.yml: replay the pinned corpus and
 # check that the published measurement still reproduces.
 #
-# By hand, and on a pull request that edits the record itself. Deliberately not
+# By hand, and on a pull request that can move the measurement. Deliberately not
 # nightly: the test asserts strict equality against tests/corpus.json, which was
 # recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in the
 # artifact's `toolchain` block). Nothing in the corpus floats: repositories are
@@ -25,20 +25,51 @@ name: Corpus
 
 on:
   workflow_dispatch:
-  # The record and the harness that reads it, and nothing else. A pull request
-  # touching none of these four paths never starts this job: the filter is what
-  # decides, not a condition inside a job that has already booted a runner and
-  # cloned eighteen repositories to find out it had nothing to do.
+  # Three things move the published measurement: the record, the harness that
+  # recomputes the numbers from it, and the code that decides what fires. A
+  # pull request touching none of these paths never starts this job: the filter
+  # is what decides, not a condition inside a job that has already booted a
+  # runner and cloned eighteen repositories to find out it had nothing to do.
   #
   # tests/support/corpus/ is here for the same reason tests/support/corpus.rs
   # is: the harness is what recomputes the published numbers from the record,
   # so a change to either can move the measurement without touching the record.
+  #
+  # The five producers are here because they are the only place a rule can
+  # quietly stop finding what it used to find. Every catalogued rule already
+  # has an always-on test that rescans a fixture and asserts it fires there, so
+  # a detector that dies outright fails `cargo test`. What no fixture catches is
+  # a detector narrowed until it still matches the one shape the fixture holds
+  # and no longer matches real code: the oracle stays green while the corpus
+  # counts collapse. The strict equality that
+  # `the_published_observations_reproduce_the_pinned_corpus_run` asserts against
+  # tests/corpus.json is the only check that measures behavior on third-party
+  # code, and until this filter named the producers it never ran on the pull
+  # requests able to break it.
+  #
+  # src/audit/ is here because an observation carries the score the scan
+  # published, so the algorithm behind it moves the record as surely as a
+  # detector does. src/policy/catalog.rs is not: editing the catalog without
+  # regenerating the record already fails
+  # `the_published_catalog_matches_the_shipped_policy` on every run.
   pull_request:
     paths:
       - tests/corpus.json
       - tests/corpus_precision.rs
       - tests/support/corpus.rs
       - tests/support/corpus/**
+      - src/audit.rs
+      - src/audit/**
+      - src/cargo_health.rs
+      - src/cargo_health/**
+      - src/execution.rs
+      - src/execution/**
+      - src/repo_hygiene.rs
+      - src/source_kernel.rs
+      - src/source_kernel/**
+      - src/source_text.rs
+      - src/structure.rs
+      - src/structure/**
 
 concurrency:
   # Per branch rather than per workflow, now that a pull request can start this
