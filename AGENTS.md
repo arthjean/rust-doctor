@@ -955,6 +955,14 @@ populations together, and a measurement under it fails
 it measured. core-v2 published one population and a boolean saying it had
 collapsed into a single band, which measured nothing beyond the collapse.
 
+The record is also published. `rust-doctor-web` generates
+`public/catalog/corpus.json` from this file and renders rust-doctor.com/corpus
+off it, the way it generates the rule list from `rules list --json`, so editing
+`tests/corpus.json` means regenerating that snapshot with it: its `corpus:check`
+compares the two byte for byte and fails the website build rather than serving a
+rate no run produced. The page publishes the rates and the method; the sites
+they were computed from stay here.
+
 ## Admitting a rule
 
 Two records admit a rule, and they answer different questions.
