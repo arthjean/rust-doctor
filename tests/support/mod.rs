@@ -282,7 +282,15 @@ pub(crate) fn file_states(root: &Path) -> BTreeMap<String, FileState> {
             if path.is_dir() {
                 visit(root, &path, states);
             } else {
-                let metadata = fs::symlink_metadata(&path).unwrap();
+                // A file listed a moment ago and gone by the time it is read
+                // was transient: git's own lock and temporary files come and
+                // go under `.git` while a walk runs, and the macOS runner
+                // caught one mid-flight. It is left out of the snapshot; a
+                // file that really disappeared is still caught, since the
+                // snapshot taken after the scan will not carry it either.
+                let Ok(metadata) = fs::symlink_metadata(&path) else {
+                    continue;
+                };
                 let contents = if metadata.file_type().is_symlink() {
                     fs::read_link(&path)
                         .unwrap()
@@ -290,7 +298,13 @@ pub(crate) fn file_states(root: &Path) -> BTreeMap<String, FileState> {
                         .into_owned()
                         .into_bytes()
                 } else {
-                    fs::read(&path).unwrap()
+                    match fs::read(&path) {
+                        Ok(contents) => contents,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(error) => {
+                            unreachable!("reading {} should not fail: {error}", path.display())
+                        }
+                    }
                 };
                 states.insert(
                     path.strip_prefix(root)
