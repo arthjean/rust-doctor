@@ -27,12 +27,13 @@ rather than a step that has already booted a runner, and a pull request that
 matches no clone cache fails naming the key it missed rather than fetching
 eighteen third-party repositories to answer a question about a diff.
 
-The structural benchmark asserts a wall clock, and its bounds were measured on
-a development machine. A slower machine declares itself through
-`RUST_DOCTOR_BENCHMARK_ALLOWANCE`, a multiple the CI sets to 3, rather than
-having the constants raised for everyone. It moves the two clocks only: the
-counter assertions that prove the near-duplicate scoring stays nominated rather
-than pairwise hold on any machine and are never relaxed.
+The structural benchmark and the presentation latency test assert a wall
+clock, and their bounds were measured on a development machine. A slower
+machine declares itself through `RUST_DOCTOR_BENCHMARK_ALLOWANCE`, a multiple
+the CI sets to 3, rather than having the constants raised for everyone. It
+moves the clocks only: the counter assertions that prove the near-duplicate
+scoring stays nominated rather than pairwise hold on any machine and are never
+relaxed.
 
 The toolchain is pinned to 1.97.1 in every workflow rather than tracking
 `stable`. Clippy's diagnostics are the product: 37 curated lints of the 62
