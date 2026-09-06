@@ -58,6 +58,8 @@ pub struct Row {
     pub location: String,
     pub message: String,
     pub help: Option<String>,
+    /// The toolchain's replacement for the framed site, when it wrote one.
+    pub suggestion: Option<String>,
     pub rule_url: String,
     /// The site the detail pane frames: the first one carrying a span.
     pub frame: Option<GroupLocation>,
@@ -115,6 +117,9 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
         location: frame.as_ref().map_or_else(String::new, format_site),
         message: representative.map_or_else(String::new, |diagnostic| diagnostic.message.clone()),
         help: group.resolved_help().map(str::to_owned),
+        suggestion: representative
+            .and_then(|diagnostic| diagnostic.suggestion.as_ref())
+            .map(|suggestion| suggestion.replacement.clone()),
         rule_url: group.rule_url.clone(),
         frame,
         sites,
@@ -448,6 +453,7 @@ mod tests {
             location: String::new(),
             message: String::new(),
             help: None,
+            suggestion: None,
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),

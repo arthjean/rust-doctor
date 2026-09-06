@@ -222,6 +222,8 @@ fn multiple_primary_spans_use_the_documented_canonical_order() {
         column_start: 1,
         column_end: 3,
         is_primary: true,
+        suggested_replacement: None,
+        suggestion_applicability: None,
     });
     let workspace = fixture("clean").canonicalize().unwrap();
     let diagnostics = normalize_diagnostics(
@@ -593,5 +595,134 @@ fn control_characters_in_internal_paths_are_encoded_before_rendering() {
     assert_eq!(
         json["diagnostics"][0]["path"],
         "src/100%25%1B[31mline%0A.rs"
+    );
+}
+
+/// One sub-diagnostic carrying a replacement for `path`, rated as rustc rates it.
+fn child(path: &str, replacement: &str, applicability: &str) -> CapturedDiagnostic {
+    CapturedDiagnostic {
+        message: "try".to_owned(),
+        code: None,
+        level: "help".to_owned(),
+        spans: vec![CapturedSpan {
+            file_name: path.to_owned(),
+            line_start: 2,
+            line_end: 2,
+            column_start: 2,
+            column_end: 4,
+            is_primary: true,
+            suggested_replacement: Some(replacement.to_owned()),
+            suggestion_applicability: Some(applicability.to_owned()),
+        }],
+        children: Vec::new(),
+    }
+}
+
+/// The toolchain's replacement travels with the finding: the best rated one on the finding's
+/// own file, first among equals, and never one the toolchain rated under a name this crate does
+/// not know or one past the budget a reader could paste.
+#[test]
+fn the_best_rated_replacement_on_the_site_travels_with_the_finding() {
+    let workspace = fixture("clean").canonicalize().unwrap();
+    let CapturedMessage::Compiler(mut message) = compiler_message(
+        Some("clippy::useless_vec"),
+        "warning",
+        "useless use of `vec!`",
+        "src/lib.rs",
+        2,
+    ) else {
+        unreachable!()
+    };
+    message.message.children = vec![
+        child("src/lib.rs", "vec![1, 2].as_slice()", "MaybeIncorrect"),
+        child("src/other.rs", "elsewhere", "MachineApplicable"),
+        child("src/lib.rs", &"x".repeat(2_000), "MachineApplicable"),
+        child("src/lib.rs", "novel", "Experimental"),
+        child("src/lib.rs", "&[1, 2]", "MachineApplicable"),
+        child("src/lib.rs", "[1, 2]", "MachineApplicable"),
+    ];
+    let diagnostics = normalize_diagnostics(
+        &[CapturedMessage::Compiler(message)],
+        Some(&workspace),
+        None,
+        &HomePaths::default(),
+    );
+
+    let suggestion = diagnostics[0]
+        .suggestion
+        .as_ref()
+        .expect("the toolchain wrote a replacement");
+    assert_eq!(suggestion.replacement, "&[1, 2]");
+    assert_eq!(suggestion.applicability, Applicability::MachineApplicable);
+    assert_eq!(
+        diagnostics[0].help.as_deref(),
+        Some(crate::policy::find("clippy::useless_vec").map(|rule| rule.help).unwrap_or_default()),
+        "the catalogued help still travels beside the replacement"
+    );
+
+    let CapturedMessage::Compiler(mut bare) =
+        compiler_message(Some("clippy::useless_vec"), "warning", "useless", "src/lib.rs", 2)
+    else {
+        unreachable!()
+    };
+    bare.message.children = vec![child("src/lib.rs", "novel", "Experimental")];
+    let diagnostics = normalize_diagnostics(
+        &[CapturedMessage::Compiler(bare)],
+        Some(&workspace),
+        None,
+        &HomePaths::default(),
+    );
+    assert_eq!(diagnostics[0].suggestion, None, "an unknown rating is refused, not guessed");
+}
+
+/// A print in a binary target is the program's output: published at `Info`, so it is shown and
+/// charged nothing, while the same lint in a library keeps its warning.
+#[test]
+fn a_print_in_a_binary_target_is_published_at_info() {
+    let workspace = fixture("clean").canonicalize().unwrap();
+    let mut messages = Vec::new();
+    for (kind, path, code) in [
+        ("bin", "src/main.rs", "clippy::print_stderr"),
+        ("bin", "src/main.rs", "clippy::print_stdout"),
+        ("lib", "src/lib.rs", "clippy::print_stdout"),
+        ("bin", "src/main.rs", "clippy::dbg_macro"),
+    ] {
+        let CapturedMessage::Compiler(mut message) =
+            compiler_message(Some(code), "warning", "use of a print macro", path, 2)
+        else {
+            unreachable!()
+        };
+        message.target.kind = vec![kind.to_owned()];
+        messages.push(CapturedMessage::Compiler(message));
+    }
+    let diagnostics =
+        normalize_diagnostics(&messages, Some(&workspace), None, &HomePaths::default());
+    let severity_of = |code: &str, path: &str| {
+        diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code.as_deref() == Some(code) && diagnostic.path.as_deref() == Some(path)
+            })
+            .map(|diagnostic| (diagnostic.base_severity, diagnostic.severity))
+            .expect("the finding should be published")
+    };
+
+    assert_eq!(
+        severity_of("clippy::print_stderr", "src/main.rs"),
+        (Severity::Info, Severity::Info)
+    );
+    assert_eq!(
+        severity_of("clippy::print_stdout", "src/main.rs"),
+        (Severity::Info, Severity::Info)
+    );
+    assert_eq!(
+        severity_of("clippy::print_stdout", "src/lib.rs"),
+        (Severity::Warning, Severity::Warning),
+        "a library that prints is still a library that prints"
+    );
+    assert_eq!(
+        severity_of("clippy::dbg_macro", "src/main.rs"),
+        (Severity::Warning, Severity::Warning),
+        "only the two print lints are the channel of a binary"
     );
 }

@@ -68,6 +68,7 @@ fn report() -> InspectReport {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }];
     report_of(diagnostics, 1, 100)
@@ -200,12 +201,17 @@ fn terminal_sections_follow_the_normative_order() {
 fn widths_and_color_policy_are_stable() {
     for width in [80, 100, 140] {
         let plain = rendered(&report(), width, false, false);
-        assert!(plain.lines().all(|line| display_width(line) <= width));
+        assert!(
+            plain
+                .lines()
+                .filter(|line| !is_link_row(line))
+                .all(|line| display_width(line) <= width)
+        );
         assert!(!plain.contains("\u{1b}["));
 
         let colored = rendered(&report(), width, true, false);
         assert!(colored.contains("\u{1b}["));
-        for line in colored.lines() {
+        for line in colored.lines().filter(|line| !is_link_row(line)) {
             // `sanitize` strips every escape sequence, including the
             // truecolor of a perfect score's bar, which the original
             // hard-coded code list did not cover.
@@ -220,7 +226,31 @@ fn wide_dynamic_text_respects_terminal_columns() {
     let mut report = report();
     report.diagnostics[0].message = "界".repeat(80);
     let output = rendered(&report, 80, false, false);
-    assert!(output.lines().all(|line| display_width(line) <= 80));
+    assert!(
+        output
+            .lines()
+            .filter(|line| !is_link_row(line))
+            .all(|line| display_width(line) <= 80)
+    );
+}
+
+/// A row carrying a URL is the one row the width does not bound: a link cut in two is two
+/// strings no terminal opens, so the renderer writes it whole and the terminal soft-wraps it.
+fn is_link_row(row: &str) -> bool {
+    sanitize(row).contains("https://")
+}
+
+/// The rule link is written whole whatever the width, and never cut mid-way.
+#[test]
+fn a_rule_link_is_never_wrapped() {
+    let mut report = report();
+    report.diagnostics[0].code = Some("rust_doctor::structure::near_duplicate_function_body".to_owned());
+    report.diagnostics[0].category = Some("maintainability".to_owned());
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    report.summary = Summary::from_diagnostics(&report.diagnostics);
+    let output = rendered(&report, 40, false, false);
+    let link = "Rule: https://rust-doctor.com/rules/rust_doctor%3A%3Astructure%3A%3Anear_duplicate_function_body";
+    assert!(output.lines().any(|line| line == link), "{output}");
 }
 
 #[test]
@@ -503,7 +533,7 @@ fn the_measurement_note_never_pushes_a_row_past_the_width() {
     for width in [40, 80, 120] {
         let output = rendered(&report, width, false, false);
         let bound = width.max(MIN_WIDTH);
-        for row in output.lines() {
+        for row in output.lines().filter(|row| !is_link_row(row)) {
             assert!(
                 display_width(row) <= bound,
                 "a row of {} columns at width {width}: {row}",
@@ -531,6 +561,7 @@ fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences,
     }
 }
@@ -540,8 +571,11 @@ fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
 /// The five rules the search fires, one per dimension the score reads, each
 /// catalogued so the block stays authoritative: an uncatalogued rule drops the
 /// flag and the label reads `Core partial` instead of its band.
+// Unmeasured rules, so the search reads the curve and not a discount: `expect_used` used to
+// stand for reliability, and the corpus adjudicated it wrong on four sites out of five, which
+// leaves the dimension at 28 however many sites fire.
 const PER_KILOLINE_RULES: [(&str, &str); 3] = [
-    ("clippy::expect_used", "reliability"),
+    ("clippy::todo", "correctness"),
     ("clippy::dbg_macro", "maintainability"),
     ("clippy::manual_memcpy", "performance"),
 ];
@@ -679,4 +713,60 @@ fn the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes() {
             );
         }
     }
+}
+
+/// The help is the rule's and is printed once under the rule, not once under each of its
+/// sites: on this crate's own scan it was the same sentence twenty-two times.
+#[test]
+fn verbose_prints_the_help_once_per_group() {
+    let mut report = report();
+    let mut second = report.diagnostics[0].clone();
+    second.id = "second".to_owned();
+    second.path = Some("src/other.rs".to_owned());
+    report.diagnostics.push(second);
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    report.summary = Summary::from_diagnostics(&report.diagnostics);
+
+    let output = rendered(&report, 100, false, true);
+    assert_eq!(output.matches("Help: Implement the intended behavior.").count(), 1, "{output}");
+    assert_eq!(output.matches("src/lib.rs:2:3").count(), 1);
+    assert_eq!(output.matches("src/other.rs:2:3").count(), 1);
+}
+
+/// The toolchain's replacement is printed under its site, on one row, and qualified whenever
+/// the toolchain does not vouch for it outright.
+#[test]
+fn a_replacement_is_printed_under_its_site() {
+    let mut report = report();
+    report.diagnostics[0].suggestion = Some(crate::Suggestion {
+        replacement: "let value = compute();\n    value".to_owned(),
+        applicability: crate::Applicability::MachineApplicable,
+    });
+    let output = rendered(&report, 100, false, true);
+    assert!(output.contains("Replace with: let value = compute(); value"), "{output}");
+
+    report.diagnostics[0].suggestion = Some(crate::Suggestion {
+        replacement: "todo!()".to_owned(),
+        applicability: crate::Applicability::MaybeIncorrect,
+    });
+    let output = rendered(&report, 100, false, true);
+    assert!(output.contains("Replace with: todo!() (maybe-incorrect)"), "{output}");
+}
+
+/// A group every site of which sits outside production code is one line of the verbose
+/// report, since it is shown and weighs nothing, and `--json` carries every site.
+#[test]
+fn an_unscored_group_is_folded_onto_one_line() {
+    let mut report = report();
+    report.diagnostics[0].context = Some(crate::DiagnosticContext::Tests);
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    report.summary = Summary::from_diagnostics(&report.diagnostics);
+
+    let output = rendered(&report, 100, false, true);
+    assert!(
+        output.contains("Unscored: Todo (1 occurrences outside production code, clippy::todo)"),
+        "{output}"
+    );
+    assert!(!output.contains("Rule ID: clippy::todo"), "{output}");
+    assert!(!output.contains("src/lib.rs:2:3"), "{output}");
 }

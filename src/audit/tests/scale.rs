@@ -14,22 +14,21 @@ use super::*;
 #[test]
 fn more_sites_of_one_rule_never_raise_its_dimension() {
     let mut previous = 101;
+    // An unmeasured `P3` rule, so the ladder reads the curve and neither the discount nor a
+    // ceiling: the corpus found `indexing_slicing` wrong on forty sites out of forty, so a
+    // thousand sites of it on ten kilolines are charged as two dozen, and a `P2` rule pins its
+    // dimension at 75 from the first site.
     for sites in [1, 5, 20, 50, 1_000] {
-        let rules = [(
-            "clippy::indexing_slicing",
-            "reliability",
-            Severity::Warning,
-            sites,
-        )];
+        let rules = [("clippy::type_complexity", "maintainability", Severity::Warning, sites)];
         let audit = Audit::build(100, 10_000, Status::Complete, &diagnostics_for(&rules))
             .score
             .expect("ten kilolines is a scorable workspace");
         assert!(
-            audit.dimensions.reliability < previous,
+            audit.dimensions.maintainability < previous,
             "{sites} sites scored {} against {previous}",
-            audit.dimensions.reliability
+            audit.dimensions.maintainability
         );
-        previous = audit.dimensions.reliability;
+        previous = audit.dimensions.maintainability;
     }
     assert_eq!(previous, 0, "a hundred sites per kiloline is a zero");
 }
@@ -62,12 +61,7 @@ fn the_score_is_invariant_to_duplicating_the_workspace() {
 /// of the same statement: the score reads a rate, not a total.
 #[test]
 fn the_same_findings_over_more_lines_score_better() {
-    let profile = [(
-        "clippy::indexing_slicing",
-        "reliability",
-        Severity::Warning,
-        12,
-    )];
+    let profile = [("clippy::todo", "correctness", Severity::Warning, 12)];
     let dense = Audit::build(4, 5_000, Status::Complete, &diagnostics_for(&profile));
     let doubled = Audit::build(8, 10_000, Status::Complete, &diagnostics_for(&profile));
     let sparse = Audit::build(40, 50_000, Status::Complete, &diagnostics_for(&profile));
@@ -225,13 +219,13 @@ fn every_tier_caps_at_the_value_it_capped_at_before() {
 fn a_report_at_the_diagnostic_limit_still_scores_in_range() {
     let sites = crate::delta::DIAGNOSTIC_LIMIT / 2;
     let rules = [
-        ("clippy::indexing_slicing", "reliability", Severity::Error, sites),
+        ("clippy::todo", "correctness", Severity::Error, sites),
         ("clippy::dbg_macro", "maintainability", Severity::Error, sites),
     ];
     let audit = Audit::build(10_000, 1_000_000, Status::Complete, &diagnostics_for(&rules));
     let score = audit.score.expect("a million lines is a scorable workspace");
 
-    assert_eq!(score.dimensions.reliability, 1);
+    assert_eq!(score.dimensions.reliability, 0);
     assert_eq!(score.dimensions.maintainability, 0);
     assert!(score.value <= 100);
     assert_eq!(score.value, 62, "the three untouched dimensions carry it");

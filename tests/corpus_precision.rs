@@ -1082,6 +1082,26 @@ fn the_corpus_score_distribution_is_published_with_its_spread() {
         distribution.spread,
         distribution.maximum - distribution.minimum
     );
+    // A population is free to land in one band: ten healthy crates all reading
+    // `Great` is the calibration succeeding, not the measurement failing, and
+    // core-v3 had `thiserror` and `hexyl` at `Needs work` for it. What the two
+    // populations may not do is land in one band together, and the healthy
+    // median has to sit above the agent one.
+    let bands: BTreeSet<&str> = distribution
+        .healthy
+        .bands
+        .iter()
+        .chain(&distribution.agent.bands)
+        .map(|band| band.label.as_str())
+        .collect();
+    assert!(
+        bands.len() > 1,
+        "both populations fall in one band together, which measures nothing"
+    );
+    assert!(
+        distribution.separation_centi > 0,
+        "the healthy median does not sit above the agent one"
+    );
     assert_eq!(
         distribution.separation_centi,
         i64::try_from(distribution.healthy.median_centi).unwrap()
@@ -1110,10 +1130,6 @@ fn the_corpus_score_distribution_is_published_with_its_spread() {
         assert!(population.minimum <= population.maximum);
         assert_eq!(population.spread, population.maximum - population.minimum);
         assert_eq!(population.collapsed_into_one_band, population.bands.len() <= 1);
-        assert!(
-            !population.collapsed_into_one_band,
-            "every repository of a population falls in one band, which measures nothing"
-        );
         assert_eq!(
             population.collapsed_into_one_value,
             population

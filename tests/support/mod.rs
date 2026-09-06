@@ -144,9 +144,9 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// figures of a hotspot, v14 the `corpus_noise_basis_points` of a policy rule
 /// and the `withheld_rule_ids` of the score, v15 the `production_lines` the
 /// score's denominator is counted from, v16 the `corpus_reviewed_sites` a
-/// policy rule's rate rests on. No historical field is removed or
-/// retyped, so the projection consists solely of removing the members added
-/// since.
+/// policy rule's rate rests on, v17 the `suggestion` the toolchain proposed
+/// for a diagnostic's span. No historical field is removed or retyped, so the
+/// projection consists solely of removing the members added since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
@@ -187,6 +187,9 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     }
     while let Some(rule) = find(&projected, 0, b"\"corpus_reviewed_sites\":") {
         projected = remove_member(&projected, rule, "corpus_reviewed_sites");
+    }
+    while let Some(diagnostic) = find(&projected, 0, b"\"suggestion\":") {
+        projected = remove_member(&projected, diagnostic, "suggestion");
     }
     drop_scan_command(&projected)
 }

@@ -59,10 +59,12 @@ A new rule is admitted on measured precision, not on intuition. The gate refuses
 default activation only for a zero-tolerance tier rule with a confirmed false
 positive; every other rule is published with its measured noise rate.
 
-The record is also the calibration of the score. Each of the eighteen
-observations carries the production line count the scan measured and, per
-dimension, the density that count was the denominator of, so the published score
-recomputes from the record alone. The file records the λ table beside the
+The record is also the calibration of the score, twice over. Each of the
+eighteen observations carries the production line count the scan measured and,
+per dimension, the density that count was the denominator of, so the published
+score recomputes from the record alone; and the rate it adjudicated per rule is
+what the score discounts that rule's sites by, so the record is a term of the
+model and not only a check on it. The file records the λ table beside the
 toolchain version for the same reason both are pinned: the toolchain decides
 which diagnostics exist and λ decides what they cost, and a λ moved without a
 new measurement republishes every recorded score under a model that never
@@ -73,12 +75,22 @@ Clippy rule off and those two dimensions are where the Clippy rules concentrate.
 
 `score_distribution` is what the scale proves about itself: each population
 publishes its own minimum, maximum, spread, median and band counts, and the
-block publishes the distance between the two medians. `MINIMUM_SPREAD` in
+block publishes the distance between the two medians. That distance is measured
+against a known handicap: the agent population is scanned with every Clippy
+rule off, and the structural rules it does trip are discounted by rates the
+healthy population measured, so the record publishes a floor on the separation
+a full scan would show rather than the separation itself. Rates per population
+wait for an agent adjudication of the Clippy rules, which is what is missing,
+not a formula. `MINIMUM_SPREAD` in
 `tests/support/corpus.rs` is the floor the model has to clear over the two
 populations together, and a measurement under it fails
 `the_corpus_score_distribution_is_published_with_its_spread` naming the spread
-it measured. core-v2 published one population and a boolean saying it had
-collapsed into a single band, which measured nothing beyond the collapse.
+it measured. The same test refuses two populations that land in one band
+together and a healthy median that fails to sit above the agent one, and asks
+nothing of one population alone: ten healthy crates all reading `Great` is the
+calibration succeeding. core-v2 published one population and a boolean saying
+it had collapsed into a single band, which measured nothing beyond the
+collapse.
 
 The record is also published. `rust-doctor-web` generates
 `public/catalog/corpus.json` from this file and renders rust-doctor.com/corpus

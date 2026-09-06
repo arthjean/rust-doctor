@@ -226,6 +226,10 @@ fn detail_pane(state: &ViewerState<'_>, row: Option<&Row>, width: usize) -> Vec<
         body.push(Line::blank());
         body.extend(labelled("Fix ", help, body_width));
     }
+    if let Some(suggestion) = &row.suggestion {
+        body.push(Line::blank());
+        body.extend(labelled("Replace with ", suggestion, body_width));
+    }
     if !row.rule_url.is_empty() {
         body.push(Line::blank());
         body.push(
@@ -476,6 +480,7 @@ mod tests {
             location: "src/lib.rs:1".to_owned(),
             message: "message".to_owned(),
             help: None,
+            suggestion: None,
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),

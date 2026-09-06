@@ -80,7 +80,7 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout.last(), Some(&b'\n'));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 16);
+    assert_eq!(report["schema_version"], 17);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
     let rejected = binary()
@@ -123,7 +123,8 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
 
     let verbose = terminal(&["--verbose", "--yes"], &kernel("dbg-macro"));
     assert_eq!(verbose.matches("src/lib.rs:").count(), 3);
-    assert_eq!(verbose.matches("Help: Remove dbg!").count(), 3);
+    // One help line per rule, whatever the number of sites under it.
+    assert_eq!(verbose.matches("Help: Remove dbg!").count(), 1);
     assert!(!verbose.contains("Run with --verbose"));
 
     let clean = terminal(&["--yes"], &project("clean"));

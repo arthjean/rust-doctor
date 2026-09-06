@@ -33,7 +33,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 16;
+pub const SCHEMA_VERSION: u8 = 17;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -334,6 +334,12 @@ pub struct Diagnostic {
     /// existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complexity: Option<ComplexityFigures>,
+    /// The replacement the toolchain proposed for the span, when it proposed
+    /// one. Absent on every native finding and on every Clippy finding the
+    /// lint wrote no replacement for, so a report without one serializes
+    /// exactly as it did before this field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<Suggestion>,
     pub occurrences: usize,
 }
 
@@ -350,6 +356,59 @@ pub struct RelatedLocation {
 pub struct ComplexityFigures {
     pub cyclomatic: u32,
     pub cognitive: u32,
+}
+
+/// The replacement the toolchain proposed for the reported span, when it
+/// proposed one, and how far it vouches for it.
+///
+/// Clippy emits one for most of the performance lints and a few others, and
+/// the report used to drop it on the floor: every finding carried the one
+/// sentence the catalog wrote for its rule, and a reader was told to "use get"
+/// at a site where the toolchain had already written the exact expression.
+/// The catalogued help still travels beside it, since a replacement says what
+/// to write and not why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Suggestion {
+    pub replacement: String,
+    pub applicability: Applicability,
+}
+
+/// How far the toolchain vouches for a replacement, in its own vocabulary.
+///
+/// `MachineApplicable` is what `cargo clippy --fix` would apply unasked. The
+/// others are worth reading and not worth pasting: `MaybeIncorrect` may not
+/// compile, `HasPlaceholders` carries text the reader fills in, and
+/// `Unspecified` is a suggestion the lint author never rated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Applicability {
+    MachineApplicable,
+    MaybeIncorrect,
+    HasPlaceholders,
+    Unspecified,
+}
+
+impl Applicability {
+    /// Closed reading of the toolchain's spelling. Anything else is refused
+    /// rather than guessed, and the suggestion carrying it is dropped.
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "MachineApplicable" => Some(Self::MachineApplicable),
+            "MaybeIncorrect" => Some(Self::MaybeIncorrect),
+            "HasPlaceholders" => Some(Self::HasPlaceholders),
+            "Unspecified" => Some(Self::Unspecified),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MachineApplicable => "machine-applicable",
+            Self::MaybeIncorrect => "maybe-incorrect",
+            Self::HasPlaceholders => "has-placeholders",
+            Self::Unspecified => "unspecified",
+        }
+    }
 }
 
 /// Non-production target a diagnostic comes from, derived from the target kind

@@ -37,6 +37,9 @@ with an error at the `parsing` stage. The reader had no bound at all in a crate
 whose git layer documents that every way out of it is bounded, and the scanned
 workspace's procedural macros are what decide how many diagnostics Cargo emits.
 `src/bounded_read.rs` is the one primitive both layers read streams through.
+A compiler message keeps its `children` and the replacement each of their spans
+proposes, which is what the report's `suggestion` is read from; the text of a
+child stays with the toolchain.
 
 Three versions or none, and each probe names its own remedy. `Toolchain` is the
 three the report attributes its findings to, held by one `Option`:

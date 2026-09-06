@@ -50,10 +50,11 @@ pub use policy::{
 /// there is a second place to keep in step with the rule.
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
 pub use report::{
-    Diagnostic, DiagnosticSource, DiagnosticSpan, GateReport, GateStatus, InspectReport,
+    Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
+    GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
     ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
-    Summary, ToolchainReport,
+    Suggestion, Summary, ToolchainReport,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {

@@ -107,7 +107,7 @@ what enforce that, one per module, each naming its own, and two of them cover
   `adjudication.position_proof` anchors every published site to a run that
   located it. [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
 - Any change to the report shape bumps `SCHEMA_VERSION` in `src/report.rs`,
-  currently 16, and the frozen v7 archive keeps projecting.
+  currently 17, and the frozen v7 archive keeps projecting.
   [docs/subsystems/reporting.md](docs/subsystems/reporting.md)
 
 ## Testing

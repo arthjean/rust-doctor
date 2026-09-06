@@ -16,8 +16,8 @@ use serde_json::Value;
 
 use super::sanitize::{HomePaths, normalize_text, sanitize_text};
 use super::{
-    Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan,
-    RelatedLocation, Severity,
+    Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan,
+    RelatedLocation, Severity, Suggestion,
 };
 use crate::cargo_health;
 use crate::execution::{CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData};
@@ -110,14 +110,8 @@ pub(super) fn normalize_cargo_health_candidate(
         .manifest_path
         .as_deref()
         .and_then(|path| workspace_path::normalize_relative(Path::new(path)));
-    let id = fingerprint(
-        source,
-        code.as_deref(),
-        path.as_deref(),
-        None,
-        canonical_severity(definition.default_level),
-        &message,
-    );
+    let severity = canonical_severity(definition.default_level);
+    let id = fingerprint(source, code.as_deref(), path.as_deref(), None, severity, &message);
 
     Diagnostic {
         id,
@@ -125,8 +119,8 @@ pub(super) fn normalize_cargo_health_candidate(
         // Native diagnostic: no Cargo target carries it.
         context: None,
         code,
-        base_severity: canonical_severity(definition.default_level),
-        severity: canonical_severity(definition.default_level),
+        base_severity: severity,
+        severity,
         category: Some(definition.category.to_owned()),
         message,
         help: Some(definition.help.to_owned()),
@@ -142,6 +136,7 @@ pub(super) fn normalize_cargo_health_candidate(
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }
 }
@@ -190,6 +185,7 @@ pub(super) fn normalize_source_candidate(
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }
 }
@@ -258,6 +254,7 @@ pub(super) fn normalize_structure_finding(
             .collect(),
         similarity_basis_points: finding.similarity,
         complexity: finding.complexity,
+        suggestion: None,
         occurrences: finding.occurrences,
     }
 }
@@ -309,6 +306,7 @@ pub(super) fn normalize_repo_finding(
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }
 }
@@ -347,9 +345,14 @@ fn normalize_diagnostic(
         Some(code) if code.starts_with("clippy::") => DiagnosticSource::Clippy,
         _ => DiagnosticSource::Rustc,
     };
-    let severity = severity(&captured.message.level);
     let message = sanitize_text(&captured.message.message, Some(workspace_root), home);
     let (path, span) = select_primary_span(&captured.message, workspace_root);
+    let severity = if is_the_channel_of_a_binary(code.as_deref(), &captured.target.kind) {
+        Severity::Info
+    } else {
+        severity(&captured.message.level)
+    };
+    let suggestion = select_suggestion(&captured.message, path.as_deref(), workspace_root, home);
     let package = metadata.and_then(|metadata| {
         metadata
             .packages
@@ -385,8 +388,77 @@ fn normalize_diagnostic(
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion,
         occurrences: 1,
     }
+}
+
+/// Whether the finding is `print_stdout` or `print_stderr` inside a `bin`
+/// target, where the two streams are the program's output rather than a
+/// logging shortcut.
+///
+/// The catalogued help says to write to a caller-provided writer, which is
+/// right in a library and wrong in the entry point that owns the terminal:
+/// the pinned corpus adjudicated `print_stderr` wrong on every site it
+/// showed, and the self-scan of this crate ranked its own `main.rs` second in
+/// what to repair. The site is published at `Info`, which the score charges
+/// nothing and the gate never blocks on, rather than dropped: a reader
+/// hardening a binary still wants to see where it prints. Cargo's target
+/// kind answers, not the file name, so a `println!` in a library the binary
+/// wraps stays a warning.
+fn is_the_channel_of_a_binary(code: Option<&str>, kinds: &[String]) -> bool {
+    matches!(code, Some("clippy::print_stdout" | "clippy::print_stderr"))
+        && kinds.iter().any(|kind| kind == "bin")
+}
+
+/// What one replacement may carry. A suggestion past it is not a line a
+/// reader pastes, and a stream that carries one is a `RUSTC_WRAPPER` writing
+/// into Cargo's stdout; the budget bounds the report, not the meaning.
+const SUGGESTION_MAX_BYTES: usize = 1024;
+
+/// The replacement the toolchain proposed for the primary site, if any.
+///
+/// rustc attaches its proposals to the spans of its `children`, each rated by
+/// an `Applicability`. The one kept is the best rated on the file the finding
+/// itself points at, first among equals: a lint proposing two rewrites of two
+/// sites is reported at its primary site, so the rewrite of that site is the
+/// one beside it. A rating the toolchain does not publish under a known name
+/// is refused rather than mapped to the nearest one.
+fn select_suggestion(
+    diagnostic: &CapturedDiagnostic,
+    path: Option<&str>,
+    workspace_root: &Path,
+    home: &HomePaths,
+) -> Option<Suggestion> {
+    let mut best: Option<(Applicability, &str)> = None;
+    for child in &diagnostic.children {
+        for span in &child.spans {
+            let Some(replacement) = span.suggested_replacement.as_deref() else {
+                continue;
+            };
+            let Some(applicability) = span
+                .suggestion_applicability
+                .as_deref()
+                .and_then(Applicability::parse)
+            else {
+                continue;
+            };
+            let on_the_site = path.is_none_or(|path| {
+                workspace_path::normalize(workspace_root, Path::new(&span.file_name)).as_deref()
+                    == Some(path)
+            });
+            if !on_the_site || replacement.len() > SUGGESTION_MAX_BYTES {
+                continue;
+            }
+            if best.is_none_or(|(kept, _)| applicability < kept) {
+                best = Some((applicability, replacement));
+            }
+        }
+    }
+    best.map(|(applicability, replacement)| Suggestion {
+        replacement: sanitize_text(replacement, Some(workspace_root), home),
+        applicability,
+    })
 }
 
 /// Two occurrences of the same diagnostic that disagree on an optional field

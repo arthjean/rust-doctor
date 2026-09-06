@@ -1,20 +1,32 @@
 //! What the report tells the reader to repair first.
 //!
-//! The ranking key is the whole subject: what a rule costs the score, discounted by how often
-//! the pinned corpus adjudicated it wrong. It has a file of its own so that every file of the
+//! The ranking is the whole subject: the points a repair gives back through the ceilings the
+//! published value takes, discounted by how often the pinned corpus adjudicated the rule wrong,
+//! and the rules that discount withholds. It has a file of its own so that every file of the
 //! module stays under the thousand lines `oversized_unit` reports, which is what
 //! `the_audit_holds_the_size_bound_it_scores_for` keeps true.
 //!
 //! Every case here is written against a real catalogued rule and the rate the shipped table
-//! carries for it, except the three that put two samples of the same rate in competition: those
+//! carries for it, except the ones that put two samples of the same rate in competition: those
 //! are the one question no pair of real rules asks, since no two catalogued rules share a rate
 //! across two sample sizes.
 
 use crate::audit::{BASIS_POINTS, DensityScope, RuleAggregate, ScoreDimension};
-use crate::policy::UNMEASURED_NOISE_BASIS_POINTS;
+use crate::policy::{RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::Severity;
 
-use super::scored;
+use super::{diagnostics_for, scored};
+use crate::audit::{Audit, AuditScore};
+use crate::report::Status;
+
+/// The same profile over twenty kilolines, the size at which a handful of sites is a density
+/// rather than a catastrophe: on the hundred-line floor sixty sites saturate every dimension and
+/// the ceiling is not what holds the score.
+fn scored_over_twenty_kilolines(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
+    Audit::build(20, 20_000, Status::Complete, &diagnostics_for(rules))
+        .score
+        .expect("twenty kilolines is a scorable workspace")
+}
 
 /// One aggregate carrying nothing but what the ranking key reads.
 fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
@@ -24,7 +36,7 @@ fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
         category: None,
         dimension: Some(ScoreDimension::Reliability),
         scope: DensityScope::Workspace,
-        tier: None,
+        tier: Some(RuleTier::P3),
         occurrences: 1,
         numerator: 1,
         noise,
@@ -51,9 +63,13 @@ fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
     ]);
 
     assert_eq!(
-        score.projected_rule_ids.first().map(String::as_str),
-        Some("rust_doctor::cargo::duplicate_major_versions"),
+        score.projected_rule_ids,
+        vec!["rust_doctor::cargo::duplicate_major_versions".to_owned()],
         "the rule measured wrong on forty sites does not lead over the one measured right"
+    );
+    assert_eq!(
+        score.withheld_rule_ids,
+        vec!["clippy::indexing_slicing".to_owned()]
     );
 }
 
@@ -68,6 +84,7 @@ fn an_unmeasured_rule_is_ranked_at_half_its_contribution() {
     let unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 1_000_000, None);
     assert_eq!(unmeasured.expected_repair_value(), 500_000);
     assert_eq!(UNMEASURED_NOISE_BASIS_POINTS, 5000);
+    assert!(!unmeasured.is_withheld(), "the middle is ranked, not withheld");
 
     let quiet = ranked("clippy::rc_buffer", 1_000_000, Some(2000));
     assert!(
@@ -92,79 +109,111 @@ fn the_same_rate_on_more_sites_moves_further_from_the_default() {
     assert!(five.expected_repair_value() < unmeasured.expected_repair_value());
 }
 
-/// No rule ties at zero for want of resolution.
+/// A rule the corpus found wrong more often than right is withheld, and still named.
 ///
-/// The raw rate collapsed twelve rules onto exactly 10000 basis points and every one of them to
-/// an expected repair value of zero, which is a tie the reader cannot break and the ranking
-/// cannot order. No smoothed rate reaches 10000, so the worst-measured rule of the catalog still
-/// carries something.
+/// The threshold is the rate, not the value left after the discount: under the value no rule
+/// was ever withheld, since no smoothed rate reaches ten thousand and a millionth of a point
+/// survives any discount. Two such rules are published loudest first, so the absence from the
+/// projection reads as a measurement and not as a defect.
 #[test]
-fn a_rule_measured_wrong_on_every_site_still_ranks_above_nothing() {
+fn a_rule_wrong_more_often_than_right_is_withheld_and_still_named() {
     let worst = ranked("clippy::panic", 1_000_000, Some(8571));
-    assert!(worst.expected_repair_value() > 0);
+    assert!(worst.is_withheld());
     assert_eq!(
         worst.expected_repair_value(),
-        1_000_000 * (BASIS_POINTS - 8571) / BASIS_POINTS
+        1_000_000 * (BASIS_POINTS - 8571) / BASIS_POINTS,
+        "withholding does not zero the value, it declines to rank it"
     );
+    let at_the_middle = ranked("clippy::todo", 1_000_000, Some(5000));
+    assert!(!at_the_middle.is_withheld(), "the threshold is strict");
 
     let score = scored(&[
-        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
         ("clippy::string_slice", "reliability", Severity::Warning, 12),
+        ("clippy::indexing_slicing", "reliability", Severity::Warning, 60),
     ]);
+    assert!(score.projected_rule_ids.is_empty());
+    assert_eq!(score.projected_after_top_three, None);
     assert_eq!(
-        score.projected_rule_ids,
+        score.withheld_rule_ids,
         vec![
             "clippy::indexing_slicing".to_owned(),
             "clippy::string_slice".to_owned()
         ],
-        "two rules measured wrong everywhere are ordered rather than tied away"
+        "two withheld rules are named loudest first"
     );
-    assert!(score.withheld_rule_ids.is_empty());
 }
 
-/// What the ranking drops is still named, loudest first.
+/// The rule holding the ceiling is named first, whatever the others' volume.
 ///
-/// A rule reaches the withheld list by having nothing left after the discount, which under the
-/// smoothed rate means a contribution small enough that the surviving share rounds away rather
-/// than a rate of exactly ten thousand. It is published all the same, so the absence reads as a
-/// measurement and not as a defect.
+/// One `P1` site holds the score at 65. Read from the density relief alone, three `P3` rules
+/// with dozens of sites each led the projection and the projection promised the 65 the reader
+/// already had. The marginal gain through the ceilings is what puts the `P1` rule first, and
+/// the promise moves.
 #[test]
-fn the_rules_the_ranking_dropped_are_published_loudest_first() {
-    let noisy = ranked("clippy::indexing_slicing", 40, Some(9762));
-    let quieter = ranked("clippy::string_slice", 30, Some(9762));
-    assert_eq!(noisy.expected_repair_value(), 0);
-    assert_eq!(quieter.expected_repair_value(), 0);
-    assert!(noisy.contribution() > quieter.contribution());
+fn the_rule_holding_the_ceiling_is_named_first() {
+    let score = scored_over_twenty_kilolines(&[
+        ("clippy::await_holding_lock", "correctness", Severity::Warning, 1),
+        ("clippy::todo", "correctness", Severity::Warning, 30),
+        ("clippy::dbg_macro", "maintainability", Severity::Warning, 20),
+        ("clippy::useless_vec", "performance", Severity::Warning, 15),
+    ]);
 
-    let rules = [quieter, noisy];
-    let (projected, withheld) = crate::audit::rank_repairs(&rules);
-    assert!(projected.is_empty());
+    assert_eq!(score.applied_ceiling, Some(65));
+    assert_eq!(score.value, 65);
     assert_eq!(
-        withheld
-            .iter()
-            .map(|rule| rule.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["clippy::indexing_slicing", "clippy::string_slice"]
+        score.projected_rule_ids.first().map(String::as_str),
+        Some("clippy::await_holding_lock")
+    );
+    assert_eq!(score.projected_rule_ids.len(), 3);
+    let projected = score
+        .projected_after_top_three
+        .expect("an authoritative score with a projection names its value");
+    assert!(projected > 65, "the promise moves once the ceiling is named: {projected}");
+}
+
+/// Two rules sharing the ceiling are both named: the first lifts nothing alone, the second lifts
+/// it on top of the first.
+#[test]
+fn two_rules_sharing_a_ceiling_are_both_named() {
+    let score = scored_over_twenty_kilolines(&[
+        ("clippy::await_holding_lock", "correctness", Severity::Warning, 1),
+        ("clippy::unimplemented", "correctness", Severity::Warning, 1),
+        ("clippy::dbg_macro", "maintainability", Severity::Warning, 40),
+        ("clippy::useless_vec", "performance", Severity::Warning, 40),
+        ("clippy::todo", "correctness", Severity::Warning, 40),
+    ]);
+
+    assert_eq!(score.applied_ceiling, Some(65));
+    let named: Vec<&str> = score.projected_rule_ids.iter().map(String::as_str).collect();
+    assert!(named.contains(&"clippy::await_holding_lock"), "{named:?}");
+    assert!(named.contains(&"clippy::unimplemented"), "{named:?}");
+    assert!(
+        score.projected_after_top_three.is_some_and(|value| value > 65),
+        "{:?}",
+        score.projected_after_top_three
     );
 }
 
-/// The discount ranks and never penalizes.
+/// The rate discounts the charge of a measured rule, and never invents one.
 ///
-/// Two workspaces differing only in which rule fired score the same when the two rules cost the
-/// same, whatever the corpus adjudicated for either. That is the whole separation between
-/// `contribution`, which the score charges, and `expected_repair_value`, which orders the advice.
+/// Two workspaces differing only in which rule fired, both rules of the same tier and dimension,
+/// no longer score the same: the one the corpus found wrong on forty sites out of forty costs a
+/// fortieth of the one it found wrong on five out of five. Neither is free, since the smoothing
+/// keeps a share of every measured rule, and the sample is printed wherever the rule is named.
 #[test]
-fn the_rate_orders_the_advice_and_never_moves_the_score() {
-    let noisy = scored(&[(
+fn the_rate_discounts_the_charge_of_a_measured_rule() {
+    let forty = scored(&[(
         "clippy::indexing_slicing",
         "reliability",
         Severity::Warning,
         12,
     )]);
-    let quiet = scored(&[("clippy::unreachable", "reliability", Severity::Warning, 12)]);
+    let five = scored(&[("clippy::unwrap_used", "reliability", Severity::Warning, 12)]);
+    let clean = scored(&[]);
 
-    assert_eq!(noisy.value, quiet.value);
-    assert_eq!(noisy.dimensions, quiet.dimensions);
+    assert!(forty.value > five.value, "{} vs {}", forty.value, five.value);
+    assert!(five.value < clean.value);
+    assert_eq!(clean.value, 100);
     assert_eq!(
         ranked("clippy::indexing_slicing", 1_000_000, Some(9762)).expected_repair_value(),
         23_800
@@ -173,4 +222,16 @@ fn the_rate_orders_the_advice_and_never_moves_the_score() {
         ranked("clippy::unreachable", 1_000_000, Some(7143)).expected_repair_value(),
         285_700
     );
+}
+
+/// An unmeasured rule is charged whole: a measurement can only lower a charge.
+#[test]
+fn an_unmeasured_rule_is_charged_whole() {
+    let mut rule = ranked("rust_doctor::repo::tracked_secret_file", 0, None);
+    rule.numerator = 3;
+    assert_eq!(rule.charged(), 3.0);
+    rule.tier = Some(RuleTier::P1);
+    assert_eq!(rule.charged(), 12.0, "a P1 site weighs four P3 sites");
+    rule.noise = Some(2500);
+    assert_eq!(rule.charged(), 9.0, "a measured rule keeps the share the corpus confirmed");
 }

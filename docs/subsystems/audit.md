@@ -2,9 +2,11 @@
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
-and the ranking of what to repair first. `src/audit/density.rs` is the core-v3
-penalty itself, the severity weights, the per-producer denominators, the
+and what a rule is charged. `src/audit/density.rs` is the core-v4 penalty
+itself, the severity and tier weights, the per-producer denominators, the
 kiloline floor and the exponential the density is read through.
+`src/audit/ranking.rs` is what to repair first: the projection, the rules it
+withholds and the discount both read.
 `src/audit/source_inventory.rs` is the source-file count the score is computed
 against, read from Cargo's dep-info rather than from a walk of its own, and
 `src/audit/tests.rs` carries the tests, with `src/audit/tests/scale.rs` holding
@@ -22,14 +24,32 @@ of the two call sites instead: the report body ranked by a cost computed over a
 population the score never charged, and a rule that only ever fired in a test
 was ranked as though it had cost points.
 
-One key for what to repair first. `expected_repair_value` is what repairing a
-rule is expected to be worth, its cost discounted by the rate the corpus
-adjudicated it wrong, and the score's projection and the order of the report
-body both read it. It used to be private with the raw cost published beside it,
-so the report named a rule as withheld for measured noise on one line and put it
-at the top of what to work down on the next.
-`a_rule_the_corpus_measured_wrong_is_not_ranked_first` is the input that puts
-the two in competition.
+What a site is charged. A rule's sites are weighed by severity, by the tier of
+the rule, each tier doubling the one below, and discounted by the smoothed rate
+the corpus adjudicated the rule wrong; an unmeasured rule is charged whole,
+since a measurement can only lower a charge. Under core-v3 the tier was only a
+ceiling and the rate only ranked, so a site of `await_holding_lock` cost what a
+site of `useless_vec` cost, and `indexing_slicing`, adjudicated wrong on all
+forty sites the corpus showed it, still took a healthy workspace's reliability
+to the forties. λ_security and λ_dependencies moved to four and six with the
+weights, so a lone `P1` security site and a lone duplicate major score what
+they scored before. An `Info` site weighs zero and stays authoritative: it is
+the level a producer publishes a fact the workspace cannot act on at, a
+`println!` in a binary target.
+
+One climb for what to repair first. `RuleAggregation::projection` fills its
+three places one at a time with the rule whose repair, on top of the ones
+already named, gives the most points back through the ceilings the published
+value takes, discounted by the corpus rate; when nothing moves, the rules
+holding the worst tier come first. A static key ordered by density relief
+named three `P3` rules on a workspace one `P1` finding held at 65 and promised
+the 65 it already had, which `the_rule_holding_the_ceiling_is_named_first`
+replays. A rule the corpus found wrong more often than right is withheld from
+the projection and published as withheld: the old threshold was an expected
+value rounding to zero millionths of a point, which no rule ever reached, so
+the report recommended `print_stderr` in the entry point of a binary. The
+report body lists the projected rules first, in projection order, then the rest
+by expected repair value, so the two never disagree.
 
 One fact, stored once. The categories are published in their declaration order
 and nothing restates that order: `Ord` derives from it and the tally map is
@@ -63,7 +83,8 @@ file of 1624 lines, one of the two that
 `the_self_scan_names_this_repository_s_own_hotspots` froze as oversized, and the
 only module of the crate near the bound with no such test: the block that
 computes the score has to pass the rule it scores. `density.rs` and
-`tests/scale.rs` came out of the same bound, since core-v3 carries a curve, a
+`tests/scale.rs` came out of the same bound, since core-v4 carries a curve, a
 lambda table and its own denominators, and the pair of them would have taken
-`src/audit.rs` back over the thousand lines it reports at.
+`src/audit.rs` back over the thousand lines it reports at; `ranking.rs` and
+`tests/ranking.rs` followed for the same reason.
 

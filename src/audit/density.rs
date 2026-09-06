@@ -1,8 +1,9 @@
-//! The core-v3 penalty: how much of a workspace a dimension's findings cover, and what that
+//! The core-v4 penalty: how much of a workspace a dimension's findings cover, and what that
 //! coverage is worth out of a hundred.
 //!
 //! A dimension carries a density rather than a count: its distinct scored sites, weighted by
-//! severity, over a denominator the producer that raised each finding chooses. Per-site
+//! severity and by the tier of the rule that raised them, discounted by the rate the pinned
+//! corpus adjudicated that rule wrong, over a denominator the producer chooses. Per-site
 //! producers divide by production kilolines, so duplicating a workspace changes nothing;
 //! workspace-scoped ones divide by one, because a missing lockfile is not less serious in a
 //! large repository. The density then decays exponentially, which is what makes a repair
@@ -18,7 +19,7 @@ use crate::report::Severity;
 
 use super::{
     RuleAggregate, ScoreDimension, ScoreDimensions, capped, dimension_weight_twice,
-    tier_dimension_ceiling, worse_tier,
+    tier_dimension_ceiling, tier_overall_ceiling, worse_tier,
 };
 
 /// Smallest denominator a per-site density is ever divided by, in kilolines.
@@ -36,14 +37,33 @@ const LINES_PER_KILOLINE: f64 = 1000.0;
 
 /// What one distinct scored site of this severity adds to its dimension's numerator.
 ///
+/// `Info` weighs zero and stays authoritative: it is the level a producer publishes a fact at
+/// when the workspace cannot act on it, a `println!` in a binary target or a duplicate major
+/// no manifest of the workspace requires, so the finding is shown, tallied and never charged.
 /// `Unknown` has no weight at all: a severity the catalog could not resolve is not a small
 /// penalty, it is the absence of a measurement, and `aggregate_rules` drops the authoritative
 /// flag over it rather than charging a guess.
 pub(super) const fn severity_weight(severity: Severity) -> Option<u64> {
     match severity {
         Severity::Error => Some(2),
-        Severity::Warning | Severity::Info => Some(1),
+        Severity::Warning => Some(1),
+        Severity::Info => Some(0),
         Severity::Unknown => None,
+    }
+}
+
+/// What a site of a rule of this tier weighs against a site of a `P3` rule.
+///
+/// The tier used to act only as a ceiling, so under it a site of `await_holding_lock` cost the
+/// same density as a site of `useless_vec`: every catalogued rule ships at `Warn`, which made the
+/// severity weight a constant and left nothing in the density to say which rules matter. Each
+/// tier doubles the one below it, and a rule the catalog does not hold weighs as a `P3`.
+pub(super) const fn tier_weight(tier: Option<RuleTier>) -> u64 {
+    match tier {
+        Some(RuleTier::P0) => 8,
+        Some(RuleTier::P1) => 4,
+        Some(RuleTier::P2) => 2,
+        Some(RuleTier::P3) | None => 1,
     }
 }
 
@@ -96,21 +116,24 @@ impl Scale {
     }
 }
 
-/// The density that costs a dimension 63 points, in sites per denominator.
+/// The density that costs a dimension 63 points, in weighted sites per denominator.
 ///
 /// It is the whole calibration: a dimension sitting exactly at its λ scores 37, twice its λ
 /// scores 14, and half of it scores 61. Security is the tightest, because one security finding
 /// per two kilolines is already a workspace in trouble; reliability is the loosest, because the
-/// correctness lints fire densely on code nobody would call broken. No λ may be zero, which is
-/// what `no_lambda_is_zero` holds: a zero λ divides by nothing and takes every density to
-/// infinity.
+/// correctness lints fire densely on code nobody would call broken. Security is four and
+/// dependencies six because the tier enters the weight and those two dimensions hold no `P3`
+/// rule: a `P1` security site weighs four and a `P2` dependency site two, so one unpinned git
+/// dependency and one direct duplicate major score exactly what they scored when every site
+/// weighed one. No λ may be zero, which is what `no_lambda_is_zero` holds: a zero λ divides by
+/// nothing and takes every density to infinity.
 pub(super) const fn lambda(dimension: ScoreDimension) -> f64 {
     match dimension {
-        ScoreDimension::Security => 1.0,
+        ScoreDimension::Security => 4.0,
         ScoreDimension::Reliability => 10.0,
         ScoreDimension::Maintainability => 3.0,
         ScoreDimension::Performance => 4.0,
-        ScoreDimension::Dependencies => 3.0,
+        ScoreDimension::Dependencies => 6.0,
     }
 }
 
@@ -187,8 +210,7 @@ impl DimensionState {
                     worst_tier: None,
                 },
                 |state, rule| Self {
-                    density: state.density
-                        + rule.numerator as f64 / scale.divisor(rule.scope),
+                    density: state.density + rule.charged() / scale.divisor(rule.scope),
                     worst_tier: worse_tier(state.worst_tier, rule.scoring_tier()),
                 },
             )
@@ -215,6 +237,43 @@ fn uncapped_score(rules: &[RuleAggregate], removed: &BTreeSet<String>, scale: Sc
         })
         .sum();
     numerator / 13.0
+}
+
+/// The weighted score before rounding but after every ceiling, in millionths of a point.
+///
+/// This is what the projection climbs: the marginal gain of repairing one more rule, read
+/// through the same ceilings the published value takes. Under a ceiling the uncapped relief of
+/// a rule says how dense its dimension is and nothing about the points the reader would get
+/// back, which is why a ranking read from `uncapped_score` alone named three `P3` rules on a
+/// workspace one `P1` finding held at 65 and promised the 65 it already had.
+pub(super) fn capped_score_micro(
+    rules: &[RuleAggregate],
+    removed: &BTreeSet<String>,
+    scale: Scale,
+) -> u64 {
+    let mut worst_tier = None;
+    let numerator: f64 = ScoreDimension::ALL
+        .into_iter()
+        .map(|dimension| {
+            let state = DimensionState::of(rules, removed, scale, dimension);
+            worst_tier = worse_tier(worst_tier, state.worst_tier);
+            let ceiling = state
+                .worst_tier
+                .and_then(tier_dimension_ceiling)
+                .map_or(100.0, f64::from);
+            decayed(state.density, dimension).min(ceiling) * dimension_weight_twice(dimension) as f64
+        })
+        .sum();
+    let overall = worst_tier
+        .and_then(tier_overall_ceiling)
+        .map_or(100.0, f64::from);
+    let value = (numerator / 13.0).min(overall);
+    let scaled = (value * CONTRIBUTION_SCALE).round();
+    if scaled.is_finite() && scaled > 0.0 {
+        scaled as u64
+    } else {
+        0
+    }
 }
 
 /// What removing each rule's sites recovers, in the order the rules are held.
@@ -321,12 +380,23 @@ mod tests {
         }
     }
 
-    /// An error site weighs twice a warning, and an unresolved severity weighs nothing at all.
+    /// An error site weighs twice a warning, an info site is shown and charged nothing, and an
+    /// unresolved severity weighs nothing at all.
     #[test]
     fn severity_weighs_a_site_or_refuses_to() {
         assert_eq!(severity_weight(Severity::Error), Some(2));
         assert_eq!(severity_weight(Severity::Warning), Some(1));
-        assert_eq!(severity_weight(Severity::Info), Some(1));
+        assert_eq!(severity_weight(Severity::Info), Some(0));
         assert_eq!(severity_weight(Severity::Unknown), None);
+    }
+
+    /// Each tier doubles the one below, and a rule outside the catalog weighs as the lowest.
+    #[test]
+    fn every_tier_doubles_the_one_below_it() {
+        assert_eq!(tier_weight(Some(RuleTier::P0)), 8);
+        assert_eq!(tier_weight(Some(RuleTier::P1)), 4);
+        assert_eq!(tier_weight(Some(RuleTier::P2)), 2);
+        assert_eq!(tier_weight(Some(RuleTier::P3)), 1);
+        assert_eq!(tier_weight(None), 1);
     }
 }

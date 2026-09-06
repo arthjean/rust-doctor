@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsStr;
 use std::fmt;
@@ -158,6 +159,7 @@ pub fn build_prompt(
             "Fix the highest-priority Rust Doctor findings. Preserve unrelated changes and rescan after the fixes.",
         )
         .push_line(&audit);
+    push_targets(&mut prompt, report);
 
     let mut locations = 0usize;
     for (index, group) in presentation.groups.iter().take(MAX_GROUPS).enumerate() {
@@ -177,6 +179,50 @@ pub fn build_prompt(
     }
     prompt.push_line(&format!("Validate with: {}", rescan_command.as_str()));
     prompt.finish()
+}
+
+/// What the repairs are worth, so the agent has a stopping condition rather than a backlog.
+///
+/// The ceiling comes first, since under it nothing else is worth points: the rules holding the
+/// worst tier are named from the catalog the binary shipped with, never from report text. The
+/// projected value is the score the three groups below reach, which is what the skill tells the
+/// agent to rescan for and what the prompt never said.
+fn push_targets(prompt: &mut PromptBuilder, report: &InspectReport) {
+    let Some(score) = &report.audit.score else {
+        return;
+    };
+    if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
+        let holding: BTreeSet<&str> = rust_doctor::catalog()
+            .into_iter()
+            .filter(|rule| rule.tier == tier)
+            .map(|rule| rule.id)
+            .collect();
+        let mut named: Vec<&str> = report
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.code.as_deref())
+            .filter(|code| holding.contains(code))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        named.truncate(MAX_GROUPS);
+        if named.iter().any(|id| prompt.require(RuleId::new(id)).is_none()) {
+            return;
+        }
+        prompt.push_line(&format!(
+            "Ceiling: the score is held at {ceiling}/100 by {} findings; repair {} before anything else.",
+            tier.as_str(),
+            named.join(", ")
+        ));
+    }
+    if let Some(projected) = score
+        .projected_after_top_three
+        .filter(|projected| *projected > score.value)
+    {
+        prompt.push_line(&format!(
+            "Target: repairing the rules below reaches a projected {projected}/100."
+        ));
+    }
 }
 
 fn push_group(

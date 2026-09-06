@@ -197,7 +197,11 @@ fn render_findings<W: Write>(
     }
     if options.verbose {
         for group in &presentation.groups {
-            render_group(writer, group, options, GroupView::Full)?;
+            if group.is_unscored() {
+                render_unscored_group(writer, group, options)?;
+            } else {
+                render_group(writer, group, options, GroupView::Full)?;
+            }
         }
         return Ok(());
     }
@@ -269,7 +273,7 @@ fn render_links<W: Write>(
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
     if let Ok(url) = report.audit.share_url() {
-        line(writer, &format!("Share: {url}"), options, Style::Accent)?;
+        link_line(writer, &format!("Share: {url}"), options, Style::Accent)?;
     }
     line(writer, &format!("Docs: {DOCS_URL}"), options, Style::Muted)?;
     line(
@@ -354,11 +358,16 @@ fn render_group<W: Write>(
         options,
         Style::Accent,
     )?;
+    // The help is the rule's, so it is printed once under the rule: under each site it was the
+    // same sentence twenty-two times on this crate's own scan, between the reader and the sites.
+    if let Some(help) = group.resolved_help() {
+        line(writer, &format!("Help: {help}"), options, Style::Muted)?;
+    }
 
     for diagnostic in group.diagnostics.iter().take(view.location_limit()) {
         line(writer, &diagnostic.message, options, Style::Plain)?;
-        if let Some(help) = &diagnostic.help {
-            line(writer, &format!("Help: {help}"), options, Style::Muted)?;
+        if let Some(suggestion) = &diagnostic.suggestion {
+            line(writer, &replacement_line(suggestion), options, Style::Accent)?;
         }
         if diagnostic.base_severity != diagnostic.severity {
             line(
@@ -376,12 +385,46 @@ fn render_group<W: Write>(
             render_code_frame(writer, &location, options)?;
         }
     }
-    line(
+    link_line(
         writer,
         &format!("Rule: {}", group.rule_url),
         options,
         Style::Muted,
     )
+}
+
+/// A group every site of which sits outside production code: one line, since it is shown and
+/// weighs nothing, and `--json` carries every site.
+fn render_unscored_group<W: Write>(
+    writer: &mut W,
+    group: &DiagnosticGroup,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    line(
+        writer,
+        &format!(
+            "Unscored: {} ({} occurrences outside production code, {})",
+            group.title, group.occurrences, group.rule_id
+        ),
+        options,
+        Style::Muted,
+    )
+}
+
+/// What the toolchain proposed to write at the site, qualified whenever it does not vouch for
+/// it outright. A multi-line replacement is shown on one row, since the frame under it is
+/// where the site's layout lives.
+fn replacement_line(suggestion: &crate::Suggestion) -> String {
+    let replacement: String = suggestion
+        .replacement
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
+    match suggestion.applicability {
+        crate::Applicability::MachineApplicable => format!("Replace with: {replacement}"),
+        other => format!("Replace with: {replacement} ({})", other.as_str()),
+    }
 }
 
 /// The source window around one finding, or the reason there is none.
@@ -686,16 +729,12 @@ fn render_score<W: Write>(
         .projected_after_top_three
         .filter(|projected| *projected > score.value)
     {
-        line(
-            writer,
-            &format!(
-                "Fix the top {} rules to reach a projected {projected}/100: {}",
-                score.projected_rule_ids.len(),
-                named_with_measurement(&score.projected_rule_ids)
-            ),
-            options,
-            Style::Accent,
-        )?;
+        let named = named_with_measurement(&score.projected_rule_ids);
+        let sentence = match score.projected_rule_ids.len() {
+            1 => format!("Fix this rule to reach a projected {projected}/100: {named}"),
+            count => format!("Fix the top {count} rules to reach a projected {projected}/100: {named}"),
+        };
+        line(writer, &sentence, options, Style::Accent)?;
     }
     if let Some(withheld) = withheld_sentence(&score.withheld_rule_ids) {
         line(writer, &withheld, options, Style::Plain)?;
@@ -797,6 +836,18 @@ fn line<W: Write>(
         write_styled(writer, &bounded, options.color, style)?;
     }
     Ok(())
+}
+
+/// One line carrying a URL: sanitized and never wrapped, since a link cut in two is two strings
+/// no terminal opens. The width every other line respects is a budget on prose; a link is an
+/// atom, and the terminal soft-wraps it while keeping it whole.
+fn link_line<W: Write>(
+    writer: &mut W,
+    content: &str,
+    options: TerminalOptions<'_>,
+    style: Style,
+) -> Result<(), RenderError> {
+    write_styled(writer, &sanitize(content), options.color, style)
 }
 
 /// One row of a code frame: sanitized, then cut rather than wrapped.

@@ -20,7 +20,8 @@ v8 the `audit` block, v9 the `tier` of every policy rule and the two named
 quantities of `summary`, v10 a diagnostic's `context`, v11 its `related`
 locations, v12 `similarity_basis_points`, v13 `complexity`, v14
 `corpus_noise_basis_points` and `withheld_rule_ids`, v15 `production_lines`, v16
-`corpus_reviewed_sites`. No historical field was ever removed or retyped, so the
+`corpus_reviewed_sites`, v17 a diagnostic's `suggestion`, the replacement the
+toolchain proposed for the span and how far it vouches for it. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
 whenever the catalog widens or the scope shifts. That is what makes a frozen
@@ -57,6 +58,16 @@ No pass-through with a second name. `baseline_report_failure` had a
 `baseline_cleanup_failure` in front of it that called it and nothing else, and
 `summarize` stood in front of `Summary::from_diagnostics`.
 
+The toolchain's replacement travels with the finding. `select_suggestion` reads
+the `children` of a compiler message, keeps the best rated replacement on the
+finding's own file and refuses a rating it does not know. Every finding used to
+carry the one sentence the catalog wrote for its rule, so a reader was told to
+use `get` at a site where Clippy had already written the exact expression. One
+finding is published at `Info` on purpose, shown and never charged: a print
+lint inside a `bin` target, whose streams are the program's output. A duplicate
+major stays a warning whoever requires it, since the binary embeds both copies
+either way, and its message now names the dependency each version arrives under.
+
 `the_report_holds_the_size_bound_it_publishes` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. This was one file
 of 3226 lines, three times over the bound, and the self-scan that named it froze
@@ -72,6 +83,14 @@ is the score block, and each of the two carries its tests in a file of its own.
 
 Five rules hold it together, and each of them replaced something that had a
 cost.
+
+The help is the rule's, printed once under the rule; the replacement is the
+site's, printed under the site. A line carrying a URL is written whole and never
+wrapped, since a link cut in two is two strings no terminal opens, and a group
+every site of which sits outside production code is one line of the verbose
+report: on this crate's own scan such groups were a thousand of the eleven
+hundred lines printed, the help sentence repeated twenty-two times, and the
+rule link cut at column eighty.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
 twelve calls and nothing else: a line written straight into the entry point is

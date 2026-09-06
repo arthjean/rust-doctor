@@ -365,8 +365,10 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
                 diagnostics: vec![GroupDiagnostic {
                     message: "message".to_owned(),
                     help: None,
+                    suggestion: None,
                     base_severity: Severity::Warning,
                     severity: Severity::Warning,
+                    context: None,
                     path: None,
                     span: None,
                     related: Vec::new(),

@@ -86,6 +86,11 @@ pub(crate) struct CapturedDiagnostic {
     pub(crate) level: String,
     #[serde(default)]
     pub(crate) spans: Vec<CapturedSpan>,
+    /// The sub-diagnostics rustc attaches: its `help` and `note` lines, whose
+    /// spans are where a suggested replacement lives. Only the replacement is
+    /// read out of them; their text stays with the toolchain.
+    #[serde(default)]
+    pub(crate) children: Vec<CapturedDiagnostic>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,6 +106,13 @@ pub(crate) struct CapturedSpan {
     pub(crate) column_start: usize,
     pub(crate) column_end: usize,
     pub(crate) is_primary: bool,
+    /// What rustc proposes to write over this span, on the spans of a
+    /// `children` entry. Absent on a primary span.
+    #[serde(default)]
+    pub(crate) suggested_replacement: Option<String>,
+    /// rustc's own `Applicability` spelling for the replacement above.
+    #[serde(default)]
+    pub(crate) suggestion_applicability: Option<String>,
 }
 
 #[derive(Debug, Default)]

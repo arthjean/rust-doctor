@@ -10677,15 +10677,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1005356,
+              "density_micro": 610713,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
             },
             {
-              "density_micro": 6004414,
+              "density_micro": 1999430,
               "name": "maintainability",
-              "score": 14,
+              "score": 51,
               "worst_tier": "P3"
             },
             {
@@ -10695,15 +10695,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1000000,
+              "density_micro": 2000000,
               "name": "dependencies",
               "score": 72,
               "worst_tier": "P2"
             }
           ],
           "label": "Great",
-          "model": "core-v3",
-          "value": 77,
+          "model": "core-v4",
+          "value": 82,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -10770,15 +10770,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1000000,
+              "density_micro": 600000,
               "name": "reliability",
-              "score": 90,
+              "score": 94,
               "worst_tier": "P3"
             },
             {
-              "density_micro": 3274839,
+              "density_micro": 1220897,
               "name": "maintainability",
-              "score": 34,
+              "score": 67,
               "worst_tier": "P3"
             },
             {
@@ -10788,15 +10788,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 4000000,
+              "density_micro": 5333600,
               "name": "dependencies",
-              "score": 26,
+              "score": 41,
               "worst_tier": "P2"
             }
           ],
           "label": "Great",
-          "model": "core-v3",
-          "value": 76,
+          "model": "core-v4",
+          "value": 84,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -10868,15 +10868,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1000000,
+              "density_micro": 600000,
               "name": "reliability",
-              "score": 90,
+              "score": 94,
               "worst_tier": "P3"
             },
             {
-              "density_micro": 2438110,
+              "density_micro": 1181574,
               "name": "maintainability",
-              "score": 44,
+              "score": 67,
               "worst_tier": "P3"
             },
             {
@@ -10886,15 +10886,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 9000000,
+              "density_micro": 18000000,
               "name": "dependencies",
               "score": 5,
               "worst_tier": "P2"
             }
           ],
-          "label": "Needs work",
-          "model": "core-v3",
-          "value": 74,
+          "label": "Great",
+          "model": "core-v4",
+          "value": 79,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -10951,15 +10951,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1000000,
+              "density_micro": 600000,
               "name": "reliability",
-              "score": 90,
+              "score": 94,
               "worst_tier": "P3"
             },
             {
-              "density_micro": 3577818,
+              "density_micro": 1435579,
               "name": "maintainability",
-              "score": 30,
+              "score": 62,
               "worst_tier": "P3"
             },
             {
@@ -10969,15 +10969,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1000000,
+              "density_micro": 2000000,
               "name": "dependencies",
               "score": 72,
               "worst_tier": "P2"
             }
           ],
           "label": "Great",
-          "model": "core-v3",
-          "value": 83,
+          "model": "core-v4",
+          "value": 88,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -11039,15 +11039,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1171630,
+              "density_micro": 943259,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
             },
             {
-              "density_micro": 3003518,
+              "density_micro": 1256011,
               "name": "maintainability",
-              "score": 37,
+              "score": 66,
               "worst_tier": "P3"
             },
             {
@@ -11064,8 +11064,8 @@
             }
           ],
           "label": "Great",
-          "model": "core-v3",
-          "value": 85,
+          "model": "core-v4",
+          "value": 89,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -11147,15 +11147,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1060412,
+              "density_micro": 720825,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
             },
             {
-              "density_micro": 3409679,
+              "density_micro": 1325194,
               "name": "maintainability",
-              "score": 32,
+              "score": 64,
               "worst_tier": "P3"
             },
             {
@@ -11165,15 +11165,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 19000000,
+              "density_micro": 25334600,
               "name": "dependencies",
-              "score": 0,
+              "score": 1,
               "worst_tier": "P2"
             }
           ],
           "label": "Needs work",
-          "model": "core-v3",
-          "value": 68,
+          "model": "core-v4",
+          "value": 73,
           "worst_tier": "P2"
         },
         "status": "incomplete"
@@ -11240,15 +11240,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1075930,
+              "density_micro": 751860,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
             },
             {
-              "density_micro": 2277904,
+              "density_micro": 918793,
               "name": "maintainability",
-              "score": 47,
+              "score": 74,
               "worst_tier": "P3"
             },
             {
@@ -11258,15 +11258,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 5000000,
+              "density_micro": 6667000,
               "name": "dependencies",
-              "score": 19,
+              "score": 33,
               "worst_tier": "P2"
             }
           ],
-          "label": "Needs work",
-          "model": "core-v3",
-          "value": 74,
+          "label": "Great",
+          "model": "core-v4",
+          "value": 80,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -11328,15 +11328,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 1295574,
+              "density_micro": 1191148,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
             },
             {
-              "density_micro": 3349836,
+              "density_micro": 1443407,
               "name": "maintainability",
-              "score": 33,
+              "score": 62,
               "worst_tier": "P3"
             },
             {
@@ -11353,8 +11353,8 @@
             }
           ],
           "label": "Great",
-          "model": "core-v3",
-          "value": 84,
+          "model": "core-v4",
+          "value": 88,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -13055,7 +13055,7 @@
   },
   "lambdas": [
     {
-      "lambda_micro": 1000000,
+      "lambda_micro": 4000000,
       "name": "security"
     },
     {
@@ -13071,7 +13071,7 @@
       "name": "performance"
     },
     {
-      "lambda_micro": 3000000,
+      "lambda_micro": 6000000,
       "name": "dependencies"
     }
   ],
@@ -13293,15 +13293,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 972526,
+            "density_micro": 1076732,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 1945052,
+            "density_micro": 1570605,
             "name": "maintainability",
-            "score": 52,
+            "score": 59,
             "worst_tier": "P3"
           },
           {
@@ -13318,8 +13318,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 87,
+        "model": "core-v4",
+        "value": 88,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -13376,15 +13376,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 500000,
+            "density_micro": 71450,
             "name": "reliability",
-            "score": 95,
+            "score": 99,
             "worst_tier": "P3"
           },
           {
-            "density_micro": 1000000,
+            "density_micro": 516750,
             "name": "maintainability",
-            "score": 72,
+            "score": 84,
             "worst_tier": "P3"
           },
           {
@@ -13401,8 +13401,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 95,
+        "model": "core-v4",
+        "value": 97,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -13484,15 +13484,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 4149378,
+            "density_micro": 315646,
             "name": "reliability",
-            "score": 66,
+            "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 2125291,
+            "density_micro": 1246230,
             "name": "maintainability",
-            "score": 49,
+            "score": 66,
             "worst_tier": "P3"
           },
           {
@@ -13509,8 +13509,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 84,
+        "model": "core-v4",
+        "value": 89,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -13602,15 +13602,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 8912746,
+            "density_micro": 1435137,
             "name": "reliability",
-            "score": 41,
+            "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 1924722,
+            "density_micro": 698139,
             "name": "maintainability",
-            "score": 53,
+            "score": 79,
             "worst_tier": "P3"
           },
           {
@@ -13620,15 +13620,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 1000000,
+            "density_micro": 1333400,
             "name": "dependencies",
-            "score": 72,
+            "score": 75,
             "worst_tier": "P2"
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 75,
+        "model": "core-v4",
+        "value": 87,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -13710,21 +13710,21 @@
             "worst_tier": null
           },
           {
-            "density_micro": 9500000,
+            "density_micro": 1433350,
             "name": "reliability",
-            "score": 39,
+            "score": 87,
             "worst_tier": "P3"
           },
           {
-            "density_micro": 3000000,
+            "density_micro": 723150,
             "name": "maintainability",
-            "score": 37,
+            "score": 79,
             "worst_tier": "P3"
           },
           {
-            "density_micro": 500000,
+            "density_micro": 333350,
             "name": "performance",
-            "score": 88,
+            "score": 92,
             "worst_tier": "P3"
           },
           {
@@ -13734,9 +13734,9 @@
             "worst_tier": null
           }
         ],
-        "label": "Needs work",
-        "model": "core-v3",
-        "value": 74,
+        "label": "Great",
+        "model": "core-v4",
+        "value": 93,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -13808,15 +13808,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 1914708,
+            "density_micro": 265274,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 1044386,
+            "density_micro": 854291,
             "name": "maintainability",
-            "score": 71,
+            "score": 75,
             "worst_tier": "P3"
           },
           {
@@ -13833,7 +13833,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
+        "model": "core-v4",
         "value": 90,
         "worst_tier": "P2"
       },
@@ -13951,21 +13951,21 @@
             "worst_tier": null
           },
           {
-            "density_micro": 8078479,
+            "density_micro": 1459536,
             "name": "reliability",
-            "score": 45,
+            "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 1692680,
+            "density_micro": 789894,
             "name": "maintainability",
-            "score": 57,
+            "score": 77,
             "worst_tier": "P3"
           },
           {
-            "density_micro": 153880,
+            "density_micro": 127705,
             "name": "performance",
-            "score": 96,
+            "score": 97,
             "worst_tier": "P3"
           },
           {
@@ -13976,8 +13976,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 80,
+        "model": "core-v4",
+        "value": 90,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -14069,15 +14069,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 2568166,
+            "density_micro": 718136,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 2404240,
+            "density_micro": 1411868,
             "name": "maintainability",
-            "score": 45,
+            "score": 62,
             "worst_tier": "P3"
           },
           {
@@ -14094,8 +14094,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 86,
+        "model": "core-v4",
+        "value": 88,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -14132,9 +14132,9 @@
             "worst_tier": null
           },
           {
-            "density_micro": 500000,
+            "density_micro": 142850,
             "name": "reliability",
-            "score": 95,
+            "score": 99,
             "worst_tier": "P3"
           },
           {
@@ -14157,8 +14157,8 @@
           }
         ],
         "label": "Great",
-        "model": "core-v3",
-        "value": 99,
+        "model": "core-v4",
+        "value": 100,
         "worst_tier": "P3"
       },
       "status": "complete"
@@ -14245,15 +14245,15 @@
             "worst_tier": null
           },
           {
-            "density_micro": 10335917,
+            "density_micro": 3053230,
             "name": "reliability",
-            "score": 36,
+            "score": 74,
             "worst_tier": "P2"
           },
           {
-            "density_micro": 4844961,
+            "density_micro": 2778101,
             "name": "maintainability",
-            "score": 20,
+            "score": 40,
             "worst_tier": "P3"
           },
           {
@@ -14269,9 +14269,9 @@
             "worst_tier": null
           }
         ],
-        "label": "Needs work",
-        "model": "core-v3",
-        "value": 73,
+        "label": "Great",
+        "model": "core-v4",
+        "value": 85,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -15328,60 +15328,60 @@
       "bands": [
         {
           "label": "Great",
-          "repositories": 5
+          "repositories": 7
         },
         {
           "label": "Needs work",
-          "repositories": 3
+          "repositories": 1
         }
       ],
       "ceilings_applied": 0,
       "collapsed_into_one_band": false,
       "collapsed_into_one_value": false,
-      "maximum": 85,
-      "median_centi": 7650,
-      "minimum": 68,
-      "spread": 17,
+      "maximum": 89,
+      "median_centi": 8300,
+      "minimum": 73,
+      "spread": 16,
       "values": [
         {
           "label": "Great",
           "name": "claudes-c-compiler",
-          "value": 77
+          "value": 82
         },
         {
           "label": "Great",
           "name": "ostendo",
-          "value": 76
+          "value": 84
         },
         {
-          "label": "Needs work",
+          "label": "Great",
           "name": "artifexprocal",
-          "value": 74
+          "value": 79
         },
         {
           "label": "Great",
           "name": "mdr",
-          "value": 83
+          "value": 88
         },
         {
           "label": "Great",
           "name": "ralph-os",
-          "value": 85
+          "value": 89
         },
         {
           "label": "Needs work",
           "name": "vibesql",
-          "value": 68
+          "value": 73
         },
         {
-          "label": "Needs work",
+          "label": "Great",
           "name": "syncvibe",
-          "value": 74
+          "value": 80
         },
         {
           "label": "Great",
           "name": "coda",
-          "value": 84
+          "value": 88
         }
       ]
     },
@@ -15389,45 +15389,41 @@
       "bands": [
         {
           "label": "Great",
-          "repositories": 8
-        },
-        {
-          "label": "Needs work",
-          "repositories": 2
+          "repositories": 10
         }
       ],
       "ceilings_applied": 0,
-      "collapsed_into_one_band": false,
+      "collapsed_into_one_band": true,
       "collapsed_into_one_value": false,
-      "maximum": 99,
-      "median_centi": 8500,
-      "minimum": 73,
-      "spread": 26,
+      "maximum": 100,
+      "median_centi": 8950,
+      "minimum": 85,
+      "spread": 15,
       "values": [
         {
           "label": "Great",
           "name": "anyhow",
-          "value": 87
+          "value": 88
         },
         {
           "label": "Great",
           "name": "async-channel",
-          "value": 95
+          "value": 97
         },
         {
           "label": "Great",
           "name": "bytes",
-          "value": 84
+          "value": 89
         },
         {
           "label": "Great",
           "name": "fd",
-          "value": 75
+          "value": 87
         },
         {
-          "label": "Needs work",
+          "label": "Great",
           "name": "hexyl",
-          "value": 74
+          "value": 93
         },
         {
           "label": "Great",
@@ -15437,29 +15433,29 @@
         {
           "label": "Great",
           "name": "ripgrep",
-          "value": 80
+          "value": 90
         },
         {
           "label": "Great",
           "name": "serde_json",
-          "value": 86
+          "value": 88
         },
         {
           "label": "Great",
           "name": "smol",
-          "value": 99
+          "value": 100
         },
         {
-          "label": "Needs work",
+          "label": "Great",
           "name": "thiserror",
-          "value": 73
+          "value": 85
         }
       ]
     },
-    "maximum": 99,
-    "minimum": 68,
-    "separation_centi": 850,
-    "spread": 31
+    "maximum": 100,
+    "minimum": 73,
+    "separation_centi": 650,
+    "spread": 27
   },
   "smoothing": {
     "prior_false_positives": 1,

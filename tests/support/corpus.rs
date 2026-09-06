@@ -1067,14 +1067,41 @@ fn dimension_of(category: &str) -> Option<&'static str> {
 }
 
 /// What one distinct site weighs, by the severity the report published. An
-/// unknown severity weighs nothing and costs the scan its authoritative flag,
-/// which the observation records separately.
+/// info site is shown and weighs nothing; an unknown severity weighs nothing
+/// and costs the scan its authoritative flag, which the observation records
+/// separately.
 fn severity_weight(severity: &str) -> Option<u64> {
     match severity {
         "error" => Some(2),
-        "warning" | "info" => Some(1),
+        "warning" => Some(1),
+        "info" => Some(0),
         _ => None,
     }
+}
+
+/// What a site of a rule of this tier weighs against a site of a `P3` rule:
+/// each tier doubles the one below, and a rule outside the catalog weighs one.
+fn tier_weight(tier: Option<RuleTier>) -> u64 {
+    match tier {
+        Some(RuleTier::P0) => 8,
+        Some(RuleTier::P1) => 4,
+        Some(RuleTier::P2) => 2,
+        Some(RuleTier::P3) | None => 1,
+    }
+}
+
+/// The share of a measured rule's sites the score charges, in basis points:
+/// the complement of the smoothed rate the report publishes beside the rule.
+/// An unmeasured rule is charged whole.
+fn kept_basis_points(report: &Value, rule: &str) -> u64 {
+    report["policy"]["rules"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .find(|entry| entry["id"].as_str() == Some(rule))
+        .and_then(|entry| entry["corpus_noise_basis_points"].as_u64())
+        .map_or(10_000, |noise| 10_000u64.saturating_sub(noise))
 }
 
 /// Denominator the producer that raised a rule divides by, read off the rule's
@@ -1103,9 +1130,10 @@ fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f6
 /// printed, so a recomputation that drifts from the model fails the corpus.
 ///
 /// One distinct site per production diagnostic, weighed by severity, summed per
-/// rule in identifier order and divided by the denominator its producer chose:
-/// the same additions in the same sequence as `DimensionState`, so the float is
-/// the same float.
+/// rule, weighed by the rule's tier, discounted by the rate the corpus
+/// adjudicated the rule wrong, and divided by the denominator its producer
+/// chose, in identifier order: the same additions in the same sequence as
+/// `DimensionState`, so the float is the same float.
 fn dimension_observations(report: &Value, production_lines: u64) -> Vec<DimensionObservation> {
     let shipped: BTreeMap<&str, RuleTier> =
         catalog().into_iter().map(|rule| (rule.id, rule.tier)).collect();
@@ -1133,6 +1161,11 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         else {
             continue;
         };
+        // A site weighing nothing enters no rule: an `Info` finding neither charges nor caps,
+        // so its rule holds no tier the dimension could be pinned by.
+        if weight == 0 {
+            continue;
+        }
         let entry = scored
             .entry(rule)
             .or_insert((dimension, 0, shipped.get(rule).copied()));
@@ -1149,7 +1182,9 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
                 if *dimension != name {
                     continue;
                 }
-                density += *numerator as f64 / divisor(rule, &shipped, kilolines);
+                let weighted = numerator.saturating_mul(tier_weight(*tier));
+                let charged = weighted as f64 * kept_basis_points(report, rule) as f64 / 10_000.0;
+                density += charged / divisor(rule, &shipped, kilolines);
                 worst = match (worst, *tier) {
                     (Some(current), Some(candidate)) => Some(current.min(candidate)),
                     (current, candidate) => current.or(candidate),

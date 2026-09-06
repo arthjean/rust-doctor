@@ -14,7 +14,7 @@ use cargo_metadata::semver::VersionReq;
 use serde_json::Value;
 
 use super::*;
-use super::resolution::{duplicate_major_versions, major_of};
+
 use crate::policy::{PolicyInput, RuleLevel};
 
 /// The pack passes the rule it judges a manifest against. It was one file of
@@ -25,6 +25,7 @@ fn the_pack_holds_the_size_bound_it_judges_for() {
     for own in [
         include_str!("../cargo_health.rs"),
         include_str!("resolution.rs"),
+        include_str!("resolution/tests.rs"),
         include_str!("tests.rs"),
     ] {
         let lines = own.lines().count();
@@ -841,7 +842,9 @@ fn duplicate_major_versions_are_named_with_their_versions() {
 
     assert_eq!(
         candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS),
-        ["Crate \"shared\" is resolved with incompatible major versions 1.4.2, 2.0.0."]
+        [
+            "Crate \"shared\" is resolved with incompatible major versions 1.4.2 (through aligned), 2.0.0 (required by duplicate-resolution)."
+        ]
     );
     let candidate = scan
         .candidates
@@ -854,7 +857,7 @@ fn duplicate_major_versions_are_named_with_their_versions() {
 
     // The fixture also carries two minor versions of the same crate: they
     // stay compatible, so they are not reported.
-    assert!(!candidate.message.contains("aligned"));
+    assert!(!candidate.message.starts_with("Crate \"aligned\""));
     assert!(candidates_for(&scan, &CARGO_MISSING_LOCKFILE).is_empty());
 }
 
@@ -918,32 +921,4 @@ fn a_path_dependency_leaving_the_workspace_is_named_without_its_path() {
     assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.toml"));
     assert!(!candidate.message.contains(env!("CARGO_MANIFEST_DIR")));
     assert!(!candidate.message.contains(".."));
-}
-
-/// The ordering of major versions is independent of file order and ignores
-/// pre-releases and build metadata.
-#[test]
-fn major_comparison_is_order_independent_and_ignores_prerelease_metadata() {
-    let packages = |pairs: &[(&str, &str)]| {
-        pairs
-            .iter()
-            .map(|(name, version)| ((*name).to_owned(), (*version).to_owned()))
-            .collect::<Vec<_>>()
-    };
-
-    assert_eq!(
-        duplicate_major_versions(&packages(&[("a", "2.0.0"), ("a", "1.0.0")])),
-        [("a".to_owned(), "1.0.0, 2.0.0".to_owned())]
-    );
-    assert!(
-        duplicate_major_versions(&packages(&[("a", "1.0.0-rc.1"), ("a", "1.0.0+build")]))
-            .is_empty()
-    );
-    assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("b", "2.0.0")])).is_empty());
-    assert!(duplicate_major_versions(&packages(&[("a", "1.0.0"), ("a", "1.0.0")])).is_empty());
-    // An unreadable version cannot be compared, so it cannot ground a
-    // duplication verdict.
-    assert!(duplicate_major_versions(&packages(&[("a", "x.0.0"), ("a", "1.0.0")])).is_empty());
-    assert_eq!(major_of("10.2.3"), Some("10"));
-    assert_eq!(major_of(""), None);
 }

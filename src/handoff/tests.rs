@@ -54,6 +54,7 @@ fn report() -> InspectReport {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 2,
     }];
     let summary = Summary::from_diagnostics(&diagnostics);
@@ -385,4 +386,43 @@ fn missing_agent_is_rejected_before_spawn() {
         launch_agent(&agent, &payload(), Path::new(".")),
         Err(HandoffError::AgentUnavailable(AgentTarget::Codex))
     );
+}
+
+/// The prompt names what the repairs are worth: the projected value the three groups reach, so
+/// the agent has the stopping condition the skill asks it to rescan for.
+#[test]
+fn the_prompt_names_the_projected_value_the_repairs_reach() {
+    let prompt = payload();
+    let projected = report()
+        .audit
+        .score
+        .and_then(|score| score.projected_after_top_three)
+        .expect("one catalogued rule projects a repair");
+    assert!(
+        prompt
+            .as_str()
+            .contains(&format!("Target: repairing the rules below reaches a projected {projected}/100.")),
+        "{}",
+        prompt.as_str()
+    );
+    assert!(!prompt.as_str().contains("Ceiling:"), "a P2 rule holds no overall ceiling");
+}
+
+/// Under a ceiling the prompt says so first, and names the rules holding it from the catalog the
+/// binary shipped with rather than from report text.
+#[test]
+fn the_prompt_names_the_ceiling_and_the_rules_holding_it_first() {
+    let mut report = report();
+    report.diagnostics[0].code = Some("clippy::await_holding_lock".to_owned());
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    let presentation = ReportPresentation::derive(&report);
+    let prompt = build_prompt(&report, &presentation, &rescan_command()).unwrap();
+
+    let ceiling = "Ceiling: the score is held at 65/100 by P1 findings; repair clippy::await_holding_lock before anything else.";
+    let text = prompt.as_str();
+    assert!(text.contains(ceiling), "{text}");
+    let audit_at = text.find("Audit:").expect("the audit line comes first");
+    let ceiling_at = text.find("Ceiling:").expect("the ceiling line is present");
+    let group_at = text.find("1. ").expect("the first group follows");
+    assert!(audit_at < ceiling_at && ceiling_at < group_at, "{text}");
 }

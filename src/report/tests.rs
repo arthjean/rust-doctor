@@ -98,7 +98,10 @@ fn compiler_message(
                 column_start: 2,
                 column_end: 4,
                 is_primary: true,
+                suggested_replacement: None,
+                suggestion_applicability: None,
             }],
+            children: Vec::new(),
         },
     })
 }
@@ -141,8 +144,11 @@ fn clone_compiler_message(message: &CapturedMessage) -> CapturedMessage {
                         column_start: span.column_start,
                         column_end: span.column_end,
                         is_primary: span.is_primary,
+                        suggested_replacement: span.suggested_replacement.clone(),
+                        suggestion_applicability: span.suggestion_applicability.clone(),
                     })
                     .collect(),
+                children: Vec::new(),
             },
         }),
         _ => unreachable!(),

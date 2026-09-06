@@ -5,6 +5,10 @@ version = 4
 [[package]]
 name = "duplicate-resolution"
 version = "0.1.0"
+dependencies = [
+ "aligned 0.3.4",
+ "shared 2.0.0",
+]
 
 [[package]]
 name = "shared"
@@ -21,3 +25,7 @@ version = "0.3.1"
 [[package]]
 name = "aligned"
 version = "0.3.4"
+dependencies = [
+ "aligned 0.3.1",
+ "shared 1.4.2",
+]

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::audit::{AuditCategoryName, aggregate_rules};
 use crate::workspace_path;
-use crate::{Diagnostic, DiagnosticSpan, InspectReport, Severity};
+use crate::{Diagnostic, DiagnosticContext, DiagnosticSpan, InspectReport, Severity, Suggestion};
 
 mod code_frame;
 
@@ -46,8 +46,12 @@ pub struct DiagnosticGroup {
 pub struct GroupDiagnostic {
     pub message: String,
     pub help: Option<String>,
+    /// The toolchain's replacement for the site, when it wrote one.
+    pub suggestion: Option<Suggestion>,
     pub base_severity: Severity,
     pub severity: Severity,
+    /// The non-production target the site sits in, absent for shipped code.
+    pub context: Option<DiagnosticContext>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
     /// Every other site a structural finding spans, in the order the report
@@ -70,6 +74,18 @@ pub struct MigrationAdvisory {
 }
 
 impl DiagnosticGroup {
+    /// Whether every site of the group sits outside production code, so the
+    /// group is shown and costs nothing. The verbose report folds such a group
+    /// onto one line: on this crate's own scan they were a thousand of the
+    /// eleven hundred lines printed, every one of them worth zero points.
+    pub fn is_unscored(&self) -> bool {
+        !self.diagnostics.is_empty()
+            && self
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.context.is_some())
+    }
+
     /// The occurrence a one-line summary should stand on: the first one that
     /// knows where it fired, so a reader is pointed at a site rather than at a
     /// rule. A group whose diagnostics all lack a location still answers with
@@ -157,7 +173,18 @@ impl ReportPresentation {
 }
 
 fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
-    let mut aggregates: BTreeMap<_, _> = aggregate_rules(production_lines, diagnostics.iter().copied())
+    let aggregation = aggregate_rules(production_lines, diagnostics.iter().copied());
+    // The three rules the score names first come first here too, in the order it names them:
+    // the projection climbs the ceilings the published value takes, and a body ordered by the
+    // static relief alone listed a `P3` rule above the `P1` finding holding the score at 65.
+    let projected: BTreeMap<String, usize> = aggregation
+        .projection()
+        .0
+        .into_iter()
+        .enumerate()
+        .map(|(position, rule)| (rule.id.clone(), position))
+        .collect();
+    let mut aggregates: BTreeMap<_, _> = aggregation
         .rules
         .into_iter()
         .map(|aggregate| (aggregate.id.clone(), aggregate))
@@ -187,13 +214,16 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
         let repair_value = aggregate.expected_repair_value();
         let contribution = aggregate.contribution();
         let occurrences = aggregate.occurrences;
+        let projected_position = projected.get(&rule_id).copied().unwrap_or(usize::MAX);
         let diagnostics = diagnostics
             .into_iter()
             .map(|diagnostic| GroupDiagnostic {
                 message: diagnostic.message.clone(),
                 help: diagnostic.help.clone(),
+                suggestion: diagnostic.suggestion.clone(),
                 base_severity: diagnostic.base_severity,
                 severity: diagnostic.severity,
+                context: diagnostic.context,
                 path: diagnostic
                     .path
                     .as_deref()
@@ -217,6 +247,7 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
         ranked.push((
             (
                 severity.rank(),
+                projected_position,
                 std::cmp::Reverse(repair_value),
                 std::cmp::Reverse(contribution),
                 std::cmp::Reverse(occurrences),
@@ -318,6 +349,7 @@ mod tests {
             related: Vec::new(),
             similarity_basis_points: None,
             complexity: None,
+            suggestion: None,
             occurrences,
         }
     }
@@ -402,17 +434,19 @@ mod tests {
             .iter()
             .map(|group| group.rule_id.as_str())
             .collect();
-        // The three errors lead the warning, and among them the order is what repairing each is
-        // expected to be worth. Under core-v3 that is not the same as how loud each one is: the
-        // four security sites hold their dimension near zero, where there is almost nothing left
-        // to recover, while the one maintainability site sits on a dimension still worth fifty
-        // points. So the lone `low_error` leads two rules that fired more often than it did.
+        // The three errors lead the warning, and among them the order is the projection's: what
+        // repairing each is expected to be worth, climbed one rule at a time through the
+        // ceilings. Under core-v4 that is not the same as how loud each one is, and not the
+        // same as the static relief either: security weighs four in the score, so the rule
+        // holding most of its sites is worth the most to repair first, the lone site of
+        // `security_error` is worth more on the dimension the first repair just opened than the
+        // lone maintainability site, and `low_error` comes third.
         assert_eq!(
             ids,
             [
-                "clippy::low_error",
                 "clippy::same_warning",
                 "clippy::security_error",
+                "clippy::low_error",
                 "clippy::many_warnings"
             ]
         );

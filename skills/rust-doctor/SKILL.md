@@ -25,27 +25,32 @@ clean the rest is:
 One P0 finding makes a hundred P3 repairs worth nothing. Read `audit.score.worst_tier`
 and `audit.score.applied_ceiling` first, and repair what sets the ceiling.
 
-Under the ceiling the score is a density, not a tally. The model is `core-v3`,
+Under the ceiling the score is a density, not a tally. The model is `core-v4`,
 published as `audit.score.model`, and each dimension scores
 `round(100 * exp(-D / lambda))`. D counts one distinct site per diagnostic, an
-error weighing two and a warning or an info one, over the size of what was
-scanned: Clippy, the source detectors and the structural pass divide by the
-workspace's production kilolines, floored at two, so the same finding costs a
-small crate more than a large one, while the manifest and repository rules
-divide by nothing, since a workspace has one `Cargo.toml` whatever its size.
-Lambda is the density at which a dimension falls to 37, tightest on security
-and most forgiving on reliability. The five dimensions combine at weights 4 for
-security, 3 for reliability and 2 each for maintainability, performance and
-dependencies, and the result lands in one of three bands: 75 and above reads
+error weighing two, a warning one and an info nothing, each site weighed by the
+tier of its rule, P3 one and every tier above doubling the one below, and each
+rule discounted by the false-positive rate the pinned corpus measured for it,
+over the size of what was scanned: Clippy, the source detectors and the
+structural pass divide by the workspace's production kilolines, floored at
+two, so the same finding costs a small crate more than a large one, while the
+manifest and repository rules divide by nothing, since a workspace has one
+`Cargo.toml` whatever its size. Lambda is the density at which a dimension
+falls to 37, tightest on security and most forgiving on reliability. The five
+dimensions combine at weights 4 for security, 3 for reliability and 2 each for
+maintainability, performance and dependencies, and the result lands in one of
+three bands: 75 and above reads
 `Great`, 50 to 74 `Needs work`, below 50 `Critical`. A clone family is one site
 whatever its `related` array names, and findings outside production code stay
 visible and cost nothing.
 
 The report names the shortlist itself. `audit.score.projected_rule_ids` is the
-three rules worth repairing first, each discounted by the false-positive rate
-the pinned corpus measured for it, and `audit.score.projected_after_top_three`
-is the score they are worth. `audit.score.withheld_rule_ids` is what was too
-noisy to rank. Take that ranking as given rather than rebuilding one from the
+three rules worth repairing first, in the order to repair them: each is the
+rule that gives the most points back on top of the ones before it, through the
+ceilings, discounted by its measured rate, so the rule holding a ceiling comes
+first. `audit.score.projected_after_top_three` is the score they are worth.
+`audit.score.withheld_rule_ids` is what the corpus found wrong more often than
+right. Take that ranking as given rather than rebuilding one from the
 categories.
 
 ## After changing Rust code
@@ -66,8 +71,14 @@ rust-doctor . --json 2>/dev/null
 Record `audit.score.value` as the baseline, then work the shortlist:
 
 1. Read each diagnostic in `diagnostics`. It carries its `code`, `message`,
-   `help`, `path`, `span` and `occurrences`, and `policy.rules` carries the
-   `tier` and `category` of every rule the scan ran.
+   `help`, `path`, `span` and `occurrences`, and, when Clippy wrote one, a
+   `suggestion` with the `replacement` for the span and its `applicability`;
+   only `machine-applicable` is safe to paste unread. Applying it is yours to
+   do: the tool never writes into a workspace it scans, so there is no fix
+   subcommand and none is coming. `policy.rules` carries
+   the `tier` and `category` of every rule the scan ran. A diagnostic at
+   severity `info` is shown and costs nothing, such as a print in a binary
+   target.
 2. Open the flagged file and read around the span. Report no finding you have
    not read the source of.
 3. Read [references/expert-review.md](references/expert-review.md) and apply it

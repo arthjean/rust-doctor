@@ -8,14 +8,15 @@ use serde::{Deserialize, Serialize, Serializer};
 use cargo_metadata::Metadata;
 
 use crate::execution::ScanExecution;
-use crate::policy::{CorpusMeasurement, RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
+use crate::policy::{CorpusMeasurement, RuleTier};
 use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceMeasurement;
 
 mod density;
+mod ranking;
 mod source_inventory;
 
-use density::{DensityScope, Scale, calculate_dimensions, contributions};
+use density::{DensityScope, Scale, calculate_dimensions, contributions, tier_weight};
 
 /// The workspace the score is computed against: how much of it there is, and
 /// whether that is the workspace or a floor on it.
@@ -36,7 +37,7 @@ pub(crate) fn source_file_inventory(
     source_inventory::collect(metadata, scan, measurement)
 }
 
-pub const SCORE_MODEL: &str = "core-v3";
+pub const SCORE_MODEL: &str = "core-v4";
 const SHARE_BASE_URL: &str = "https://rust-doctor.com/share";
 const MAX_SHARED_COUNT: usize = 1_000_000;
 
@@ -242,8 +243,13 @@ pub(crate) struct RuleAggregate {
     numerator: u64,
     /// Smoothed false-positive rate the pinned corpus adjudicated, in basis
     /// points, or `None` for a rule it never adjudicated.
-    /// It ranks what to repair first and enters no penalty: what a rule costs
-    /// the score is what it reported here, whatever it costs elsewhere.
+    ///
+    /// It discounts what the rule charges and ranks what to repair first. Under
+    /// core-v3 it ranked only, so a rule adjudicated wrong on all forty sites
+    /// the corpus showed it still cost a healthy workspace its reliability
+    /// dimension: the score charged sites its own record said were correct
+    /// code. An unmeasured rule is charged whole, since a measurement can only
+    /// ever lower a charge and never invent one.
     noise: Option<u16>,
     /// Millionths of a point of weighted score that removing this rule's sites recovers.
     ///
@@ -666,29 +672,22 @@ impl RuleAggregate {
         self.contribution
     }
 
-    /// What repairing this rule is expected to be worth, which is what it costs
-    /// the score discounted by how often the corpus found it wrong.
+    /// What this rule adds to its dimension's density before the denominator:
+    /// its severity-weighted sites, weighed by its tier and discounted by the
+    /// rate the corpus measured it wrong.
     ///
-    /// A rule the corpus adjudicated wrong on nearly every site it showed is
-    /// expected to be worth little to repair, whatever its volume, and volume
-    /// is exactly what the noisiest rules have the most of. Ranking by
-    /// contribution alone told the user to fix the rule that fires most, which
-    /// is not the same question and, on a rule measured wrong almost
-    /// everywhere, is advice to change correct code.
-    ///
-    /// An unmeasured rule is discounted at `UNMEASURED_NOISE_BASIS_POINTS`, the
-    /// middle of the interval, rather than kept whole. No measurement is not
-    /// evidence of correctness either, and the corpus has adjudicated 24 of the
-    /// 62 catalogued rules: keeping the other 38 undiscounted put every one of
-    /// them ahead of every rule the corpus ever confirmed, so the ranking read
-    /// as a list of what nobody has checked. It is the same smoothing at no
-    /// observations rather than a threshold of its own, so the first site the
-    /// corpus adjudicates moves the rule off the middle in whichever direction
-    /// it was adjudicated.
-    pub(crate) fn expected_repair_value(&self) -> u64 {
-        let noise = self.noise.unwrap_or(UNMEASURED_NOISE_BASIS_POINTS);
-        let kept = BASIS_POINTS.saturating_sub(noise as u64);
-        self.contribution().saturating_mul(kept) / BASIS_POINTS
+    /// Only a measured rule is discounted here. The ranking reads an unmeasured
+    /// rule at the middle because no measurement is not evidence of
+    /// correctness; the score charges it whole because a workspace's value
+    /// must not depend on which rules the corpus happened to adjudicate, and
+    /// a discount that appears with the first adjudicated site can only lower
+    /// a charge, never raise one.
+    pub(super) fn charged(&self) -> f64 {
+        let kept = self
+            .noise
+            .map_or(BASIS_POINTS, |noise| BASIS_POINTS.saturating_sub(u64::from(noise)));
+        let weighted = self.numerator.saturating_mul(tier_weight(self.tier));
+        weighted as f64 * kept as f64 / BASIS_POINTS as f64
     }
 
     /// A non-scorable rule caps nothing: a tier cannot act without a retained
@@ -726,12 +725,8 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
 fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
     let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new(), aggregation.scale);
     let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
-    let (projected, withheld) = rank_repairs(&aggregation.rules);
-    let projected_rule_ids: Vec<String> = projected
-        .iter()
-        .take(3)
-        .map(|rule| rule.id.clone())
-        .collect();
+    let (projected, withheld) = aggregation.projection();
+    let projected_rule_ids: Vec<String> = projected.iter().map(|rule| rule.id.clone()).collect();
 
     // A ranking is only worth as much as the set of diagnostics it ranked, and that set is
     // exactly what a scan that did not complete cannot vouch for. So the projection, the rules
@@ -759,41 +754,6 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
         projected_rule_ids,
         withheld_rule_ids,
     }
-}
-
-/// The rules that cost the score anything, split by whether repairing them is worth something,
-/// each half ordered by what it is worth to the reader.
-///
-/// The two halves are one question asked once. A rule whose expected repair value rounds away is
-/// expected to be worth nothing to repair, whatever its volume, and volume is exactly what the
-/// noisiest rules have the most of: it is withheld rather than ranked last, because naming it
-/// would still be telling the reader to go and change correct code. It is published all the same,
-/// loudest first, so its absence from the projection reads as a measurement and not as a defect.
-///
-/// The threshold is unchanged by the smoothing and the partition it produces is not. No smoothed
-/// rate reaches ten thousand basis points, so a rule adjudicated wrong on every site it showed
-/// keeps a small share of its contribution and rejoins the projection unless that share rounds
-/// away. That is the intended reading: forty sites all adjudicated wrong is strong evidence and
-/// still not proof, and the sample it rests on is printed beside it wherever the report names it.
-fn rank_repairs(rules: &[RuleAggregate]) -> (Vec<&RuleAggregate>, Vec<&RuleAggregate>) {
-    let (mut projected, mut withheld): (Vec<_>, Vec<_>) = rules
-        .iter()
-        .filter(|rule| rule.is_scorable() && rule.contribution() > 0)
-        .partition(|rule| rule.expected_repair_value() > 0);
-    projected.sort_by(|left, right| {
-        right
-            .expected_repair_value()
-            .cmp(&left.expected_repair_value())
-            .then_with(|| right.contribution().cmp(&left.contribution()))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    withheld.sort_by(|left, right| {
-        right
-            .contribution()
-            .cmp(&left.contribution())
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    (projected, withheld)
 }
 
 /// Capped score and its cause, for a given set of rules.

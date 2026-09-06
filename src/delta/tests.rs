@@ -120,6 +120,7 @@ fn diagnostic(id: &str, path: Option<&str>, span: Option<DiagnosticSpan>) -> Dia
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }
 }

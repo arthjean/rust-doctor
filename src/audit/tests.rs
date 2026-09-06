@@ -24,6 +24,7 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
     for own in [
         include_str!("../audit.rs"),
         include_str!("density.rs"),
+        include_str!("ranking.rs"),
         include_str!("source_inventory.rs"),
         include_str!("tests.rs"),
         include_str!("tests/lambda_freeze.rs"),
@@ -139,6 +140,7 @@ fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 1,
     }
 }
@@ -251,7 +253,7 @@ struct ShareCase {
 
 fn oracle() -> Oracle {
     serde_json::from_str(include_str!(
-        "../../tests/fixtures/local-cli-experience/audit-core-v3.json"
+        "../../tests/fixtures/local-cli-experience/audit-core-v4.json"
     ))
     .expect("audit oracle should be valid")
 }
@@ -279,6 +281,7 @@ fn diagnostic(input: &OracleDiagnostic, index: usize) -> Diagnostic {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: input.occurrences,
     }
 }
@@ -296,7 +299,7 @@ fn severity(value: &str) -> Option<Severity> {
 #[test]
 fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
     let oracle = oracle();
-    assert_eq!(oracle.schema_version, 3);
+    assert_eq!(oracle.schema_version, 4);
     assert_eq!(oracle.model, SCORE_MODEL);
     for (category, expected) in oracle.category_mappings {
         let (display, dimension) = category_mapping(&category).expect("mapped category");
@@ -505,7 +508,7 @@ fn the_share_url_carries_the_production_line_count() {
 
     assert_eq!(
         audit.share_url(),
-        Ok("https://rust-doctor.com/share?s=100&m=core-v3&f=3&l=420".to_owned())
+        Ok("https://rust-doctor.com/share?s=100&m=core-v4&f=3&l=420".to_owned())
     );
 }
 
@@ -530,6 +533,7 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
             related: Vec::new(),
             similarity_basis_points: None,
             complexity: None,
+            suggestion: None,
             occurrences,
         })
         .collect()
@@ -550,25 +554,26 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-
-    assert_eq!(score.value, 26);
+    assert_eq!(score.value, 24);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
     assert!(score.authoritative);
 
     // Two of the five are the density and three are not, which is the whole model in one score.
-    // `security` and `dependencies` fall on their own: security reads a lambda of one, and the
-    // eleven manifest rules are charged per workspace, so neither is diluted by fifty kilolines.
-    // `performance` is its `P2` ceiling and `security` would be capped at twenty if the curve had
-    // not already taken it below.
+    // `security` and `dependencies` fall on their own: two `P0` sites weigh sixteen against a
+    // lambda of four, and the eleven manifest rules are charged per workspace, so neither is
+    // diluted by fifty kilolines. `performance` is its `P2` ceiling and `security` would be capped
+    // at twenty if the curve had not already taken it below. Reliability sits under the 34 it sat
+    // at when every site weighed one, because its `P1` and `P2` rules now weigh four and two and
+    // only five of its twenty-one rules are discounted by a measured rate.
     assert_eq!(score.dimensions.security, 0);
-    assert_eq!(score.dimensions.reliability, 34);
-    assert_eq!(score.dimensions.maintainability, 42);
+    assert_eq!(score.dimensions.reliability, 23);
+    assert_eq!(score.dimensions.maintainability, 45);
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.
     assert_eq!(score.dimensions.performance, 75);
-    assert_eq!(score.dimensions.dependencies, 4);
+    assert_eq!(score.dimensions.dependencies, 2);
     assert!(
         score
             .dimensions
@@ -607,6 +612,7 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
                 related: Vec::new(),
                 similarity_basis_points: None,
                 complexity: None,
+                suggestion: None,
                 occurrences: 1,
             });
         }
@@ -797,6 +803,7 @@ fn every_diagnostic_lands_in_exactly_one_bucket() {
         related: Vec::new(),
         similarity_basis_points: None,
         complexity: None,
+        suggestion: None,
         occurrences: 2,
     });
 
