@@ -25,10 +25,10 @@
     {
       "id": "EP-003",
       "title": "The agent loop",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 7,
-      "stories_done": 0
+      "stories_done": 7
     },
     {
       "id": "EP-004",
@@ -220,86 +220,86 @@
       "id": "US-013",
       "title": "Treat agents, git hooks and CI providers as non-interactive",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-014",
       "title": "Resolve the base branch when --base is omitted",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-015",
       "title": "--scope lines and --include-untracked",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-014"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-016",
       "title": "--staged: scan what the commit will record",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-011",
         "US-015"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-017",
       "title": "Install a git pre-commit hook that respects the repository's hook manager",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-016"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-018",
       "title": "Install and refresh the skill for every confirmed agent",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-019",
       "title": "Install an end-of-turn hook that rescans the agent's changes",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
@@ -307,9 +307,9 @@
         "US-013",
         "US-015"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-020",
