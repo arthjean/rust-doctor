@@ -7,6 +7,7 @@
 |---------|------|--------|---------|
 | 1.0 | 2026-09-25 | Arthur Jean | Initial draft, from the parity audit of 2026-09-25 (98 verified gaps, 799 citations re-read) |
 | 1.1 | 2026-09-25 | Arthur Jean | EP-001 review: US-003's test-target criterion amended to the default-target scope the scan already has |
+| 1.2 | 2026-09-25 | Arthur Jean | EP-002 review: US-007's stage name and Edge Case 3 restated to the error the report already had for a failed Clippy exit |
 
 ## Problem Statement
 
@@ -365,6 +366,8 @@ These commands must pass for every user story:
 - [ ] Given a `Cargo.lock` that fails to parse (fixture), when scanned, then the error message contains Cargo's own sentence about the lockfile
 - [ ] Given a successful run, when the report is assembled, then nothing from stderr is published
 - [ ] `cargo metadata` runs through the same bounded, scrubbed path: its output is read through `collect_bounded` and parsed with `MetadataCommand::parse`, and its failure publishes Cargo's cause instead of "cargo metadata exited with an error" (`src/scan_target.rs:166`)
+
+**Amendment, 2026-09-25 (EP-002 review).** The second criterion names "the `clippy` stage error". A failed Clippy exit was already published as stage `execution` code `clippy-exit`, and the cause is appended to that error rather than to a new one, so a reader keyed on `clippy-exit` keeps working. Only the two errors this epic introduces, `deadline-exceeded` and `packages-unlinted`, sit at stage `clippy`. Edge Case 3 is restated the same way, and its exit code with it: an unparsable lockfile leaves the native passes running, so the report is `incomplete` and exits 1 under the existing exit-code rules, not 2. Proven by `a_lockfile_cargo_cannot_parse_publishes_cargos_own_sentence`.
 
 #### US-008: Bound the run with `--max-duration`
 **Description:** As a CI owner or an agent hook, I want a wall-clock bound on the whole scan that kills Cargo cleanly, so that a hung build script degrades into a report instead of a hung job.
@@ -897,7 +900,7 @@ These commands must pass for every user story:
 |---|----------|---------|-------------------|--------------|
 | 1 | Empty staged set | `--staged` with nothing staged | Report with zero in-scope findings, exit 0 | "No staged Rust change to judge." |
 | 2 | Long cold build | First scan of a large workspace | Progress line on a terminal, one line per phase elsewhere | "Linting <package> (k/N)" |
-| 3 | Cargo failure | Unparsable `Cargo.lock` | Stage `clippy` error with Cargo's scrubbed stderr, exit 2 | Cargo's own sentence, prefixed "Cargo reported:" |
+| 3 | Cargo failure | Unparsable `Cargo.lock` | Stage `execution` error `clippy-exit` ending with Cargo's scrubbed stderr, report `incomplete`, exit 1 (amended in 1.2) | Cargo's own sentence, prefixed "Cargo reported:" |
 | 4 | Hung build script | `build.rs` sleeps past `--max-duration` | Process group killed, partial report, `deadline-exceeded`, exit 2 | "The scan stopped at the 5 s limit set by --max-duration." |
 | 5 | Shallow clone | CI checkout at depth 1 with `--scope baseline` | Error `shallow-clone`, exit 2 | "This clone is shallow: fetch with fetch-depth: 0, or pass --base to a fetched ref." |
 | 6 | No resolvable base | Detached HEAD, no remote, no `--base` | Error `base-undetected`, exit 2 | "No base branch found: pass --base <REF>." |

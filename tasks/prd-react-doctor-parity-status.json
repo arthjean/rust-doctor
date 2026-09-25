@@ -17,10 +17,10 @@
     {
       "id": "EP-002",
       "title": "A scan that fails loudly and finishes on time",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 6,
-      "stories_done": 0
+      "stories_done": 6
     },
     {
       "id": "EP-003",
@@ -142,79 +142,79 @@
       "id": "US-007",
       "title": "Surface Cargo's stderr in the stage error, bounded and scrubbed",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-008",
       "title": "Bound the run with --max-duration",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-005"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-009",
       "title": "Keep going past a broken member and name what went unlinted",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-005"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-010",
       "title": "Tolerate the caller's lint flags and the installed Clippy's lint set",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-005"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-011",
       "title": "Keep the baseline side's dependency build between runs",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-012",
       "title": "Show progress on stderr while Clippy runs",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-013",
