@@ -15,44 +15,108 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 62] = [
+const RULES: [&str; 126] = [
+    "clippy::absurd_extreme_comparisons",
+    "clippy::almost_swapped",
+    "clippy::approx_constant",
     "clippy::arc_with_non_send_sync",
+    "clippy::async_yields_async",
     "clippy::await_holding_lock",
     "clippy::await_holding_refcell_ref",
+    "clippy::bad_bit_mask",
+    "clippy::cast_slice_different_sizes",
+    "clippy::char_indices_as_byte_indices",
     "clippy::dbg_macro",
+    "clippy::deprecated_semver",
+    "clippy::derive_ord_xor_partial_ord",
+    "clippy::derived_hash_with_manual_eq",
+    "clippy::eager_transmute",
+    "clippy::enum_clike_unportable_variant",
+    "clippy::eq_op",
+    "clippy::erasing_op",
     "clippy::exit",
     "clippy::expect_used",
     "clippy::format_collect",
+    "clippy::if_let_mutex",
+    "clippy::ifs_same_cond",
+    "clippy::impl_hash_borrow_with_str_and_bytes",
+    "clippy::impossible_comparisons",
     "clippy::indexing_slicing",
+    "clippy::ineffective_bit_mask",
+    "clippy::infinite_iter",
+    "clippy::inherent_to_string_shadow_display",
+    "clippy::inline_fn_without_body",
+    "clippy::inverted_saturating_sub",
+    "clippy::invisible_characters",
+    "clippy::iter_next_loop",
+    "clippy::iter_skip_zero",
+    "clippy::iterator_step_by_zero",
     "clippy::large_types_passed_by_value",
+    "clippy::lint_groups_priority",
     "clippy::manual_memcpy",
+    "clippy::match_str_case_mismatch",
     "clippy::mem_forget",
+    "clippy::mem_replace_with_uninit",
+    "clippy::min_max",
     "clippy::missing_safety_doc",
+    "clippy::mistyped_literal_suffixes",
+    "clippy::modulo_one",
+    "clippy::mut_from_ref",
     "clippy::mut_mutex_lock",
+    "clippy::never_loop",
+    "clippy::non_octal_unix_permissions",
     "clippy::non_send_fields_in_send_ty",
+    "clippy::nonsensical_open_options",
+    "clippy::not_unsafe_ptr_arg_deref",
+    "clippy::option_env_unwrap",
+    "clippy::out_of_bounds_indexing",
     "clippy::panic",
     "clippy::panic_in_result_fn",
+    "clippy::panicking_overflow_checks",
+    "clippy::panicking_unwrap",
     "clippy::permissions_set_readonly_false",
+    "clippy::possible_missing_comma",
     "clippy::print_stderr",
     "clippy::print_stdout",
     "clippy::ptr_arg",
     "clippy::rc_buffer",
     "clippy::rc_mutex",
+    "clippy::read_line_without_trim",
+    "clippy::recursive_format_impl",
     "clippy::redundant_allocation",
+    "clippy::redundant_comparisons",
+    "clippy::reversed_empty_ranges",
+    "clippy::self_assignment",
+    "clippy::size_of_in_element_count",
     "clippy::stable_sort_primitive",
     "clippy::string_slice",
     "clippy::suspicious_command_arg_space",
+    "clippy::suspicious_splitn",
     "clippy::todo",
     "clippy::too_many_arguments",
+    "clippy::transmute_null_to_fn",
+    "clippy::transmuting_null",
     "clippy::type_complexity",
     "clippy::unimplemented",
+    "clippy::uninit_assumed_init",
+    "clippy::uninit_vec",
+    "clippy::unit_cmp",
+    "clippy::unit_hash",
+    "clippy::unit_return_expecting_ord",
     "clippy::unnecessary_to_owned",
     "clippy::unreachable",
+    "clippy::unsound_collection_transmute",
     "clippy::unused_async",
+    "clippy::unused_io_amount",
     "clippy::unwrap_used",
+    "clippy::useless_attribute",
     "clippy::useless_vec",
     "clippy::vec_init_then_push",
+    "clippy::vec_resize_to_zero",
+    "clippy::while_immutable_condition",
+    "clippy::wrong_transmute",
     "clippy::zombie_processes",
+    "clippy::zst_offset",
     "rust_doctor::cargo::duplicate_major_versions",
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
@@ -427,9 +491,9 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 17);
+            assert_eq!(report["schema_version"], 18);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 62);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 126);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -621,7 +685,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 17);
+        assert_eq!(report["schema_version"], 18);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

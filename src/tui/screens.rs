@@ -12,7 +12,7 @@ use rust_doctor::AuditScore;
 use rust_doctor::score_block;
 
 use super::model::{HORIZONTAL_PADDING_COLUMNS, pluralize, score_color};
-use super::text::{Line, Span, Style};
+use super::text::{Color, Line, Span, Style};
 
 mod menu;
 mod viewer;
@@ -131,6 +131,13 @@ pub fn score_header(
                 .truncate_end(box_width),
         );
     }
+    // The landing screen says why a score is partial, in the lines the linear report prints.
+    if variant == ScoreVariant::Landing {
+        lines.extend(score.reasons.iter().map(|reason| {
+            Line::text(format!("  {}", reason.explanation()), Style::color(Color::Yellow))
+                .truncate_end(box_width)
+        }));
+    }
     lines
 }
 
@@ -160,6 +167,7 @@ mod tests {
             value,
             label,
             authoritative: true,
+            reasons: Vec::new(),
             dimensions: ScoreDimensions {
                 security: 100,
                 reliability: 100,
@@ -177,6 +185,29 @@ mod tests {
 
     fn visible(lines: &[Line]) -> Vec<String> {
         lines.iter().map(|line| line.render(false, false)).collect()
+    }
+
+    /// US-005 AC-5: the landing screen prints one line per reason, the same
+    /// line the linear report prints.
+    #[test]
+    fn the_landing_screen_says_why_a_score_is_partial() {
+        let mut partial = score(70, ScoreLabel::NeedsWork);
+        partial.authoritative = false;
+        partial.reasons = vec![rust_doctor::ScoreReason::StageFailed];
+        let rendered = visible(&score_header(
+            ScoreVariant::Landing,
+            Some(&partial),
+            "workspace",
+            2,
+            200,
+            70,
+            None,
+        ))
+        .join("\n");
+        assert!(
+            rendered.contains(rust_doctor::ScoreReason::StageFailed.explanation()),
+            "{rendered}"
+        );
     }
 
     #[test]

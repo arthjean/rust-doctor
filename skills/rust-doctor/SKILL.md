@@ -5,7 +5,7 @@ description: Use when Rust code just changed and must not regress, when the user
 
 # rust-doctor
 
-`rust-doctor` scans a Cargo workspace with 62 curated rules and scores it out of
+`rust-doctor` scans a Cargo workspace with 126 curated rules and scores it out of
 100. It runs locally, reaches no network and uploads nothing. The scan runs
 `cargo clippy` inside the workspace, which executes its build scripts and
 procedural macros, so scan trusted local paths only.

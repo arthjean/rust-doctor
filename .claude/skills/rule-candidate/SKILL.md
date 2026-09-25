@@ -21,9 +21,11 @@ cargo test --lib policy::coverage -- --nocapture
 
 The run prints `universe N, decided N, queue N` and then the queue itself, one
 lint per line as `level`, `id`, `groups`. Take the batch off the top unless the
-user named a theme. The head is the warned lints, and that order is deliberate:
-they already reach the user's report uncatalogued, with no category, no tier and
-no help, and they cost the score its authoritative flag.
+user named a theme. The head is the lints the toolchain denies by default, then
+the warned ones, and that order is deliberate: they are what plain `cargo clippy`
+shows a user, and the scan's `-A clippy::all` silences every one it does not
+catalog. A denied lint is carried as a warning like any other once admitted,
+as `docs/correctness-group-2026-09.md` measured.
 
 Default batch size is 20. Announce the batch before working it.
 
@@ -52,8 +54,6 @@ Three outcomes, and only two of them are edits.
 workspace is scanned. Append to `src/policy/rejected.json`, sorted by id, with a
 closed class and one written sentence ending in a period:
 
-- `deny-by-default`: the toolchain denies it, so a scan cannot carry it. Valid
-  only when the toolchain confirms it, and a test enforces that.
 - `covered`: an admitted rule already reports the same defect.
 - `style-only`: a matter of taste, not a defect the score should move for.
 - `out-of-scope`: outside what a workspace scan claims to inspect.
@@ -117,13 +117,6 @@ Cause: the `-W help` table changed shape and the parser silently matched
 nothing.
 Solution: `the_toolchain_publishes_a_finite_lint_universe_with_its_groups` fails
 first in that case. Fix the parser in `src/policy/coverage.rs`, never the floor.
-
-### A rejection fails the deny-by-default test
-
-Cause: the lint was classified `deny-by-default` while the toolchain warns or
-allows it, or the reverse after a toolchain upgrade.
-Solution: reclassify with the class that actually applies. A lint that stopped
-being denied upstream is a candidate again.
 
 ### Two rules would report the same defect
 

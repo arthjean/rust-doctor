@@ -34,6 +34,7 @@ mod workspace_path;
 
 pub use audit::{
     Audit, AuditCategory, AuditCategoryName, AuditScore, SCORE_MODEL, ScoreDimensions, ScoreLabel,
+    ScoreReason,
     SeverityCounts, ShareError,
 };
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
@@ -54,7 +55,7 @@ pub use report::{
     GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
     ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
-    Suggestion, Summary, ToolchainReport,
+    Suggestion, Summary, ToolchainReport, UnscoredReason,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {

@@ -17,7 +17,7 @@ use serde_json::Value;
 use super::sanitize::{HomePaths, normalize_text, sanitize_text};
 use super::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan,
-    RelatedLocation, Severity, Suggestion,
+    RelatedLocation, Severity, Suggestion, UnscoredReason,
 };
 use crate::cargo_health;
 use crate::execution::{CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData};
@@ -31,7 +31,8 @@ use crate::workspace_path;
 /// A catalogued rule the plan switched off is dropped here rather than by the
 /// producer: Clippy is asked for every catalogued lint under `-W`, and only
 /// the plan knows the reader turned one back off afterwards. An uncatalogued
-/// warning is kept, and costs the score its authoritative flag downstream.
+/// warning is kept and marked unscored, so it is shown and weighs nothing; an
+/// uncatalogued error is not, since it is the compilation failing.
 pub(super) fn merge_compiler_messages(
     merged: &mut BTreeMap<String, Diagnostic>,
     messages: &[CapturedMessage],
@@ -135,6 +136,7 @@ pub(super) fn normalize_cargo_health_candidate(
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 1,
@@ -184,6 +186,7 @@ pub(super) fn normalize_source_candidate(
         span,
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 1,
@@ -227,6 +230,7 @@ pub(super) fn normalize_structure_finding(
         id,
         source,
         context: finding.context,
+        unscored: None,
         code,
         base_severity: canonical_severity(definition.default_level),
         severity: canonical_severity(definition.default_level),
@@ -305,6 +309,7 @@ pub(super) fn normalize_repo_finding(
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 1,
@@ -362,6 +367,8 @@ fn normalize_diagnostic(
     });
     let target = Some(normalize_text(&captured.target.name));
     let context = DiagnosticContext::from_target_kinds(&captured.target.kind);
+    let unscored = (rule.is_none() && severity != Severity::Error)
+        .then_some(UnscoredReason::Uncatalogued);
     let id = fingerprint(
         source,
         code.as_deref(),
@@ -378,6 +385,7 @@ fn normalize_diagnostic(
         base_severity: severity,
         severity,
         context,
+        unscored,
         category: rule.map(|rule| rule.category.to_owned()),
         message,
         help: rule.map(|rule| rule.help.to_owned()),
@@ -470,11 +478,15 @@ fn merge_optional_context<T: PartialEq>(existing: &mut Option<T>, incoming: Opti
     }
 }
 
+/// A `failure-note` is rustc's closing pointer, "For more information about
+/// this error, try `rustc --explain E0602`", and it follows a warning as well as
+/// an error: an older Clippy that does not know a catalogued lint warns E0602
+/// and appends one. Read as an error, it failed the gate of a scan that built.
 fn severity(level: &str) -> Severity {
     match level {
-        "error" | "failure-note" | "error: internal compiler error" => Severity::Error,
+        "error" | "error: internal compiler error" => Severity::Error,
         "warning" => Severity::Warning,
-        "note" | "help" => Severity::Info,
+        "note" | "help" | "failure-note" => Severity::Info,
         _ => Severity::Unknown,
     }
 }

@@ -35,7 +35,9 @@ to the forties. λ_security and λ_dependencies moved to four and six with the
 weights, so a lone `P1` security site and a lone duplicate major score what
 they scored before. An `Info` site weighs zero and stays authoritative: it is
 the level a producer publishes a fact the workspace cannot act on at, a
-`println!` in a binary target.
+`println!` in a binary target. An uncatalogued note weighs nothing and voids
+nothing. What still drops `authoritative` is published as `score.reasons`, a
+closed `ScoreReason` set, and the flag is true exactly when it is empty.
 
 One climb for what to repair first. `RuleAggregation::projection` fills its
 three places one at a time with the rule whose repair, on top of the ones

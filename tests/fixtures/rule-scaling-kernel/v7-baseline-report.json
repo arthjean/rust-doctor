@@ -10,7 +10,31 @@
     },
     "rules": [
       {
+        "id": "clippy::absurd_extreme_comparisons",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::almost_swapped",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::approx_constant",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::arc_with_non_send_sync",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::async_yields_async",
         "category": "correctness",
         "level": "warn",
         "source": "default"
@@ -28,8 +52,68 @@
         "source": "default"
       },
       {
+        "id": "clippy::bad_bit_mask",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::cast_slice_different_sizes",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::char_indices_as_byte_indices",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::dbg_macro",
         "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::deprecated_semver",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::derive_ord_xor_partial_ord",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::derived_hash_with_manual_eq",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::eager_transmute",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::enum_clike_unportable_variant",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::eq_op",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::erasing_op",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -52,8 +136,86 @@
         "source": "default"
       },
       {
+        "id": "clippy::if_let_mutex",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::ifs_same_cond",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::impl_hash_borrow_with_str_and_bytes",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::impossible_comparisons",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::indexing_slicing",
         "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::ineffective_bit_mask",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::infinite_iter",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::inherent_to_string_shadow_display",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::inline_fn_without_body",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::inverted_saturating_sub",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::invisible_characters",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::iter_next_loop",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::iter_skip_zero",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::iterator_step_by_zero",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -64,8 +226,20 @@
         "source": "default"
       },
       {
+        "id": "clippy::lint_groups_priority",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::manual_memcpy",
         "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::match_str_case_mismatch",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -76,8 +250,38 @@
         "source": "default"
       },
       {
+        "id": "clippy::mem_replace_with_uninit",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::min_max",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::missing_safety_doc",
         "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::mistyped_literal_suffixes",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::modulo_one",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::mut_from_ref",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -88,7 +292,43 @@
         "source": "default"
       },
       {
+        "id": "clippy::never_loop",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::non_octal_unix_permissions",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::non_send_fields_in_send_ty",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::nonsensical_open_options",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::not_unsafe_ptr_arg_deref",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::option_env_unwrap",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::out_of_bounds_indexing",
         "category": "correctness",
         "level": "warn",
         "source": "default"
@@ -106,8 +346,26 @@
         "source": "default"
       },
       {
+        "id": "clippy::panicking_overflow_checks",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::panicking_unwrap",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::permissions_set_readonly_false",
         "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::possible_missing_comma",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -142,8 +400,44 @@
         "source": "default"
       },
       {
+        "id": "clippy::read_line_without_trim",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::recursive_format_impl",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::redundant_allocation",
         "category": "performance",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::redundant_comparisons",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::reversed_empty_ranges",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::self_assignment",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::size_of_in_element_count",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -166,6 +460,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::suspicious_splitn",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::todo",
         "category": "correctness",
         "level": "warn",
@@ -178,6 +478,18 @@
         "source": "default"
       },
       {
+        "id": "clippy::transmute_null_to_fn",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::transmuting_null",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::type_complexity",
         "category": "maintainability",
         "level": "warn",
@@ -185,6 +497,36 @@
       },
       {
         "id": "clippy::unimplemented",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::uninit_assumed_init",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::uninit_vec",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unit_cmp",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unit_hash",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::unit_return_expecting_ord",
         "category": "correctness",
         "level": "warn",
         "source": "default"
@@ -202,14 +544,32 @@
         "source": "default"
       },
       {
+        "id": "clippy::unsound_collection_transmute",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::unused_async",
         "category": "maintainability",
         "level": "warn",
         "source": "default"
       },
       {
+        "id": "clippy::unused_io_amount",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::unwrap_used",
         "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::useless_attribute",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -226,8 +586,32 @@
         "source": "default"
       },
       {
+        "id": "clippy::vec_resize_to_zero",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::while_immutable_condition",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::wrong_transmute",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::zombie_processes",
         "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::zst_offset",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },

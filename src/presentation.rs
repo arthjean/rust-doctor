@@ -5,7 +5,10 @@ use serde::Serialize;
 
 use crate::audit::{AuditCategoryName, aggregate_rules};
 use crate::workspace_path;
-use crate::{Diagnostic, DiagnosticContext, DiagnosticSpan, InspectReport, Severity, Suggestion};
+use crate::{
+    Diagnostic, DiagnosticContext, DiagnosticSpan, InspectReport, Severity, Suggestion,
+    UnscoredReason,
+};
 
 mod code_frame;
 
@@ -19,6 +22,9 @@ pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
 }
 
 const RULE_BASE_URL: &str = "https://rust-doctor.com/rules/";
+
+/// The label both reports put over compiler notes, after every scored finding.
+pub const COMPILER_NOTES_HEADING: &str = "Compiler notes (not scored)";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -29,6 +35,9 @@ pub struct ReportPresentation {
     pub issue_count: usize,
     /// Distinct diagnostic count, the quantity published by `summary.total`.
     pub finding_count: usize,
+    /// How many of those distinct diagnostics are compiler notes: published,
+    /// and weighing nothing because the catalog does not describe them.
+    pub note_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -52,6 +61,8 @@ pub struct GroupDiagnostic {
     pub severity: Severity,
     /// The non-production target the site sits in, absent for shipped code.
     pub context: Option<DiagnosticContext>,
+    /// Why the site weighs nothing although it is shipped code.
+    pub unscored: Option<UnscoredReason>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
     /// Every other site a structural finding spans, in the order the report
@@ -84,6 +95,15 @@ impl DiagnosticGroup {
                 .diagnostics
                 .iter()
                 .all(|diagnostic| diagnostic.context.is_some())
+    }
+
+    /// Whether the group is a compiler note: a code the catalog does not
+    /// describe, published so it never vanishes and weighing nothing. Every
+    /// site of such a code is one, so the first answers for the group.
+    pub fn is_compiler_note(&self) -> bool {
+        self.diagnostics
+            .first()
+            .is_some_and(|diagnostic| diagnostic.unscored.is_some())
     }
 
     /// The occurrence a one-line summary should stand on: the first one that
@@ -161,6 +181,10 @@ impl ReportPresentation {
             total.saturating_add(diagnostic.occurrences)
         });
         let finding_count = diagnostics.len();
+        let note_count = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.unscored.is_some())
+            .count();
         let groups = diagnostic_groups(production_lines, &diagnostics);
         let migration_advisories = migration_advisories(&groups);
         Self {
@@ -168,6 +192,7 @@ impl ReportPresentation {
             migration_advisories,
             issue_count,
             finding_count,
+            note_count,
         }
     }
 }
@@ -215,6 +240,11 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
         let contribution = aggregate.contribution();
         let occurrences = aggregate.occurrences;
         let projected_position = projected.get(&rule_id).copied().unwrap_or(usize::MAX);
+        // A compiler note weighs nothing, so every scored finding outranks it whatever its
+        // severity: the notes close the list rather than interleave with what costs points.
+        let is_note = diagnostics
+            .first()
+            .is_some_and(|diagnostic| diagnostic.unscored.is_some());
         let diagnostics = diagnostics
             .into_iter()
             .map(|diagnostic| GroupDiagnostic {
@@ -224,6 +254,7 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
                 base_severity: diagnostic.base_severity,
                 severity: diagnostic.severity,
                 context: diagnostic.context,
+                unscored: diagnostic.unscored,
                 path: diagnostic
                     .path
                     .as_deref()
@@ -246,6 +277,7 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
             .collect();
         ranked.push((
             (
+                is_note,
                 severity.rank(),
                 projected_position,
                 std::cmp::Reverse(repair_value),
@@ -348,6 +380,7 @@ mod tests {
             }),
             related: Vec::new(),
             similarity_basis_points: None,
+            unscored: None,
             complexity: None,
             suggestion: None,
             occurrences,
@@ -368,6 +401,7 @@ mod tests {
             scope: None,
             project: None,
             toolchain: ToolchainReport {
+                rust_doctor: env!("CARGO_PKG_VERSION"),
                 rustc: None,
                 cargo: None,
                 clippy: None,

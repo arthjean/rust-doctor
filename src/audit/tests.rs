@@ -114,12 +114,73 @@ fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
         .expect("the rule is aggregated like any other");
     assert_eq!(rule.occurrences, 40, "it stays counted");
     assert_eq!(rule.contribution(), 0, "and costs the score nothing");
-    assert!(aggregation.diagnostics_are_authoritative);
+    assert!(aggregation.voided.is_empty());
 
     let audit = Audit::build(1, 100, Status::Complete, &[in_tests]);
     let score = audit.score.as_ref().expect("a scored workspace");
     assert_eq!(score.value, 100);
     assert!(score.projected_rule_ids.is_empty());
+}
+
+/// US-005 AC-4: one rule reaching two dimensions is published as its reason,
+/// and the scan status adds none of its own.
+#[test]
+fn a_category_mapping_conflict_is_the_reason_published() {
+    let mut security = diagnostic_with_category(Some("security"));
+    security.code = Some("clippy::todo".to_owned());
+    let mut performance = diagnostic_with_category(Some("performance"));
+    performance.code = Some("clippy::todo".to_owned());
+    performance.id = "finding-other-site".to_owned();
+
+    let audit = Audit::build(1, 100, Status::Complete, &[security, performance]);
+    let score = audit.score.expect("a scored workspace");
+    assert!(!score.authoritative);
+    assert_eq!(score.reasons, [ScoreReason::CategoryMappingConflict]);
+
+    let clean = Audit::build(1, 100, Status::Complete, &[]);
+    let clean = clean.score.expect("a scored workspace");
+    assert!(clean.authoritative);
+    assert!(clean.reasons.is_empty());
+}
+
+/// US-005 AC-1: the closed vocabulary, spelled as the report publishes it.
+#[test]
+fn every_score_reason_serializes_kebab_case() {
+    let reasons = [
+        ScoreReason::ScanIncomplete,
+        ScoreReason::StageFailed,
+        ScoreReason::CategoryMappingConflict,
+        ScoreReason::DeadlineExceeded,
+        ScoreReason::PackagesUnlinted,
+        ScoreReason::RulesNotEvaluated,
+    ];
+    assert_eq!(
+        serde_json::to_value(reasons).expect("reasons serialize"),
+        serde_json::json!([
+            "scan-incomplete",
+            "stage-failed",
+            "category-mapping-conflict",
+            "deadline-exceeded",
+            "packages-unlinted",
+            "rules-not-evaluated"
+        ])
+    );
+}
+
+/// FR-04: a flag that disagrees with its reasons is refused before sharing.
+#[test]
+fn a_flag_that_disagrees_with_its_reasons_is_invalid() {
+    let mut audit = Audit::build(1, 100, Status::Complete, &[]);
+    assert!(audit.is_valid());
+    if let Some(score) = audit.score.as_mut() {
+        score.authoritative = false;
+    }
+    assert!(!audit.is_valid(), "a partial score gave no reason");
+    if let Some(score) = audit.score.as_mut() {
+        score.authoritative = true;
+        score.reasons = vec![ScoreReason::ScanIncomplete];
+    }
+    assert!(!audit.is_valid(), "an authoritative score carried a reason");
 }
 
 fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
@@ -139,6 +200,7 @@ fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 1,
@@ -280,6 +342,7 @@ fn diagnostic(input: &OracleDiagnostic, index: usize) -> Diagnostic {
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: input.occurrences,
@@ -467,11 +530,13 @@ fn invalid_score_state_is_rejected_before_sharing() {
         production_lines: 100,
         categories: Vec::new(),
         inventory_is_complete: true,
+        stage_failed: false,
         score: Some(AuditScore {
             model: SCORE_MODEL.to_owned(),
             value: 101,
             label: ScoreLabel::Great,
             authoritative: true,
+            reasons: Vec::new(),
             dimensions: ScoreDimensions {
                 security: 100,
                 reliability: 100,
@@ -532,6 +597,7 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
             span: None,
             related: Vec::new(),
             similarity_basis_points: None,
+            unscored: None,
             complexity: None,
             suggestion: None,
             occurrences,
@@ -546,7 +612,7 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
 /// label `Great`: the additive scale was structurally unable to go down.
 /// Under `core-v2` the worst observed tier caps the score, so the same
 /// catalog reaches the `Critical` band. Under `core-v3` the workspace has to be named for the
-/// question to mean anything: sixty-two rules firing once is a catastrophe in a hundred lines
+/// question to mean anything: every catalogued rule firing once is a catastrophe in a hundred lines
 /// and an ordinary Tuesday in a hundred thousand, so this fires them across fifty kilolines,
 /// which is a workspace the corpus would recognize.
 #[test]
@@ -554,7 +620,7 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-    assert_eq!(score.value, 24);
+    assert_eq!(score.value, 21);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
@@ -566,9 +632,10 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     // diluted by fifty kilolines. `performance` is its `P2` ceiling and `security` would be capped
     // at twenty if the curve had not already taken it below. Reliability sits under the 34 it sat
     // at when every site weighed one, because its `P1` and `P2` rules now weigh four and two and
-    // only five of its twenty-one rules are discounted by a measured rate.
+    // only five of its twenty-one rules are discounted by a measured rate. The sixty-four members
+    // of Clippy's `correctness` group, all `P1` and unmeasured, then took it down to 8.
     assert_eq!(score.dimensions.security, 0);
-    assert_eq!(score.dimensions.reliability, 23);
+    assert_eq!(score.dimensions.reliability, 8);
     assert_eq!(score.dimensions.maintainability, 45);
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.
@@ -611,6 +678,7 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
                 span: None,
                 related: Vec::new(),
                 similarity_basis_points: None,
+                unscored: None,
                 complexity: None,
                 suggestion: None,
                 occurrences: 1,
@@ -802,6 +870,7 @@ fn every_diagnostic_lands_in_exactly_one_bucket() {
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 2,
@@ -838,6 +907,7 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
             complete: false,
         },
         Status::Complete,
+        false,
         &[],
     );
 

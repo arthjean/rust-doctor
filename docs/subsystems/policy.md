@@ -2,8 +2,8 @@
 
 `src/policy.rs` is the level algebra: the two override kinds, the precedence
 between a request, a configuration file and the shipped default, and the
-`PolicyPlan` every producer reads. `catalog.rs` is the 62 declarations and the
-lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
+`PolicyPlan` every producer reads. `catalog.rs` and `catalog/correctness.rs` are the
+126 declarations, `catalog.rs` the lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
 the tests, `noise.rs` the adjudicated rate the score ranks by, and
 `coverage.rs` the candidate queue.
 

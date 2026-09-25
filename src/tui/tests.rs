@@ -369,6 +369,7 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
                     base_severity: Severity::Warning,
                     severity: Severity::Warning,
                     context: None,
+                    unscored: None,
                     path: None,
                     span: None,
                     related: Vec::new(),
@@ -379,6 +380,7 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
         migration_advisories: Vec::new(),
         issue_count: rule_ids.len(),
         finding_count: rule_ids.len(),
+        note_count: 0,
     }
 }
 
@@ -397,6 +399,7 @@ fn scored_report(value: u8) -> InspectReport {
         value,
         label: score_block::label_for(value),
         authoritative: true,
+        reasons: Vec::new(),
         dimensions: ScoreDimensions {
             security: value,
             reliability: value,
@@ -427,6 +430,7 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
         scope: None,
         project: None,
         toolchain: ToolchainReport {
+            rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
             cargo: None,
             clippy: None,

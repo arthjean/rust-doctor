@@ -193,6 +193,7 @@ fn observations_of(findings: u64) -> Vec<Observation> {
         occurrences: findings,
         outcome: RepositoryOutcome::Processed,
         production_lines: 0,
+        reasons: Vec::new(),
         rules: vec![RuleObservation {
             distinct: findings,
             id: RULE.to_owned(),

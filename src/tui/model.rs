@@ -12,7 +12,9 @@
 
 use std::path::Path;
 
-use rust_doctor::presentation::{DiagnosticGroup, GroupLocation, ReportPresentation};
+use rust_doctor::presentation::{
+    COMPILER_NOTES_HEADING, DiagnosticGroup, GroupLocation, ReportPresentation,
+};
 use rust_doctor::score_block;
 use rust_doctor::{AuditCategoryName, InspectReport, ScoreLabel, Severity};
 
@@ -65,6 +67,9 @@ pub struct Row {
     pub frame: Option<GroupLocation>,
     /// Every distinct `path:line` the rule reached, in report order.
     pub sites: Vec<String>,
+    /// A compiler note: published, weighing nothing, and listed after every
+    /// scored row under its own heading, whatever category it falls in.
+    pub note: bool,
 }
 
 impl Row {
@@ -75,7 +80,8 @@ impl Row {
 
 #[derive(Debug, Clone)]
 pub enum Entry {
-    Header(AuditCategoryName),
+    /// The label over the rows that follow: a category, or the compiler notes.
+    Header(&'static str),
     Item { row_index: usize },
 }
 
@@ -123,6 +129,7 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
         rule_url: group.rule_url.clone(),
         frame,
         sites,
+        note: group.is_compiler_note(),
     }
 }
 
@@ -135,7 +142,9 @@ pub fn format_site(location: &GroupLocation) -> String {
 }
 
 /// Groups the rows under their category header, categories in the order the
-/// audit publishes them and rows in the order the report ranked them.
+/// audit publishes them and rows in the order the report ranked them. Compiler
+/// notes close the list under their own heading: labeling a category with it
+/// would also call an uncatalogued compile error, which weighs, not scored.
 pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
     const ORDER: [AuditCategoryName; 6] = [
         AuditCategoryName::Security,
@@ -146,18 +155,22 @@ pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
         AuditCategoryName::Other,
     ];
     let mut entries = Vec::new();
-    for category in ORDER {
+    let mut section = |label: &'static str, belongs: &dyn Fn(&Row) -> bool| {
         let mut matching = rows
             .iter()
             .enumerate()
-            .filter(|(_, row)| row.category == category)
+            .filter(|(_, row)| belongs(row))
             .peekable();
         if matching.peek().is_none() {
-            continue;
+            return;
         }
-        entries.push(Entry::Header(category));
+        entries.push(Entry::Header(label));
         entries.extend(matching.map(|(row_index, _)| Entry::Item { row_index }));
+    };
+    for category in ORDER {
+        section(category.as_str(), &|row| !row.note && row.category == category);
     }
+    section(COMPILER_NOTES_HEADING, &|row| row.note);
     entries
 }
 
@@ -427,7 +440,7 @@ mod tests {
         let shape: Vec<String> = entries
             .iter()
             .map(|entry| match entry {
-                Entry::Header(category) => category.as_str().to_owned(),
+                Entry::Header(label) => (*label).to_owned(),
                 Entry::Item { row_index } => rows[*row_index].rule_id.clone(),
             })
             .collect();
@@ -439,6 +452,37 @@ mod tests {
                 "Maintainability",
                 "clippy::a",
                 "clippy::c"
+            ]
+        );
+    }
+
+    /// US-004 AC-5: the notes close the list under their label, and an
+    /// uncatalogued compile error, which weighs, keeps the `Other` header.
+    #[test]
+    fn compiler_notes_close_the_list_and_an_uncatalogued_error_is_not_one() {
+        let mut note = row("unused_imports", AuditCategoryName::Other);
+        note.note = true;
+        let rows = vec![
+            note,
+            row("E0308", AuditCategoryName::Other),
+            row("clippy::eq_op", AuditCategoryName::Bugs),
+        ];
+        let shape: Vec<String> = build_entries(&rows)
+            .iter()
+            .map(|entry| match entry {
+                Entry::Header(label) => (*label).to_owned(),
+                Entry::Item { row_index } => rows[*row_index].rule_id.clone(),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                "Bugs",
+                "clippy::eq_op",
+                "Other",
+                "E0308",
+                COMPILER_NOTES_HEADING,
+                "unused_imports"
             ]
         );
     }
@@ -457,6 +501,7 @@ mod tests {
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),
+            note: false,
         }
     }
 }

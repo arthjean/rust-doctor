@@ -210,7 +210,8 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                     result.source_measurement.as_ref(),
                 )
             });
-    let audit = Audit::build_from_inventory(source_inventory, status, &diagnostics);
+    let audit =
+        Audit::build_from_inventory(source_inventory, status, !errors.is_empty(), &diagnostics);
 
     InspectReport {
         schema_version: SCHEMA_VERSION,
@@ -227,6 +228,7 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
             let toolchain = result.toolchain.as_ref();
             let published = |value: &str| sanitize_text(value, workspace_root, &home);
             ToolchainReport {
+                rust_doctor: env!("CARGO_PKG_VERSION"),
                 rustc: toolchain.map(|toolchain| published(&toolchain.rustc)),
                 cargo: toolchain.map(|toolchain| published(&toolchain.cargo)),
                 clippy: toolchain.map(|toolchain| published(&toolchain.clippy)),
@@ -359,6 +361,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
         scope: None,
         project: None,
         toolchain: ToolchainReport {
+            rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
             cargo: None,
             clippy: None,
@@ -582,10 +585,13 @@ fn evaluate_baseline_gate(
         };
     }
     let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
+    // A compiler note is introduced like any finding and blocks nothing, as in the full gate.
     let blocking_diagnostics = diagnostics
         .iter()
         .filter(|diagnostic| {
-            introduced.contains(&diagnostic.id) && is_blocking(diagnostic, blocking)
+            introduced.contains(&diagnostic.id)
+                && diagnostic.unscored.is_none()
+                && is_blocking(diagnostic, blocking)
         })
         .count();
     evaluated_gate(blocking, blocking_diagnostics)

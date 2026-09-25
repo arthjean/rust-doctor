@@ -8,16 +8,16 @@
 //! that third set turns the recall this repository never claimed into a number
 //! that only moves one way.
 //!
-//! The three counts the run prints do not add up to the universe, and they are
-//! not meant to. A lint the toolchain denies by default is never offered as a
-//! candidate, since no scan can carry it, while a rejection may still name one:
-//! those lints are decided and outside the queue at the same time.
+//! A lint the toolchain denies by default is a candidate like any other. The
+//! scan passes `-A clippy::all` before its `-W` flags, so a catalogued
+//! deny-by-default lint is carried as a warning, and one switched off is
+//! allowed rather than denied: `docs/correctness-group-2026-09.md` measured it
+//! on the pinned and minimum toolchains.
 //!
-//! The queue is ordered by what a user already sees. A lint the toolchain warns
-//! about by default reaches the report whether or not the catalog knows it:
-//! `report::diagnostics` only drops a diagnostic whose rule is catalogued and
-//! inactive, so an uncatalogued warning arrives with no category, no tier and
-//! no help, and costs the score its authoritative flag. Those come first.
+//! The queue is ordered by what plain `cargo clippy` shows a user and the scan
+//! silences: `-A clippy::all` allows every uncatalogued Clippy lint, so the
+//! lints the toolchain denies by default come first, then the ones it warns
+//! about, then the ones it only allows.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
@@ -29,14 +29,17 @@ use super::{CATALOG, Producer};
 
 /// Lowest number of universe lints this repository has decided, admitted or
 /// rejected. Every triage batch raises it; nothing may lower it.
-const DECIDED_FLOOR: usize = 56;
+const DECIDED_FLOOR: usize = 118;
 
 /// Level a lint carries in the toolchain, read from the `-W help` table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The declared order runs from what the toolchain enforces hardest to what it
+/// leaves off, which is the order of the queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ToolchainLevel {
-    Allow,
-    Warn,
     Deny,
+    Warn,
+    Allow,
 }
 
 impl ToolchainLevel {
@@ -66,8 +69,6 @@ impl ToolchainLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum RejectionClass {
-    /// Denied by default upstream, so a scan cannot carry it at all.
-    DenyByDefault,
     /// An admitted rule already reports the same defect.
     Covered,
     /// A matter of taste, not a defect the score should move for.
@@ -81,6 +82,10 @@ enum RejectionClass {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rejection {
+    #[allow(
+        dead_code,
+        reason = "parsing it is the check: a class outside the closed vocabulary fails to load"
+    )]
     class: RejectionClass,
     id: String,
     reason: String,
@@ -170,18 +175,17 @@ fn admitted() -> BTreeSet<&'static str> {
 }
 
 /// Lints the catalog has not admitted and `rejected.json` has not turned down,
-/// minus the ones the toolchain denies by default, which no scan can carry.
-/// Warned lints come first: they already reach the report uncatalogued.
+/// denied ones first, then warned, then allowed.
 fn queue(universe: &Universe, decided: &BTreeSet<String>) -> Vec<(String, ToolchainLevel)> {
     let mut queue: Vec<_> = universe
         .levels
         .iter()
-        .filter(|(id, level)| **level != ToolchainLevel::Deny && !decided.contains(*id))
+        .filter(|(id, _)| !decided.contains(*id))
         .map(|(id, level)| (id.clone(), *level))
         .collect();
     // The table is read from a `BTreeMap`, so the identifiers already come
     // sorted and a stable sort on the level alone is the whole ordering.
-    queue.sort_by_key(|(_, level)| *level != ToolchainLevel::Warn);
+    queue.sort_by_key(|(_, level)| *level);
     queue
 }
 
@@ -244,21 +248,6 @@ fn every_rejection_names_a_lint_of_the_toolchain_and_gives_its_reason() {
 }
 
 #[test]
-fn a_deny_by_default_rejection_stays_tied_to_what_the_toolchain_denies() {
-    let universe = universe();
-
-    for rejection in &rejections().rejected {
-        let denied = universe.levels.get(&rejection.id) == Some(&ToolchainLevel::Deny);
-        assert_eq!(
-            rejection.class == RejectionClass::DenyByDefault,
-            denied,
-            "{} is classified against the level the toolchain gives it",
-            rejection.id
-        );
-    }
-}
-
-#[test]
 fn no_lint_is_both_admitted_and_rejected() {
     let admitted = admitted();
 
@@ -283,17 +272,29 @@ fn the_candidate_queue_is_published_and_coverage_never_regresses() {
         .chain(rejections.rejected.iter().map(|entry| entry.id.clone()))
         .collect();
     let queue = queue(universe, &decided);
-    let warned = queue
+    let denied: Vec<&str> = queue
         .iter()
-        .filter(|(_, level)| *level == ToolchainLevel::Warn)
-        .count();
+        .filter(|(_, level)| *level == ToolchainLevel::Deny)
+        .map(|(id, _)| id.as_str())
+        .collect();
 
     println!(
-        "universe {}, decided {}, queue {} ({warned} already reaching the report uncatalogued)",
+        "universe {}, decided {}, queue {} ({} denied by default)",
         universe.levels.len(),
         decided.len(),
-        queue.len()
+        queue.len(),
+        denied.len()
     );
+    // The members of `clippy::correctness` a fixture cannot trigger without an
+    // external crate stay undecided, and a denied lint is a candidate like any
+    // other: `docs/correctness-group-2026-09.md` holds their classification.
+    for waiting in [
+        "clippy::invalid_regex",
+        "clippy::let_underscore_lock",
+        "clippy::serde_api_misuse",
+    ] {
+        assert!(denied.contains(&waiting), "{waiting} left the queue");
+    }
     for (id, level) in &queue {
         let groups: Vec<_> = universe
             .groups

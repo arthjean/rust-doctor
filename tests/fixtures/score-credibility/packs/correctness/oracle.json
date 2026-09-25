@@ -1,0 +1,1028 @@
+{
+  "pack": "correctness",
+  "story": "US-003",
+  "label": "correctness",
+  "score": {
+    "value": 65,
+    "dimensions": {
+      "security": 100,
+      "reliability": 0,
+      "maintainability": 100,
+      "performance": 100,
+      "dependencies": 100
+    }
+  },
+  "positive": [
+    {
+      "code": "clippy::absurd_extreme_comparisons",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 19,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::almost_swapped",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 25,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::approx_constant",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 32,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::async_yields_async",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 37,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::bad_bit_mask",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 42,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::cast_slice_different_sizes",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 46,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::char_indices_as_byte_indices",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 54,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::deprecated_semver",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 60,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::derive_ord_xor_partial_ord",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 64,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::derived_hash_with_manual_eq",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 74,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::eager_transmute",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 91,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::enum_clike_unportable_variant",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 97,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::eq_op",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 102,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::erasing_op",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 107,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::if_let_mutex",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 112,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::ifs_same_cond",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 121,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::impl_hash_borrow_with_str_and_bytes",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 133,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::impossible_comparisons",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 153,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::ineffective_bit_mask",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 158,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::infinite_iter",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 163,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::inherent_to_string_shadow_display",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 170,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::inline_fn_without_body",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 184,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::invisible_characters",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 190,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::inverted_saturating_sub",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 195,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::iter_next_loop",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 202,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::iter_skip_zero",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 210,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::iterator_step_by_zero",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 215,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::match_str_case_mismatch",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 221,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::mem_replace_with_uninit",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 229,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::min_max",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 234,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::mistyped_literal_suffixes",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 239,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::modulo_one",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 244,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::mut_from_ref",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 248,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::never_loop",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 256,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::non_octal_unix_permissions",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 266,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::nonsensical_open_options",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 271,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::not_unsafe_ptr_arg_deref",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 276,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::option_env_unwrap",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 282,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::out_of_bounds_indexing",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 289,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::panicking_overflow_checks",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 294,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::panicking_unwrap",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 300,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::possible_missing_comma",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 306,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::read_line_without_trim",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 315,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::recursive_format_impl",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 323,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::redundant_comparisons",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 330,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::reversed_empty_ranges",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 336,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::self_assignment",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 349,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::size_of_in_element_count",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 357,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::suspicious_splitn",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 364,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::transmute_null_to_fn",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 369,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::transmuting_null",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 374,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::uninit_assumed_init",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 380,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::uninit_vec",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 385,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::unit_cmp",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 396,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::unit_hash",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 403,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::unit_return_expecting_ord",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 409,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::unsound_collection_transmute",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 416,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::unused_io_amount",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 422,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::useless_attribute",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 427,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::vec_resize_to_zero",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 432,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::while_immutable_condition",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 438,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::wrong_transmute",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 444,
+      "occurrences": 1
+    },
+    {
+      "code": "clippy::zst_offset",
+      "category": "correctness",
+      "tier": "P1",
+      "path": "src/lib.rs",
+      "line": 450,
+      "occurrences": 1
+    }
+  ],
+  "negative": [
+    {
+      "marker": "negative_absurd_extreme_comparisons",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_almost_swapped",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_approx_constant",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_async_yields_async",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_bad_bit_mask",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_cast_slice_different_sizes",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_char_indices_as_byte_indices",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_deprecated_semver",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_derive_ord_xor_partial_ord",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_derived_hash_with_manual_eq",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_eager_transmute",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_enum_clike_unportable_variant",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_eq_op",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_erasing_op",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_if_let_mutex",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_ifs_same_cond",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_impl_hash_borrow_with_str_and_bytes",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_impossible_comparisons",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_ineffective_bit_mask",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_infinite_iter",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_inherent_to_string_shadow_display",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_inline_fn_without_body",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_inverted_saturating_sub",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_invisible_characters",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_iter_next_loop",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_iter_skip_zero",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_iterator_step_by_zero",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_match_str_case_mismatch",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_mem_replace_with_uninit",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_min_max",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_mistyped_literal_suffixes",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_modulo_one",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_mut_from_ref",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_never_loop",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_non_octal_unix_permissions",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_nonsensical_open_options",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_not_unsafe_ptr_arg_deref",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_option_env_unwrap",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_out_of_bounds_indexing",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_panicking_overflow_checks",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_panicking_unwrap",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_possible_missing_comma",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_read_line_without_trim",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_recursive_format_impl",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_redundant_comparisons",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_reversed_empty_ranges",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_self_assignment",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_size_of_in_element_count",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_suspicious_splitn",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_transmute_null_to_fn",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_transmuting_null",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_uninit_assumed_init",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_uninit_vec",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unit_cmp",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unit_hash",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unit_return_expecting_ord",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unsound_collection_transmute",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_unused_io_amount",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_useless_attribute",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_vec_resize_to_zero",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_while_immutable_condition",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_wrong_transmute",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_zst_offset",
+      "kind": "idiomatic"
+    },
+    {
+      "marker": "negative_allowed_absurd_extreme_comparisons",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_almost_swapped",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_approx_constant",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_async_yields_async",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_bad_bit_mask",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_cast_slice_different_sizes",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_char_indices_as_byte_indices",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_deprecated_semver",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_derive_ord_xor_partial_ord",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_derived_hash_with_manual_eq",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_eager_transmute",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_enum_clike_unportable_variant",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_eq_op",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_erasing_op",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_if_let_mutex",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_ifs_same_cond",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_impl_hash_borrow_with_str_and_bytes",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_impossible_comparisons",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_ineffective_bit_mask",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_infinite_iter",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_inherent_to_string_shadow_display",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_inline_fn_without_body",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_inverted_saturating_sub",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_invisible_characters",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_iter_next_loop",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_iter_skip_zero",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_iterator_step_by_zero",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_match_str_case_mismatch",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_mem_replace_with_uninit",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_min_max",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_mistyped_literal_suffixes",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_modulo_one",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_mut_from_ref",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_never_loop",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_non_octal_unix_permissions",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_nonsensical_open_options",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_not_unsafe_ptr_arg_deref",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_option_env_unwrap",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_out_of_bounds_indexing",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_panicking_overflow_checks",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_panicking_unwrap",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_possible_missing_comma",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_read_line_without_trim",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_recursive_format_impl",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_redundant_comparisons",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_reversed_empty_ranges",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_self_assignment",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_size_of_in_element_count",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_suspicious_splitn",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_transmute_null_to_fn",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_transmuting_null",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_uninit_assumed_init",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_uninit_vec",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unit_cmp",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unit_hash",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unit_return_expecting_ord",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unsound_collection_transmute",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_unused_io_amount",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_useless_attribute",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_vec_resize_to_zero",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_while_immutable_condition",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_wrong_transmute",
+      "kind": "allow"
+    },
+    {
+      "marker": "negative_allowed_zst_offset",
+      "kind": "allow"
+    }
+  ],
+  "test_context": []
+}

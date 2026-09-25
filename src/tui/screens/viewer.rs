@@ -13,7 +13,8 @@ use rust_doctor::presentation::{CodeFrameLine, GroupLocation, code_frame};
 
 use crate::tui::model::{
     Arrangement, DETAIL_INDENT_COLUMNS, Entry, Layout, REPORT_SPLIT_MARGIN_COLUMNS,
-    REPORT_SPLIT_PADDING_COLUMNS, Row, category_impact, pluralize, severity_variant,
+    REPORT_SPLIT_PADDING_COLUMNS, Row, category_impact, pluralize,
+    severity_variant,
 };
 use crate::tui::text::{Color, Line, Span, Style, wrap_spans};
 
@@ -111,9 +112,7 @@ fn list_column(state: &ViewerState<'_>, width: usize, height: usize) -> Vec<Line
             continue;
         };
         lines.push(match entry {
-            Entry::Header(category) => {
-                Line::text(category.as_str(), Style::BOLD).truncate_end(width)
-            }
+            Entry::Header(label) => Line::text(*label, Style::BOLD).truncate_end(width),
             Entry::Item { row_index } => match state.rows.get(*row_index) {
                 Some(row) => diagnostic_item(
                     row,
@@ -484,6 +483,7 @@ mod tests {
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),
+            note: false,
         }
     }
 }

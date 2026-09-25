@@ -740,8 +740,8 @@ mod tests {
     /// be spelled with the same word. The `test-gate` fixture carries every
     /// other form of the grammar, through the walk that reads it; this one lives
     /// here because a `cfg` the compiler has no value for is a warning the
-    /// fixture would then publish uncatalogued, costing its own scan the
-    /// authoritative flag to assert one line of grammar.
+    /// fixture would then publish as a compiler note, one more finding in its
+    /// own scan to assert one line of grammar.
     #[test]
     fn a_key_named_test_is_not_the_test_predicate() {
         assert!(is_test_gate(&declaration("#[cfg(test)]")));

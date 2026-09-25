@@ -16,10 +16,11 @@ use serde_json::Value;
 
 mod support;
 
-const PACKS: [(&str, &str); 3] = [
+const PACKS: [(&str, &str); 4] = [
     ("panic", "US-073"),
     ("performance", "US-074"),
     ("concurrency", "US-075"),
+    ("correctness", "US-003"),
 ];
 
 fn pack_root(pack: &str) -> PathBuf {
@@ -175,14 +176,30 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     }
 }
 
+/// Source of a pack's negatives: `src/negatives.rs`, plus the files of its
+/// `negatives` module when the pack is too large for one file to stay under
+/// the size bound `oversized_unit` enforces.
+fn negatives_source(pack: &str) -> String {
+    let root = pack_root(pack).join("src");
+    let mut source =
+        fs::read_to_string(root.join("negatives.rs")).expect("pack negatives should exist");
+    if let Ok(entries) = fs::read_dir(root.join("negatives")) {
+        let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
+        paths.sort();
+        for path in paths {
+            source.push_str(&fs::read_to_string(path).unwrap());
+        }
+    }
+    source
+}
+
 /// US-073, US-074, US-075 AC-2 and AC-4: no negative form, idiomatic or
 /// neutralized by `#[allow]`, produces a diagnostic.
 #[test]
 fn no_negative_form_of_any_pack_produces_a_diagnostic() {
     for (pack, _) in PACKS {
         let oracle = oracle(pack);
-        let source = fs::read_to_string(pack_root(pack).join("src/negatives.rs"))
-            .expect("pack negatives should exist");
+        let source = negatives_source(pack);
         let negatives = oracle["negative"].as_array().expect("negative cases");
         assert!(
             negatives.len() >= 2 * oracle["positive"].as_array().unwrap().len(),
@@ -200,24 +217,24 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
         assert_eq!(kinds["idiomatic"], kinds["allow"], "{pack}");
 
         // The positives all live in `src/lib.rs`: no diagnostic can therefore
-        // come from the negatives file.
+        // come from the negatives files.
         let report = report(pack_request(pack_root(pack)));
         assert!(
-            curated(&report)
-                .iter()
-                .all(|diagnostic| diagnostic["path"] != "src/negatives.rs"),
+            curated(&report).iter().all(|diagnostic| !diagnostic["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("src/negatives"))),
             "{pack} flagged a negative form"
         );
     }
 }
 
-/// Isolated copy of a pack fixture.
+/// Isolated copy of a pack fixture, one per pack and per test.
 ///
 /// Every policy changes the Clippy arguments, so every scan invalidates the
 /// fingerprint of the build directory. Running them all in the shared fixture
 /// would put them in competition with the other tests of the binary, which scan
 /// the same fixture at the same moment.
-fn isolated_pack(pack: &str) -> PathBuf {
+fn isolated_pack(pack: &str, test: &str) -> PathBuf {
     fn copy(source: &Path, destination: &Path) {
         fs::create_dir_all(destination).unwrap();
         let mut entries: Vec<_> = fs::read_dir(source)
@@ -240,7 +257,7 @@ fn isolated_pack(pack: &str) -> PathBuf {
 
     let destination = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target/score-credibility-packs")
-        .join(format!("{pack}-{}", std::process::id()));
+        .join(format!("{pack}-{test}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&destination);
     copy(&pack_root(pack), &destination);
     destination
@@ -252,7 +269,7 @@ fn isolated_pack(pack: &str) -> PathBuf {
 fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     for (pack, _) in PACKS {
         let oracle = oracle(pack);
-        let root = isolated_pack(pack);
+        let root = isolated_pack(pack, "switched-off");
         let baseline = report(pack_request(&root));
         let baseline_codes: BTreeSet<_> = observed(&baseline)
             .iter()
@@ -422,58 +439,118 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
     assert!(observed.is_empty(), "self-scan produced {observed:?}");
 }
 
-/// Admission contract: no Clippy rule of the catalog is `deny` by default.
+/// US-002: a catalogued rule the toolchain denies by default is switched off
+/// like any other.
 ///
-/// A rule that is `deny` by default cannot be switched off: removing its `-W`
-/// restores Clippy's refusal and turns the scan into a compilation failure.
-/// `clippy::async_yields_async` and `clippy::unused_io_amount` were set aside
-/// from the packs for that reason, a verdict measured on the normative
-/// toolchain.
+/// The scan passes `-A clippy::all` before its `-W` flags, so dropping the `-W`
+/// of a deny-by-default lint leaves it allowed rather than restoring Clippy's
+/// refusal. `docs/correctness-group-2026-09.md` measured it on the pinned and
+/// minimum toolchains; this replays it through `inspect` on the pack that
+/// triggers the lint.
 #[test]
-fn no_catalogued_clippy_rule_is_denied_by_default() {
+fn a_deny_by_default_rule_switched_off_leaves_the_command_and_fails_nothing() {
+    const RULE: &str = "clippy::eq_op";
     let help = std::process::Command::new("clippy-driver")
         .args(["-W", "help"])
         .output()
         .expect("clippy-driver should start");
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("the lint table should be UTF-8");
-
-    let defaults: BTreeMap<String, String> = help
-        .lines()
-        .filter_map(|line| {
+    assert!(
+        help.lines().any(|line| {
             let mut fields = line.split_whitespace();
-            let name = fields.next()?.strip_prefix("clippy::")?;
-            let level = fields.next()?;
-            matches!(level, "allow" | "warn" | "deny").then(|| {
-                (
-                    format!("clippy::{}", name.replace('-', "_")),
-                    level.to_owned(),
-                )
-            })
-        })
-        .collect();
-    assert!(defaults.len() > 500, "{} lints listed", defaults.len());
+            fields.next() == Some("clippy::eq-op") && fields.next() == Some("deny")
+        }),
+        "{RULE} is no longer denied by default, so this proves nothing"
+    );
 
-    let report = report(pack_request(pack_root("panic")));
-    let catalogued: Vec<_> = report["policy"]["rules"]
+    let root = isolated_pack("correctness", "denied-off");
+    let report = report(
+        pack_request(&root).with_rule_override(RuleOverride::new(RULE, RuleLevel::Off)),
+    );
+    let command: Vec<&str> = report["scan"]["command"]
         .as_array()
-        .unwrap()
+        .expect("a complete scan should publish its command")
         .iter()
-        .filter_map(|rule| rule["id"].as_str())
-        .filter(|id| id.starts_with("clippy::"))
+        .map(|argument| argument.as_str().unwrap())
         .collect();
-    assert_eq!(catalogued.len(), 37);
-    for id in catalogued {
-        let level = defaults.get(id).map(String::as_str).unwrap_or_default();
-        assert!(
-            !level.is_empty(),
-            "{id} is not a lint of the normative toolchain"
-        );
-        assert_ne!(level, "deny", "{id} cannot be switched off");
-    }
-    for rejected in ["clippy::async_yields_async", "clippy::unused_io_amount"] {
-        assert_eq!(defaults[rejected], "deny", "{rejected}");
-    }
+    assert!(!command.contains(&RULE), "{RULE} stayed in the command");
+    assert!(
+        report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != RULE),
+        "{RULE} still produced a diagnostic"
+    );
+    assert!(report["errors"].as_array().unwrap().is_empty());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// US-003: the certain bug plain `cargo clippy` refuses lowers the score here.
+///
+/// The same trigger in an integration test target reaches nothing: the scan
+/// compiles Cargo's default targets, so a test target is never linted and
+/// weighs nothing, which is what `no_cargo_test_target_reaches_the_report`
+/// records for the panic pack.
+#[test]
+fn a_self_comparison_in_shipped_code_lowers_the_correctness_dimension() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/score-credibility-packs")
+        .join(format!("eq-op-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"eq-op\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n",
+    )
+    .unwrap();
+    let trigger = "pub fn compare() {\n    let a = 1;\n    if a == a {}\n}\n";
+    fs::write(root.join("src/lib.rs"), trigger).unwrap();
+    fs::write(root.join("tests/compare.rs"), format!("#[test]\n{trigger}")).unwrap();
+
+    let report = report(pack_request(&root));
+    let eq_op: Vec<&Value> = curated(&report)
+        .into_iter()
+        .filter(|diagnostic| diagnostic["code"] == "clippy::eq_op")
+        .collect();
+    assert_eq!(eq_op.len(), 1, "{eq_op:?}");
+    assert_eq!(eq_op[0]["path"], "src/lib.rs");
+    assert_eq!(eq_op[0]["severity"], "warning");
+    let score = &report["audit"]["score"];
+    assert!(score["dimensions"]["reliability"].as_u64().unwrap() < 100);
+    assert!(score["value"].as_u64().unwrap() < 100);
+    assert!(
+        report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| !diagnostic["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("tests/"))),
+        "a test target was linted"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// US-002: through the command line, switching the same rule off yields the
+/// gate's verdict, never the failed-scan exit code a restored refusal causes.
+#[test]
+fn the_cli_gates_a_workspace_whose_denied_lint_is_switched_off() {
+    let root = isolated_pack("correctness", "cli-gate");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg(&root)
+        .args(["--json", "--yes", "--rule", "clippy::eq_op=off"])
+        .env("CARGO_TARGET_DIR", support::scan_target(&root))
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .expect("the binary should start");
+    let code = output.status.code();
+    assert!(matches!(code, Some(0 | 1)), "exit {code:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).expect("a JSON report");
+    assert_eq!(report["status"], "complete", "{}", report["errors"]);
+    fs::remove_dir_all(&root).unwrap();
 }
 
 /// US-076: the local dependency health pack, end to end.

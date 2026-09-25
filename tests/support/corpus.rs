@@ -375,6 +375,10 @@ pub(crate) struct Observation {
     /// the published score without the scan. Zero on a repository that was
     /// skipped or that failed, since a scan that never ran measured no source.
     pub(crate) production_lines: u64,
+    /// Why the score is not authoritative, as the report published it: empty
+    /// exactly when `authoritative` is true, and on a repository that produced
+    /// no report.
+    pub(crate) reasons: Vec<String>,
     pub(crate) rules: Vec<RuleObservation>,
     pub(crate) score: Option<ScoreObservation>,
     pub(crate) status: String,
@@ -1018,6 +1022,7 @@ fn skipped_observation(entry: &ManifestEntry) -> Observation {
         occurrences: 0,
         outcome: RepositoryOutcome::Skipped,
         production_lines: 0,
+        reasons: Vec::new(),
         rules: Vec::new(),
         score: None,
         status: "skipped".to_owned(),
@@ -1035,6 +1040,7 @@ fn failed_observation(entry: &ManifestEntry, exit_code: i32) -> Observation {
         occurrences: 0,
         outcome: RepositoryOutcome::Failed,
         production_lines: 0,
+        reasons: Vec::new(),
         rules: Vec::new(),
         score: None,
         status: "failed".to_owned(),
@@ -1236,6 +1242,14 @@ fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observa
             RepositoryOutcome::Processed
         },
         production_lines,
+        reasons: report["audit"]["score"]["reasons"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
         rules: rules
             .into_iter()
             .map(|(id, (distinct, occurrences))| RuleObservation {

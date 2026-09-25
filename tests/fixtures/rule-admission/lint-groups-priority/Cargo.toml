@@ -1,0 +1,19 @@
+[package]
+name = "admission-lint-groups-priority"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# The positive: a group and one of its members share the default priority, so
+# Cargo's ordering, not this table, decides which level wins.
+[lints.rust]
+nonstandard_style = "warn"
+non_snake_case = "allow"
+
+# The silence: the same shape, with the group lowered below its member.
+[lints.clippy]
+style = { level = "allow", priority = -1 }
+needless_return = "allow"

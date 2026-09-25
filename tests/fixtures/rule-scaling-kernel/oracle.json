@@ -230,57 +230,57 @@
   ],
   "compatibility": {
     "git_change_scope_output_hashes": {
-      "full": {
-        "member-manifest": "8ff7b63cb3996a4ce1c8de1b33be54f591ac5eee8c511c33283f27dbac45be6d",
-        "member-subdirectory": "8ff7b63cb3996a4ce1c8de1b33be54f591ac5eee8c511c33283f27dbac45be6d",
-        "workspace": "6551d2e7627671ae72bbc724ec0f2fe8d1b41d2d2c25c4a4e166a65129ed3a42"
-      },
       "files-empty": {
-        "member-manifest": "bdfa78efcab2b3bfc43a7cdeb932491775e9a4b557572796e993a7982530b0ef",
-        "member-subdirectory": "bdfa78efcab2b3bfc43a7cdeb932491775e9a4b557572796e993a7982530b0ef",
-        "workspace": "f2d9ec5d1d96338e6c8e1d518df905dad8582e4e11780b8bb3229cfb95eecd1a"
-      },
-      "files-source": {
-        "member-manifest": "5b92ce30af61fa045e7356b8bd6f6c960b1d5241b6f05be18d70634e8f970be0",
-        "member-subdirectory": "5b92ce30af61fa045e7356b8bd6f6c960b1d5241b6f05be18d70634e8f970be0",
-        "workspace": "024152e724b745672faf73e1e4f68b32f8da9c398a7d4dc559812e964aeb0dce"
+        "member-manifest": "1dac48d9e195c6df87cb57c7a183c2d6e65339f0362f0ac13b1b664d7d718ef8",
+        "member-subdirectory": "1dac48d9e195c6df87cb57c7a183c2d6e65339f0362f0ac13b1b664d7d718ef8",
+        "workspace": "a08ba7d99206dfa6166416ad3aa6aac9242e3c7a931d66c978199402beb02152"
       },
       "files-manifest": {
-        "member-manifest": "cd2c2bcc924b87217116a58603ebd7879baa94ace6f6b3de3177a16884657d68",
-        "member-subdirectory": "cd2c2bcc924b87217116a58603ebd7879baa94ace6f6b3de3177a16884657d68",
-        "workspace": "bf9084925e779c75c502217db46f126de0f47eaf595281ec8ce08d0677d963cc"
+        "member-manifest": "1d41815acebbd05061cff041fd604abe479fae45df79da22ed626d766473857e",
+        "member-subdirectory": "1d41815acebbd05061cff041fd604abe479fae45df79da22ed626d766473857e",
+        "workspace": "5933b55e8718b277b0f0c96ca1e1bb6aab1f4d970f833ecfd4d88c4572e66613"
+      },
+      "files-source": {
+        "member-manifest": "fa2158bcd81d05ea4e2fd62aa30bdf20804f6c9bc03153f745620030a925563a",
+        "member-subdirectory": "fa2158bcd81d05ea4e2fd62aa30bdf20804f6c9bc03153f745620030a925563a",
+        "workspace": "180e8a9640fbf620df1649ace06d47661cab4cfe3c787c54072021a59d3c2d70"
+      },
+      "full": {
+        "member-manifest": "a2a46f8ea83192ea02a855ce9154dee161fa00b04ac7d49b7d3f9bd164c5f6f3",
+        "member-subdirectory": "a2a46f8ea83192ea02a855ce9154dee161fa00b04ac7d49b7d3f9bd164c5f6f3",
+        "workspace": "7efcd6aa4bfa1d4b213eb4012de4d07558a1d3f5a9405a2e3ec610bd0d4692a4"
       }
     },
     "persistent_configuration_output_hashes": {
       "absent": {
-        "member-manifest": "6dc35e9c677ba42a75e5acd426f44b9744188deb501c841ce9bf4ffe23474c40",
-        "member-subdirectory": "6dc35e9c677ba42a75e5acd426f44b9744188deb501c841ce9bf4ffe23474c40",
-        "workspace": "1c2ea8243f5b305a8b201219ee8c3de2824c6a2210e39ad417fc2baecf34d45d"
-      },
-      "empty": {
-        "member-manifest": "086a18e767beb1aaab64a4653eb70cbfd3df45d9671fca56896969c0e3aa646a",
-        "member-subdirectory": "086a18e767beb1aaab64a4653eb70cbfd3df45d9671fca56896969c0e3aa646a",
-        "workspace": "28e78625b5ba3238b7524519f7581d9de65c0e5d32da856b4624420af8b2f68f"
+        "member-manifest": "b7841206c3222d207f783d5b674016ae60ee62ffbf7bbb534a954ba32fd07a0f",
+        "member-subdirectory": "b7841206c3222d207f783d5b674016ae60ee62ffbf7bbb534a954ba32fd07a0f",
+        "workspace": "32c0e05227600c510af5d71bad69d4c9d6d43d154e36f92901904ccf54e2c6ba"
       },
       "config-rule": {
-        "member-manifest": "8b533a4d801706b2d2613f085696c6546093ee503820b69d2cfb2af4521db7d1",
-        "member-subdirectory": "8b533a4d801706b2d2613f085696c6546093ee503820b69d2cfb2af4521db7d1",
-        "workspace": "1bd38a3860ca9342295db244df90741a6962da488bec7f510f7fe8aa1488c5e3"
+        "member-manifest": "9ded31df0e3095f8cbce3117f2e9a2be97bb82ba0d1d87db8bd62f92d126dc7b",
+        "member-subdirectory": "9ded31df0e3095f8cbce3117f2e9a2be97bb82ba0d1d87db8bd62f92d126dc7b",
+        "workspace": "2792d2380f13e4de385a2f3742b05bcb330070c2d7cc40379067ae883ec517b0"
       },
-      "shell-reactivated": {
-        "member-manifest": "5845824c32917114a3cf1bcfa00a420344bc90a0ba4bddb4fdb83275767f9bf3",
-        "member-subdirectory": "5845824c32917114a3cf1bcfa00a420344bc90a0ba4bddb4fdb83275767f9bf3",
-        "workspace": "da20417faf0c76fe670e26b021d02d5548083a10686b402df07598bdff4f95d6"
-      },
-      "request-category-off": {
-        "member-manifest": "40213c5bf2d3cbcb762a99aab881476642728d7f1cf10bb9c824a8e3e9982148",
-        "member-subdirectory": "40213c5bf2d3cbcb762a99aab881476642728d7f1cf10bb9c824a8e3e9982148",
-        "workspace": "95b4e1cc4bb0bd0b6ad25311b851cdb935178d73f0466a3c75162eb6e5038fbc"
+      "empty": {
+        "member-manifest": "9b8f946da462d989732c744125f7ca28005f81d20b7ec3a0464586d97e414eb2",
+        "member-subdirectory": "9b8f946da462d989732c744125f7ca28005f81d20b7ec3a0464586d97e414eb2",
+        "workspace": "558e0da2cd5340ce6b9a8de66ea9c60d4e6df76453a2199746e47ed8bdacc503"
       },
       "request-blocking": {
-        "member-manifest": "e44a3266a7579f6ff42cee6d84f6edb96df48b15f57046f827158b36807af91d",
-        "member-subdirectory": "e44a3266a7579f6ff42cee6d84f6edb96df48b15f57046f827158b36807af91d",
-        "workspace": "9f78a68cdc334c5f2c14a18884255df3751e10f8836d7376553cf5ceba5aa11c"
+        "member-manifest": "3a3fffea14f20342ac0a3ee33fb1c69c0efb9e6c5b77a9f72201952994d99d1f",
+        "member-subdirectory": "3a3fffea14f20342ac0a3ee33fb1c69c0efb9e6c5b77a9f72201952994d99d1f",
+        "workspace": "e6f9e6d10bc2815ccbb4c9c2562c5a63b0510ff1e767dae7a19a745c94742464"
+      },
+      "request-category-off": {
+        "member-manifest": "92ebb158a721b4adca8c2eb69c902c031ca91cf1f5ca06eaeaa7bf370e717be8",
+        "member-subdirectory": "92ebb158a721b4adca8c2eb69c902c031ca91cf1f5ca06eaeaa7bf370e717be8",
+        "workspace": "fa9dd03e2b984540af3cd0d2e33e3bea2ad078db5cc13c339202280e416a58e2"
+      },
+      "shell-reactivated": {
+        "member-manifest": "1b2ac5f711c629c4f5a6594894980b0a2a21098babc2efc86174cf15fba69123",
+        "member-subdirectory": "1b2ac5f711c629c4f5a6594894980b0a2a21098babc2efc86174cf15fba69123",
+        "workspace": "562937a21a2964079551a1c66cedb9cffdf1b729ec6236fe322ae0d0543e1eea"
       }
     },
     "policy_disabled_clippy_rules": {
@@ -297,43 +297,107 @@
     },
     "policy_clippy_pruning": {
       "inactive_rules": [
+        "clippy::absurd_extreme_comparisons",
+        "clippy::almost_swapped",
+        "clippy::approx_constant",
         "clippy::arc_with_non_send_sync",
+        "clippy::async_yields_async",
         "clippy::await_holding_lock",
         "clippy::await_holding_refcell_ref",
+        "clippy::bad_bit_mask",
+        "clippy::cast_slice_different_sizes",
+        "clippy::char_indices_as_byte_indices",
         "clippy::dbg_macro",
+        "clippy::deprecated_semver",
+        "clippy::derive_ord_xor_partial_ord",
+        "clippy::derived_hash_with_manual_eq",
+        "clippy::eager_transmute",
+        "clippy::enum_clike_unportable_variant",
+        "clippy::eq_op",
+        "clippy::erasing_op",
         "clippy::exit",
         "clippy::expect_used",
         "clippy::format_collect",
+        "clippy::if_let_mutex",
+        "clippy::ifs_same_cond",
+        "clippy::impl_hash_borrow_with_str_and_bytes",
+        "clippy::impossible_comparisons",
         "clippy::indexing_slicing",
+        "clippy::ineffective_bit_mask",
+        "clippy::infinite_iter",
+        "clippy::inherent_to_string_shadow_display",
+        "clippy::inline_fn_without_body",
+        "clippy::inverted_saturating_sub",
+        "clippy::invisible_characters",
+        "clippy::iter_next_loop",
+        "clippy::iter_skip_zero",
+        "clippy::iterator_step_by_zero",
         "clippy::large_types_passed_by_value",
+        "clippy::lint_groups_priority",
         "clippy::manual_memcpy",
+        "clippy::match_str_case_mismatch",
         "clippy::mem_forget",
+        "clippy::mem_replace_with_uninit",
+        "clippy::min_max",
         "clippy::missing_safety_doc",
+        "clippy::mistyped_literal_suffixes",
+        "clippy::modulo_one",
+        "clippy::mut_from_ref",
         "clippy::mut_mutex_lock",
+        "clippy::never_loop",
+        "clippy::non_octal_unix_permissions",
         "clippy::non_send_fields_in_send_ty",
+        "clippy::nonsensical_open_options",
+        "clippy::not_unsafe_ptr_arg_deref",
+        "clippy::option_env_unwrap",
+        "clippy::out_of_bounds_indexing",
         "clippy::panic",
         "clippy::panic_in_result_fn",
+        "clippy::panicking_overflow_checks",
+        "clippy::panicking_unwrap",
         "clippy::permissions_set_readonly_false",
+        "clippy::possible_missing_comma",
         "clippy::print_stderr",
         "clippy::print_stdout",
         "clippy::ptr_arg",
         "clippy::rc_buffer",
         "clippy::rc_mutex",
+        "clippy::read_line_without_trim",
+        "clippy::recursive_format_impl",
         "clippy::redundant_allocation",
+        "clippy::redundant_comparisons",
+        "clippy::reversed_empty_ranges",
+        "clippy::self_assignment",
+        "clippy::size_of_in_element_count",
         "clippy::stable_sort_primitive",
         "clippy::string_slice",
         "clippy::suspicious_command_arg_space",
+        "clippy::suspicious_splitn",
         "clippy::todo",
         "clippy::too_many_arguments",
+        "clippy::transmute_null_to_fn",
+        "clippy::transmuting_null",
         "clippy::type_complexity",
         "clippy::unimplemented",
+        "clippy::uninit_assumed_init",
+        "clippy::uninit_vec",
+        "clippy::unit_cmp",
+        "clippy::unit_hash",
+        "clippy::unit_return_expecting_ord",
         "clippy::unnecessary_to_owned",
         "clippy::unreachable",
+        "clippy::unsound_collection_transmute",
         "clippy::unused_async",
+        "clippy::unused_io_amount",
         "clippy::unwrap_used",
+        "clippy::useless_attribute",
         "clippy::useless_vec",
         "clippy::vec_init_then_push",
-        "clippy::zombie_processes"
+        "clippy::vec_resize_to_zero",
+        "clippy::while_immutable_condition",
+        "clippy::wrong_transmute",
+        "clippy::zombie_processes",
+        "clippy::zst_offset"
       ],
       "scan_command": null,
       "process_count": 0,

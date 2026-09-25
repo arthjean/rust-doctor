@@ -6,7 +6,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::git_scope::ResolvedScope;
-use crate::presentation::{DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame};
+use crate::presentation::{
+    COMPILER_NOTES_HEADING, DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame,
+};
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
@@ -186,7 +188,8 @@ fn render_scanned<W: Write>(
 }
 
 /// The findings themselves: all of them under `--verbose`, the worst one
-/// otherwise, and a sentence when there are none.
+/// otherwise, and a sentence when there are none. Compiler notes come last,
+/// under their own heading, since they weigh nothing.
 fn render_findings<W: Write>(
     writer: &mut W,
     presentation: &ReportPresentation,
@@ -195,20 +198,38 @@ fn render_findings<W: Write>(
     if presentation.issue_count == 0 {
         return line(writer, "No issues found.", options, Style::Success);
     }
-    if options.verbose {
-        for group in &presentation.groups {
-            if group.is_unscored() {
-                render_unscored_group(writer, group, options)?;
-            } else {
-                render_group(writer, group, options, GroupView::Full)?;
-            }
-        }
-        return Ok(());
+    let (notes, scored): (Vec<_>, Vec<_>) = presentation
+        .groups
+        .iter()
+        .partition(|group| group.is_compiler_note());
+    if !options.verbose {
+        return match scored.first() {
+            Some(group) => render_group(writer, group, options, GroupView::Top),
+            None => line(writer, "No scored issues found.", options, Style::Success),
+        };
     }
-    let Some(group) = presentation.groups.first() else {
-        return Ok(());
-    };
-    render_group(writer, group, options, GroupView::Top)
+    for group in scored {
+        if group.is_unscored() {
+            render_unscored_group(writer, group, options)?;
+        } else {
+            render_group(writer, group, options, GroupView::Full)?;
+        }
+    }
+    if !notes.is_empty() {
+        line(writer, COMPILER_NOTES_HEADING, options, Style::Heading)?;
+    }
+    for group in notes {
+        line(
+            writer,
+            &format!(
+                "{} ({} occurrences, {})",
+                group.title, group.occurrences, group.rule_id
+            ),
+            options,
+            Style::Muted,
+        )?;
+    }
+    Ok(())
 }
 
 /// The rule below the findings, the two totals, and the hint that the rest is
@@ -224,10 +245,14 @@ fn render_totals<W: Write>(
         options,
         Style::Muted,
     )?;
+    let notes = match presentation.note_count {
+        0 => String::new(),
+        count => format!(", {count} of them compiler notes (not scored)"),
+    };
     line(
         writer,
         &format!(
-            "All {} occurrences across {} findings",
+            "All {} occurrences across {} findings{notes}",
             presentation.issue_count, presentation.finding_count
         ),
         options,
@@ -717,13 +742,8 @@ fn render_score<W: Write>(
         )?;
     }
     score_header::render(writer, score, options, score_header::Cadence::DEFAULT)?;
-    if !score.authoritative {
-        line(
-            writer,
-            "Score is partial because the scan did not complete or contains unscored findings.",
-            options,
-            Style::Warning,
-        )?;
+    for reason in &score.reasons {
+        line(writer, reason.explanation(), options, Style::Warning)?;
     }
     if let Some(projected) = score
         .projected_after_top_three

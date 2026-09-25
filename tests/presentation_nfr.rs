@@ -105,6 +105,7 @@ fn fixture_report() -> InspectReport {
             span: None,
             related: Vec::new(),
             similarity_basis_points: None,
+            unscored: None,
             complexity: None,
             suggestion: None,
             occurrences: 1,
@@ -112,7 +113,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 17,
+        schema_version: 18,
         audit: Audit::build(DIAGNOSTICS, DIAGNOSTICS * 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
@@ -120,6 +121,7 @@ fn fixture_report() -> InspectReport {
         scope: None,
         project: None,
         toolchain: ToolchainReport {
+            rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
             cargo: None,
             clippy: None,

@@ -15,6 +15,11 @@ fn score(value: u8, label: ScoreLabel, authoritative: bool) -> AuditScore {
         value,
         label,
         authoritative,
+        reasons: if authoritative {
+            Vec::new()
+        } else {
+            vec![crate::ScoreReason::ScanIncomplete]
+        },
         dimensions: ScoreDimensions {
             security: value,
             reliability: value,

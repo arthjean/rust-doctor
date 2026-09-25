@@ -567,7 +567,7 @@ fn control_characters_in_internal_paths_are_encoded_before_rendering() {
     let workspace = fixture("clean").canonicalize().unwrap();
     let diagnostics = normalize_diagnostics(
         &[compiler_message(
-            Some("clippy::lint"),
+            Some("clippy::todo"),
             "warning",
             "message",
             "src/100%\u{001b}[31mline\n.rs",

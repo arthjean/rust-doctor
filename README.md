@@ -5,7 +5,7 @@
 
 Your agent writes bad Rust, this catches it.
 
-Rust Doctor scans your Cargo workspace with 62 curated rules and finds issues across security, correctness, reliability, performance, maintainability, and dependencies. It ends on a score out of 100 and the three rules worth fixing first.
+Rust Doctor scans your Cargo workspace with 126 curated rules and finds issues across security, correctness, reliability, performance, maintainability, and dependencies. It ends on a score out of 100 and the three rules worth fixing first.
 
 Works on any Cargo workspace - a single binary crate, a library, a virtual workspace with dozens of members, you name it.
 

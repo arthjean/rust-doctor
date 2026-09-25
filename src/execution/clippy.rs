@@ -38,13 +38,11 @@ const BASE_ARGS: [&str; 4] = [
 /// Silences everything Clippy warns about by default, so the only lints left
 /// are the ones the catalog names right after it.
 ///
-/// A lint the catalog does not know still reaches the report otherwise:
-/// `report::diagnostics` only drops a diagnostic whose rule is catalogued and
-/// inactive. It arrives with no category, no tier and no help, it cannot weigh
-/// on the score, and its mere presence costs the score its authoritative flag.
-/// Measured on four corpus repositories on 2026-08-06: 9 findings out of 164
-/// came from there, and they were enough to disqualify three of the four
-/// reports. Dropping them makes every finding one the tool can explain.
+/// A lint the catalog does not know would still reach the report otherwise,
+/// with no category, no tier and no help. Measured on four corpus repositories
+/// on 2026-08-06: 9 findings out of 164 came from there. What still arrives
+/// uncatalogued, a rustc lint or a Clippy lint the workspace's own `[lints]`
+/// enables, is published as an unscored compiler note and weighs nothing.
 ///
 /// Order matters, `-W` after `-A` wins, so this stays the first argument of the
 /// lint section.

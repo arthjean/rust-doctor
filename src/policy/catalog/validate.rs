@@ -3,8 +3,8 @@
 //!
 //! It is compiled under `cfg(test)` alone: nothing a scan does depends on it,
 //! and a catalog that fails it is a catalog that never ships. Keeping it out of
-//! the shipped file also keeps the file that declares 62 rules readable as what
-//! it is, a list.
+//! the shipped files also keeps the files that declare the rules readable as
+//! what they are, lists.
 
 use std::collections::BTreeSet;
 

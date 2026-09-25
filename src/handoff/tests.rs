@@ -53,6 +53,7 @@ fn report() -> InspectReport {
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        unscored: None,
         complexity: None,
         suggestion: None,
         occurrences: 2,
@@ -67,6 +68,7 @@ fn report() -> InspectReport {
         scope: None,
         project: None,
         toolchain: ToolchainReport {
+            rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
             cargo: None,
             clippy: None,

@@ -21,7 +21,8 @@ quantities of `summary`, v10 a diagnostic's `context`, v11 its `related`
 locations, v12 `similarity_basis_points`, v13 `complexity`, v14
 `corpus_noise_basis_points` and `withheld_rule_ids`, v15 `production_lines`, v16
 `corpus_reviewed_sites`, v17 a diagnostic's `suggestion`, the replacement the
-toolchain proposed for the span and how far it vouches for it. No historical field was ever removed or retyped, so the
+toolchain proposed for the span and how far it vouches for it, v18 a
+diagnostic's `unscored`, the score's `reasons` and `toolchain.rust_doctor`. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
 whenever the catalog widens or the scope shifts. That is what makes a frozen
@@ -30,8 +31,16 @@ an existing field does not. The prefix the projection strips is built from
 `rust_doctor::SCHEMA_VERSION` rather than retyped, so a bump reaches it without
 an edit.
 
-Four rules hold it together, and each of them replaced something that had a
+Five rules hold it together, and each of them replaced something that had a
 cost.
+
+An uncatalogued diagnostic is published and never weighed. A warning whose code
+the catalog does not describe, a rustc lint or a Clippy lint the workspace's
+own `[lints]` enabled, is marked `unscored: "uncatalogued"` in `normalize.rs`.
+`DiagnosticContext::weighs` reads it for the score and the full gate, and the
+baseline gate skips it among the introduced diagnostics. It used to
+be kept and weighed, so one `unused_imports` voided the score; an uncatalogued
+error is still the compilation failing, never a note.
 
 One merge, one order. `diagnostics_from_execution` keeps one `BTreeMap` open
 across all five producers and sorts once at the end. Three word-for-word
@@ -90,7 +99,8 @@ wrapped, since a link cut in two is two strings no terminal opens, and a group
 every site of which sits outside production code is one line of the verbose
 report: on this crate's own scan such groups were a thousand of the eleven
 hundred lines printed, the help sentence repeated twenty-two times, and the
-rule link cut at column eighty.
+rule link cut at column eighty. Compiler notes close the list under "Compiler
+notes (not scored)", one line each, and the summary line counts them.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
 twelve calls and nothing else: a line written straight into the entry point is

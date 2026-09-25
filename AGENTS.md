@@ -7,8 +7,8 @@ detectors, then scores it out of 100. `src/lib.rs` exposes
 `src/tui/` is the interactive report it opens on a terminal, and
 `npm/rust-doctor/` is a Node launcher for the released binary.
 
-The catalog holds 62 rules across five producers, and a rule's id prefix names
-its producer: `clippy::*` (37 curated lints, `Producer::Clippy`),
+The catalog holds 126 rules across five producers, and a rule's id prefix names
+its producer: `clippy::*` (101 curated lints, `Producer::Clippy`),
 `rust_doctor::source::*` (2, `SourceKernel`, error stage `source`),
 `rust_doctor::cargo::*` (11, `CargoHealth`, stage `dependencies`, which judges
 the manifests and `.cargo/config.toml`), `rust_doctor::structure::*` (9,
@@ -93,7 +93,8 @@ what enforce that, one per module, each naming its own, and two of them cover
 
 ## The catalog, the corpus and the report
 
-- The 62 rules are declared once, in `src/policy/catalog.rs`, and published by
+- The 126 rules are declared once, in `src/policy/catalog.rs` and its
+  `correctness` module, and published by
   `rust-doctor rules list --json`. Editing the catalog means regenerating
   `tests/corpus.json` with it and syncing the README's one rule count.
   [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
@@ -107,7 +108,7 @@ what enforce that, one per module, each naming its own, and two of them cover
   `adjudication.position_proof` anchors every published site to a run that
   located it. [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
 - Any change to the report shape bumps `SCHEMA_VERSION` in `src/report.rs`,
-  currently 17, and the frozen v7 archive keeps projecting.
+  currently 18, and the frozen v7 archive keeps projecting.
   [docs/subsystems/reporting.md](docs/subsystems/reporting.md)
 
 ## Testing

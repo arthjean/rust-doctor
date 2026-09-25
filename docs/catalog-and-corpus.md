@@ -5,7 +5,7 @@ it grows.
 
 ## The published catalog
 
-`rust-doctor rules list --json` prints the 62 catalogued rules, each with its
+`rust-doctor rules list --json` prints the 126 catalogued rules, each with its
 category, producer, default level, tier and help. It reads no filesystem: the
 catalog is what the binary was compiled with. `rust_doctor::catalog()` is the
 same projection for library callers, and `CatalogEntry` is the only public
@@ -144,11 +144,12 @@ cargo test --lib policy::coverage -- --nocapture
 ```
 
 The run prints `universe N, decided N, queue N` and then the queue itself,
-warned lints first. Those already reach the report without being catalogued:
-`report::diagnostics` only drops a diagnostic whose rule is catalogued and
-inactive, so an uncatalogued warning arrives with no category, no tier and no
-help, and costs the score its authoritative flag. Growing the catalog means
-draining that head, not inventing rules.
+lints the toolchain denies by default first, then warned ones. That head is what
+plain `cargo clippy` shows a user and the scan's `-A clippy::all` silences.
+A denied lint is carried like any other once admitted: its `-W` wins over the
+default level, and switching it off leaves it allowed, not denied
+(`docs/correctness-group-2026-09.md`). Growing the catalog means draining that
+head, not inventing rules.
 
 Turning a lint down means adding it to `rejected.json`; leaving it untriaged
 means doing nothing. `DECIDED_FLOOR` in `coverage.rs` records how many lints of

@@ -325,7 +325,7 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     let baseline = report(&output);
     let baseline_events = fixture.processes.events();
 
-    assert_eq!(baseline["schema_version"], 17);
+    assert_eq!(baseline["schema_version"], 18);
     assert_eq!(baseline["status"], "complete");
     assert_eq!(baseline["complete"], true);
     assert_eq!(baseline["scope"]["mode"], "baseline");
@@ -500,7 +500,19 @@ fn baseline_gate_counts_only_introduced_diagnostics() {
     assert_eq!(report["delta"]["summary"]["introduced"], 4);
     assert_eq!(report["delta"]["summary"]["pre_existing"], 4);
     assert_eq!(report["gate"]["status"], "failed");
-    assert_eq!(report["gate"]["blocking_diagnostics"], 4);
+    // The fourth introduced diagnostic is rustc's `dead_code` on the untracked
+    // module: a compiler note, published and blocking nothing (US-004).
+    let introduced = report["delta"]["introduced"].as_array().unwrap();
+    let notes: Vec<&Value> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| introduced.contains(&diagnostic["id"]))
+        .filter(|diagnostic| diagnostic["unscored"] == "uncatalogued")
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["code"], "dead_code");
+    assert_eq!(report["gate"]["blocking_diagnostics"], 3);
 }
 
 #[test]

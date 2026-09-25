@@ -33,7 +33,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 17;
+pub const SCHEMA_VERSION: u8 = 18;
 
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
@@ -278,6 +278,9 @@ pub struct ToolchainReport {
     pub rustc: Option<String>,
     pub cargo: Option<String>,
     pub clippy: Option<String>,
+    /// The version of the rust-doctor binary that produced the report, so a
+    /// report read later names the catalog and the score model it was built with.
+    pub rust_doctor: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -309,6 +312,11 @@ pub struct Diagnostic {
     /// the channel Cargo imposes, not a defect of the shipped codebase.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<DiagnosticContext>,
+    /// Why a production diagnostic is published without weighing, absent when
+    /// it weighs. A warning whose code the catalog does not describe is shown
+    /// so it never vanishes, and weighs nothing so it never voids the score.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unscored: Option<UnscoredReason>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
     /// Every other site the finding spans, workspace-relative.
@@ -477,10 +485,20 @@ impl DiagnosticContext {
     /// This is the decision react-doctor makes in `filterForSurface`: a
     /// diagnostic stamped with a non-production context leaves the `score` and
     /// `ciFailure` surfaces, and stays in `cli`. It is not removed, it stops
-    /// costing.
+    /// costing. An unscored one follows the same path for another reason: the
+    /// catalog has nothing to weigh it with.
     pub(crate) const fn weighs(diagnostic: &Diagnostic) -> bool {
-        diagnostic.context.is_none()
+        diagnostic.context.is_none() && diagnostic.unscored.is_none()
     }
+}
+
+/// Closed reason a diagnostic is published and weighs nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UnscoredReason {
+    /// A compiler warning whose code the catalog does not describe: a rustc
+    /// lint, or a Clippy lint the workspace's own `[lints]` table enabled.
+    Uncatalogued,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]

@@ -19,6 +19,8 @@
   },
   "frozen": [
     "docs/agent-population-precision-2026-08.md",
+    "docs/correctness-group-2026-09.md",
+    "docs/parity-release-1-2026-10.md",
     "docs/resampling-containment-2026-08.md",
     "docs/structural-precision-2026-08.md",
     "docs/suppression-precision-2026-08.md",

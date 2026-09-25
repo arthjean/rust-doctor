@@ -14,7 +14,10 @@ use crate::source_kernel::SourceMeasurement;
 
 mod density;
 mod ranking;
+mod reason;
 mod source_inventory;
+
+pub use reason::ScoreReason;
 
 use density::{DensityScope, Scale, calculate_dimensions, contributions, tier_weight};
 
@@ -59,6 +62,8 @@ pub struct Audit {
     /// nothing to do with the inventory. It stays private because it is not published: the
     /// wire shape is the three members above.
     inventory_is_complete: bool,
+    /// Whether a stage of the scan failed, which a narrower scope inherits for the same reason.
+    stage_failed: bool,
 }
 
 /// Per-severity count of a single quantity.
@@ -145,6 +150,8 @@ pub struct AuditScore {
     pub value: u8,
     pub label: ScoreLabel,
     pub authoritative: bool,
+    /// Every cause that makes the score non-authoritative, empty exactly when it is.
+    pub reasons: Vec<ScoreReason>,
     pub dimensions: ScoreDimensions,
     /// Worst tier observed across all dimensions, or `null` when no scored
     /// rule is catalogued.
@@ -264,7 +271,8 @@ pub(crate) struct RuleAggregate {
 pub(crate) struct RuleAggregation {
     pub(crate) rules: Vec<RuleAggregate>,
     scale: Scale,
-    diagnostics_are_authoritative: bool,
+    /// What in the diagnostics themselves keeps the score from being authoritative.
+    voided: BTreeSet<ScoreReason>,
 }
 
 #[derive(Debug)]
@@ -295,21 +303,26 @@ impl Audit {
                 complete: true,
             },
             status,
+            status == Status::Failed,
             diagnostics,
         )
     }
 
+    /// `stage_failed` is whether the report carries an error: every error names the stage it
+    /// failed at, and a failed stage is its own reason, distinct from a scan cut short.
     pub(crate) fn build_from_inventory(
         inventory: SourceFileInventory,
         status: Status,
+        stage_failed: bool,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        Self::build_with_inventory(inventory, status, diagnostics)
+        Self::build_with_inventory(inventory, status, stage_failed, diagnostics)
     }
 
     fn build_with_inventory(
         inventory: SourceFileInventory,
         status: Status,
+        stage_failed: bool,
         diagnostics: &[Diagnostic],
     ) -> Self {
         let SourceFileInventory {
@@ -322,17 +335,25 @@ impl Audit {
         // callers of it cannot disagree on the population.
         let categories = category_tallies(diagnostics);
         let aggregation = aggregate_rules(production_lines, diagnostics.iter());
-        let scan_is_complete = status == Status::Complete && inventory_is_complete;
+        // A failed stage is what cut the scan short whenever one did, so it is the reason given,
+        // and an incomplete scan is named only when nothing failed.
+        let mut reasons = aggregation.voided.clone();
+        if stage_failed || status == Status::Failed {
+            reasons.insert(ScoreReason::StageFailed);
+        } else if status != Status::Complete || !inventory_is_complete {
+            reasons.insert(ScoreReason::ScanIncomplete);
+        }
         // No source and no line are the same refusal: core-v3 scores a density, and a density
         // over nothing is not a hundred out of a hundred, it is an answer the scan cannot give.
         let score = is_scorable_workspace(source_files, production_lines)
-            .then(|| score(&aggregation, scan_is_complete));
+            .then(|| score(&aggregation, reasons.into_iter().collect()));
         Self {
             source_files,
             production_lines,
             categories,
             score,
             inventory_is_complete,
+            stage_failed,
         }
     }
 
@@ -344,6 +365,7 @@ impl Audit {
                 complete: self.inventory_is_complete,
             },
             status,
+            self.stage_failed,
             diagnostics,
         )
     }
@@ -461,6 +483,10 @@ impl AuditScore {
     /// which fact stopped holding.
     pub fn is_valid(&self) -> bool {
         if self.model != SCORE_MODEL || self.value > 100 {
+            return false;
+        }
+        // The flag is true exactly when no reason drops it.
+        if self.authoritative != self.reasons.is_empty() {
             return false;
         }
         if self.applied_ceiling != self.worst_tier.and_then(tier_overall_ceiling) {
@@ -722,9 +748,9 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
     tallies.into_values().collect()
 }
 
-fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
+fn score(aggregation: &RuleAggregation, reasons: Vec<ScoreReason>) -> AuditScore {
     let scored = ScoredState::of(&aggregation.rules, &BTreeSet::new(), aggregation.scale);
-    let authoritative = scan_complete && aggregation.diagnostics_are_authoritative;
+    let authoritative = reasons.is_empty();
     let (projected, withheld) = aggregation.projection();
     let projected_rule_ids: Vec<String> = projected.iter().map(|rule| rule.id.clone()).collect();
 
@@ -747,6 +773,7 @@ fn score(aggregation: &RuleAggregation, scan_complete: bool) -> AuditScore {
         value: scored.value,
         label: score_label(scored.value),
         authoritative,
+        reasons,
         dimensions: scored.dimensions,
         worst_tier: scored.worst_tier,
         applied_ceiling: scored.applied_ceiling,
@@ -797,28 +824,23 @@ pub(crate) fn aggregate_rules<'a>(
     production_lines: usize,
     diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> RuleAggregation {
-    let mut diagnostics_are_authoritative = true;
+    let mut voided = BTreeSet::new();
     let mut rules = BTreeMap::<String, PendingRule>::new();
     for diagnostic in diagnostics {
         let weighs = crate::report::DiagnosticContext::weighs(diagnostic);
         let Some(rule_id) = diagnostic.code.as_deref().filter(|code| !code.is_empty()) else {
-            diagnostics_are_authoritative &= !weighs;
+            voided.extend(void_reason(weighs, false, false));
             continue;
         };
         let definition = crate::policy::find(rule_id);
         let mapping = diagnostic.category.as_deref().and_then(category_mapping);
         let weight = density::severity_weight(diagnostic.severity);
         let scores = weighs && weight.is_some() && mapping.is_some();
-        if weighs && !scores {
-            diagnostics_are_authoritative = false;
-        }
         // A rule the catalog cannot resolve has no producer to read a denominator off, so it is
         // counted against the workspace and the flag says the score was computed over something
         // the catalog does not describe. The scope has to be total: there is no third answer a
         // density could be divided by.
-        if weighs && definition.is_none() {
-            diagnostics_are_authoritative = false;
-        }
+        voided.extend(void_reason(weighs, definition.is_some(), scores));
         let rule = rules.entry(rule_id.to_owned()).or_insert(PendingRule {
             id: rule_id.to_owned(),
             severity: diagnostic.severity,
@@ -847,7 +869,7 @@ pub(crate) fn aggregate_rules<'a>(
             rule.numerator = rule.numerator.saturating_add(weight);
             if rule.dimension.is_some_and(|current| current != dimension) {
                 rule.mapping_conflict = true;
-                diagnostics_are_authoritative = false;
+                voided.insert(ScoreReason::CategoryMappingConflict);
             } else if rule.dimension.is_none() {
                 rule.category = Some(category);
                 rule.dimension = Some(dimension);
@@ -883,7 +905,18 @@ pub(crate) fn aggregate_rules<'a>(
     RuleAggregation {
         rules,
         scale,
-        diagnostics_are_authoritative,
+        voided,
+    }
+}
+
+/// What one weighing diagnostic says against the score's authority. Every uncatalogued warning
+/// is unscored, so one that still weighs is an error: the compilation failing, whichever stage
+/// reported it. A catalogued one that reaches no dimension is a mapping the score cannot place.
+const fn void_reason(weighs: bool, catalogued: bool, scores: bool) -> Option<ScoreReason> {
+    match (weighs, catalogued, scores) {
+        (false, _, _) | (true, true, true) => None,
+        (true, false, _) => Some(ScoreReason::StageFailed),
+        (true, true, false) => Some(ScoreReason::CategoryMappingConflict),
     }
 }
 

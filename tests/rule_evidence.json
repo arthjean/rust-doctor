@@ -2,9 +2,29 @@
   "criterion": "A rule ships only when one trigger of it is recorded where a test replays it: a frozen oracle that names the rule in an observed position, or a named test that scans a fixture and asserts the finding. The record proves the rule fires on the pattern it claims to catch. Precision on the corpus answers the opposite question, how often the rule is wrong on healthy code, and says nothing when the corpus never triggers it. `catches` states that pattern in one line, and for a Clippy rule it is the description the toolchain publishes, so a lint whose meaning shifts upstream stops matching its own contract.",
   "evidence": [
     {
+      "catches": "a comparison with a maximum or minimum value that is always true or false",
+      "id": "clippy::absurd_extreme_comparisons",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "`foo = bar; bar = foo` sequence",
+      "id": "clippy::almost_swapped",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "the approximate of a known float constant (in `std::fXX::consts`)",
+      "id": "clippy::approx_constant",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "using `Arc` with a type that does not implement `Send` and `Sync`",
       "id": "clippy::arc_with_non_send_sync",
       "oracle": "score-credibility/packs/concurrency/oracle.json"
+    },
+    {
+      "catches": "async blocks that return a type that can be awaited",
+      "id": "clippy::async_yields_async",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "inside an async function, holding a `MutexGuard` while calling `await`",
@@ -17,9 +37,59 @@
       "oracle": "score-credibility/packs/concurrency/oracle.json"
     },
     {
+      "catches": "expressions of the form `_ & mask == select` that will only ever return `true` or `false`",
+      "id": "clippy::bad_bit_mask",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "casting using `as` between raw pointers to slices of types with different sizes",
+      "id": "clippy::cast_slice_different_sizes",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using the character position yielded by `.chars().enumerate()` in a context where a byte index is expected",
+      "id": "clippy::char_indices_as_byte_indices",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "`dbg!` macro is intended as a debugging tool",
       "id": "clippy::dbg_macro",
       "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "use of `#[deprecated(since = \"x\")]` where x is not semver",
+      "id": "clippy::deprecated_semver",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "deriving `Ord` but implementing `PartialOrd` explicitly",
+      "id": "clippy::derive_ord_xor_partial_ord",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "deriving `Hash` but implementing `PartialEq` explicitly",
+      "id": "clippy::derived_hash_with_manual_eq",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "eager evaluation of `transmute`",
+      "id": "clippy::eager_transmute",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "C-like enums that are `repr(isize/usize)` and have values that don't fit into an `i32`",
+      "id": "clippy::enum_clike_unportable_variant",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "equal operands on both sides of a comparison or bitwise combination (e.g., `x == x`)",
+      "id": "clippy::eq_op",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using erasing operations, e.g., `x * 0` or `y & 0`",
+      "id": "clippy::erasing_op",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "detects `std::process::exit` calls outside of `main`",
@@ -37,9 +107,74 @@
       "oracle": "score-credibility/packs/performance/oracle.json"
     },
     {
+      "catches": "locking a `Mutex` in an `if let` block can cause deadlocks",
+      "id": "clippy::if_let_mutex",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "consecutive `if`s with the same condition",
+      "id": "clippy::ifs_same_cond",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "ensures that the semantics of `Borrow` for `Hash` are satisfied when `Borrow<str>` and `Borrow<[u8]>` are implemented",
+      "id": "clippy::impl_hash_borrow_with_str_and_bytes",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "double comparisons that will never evaluate to `true`",
+      "id": "clippy::impossible_comparisons",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "indexing/slicing usage",
       "id": "clippy::indexing_slicing",
       "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "expressions where a bit mask will be rendered useless by a comparison, e.g., `(x | 1) > 2`",
+      "id": "clippy::ineffective_bit_mask",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "infinite iteration",
+      "id": "clippy::infinite_iter",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "type implements inherent method `to_string()`, which gets shadowed by the implementation of the `Display` trait",
+      "id": "clippy::inherent_to_string_shadow_display",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "use of `#[inline]` on trait methods without bodies",
+      "id": "clippy::inline_fn_without_body",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "Check if a variable is smaller than another one and still subtract from it even if smaller",
+      "id": "clippy::inverted_saturating_sub",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using an invisible character in a string literal, which is confusing",
+      "id": "clippy::invisible_characters",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "for-looping over `_.next()` which is probably not intended",
+      "id": "clippy::iter_next_loop",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "disallows `.skip(0)`",
+      "id": "clippy::iter_skip_zero",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using `Iterator::step_by(0)`, which will panic at runtime",
+      "id": "clippy::iterator_step_by_zero",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "functions taking large arguments by value",
@@ -47,9 +182,19 @@
       "oracle": "score-credibility/packs/performance/oracle.json"
     },
     {
+      "catches": "a lint group in `Cargo.toml` at the same priority as a lint",
+      "id": "clippy::lint_groups_priority",
+      "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
       "catches": "manually copying items between slices",
       "id": "clippy::manual_memcpy",
       "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "creation of a case altering match expression with non-compliant arms",
+      "id": "clippy::match_str_case_mismatch",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "`mem::forget` usage on `Drop` types, likely to cause memory leaks",
@@ -57,9 +202,34 @@
       "oracle": "rule-scaling-kernel/oracle.json"
     },
     {
+      "catches": "`mem::replace(&mut _, mem::uninitialized())` or `mem::replace(&mut _, mem::zeroed())`",
+      "id": "clippy::mem_replace_with_uninit",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "`min(_, max(_, _))` (or vice versa) with bounds clamping the result to a constant",
+      "id": "clippy::min_max",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "`pub unsafe fn` without `# Safety` docs",
       "id": "clippy::missing_safety_doc",
       "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
+      "catches": "mistyped literal suffix",
+      "id": "clippy::mistyped_literal_suffixes",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "taking an integer modulo +/-1, which can either panic/overflow or always returns 0",
+      "id": "clippy::modulo_one",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "fns that create mutable refs from immutable ref args",
+      "id": "clippy::mut_from_ref",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "`&mut Mutex::lock` does unnecessary locking",
@@ -67,9 +237,39 @@
       "oracle": "score-credibility/packs/concurrency/oracle.json"
     },
     {
+      "catches": "any loop that will always `break` or `return`",
+      "id": "clippy::never_loop",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "use of non-octal value to set unix file permissions, which will be translated into octal",
+      "id": "clippy::non_octal_unix_permissions",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "there is a field that is not safe to be sent to another thread in a `Send` struct",
       "id": "clippy::non_send_fields_in_send_ty",
       "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "nonsensical combination of options for opening a file",
+      "id": "clippy::nonsensical_open_options",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "public functions dereferencing raw pointer arguments but not marked `unsafe`",
+      "id": "clippy::not_unsafe_ptr_arg_deref",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using `option_env!(...).unwrap()` to get environment variable",
+      "id": "clippy::option_env_unwrap",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "out of bounds constant indexing",
+      "id": "clippy::out_of_bounds_indexing",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "usage of the `panic!` macro",
@@ -82,9 +282,24 @@
       "oracle": "score-credibility/packs/panic/oracle.json"
     },
     {
+      "catches": "overflow checks which will panic in debug mode",
+      "id": "clippy::panicking_overflow_checks",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "checks for calls of `unwrap[_err]()` that will always fail",
+      "id": "clippy::panicking_unwrap",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "Checks for calls to `std::fs::Permissions.set_readonly` with argument `false`",
       "id": "clippy::permissions_set_readonly_false",
       "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "possible missing comma in array",
+      "id": "clippy::possible_missing_comma",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "printing on stderr",
@@ -112,9 +327,39 @@
       "oracle": "score-credibility/packs/concurrency/oracle.json"
     },
     {
+      "catches": "calling `Stdin::read_line`, then trying to parse it without first trimming",
+      "id": "clippy::read_line_without_trim",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "Format trait method called while implementing the same Format trait",
+      "id": "clippy::recursive_format_impl",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "redundant allocation",
       "id": "clippy::redundant_allocation",
       "oracle": "score-credibility/packs/performance/oracle.json"
+    },
+    {
+      "catches": "double comparisons where one of them can be removed",
+      "id": "clippy::redundant_comparisons",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "reversing the limits of range expressions, resulting in empty ranges",
+      "id": "clippy::reversed_empty_ranges",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "explicit self-assignment",
+      "id": "clippy::self_assignment",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "using `size_of::<T>` or `size_of_val::<T>` where a count of elements of `T` is expected",
+      "id": "clippy::size_of_in_element_count",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "use of sort() when sort_unstable() is equivalent",
@@ -132,6 +377,11 @@
       "oracle": "rule-scaling-kernel/oracle.json"
     },
     {
+      "catches": "checks for `.splitn(0, ..)` and `.splitn(1, ..)`",
+      "id": "clippy::suspicious_splitn",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "`todo!` should not be present in production code",
       "id": "clippy::todo",
       "oracle": "rule-scaling-kernel/oracle.json"
@@ -140,6 +390,16 @@
       "catches": "functions with too many arguments",
       "id": "clippy::too_many_arguments",
       "test": "tests/rule_admission.rs::every_rule_admitted_outside_a_pack_fires_on_its_own_fixture"
+    },
+    {
+      "catches": "transmute results in a null function pointer, which is undefined behavior",
+      "id": "clippy::transmute_null_to_fn",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "transmutes from a null pointer to a reference, which is undefined behavior",
+      "id": "clippy::transmuting_null",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "usage of very complex types that might be better factored into `type` definitions",
@@ -152,6 +412,31 @@
       "oracle": "rule-scaling-kernel/oracle.json"
     },
     {
+      "catches": "`MaybeUninit::uninit().assume_init()`",
+      "id": "clippy::uninit_assumed_init",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "Vec with uninitialized data",
+      "id": "clippy::uninit_vec",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "comparing unit values",
+      "id": "clippy::unit_cmp",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "hashing a unit value, which does nothing",
+      "id": "clippy::unit_hash",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "fn arguments of type Fn(...) -> Ord returning the unit type ().",
+      "id": "clippy::unit_return_expecting_ord",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "unnecessary calls to `to_owned`-like functions",
       "id": "clippy::unnecessary_to_owned",
       "oracle": "score-credibility/packs/performance/oracle.json"
@@ -162,14 +447,29 @@
       "oracle": "score-credibility/packs/panic/oracle.json"
     },
     {
+      "catches": "transmute between collections of layout-incompatible types",
+      "id": "clippy::unsound_collection_transmute",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "finds async functions with no await statements",
       "id": "clippy::unused_async",
       "oracle": "score-credibility/packs/concurrency/oracle.json"
     },
     {
+      "catches": "unused written/read amount",
+      "id": "clippy::unused_io_amount",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "using `.unwrap()` on `Result` or `Option`, which should at least get a better message using `expect()`",
       "id": "clippy::unwrap_used",
       "oracle": "score-credibility/packs/panic/oracle.json"
+    },
+    {
+      "catches": "use of lint attributes on `extern crate` items",
+      "id": "clippy::useless_attribute",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "useless `vec!`",
@@ -182,9 +482,29 @@
       "oracle": "score-credibility/packs/performance/oracle.json"
     },
     {
+      "catches": "emptying a vector with `resize(0, an_int)` instead of `clear()` is probably an argument inversion mistake",
+      "id": "clippy::vec_resize_to_zero",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "variables used within while expression are not mutated in the body",
+      "id": "clippy::while_immutable_condition",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
+      "catches": "transmutes that are confusing at best, undefined behavior at worst and always useless",
+      "id": "clippy::wrong_transmute",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
+    },
+    {
       "catches": "not waiting on a spawned child process",
       "id": "clippy::zombie_processes",
       "oracle": "rule-scaling-kernel/oracle.json"
+    },
+    {
+      "catches": "Check for offset calculations on raw pointers to zero-sized types",
+      "id": "clippy::zst_offset",
+      "oracle": "score-credibility/packs/correctness/oracle.json"
     },
     {
       "catches": "two incompatible major versions of the same crate resolved into one dependency graph",

@@ -13,11 +13,6 @@
       "reason": "Rewrites a = a + b as a += b, which is shorter and identical in behaviour."
     },
     {
-      "class": "deny-by-default",
-      "id": "clippy::async_yields_async",
-      "reason": "Denied by default in the toolchain: dropping its -W restores Clippy's refusal, so carrying it would turn a scan into a compilation failure instead of a report."
-    },
-    {
       "class": "out-of-scope",
       "id": "clippy::await_holding_invalid_type",
       "reason": "Fires only against a list of types configured in the scanned workspace's own clippy.toml, which a scan neither provides nor should impose."
@@ -91,11 +86,6 @@
       "class": "covered",
       "id": "clippy::too_many_lines",
       "reason": "rust_doctor::structure::oversized_unit reports the same defect and also names the oversized files, impl blocks and modules that a per-function lint cannot see."
-    },
-    {
-      "class": "deny-by-default",
-      "id": "clippy::unused_io_amount",
-      "reason": "Denied by default in the toolchain: the same refusal applies, and a scan has no way to lower a denied lint back to a warning."
     }
   ]
 }

@@ -182,6 +182,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
         scope: None,
         project: None,
         toolchain: ToolchainReport {
+            rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
             cargo: None,
             clippy: None,
@@ -375,7 +376,9 @@ fn gate_counts_deduplicated_diagnostics_and_exit_codes_follow_both_states() {
     assert_eq!(none.status, GateStatus::Passed);
     assert_eq!(error.blocking_diagnostics, Some(1));
     assert_eq!(error.status, GateStatus::Failed);
-    assert_eq!(warning.blocking_diagnostics, Some(2));
+    // The codeless warning is a compiler note: published, and blocking nothing.
+    assert_eq!(diagnostics[1].unscored, Some(UnscoredReason::Uncatalogued));
+    assert_eq!(warning.blocking_diagnostics, Some(1));
     assert_eq!(warning.status, GateStatus::Failed);
     assert_eq!(incomplete.blocking_diagnostics, None);
     assert_eq!(incomplete.status, GateStatus::NotEvaluated);
@@ -390,6 +393,46 @@ fn gate_counts_deduplicated_diagnostics_and_exit_codes_follow_both_states() {
     assert_eq!(report.exit_code(), 1);
     report.status = Status::Failed;
     assert_eq!(report.exit_code(), 2);
+}
+
+/// An older Clippy that does not know a catalogued lint warns E0602 and closes
+/// on a `failure-note`. Both are compiler notes: the scan built, so neither
+/// blocks the gate nor gives the score a reason to be partial.
+#[test]
+fn a_failure_note_after_an_unknown_lint_is_a_note_not_an_error() {
+    let workspace = fixture("clean");
+    let diagnostics = normalize_diagnostics(
+        &[
+            compiler_message(
+                Some("E0602"),
+                "warning",
+                "unknown lint: `clippy::char_indices_as_byte_indices`",
+                "src/lib.rs",
+                1,
+            ),
+            compiler_message(
+                None,
+                "failure-note",
+                "For more information about this error, try `rustc --explain E0602`.",
+                "src/lib.rs",
+                2,
+            ),
+        ],
+        Some(&workspace),
+        None,
+        &HomePaths::default(),
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.unscored == Some(UnscoredReason::Uncatalogued)),
+        "{diagnostics:?}"
+    );
+    let gate = evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error);
+    assert_eq!(gate.status, GateStatus::Passed);
+    let audit = crate::Audit::build(1, 100, Status::Complete, &diagnostics);
+    let score = audit.score.expect("a scored workspace");
+    assert!(score.authoritative, "{:?}", score.reasons);
 }
 
 fn dependency(

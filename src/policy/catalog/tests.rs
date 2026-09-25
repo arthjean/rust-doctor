@@ -53,7 +53,7 @@ const HISTORICAL_IDS: [&str; 7] = [
 #[test]
 fn catalog_is_the_exact_normative_inventory() {
     validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-    assert_eq!(CATALOG.len(), 62);
+    assert_eq!(CATALOG.len(), 126);
     assert_eq!(
         CATEGORIES,
         [
@@ -86,7 +86,7 @@ fn catalog_is_the_exact_normative_inventory() {
         .filter(|definition| definition.producer == Producer::Clippy)
         .map(|definition| definition.id)
         .collect();
-    assert_eq!(clippy_ids.len(), 37);
+    assert_eq!(clippy_ids.len(), 101);
     assert!(
         clippy_ids
             .iter()
@@ -123,7 +123,7 @@ fn exact_lookup_and_producer_subsets_use_canonical_definitions() {
     }
 
     let plan = PolicyPlan::default();
-    assert_eq!(plan.active_rules(Producer::Clippy).count(), 37);
+    assert_eq!(plan.active_rules(Producer::Clippy).count(), 101);
     assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 11);
     assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
     assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
@@ -145,7 +145,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
         // Derived from the first catalog entry: the substitution happens at
         // position 0, so the identifier must stay that one for a single
         // defect at a time to be under test.
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut empty = CATALOG;
     empty[0] = &EMPTY_HELP;
@@ -156,7 +156,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
         // Derived from the first catalog entry: the substitution happens at
         // position 0, so the identifier must stay that one for a single
         // defect at a time to be under test.
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut category = CATALOG;
     category[0] = &UNKNOWN_CATEGORY;
@@ -170,7 +170,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
         // Derived from the first catalog entry: the substitution happens at
         // position 0, so the identifier must stay that one for a single
         // defect at a time to be under test.
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut mild = CATALOG;
     mild[0] = &TIER_TOO_MILD;
@@ -181,7 +181,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static TIER_TOO_SEVERE: RuleDefinition = RuleDefinition {
         tier: RuleTier::P0,
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut severe = CATALOG;
     severe[0] = &TIER_TOO_SEVERE;
@@ -195,7 +195,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
         // Derived from the first catalog entry: the substitution happens at
         // position 0, so the identifier must stay that one for a single
         // defect at a time to be under test.
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut producer = CATALOG;
     producer[0] = &INVALID_PRODUCER;
@@ -209,7 +209,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
         // Derived from the first catalog entry: the substitution happens at
         // position 0, so the identifier must stay that one for a single
         // defect at a time to be under test.
-        ..CLIPPY_ARC_WITH_NON_SEND_SYNC
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let error = validate_catalog(&[&HOSTILE_DEFINITION]).unwrap_err();
     let rendered = format!("{error:?}");
