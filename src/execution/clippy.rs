@@ -6,13 +6,22 @@
 //! the parser, so `mod clippy` named a fifth of the Clippy story and
 //! `execution.rs` carried the rest at 977 lines of a 1000-line bound.
 
+use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
+use cargo_metadata::Metadata;
+
+use super::members::Members;
 use super::messages::{self, ScanExecution};
-use super::{CommandEnvironment, Programs};
+use super::rustflags::RustflagsOverride;
+use super::{CommandEnvironment, ExecutionContext, lint_list, process};
+use crate::cargo_stderr;
 use crate::internal_error::InternalError;
-use crate::policy::{PolicyPlan, Producer, RuleDefinition, RuleLevel};
+#[cfg(test)]
+use crate::policy::PolicyPlan;
+use crate::policy::{Producer, RuleDefinition, RuleLevel};
+use crate::progress::Progress;
 
 /// Cargo's default targets: libraries and binaries, that is, what the project
 /// publishes.
@@ -28,10 +37,15 @@ use crate::policy::{PolicyPlan, Producer, RuleDefinition, RuleLevel};
 /// The filtering cannot happen afterwards: Cargo labels `test: true` on every
 /// message under `--all-targets`, including those of a binary with no test at
 /// all. The scope is therefore set here, at the source.
-const BASE_ARGS: [&str; 4] = [
+///
+/// `--keep-going` lets every member that compiles be linted when another does
+/// not. Without it the first broken crate stopped the build, and one red member
+/// erased the report for all the others.
+const BASE_ARGS: [&str; 5] = [
     "clippy",
     "--workspace",
     "--no-deps",
+    "--keep-going",
     "--message-format=json",
 ];
 
@@ -48,6 +62,11 @@ const BASE_ARGS: [&str; 4] = [
 /// lint section.
 const SILENCE_UNCATALOGUED: [&str; 2] = ["-A", "clippy::all"];
 
+/// Appended when the installed Clippy's lint list could not be read, so a
+/// catalogued lint it does not know is allowed instead of failing the build.
+const TOLERATE_UNKNOWN: [&str; 2] = ["-A", "unknown_lints"];
+
+#[cfg(test)]
 pub(super) fn arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
     arguments_for_rules(plan.active_rules(Producer::Clippy))
 }
@@ -69,24 +88,57 @@ pub(crate) fn arguments_for_rules<'a>(
 
 /// Runs the pass and answers everything the report needs from it.
 ///
-/// Stdout is drained to its end before the wait: Cargo blocked on a pipe it
-/// cannot flush never exits, and this process would wait on it forever.
+/// Stdout is drained to its end before the wait, and stderr on a thread of its
+/// own: Cargo blocked on a pipe it cannot flush never exits, and this process
+/// would wait on it forever.
 pub(super) fn run(
-    programs: &Programs,
-    workspace_root: &Path,
-    plan: &PolicyPlan,
+    context: &ExecutionContext<'_>,
+    metadata: &Metadata,
     target_dir: Option<&Path>,
-    environment: &CommandEnvironment,
 ) -> Result<ScanExecution, InternalError> {
-    let arguments = arguments_for_plan(plan);
-    let mut child = command(
-        &programs.cargo,
+    let workspace_root = metadata.workspace_root.as_std_path();
+    let members = Members::of(metadata);
+    let known = lint_list::probe(context, workspace_root);
+    let not_evaluated: Vec<&'static str> = known.as_ref().map_or_else(|_| Vec::new(), |known| {
+        context
+            .plan
+            .active_rules(Producer::Clippy)
+            .map(|(definition, _)| definition.id)
+            .filter(|id| !known.contains(*id))
+            .collect()
+    });
+    let mut arguments = arguments_for_rules(
+        context
+            .plan
+            .active_rules(Producer::Clippy)
+            .filter(|(definition, _)| !not_evaluated.contains(&definition.id)),
+    );
+    let mut notices = Vec::new();
+    if let Err(notice) = known {
+        // Every `-W` is still passed, and a lint this Clippy does not know is
+        // allowed rather than warned about: the scan runs narrower, not blind.
+        arguments.extend(TOLERATE_UNKNOWN);
+        notices.push(notice);
+    }
+    let rustflags = RustflagsOverride::resolve(workspace_root);
+    let mut command = command(
+        &context.programs.cargo,
         workspace_root,
         &arguments,
         target_dir,
-        environment,
-    )
-    .spawn()
+        context.environment,
+    );
+    rustflags.apply(&mut command);
+
+    if let Some(progress) = &context.options.progress {
+        progress.report(Progress::Dependencies);
+    }
+    let mut linted = BTreeSet::new();
+    let finished = process::run(command, context.options.deadline, |stdout| {
+        messages::collect_observed(std::io::BufReader::new(stdout), &mut |message| {
+            members.observe(message, &mut linted, context.options.progress.as_ref());
+        })
+    })
     .map_err(|error| {
         InternalError::new(
             "execution",
@@ -95,17 +147,14 @@ pub(super) fn run(
         )
     })?;
 
-    let Some(stdout) = child.stdout.take() else {
-        let _ = child.wait();
+    let Some(mut stream) = finished.output else {
         return Err(InternalError::new(
             "execution",
             "clippy-stdout-unavailable",
             "Clippy started without a readable stdout pipe",
         ));
     };
-
-    let mut stream = messages::collect(std::io::BufReader::new(stdout));
-    let (exit_code, exit_success) = match child.wait() {
+    let (exit_code, exit_success) = match &finished.status {
         Ok(status) => (status.code(), Some(status.success())),
         Err(error) => {
             stream.errors.push(InternalError::new(
@@ -116,6 +165,29 @@ pub(super) fn run(
             (None, None)
         }
     };
+    let succeeded = exit_success == Some(true) && stream.build_finished == Some(true);
+    if finished.expired
+        && let Some(deadline) = context.options.deadline
+    {
+        stream
+            .errors
+            .push(InternalError::new("clippy", "deadline-exceeded", deadline.message()));
+    } else if stream.build_finished == Some(false) {
+        // Only a build Cargo ran and reported failed has members to name. One
+        // that never started, over a lockfile it could not parse, linted
+        // nothing, and its exit error already quotes why.
+        let unlinted = members.unlinted(&stream.messages);
+        if !unlinted.is_empty() {
+            stream.errors.push(InternalError::new(
+                "clippy",
+                "packages-unlinted",
+                format!(
+                    "Not linted because it did not compile: {}",
+                    unlinted.join(", ")
+                ),
+            ));
+        }
+    }
 
     Ok(ScanExecution {
         command: std::iter::once("cargo")
@@ -129,6 +201,16 @@ pub(super) fn run(
         malformed_messages: stream.malformed_messages,
         messages: stream.messages,
         errors: stream.errors,
+        notices,
+        cargo_cause: (!succeeded && !finished.expired)
+            .then(|| {
+                let target = target_dir.unwrap_or(metadata.target_directory.as_std_path());
+                cargo_stderr::excerpt(&finished.stderr, workspace_root, Some(target))
+            })
+            .flatten(),
+        deadline_exceeded: finished.expired,
+        not_evaluated,
+        removed_lint_flags: rustflags.removed,
     })
 }
 
@@ -140,12 +222,7 @@ fn command(
     environment: &CommandEnvironment,
 ) -> Command {
     let mut command = Command::new(cargo);
-    command
-        .args(arguments)
-        .current_dir(workspace_root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    command.args(arguments).current_dir(workspace_root);
     if let Some(target_dir) = target_dir {
         command.env("CARGO_TARGET_DIR", target_dir);
     }

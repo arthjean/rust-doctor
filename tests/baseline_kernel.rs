@@ -438,7 +438,11 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     assert_eq!(Path::new(metadata[0][1]), fixture.project);
     assert_eq!(Path::new(metadata[0][2]), fixture.target);
     assert!(metadata[1][1].contains("rust-doctor-baseline-"));
-    assert!(metadata[1][2].contains("rust-doctor-baseline-"));
+    // The base side builds under the workspace's own target directory, which
+    // outlives the snapshot, so its dependencies stay compiled between runs.
+    let persistent = fixture.target.join("rust-doctor").join("baseline");
+    assert_eq!(Path::new(metadata[1][2]), persistent);
+    assert_eq!(Path::new(clippy[0][2]), persistent);
     assert_eq!(Path::new(clippy[1][1]), fixture.project);
     assert_eq!(Path::new(clippy[1][2]), fixture.target);
     assert_eq!(clippy[0][3], clippy[1][3]);

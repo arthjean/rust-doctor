@@ -25,6 +25,7 @@
 /tests/fixtures/suppression/*/target/
 /tests/fixtures/dependency-truth/*/target/
 /tests/fixtures/profile-hardening/*/target/
+/tests/fixtures/scan-failures/*/target/
 # The release procedure drives two repositories: it names the website
 # checkout by its local path, which exists on one machine and in a private
 # repository. It stays out of the crate the same way `.claude/` stays out of

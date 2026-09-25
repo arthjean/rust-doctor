@@ -35,7 +35,7 @@ const LINE_MAX_BYTES: usize = 1024 * 1024;
 /// up would not.
 const MESSAGE_MAX_COUNT: usize = 100_000;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct ScanExecution {
     pub(crate) command: Vec<String>,
     pub(crate) exit_code: Option<i32>,
@@ -45,6 +45,20 @@ pub(crate) struct ScanExecution {
     pub(crate) malformed_messages: usize,
     pub(crate) messages: Vec<CapturedMessage>,
     pub(crate) errors: Vec<InternalError>,
+    /// What the pass reports without it costing the scan its completeness: a
+    /// lint list the toolchain would not print is a narrower check, not a
+    /// failed one.
+    pub(crate) notices: Vec<InternalError>,
+    /// The tail of what Cargo wrote on stderr, scrubbed, kept only when the
+    /// pass failed: a successful run publishes nothing from there.
+    pub(crate) cargo_cause: Option<String>,
+    /// The run's deadline killed the pass before it finished.
+    pub(crate) deadline_exceeded: bool,
+    /// Catalogued Clippy rules the installed Clippy does not list, which the
+    /// command therefore does not carry.
+    pub(crate) not_evaluated: Vec<&'static str>,
+    /// The lint-level flags removed from the caller's rustflags.
+    pub(crate) removed_lint_flags: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -131,7 +145,18 @@ enum Record {
     End,
 }
 
+#[cfg(test)]
 pub(super) fn collect(reader: impl BufRead) -> CollectedMessages {
+    collect_observed(reader, &mut |_| {})
+}
+
+/// Reads the stream to its end, handing every message of a modelled reason to
+/// `observe` as it arrives: the progress line is drawn from the
+/// `compiler-artifact` records while Cargo is still writing the next ones.
+pub(super) fn collect_observed(
+    reader: impl BufRead,
+    observe: &mut dyn FnMut(&Message),
+) -> CollectedMessages {
     let mut collected = CollectedMessages::default();
     let mut reader = reader;
 
@@ -152,7 +177,7 @@ pub(super) fn collect(reader: impl BufRead) -> CollectedMessages {
                     collected.malformed_messages += 1;
                     continue;
                 };
-                capture_record(record, &mut collected);
+                capture_record(record, &mut collected, observe);
             }
             Err(error) => {
                 collected.errors.push(InternalError::new(
@@ -212,14 +237,18 @@ fn read_record(reader: &mut impl BufRead) -> std::io::Result<Record> {
     Ok(Record::Line { bytes, truncated })
 }
 
-fn capture_record(record: &str, collected: &mut CollectedMessages) {
+fn capture_record(
+    record: &str,
+    collected: &mut CollectedMessages,
+    observe: &mut dyn FnMut(&Message),
+) {
     let normalized = record.trim_start_matches(|character: char| character.is_ascii_whitespace());
     if normalized.is_empty() {
         if !record.is_empty() {
             collected.noise_lines += 1;
         }
     } else if normalized.starts_with('{') {
-        capture_json_line(normalized, collected);
+        capture_json_line(normalized, collected, observe);
     } else if has_contaminated_cargo_suffix(normalized) {
         collected.malformed_messages += 1;
     } else {
@@ -239,7 +268,11 @@ fn has_contaminated_cargo_suffix(line: &str) -> bool {
         })
 }
 
-fn capture_json_line(line: &str, collected: &mut CollectedMessages) {
+fn capture_json_line(
+    line: &str,
+    collected: &mut CollectedMessages,
+    observe: &mut dyn FnMut(&Message),
+) {
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         collected.malformed_messages += 1;
         return;
@@ -272,6 +305,7 @@ fn capture_json_line(line: &str, collected: &mut CollectedMessages) {
             if let Message::BuildFinished(finished) = &message {
                 collected.build_finished = Some(finished.success);
             }
+            observe(&message);
             collected
                 .messages
                 .push(CapturedMessage::Known(Box::new(message)));

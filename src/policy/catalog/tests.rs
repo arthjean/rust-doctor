@@ -308,10 +308,11 @@ fn a_synthetic_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
     // catalog order. Freezing the whole list would be one more counter to edit
     // on every admitted lint, and it would prove less than the three things
     // that are actually the contract: the head, the pairing and the order.
-    const HEAD: [&str; 7] = [
+    const HEAD: [&str; 8] = [
         "clippy",
         "--workspace",
         "--no-deps",
+        "--keep-going",
         "--message-format=json",
         "--",
         "-A",

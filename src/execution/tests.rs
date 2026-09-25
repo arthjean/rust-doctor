@@ -9,6 +9,8 @@ use crate::repo_hygiene::{RepoError, RepoScan};
 use crate::source_kernel::{SourceError, SourceScan};
 use crate::structure::{StructureError, StructureScan};
 
+mod toolchain;
+
 /// One artifact cache per scanned fixture, keyed by its path.
 ///
 /// Every scan here really runs `cargo clippy`. Two fixtures never share a
@@ -36,6 +38,7 @@ fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
         programs,
         &PolicyPlan::default(),
         Some(&scan_target_dir(path)),
+        &RunOptions::default(),
     )
 }
 
@@ -68,12 +71,14 @@ fn clean_result() -> ExecutionResult {
             malformed_messages: 0,
             messages: Vec::new(),
             errors: Vec::new(),
+            ..ScanExecution::default()
         }),
         source: None,
         source_measurement: None,
         structure: None,
         cargo_health: None,
         repo: None,
+        deadline_skipped: Vec::new(),
         error: None,
     }
 }
@@ -196,7 +201,7 @@ fn version_command_uses_the_requested_working_directory() {
 fn cargo_spawn_failure_is_classified_before_versions_or_scan() {
     let programs = Programs {
         cargo: PathBuf::from("/definitely/missing/rust-doctor-cargo"),
-        rustc: PathBuf::from("rustc"),
+        ..Programs::default()
     };
     let result = execute_with(&fixture("clean"), &programs);
 
@@ -349,7 +354,12 @@ fn the_execution_holds_the_size_bound_it_scans_for() {
         include_str!("clippy/tests.rs"),
         include_str!("messages.rs"),
         include_str!("messages/tests.rs"),
+        include_str!("lint_list.rs"),
+        include_str!("members.rs"),
+        include_str!("process.rs"),
+        include_str!("rustflags.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/toolchain.rs"),
     ] {
         let lines = own.lines().count();
         assert!(

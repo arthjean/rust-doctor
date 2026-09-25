@@ -70,6 +70,7 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
         "clippy",
         "--workspace",
         "--no-deps",
+        "--keep-going",
         "--message-format=json",
         "--",
         "-A",
@@ -146,8 +147,9 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// score's denominator is counted from, v16 the `corpus_reviewed_sites` a
 /// policy rule's rate rests on, v17 the `suggestion` the toolchain proposed
 /// for a diagnostic's span, v18 the `unscored` reason of a compiler note, the
-/// `reasons` of a partial score and the `rust_doctor` version of the
-/// toolchain. No historical field is removed or retyped, so the projection
+/// `reasons` of a partial score, the `rust_doctor` version of the toolchain,
+/// the `removed_lint_flags` it stripped and the `not_evaluated` reason of a
+/// policy rule. No historical field is removed or retyped, so the projection
 /// consists solely of removing the members added since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
@@ -198,6 +200,12 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     }
     if let Some(toolchain) = find(&projected, 0, b"\"rust_doctor\":") {
         projected = remove_member(&projected, toolchain, "rust_doctor");
+    }
+    if let Some(toolchain) = find(&projected, 0, b"\"removed_lint_flags\":") {
+        projected = remove_member(&projected, toolchain, "removed_lint_flags");
+    }
+    while let Some(rule) = find(&projected, 0, b"\"not_evaluated\":") {
+        projected = remove_member(&projected, rule, "not_evaluated");
     }
     drop_scan_command(&projected)
 }

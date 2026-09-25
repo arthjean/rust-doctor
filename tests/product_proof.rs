@@ -152,7 +152,10 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
         errors.iter().any(|error| {
             error["stage"] == "execution"
                 && error["code"] == "clippy-exit"
-                && error["message"] == "Clippy exited with status 101"
+                && error["message"].as_str().is_some_and(|message| {
+                    message.starts_with("Clippy exited with status 101. Cargo reported: ")
+                        && message.contains("could not compile")
+                })
         })
     }));
 

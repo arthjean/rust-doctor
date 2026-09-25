@@ -12,12 +12,15 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use serde::ser::{Error as _, SerializeStruct};
 use serde::{Serialize, Serializer};
 
 use crate::audit::{Audit, SeverityCounts};
 use crate::delta::DeltaReport;
+use crate::execution::{RunDeadline, RunOptions};
+use crate::progress::ProgressSink;
 use crate::git_scope::{ScopeReport, ScopeRequest};
 use crate::policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PolicyInput,
@@ -35,11 +38,17 @@ pub(crate) use assembly::{
 
 pub const SCHEMA_VERSION: u8 = 18;
 
+/// The error code every stage a passed `--max-duration` stopped or skipped
+/// reports under.
+pub(crate) const DEADLINE_EXCEEDED: &str = "deadline-exceeded";
+
 #[derive(Debug, Clone)]
 pub struct InspectRequest {
     pub path: PathBuf,
     policy: PolicyInput,
     scope: ScopeRequest,
+    max_duration: Option<Duration>,
+    progress: Option<ProgressSink>,
 }
 
 impl InspectRequest {
@@ -48,7 +57,22 @@ impl InspectRequest {
             path: path.into(),
             policy: PolicyInput::default(),
             scope: ScopeRequest::Full,
+            max_duration: None,
+            progress: None,
         }
+    }
+
+    /// Bounds the whole run in wall-clock time. Past it, every process the
+    /// scan started is killed and the report says `deadline-exceeded`.
+    pub const fn with_max_duration(mut self, limit: Duration) -> Self {
+        self.max_duration = Some(limit);
+        self
+    }
+
+    /// Where the scan reports its phases while it runs.
+    pub fn with_progress(mut self, progress: ProgressSink) -> Self {
+        self.progress = Some(progress);
+        self
     }
 
     pub fn with_rule_override(mut self, rule_override: RuleOverride) -> Self {
@@ -82,6 +106,14 @@ impl InspectRequest {
 
     pub(crate) const fn scope(&self) -> &ScopeRequest {
         &self.scope
+    }
+
+    /// The run's options, its deadline starting now.
+    pub(crate) fn run_options(&self) -> RunOptions {
+        RunOptions {
+            deadline: self.max_duration.map(RunDeadline::starting_now),
+            progress: self.progress.clone(),
+        }
     }
 }
 
@@ -147,10 +179,22 @@ pub struct PolicyRuleReport {
     /// corpus never adjudicated rather than a rule measured at zero.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corpus_reviewed_sites: Option<u64>,
+    /// Why the scan did not evaluate this rule, absent when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_evaluated: Option<NotEvaluated>,
+}
+
+/// Why a rule the policy left on was not evaluated. Closed, like
+/// `errors[].code`, so a reader branches on it rather than on a sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotEvaluated {
+    /// The installed Clippy does not list the lint, so the command left it out.
+    UnknownToToolchain,
 }
 
 impl PolicyReport {
-    fn from_plan(plan: &PolicyPlan) -> Self {
+    fn from_plan(plan: &PolicyPlan, unknown_to_toolchain: &[&str]) -> Self {
         Self {
             config_file: plan.config_file().map(str::to_owned),
             blocking: PolicyBlockingReport {
@@ -170,6 +214,9 @@ impl PolicyReport {
                         corpus_noise_basis_points: measurement
                             .map(CorpusMeasurement::noise_basis_points),
                         corpus_reviewed_sites: measurement.map(CorpusMeasurement::reviewed),
+                        not_evaluated: unknown_to_toolchain
+                            .contains(&definition.id)
+                            .then_some(NotEvaluated::UnknownToToolchain),
                     }
                 })
                 .collect(),
@@ -281,6 +328,9 @@ pub struct ToolchainReport {
     /// The version of the rust-doctor binary that produced the report, so a
     /// report read later names the catalog and the score model it was built with.
     pub rust_doctor: &'static str,
+    /// The lint-level flags taken out of the caller's rustflags before Clippy
+    /// ran, as `-D warnings`, so the scan kept its own levels.
+    pub removed_lint_flags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -646,7 +696,16 @@ pub struct GateReport {
 }
 
 impl InspectReport {
-    pub const fn exit_code(&self) -> u8 {
+    /// A run the deadline cut short exits 2 like a failed one, while its
+    /// status stays `incomplete` so the findings collected before it are kept.
+    pub fn exit_code(&self) -> u8 {
+        if self
+            .errors
+            .iter()
+            .any(|error| error.code == DEADLINE_EXCEEDED)
+        {
+            return 2;
+        }
         match (self.status, self.gate.status) {
             (Status::Complete, GateStatus::Passed) => 0,
             (Status::Complete, GateStatus::Failed | GateStatus::NotEvaluated)

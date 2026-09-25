@@ -62,8 +62,9 @@ pub struct Audit {
     /// nothing to do with the inventory. It stays private because it is not published: the
     /// wire shape is the three members above.
     inventory_is_complete: bool,
-    /// Whether a stage of the scan failed, which a narrower scope inherits for the same reason.
-    stage_failed: bool,
+    /// What the report's errors and its policy say against the score, which a narrower scope
+    /// inherits for the same reasons.
+    stage_reasons: BTreeSet<ScoreReason>,
 }
 
 /// Per-severity count of a single quantity.
@@ -303,26 +304,30 @@ impl Audit {
                 complete: true,
             },
             status,
-            status == Status::Failed,
+            if status == Status::Failed {
+                BTreeSet::from([ScoreReason::StageFailed])
+            } else {
+                BTreeSet::new()
+            },
             diagnostics,
         )
     }
 
-    /// `stage_failed` is whether the report carries an error: every error names the stage it
-    /// failed at, and a failed stage is its own reason, distinct from a scan cut short.
+    /// `stage_reasons` is what the report's errors and its policy say against the score: each
+    /// error gives its own reason (`ScoreReason::of_error`), distinct from a scan cut short.
     pub(crate) fn build_from_inventory(
         inventory: SourceFileInventory,
         status: Status,
-        stage_failed: bool,
+        stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        Self::build_with_inventory(inventory, status, stage_failed, diagnostics)
+        Self::build_with_inventory(inventory, status, stage_reasons, diagnostics)
     }
 
     fn build_with_inventory(
         inventory: SourceFileInventory,
         status: Status,
-        stage_failed: bool,
+        stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
     ) -> Self {
         let SourceFileInventory {
@@ -338,9 +343,12 @@ impl Audit {
         // A failed stage is what cut the scan short whenever one did, so it is the reason given,
         // and an incomplete scan is named only when nothing failed.
         let mut reasons = aggregation.voided.clone();
-        if stage_failed || status == Status::Failed {
+        reasons.extend(stage_reasons.iter().copied());
+        if status == Status::Failed {
             reasons.insert(ScoreReason::StageFailed);
-        } else if status != Status::Complete || !inventory_is_complete {
+        } else if stage_reasons.is_empty()
+            && (status != Status::Complete || !inventory_is_complete)
+        {
             reasons.insert(ScoreReason::ScanIncomplete);
         }
         // No source and no line are the same refusal: core-v3 scores a density, and a density
@@ -353,7 +361,7 @@ impl Audit {
             categories,
             score,
             inventory_is_complete,
-            stage_failed,
+            stage_reasons,
         }
     }
 
@@ -365,7 +373,7 @@ impl Audit {
                 complete: self.inventory_is_complete,
             },
             status,
-            self.stage_failed,
+            self.stage_reasons.clone(),
             diagnostics,
         )
     }

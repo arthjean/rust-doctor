@@ -9,6 +9,14 @@ message states counts the next commit changes. `src/delta/tests.rs` carries the
 tests and `src/delta/tests/oracle.rs` the 32-case adversarial oracle frozen in
 `tests/fixtures/baseline/delta-oracle.json`, replayed twenty times per run.
 
+The base side builds under `<target directory>/rust-doctor/baseline`, beside
+what `cargo clippy` itself writes, so a scan writes only build artifacts under
+Cargo's target directory and `cargo clean` removes them. It used to build under
+the snapshot's temporary root, removed after every run, and each baseline paid a
+cold build of the whole dependency graph. A directory that cannot be created or
+written falls back to that temporary target, and Cargo's build-directory lock
+serializes two runs on one workspace.
+
 Four rules hold it together, and each of them replaced something that had a
 cost.
 

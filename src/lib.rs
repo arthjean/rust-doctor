@@ -6,6 +6,7 @@ mod audit;
 mod baseline;
 mod bounded_read;
 mod cargo_health;
+mod cargo_stderr;
 mod configuration;
 mod delta;
 mod execution;
@@ -16,6 +17,7 @@ mod internal_error;
 mod permutations;
 mod policy;
 pub mod presentation;
+pub mod progress;
 pub mod render;
 mod repo_hygiene;
 mod report;
@@ -54,7 +56,8 @@ pub use report::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
     GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
-    ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
+    NotEvaluated, ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport,
+    Severity, Status,
     Suggestion, Summary, ToolchainReport, UnscoredReason,
 };
 
@@ -70,6 +73,7 @@ pub struct InspectionSession {
     prepared: execution::PreparedInspection,
     plan: policy::PolicyPlan,
     scope: git_scope::ValidatedScope,
+    options: execution::RunOptions,
 }
 
 impl InspectionSession {
@@ -82,6 +86,11 @@ impl InspectionSession {
         request: InspectRequest,
         policy: &policy::PolicyInput,
     ) -> Result<Self, Box<InspectReport>> {
+        // The deadline starts here, before Cargo is first asked anything, so
+        // the time metadata and the baseline snapshot take counts against it.
+        // Neither is killed at it, since `cargo metadata --no-deps` resolves
+        // nothing: Clippy and its lint-list probe are.
+        let options = request.run_options();
         // The overrides are read once, before any path is discovered and any
         // process is started. What comes back is what the plan compiles from,
         // so the compilation below cannot fail a second time over the same
@@ -122,6 +131,7 @@ impl InspectionSession {
             prepared,
             plan,
             scope,
+            options,
         })
     }
 
@@ -147,6 +157,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         prepared,
         plan,
         scope: requested,
+        options,
     } = session;
     let scope = match git_scope::resolve(&requested, prepared.workspace_root()) {
         Ok(scope) => scope,
@@ -161,15 +172,21 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
                 return report::from_execution_scoped(prepared.fail(error), &plan, scope);
             }
         };
+        let target = baseline::persistent_target(prepared.target_directory())
+            .unwrap_or_else(|| snapshot.target().to_path_buf());
         let execution =
-            execution::execute_baseline(prepared, snapshot.workspace(), snapshot.target(), &plan);
+            execution::execute_baseline(prepared, snapshot.workspace(), &target, &plan, &options);
         let report = report::from_baseline_execution(execution, &plan, scope);
         return match snapshot.cleanup() {
             Ok(()) => report,
             Err(error) => report::baseline_report_failure(report, error),
         };
     }
-    report::from_execution_scoped(execution::execute(prepared, &plan), &plan, scope)
+    report::from_execution_scoped(
+        execution::execute(prepared, &plan, &options),
+        &plan,
+        scope,
+    )
 }
 
 #[cfg(test)]

@@ -147,7 +147,11 @@ fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
     );
     let score = &report["audit"]["score"];
     assert_eq!(score["authoritative"], false);
-    assert_eq!(score["reasons"], serde_json::json!(["stage-failed"]));
+    // The one member did not compile, so EP-002 US-009 names it as well.
+    assert_eq!(
+        score["reasons"],
+        serde_json::json!(["stage-failed", "packages-unlinted"])
+    );
 
     let output = run(&root, &REPO_RULE_OFF);
     let stdout = String::from_utf8(output.stdout).unwrap();

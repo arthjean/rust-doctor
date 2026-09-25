@@ -27,6 +27,19 @@ pub enum ScoreReason {
 }
 
 impl ScoreReason {
+    /// The reason a published error gives, if any. A deadline and a member
+    /// that did not compile have reasons of their own; a notice, which reports
+    /// a narrower check rather than a failed one, has none; every other error
+    /// is a stage that failed.
+    pub(crate) fn of_error(code: &str) -> Option<Self> {
+        match code {
+            "deadline-exceeded" => Some(Self::DeadlineExceeded),
+            "packages-unlinted" => Some(Self::PackagesUnlinted),
+            "lint-list-unavailable" => None,
+            _ => Some(Self::StageFailed),
+        }
+    }
+
     /// The cause and the next step, in the one line both reports print.
     pub const fn explanation(self) -> &'static str {
         match self {

@@ -66,6 +66,7 @@ fn an_empty_enumeration_produces_neither_finding_nor_error() {
         &Enumeration::default(),
         &PolicyPlan::default(),
         &StructureSettings::default(),
+        None,
     );
     assert_eq!(scan, StructureScan::default());
 }
@@ -81,6 +82,7 @@ fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
         &enumeration,
         &PolicyPlan::default(),
         &StructureSettings::default(),
+        None,
     );
 
     let skipped: Vec<&str> = scan
@@ -116,12 +118,13 @@ fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
 fn an_exhausted_budget_stops_the_pass_and_says_so() {
     let duplicates = metadata("structure/duplicate-function");
     let enumeration = enumerate(&duplicates);
-    let stopped = analyze_within(
+    // A run whose `--max-duration` has nothing left caps the pass at zero.
+    let stopped = analyze(
         &duplicates,
         &enumeration,
         &PolicyPlan::default(),
         &StructureSettings::default(),
-        Duration::ZERO,
+        Some(Duration::ZERO),
     );
     assert_eq!(
         stopped
@@ -148,6 +151,7 @@ fn an_exhausted_budget_stops_the_pass_and_says_so() {
         &enumeration,
         &PolicyPlan::default(),
         &StructureSettings::default(),
+        None,
     );
     assert!(complete.errors.is_empty(), "{:?}", complete.errors);
     assert!(!complete.findings.is_empty());
@@ -195,7 +199,7 @@ fn an_inactive_rule_leaves_the_pass_with_nothing_to_do() {
         .with_rule(STRUCTURE_UNREASONED_ALLOW.id, crate::policy::RuleLevel::Off);
     let plan = PolicyPlan::compile(&input).expect("policy should compile");
     assert!(
-        analyze(&allows, &enumeration, &plan, &StructureSettings::default())
+        analyze(&allows, &enumeration, &plan, &StructureSettings::default(), None)
             .findings
             .iter()
             .all(|finding| finding.definition.id != STRUCTURE_UNREASONED_ALLOW.id),
@@ -206,7 +210,8 @@ fn an_inactive_rule_leaves_the_pass_with_nothing_to_do() {
             &allows,
             &enumeration,
             &PolicyPlan::default(),
-            &StructureSettings::default()
+            &StructureSettings::default(),
+            None
         )
         .findings
         .is_empty()
@@ -227,6 +232,7 @@ fn a_policy_with_no_structural_rule_returns_the_empty_scan() {
         &enumerate(&allows),
         &plan,
         &StructureSettings::default(),
+        None,
     );
     assert_eq!(scan, StructureScan::default());
 }
@@ -419,6 +425,7 @@ fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
         &enumerate(&metadata),
         &PolicyPlan::default(),
         &StructureSettings::default(),
+        None,
     );
 
     let named = |rule: &str| -> Vec<String> {
@@ -472,6 +479,7 @@ fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
         &enumerate(&metadata),
         &PolicyPlan::default(),
         &StructureSettings::default(),
+        None,
     );
 
     /// Is this path test material by its position alone? Read here from the

@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 
 use cargo_metadata::{Metadata, MetadataCommand};
 
+use crate::bounded_read::collect_bounded;
+use crate::cargo_stderr;
+use crate::execution::run_bounded;
 use crate::internal_error::InternalError;
 
 #[derive(Debug)]
@@ -146,34 +149,63 @@ fn load_metadata(
     target_dir: Option<&Path>,
     rustup_toolchain: Option<&OsStr>,
 ) -> Result<Metadata, InternalError> {
-    metadata_command(
+    let command = metadata_command(
         cargo,
         manifest_path,
         manifest_directory,
         target_dir,
         rustup_toolchain,
     )
-    .exec()
+    .cargo_command();
+    let finished = run_bounded(command, None, |stdout| {
+        collect_bounded(stdout, METADATA_OUTPUT_LIMIT)
+    })
     .map_err(|error| {
-        if let cargo_metadata::Error::Io(error) = error {
-            return InternalError::new(
-                "execution",
-                "cargo-unavailable",
-                format!("Cargo could not be started: {error}"),
-            );
-        }
-        let detail = if matches!(&error, cargo_metadata::Error::CargoMetadata { .. }) {
-            "cargo metadata exited with an error".to_owned()
-        } else {
-            error.to_string()
-        };
+        InternalError::new(
+            "execution",
+            "cargo-unavailable",
+            format!("Cargo could not be started: {error}"),
+        )
+    })?;
+    let failed = |detail: String| {
         InternalError::new(
             "metadata",
             "cargo-metadata",
             format!("cargo metadata failed: {detail}"),
         )
-    })
+    };
+    let status = finished
+        .status
+        .map_err(|error| failed(format!("its exit status could not be read: {error}")))?;
+    if !status.success() {
+        // Cargo says why on stderr, a manifest it could not parse or a member
+        // it could not find, and that sentence is the whole remedy.
+        return Err(failed(
+            cargo_stderr::excerpt(&finished.stderr, manifest_directory, target_dir).map_or_else(
+                || "cargo metadata exited with an error".to_owned(),
+                |cause| format!("Cargo reported: {cause}"),
+            ),
+        ));
+    }
+    let output = finished
+        .output
+        .transpose()
+        .map_err(|error| failed(format!("its output could not be read: {error}")))?
+        .ok_or_else(|| failed("it printed nothing".to_owned()))?;
+    if output.exceeded {
+        return Err(failed(format!(
+            "its output exceeded {METADATA_OUTPUT_LIMIT} bytes"
+        )));
+    }
+    let text = String::from_utf8(output.bytes)
+        .map_err(|error| failed(format!("its output is not UTF-8: {error}")))?;
+    MetadataCommand::parse(text).map_err(|error| failed(error.to_string()))
 }
+
+/// What `cargo metadata --no-deps` may print. It is a few kilobytes per
+/// member, so this holds workspaces far past the two hundred members the scan
+/// is sized for.
+const METADATA_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
 fn metadata_command(
     cargo: &Path,

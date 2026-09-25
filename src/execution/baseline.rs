@@ -17,7 +17,10 @@ use crate::internal_error::InternalError;
 use crate::policy::PolicyPlan;
 use crate::scan_target;
 
-use super::{CommandEnvironment, ExecutionContext, ExecutionResult, PreparedInspection, Programs};
+use super::{
+    CommandEnvironment, ExecutionContext, ExecutionResult, PreparedInspection, Programs,
+    RunOptions,
+};
 
 /// What `rustup show active-toolchain` may print before the answer is refused.
 ///
@@ -49,6 +52,7 @@ pub(crate) fn execute(
     baseline_workspace: &Path,
     baseline_target_dir: &Path,
     plan: &PolicyPlan,
+    options: &RunOptions,
 ) -> Result<BaselineExecution, Box<ExecutionResult>> {
     let programs = Programs::default();
     let environment = match command_environment(prepared.workspace_root()) {
@@ -78,6 +82,7 @@ pub(crate) fn execute(
         plan,
         settings: &prepared.configuration.structure,
         environment: &environment,
+        options,
     };
     let baseline = context.run(
         baseline_target,

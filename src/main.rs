@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod handoff;
+mod progress_line;
 mod skill;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
@@ -15,11 +16,12 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::builder::TypedValueParser;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use progress_line::ProgressLine;
 use handoff::{
     HandoffError, RescanCommand, available_agents, build_prompt, copy_to_clipboard, launch_agent,
 };
@@ -176,6 +178,14 @@ struct InspectArgs {
     scope: Option<ScopeArgument>,
     #[arg(long, value_name = "REF")]
     base: Option<String>,
+    /// Stop the scan after SECONDS of wall-clock time, killing every process
+    /// it started. Without it the scan has no deadline.
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        value_parser = clap::value_parser!(u64).range(1..=86_400)
+    )]
+    max_duration: Option<u64>,
 }
 
 impl InspectArgs {
@@ -190,6 +200,9 @@ impl InspectArgs {
         }
         if let Some(blocking) = self.blocking {
             request = request.with_blocking(blocking);
+        }
+        if let Some(seconds) = self.max_duration {
+            request = request.with_max_duration(Duration::from_secs(seconds));
         }
         for rule_override in &self.rule {
             request = request.with_rule_override(rule_override.clone());
@@ -306,15 +319,20 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         env::var_os("CI").as_deref(),
         term.as_deref() == Some(OsStr::new("dumb")),
     );
-    if !arguments.json {
-        eprintln!("Scanning Rust files...");
-    }
+    // The phases replace the static line this used to print. A JSON reader
+    // gets no progress at all, as it got no line before.
+    let progress = ProgressLine::new(
+        io::stderr().is_terminal() && term.as_deref() != Some(OsStr::new("dumb")),
+    );
     // The scope is what the invocation asked for, nothing else. A run that
     // names no scope scans the whole workspace rather than opening a menu:
     // narrowing to what changed is what `--scope files` and `--scope baseline`
     // are for, and a question asked before the scan is a question asked before
     // the reader has seen a single finding.
-    let request = arguments.request(scoped_base.as_ref());
+    let mut request = arguments.request(scoped_base.as_ref());
+    if !arguments.json {
+        request = request.with_progress(progress.sink());
+    }
     let session = InspectionSession::prepare(request);
     let rescan_command = arguments.rescan_command(scoped_base.as_ref());
 
@@ -326,6 +344,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         }
         Err(report) => (*report, PathBuf::from(".")),
     };
+    progress.clear();
     let elapsed = started.elapsed();
     let scan_exit = report.exit_code();
     let presentation = ReportPresentation::derive_terminal(&report);

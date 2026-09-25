@@ -276,6 +276,7 @@ fn malformed_messages_make_a_started_scan_incomplete() {
         structure: None,
         cargo_health: None,
         repo: None,
+        deadline_skipped: Vec::new(),
         toolchain: None,
         scan: ClippyExecution::Finished(ScanExecution {
             command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -286,6 +287,7 @@ fn malformed_messages_make_a_started_scan_incomplete() {
             malformed_messages: 1,
             messages: Vec::new(),
             errors: Vec::new(),
+            ..ScanExecution::default()
         }),
         source: None,
         source_measurement: None,
@@ -321,6 +323,7 @@ fn incomplete_scan_reports_each_distinct_normative_cause_once() {
         structure: None,
         cargo_health: None,
         repo: None,
+        deadline_skipped: Vec::new(),
         toolchain: None,
         scan: ClippyExecution::Finished(ScanExecution {
             command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -331,6 +334,7 @@ fn incomplete_scan_reports_each_distinct_normative_cause_once() {
             malformed_messages: 2,
             messages: Vec::new(),
             errors: vec![duplicate],
+            ..ScanExecution::default()
         }),
         source: None,
         source_measurement: None,
@@ -372,6 +376,7 @@ fn missing_exit_and_build_finished_have_explicit_causes() {
         structure: None,
         cargo_health: None,
         repo: None,
+        deadline_skipped: Vec::new(),
         toolchain: None,
         scan: ClippyExecution::Finished(ScanExecution {
             command: vec!["cargo".to_owned(), "clippy".to_owned()],
@@ -382,6 +387,7 @@ fn missing_exit_and_build_finished_have_explicit_causes() {
             malformed_messages: 0,
             messages: Vec::new(),
             errors: Vec::new(),
+            ..ScanExecution::default()
         }),
         source: None,
         source_measurement: None,
@@ -436,6 +442,7 @@ fn repo_errors_surface_at_stage_repo_and_make_the_scan_incomplete() {
         source: None,
         source_measurement: None,
         error: None,
+        deadline_skipped: Vec::new(),
     };
     let report = from_execution(result);
 

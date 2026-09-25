@@ -22,7 +22,10 @@ locations, v12 `similarity_basis_points`, v13 `complexity`, v14
 `corpus_noise_basis_points` and `withheld_rule_ids`, v15 `production_lines`, v16
 `corpus_reviewed_sites`, v17 a diagnostic's `suggestion`, the replacement the
 toolchain proposed for the span and how far it vouches for it, v18 a
-diagnostic's `unscored`, the score's `reasons` and `toolchain.rust_doctor`. No historical field was ever removed or retyped, so the
+diagnostic's `unscored`, the score's `reasons`, `toolchain.rust_doctor`,
+`toolchain.removed_lint_flags` and a policy rule's `not_evaluated`. A
+`toolchain` error such as `lint-list-unavailable` is a notice: published, and no
+reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
 whenever the catalog widens or the scope shifts. That is what makes a frozen

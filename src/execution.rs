@@ -27,8 +27,7 @@
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
-use std::thread;
+use std::process::{Command, ExitStatus};
 
 use cargo_metadata::Metadata;
 
@@ -37,6 +36,7 @@ use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
 use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer};
+use crate::progress::{Progress, ProgressSink};
 use crate::repo_hygiene::{self, RepoScan};
 use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceMeasurement, SourceScan};
@@ -45,12 +45,17 @@ use crate::terminal_text::{sanitize, truncate};
 
 mod baseline;
 mod clippy;
+mod lint_list;
+mod members;
 mod messages;
+mod process;
+mod rustflags;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use baseline::{BaselineExecution, execute as execute_baseline};
 pub(crate) use clippy::ClippyExecution;
+pub(crate) use process::{RunDeadline, run as run_bounded};
 #[cfg(test)]
 pub(crate) use clippy::arguments_for_rules as clippy_arguments_for_rules;
 pub(crate) use messages::{
@@ -74,6 +79,9 @@ pub(crate) struct ExecutionResult {
     pub(crate) structure: Option<StructureScan>,
     pub(crate) cargo_health: Option<CargoHealthScan>,
     pub(crate) repo: Option<RepoScan>,
+    /// The stages a passed deadline kept from starting, each with the sentence
+    /// its error carries.
+    pub(crate) deadline_skipped: Vec<(&'static str, String)>,
     pub(crate) error: Option<InternalError>,
 }
 
@@ -103,6 +111,7 @@ impl ExecutionResult {
             structure: None,
             cargo_health: None,
             repo: None,
+            deadline_skipped: Vec::new(),
             error: Some(error),
         }
     }
@@ -143,7 +152,15 @@ impl ExecutionResult {
                 .iter()
                 .map(|error| ProducerError::new("repo", error.code, error.message))
         });
-        source.chain(structure).chain(dependencies).chain(repo)
+        let skipped = self
+            .deadline_skipped
+            .iter()
+            .map(|(stage, message)| ProducerError::new(stage, "deadline-exceeded", message));
+        source
+            .chain(structure)
+            .chain(dependencies)
+            .chain(repo)
+            .chain(skipped)
     }
 
     pub(crate) fn is_complete(&self) -> bool {
@@ -185,6 +202,11 @@ impl PreparedInspection {
         self.target.workspace_root()
     }
 
+    /// The directory Cargo builds this workspace into.
+    pub(crate) fn target_directory(&self) -> &Path {
+        self.target.metadata.target_directory.as_std_path()
+    }
+
     pub(crate) fn fail(self, error: InternalError) -> ExecutionResult {
         ExecutionResult::failed(
             Some(self.target.manifest_path),
@@ -198,6 +220,7 @@ impl PreparedInspection {
 struct Programs {
     cargo: PathBuf,
     rustc: PathBuf,
+    clippy_driver: PathBuf,
 }
 
 impl Default for Programs {
@@ -205,8 +228,17 @@ impl Default for Programs {
         Self {
             cargo: PathBuf::from("cargo"),
             rustc: PathBuf::from("rustc"),
+            clippy_driver: PathBuf::from("clippy-driver"),
         }
     }
+}
+
+/// What the caller set on the whole run rather than on one producer: the
+/// deadline `--max-duration` fixes and where the phases are reported.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RunOptions {
+    pub(crate) deadline: Option<RunDeadline>,
+    pub(crate) progress: Option<ProgressSink>,
 }
 
 /// Everything one run holds constant, gathered once.
@@ -222,6 +254,7 @@ struct ExecutionContext<'a> {
     plan: &'a PolicyPlan,
     settings: &'a structure::StructureSettings,
     environment: &'a CommandEnvironment,
+    options: &'a RunOptions,
 }
 
 /// The environment every child of one run is started under.
@@ -277,16 +310,12 @@ fn prepare_with(
     })
 }
 
-pub(crate) fn execute(prepared: PreparedInspection, plan: &PolicyPlan) -> ExecutionResult {
-    execute_with_plan(prepared, &Programs::default(), plan)
-}
-
-fn execute_with_plan(
+pub(crate) fn execute(
     prepared: PreparedInspection,
-    programs: &Programs,
     plan: &PolicyPlan,
+    options: &RunOptions,
 ) -> ExecutionResult {
-    execute_into(prepared, programs, plan, None)
+    execute_into(prepared, &Programs::default(), plan, None, options)
 }
 
 /// The same scan, told where Cargo may keep its artifacts.
@@ -301,6 +330,7 @@ fn execute_into(
     programs: &Programs,
     plan: &PolicyPlan,
     target_dir: Option<&Path>,
+    options: &RunOptions,
 ) -> ExecutionResult {
     let environment = CommandEnvironment::default();
     let toolchain = match resolve_toolchain(programs, prepared.workspace_root(), &environment) {
@@ -312,6 +342,7 @@ fn execute_into(
         plan,
         settings: &prepared.configuration.structure,
         environment: &environment,
+        options,
     };
     context.run(prepared.target, toolchain, target_dir)
 }
@@ -351,13 +382,7 @@ impl ExecutionContext<'_> {
             .then(|| repo_hygiene::inspect(metadata.workspace_root.as_std_path(), self.plan));
 
         let scan = if self.active(Producer::Clippy) {
-            match clippy::run(
-                self.programs,
-                metadata.workspace_root.as_std_path(),
-                self.plan,
-                target_dir,
-                self.environment,
-            ) {
+            match clippy::run(self, &metadata, target_dir) {
                 Ok(scan) => ClippyExecution::Finished(scan),
                 // Clippy could not be started, so this result has already
                 // failed and nothing it publishes will be read. The passes
@@ -388,10 +413,27 @@ impl ExecutionContext<'_> {
         // a plan with every native rule off still has a score. What the plan
         // decides is which detectors are solicited, never whether the workspace
         // is measured.
+        if let Some(progress) = &self.options.progress {
+            progress.report(Progress::NativePasses);
+        }
         let enumeration = source_kernel::enumerate(&metadata);
-        let source = source_rules.then(|| source_kernel::inspect(&enumeration, self.plan));
-        let structure = structure_rules
-            .then(|| structure::analyze(&metadata, &enumeration, self.plan, self.settings));
+        // A pass the deadline has already passed is not started: it is named
+        // at its own stage instead, so the report says what it did not read.
+        let mut deadline_skipped = Vec::new();
+        let mut in_time = |active: bool, stage: &'static str| match self.options.deadline {
+            Some(deadline) if active && deadline.passed() => {
+                deadline_skipped.push((stage, deadline.message()));
+                false
+            }
+            _ => active,
+        };
+        let source = in_time(source_rules, "source")
+            .then(|| source_kernel::inspect(&enumeration, self.plan));
+        let structure = in_time(structure_rules, "structure").then(|| {
+            let cap = self.options.deadline.map(RunDeadline::remaining);
+            structure::analyze(&metadata, &enumeration, self.plan, self.settings, cap)
+        });
+        let dependency_truth = in_time(dependency_truth && cargo_health.is_some(), "dependencies");
         // Both dependency-truth rules belong to the dependency pack, so a
         // plan that asks for either has already put a scan here to merge
         // into.
@@ -418,6 +460,7 @@ impl ExecutionContext<'_> {
             structure,
             cargo_health,
             repo,
+            deadline_skipped,
             error: None,
         }
     }
@@ -521,6 +564,18 @@ fn tool_version(
     let output = run_probe(program, arguments, working_directory, environment).map_err(|error| {
         probe.failure(format!("{} could not be started: {error}", probe.label))
     })?;
+    if output.expired {
+        return Err(InternalError::new(
+            "toolchain",
+            "probe-timeout",
+            format!(
+                "{} did not report a version within {} s. {}",
+                probe.label,
+                lint_list::PROBE_TIMEOUT.as_secs(),
+                probe.remedy
+            ),
+        ));
+    }
 
     if !output.status.success() {
         return Err(probe.failure(format!(
@@ -553,6 +608,8 @@ struct ProbeOutput {
     /// The version itself did not fit the budget, so what was kept is a prefix
     /// of one rather than a version.
     truncated: bool,
+    /// The probe did not answer within its ten seconds and was killed.
+    expired: bool,
 }
 
 /// Runs one probe to its end and keeps a bounded amount of what it printed.
@@ -569,33 +626,23 @@ fn run_probe(
     working_directory: &Path,
     environment: &CommandEnvironment,
 ) -> io::Result<ProbeOutput> {
-    let mut child = version_command(program, arguments, working_directory, environment).spawn()?;
-    let errors = child
-        .stderr
-        .take()
-        .map(|stream| thread::spawn(move || collect_bounded(stream, PROBE_OUTPUT_LIMIT)));
-    let stdout = child
-        .stdout
-        .take()
-        .map(|stream| collect_bounded(stream, PROBE_OUTPUT_LIMIT));
-    let stderr = errors
-        .and_then(|handle| handle.join().ok())
-        .and_then(Result::ok)
-        .map_or_else(Vec::new, |output| output.bytes);
-    // Waited before a read failure is answered: a probe this process never
-    // waits on stays a zombie. The wait cannot hang on one either, since each
-    // read consumed the pipe it was given and a probe writing into a closed
-    // pipe does not survive its own next write.
-    let status = child.wait()?;
-    let (stdout, truncated) = stdout
+    let finished = process::run(
+        version_command(program, arguments, working_directory, environment),
+        Some(RunDeadline::starting_now(lint_list::PROBE_TIMEOUT)),
+        |stream| collect_bounded(stream, PROBE_OUTPUT_LIMIT),
+    )?;
+    let status = finished.status?;
+    let (stdout, truncated) = finished
+        .output
         .transpose()?
         .map_or_else(|| (Vec::new(), false), |output| (output.bytes, output.exceeded));
 
     Ok(ProbeOutput {
         status,
         stdout,
-        stderr,
+        stderr: finished.stderr,
         truncated,
+        expired: finished.expired,
     })
 }
 
@@ -618,12 +665,7 @@ fn version_command(
     environment: &CommandEnvironment,
 ) -> Command {
     let mut command = Command::new(program);
-    command
-        .args(arguments)
-        .current_dir(working_directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.args(arguments).current_dir(working_directory);
     environment.apply(&mut command);
     command
 }

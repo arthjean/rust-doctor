@@ -82,12 +82,13 @@ fn root_member_manifest_and_subdirectory_keep_one_workspace_and_selected_manifes
         assert_eq!(project.workspace_root, ".");
         assert_eq!(project.manifest_path, expected_manifest);
         assert_eq!(
-            report.scan.command.unwrap()[..6],
+            report.scan.command.unwrap()[..7],
             [
                 "cargo",
                 "clippy",
                 "--workspace",
                 "--no-deps",
+                "--keep-going",
                 "--message-format=json",
                 "--",
             ]
@@ -383,10 +384,9 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
         diagnostic.as_object_mut().unwrap().remove("context");
         diagnostic.as_object_mut().unwrap().remove("unscored");
     }
-    current["toolchain"]
-        .as_object_mut()
-        .unwrap()
-        .remove("rust_doctor");
+    for added in ["rust_doctor", "removed_lint_flags"] {
+        current["toolchain"].as_object_mut().unwrap().remove(added);
+    }
     baseline.as_object_mut().unwrap().remove("schema_version");
     assert_ne!(current["scan"]["command"], baseline["scan"]["command"]);
     current["scan"].as_object_mut().unwrap().remove("command");

@@ -48,6 +48,7 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         "clippy",
         "--workspace",
         "--no-deps",
+        "--keep-going",
         "--message-format=json",
         "--",
         "-A",
@@ -63,14 +64,15 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
             .flat_map(|rule| ["-W".to_owned(), rule.id.clone()]),
     )
     .collect();
-    // Six base arguments since the scope is Cargo's default targets, then the
+    // Seven base arguments since the scope is Cargo's default targets and
+    // `--keep-going` lints past a broken member, then the
     // two that silence everything Clippy warns about by default, then one `-W`
     // per active Clippy rule of the policy. The count is derived from the
     // published policy, never frozen, so that widening the catalog does not
     // require editing this test.
     assert_eq!(
         expected.len(),
-        8 + 2 * policy
+        9 + 2 * policy
             .rules
             .iter()
             .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)

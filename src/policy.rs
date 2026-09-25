@@ -10,6 +10,7 @@ use crate::configuration::WorkspaceConfiguration;
 mod catalog;
 #[cfg(test)]
 mod coverage;
+pub(crate) mod lint_table;
 mod noise;
 
 pub use catalog::RuleTier;

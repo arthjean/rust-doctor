@@ -55,6 +55,28 @@ the failure quotes what the toolchain itself said. The message used to be
 the missing component nor the one command that installs it, and stderr, where
 cargo had already written both, was sent to `/dev/null`.
 
+The Clippy child answers for itself. Its stderr is drained under
+`src/cargo_stderr.rs`'s 65,536-byte bound on a thread of its own, and a failed
+pass ends its `clippy-exit` error with the scrubbed tail of it: workspace root,
+target directory, `CARGO_HOME` and `HOME` become `.`, `$CARGO_TARGET_DIR`,
+`$CARGO_HOME` and `~`. `cargo metadata`
+takes the same path. `--keep-going` lints every member that compiles, and
+`execution/members.rs` names the ones with no `compiler-artifact` record under
+`packages-unlinted`. Lint-level tokens are stripped from the caller's rustflags
+by `execution/rustflags.rs`, and only when present, so a user's fingerprints
+survive. The workspace's `[build] rustflags = ["-D", "warnings"]` fails the
+build on 1.97.1 (observed 2026-09-25), so it is stripped the same way unless a
+`[target.*] rustflags` overrides it. `execution/lint_list.rs` reads
+`clippy-driver -W help` under ten seconds before any `-W` is passed, and a
+catalogued rule it does not list is published as not evaluated.
+
+`--max-duration` arms `execution/process.rs`'s watchdog. On Unix a bounded child
+leads its own process group, and the whole group is killed through `kill(1)`,
+which keeps `libc` a dev-dependency. Only bounded children get a group, because
+a terminal's Ctrl-C no longer reaches one. On Windows `taskkill /T` kills the
+tree it can see, and nothing tests it. Passes the deadline has not started are
+skipped at their own stage, and the structure budget is capped by what is left.
+
 `the_execution_holds_the_size_bound_it_scans_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. The module was
 one file of 977 lines with no such test, the only one of the crate both near the

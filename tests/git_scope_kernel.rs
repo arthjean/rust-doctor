@@ -134,6 +134,11 @@ fn project_v9_value_to_v7(report: &mut Value) {
         .expect("toolchain should be an object")
         .remove("rust_doctor")
         .expect("schema v18 should name the binary");
+    report["toolchain"]
+        .as_object_mut()
+        .expect("toolchain should be an object")
+        .remove("removed_lint_flags")
+        .expect("schema v18 should list the lint flags it removed");
 }
 
 fn snapshot(root: &Path) -> Vec<Vec<u8>> {

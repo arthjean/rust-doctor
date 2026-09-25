@@ -106,6 +106,7 @@ fn report_of(
             rustc: None,
             cargo: None,
             clippy: None,
+            removed_lint_flags: Vec::new(),
         },
         scan: ScanReport {
             command: None,

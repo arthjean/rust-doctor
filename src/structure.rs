@@ -407,13 +407,17 @@ impl Deadline {
     }
 }
 
+/// `cap` is what is left of the run's `--max-duration`, when it set one: the
+/// pass never outlives the run it belongs to.
 pub(crate) fn analyze(
     metadata: &Metadata,
     enumeration: &Enumeration,
     plan: &PolicyPlan,
     settings: &StructureSettings,
+    cap: Option<Duration>,
 ) -> StructureScan {
-    analyze_within(metadata, enumeration, plan, settings, time_budget())
+    let budget = cap.map_or_else(time_budget, |cap| time_budget().min(cap));
+    analyze_within(metadata, enumeration, plan, settings, budget)
 }
 
 /// The wall-clock budget, overridable through

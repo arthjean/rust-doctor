@@ -22,7 +22,7 @@ use super::{
     PolicyReport, ProjectReport, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
     Summary, ToolchainReport,
 };
-use crate::audit::{self, Audit, SourceFileInventory};
+use crate::audit::{self, Audit, ScoreReason, SourceFileInventory};
 use crate::delta::DeltaReport;
 use crate::execution::{BaselineExecution, ExecutionResult, ScanExecution};
 use crate::git_scope::ScopeReport;
@@ -210,15 +210,24 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                     result.source_measurement.as_ref(),
                 )
             });
-    let audit =
-        Audit::build_from_inventory(source_inventory, status, !errors.is_empty(), &diagnostics);
+    let not_evaluated = result
+        .scan
+        .finished()
+        .map(|scan| scan.not_evaluated.as_slice())
+        .unwrap_or_default();
+    let stage_reasons = errors
+        .iter()
+        .filter_map(|error| ScoreReason::of_error(&error.code))
+        .chain((!not_evaluated.is_empty()).then_some(ScoreReason::RulesNotEvaluated))
+        .collect();
+    let audit = Audit::build_from_inventory(source_inventory, status, stage_reasons, &diagnostics);
 
     InspectReport {
         schema_version: SCHEMA_VERSION,
         audit,
         status,
         complete: status == Status::Complete,
-        policy: plan.map(PolicyReport::from_plan),
+        policy: plan.map(|plan| PolicyReport::from_plan(plan, not_evaluated)),
         scope,
         project,
         toolchain: {
@@ -232,6 +241,11 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                 rustc: toolchain.map(|toolchain| published(&toolchain.rustc)),
                 cargo: toolchain.map(|toolchain| published(&toolchain.cargo)),
                 clippy: toolchain.map(|toolchain| published(&toolchain.clippy)),
+                removed_lint_flags: result
+                    .scan
+                    .finished()
+                    .map(|scan| scan.removed_lint_flags.clone())
+                    .unwrap_or_default(),
             }
         },
         scan,
@@ -365,6 +379,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             rustc: None,
             cargo: None,
             clippy: None,
+            removed_lint_flags: Vec::new(),
         },
         scan: ScanReport {
             command: None,
@@ -473,35 +488,13 @@ fn report_errors(
         errors.extend(
             scan.errors
                 .iter()
+                .chain(&scan.notices)
                 .map(|error| normalize_error(error, workspace_root, home)),
         );
-        match scan.exit_code {
-            Some(code) if code != 0 || scan.exit_success != Some(true) => {
-                errors.push(ReportError {
-                    stage: "execution".to_owned(),
-                    code: "clippy-exit".to_owned(),
-                    message: format!("Clippy exited with status {code}"),
-                });
-            }
-            None => errors.push(ReportError {
-                stage: "execution".to_owned(),
-                code: "clippy-exit".to_owned(),
-                message: "Clippy terminated without an exit code".to_owned(),
-            }),
-            Some(_) => {}
-        }
-        match scan.build_finished {
-            Some(false) => errors.push(ReportError {
-                stage: "execution".to_owned(),
-                code: "build-failed".to_owned(),
-                message: "Cargo reported build-finished.success: false".to_owned(),
-            }),
-            None => errors.push(ReportError {
-                stage: "execution".to_owned(),
-                code: "build-finished-missing".to_owned(),
-                message: "Cargo did not emit build-finished".to_owned(),
-            }),
-            Some(true) => {}
+        // Killed at the deadline, the pass has no exit of its own to report:
+        // its `deadline-exceeded` error already says what ended it.
+        if !scan.deadline_exceeded {
+            push_exit_errors(&mut errors, scan);
         }
         if scan.malformed_messages > 0 {
             errors.push(ReportError {
@@ -525,6 +518,46 @@ fn report_errors(
     });
     errors.dedup_by(|left, right| left == right);
     errors
+}
+
+/// What the Clippy pass's own exit says went wrong. The exit error ends with
+/// what Cargo wrote on stderr, which is the only place its cause is: a
+/// lockfile it could not parse, a crate that did not compile, a lock it waited
+/// on.
+fn push_exit_errors(errors: &mut Vec<ReportError>, scan: &ScanExecution) {
+    let cause = scan
+        .cargo_cause
+        .as_deref()
+        .map(|cause| format!(". Cargo reported: {cause}"))
+        .unwrap_or_default();
+    match scan.exit_code {
+        Some(code) if code != 0 || scan.exit_success != Some(true) => {
+            errors.push(ReportError {
+                stage: "execution".to_owned(),
+                code: "clippy-exit".to_owned(),
+                message: format!("Clippy exited with status {code}{cause}"),
+            });
+        }
+        None => errors.push(ReportError {
+            stage: "execution".to_owned(),
+            code: "clippy-exit".to_owned(),
+            message: "Clippy terminated without an exit code".to_owned(),
+        }),
+        Some(_) => {}
+    }
+    match scan.build_finished {
+        Some(false) => errors.push(ReportError {
+            stage: "execution".to_owned(),
+            code: "build-failed".to_owned(),
+            message: "Cargo reported build-finished.success: false".to_owned(),
+        }),
+        None => errors.push(ReportError {
+            stage: "execution".to_owned(),
+            code: "build-finished-missing".to_owned(),
+            message: "Cargo did not emit build-finished".to_owned(),
+        }),
+        Some(true) => {}
+    }
 }
 
 fn normalize_error(

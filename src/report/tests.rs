@@ -186,6 +186,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
             rustc: None,
             cargo: None,
             clippy: None,
+            removed_lint_flags: Vec::new(),
         },
         scan: ScanReport {
             command: None,
@@ -566,6 +567,7 @@ fn scan(
         malformed_messages: 0,
         messages,
         errors: Vec::new(),
+        ..ScanExecution::default()
     }
 }
 
@@ -623,6 +625,7 @@ fn complete_analysis_side(
             counters: crate::source_kernel::AnalysisCounters::default(),
         }),
         error: None,
+        deadline_skipped: Vec::new(),
     }
 }
 
@@ -770,6 +773,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source: None,
         source_measurement: None,
         error: None,
+        deadline_skipped: Vec::new(),
     });
     assert_eq!(complete.status, Status::Complete);
     assert!(complete.complete);
@@ -799,6 +803,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source: None,
         source_measurement: None,
         error: None,
+        deadline_skipped: Vec::new(),
     });
     assert_eq!(incomplete.status, Status::Incomplete);
     assert!(!incomplete.complete);
@@ -827,6 +832,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
             code: "cargo-metadata",
             message: "metadata unavailable".to_owned(),
         }),
+        deadline_skipped: Vec::new(),
     });
     assert_eq!(failed.status, Status::Failed);
     assert_eq!(failed.exit_code(), 2);
@@ -890,6 +896,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         source: Some(source),
         source_measurement: None,
         error: None,
+        deadline_skipped: Vec::new(),
     });
 
     assert_eq!(report.status, Status::Incomplete);

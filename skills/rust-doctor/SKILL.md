@@ -74,8 +74,10 @@ Record `audit.score.value` as the baseline, then work the shortlist:
    `help`, `path`, `span` and `occurrences`, and, when Clippy wrote one, a
    `suggestion` with the `replacement` for the span and its `applicability`;
    only `machine-applicable` is safe to paste unread. Applying it is yours to
-   do: the tool never writes into a workspace it scans, so there is no fix
-   subcommand and none is coming. `policy.rules` carries
+   do: the tool never edits a workspace it scans, so there is no fix
+   subcommand and none is coming. It writes only build artifacts under Cargo's
+   target directory, as `cargo clippy` itself does, including the
+   `rust-doctor/baseline` directory a baseline run keeps its dependencies in. `policy.rules` carries
    the `tier` and `category` of every rule the scan ran. A diagnostic at
    severity `info` is shown and costs nothing, such as a print in a binary
    target.
@@ -129,6 +131,11 @@ when they carry no reason.
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |
 | `rust-doctor . --blocking <none\|error\|warning>` | The level that makes the run exit non-zero |
+| `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
+
+A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
+in `audit.score.reasons`, and keeps the findings collected before the limit.
+When the score is partial, `audit.score.reasons` says why.
 
 Use `--json` for anything you parse. `--verbose` is for a human reading a
 terminal, and a run with neither flag on a terminal opens an interactive report

@@ -45,7 +45,8 @@ fn terminal(arguments: &[&str], path: &Path) -> String {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Scanning Rust files..."));
+    // The first phase line replaced the static `Scanning Rust files...`.
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Compiling dependencies..."));
     String::from_utf8(output.stdout).expect("terminal output should be UTF-8")
 }
 

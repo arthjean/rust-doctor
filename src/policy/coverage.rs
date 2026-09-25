@@ -25,6 +25,7 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
+use super::lint_table::{self, TableLine};
 use super::{CATALOG, Producer};
 
 /// Lowest number of universe lints this repository has decided, admitted or
@@ -106,13 +107,6 @@ struct Universe {
     groups: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// Canonical form of a lint or group name: the table prints kebab-case, the
-/// catalog stores snake_case, and group members carry a trailing comma.
-fn normalize(name: &str) -> Option<String> {
-    let suffix = name.trim().trim_end_matches(',').strip_prefix("clippy::")?;
-    (!suffix.is_empty()).then(|| format!("clippy::{}", suffix.replace('-', "_")))
-}
-
 fn help_table() -> String {
     let help = Command::new("clippy-driver")
         .args(["-W", "help"])
@@ -129,29 +123,24 @@ fn universe() -> &'static Universe {
     UNIVERSE.get_or_init(read_universe)
 }
 
-/// Reads both tables in one pass. A lint line carries a level in its second
-/// field, a group line carries its first member there, so the two never mix.
+/// Reads both tables in one pass, through the parser the scan's own lint-list
+/// probe uses.
 fn read_universe() -> Universe {
     let help = help_table();
     let mut levels = BTreeMap::new();
     let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
-    for line in help.lines() {
-        let mut fields = line.split_whitespace();
-        let Some(name) = fields.next().and_then(normalize) else {
-            continue;
-        };
-        let Some(second) = fields.next() else {
-            continue;
-        };
-        if let Some(level) = ToolchainLevel::parse(second) {
-            levels.insert(name, level);
-        } else if second.starts_with("clippy::") {
-            for member in std::iter::once(second)
-                .chain(fields)
-                .filter_map(normalize)
-            {
-                groups.entry(member).or_default().insert(name.clone());
+    for line in help.lines().filter_map(lint_table::parse_line) {
+        match line {
+            TableLine::Lint { name, level } => {
+                if let Some(level) = ToolchainLevel::parse(level) {
+                    levels.insert(name, level);
+                }
+            }
+            TableLine::Group { name, members } => {
+                for member in members {
+                    groups.entry(member).or_default().insert(name.clone());
+                }
             }
         }
     }

@@ -132,6 +132,27 @@ impl Drop for Snapshot {
     }
 }
 
+/// Where the base side builds: `rust-doctor/baseline` under the workspace's own
+/// Cargo target directory, or `None` when that directory cannot be created or
+/// written, and the snapshot's temporary target serves instead.
+///
+/// The base side used to build under the snapshot's temporary root, removed
+/// after every run, so each `--scope baseline` paid a cold build of the whole
+/// dependency graph. Its sources still move with every snapshot, but a
+/// registry dependency's fingerprint does not depend on where the workspace
+/// sits, so a directory that outlives the snapshot keeps them fresh. It lives
+/// where `cargo clippy` itself writes, so `cargo clean` removes it with the
+/// rest, and Cargo's build-directory lock serializes two baseline runs of the
+/// same workspace.
+pub(crate) fn persistent_target(target_directory: &Path) -> Option<PathBuf> {
+    let target = target_directory.join("rust-doctor").join("baseline");
+    fs::create_dir_all(&target).ok()?;
+    let probe = target.join(format!(".rust-doctor-write-{}", std::process::id()));
+    fs::write(&probe, b"").ok()?;
+    fs::remove_file(&probe).ok()?;
+    Some(target)
+}
+
 pub(crate) fn materialize(
     workspace_root: &Path,
     comparison_base: &str,
