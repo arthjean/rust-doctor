@@ -33,10 +33,10 @@
     {
       "id": "EP-004",
       "title": "Precision controls",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 4
     },
     {
       "id": "EP-005",
@@ -315,49 +315,49 @@
       "id": "US-020",
       "title": "Path-scoped ignores and per-path overrides",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-021",
       "title": "Site-level suppression for native rules, with a reason and an audit",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-022",
       "title": "Exclude generated and vendored code from every producer",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-023",
       "title": "Select workspace members and publish a score per member",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-024",
