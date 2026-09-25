@@ -6,9 +6,10 @@ sits on its own rather than inside `execution`, which made `scan_target`,
 imports them, four cycles a reader had to hold for nothing.
 
 `src/git.rs` is the bounded process layer every producer that shells out to git
-runs through, and `src/git_scope.rs` is one of its three callers: the scope a
-scan runs under, whole workspace, changed files, or baseline comparison. The
-other two are `baseline.rs` and `repo_hygiene.rs`, which is why the layer lives
+runs through, and `src/git_scope.rs` is one of its callers: the scope a scan
+runs under, whole workspace, changed files, changed lines, or baseline
+comparison. The others are `baseline.rs`, `repo_hygiene.rs` and `git_hook.rs`,
+which is why the layer lives
 beside them rather than inside the scope that used to own it: reading
 `git_scope::run_git` to list a tree said scope where none was involved.
 
@@ -37,13 +38,29 @@ same request, once as the gate in `lib.rs` and once inside the resolution,
 which left a failure branch in resolution that no input could reach: the same
 shape the policy module removed, in the module next to it.
 
-One resolved shape, one constructor per case. `ResolvedScope` is the three
+One resolved shape, one constructor per case. `ResolvedScope` is the four
 cases and `ScopeReport` the accessors over it; a second enum used to mirror it
 variant for variant, so a fourth scope mode was an edit in five places.
 `ScopeReport::files_scope` is the only way a file scope is built: it sorts,
 deduplicates and bounds, and `includes` binary-searches that order. Production
 and the tests used to establish that order separately, so a third construction
 site would have broken the search in silence.
+
+The repository answers for the base. Without `--base`, `git_scope/base.rs`
+takes the first of `origin/HEAD`, `origin/main`, `origin/master`, `main` and
+`master` that resolves, or `HEAD` on that very branch, and `scope.base_ref`
+publishes it: a skill that hard-coded `--base main` failed on every `master`
+repository. A merge base missing from a shallow clone reports `shallow-clone`
+rather than a bare `merge-base-unavailable`. `--scope lines` intersects a
+finding's span with the new-side ranges `git_scope/lines.rs` reads from
+`git diff --unified=0`, so editing one line of a large file stops surfacing the
+file's backlog without the second compilation baseline pays.
+
+`--staged` judges the index. `baseline/staged.rs` reads it through the one
+`GIT_INDEX_FILE` a hook hands over, refuses a conflicted or locked one, and
+checks it out into a private tree the way a baseline snapshot is written; every
+producer reads that tree instead of the working tree, building under
+`rust-doctor/staged`.
 
 `the_git_layer_holds_the_size_bound_it_scans_for` and
 `the_scope_holds_the_size_bound_it_reports_for` keep every file of both modules

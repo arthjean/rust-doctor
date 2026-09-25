@@ -5,14 +5,16 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::git_scope::ResolvedScope;
 use crate::presentation::{
     COMPILER_NOTES_HEADING, DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame,
 };
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
+mod scope;
 mod score_header;
+
+use scope::render_scope;
 
 const DEFAULT_WIDTH: usize = 80;
 
@@ -307,32 +309,6 @@ fn render_links<W: Write>(
         options,
         Style::Muted,
     )
-}
-
-fn render_scope<W: Write>(
-    writer: &mut W,
-    report: &InspectReport,
-    options: TerminalOptions<'_>,
-) -> Result<(), RenderError> {
-    let description = report.scope.as_ref().map_or_else(
-        || "Scope: full codebase".to_owned(),
-        |scope| match scope.kind() {
-            ResolvedScope::Full => "Scope: full codebase".to_owned(),
-            ResolvedScope::Files {
-                comparison_base,
-                files,
-            } => format!(
-                "Scope: changed files ({} selected, base {})",
-                files.len(),
-                short_revision(comparison_base)
-            ),
-            ResolvedScope::Baseline { comparison_base } => format!(
-                "Scope: baseline comparison (base {})",
-                short_revision(comparison_base)
-            ),
-        },
-    );
-    line(writer, &description, options, Style::Heading)
 }
 
 /// How much of a group the report is drawing.

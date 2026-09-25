@@ -53,7 +53,7 @@ mod rustflags;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use baseline::{BaselineExecution, execute as execute_baseline};
+pub(crate) use baseline::{BaselineExecution, Side, execute as execute_baseline};
 pub(crate) use clippy::ClippyExecution;
 pub(crate) use process::{RunDeadline, run as run_bounded};
 #[cfg(test)]
@@ -316,6 +316,43 @@ pub(crate) fn execute(
     options: &RunOptions,
 ) -> ExecutionResult {
     execute_into(prepared, &Programs::default(), plan, None, options)
+}
+
+/// The same scan, run on the tree `--staged` wrote the index into rather than
+/// on the working tree, building into `target_dir`.
+///
+/// Every producer reads that tree and nothing else: its metadata is resolved
+/// there, so the source walk, the manifest pass and Clippy all start from it,
+/// and the paths they report are relative to its root, which is the
+/// workspace's own relative layout.
+pub(crate) fn execute_staged(
+    prepared: PreparedInspection,
+    staged_workspace: &Path,
+    target_dir: &Path,
+    plan: &PolicyPlan,
+    options: &RunOptions,
+) -> ExecutionResult {
+    let programs = Programs::default();
+    let environment = CommandEnvironment::default();
+    let target =
+        match scan_target::resolve_isolated(staged_workspace, &programs.cargo, target_dir, None) {
+            Ok(target) => target,
+            Err(failure) => return prepared.fail(failure.error),
+        };
+    // Probed where Clippy runs, so a toolchain that rustup picks by directory
+    // is the one the report names.
+    let toolchain = match resolve_toolchain(&programs, staged_workspace, &environment) {
+        Ok(toolchain) => toolchain,
+        Err(error) => return prepared.fail(error),
+    };
+    let context = ExecutionContext {
+        programs: &programs,
+        plan,
+        settings: &prepared.configuration.structure,
+        environment: &environment,
+        options,
+    };
+    context.run(target, toolchain, Some(target_dir))
 }
 
 /// The same scan, told where Cargo may keep its artifacts.

@@ -56,11 +56,19 @@ categories.
 ## After changing Rust code
 
 ```bash
-rust-doctor . --json --scope baseline --base main 2>/dev/null
+rust-doctor . --json --scope lines 2>/dev/null
 ```
 
-Baseline scope reports only what the change introduced. Repair every finding it
-returns before committing, since each one is yours.
+Lines scope reports only the findings on the lines your change touched, and
+baseline scope (`--scope baseline`) only what the change introduced, at the
+cost of a second compilation of the base. Neither needs `--base`, since the
+base is the first of `origin/HEAD`, `origin/main`, `origin/master`, `main` and
+`master` that resolves, or `HEAD` when that branch is checked out, and
+`scope.base_ref` names it. Repair every finding either returns before
+committing, since each one is yours. Add `--include-untracked` to judge a file
+you created and have not added yet; without it the terminal says how many
+were left out. Add `--staged` to judge what `git commit` would record rather
+than the working tree: it compares the index with `HEAD`.
 
 ## Auditing a workspace
 
@@ -77,7 +85,8 @@ Record `audit.score.value` as the baseline, then work the shortlist:
    do: the tool never edits a workspace it scans, so there is no fix
    subcommand and none is coming. It writes only build artifacts under Cargo's
    target directory, as `cargo clippy` itself does, including the
-   `rust-doctor/baseline` directory a baseline run keeps its dependencies in. `policy.rules` carries
+   `rust-doctor/baseline` and `rust-doctor/staged` directories a baseline or
+   staged run keeps its dependencies in. `policy.rules` carries
    the `tier` and `category` of every rule the scan ran. A diagnostic at
    severity `info` is shown and costs nothing, such as a print in a binary
    target.
@@ -125,13 +134,26 @@ when they carry no reason.
 | Command | Purpose |
 | --- | --- |
 | `rust-doctor . --json` | Full structured report, the shape every step above reads |
-| `rust-doctor . --json --scope baseline --base main` | Only what the branch introduced |
-| `rust-doctor . --json --scope files --base main` | Only the files the branch touched |
+| `rust-doctor . --json --scope lines` | Only the lines the branch touched |
+| `rust-doctor . --json --scope baseline` | Only what the branch introduced |
+| `rust-doctor . --json --scope files --base <REF>` | Only the files touched since a ref you name |
+| `rust-doctor . --json --staged --scope lines` | Only what the next commit records |
 | `rust-doctor rules list --json` | The catalog the binary shipped with |
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |
 | `rust-doctor . --blocking <none\|error\|warning>` | The level that makes the run exit non-zero |
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
+| `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines` |
+| `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
+| `rust-doctor hook install cursor` | A Cursor `stop` hook that asks for a follow-up on findings |
+| `rust-doctor skill install --agent all --update` | Refresh this skill for Claude Code, Codex and Cursor after an upgrade |
+
+Every installer prints what it writes, takes `--dry-run`, and never writes over
+a file it did not create or through a symlink. The end-of-turn hook runs
+`rust-doctor hook run claude`, which rescans with
+`--scope lines --base HEAD --include-untracked --blocking warning`, exits 2
+with up to ten findings when the turn introduced one, and never blocks when the
+scan itself fails.
 
 A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
 in `audit.score.reasons`, and keeps the findings collected before the limit.
@@ -139,5 +161,11 @@ When the score is partial, `audit.score.reasons` says why.
 
 Use `--json` for anything you parse. `--verbose` is for a human reading a
 terminal, and a run with neither flag on a terminal opens an interactive report
-that an agent cannot drive. If the binary is not on `PATH`, prefix with
+that an agent cannot drive, unless one of the variables of
+`NON_INTERACTIVE_MARKERS` is set to a non-empty value: the agent markers
+`CLAUDECODE`, `CODEX_SANDBOX` and `CURSOR_AGENT`, the git hook markers
+`GIT_DIR` and `GIT_INDEX_FILE`, and the CI markers `GITHUB_ACTIONS`,
+`GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL` and
+`TEAMCITY_VERSION`. `CI` keeps it closed too, unless it is `false`, `0` or
+empty. Pass `--yes` to be sure. If the binary is not on `PATH`, prefix with
 `npx rust-doctor@latest`.

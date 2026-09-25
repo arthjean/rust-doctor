@@ -400,7 +400,15 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
 }
 
 pub(super) fn project_diagnostics(diagnostics: &mut Vec<Diagnostic>, scope: &ScopeReport) {
-    diagnostics.retain(|diagnostic| scope.includes(diagnostic.path.as_deref()));
+    diagnostics.retain(|diagnostic| {
+        scope.includes_span(
+            diagnostic.path.as_deref(),
+            diagnostic
+                .span
+                .as_ref()
+                .map(|span| (span.line_start, span.line_end)),
+        )
+    });
 }
 
 fn classify(result: &ExecutionResult) -> Status {

@@ -47,13 +47,23 @@ impl BaselineExecution {
     }
 }
 
+/// Where one side of the comparison reads its sources and builds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Side<'a> {
+    pub(crate) workspace: &'a Path,
+    pub(crate) target_dir: &'a Path,
+}
+
+/// Runs the base side, then the current one: the working tree, or, when
+/// `staged` names one, the tree the index was written into.
 pub(crate) fn execute(
     prepared: PreparedInspection,
-    baseline_workspace: &Path,
-    baseline_target_dir: &Path,
+    base: Side<'_>,
+    staged: Option<Side<'_>>,
     plan: &PolicyPlan,
     options: &RunOptions,
 ) -> Result<BaselineExecution, Box<ExecutionResult>> {
+    let (baseline_workspace, baseline_target_dir) = (base.workspace, base.target_dir);
     let programs = Programs::default();
     let environment = match command_environment(prepared.workspace_root()) {
         Ok(environment) => environment,
@@ -94,7 +104,18 @@ pub(crate) fn execute(
         current.toolchain = Some(toolchain);
         return Err(Box::new(current));
     }
-    let current = context.run(prepared.target, toolchain, None);
+    let current = match staged {
+        None => context.run(prepared.target, toolchain, None),
+        Some(staged) => match scan_target::resolve_isolated(
+            staged.workspace,
+            &programs.cargo,
+            staged.target_dir,
+            environment.rustup_toolchain.as_deref(),
+        ) {
+            Ok(target) => context.run(target, toolchain, Some(staged.target_dir)),
+            Err(failure) => return Err(Box::new(prepared.fail(failure.error))),
+        },
+    };
     Ok(BaselineExecution { baseline, current })
 }
 

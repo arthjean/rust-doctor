@@ -76,6 +76,10 @@ impl GitFailure {
         Self { code, message }
     }
 
+    pub(crate) const fn code(self) -> &'static str {
+        self.code
+    }
+
     pub(crate) fn error(self, stage: &'static str) -> InternalError {
         InternalError::new(stage, self.code, self.message)
     }

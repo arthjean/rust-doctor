@@ -139,6 +139,13 @@ fn project_v9_value_to_v7(report: &mut Value) {
         .expect("toolchain should be an object")
         .remove("removed_lint_flags")
         .expect("schema v18 should list the lint flags it removed");
+    if let Some(scope) = report["scope"].as_object_mut() {
+        for added in ["base_ref", "staged", "untracked_unreported"] {
+            scope
+                .remove(added)
+                .expect("schema v18 should publish the scope's base ref and modifiers");
+        }
+    }
 }
 
 fn snapshot(root: &Path) -> Vec<Vec<u8>> {
@@ -629,9 +636,12 @@ fn terminal_scope_failure_exposes_only_the_closed_code() {
 
 #[test]
 fn clap_rejects_invalid_scope_combinations_without_a_report_or_inspection() {
+    // A changed scope without `--base` is no longer one of them: the base is
+    // then the default branch the repository answers for.
     for arguments in [
-        vec!["--scope", "files"],
-        vec!["--scope", "baseline"],
+        vec!["--staged"],
+        vec!["--scope", "full", "--staged"],
+        vec!["--scope", "baseline", "--include-untracked"],
         vec!["--scope", "baseline", "--scope", "files", "--base", "main"],
         vec!["--scope", "full", "--base", "main"],
         vec!["--base", "main"],

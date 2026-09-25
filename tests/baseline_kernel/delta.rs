@@ -262,9 +262,11 @@ fn error_evaluation() -> Value {
                 code: "merge-base-unavailable",
                 status: "failed",
                 exit_code: 2,
+                // The second `rev-parse` asks whether the clone is shallow,
+                // which would turn the code into `shallow-clone`.
                 processes: process_counts(&[
                     ("git-merge-base", 1),
-                    ("git-rev-parse", 1),
+                    ("git-rev-parse", 2),
                     ("metadata", 1),
                 ]),
             },

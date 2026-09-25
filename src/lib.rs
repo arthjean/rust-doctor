@@ -11,6 +11,7 @@ mod configuration;
 mod delta;
 mod execution;
 mod git;
+pub mod git_hook;
 mod git_scope;
 mod internal_error;
 #[cfg(test)]
@@ -159,34 +160,87 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         scope: requested,
         options,
     } = session;
-    let scope = match git_scope::resolve(&requested, prepared.workspace_root()) {
+    // The index is located and read before the scope, so the staged diff and
+    // the staged tree are the same index, and a conflicted or unreadable one
+    // fails the scan rather than passing it empty.
+    let index = if requested.staged() {
+        match baseline::locate_index(prepared.workspace_root()) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                return report::preparation_failure(prepared.fail(error), plan.blocking());
+            }
+        }
+    } else {
+        None
+    };
+    let scope = match git_scope::resolve(
+        &requested,
+        prepared.workspace_root(),
+        index.as_ref().map(baseline::StagedIndex::path),
+    ) {
         Ok(scope) => scope,
         Err(error) => {
             return report::preparation_failure(prepared.fail(error), plan.blocking());
         }
     };
-    if let git_scope::ResolvedScope::Baseline { comparison_base } = scope.kind() {
+    let staged = match index.as_ref().map(|index| {
+        baseline::materialize_index(prepared.workspace_root(), index)
+    }) {
+        None => None,
+        Some(Ok(snapshot)) => {
+            let target = baseline::persistent_target(prepared.target_directory(), "staged")
+                .unwrap_or_else(|| snapshot.target().to_path_buf());
+            Some((snapshot, target))
+        }
+        Some(Err(error)) => {
+            return report::from_execution_scoped(prepared.fail(error), &plan, scope);
+        }
+    };
+    let staged_side = staged.as_ref().map(|(snapshot, target)| execution::Side {
+        workspace: snapshot.workspace(),
+        target_dir: target,
+    });
+    let report = if let git_scope::ResolvedScope::Baseline { comparison_base } = scope.kind() {
         let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 return report::from_execution_scoped(prepared.fail(error), &plan, scope);
             }
         };
-        let target = baseline::persistent_target(prepared.target_directory())
+        let target = baseline::persistent_target(prepared.target_directory(), "baseline")
             .unwrap_or_else(|| snapshot.target().to_path_buf());
-        let execution =
-            execution::execute_baseline(prepared, snapshot.workspace(), &target, &plan, &options);
+        let execution = execution::execute_baseline(
+            prepared,
+            execution::Side {
+                workspace: snapshot.workspace(),
+                target_dir: &target,
+            },
+            staged_side,
+            &plan,
+            &options,
+        );
         let report = report::from_baseline_execution(execution, &plan, scope);
-        return match snapshot.cleanup() {
+        match snapshot.cleanup() {
             Ok(()) => report,
             Err(error) => report::baseline_report_failure(report, error),
+        }
+    } else {
+        let execution = match staged_side {
+            Some(side) => execution::execute_staged(
+                prepared,
+                side.workspace,
+                side.target_dir,
+                &plan,
+                &options,
+            ),
+            None => execution::execute(prepared, &plan, &options),
         };
+        report::from_execution_scoped(execution, &plan, scope)
+    };
+    match staged.map(|(snapshot, _)| snapshot.cleanup()) {
+        None | Some(Ok(())) => report,
+        Some(Err(error)) => report::baseline_report_failure(report, error),
     }
-    report::from_execution_scoped(
-        execution::execute(prepared, &plan, &options),
-        &plan,
-        scope,
-    )
 }
 
 #[cfg(test)]

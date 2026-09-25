@@ -477,13 +477,24 @@ fn has_windows_drive_prefix(value: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RescanCommand(String);
 
+/// The changed-work scope a rescan repeats, as the invocation spelled it.
+#[derive(Debug, Clone, Copy)]
+pub struct RescanScope<'a> {
+    pub mode: ScopeMode,
+    /// `None` when the invocation let the repository answer for its base, so
+    /// the rescan lets it answer again.
+    pub base: Option<&'a str>,
+    pub staged: bool,
+    pub include_untracked: bool,
+}
+
 impl RescanCommand {
     pub fn for_inspection(
         verbose: bool,
         blocking: Option<BlockingLevel>,
         rule_overrides: &[RuleOverride],
         category_overrides: &[CategoryOverride],
-        scope: Option<(ScopeMode, &str)>,
+        scope: Option<RescanScope<'_>>,
     ) -> Result<Self, HandoffError> {
         let mut arguments = vec!["rust-doctor".to_owned(), ".".to_owned()];
         if verbose {
@@ -501,19 +512,28 @@ impl RescanCommand {
             arguments.push("--category".to_owned());
             arguments.push(category_override.to_string());
         }
-        if let Some((scope, base)) = scope {
-            validate_git_base(base)?;
+        if let Some(scope) = scope {
             arguments.push("--scope".to_owned());
             arguments.push(
-                match scope {
+                match scope.mode {
                     ScopeMode::Files => "files",
+                    ScopeMode::Lines => "lines",
                     ScopeMode::Baseline => "baseline",
                     ScopeMode::Full => return Err(HandoffError::UnsafePayload),
                 }
                 .to_owned(),
             );
-            arguments.push("--base".to_owned());
-            arguments.push(base.to_owned());
+            if let Some(base) = scope.base {
+                validate_git_base(base)?;
+                arguments.push("--base".to_owned());
+                arguments.push(base.to_owned());
+            }
+            if scope.staged {
+                arguments.push("--staged".to_owned());
+            }
+            if scope.include_untracked {
+                arguments.push("--include-untracked".to_owned());
+            }
         }
         arguments.push("--yes".to_owned());
 

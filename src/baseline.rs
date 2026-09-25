@@ -11,6 +11,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure};
 
+mod staged;
+
+pub(crate) use staged::{StagedIndex, locate_index, materialize_index};
+
 pub(crate) const ENTRY_LIMIT: usize = 100_000;
 pub(crate) const BLOB_LIMIT: u64 = 64 * 1024 * 1024;
 pub(crate) const TOTAL_BLOB_LIMIT: u64 = 1024 * 1024 * 1024;
@@ -132,7 +136,7 @@ impl Drop for Snapshot {
     }
 }
 
-/// Where the base side builds: `rust-doctor/baseline` under the workspace's own
+/// Where the base side builds: `rust-doctor/<side>` under the workspace's own
 /// Cargo target directory, or `None` when that directory cannot be created or
 /// written, and the snapshot's temporary target serves instead.
 ///
@@ -143,9 +147,10 @@ impl Drop for Snapshot {
 /// sits, so a directory that outlives the snapshot keeps them fresh. It lives
 /// where `cargo clippy` itself writes, so `cargo clean` removes it with the
 /// rest, and Cargo's build-directory lock serializes two baseline runs of the
-/// same workspace.
-pub(crate) fn persistent_target(target_directory: &Path) -> Option<PathBuf> {
-    let target = target_directory.join("rust-doctor").join("baseline");
+/// same workspace. The staged tree of `--staged` keeps its own, `staged`, for
+/// the same reason.
+pub(crate) fn persistent_target(target_directory: &Path, side: &str) -> Option<PathBuf> {
+    let target = target_directory.join("rust-doctor").join(side);
     fs::create_dir_all(&target).ok()?;
     let probe = target.join(format!(".rust-doctor-write-{}", std::process::id()));
     fs::write(&probe, b"").ok()?;

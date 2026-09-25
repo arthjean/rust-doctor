@@ -72,7 +72,18 @@ fn help(arguments: &[&str]) -> String {
 
 #[test]
 fn every_flag_the_skill_documents_is_a_flag_the_cli_accepts() {
-    let accepted = format!("{}{}", help(&[]), help(&["rules", "list"]));
+    let accepted: String = [
+        &[][..],
+        &["rules", "list"],
+        &["skill", "install"],
+        &["hook", "install", "git"],
+        &["hook", "install", "claude"],
+        &["hook", "install", "cursor"],
+        &["hook", "run"],
+    ]
+    .iter()
+    .map(|command| help(command))
+    .collect();
     for (path, text) in skill_documents() {
         for flag in text
             .split_whitespace()

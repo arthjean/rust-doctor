@@ -183,13 +183,17 @@ fn registry_repository() -> PathBuf {
 /// it fresh.
 fn baseline_registry_freshness(repository: &Path) -> Vec<bool> {
     let prepared = prepare(repository).unwrap();
-    let target = crate::baseline::persistent_target(prepared.target_directory()).unwrap();
+    let target =
+        crate::baseline::persistent_target(prepared.target_directory(), "baseline").unwrap();
     assert!(target.ends_with("rust-doctor/baseline"));
     let snapshot = crate::baseline::materialize(prepared.workspace_root(), "HEAD").unwrap();
     let execution = execute_baseline(
         prepared,
-        snapshot.workspace(),
-        &target,
+        crate::execution::Side {
+            workspace: snapshot.workspace(),
+            target_dir: &target,
+        },
+        None,
         &PolicyPlan::default(),
         &RunOptions::default(),
     )
@@ -231,5 +235,5 @@ fn a_target_directory_that_cannot_be_created_falls_back_to_the_snapshot() {
     let root = crate::test_scratch::scratch("execution", "baseline-unwritable");
     let file = root.join("not-a-directory");
     fs::write(&file, "").unwrap();
-    assert_eq!(crate::baseline::persistent_target(&file), None);
+    assert_eq!(crate::baseline::persistent_target(&file, "baseline"), None);
 }

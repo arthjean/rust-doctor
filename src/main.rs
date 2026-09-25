@@ -1,12 +1,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod handoff;
+mod hook;
 mod progress_line;
 mod skill;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
 mod test_scratch;
 mod tui;
+mod workspace_write;
 
 use std::env;
 use std::ffi::OsStr;
@@ -23,7 +25,8 @@ use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use progress_line::ProgressLine;
 use handoff::{
-    HandoffError, RescanCommand, available_agents, build_prompt, copy_to_clipboard, launch_agent,
+    HandoffError, RescanCommand, RescanScope, available_agents, build_prompt, copy_to_clipboard,
+    launch_agent,
 };
 use rust_doctor::presentation::ReportPresentation;
 use rust_doctor::render::{TerminalOptions, render_json, render_terminal_with_presentation};
@@ -92,7 +95,9 @@ impl Cli {
     fn into_inspect_args(self) -> InspectArgs {
         match self.command {
             Some(CliCommand::Inspect(arguments)) => arguments,
-            Some(CliCommand::Rules(_) | CliCommand::Skill(_)) | None => self.inspect,
+            Some(CliCommand::Rules(_) | CliCommand::Skill(_) | CliCommand::Hook(_)) | None => {
+                self.inspect
+            }
         }
     }
 }
@@ -108,6 +113,63 @@ enum CliCommand {
     Rules(RulesArgs),
     #[command(about = "Install the agent skill")]
     Skill(SkillArgs),
+    #[command(about = "Install or run the hooks that rescan a commit or an agent's turn")]
+    Hook(HookArgs),
+}
+
+/// The hooks that turn a rescan into a habit. Only `install` writes, and only
+/// what it prints.
+#[derive(Debug, Clone, Args)]
+struct HookArgs {
+    #[command(subcommand)]
+    command: HookCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HookCommand {
+    #[command(about = "Install a git pre-commit hook or an agent's end-of-turn hook")]
+    Install {
+        #[command(subcommand)]
+        target: HookTarget,
+    },
+    #[command(about = "Run an agent's end-of-turn hook: rescan the lines the turn changed")]
+    Run {
+        #[arg(value_enum)]
+        agent: hook::AgentHook,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HookTarget {
+    #[command(
+        about = "Write a pre-commit hook running `rust-doctor . --yes --staged --scope lines`"
+    )]
+    Git {
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+        /// Print the target and the content, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    #[command(about = "Add a Stop hook to .claude/settings.local.json")]
+    Claude {
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+        /// Write .claude/settings.json, the file the repository shares.
+        #[arg(long)]
+        shared: bool,
+        /// Print the entry, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    #[command(about = "Add a stop hook to .cursor/hooks.json")]
+    Cursor {
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+        /// Print the entry, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// The skill an agent reads to drive the tool, written into the workspace.
@@ -122,10 +184,21 @@ struct SkillArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 enum SkillCommand {
-    #[command(about = "Write the skill into .claude/skills/, never over an existing one")]
+    #[command(about = "Write the skill where an agent reads it, never over another one")]
     Install {
         #[arg(default_value = ".", value_name = "PATH")]
         path: PathBuf,
+        /// The agent to install for: its project skill directory is
+        /// .claude/skills, .agents/skills or .cursor/skills.
+        #[arg(long, value_enum, default_value = "claude")]
+        agent: skill::AgentSelection,
+        /// Rewrite an installed copy of this skill with the one this binary
+        /// ships.
+        #[arg(long)]
+        update: bool,
+        /// Print what would be written, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -174,10 +247,23 @@ struct InspectArgs {
     category: Vec<CategoryOverride>,
     #[arg(long, value_enum)]
     blocking: Option<BlockingLevel>,
+    /// What to judge: the whole workspace, the files or the lines changed
+    /// since a base, or what the change introduced against a scan of the base.
     #[arg(long, value_enum)]
     scope: Option<ScopeArgument>,
+    /// The ref a files, lines or baseline scope compares against. Without it,
+    /// the default branch the repository answers for (`origin/HEAD`, then
+    /// `origin/main`, `origin/master`, `main`, `master`), or `HEAD` when that
+    /// branch is checked out or the scan is `--staged`.
     #[arg(long, value_name = "REF")]
     base: Option<String>,
+    /// Judge the index rather than the working tree: what `git commit` would
+    /// record. Takes a files, lines or baseline scope.
+    #[arg(long)]
+    staged: bool,
+    /// Add untracked files to a files or lines scope, as changed whole.
+    #[arg(long)]
+    include_untracked: bool,
     /// Stop the scan after SECONDS of wall-clock time, killing every process
     /// it started. Without it the scan has no deadline.
     #[arg(
@@ -189,14 +275,16 @@ struct InspectArgs {
 }
 
 impl InspectArgs {
-    fn request(&self, scoped_base: Option<&(ScopeArgument, String)>) -> InspectRequest {
+    fn request(&self, selection: Option<&ScopeSelection>) -> InspectRequest {
         let mut request = InspectRequest::new(&self.path);
-        if let Some((mode, base)) = scoped_base {
-            request = match mode {
-                ScopeArgument::Files => request.with_files_scope(base),
-                ScopeArgument::Baseline => request.with_baseline_scope(base),
-                ScopeArgument::Full => request,
-            };
+        if let Some(selection) = selection {
+            request = request.with_scope(selection.mode, selection.base.clone());
+            if selection.staged {
+                request = request.with_staged();
+            }
+            if selection.include_untracked {
+                request = request.with_untracked();
+            }
         }
         if let Some(blocking) = self.blocking {
             request = request.with_blocking(blocking);
@@ -215,32 +303,38 @@ impl InspectArgs {
 
     fn rescan_command(
         &self,
-        scoped_base: Option<&(ScopeArgument, String)>,
+        selection: Option<&ScopeSelection>,
     ) -> Result<RescanCommand, HandoffError> {
-        let scope = scoped_base.map(|(scope, base)| {
-            (
-                match scope {
-                    ScopeArgument::Full => ScopeMode::Full,
-                    ScopeArgument::Files => ScopeMode::Files,
-                    ScopeArgument::Baseline => ScopeMode::Baseline,
-                },
-                base.as_str(),
-            )
-        });
         RescanCommand::for_inspection(
             self.verbose,
             self.blocking,
             &self.rule,
             &self.category,
-            scope,
+            selection.map(|selection| RescanScope {
+                mode: selection.mode,
+                base: selection.base.as_deref(),
+                staged: selection.staged,
+                include_untracked: selection.include_untracked,
+            }),
         )
     }
+}
+
+/// A changed-work scope the invocation asked for, checked for combinations
+/// that mean nothing before any process starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScopeSelection {
+    mode: ScopeMode,
+    base: Option<String>,
+    staged: bool,
+    include_untracked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum ScopeArgument {
     Full,
     Files,
+    Lines,
     Baseline,
 }
 
@@ -252,15 +346,48 @@ fn main() -> ExitCode {
     if let Some(CliCommand::Skill(arguments)) = &cli.command {
         return run_skill(arguments);
     }
+    if let Some(CliCommand::Hook(arguments)) = &cli.command {
+        return run_hook(arguments);
+    }
     run_inspect(cli.into_inspect_args())
 }
 
 fn run_skill(arguments: &SkillArgs) -> ExitCode {
-    let SkillCommand::Install { path } = &arguments.command;
-    match skill::install(path) {
-        Ok(written) => {
-            for document in written {
-                println!("{}", document.display());
+    let SkillCommand::Install {
+        path,
+        agent,
+        update,
+        dry_run,
+    } = &arguments.command;
+    let options = skill::InstallOptions {
+        update: *update,
+        dry_run: *dry_run,
+    };
+    match skill::install(path, *agent, options) {
+        Ok(installed) => {
+            for copy in installed {
+                if let (Some(replaced), Some(directory)) = (
+                    &copy.replaced,
+                    copy.written.first().and_then(|path| path.parent()),
+                ) {
+                    println!(
+                        "{} {} with {} in {}.",
+                        if *dry_run { "Would replace" } else { "Replaced" },
+                        replaced.as_deref().map_or_else(
+                            || "a copy that recorded no version".to_owned(),
+                            |version| format!("rust-doctor {version}")
+                        ),
+                        env!("CARGO_PKG_VERSION"),
+                        directory.display()
+                    );
+                }
+                for document in copy.written {
+                    if *dry_run {
+                        println!("Would write {}", document.display());
+                    } else {
+                        println!("{}", document.display());
+                    }
+                }
             }
             ExitCode::SUCCESS
         }
@@ -268,6 +395,23 @@ fn run_skill(arguments: &SkillArgs) -> ExitCode {
             eprintln!("rust-doctor: the skill was not installed, {error}.");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn run_hook(arguments: &HookArgs) -> ExitCode {
+    match &arguments.command {
+        HookCommand::Run { agent } => hook::run_agent_hook(*agent),
+        HookCommand::Install { target } => match target {
+            HookTarget::Git { path, dry_run } => hook::install_git(path, *dry_run),
+            HookTarget::Claude {
+                path,
+                shared,
+                dry_run,
+            } => hook::install_agent(hook::AgentHook::Claude, path, *shared, *dry_run),
+            HookTarget::Cursor { path, dry_run } => {
+                hook::install_agent(hook::AgentHook::Cursor, path, false, *dry_run)
+            }
+        },
     }
 }
 
@@ -304,8 +448,8 @@ fn run_rules(arguments: &RulesArgs) -> ExitCode {
 }
 
 fn run_inspect(arguments: InspectArgs) -> ExitCode {
-    let scoped_base = match validate_scope(arguments.scope, arguments.base.as_deref()) {
-        Ok(scope) => scope,
+    let selection = match validate_scope(&arguments) {
+        Ok(selection) => selection,
         Err((kind, message)) => return clap_error(kind, message),
     };
     let stdin_is_terminal = io::stdin().is_terminal();
@@ -316,7 +460,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         arguments.yes,
         stdin_is_terminal,
         stdout_is_terminal,
-        env::var_os("CI").as_deref(),
+        |name| env::var_os(name),
         term.as_deref() == Some(OsStr::new("dumb")),
     );
     // The phases replace the static line this used to print. A JSON reader
@@ -329,12 +473,12 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     // narrowing to what changed is what `--scope files` and `--scope baseline`
     // are for, and a question asked before the scan is a question asked before
     // the reader has seen a single finding.
-    let mut request = arguments.request(scoped_base.as_ref());
+    let mut request = arguments.request(selection.as_ref());
     if !arguments.json {
         request = request.with_progress(progress.sink());
     }
     let session = InspectionSession::prepare(request);
-    let rescan_command = arguments.rescan_command(scoped_base.as_ref());
+    let rescan_command = arguments.rescan_command(selection.as_ref());
 
     let started = Instant::now();
     let (report, workspace_root) = match session {
@@ -463,43 +607,106 @@ fn run_interactive_report(
 }
 
 fn validate_scope(
-    scope: Option<ScopeArgument>,
-    base: Option<&str>,
-) -> Result<Option<(ScopeArgument, String)>, (ErrorKind, &'static str)> {
-    match (scope, base) {
-        (None | Some(ScopeArgument::Full), None) => Ok(None),
-        (Some(mode @ (ScopeArgument::Files | ScopeArgument::Baseline)), Some(base)) => {
-            Ok(Some((mode, base.to_owned())))
+    arguments: &InspectArgs,
+) -> Result<Option<ScopeSelection>, (ErrorKind, &'static str)> {
+    let mode = match arguments.scope {
+        None | Some(ScopeArgument::Full) => {
+            return match (
+                arguments.base.is_some(),
+                arguments.staged,
+                arguments.include_untracked,
+            ) {
+                (false, false, false) => Ok(None),
+                (true, _, _) => Err((
+                    ErrorKind::ArgumentConflict,
+                    "--base <REF> requires --scope files, --scope lines or --scope baseline",
+                )),
+                (_, true, _) => Err((
+                    ErrorKind::ArgumentConflict,
+                    "--staged cannot judge the full codebase: pass --scope files, lines or baseline",
+                )),
+                (_, _, true) => Err((
+                    ErrorKind::ArgumentConflict,
+                    "--include-untracked requires --scope files or --scope lines",
+                )),
+            };
         }
-        (Some(ScopeArgument::Files), None) => Err((
-            ErrorKind::MissingRequiredArgument,
-            "--scope files requires --base <REF>",
-        )),
-        (Some(ScopeArgument::Baseline), None) => Err((
-            ErrorKind::MissingRequiredArgument,
-            "--scope baseline requires --base <REF>",
-        )),
-        (None | Some(ScopeArgument::Full), Some(_)) => Err((
+        Some(ScopeArgument::Files) => ScopeMode::Files,
+        Some(ScopeArgument::Lines) => ScopeMode::Lines,
+        Some(ScopeArgument::Baseline) => ScopeMode::Baseline,
+    };
+    if arguments.include_untracked && mode == ScopeMode::Baseline {
+        return Err((
             ErrorKind::ArgumentConflict,
-            "--base <REF> requires --scope files or --scope baseline",
-        )),
+            "--include-untracked requires --scope files or --scope lines",
+        ));
     }
+    if arguments.include_untracked && arguments.staged {
+        return Err((
+            ErrorKind::ArgumentConflict,
+            "--include-untracked cannot be combined with --staged: the index holds no untracked file",
+        ));
+    }
+    Ok(Some(ScopeSelection {
+        mode,
+        base: arguments.base.clone(),
+        staged: arguments.staged,
+        include_untracked: arguments.include_untracked,
+    }))
 }
 
+/// The variables that say nobody can drive an interactive report, whatever the
+/// terminals look like: an agent's shell, a git hook, or a CI provider. An
+/// agent may run the tool under a PTY, so two terminals prove nothing about who
+/// reads them. `skills/rust-doctor/SKILL.md` names this list.
+const NON_INTERACTIVE_MARKERS: [&str; 12] = [
+    // Coding agents.
+    "CLAUDECODE",
+    "CODEX_SANDBOX",
+    "CURSOR_AGENT",
+    // Git hooks.
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    // CI providers.
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "BUILDKITE",
+    "CIRCLECI",
+    "TF_BUILD",
+    "JENKINS_URL",
+    "TEAMCITY_VERSION",
+];
+
+/// Whether the interactive report may open, reading the environment through
+/// `variable` so the decision is tested without mutating the process's own.
+///
+/// A marker set to the empty string counts as unset. `CI` is read by value
+/// rather than presence, since `CI=false` is how a developer says the shell is
+/// not one.
 fn interactions_allowed(
     json: bool,
     yes: bool,
     stdin_is_terminal: bool,
     stdout_is_terminal: bool,
-    ci: Option<&OsStr>,
+    variable: impl Fn(&str) -> Option<std::ffi::OsString>,
     terminal_is_dumb: bool,
 ) -> bool {
     stdin_is_terminal
         && stdout_is_terminal
         && !json
         && !yes
-        && ci.is_none_or(OsStr::is_empty)
         && !terminal_is_dumb
+        && variable("CI").as_deref().is_none_or(ci_is_off)
+        && NON_INTERACTIVE_MARKERS
+            .iter()
+            .all(|marker| variable(marker).as_deref().is_none_or(OsStr::is_empty))
+}
+
+/// `CI` left empty, or set to `false` or `0` in any case, is not a CI run.
+fn ci_is_off(value: &OsStr) -> bool {
+    value
+        .to_str()
+        .is_some_and(|value| value.is_empty() || value == "0" || value.eq_ignore_ascii_case("false"))
 }
 
 fn terminal_width(
@@ -590,35 +797,119 @@ mod tests {
         assert_eq!(path.path, Path::new("./inspect"));
     }
 
+    fn environment(
+        pairs: &'static [(&'static str, &'static str)],
+    ) -> impl Fn(&str) -> Option<std::ffi::OsString> {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| std::ffi::OsString::from(value))
+        }
+    }
+
     #[test]
     fn interaction_gate_requires_both_terminals_and_no_quiet_mode() {
-        assert!(interactions_allowed(false, false, true, true, None, false));
+        let clean = || environment(&[]);
+        assert!(interactions_allowed(false, false, true, true, clean(), false));
         for gated in [
-            interactions_allowed(true, false, true, true, None, false),
-            interactions_allowed(false, true, true, true, None, false),
-            interactions_allowed(false, false, false, true, None, false),
-            interactions_allowed(false, false, true, false, None, false),
-            interactions_allowed(false, false, true, true, Some(OsStr::new("1")), false),
-            interactions_allowed(false, false, true, true, None, true),
+            interactions_allowed(true, false, true, true, clean(), false),
+            interactions_allowed(false, true, true, true, clean(), false),
+            interactions_allowed(false, false, false, true, clean(), false),
+            interactions_allowed(false, false, true, false, clean(), false),
+            interactions_allowed(false, false, true, true, clean(), true),
         ] {
             assert!(!gated);
         }
-        assert!(interactions_allowed(
-            false,
-            false,
-            true,
-            true,
-            Some(OsStr::new("")),
-            false
-        ));
+    }
+
+    #[test]
+    fn every_agent_hook_and_ci_marker_closes_the_interactive_report() {
+        for marker in NON_INTERACTIVE_MARKERS {
+            let set = move |name: &str| (name == marker).then(|| "1".into());
+            assert!(
+                !interactions_allowed(false, false, true, true, set, false),
+                "{marker}=1 left the interactive report open"
+            );
+            // A variable set to the empty string counts as unset.
+            let empty = move |name: &str| (name == marker).then(std::ffi::OsString::new);
+            assert!(
+                interactions_allowed(false, false, true, true, empty, false),
+                "{marker}= closed the interactive report"
+            );
+        }
+    }
+
+    #[test]
+    fn ci_set_to_false_zero_or_nothing_is_not_ci() {
+        for off in ["false", "FALSE", "False", "0", ""] {
+            let ci = move |name: &str| (name == "CI").then(|| off.into());
+            assert!(interactions_allowed(false, false, true, true, ci, false), "CI={off:?}");
+        }
+        for on in ["1", "true", "yes", "off", "no"] {
+            let ci = move |name: &str| (name == "CI").then(|| on.into());
+            assert!(!interactions_allowed(false, false, true, true, ci, false), "CI={on:?}");
+        }
+    }
+
+    #[test]
+    fn the_skill_names_every_non_interactive_marker() {
+        let skill = include_str!("../skills/rust-doctor/SKILL.md");
+        assert!(skill.contains("NON_INTERACTIVE_MARKERS"));
+        for marker in NON_INTERACTIVE_MARKERS {
+            assert!(skill.contains(&format!("`{marker}`")), "SKILL.md omits `{marker}`");
+        }
+    }
+
+    fn selection(arguments: &[&str]) -> Result<Option<ScopeSelection>, (ErrorKind, &'static str)> {
+        let mut command = vec!["rust-doctor", "."];
+        command.extend_from_slice(arguments);
+        let arguments = Cli::try_parse_from(command)
+            .map_err(|_| (ErrorKind::InvalidValue, "the test arguments did not parse"))?;
+        validate_scope(&arguments.into_inspect_args())
     }
 
     #[test]
     fn invalid_scope_combinations_are_rejected_before_execution() {
-        assert!(validate_scope(Some(ScopeArgument::Files), None).is_err());
-        assert!(validate_scope(Some(ScopeArgument::Baseline), None).is_err());
-        assert!(validate_scope(None, Some("HEAD")).is_err());
-        assert!(validate_scope(Some(ScopeArgument::Full), Some("HEAD")).is_err());
+        for refused in [
+            &["--base", "HEAD"][..],
+            &["--scope", "full", "--base", "HEAD"],
+            &["--staged"],
+            &["--scope", "full", "--staged"],
+            &["--include-untracked"],
+            &["--scope", "baseline", "--include-untracked"],
+            &["--scope", "lines", "--staged", "--include-untracked"],
+        ] {
+            assert!(selection(refused).is_err(), "{refused:?}");
+        }
+        let (_, message) = selection(&["--scope", "full", "--staged"]).unwrap_err();
+        assert!(message.contains("--staged") && message.contains("full"), "{message}");
+    }
+
+    #[test]
+    fn a_changed_scope_needs_no_base() {
+        for (mode, scope) in [
+            ("files", ScopeMode::Files),
+            ("lines", ScopeMode::Lines),
+            ("baseline", ScopeMode::Baseline),
+        ] {
+            assert_eq!(
+                selection(&["--scope", mode]).unwrap(),
+                Some(ScopeSelection {
+                    mode: scope,
+                    base: None,
+                    staged: false,
+                    include_untracked: false,
+                })
+            );
+            assert!(selection(&["--scope", mode, "--staged"]).unwrap().unwrap().staged);
+        }
+        assert!(
+            selection(&["--scope", "lines", "--include-untracked", "--base", "HEAD"])
+                .unwrap()
+                .unwrap()
+                .include_untracked
+        );
     }
 
     #[test]

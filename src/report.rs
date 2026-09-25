@@ -21,7 +21,7 @@ use crate::audit::{Audit, SeverityCounts};
 use crate::delta::DeltaReport;
 use crate::execution::{RunDeadline, RunOptions};
 use crate::progress::ProgressSink;
-use crate::git_scope::{ScopeReport, ScopeRequest};
+use crate::git_scope::{ChangeMode, ChangeOptions, ScopeMode, ScopeReport, ScopeRequest};
 use crate::policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PolicyInput,
     PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
@@ -46,7 +46,9 @@ pub(crate) const DEADLINE_EXCEEDED: &str = "deadline-exceeded";
 pub struct InspectRequest {
     pub path: PathBuf,
     policy: PolicyInput,
-    scope: ScopeRequest,
+    scope_mode: ScopeMode,
+    base: Option<CallerBase>,
+    change_options: ChangeOptions,
     max_duration: Option<Duration>,
     progress: Option<ProgressSink>,
 }
@@ -56,7 +58,9 @@ impl InspectRequest {
         Self {
             path: path.into(),
             policy: PolicyInput::default(),
-            scope: ScopeRequest::Full,
+            scope_mode: ScopeMode::Full,
+            base: None,
+            change_options: ChangeOptions::default(),
             max_duration: None,
             progress: None,
         }
@@ -90,13 +94,33 @@ impl InspectRequest {
         self
     }
 
-    pub fn with_files_scope(mut self, base: impl Into<String>) -> Self {
-        self.scope = ScopeRequest::Files { base: base.into() };
+    pub fn with_files_scope(self, base: impl Into<String>) -> Self {
+        self.with_scope(ScopeMode::Files, Some(base.into()))
+    }
+
+    pub fn with_baseline_scope(self, base: impl Into<String>) -> Self {
+        self.with_scope(ScopeMode::Baseline, Some(base.into()))
+    }
+
+    /// Scans under `mode`, comparing against `base`, or, when it is `None`,
+    /// against the default branch the repository answers for itself (`HEAD`
+    /// for a staged scan). `ScopeMode::Full` compares against nothing.
+    pub fn with_scope(mut self, mode: ScopeMode, base: Option<String>) -> Self {
+        self.scope_mode = mode;
+        self.base = base.map(CallerBase);
         self
     }
 
-    pub fn with_baseline_scope(mut self, base: impl Into<String>) -> Self {
-        self.scope = ScopeRequest::Baseline { base: base.into() };
+    /// Judges the index rather than the working tree: what `git commit` would
+    /// record. Only a changed-work scope reads it.
+    pub const fn with_staged(mut self) -> Self {
+        self.change_options.staged = true;
+        self
+    }
+
+    /// Adds untracked files to a files or lines scope, as changed whole.
+    pub const fn with_untracked(mut self) -> Self {
+        self.change_options.include_untracked = true;
         self
     }
 
@@ -104,8 +128,18 @@ impl InspectRequest {
         &self.policy
     }
 
-    pub(crate) const fn scope(&self) -> &ScopeRequest {
-        &self.scope
+    pub(crate) fn scope(&self) -> ScopeRequest {
+        let mode = match self.scope_mode {
+            ScopeMode::Full => return ScopeRequest::Full,
+            ScopeMode::Files => ChangeMode::Files,
+            ScopeMode::Lines => ChangeMode::Lines,
+            ScopeMode::Baseline => ChangeMode::Baseline,
+        };
+        ScopeRequest::Changed {
+            mode,
+            base: self.base.as_ref().map(|base| base.0.clone()),
+            options: self.change_options,
+        }
     }
 
     /// The run's options, its deadline starting now.
@@ -114,6 +148,17 @@ impl InspectRequest {
             deadline: self.max_duration.map(RunDeadline::starting_now),
             progress: self.progress.clone(),
         }
+    }
+}
+
+/// A base selector as the caller wrote it. A branch name is the caller's, so
+/// the request's `Debug` never prints it, as `ScopeRequest`'s does not.
+#[derive(Clone)]
+struct CallerBase(String);
+
+impl fmt::Debug for CallerBase {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<redacted>")
     }
 }
 

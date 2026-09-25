@@ -84,15 +84,18 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert_eq!(report["schema_version"], 18);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
+    // A changed scope needs no `--base` since the repository answers for its
+    // default branch; judging the index of the whole codebase is still no
+    // scope at all.
     let rejected = binary()
-        .args(["--scope", "files"])
+        .args(["--scope", "full", "--staged"])
         .arg("/path/that/must/not/be-inspected")
         .output()
         .unwrap();
     assert_eq!(rejected.status.code(), Some(2));
     assert!(rejected.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&rejected.stderr);
-    assert!(stderr.contains("--scope files requires --base <REF>"));
+    assert!(stderr.contains("--staged cannot judge the full codebase"));
     assert!(!stderr.contains("Scanning Rust files"));
 }
 
@@ -201,6 +204,22 @@ mod tty {
 
     static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
 
+    /// The variables `src/main.rs` reads as "nobody can drive a menu here".
+    const NON_INTERACTIVE_MARKERS: [&str; 12] = [
+        "CLAUDECODE",
+        "CODEX_SANDBOX",
+        "CURSOR_AGENT",
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "CIRCLECI",
+        "TF_BUILD",
+        "JENKINS_URL",
+        "TEAMCITY_VERSION",
+    ];
+
     struct PtyProcess {
         child: Child,
         terminal: File,
@@ -209,14 +228,23 @@ mod tty {
 
     impl PtyProcess {
         fn spawn(mut command: Command) -> Self {
-            Self::spawn_with_stderr(&mut command, true)
+            Self::spawn_with_stderr(&mut command, true, None)
         }
 
         fn spawn_with_redirected_stderr(mut command: Command) -> Self {
-            Self::spawn_with_stderr(&mut command, false)
+            Self::spawn_with_stderr(&mut command, false, None)
         }
 
-        fn spawn_with_stderr(command: &mut Command, stderr_is_terminal: bool) -> Self {
+        /// Spawns with one variable set after the harness cleared the rest.
+        fn spawn_with_variable(mut command: Command, variable: (&str, &str)) -> Self {
+            Self::spawn_with_stderr(&mut command, true, Some(variable))
+        }
+
+        fn spawn_with_stderr(
+            command: &mut Command,
+            stderr_is_terminal: bool,
+            variable: Option<(&str, &str)>,
+        ) -> Self {
             let mut master = 0;
             let mut slave = 0;
             // SAFETY: openpty initializes both descriptors, which are immediately owned by File.
@@ -263,6 +291,14 @@ mod tty {
                 .env("COLUMNS", "100")
                 .env_remove("CI")
                 .env_remove("NO_COLOR");
+            // The markers that keep the interactive report closed are what the
+            // harness itself runs under, in an agent's shell or on a CI runner.
+            for marker in NON_INTERACTIVE_MARKERS {
+                command.env_remove(marker);
+            }
+            if let Some((name, value)) = variable {
+                command.env(name, value);
+            }
             // SAFETY: the closure only invokes async-signal-safe libc calls before exec.
             unsafe {
                 command.pre_exec(move || {
@@ -482,6 +518,21 @@ mod tty {
             "{output}"
         );
         assert!(!output.contains("↑/↓ move"), "{output}");
+    }
+
+    /// An agent may hold a PTY, so two terminals are not a reader who can
+    /// drive a menu: under `CLAUDECODE=1` the same run prints the linear report
+    /// and exits on its own, where the run above waits for `q`.
+    #[test]
+    fn an_agent_marker_keeps_the_linear_report_on_a_terminal() {
+        for variable in [("CLAUDECODE", "1"), ("GITHUB_ACTIONS", "true"), ("CI", "yes")] {
+            let mut command = binary();
+            command.arg(kernel("todo")).args(["--scope", "full"]);
+            let (status, output) = PtyProcess::spawn_with_variable(command, variable).wait();
+            assert_eq!(status.code(), Some(0), "{variable:?}: {output}");
+            assert!(output.contains("Scope: full codebase"), "{variable:?}: {output}");
+            assert!(!output.contains("↑/↓ move"), "{variable:?}: {output}");
+        }
     }
 
     /// Walks the interactive report from its landing to the agent it hands

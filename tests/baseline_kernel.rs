@@ -341,6 +341,9 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
             "execution_scope": "workspace",
             "comparison_base": oid,
             "files": null,
+            "base_ref": null,
+            "staged": false,
+            "untracked_unreported": null,
         })
     );
     assert_eq!(baseline["gate"]["status"], "passed");

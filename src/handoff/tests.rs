@@ -202,7 +202,12 @@ fn hostile_fields_are_excluded_or_refused_before_delivery() {
                 None,
                 &[],
                 &[],
-                Some((ScopeMode::Files, hostile))
+                Some(RescanScope {
+                    mode: ScopeMode::Files,
+                    base: Some(hostile),
+                    staged: false,
+                    include_untracked: false,
+                })
             )
             .map(|_| ()),
             Err(HandoffError::UnsafePayload),

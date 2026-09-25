@@ -8,9 +8,13 @@ review it applies to a file the catalog already flagged.
 `rust-doctor skill install` writes it into a workspace, and `src/skill.rs`
 embeds both documents with `include_str!`: an install reaches no network, and a
 binary carries the skill of its own version rather than whatever the latest
-branch holds. The refusal to overwrite is the creation of the skill directory
-itself, so either the whole skill lands or nothing does and no half-installed
-skill points at a reference that was never written. `src/tui/workflow.rs` makes
+branch holds. `--agent` picks Claude Code, Codex or Cursor, each directory
+checked against that agent's documentation and cited beside the table. A first
+install creates the skill directory itself, so either the whole skill lands or
+nothing does. `--update` rewrites a copy only when its front matter says
+`name: rust-doctor`, and names the version the replaced copy recorded, since an
+old skill documents flags the binary no longer has. No install writes through
+a symlink. `src/tui/workflow.rs` makes
 the same guarantee one file at a time, with `create_new`.
 
 It lives in this repository rather than beside the agent that installs it
