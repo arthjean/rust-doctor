@@ -1,0 +1,10 @@
+[ignore]
+paths = ["src/ignored"]
+
+[[overrides]]
+paths = ["src/raised.rs"]
+rules = { "clippy::todo" = "error" }
+
+[[overrides]]
+paths = ["src/quiet/**"]
+categories = { correctness = "off" }

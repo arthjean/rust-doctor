@@ -16,18 +16,19 @@ use super::normalize::{
     merge_diagnostic, normalize_cargo_health_candidate, normalize_repo_finding,
     normalize_source_candidate, normalize_structure_finding,
 };
+use super::exclusion::{self, Exclusion};
 use super::sanitize::{HomePaths, home_paths, sanitize_text};
 use super::{
-    Diagnostic, DiagnosticContext, GateReport, GateStatus, InspectReport, PackageReport,
-    PolicyReport, ProjectReport, ReportError, SCHEMA_VERSION, ScanReport, Severity, Status,
-    Summary, ToolchainReport,
+    Diagnostic, DiagnosticContext, GateReport, GateStatus, InspectReport, NotEvaluated,
+    PackageReport, PolicyReport, ProjectReport, ReportError, SCHEMA_VERSION, ScanReport,
+    Severity, Status, Summary, ToolchainReport,
 };
 use crate::audit::{self, Audit, ScoreReason, SourceFileInventory};
 use crate::delta::DeltaReport;
 use crate::execution::{BaselineExecution, ExecutionResult, ScanExecution};
 use crate::git_scope::ScopeReport;
 use crate::internal_error::InternalError;
-use crate::policy::{BlockingLevel, PolicyError, PolicyPlan};
+use crate::policy::{BlockingLevel, PolicyError, PolicyPlan, Producer};
 use crate::workspace_path;
 
 /// What the run that produced a report got as far as.
@@ -191,13 +192,14 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path());
-    let diagnostics = plan.map_or_else(Vec::new, |plan| {
-        diagnostics_from_execution(&result, plan, scope.as_ref(), &home)
-    });
+    let (diagnostics, exclusion) = plan.map_or_else(
+        || (Vec::new(), Exclusion::default()),
+        |plan| diagnostics_from_execution(&result, plan, scope.as_ref(), &home),
+    );
     let summary = Summary::from_diagnostics(&diagnostics);
     let gate = evaluate_gate(status, &diagnostics, blocking);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
-    let scan = scan_report(result.scan.finished());
+    let scan = scan_report(result.scan.finished(), &exclusion);
     let errors = report_errors(&result, workspace_root, &home);
     let source_inventory =
         result
@@ -210,24 +212,27 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                     result.source_measurement.as_ref(),
                 )
             });
-    let not_evaluated = result
-        .scan
-        .finished()
-        .map(|scan| scan.not_evaluated.as_slice())
-        .unwrap_or_default();
+    let not_evaluated = not_evaluated(&result, plan);
     let stage_reasons = errors
         .iter()
         .filter_map(|error| ScoreReason::of_error(&error.code))
         .chain((!not_evaluated.is_empty()).then_some(ScoreReason::RulesNotEvaluated))
         .collect();
-    let audit = Audit::build_from_inventory(source_inventory, status, stage_reasons, &diagnostics);
+    let members = member_inventories(&result, source_inventory.complete);
+    let audit = Audit::build_from_inventory(
+        source_inventory,
+        members,
+        status,
+        stage_reasons,
+        &diagnostics,
+    );
 
     InspectReport {
         schema_version: SCHEMA_VERSION,
         audit,
         status,
         complete: status == Status::Complete,
-        policy: plan.map(|plan| PolicyReport::from_plan(plan, not_evaluated)),
+        policy: plan.map(|plan| PolicyReport::from_plan(plan, &not_evaluated)),
         scope,
         project,
         toolchain: {
@@ -250,11 +255,74 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         },
         scan,
         diagnostics,
+        suppressions: exclusion.suppressions,
         delta: None,
         errors,
         summary,
         gate,
     }
+}
+
+/// Every scanned workspace member, with what the walk measured of it: the
+/// selected ones under `--package`, every one otherwise. A member the walk
+/// read nothing of is still listed, with nothing to score.
+fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, SourceFileInventory)> {
+    let Some(metadata) = result.metadata.as_ref().filter(|_| result.error.is_none()) else {
+        return Vec::new();
+    };
+    let measured = result
+        .source_measurement
+        .as_ref()
+        .map(|measurement| &measurement.packages);
+    let names = metadata
+        .packages
+        .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+        .map(|package| package.name.to_string())
+        .filter(|name| {
+            result
+                .exclusions
+                .packages
+                .as_ref()
+                .is_none_or(|selected| selected.contains(name))
+        })
+        .collect::<BTreeSet<_>>();
+    names
+        .into_iter()
+        .map(|name| {
+            let own = measured
+                .and_then(|packages| packages.get(&name))
+                .copied()
+                .unwrap_or_default();
+            let inventory = SourceFileInventory {
+                files: own.files,
+                production_lines: own.production_lines,
+                complete,
+            };
+            (name, inventory)
+        })
+        .collect()
+}
+
+/// Every active rule the run did not evaluate, and why: a Clippy lint the
+/// installed toolchain does not list, or a repository rule a `--package` scan
+/// has no member to judge with.
+fn not_evaluated(
+    result: &ExecutionResult,
+    plan: Option<&PolicyPlan>,
+) -> Vec<(&'static str, NotEvaluated)> {
+    let unknown = result
+        .scan
+        .finished()
+        .into_iter()
+        .flat_map(|scan| &scan.not_evaluated)
+        .map(|id| (*id, NotEvaluated::UnknownToToolchain));
+    let package_scoped = plan
+        .filter(|_| result.exclusions.packages.is_some() && result.error.is_none())
+        .into_iter()
+        .flat_map(|plan| plan.active_rules(Producer::Repo))
+        .map(|(definition, _)| (definition.id, NotEvaluated::PackageScoped));
+    unknown.chain(package_scoped).collect()
 }
 
 /// Every diagnostic the five producers published, merged on identity, ordered
@@ -274,27 +342,31 @@ fn diagnostics_from_execution(
     plan: &PolicyPlan,
     scope: Option<&ScopeReport>,
     home: &HomePaths,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Exclusion) {
     // A failed scan publishes no finding, and nothing is published relative to
     // a workspace root the run never resolved. Both are answered once, here,
     // rather than by every producer below.
     if classify(result) == Status::Failed {
-        return Vec::new();
+        return (Vec::new(), Exclusion::default());
     }
     let Some(workspace_root) = result
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path())
     else {
-        return Vec::new();
+        return (Vec::new(), Exclusion::default());
     };
 
     let mut merged = BTreeMap::<String, Diagnostic>::new();
+    // The dependency key of each declaration finding, by identity: what a
+    // manifest directive names it by, since it publishes no line.
+    let mut dependency_keys = BTreeMap::<String, String>::new();
     for candidate in result.cargo_health.iter().flat_map(|scan| &scan.candidates) {
-        merge_diagnostic(
-            &mut merged,
-            normalize_cargo_health_candidate(candidate, workspace_root, home),
-        );
+        let diagnostic = normalize_cargo_health_candidate(candidate, workspace_root, home);
+        if let Some(key) = &candidate.key {
+            dependency_keys.insert(diagnostic.id.clone(), key.clone());
+        }
+        merge_diagnostic(&mut merged, diagnostic);
     }
     merge_compiler_messages(
         &mut merged,
@@ -329,11 +401,13 @@ fn diagnostics_from_execution(
 
     let mut diagnostics: Vec<_> = merged.into_values().collect();
     apply_policy(&mut diagnostics, plan);
+    let exclusion =
+        exclusion::apply(&mut diagnostics, plan, &result.exclusions, &dependency_keys);
     if let Some(scope) = scope {
         project_diagnostics(&mut diagnostics, scope);
     }
     diagnostics.sort_by(compare_diagnostics);
-    diagnostics
+    (diagnostics, exclusion)
 }
 
 pub(crate) fn preparation_failure(
@@ -381,13 +455,9 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             clippy: None,
             removed_lint_flags: Vec::new(),
         },
-        scan: ScanReport {
-            command: None,
-            exit_code: None,
-            build_finished: None,
-            noise_lines: None,
-        },
+        scan: scan_report(None, &Exclusion::default()),
         diagnostics: Vec::new(),
+        suppressions: Vec::new(),
         delta: None,
         errors: vec![error],
         summary: Summary::default(),
@@ -466,20 +536,14 @@ fn project_report(
     })
 }
 
-fn scan_report(scan: Option<&ScanExecution>) -> ScanReport {
-    match scan {
-        Some(scan) => ScanReport {
-            command: Some(scan.command.clone()),
-            exit_code: scan.exit_code,
-            build_finished: scan.build_finished,
-            noise_lines: Some(scan.noise_lines),
-        },
-        None => ScanReport {
-            command: None,
-            exit_code: None,
-            build_finished: None,
-            noise_lines: None,
-        },
+fn scan_report(scan: Option<&ScanExecution>, exclusion: &Exclusion) -> ScanReport {
+    ScanReport {
+        command: scan.map(|scan| scan.command.clone()),
+        exit_code: scan.and_then(|scan| scan.exit_code),
+        build_finished: scan.and_then(|scan| scan.build_finished),
+        noise_lines: scan.map(|scan| scan.noise_lines),
+        ignored: exclusion.ignored,
+        excluded_generated: exclusion.excluded_generated,
     }
 }
 

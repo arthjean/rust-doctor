@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::*;
+use super::share::build_share_url;
 use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
 
@@ -531,6 +532,7 @@ fn invalid_score_state_is_rejected_before_sharing() {
         categories: Vec::new(),
         inventory_is_complete: true,
         stage_reasons: std::collections::BTreeSet::new(),
+        packages: Vec::new(),
         score: Some(AuditScore {
             model: SCORE_MODEL.to_owned(),
             value: 101,
@@ -906,6 +908,7 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
             production_lines: 40,
             complete: false,
         },
+        Vec::new(),
         Status::Complete,
         std::collections::BTreeSet::new(),
         &[],

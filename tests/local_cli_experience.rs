@@ -81,7 +81,7 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout.last(), Some(&b'\n'));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 18);
+    assert_eq!(report["schema_version"], 19);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
     // A changed scope needs no `--base` since the repository answers for its

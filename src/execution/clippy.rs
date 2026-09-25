@@ -97,7 +97,8 @@ pub(super) fn run(
     target_dir: Option<&Path>,
 ) -> Result<ScanExecution, InternalError> {
     let workspace_root = metadata.workspace_root.as_std_path();
-    let members = Members::of(metadata);
+    let selected = context.options.packages.as_ref();
+    let members = Members::of(metadata, selected);
     let known = lint_list::probe(context, workspace_root);
     let not_evaluated: Vec<&'static str> = known.as_ref().map_or_else(|_| Vec::new(), |known| {
         context
@@ -107,17 +108,23 @@ pub(super) fn run(
             .filter(|id| !known.contains(*id))
             .collect()
     });
-    let mut arguments = arguments_for_rules(
+    let mut arguments: Vec<String> = arguments_for_rules(
         context
             .plan
             .active_rules(Producer::Clippy)
             .filter(|(definition, _)| !not_evaluated.contains(&definition.id)),
-    );
+    )
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    if let Some(selected) = selected {
+        select_packages(&mut arguments, selected);
+    }
     let mut notices = Vec::new();
     if let Err(notice) = known {
         // Every `-W` is still passed, and a lint this Clippy does not know is
         // allowed rather than warned about: the scan runs narrower, not blind.
-        arguments.extend(TOLERATE_UNKNOWN);
+        arguments.extend(TOLERATE_UNKNOWN.map(str::to_owned));
         notices.push(notice);
     }
     let rustflags = RustflagsOverride::resolve(workspace_root);
@@ -190,9 +197,8 @@ pub(super) fn run(
     }
 
     Ok(ScanExecution {
-        command: std::iter::once("cargo")
+        command: std::iter::once("cargo".to_owned())
             .chain(arguments)
-            .map(str::to_owned)
             .collect(),
         exit_code,
         exit_success,
@@ -214,10 +220,23 @@ pub(super) fn run(
     })
 }
 
+/// Lints the selected members only: one `-p <NAME>` each where
+/// `--workspace` stood, so Cargo still compiles what they depend on and lints
+/// nothing else.
+fn select_packages(arguments: &mut Vec<String>, selected: &BTreeSet<String>) {
+    let Some(position) = arguments.iter().position(|argument| argument == "--workspace") else {
+        return;
+    };
+    let packages = selected
+        .iter()
+        .flat_map(|name| ["-p".to_owned(), name.clone()]);
+    arguments.splice(position..=position, packages);
+}
+
 fn command(
     cargo: &Path,
     workspace_root: &Path,
-    arguments: &[&str],
+    arguments: &[String],
     target_dir: Option<&Path>,
     environment: &CommandEnvironment,
 ) -> Command {

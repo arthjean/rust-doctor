@@ -42,6 +42,13 @@ against a self-signed test server, and `dynamic_shell` deliberately does not,
 because an interpolated shell command is a finding wherever it runs. The reason
 is written above each rather than left to be inferred from an asymmetry.
 
+Excluded is still reached. `Enumeration::narrow` keeps a unit under an
+`[ignore]` path, or one no `--package` member reaches, out of every detector
+and of the measurement, while the walk still follows its `mod` declarations,
+`references` still reads its crate names, and `reached()` still counts it as
+compiled, so the orphan detector never mistakes an ignored file for a dead one.
+Clippy compiles it all the same, and the report counts its findings out.
+
 `the_kernel_holds_the_size_bound_it_enumerates_for` keeps every file of the
 module, and `source_text.rs` with it, under the 1000 lines `oversized_unit`
 reports, tests included. That is why the walk and the tests have files of their

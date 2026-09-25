@@ -1,0 +1,5 @@
+Cargo.toml linguist-generated
+src/declared.rs linguist-generated
+src/vendored.rs linguist-vendored=true
+src/kept_false.rs linguist-generated=false
+src/kept_unset.rs -linguist-generated

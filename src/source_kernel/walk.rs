@@ -175,6 +175,8 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         errors: refusals.errors,
         counters,
         complete: refusals.every_file_was_read,
+        excluded: BTreeSet::new(),
+        selected: None,
     }
 }
 

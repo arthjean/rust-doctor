@@ -441,8 +441,11 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
             exit_code: Some(0),
             build_finished: Some(true),
             noise_lines: Some(0),
+            ignored: 0,
+            excluded_generated: 0,
         },
         diagnostics: Vec::new(),
+        suppressions: Vec::new(),
         delta: None,
         errors: stages
             .iter()

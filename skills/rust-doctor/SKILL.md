@@ -123,11 +123,22 @@ producer, default level, tier and help, which is what a diagnostic's `code`
 resolves against. Explain the rule from its help before offering to switch it
 off: most findings people dislike are real.
 
-There is no suppression comment. A rule is turned off for one run with
-`--rule <id>=off` or `--category <name>=<level>`, and durably in
-`rust-doctor.toml` at the workspace root. Prefer the narrowest control, and
-prefer fixing the code: `#[allow]` attributes are themselves catalogued findings
-when they carry no reason.
+Prefer fixing the code, then the narrowest control:
+
+- One native site: `// rust-doctor: allow(<rule-id>) -- <reason>` on the line
+  above, or `# rust-doctor: allow(<rule-id>) -- <reason>` above a key in
+  `Cargo.toml` or `.cargo/config.toml`. Without a reason it suppresses nothing.
+  A Clippy lint takes `#[expect(<lint>, reason = "...")]` instead, and every
+  directive is listed in `suppressions[]` with its status.
+- One path: `[[overrides]]` in `rust-doctor.toml`, with `paths` globs and
+  `rules` or `categories` levels. `[ignore] paths` drops a path from the report
+  and the score, counted in `scan.ignored`; Clippy still compiles it.
+- Files `.gitattributes` marks `linguist-generated` or `linguist-vendored`, and
+  files opening on a generator header, are left out, counted in
+  `scan.excluded_generated`.
+- One run: `--rule <id>=off` or `--category <name>=<level>`, which win over the
+  file. `#[allow]` attributes are themselves catalogued findings when they
+  carry no reason.
 
 ## Commands
 
@@ -138,6 +149,7 @@ when they carry no reason.
 | `rust-doctor . --json --scope baseline` | Only what the branch introduced |
 | `rust-doctor . --json --scope files --base <REF>` | Only the files touched since a ref you name |
 | `rust-doctor . --json --staged --scope lines` | Only what the next commit records |
+| `rust-doctor . --json --package <NAME>` | One workspace member, scored alone; every scan publishes `audit.packages` |
 | `rust-doctor rules list --json` | The catalog the binary shipped with |
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |

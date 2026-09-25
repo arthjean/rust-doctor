@@ -256,6 +256,13 @@ impl SourceUnit {
         .map(|(_, name)| name.clone())
     }
 
+    /// Names of the workspace packages whose targets reach this unit.
+    pub(crate) fn package_names(&self) -> impl Iterator<Item = &str> {
+        self.reachability
+            .iter()
+            .map(|reach| reach.package_name.as_str())
+    }
+
     /// Identifiers of the workspace packages whose targets reach this unit.
     ///
     /// `package` answers what to publish on a finding and abstains when several
@@ -318,11 +325,61 @@ pub(crate) struct Enumeration {
     /// enumeration is not a walk that read everything, it is a walk that never
     /// happened, so it says so.
     complete: bool,
+    /// Units read and kept out of every detector and of the measurement: a
+    /// path the configuration ignores, or a package `--package` did not
+    /// select. They are still walked, so a module they declare is reached,
+    /// and still read for the crate references a dependency is judged by.
+    excluded: BTreeSet<Identity>,
+    /// The members `--package` selected, `None` when every member is scanned.
+    selected: Option<BTreeSet<String>>,
 }
 
 impl Enumeration {
+    /// The units the detectors read: every unit the walk loaded, less the
+    /// excluded ones.
     pub(crate) fn units(&self) -> impl Iterator<Item = &SourceUnit> {
+        self.scanned().map(|(_, unit)| unit)
+    }
+
+    fn scanned(&self) -> impl Iterator<Item = (&Identity, &SourceUnit)> {
+        self.units
+            .iter()
+            .filter(|(identity, _)| !self.excluded.contains(*identity))
+    }
+
+    /// Every unit the walk loaded, excluded ones included: what Cargo compiles,
+    /// which is what says whether a file is reached at all.
+    pub(crate) fn reached(&self) -> impl Iterator<Item = &SourceUnit> {
         self.units.values()
+    }
+
+    /// Keeps out of every detector and of the measurement the units under a
+    /// path `ignored` names, and, when `selected` is given, every unit no
+    /// selected member reaches.
+    pub(crate) fn narrow(
+        &mut self,
+        ignored: impl Fn(&str) -> bool,
+        selected: Option<&BTreeSet<String>>,
+    ) {
+        self.excluded = self
+            .units
+            .iter()
+            .filter(|(_, unit)| {
+                ignored(unit.relative_path())
+                    || selected.is_some_and(|selected| {
+                        !unit.package_names().any(|name| selected.contains(name))
+                    })
+            })
+            .map(|(identity, _)| identity.clone())
+            .collect();
+        self.selected = selected.cloned();
+    }
+
+    /// Is this workspace member scanned: selected, or no selection made?
+    pub(crate) fn selects(&self, package: &str) -> bool {
+        self.selected
+            .as_ref()
+            .is_none_or(|selected| selected.contains(package))
     }
 
     pub(crate) const fn contexts(&self) -> &TargetContexts {
@@ -336,6 +393,7 @@ impl Enumeration {
     /// else here does.
     pub(crate) fn into_measurement(mut self) -> SourceMeasurement {
         let production_lines = self.production_lines();
+        let packages = self.package_measurements();
         self.errors.sort();
         self.errors.dedup();
         SourceMeasurement {
@@ -343,7 +401,37 @@ impl Enumeration {
             production_lines,
             complete: self.complete,
             errors: self.errors,
+            packages,
         }
+    }
+
+    /// Files and production lines per workspace member, counted the way
+    /// `production_lines` counts the workspace. A file two members reach
+    /// belongs to neither: it weighs on the workspace score alone, as a
+    /// finding with no package attribution does.
+    fn package_measurements(&self) -> BTreeMap<String, PackageMeasurement> {
+        let mut per_path: BTreeMap<&Path, (usize, bool, Option<String>)> = BTreeMap::new();
+        for (identity, unit) in self.scanned() {
+            let package = unit.package();
+            let counted = per_path
+                .entry(identity.path.as_path())
+                .or_insert_with(|| (unit.source().lines().count(), false, package.clone()));
+            counted.1 |= !unit.is_test_code(&self.contexts);
+            if counted.2 != package {
+                counted.2 = None;
+            }
+        }
+        let mut packages = BTreeMap::<String, PackageMeasurement>::new();
+        for (lines, is_production, package) in per_path.into_values() {
+            if let Some(package) = package {
+                let measured = packages.entry(package).or_default();
+                measured.files += 1;
+                if is_production {
+                    measured.production_lines += lines;
+                }
+            }
+        }
+        packages
     }
 
     /// Lines of production source the walk enumerated.
@@ -357,7 +445,7 @@ impl Enumeration {
     /// a file whose last line carries no terminator still contributes it once.
     fn production_lines(&self) -> usize {
         let mut per_path: BTreeMap<&Path, (usize, bool)> = BTreeMap::new();
-        for (identity, unit) in &self.units {
+        for (identity, unit) in self.scanned() {
             let counted = per_path
                 .entry(identity.path.as_path())
                 .or_insert_with(|| (unit.source().lines().count(), false));
@@ -390,6 +478,15 @@ pub(crate) struct SourceMeasurement {
     /// workspace rather than the workspace itself.
     pub(crate) complete: bool,
     pub(crate) errors: Vec<SourceError>,
+    /// The same two counts per workspace member, for the per-member score.
+    pub(crate) packages: BTreeMap<String, PackageMeasurement>,
+}
+
+/// What the walk measured of one workspace member.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PackageMeasurement {
+    pub(crate) files: usize,
+    pub(crate) production_lines: usize,
 }
 
 /// Does any producer reading source text still have an active rule? When none
@@ -477,7 +574,7 @@ fn inspect_with_limits(enumeration: &Enumeration, limits: Limits, plan: &PolicyP
     // every plan produces. What is collected here is what soliciting the
     // detectors produced, and nothing else, so neither is published twice.
     let mut findings = Findings::default();
-    for unit in enumeration.units.values() {
+    for unit in enumeration.units() {
         analyze_unit(unit, enumeration, &registry, limits, &mut findings);
     }
     findings.into_scan()

@@ -1,0 +1,9 @@
+[package]
+name = "precision-suppressed"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints.clippy]
+# rust-doctor: allow(rust_doctor::cargo::permissive_lint_table) -- this crate prints its own debugging output
+dbg_macro = "allow"

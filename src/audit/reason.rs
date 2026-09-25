@@ -22,7 +22,8 @@ pub enum ScoreReason {
     DeadlineExceeded,
     /// Some packages did not compile and went unlinted.
     PackagesUnlinted,
-    /// The installed Clippy does not know some catalogued rules.
+    /// Some active rules were not evaluated: the installed Clippy does not
+    /// know them, or `--package` left no repository to judge them on.
     RulesNotEvaluated,
 }
 
@@ -59,7 +60,7 @@ impl ScoreReason {
                 "Score is partial: some packages did not compile and were not linted. Fix their build, then rerun."
             }
             Self::RulesNotEvaluated => {
-                "Score is partial: the installed Clippy does not know some catalogued rules. Upgrade the toolchain."
+                "Score is partial: some active rules were not evaluated, by an older Clippy or under --package. policy.rules in --json names them."
             }
         }
     }

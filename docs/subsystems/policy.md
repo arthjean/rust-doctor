@@ -46,6 +46,15 @@ the second list left every assertion passing over a catalog that no longer
 shipped, and a field added to the published shape changed
 `rules list --json` without moving the record that was supposed to freeze it.
 
+Where a finding is, is policy too. `paths.rs` holds the `[ignore]` globs and
+the `[[overrides]]` tables of `rust-doctor.toml`, read once into the plan, and
+`path_level` answers the last table covering a path, its rule selector before
+its category, unless the request set the rule's level: `--rule` and
+`--category` win under every path. An override cannot switch on a rule the plan
+leaves off, since no producer ran it. Globs are `src/path_glob.rs`, `*`, `**`
+and `?` only, and a pattern that could be read two ways is refused as
+`invalid-glob`, named by key and index, never echoed.
+
 `the_policy_holds_the_size_bound_the_catalog_publishes_for` keeps every file of
 the module under the 1000 lines `oversized_unit` reports, tests included. That
 is why the tests and the validation have files of their own: the module that

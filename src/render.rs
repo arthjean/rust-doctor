@@ -11,9 +11,11 @@ use crate::presentation::{
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
+mod narrowing;
 mod scope;
 mod score_header;
 
+use narrowing::render_narrowing;
 use scope::render_scope;
 
 const DEFAULT_WIDTH: usize = 80;
@@ -146,6 +148,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_totals(writer, presentation, options)?;
     render_categories(writer, report, options)?;
     render_configuration(writer, report, options)?;
+    render_narrowing(writer, report, options)?;
     render_delta(writer, report, options)?;
     render_gate(writer, report, options)?;
     render_scan_errors(writer, report, options)?;

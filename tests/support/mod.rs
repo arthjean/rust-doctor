@@ -150,7 +150,10 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// `reasons` of a partial score, the `rust_doctor` version of the toolchain,
 /// the `removed_lint_flags` it stripped, the `not_evaluated` reason of a
 /// policy rule, and the scope's `base_ref`, `staged` and
-/// `untracked_unreported`. No historical field is removed or retyped, so the projection
+/// `untracked_unreported`, v19 the policy's `ignore` and `overrides`, the
+/// `packages` of the audit, the report's `suppressions`, and the scan's
+/// `ignored` and `excluded_generated` counts. No historical field is removed or
+/// retyped, so the projection
 /// consists solely of removing the members added since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
@@ -211,6 +214,11 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     for added in ["base_ref", "staged", "untracked_unreported"] {
         if let Some(scope) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
             projected = remove_member(&projected, scope, added);
+        }
+    }
+    for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated"] {
+        if let Some(member) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
+            projected = remove_member(&projected, member, added);
         }
     }
     drop_scan_command(&projected)

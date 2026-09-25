@@ -79,6 +79,13 @@ inventory its completeness. The dep-info walk consumes its slice rather than
 indexing it, so where the cursor may land is bounded by the slice and not by
 arithmetic a reader has to replay.
 
+One model, per member too. `packages.rs` runs the same core-v4 build over each
+scanned member's production lines and the findings attributed to it, with the
+workspace's reasons, and a narrower scope rebuilds them the way it rebuilds the
+workspace. A finding no member claims, a repository finding or one in a file two
+members reach, weighs on the workspace score alone. The block is absent rather
+than empty on a report that failed before the workspace answered.
+
 `the_audit_holds_the_size_bound_it_scores_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. This was one
 file of 1624 lines, one of the two that

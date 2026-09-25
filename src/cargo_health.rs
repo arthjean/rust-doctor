@@ -44,6 +44,10 @@ pub(crate) struct Candidate {
     /// Position of the offending manifest key, when the pack re-read the
     /// manifest itself; the metadata-derived predicates carry none.
     pub(crate) span: Option<SourceSpan>,
+    /// The dependency key a declaration finding is about. Those findings have
+    /// no span, and their published identity must not gain one, so a
+    /// suppression directive written above the key finds them by this name.
+    pub(crate) key: Option<String>,
 }
 
 /// Bounded error of the pack: a closed code and a frozen message, with no
@@ -104,13 +108,14 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
             .strip_prefix(&metadata.workspace_root)
             .ok()
             .map(|path| path.as_str().to_owned());
-        let mut name = |definition: &'static RuleDefinition, message: String| {
+        let mut name = |definition: &'static RuleDefinition, key: &str, message: String| {
             scan.candidates.push(Candidate {
                 definition,
                 message,
                 package: package.name.to_string(),
                 manifest_path: manifest_path.clone(),
                 span: None,
+                key: Some(key.to_owned()),
             });
         };
 
@@ -122,6 +127,7 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
                 if is_unbounded_registry(dependency) {
                     name(
                         &CARGO_UNBOUNDED_REGISTRY,
+                        key,
                         format!(
                             "Registry dependency \"{key}\" uses an unbounded \"*\" version requirement."
                         ),
@@ -133,6 +139,7 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
                 if is_unpinned_git(dependency) {
                     name(
                         &CARGO_UNPINNED_GIT,
+                        key,
                         format!(
                             "Git dependency \"{key}\" is not pinned to a full commit revision."
                         ),
@@ -144,6 +151,7 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
             {
                 name(
                     &CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE,
+                    key,
                     format!("Path dependency \"{key}\" resolves outside the workspace."),
                 );
             }
@@ -200,6 +208,13 @@ pub(crate) fn inspect_dependency_truth(
                     package: package.name.to_string(),
                     manifest_path: judged.manifest_path.clone(),
                     span: None,
+                    key: Some(
+                        dependency
+                            .rename
+                            .as_deref()
+                            .unwrap_or(&dependency.name)
+                            .to_owned(),
+                    ),
                 });
             }
         }
@@ -427,6 +442,7 @@ fn permissive_entries(
             package: package.to_owned(),
             manifest_path: manifest_path.clone(),
             span: Some(byte_range_span(key.span(), &starts, source)),
+            key: None,
         });
     }
 }
@@ -577,6 +593,7 @@ fn inspect_release_profile(
                 package: owner.clone(),
                 manifest_path: Some("Cargo.toml".to_owned()),
                 span: span.map(|range| byte_range_span(range, &starts, &source)),
+                key: None,
             });
         }
     }
@@ -606,6 +623,7 @@ fn inspect_release_profile(
                 package: owner,
                 manifest_path: Some("Cargo.toml".to_owned()),
                 span: Some(byte_range_span(debug.span(), &starts, &source)),
+                key: None,
             });
         }
     }
@@ -692,6 +710,7 @@ fn inspect_rustflags(metadata: &Metadata, scan: &mut CargoHealthScan) {
                 package: owner.clone(),
                 manifest_path: Some(".cargo/config.toml".to_owned()),
                 span: Some(byte_range_span(span, &starts, &contents)),
+                key: None,
             });
         }
     }

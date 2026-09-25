@@ -9,11 +9,14 @@ mod cargo_health;
 mod cargo_stderr;
 mod configuration;
 mod delta;
+mod directive;
 mod execution;
+mod generated;
 mod git;
 pub mod git_hook;
 mod git_scope;
 mod internal_error;
+mod path_glob;
 #[cfg(test)]
 mod permutations;
 mod policy;
@@ -43,8 +46,8 @@ pub use audit::{
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
 pub use policy::{
-    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, RuleLevel, RuleLevelSource,
-    RuleOverride, RuleTier, catalog,
+    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, PathOverrideReport,
+    RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,
 };
 /// The file length `rust_doctor::structure::oversized_unit` reports at.
 ///
@@ -59,7 +62,7 @@ pub use report::{
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
     NotEvaluated, ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport,
     Severity, Status,
-    Suggestion, Summary, ToolchainReport, UnscoredReason,
+    Suggestion, Summary, SuppressionReport, SuppressionStatus, ToolchainReport, UnscoredReason,
 };
 
 pub fn inspect(request: InspectRequest) -> InspectReport {
@@ -126,6 +129,17 @@ impl InspectionSession {
                 )));
             }
         };
+        // A member name is checked here, once the workspace answered which
+        // members it has, and before any process is started for it.
+        if let Some(Err(error)) = request
+            .packages()
+            .map(|selected| prepared.check_packages(selected))
+        {
+            return Err(Box::new(report::preparation_failure(
+                prepared.fail(error),
+                policy.failure_blocking(),
+            )));
+        }
         let plan =
             policy::PolicyPlan::compile_with_configuration(&validated, &prepared.configuration);
         Ok(Self {

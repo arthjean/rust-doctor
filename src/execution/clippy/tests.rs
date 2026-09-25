@@ -57,7 +57,10 @@ fn arguments_prune_off_rules_but_keep_error_rules_at_warning() {
 fn the_command_carries_the_shipped_catalog_and_nothing_else() {
     let workspace = fixture("clean").canonicalize().unwrap();
     let plan = PolicyPlan::default();
-    let arguments = arguments_for_plan(&plan);
+    let arguments: Vec<String> = arguments_for_plan(&plan)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let built = command(
         Path::new("cargo"),
         &workspace,

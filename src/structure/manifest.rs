@@ -27,7 +27,8 @@ use ra_ap_syntax::ast;
 use ra_ap_syntax::{AstNode, AstToken, SyntaxNode, SyntaxToken};
 use serde::Deserialize;
 
-use super::{Deadline, Observation, Unit, is_generated, single_name};
+use super::{Deadline, Observation, Unit, single_name};
+use crate::generated::has_generator_header;
 use crate::policy::{ActiveRules, 
     RuleDefinition, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_UNREFERENCED_FEATURE,
 };
@@ -266,14 +267,19 @@ fn orphans(
     deadline: &Deadline,
     observations: &mut Vec<(&'static RuleDefinition, String, Observation)>,
 ) -> bool {
+    // Reached is reached, whether or not the scan reads the file: a unit left
+    // out by `[ignore]` or `--package` is still compiled.
     let compiled: BTreeSet<&str> = enumeration
-        .units()
+        .reached()
         .map(|unit| unit.relative_path())
         .collect();
 
     let mut budget = WALK_LIMIT;
     let mut stopped = false;
     for package in workspace_packages(metadata) {
+        if !enumeration.selects(&package.name) {
+            continue;
+        }
         let Some(package_directory) = package.manifest_path.parent() else {
             continue;
         };
@@ -307,7 +313,7 @@ fn orphans(
             };
             // A generated file is nobody's writing: the whole pass leaves it
             // alone, and an unreached one is no different.
-            if is_generated(&source) {
+            if has_generator_header(&source) {
                 continue;
             }
             observations.push((

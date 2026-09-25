@@ -8,13 +8,13 @@
     "docs/doc-gates.md": 580,
     "docs/publishing.md": 727,
     "docs/testing.md": 960,
-    "docs/subsystems/audit.md": 1004,
+    "docs/subsystems/audit.md": 1108,
     "docs/subsystems/delta.md": 771,
-    "docs/subsystems/execution.md": 873,
+    "docs/subsystems/execution.md": 984,
     "docs/subsystems/git-and-scope.md": 655,
-    "docs/subsystems/policy.md": 493,
-    "docs/subsystems/reporting.md": 2628,
-    "docs/subsystems/source-kernel.md": 470,
+    "docs/subsystems/policy.md": 595,
+    "docs/subsystems/reporting.md": 2766,
+    "docs/subsystems/source-kernel.md": 546,
     "docs/subsystems/structure.md": 328
   },
   "frozen": [

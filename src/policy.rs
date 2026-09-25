@@ -12,6 +12,7 @@ mod catalog;
 mod coverage;
 pub(crate) mod lint_table;
 mod noise;
+mod paths;
 
 pub use catalog::RuleTier;
 pub use catalog::{CatalogEntry, catalog};
@@ -29,6 +30,8 @@ pub(crate) use catalog::{
     STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, find,
 };
 pub(crate) use noise::{CorpusMeasurement, UNMEASURED_NOISE_BASIS_POINTS, corpus_measurement};
+pub use paths::PathOverrideReport;
+pub(crate) use paths::{PathOverride, PathPolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -240,6 +243,7 @@ pub(crate) struct PolicyPlan {
     blocking: BlockingLevel,
     blocking_source: BlockingLevelSource,
     config_file: Option<&'static str>,
+    paths: PathPolicy,
 }
 
 impl Default for PolicyPlan {
@@ -253,6 +257,7 @@ impl Default for PolicyPlan {
             blocking: BlockingLevel::default(),
             blocking_source: BlockingLevelSource::Default,
             config_file: None,
+            paths: PathPolicy::default(),
         }
     }
 }
@@ -283,6 +288,7 @@ impl PolicyPlan {
             blocking,
             blocking_source,
             config_file: configuration.file_name,
+            paths: configuration.paths.clone(),
         }
     }
 
@@ -321,6 +327,29 @@ impl PolicyPlan {
 
     pub(crate) const fn config_file(&self) -> Option<&'static str> {
         self.config_file
+    }
+
+    pub(crate) const fn paths(&self) -> &PathPolicy {
+        &self.paths
+    }
+
+    /// Does the configuration ignore this workspace-relative path?
+    pub(crate) fn is_ignored(&self, path: &str) -> bool {
+        self.paths.is_ignored(path)
+    }
+
+    /// The level an `[[overrides]]` table sets for this rule under `path`,
+    /// unless the request set the rule's level itself, which no file
+    /// overrides.
+    pub(crate) fn path_level(&self, id: &str, path: &str) -> Option<RuleLevel> {
+        let planned = self.planned(id)?;
+        if matches!(
+            planned.source,
+            RuleLevelSource::RequestRule | RuleLevelSource::RequestCategory
+        ) {
+            return None;
+        }
+        self.paths.level(planned.definition, path)
     }
 
     pub(crate) fn effective_rules(
@@ -659,6 +688,7 @@ mod tests {
                 ),
             ]),
             structure: crate::structure::StructureSettings::default(),
+            paths: PathPolicy::default(),
         };
         let request = PolicyInput::default()
             .with_category("correctness", RuleLevel::Warn)

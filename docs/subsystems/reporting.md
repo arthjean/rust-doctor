@@ -24,7 +24,9 @@ locations, v12 `similarity_basis_points`, v13 `complexity`, v14
 toolchain proposed for the span and how far it vouches for it, v18 a
 diagnostic's `unscored`, the score's `reasons`, `toolchain.rust_doctor`,
 `toolchain.removed_lint_flags`, a policy rule's `not_evaluated`, and the
-scope's `base_ref`, `staged` and `untracked_unreported`. A
+scope's `base_ref`, `staged` and `untracked_unreported`, v19 the policy's
+`ignore` and `overrides`, the audit's `packages`, the report's `suppressions`,
+and the scan's `ignored` and `excluded_generated`. A
 `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
 reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
@@ -71,6 +73,17 @@ No pass-through with a second name. `baseline_report_failure` had a
 `baseline_cleanup_failure` in front of it that called it and nothing else, and
 `summarize` stood in front of `Summary::from_diagnostics`.
 
+What leaves the report is counted or listed, never dropped. `exclusion.rs`
+applies, in one order and before the scope projection, an `[ignore]` path, a
+file declared generated or vendored, a member `--package` did not select, a
+native directive with a reason, and an `[[overrides]]` level, and the report
+publishes `scan.ignored`, `scan.excluded_generated` and every directive in
+`suppressions[]` with its status. Running before the projection is what keeps a
+directive whose finding sits outside the changed lines from reading as unused.
+A dependency finding carries no line, since its identity and the corpus's
+`line: 0` sites are frozen, so a manifest directive reaches it through the key
+declared on the line below, matched to the finding's own key by identity.
+
 The toolchain's replacement travels with the finding. `select_suggestion` reads
 the `children` of a compiler message, keeps the best rated replacement on the
 finding's own file and refuses a rating it does not know. Every finding used to
@@ -107,7 +120,7 @@ rule link cut at column eighty. Compiler notes close the list under "Compiler
 notes (not scored)", one line each, and the summary line counts them.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
-twelve calls and nothing else: a line written straight into the entry point is
+thirteen calls and nothing else: a line written straight into the entry point is
 a section nobody named, and eight of them are what made it one of the module's
 three complexity hotspots. `render_legacy_context` was the other shape of the
 same problem, five unrelated sections in one function whose name admitted it,

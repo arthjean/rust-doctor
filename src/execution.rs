@@ -24,6 +24,7 @@
 //! three `Option` dances that could not be `None`, and the workspace-root clone
 //! that only existed to survive an early move, are gone with them.
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ use cargo_metadata::Metadata;
 use crate::bounded_read::collect_bounded;
 use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
+use crate::generated;
 use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer};
 use crate::progress::{Progress, ProgressSink};
@@ -45,6 +47,7 @@ use crate::terminal_text::{sanitize, truncate};
 
 mod baseline;
 mod clippy;
+mod exclusions;
 mod lint_list;
 mod members;
 mod messages;
@@ -55,6 +58,7 @@ mod tests;
 
 pub(crate) use baseline::{BaselineExecution, Side, execute as execute_baseline};
 pub(crate) use clippy::ClippyExecution;
+pub(crate) use exclusions::ScanExclusions;
 pub(crate) use process::{RunDeadline, run as run_bounded};
 #[cfg(test)]
 pub(crate) use clippy::arguments_for_rules as clippy_arguments_for_rules;
@@ -82,6 +86,8 @@ pub(crate) struct ExecutionResult {
     /// The stages a passed deadline kept from starting, each with the sentence
     /// its error carries.
     pub(crate) deadline_skipped: Vec<(&'static str, String)>,
+    /// What the report leaves out, and the directives that ask it to.
+    pub(crate) exclusions: ScanExclusions,
     pub(crate) error: Option<InternalError>,
 }
 
@@ -112,6 +118,7 @@ impl ExecutionResult {
             cargo_health: None,
             repo: None,
             deadline_skipped: Vec::new(),
+            exclusions: ScanExclusions::default(),
             error: Some(error),
         }
     }
@@ -202,6 +209,11 @@ impl PreparedInspection {
         self.target.workspace_root()
     }
 
+    /// Refuses a `--package` selection naming anything but a member.
+    pub(crate) fn check_packages(&self, selected: &BTreeSet<String>) -> Result<(), InternalError> {
+        exclusions::check_packages(&self.target.metadata, selected)
+    }
+
     /// The directory Cargo builds this workspace into.
     pub(crate) fn target_directory(&self) -> &Path {
         self.target.metadata.target_directory.as_std_path()
@@ -234,11 +246,15 @@ impl Default for Programs {
 }
 
 /// What the caller set on the whole run rather than on one producer: the
-/// deadline `--max-duration` fixes and where the phases are reported.
+/// deadline `--max-duration` fixes, where the phases are reported, and the
+/// members `--package` selects.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RunOptions {
     pub(crate) deadline: Option<RunDeadline>,
     pub(crate) progress: Option<ProgressSink>,
+    /// `None` scans every member. A selection is checked against the
+    /// workspace before the run starts, so every name in it is a member.
+    pub(crate) packages: Option<BTreeSet<String>>,
 }
 
 /// Everything one run holds constant, gathered once.
@@ -255,6 +271,11 @@ struct ExecutionContext<'a> {
     settings: &'a structure::StructureSettings,
     environment: &'a CommandEnvironment,
     options: &'a RunOptions,
+    /// What the workspace's `.gitattributes` declares generated or vendored,
+    /// read once from the repository and applied to every side: a snapshot
+    /// sits outside git, and a side that could not read the declaration would
+    /// report its files' findings as fixed.
+    declared: &'a BTreeSet<String>,
 }
 
 /// The environment every child of one run is started under.
@@ -345,12 +366,14 @@ pub(crate) fn execute_staged(
         Ok(toolchain) => toolchain,
         Err(error) => return prepared.fail(error),
     };
+    let declared = generated::declared(prepared.workspace_root());
     let context = ExecutionContext {
         programs: &programs,
         plan,
         settings: &prepared.configuration.structure,
         environment: &environment,
         options,
+        declared: &declared,
     };
     context.run(target, toolchain, Some(target_dir))
 }
@@ -374,12 +397,14 @@ fn execute_into(
         Ok(toolchain) => toolchain,
         Err(error) => return prepared.fail(error),
     };
+    let declared = generated::declared(prepared.workspace_root());
     let context = ExecutionContext {
         programs,
         plan,
         settings: &prepared.configuration.structure,
         environment: &environment,
         options,
+        declared: &declared,
     };
     context.run(prepared.target, toolchain, target_dir)
 }
@@ -414,8 +439,10 @@ impl ExecutionContext<'_> {
         // manifest-level slot beside the dependency pack, before the
         // compilation that Clippy triggers, and reads nothing that pass will
         // rewrite.
-        let repo = self
-            .active(Producer::Repo)
+        // A repository is not a member: under `--package` the pass would judge
+        // files the selection never named, so it does not run, and the report
+        // says its rules were not evaluated.
+        let repo = (self.active(Producer::Repo) && self.options.packages.is_none())
             .then(|| repo_hygiene::inspect(metadata.workspace_root.as_std_path(), self.plan));
 
         let scan = if self.active(Producer::Clippy) {
@@ -453,7 +480,10 @@ impl ExecutionContext<'_> {
         if let Some(progress) = &self.options.progress {
             progress.report(Progress::NativePasses);
         }
-        let enumeration = source_kernel::enumerate(&metadata);
+        let mut enumeration = source_kernel::enumerate(&metadata);
+        let packages = self.options.packages.as_ref();
+        enumeration.narrow(|path| self.plan.is_ignored(path), packages);
+        let exclusions = exclusions::gather(&metadata, &enumeration, packages, self.declared);
         // A pass the deadline has already passed is not started: it is named
         // at its own stage instead, so the report says what it did not read.
         let mut deadline_skipped = Vec::new();
@@ -498,6 +528,7 @@ impl ExecutionContext<'_> {
             cargo_health,
             repo,
             deadline_skipped,
+            exclusions,
             error: None,
         }
     }

@@ -77,6 +77,18 @@ a terminal's Ctrl-C no longer reaches one. On Windows `taskkill /T` kills the
 tree it can see, and nothing tests it. Passes the deadline has not started are
 skipped at their own stage, and the structure budget is capped by what is left.
 
+A member selection narrows the work, not only the report. `--package` reaches
+Clippy as one `-p <NAME>` per member where `--workspace` stood, narrows the
+walk to the units those members reach, and keeps the repository pass from
+running, since a repository is no member: its rules are published
+`not_evaluated: "package-scoped"`. A name that is not a member is refused before
+any process starts. `exclusions.rs` gathers what the report leaves out, the
+paths `.gitattributes` declares generated or vendored through
+`git check-attr --stdin`, read once from the workspace and applied to every
+side of a comparison since a snapshot sits outside git, and the suppression
+directives of the files the scan read; a git that fails answers nothing, and
+only the generator header applies.
+
 `the_execution_holds_the_size_bound_it_scans_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. The module was
 one file of 977 lines with no such test, the only one of the crate both near the

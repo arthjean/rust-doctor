@@ -6,8 +6,10 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::internal_error::InternalError;
+use crate::path_glob::PathGlob;
 use crate::policy::{
-    BlockingLevel, CATEGORIES, RuleLevel, find, validate_category_selector, validate_rule_selector,
+    BlockingLevel, CATEGORIES, PathOverride, PathPolicy, RuleLevel, find,
+    validate_category_selector, validate_rule_selector,
 };
 use crate::scan_target::ResolvedScanTarget;
 use crate::structure::StructureSettings;
@@ -23,6 +25,8 @@ pub(crate) struct WorkspaceConfiguration {
     pub(crate) categories: BTreeMap<String, RuleLevel>,
     pub(crate) rules: BTreeMap<String, RuleLevel>,
     pub(crate) structure: StructureSettings,
+    /// `[ignore]` and `[[overrides]]`: what depends on where a finding is.
+    pub(crate) paths: PathPolicy,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +38,29 @@ struct ConfigurationDocument {
     #[serde(default)]
     rules: BTreeMap<String, RuleLevel>,
     structure: Option<StructureDocument>,
+    ignore: Option<IgnoreDocument>,
+    #[serde(default)]
+    overrides: Vec<OverrideDocument>,
+}
+
+/// The `[ignore]` table: paths whose findings leave the report and the score.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoreDocument {
+    #[serde(default)]
+    paths: Vec<String>,
+}
+
+/// One `[[overrides]]` table: levels that hold under its paths only, written
+/// with the selectors the top-level tables take.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OverrideDocument {
+    paths: Vec<String>,
+    #[serde(default)]
+    rules: BTreeMap<String, RuleLevel>,
+    #[serde(default)]
+    categories: BTreeMap<String, RuleLevel>,
 }
 
 /// The `[structure]` table: thresholds the complexity detector reads. A key
@@ -91,6 +118,7 @@ fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalError> {
     let parsed: ConfigurationDocument = toml::from_str(&document)
         .map_err(|error| invalid_document(&document, error.span().map(|span| span.start)))?;
     validate_document(&parsed)?;
+    let paths = path_policy(&parsed)?;
 
     let mut structure = StructureSettings::default();
     if let Some(thresholds) = &parsed.structure {
@@ -108,11 +136,68 @@ fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalError> {
         categories: parsed.categories,
         rules: parsed.rules,
         structure,
+        paths,
     })
 }
 
+/// The ignored paths and the overrides, every glob read or the load refused.
+/// A refusal names the key and the entry's index, never the pattern itself.
+fn path_policy(document: &ConfigurationDocument) -> Result<PathPolicy, InternalError> {
+    let ignore = globs(
+        document.ignore.as_ref().map_or(&[][..], |ignore| &ignore.paths),
+        "ignore.paths",
+    )?;
+    let overrides = document
+        .overrides
+        .iter()
+        .enumerate()
+        .map(|(index, table)| {
+            Ok(PathOverride {
+                paths: globs(&table.paths, &format!("overrides[{index}].paths"))?,
+                rules: table.rules.clone(),
+                categories: table.categories.clone(),
+            })
+        })
+        .collect::<Result<_, InternalError>>()?;
+    Ok(PathPolicy { ignore, overrides })
+}
+
+fn globs(patterns: &[String], key: &str) -> Result<Vec<PathGlob>, InternalError> {
+    patterns
+        .iter()
+        .enumerate()
+        .map(|(index, pattern)| {
+            PathGlob::parse(pattern).map_err(|()| {
+                InternalError::new(
+                    "policy",
+                    "invalid-glob",
+                    format!("Invalid glob in rust-doctor.toml at {key}[{index}]."),
+                )
+            })
+        })
+        .collect()
+}
+
 fn validate_document(document: &ConfigurationDocument) -> Result<(), InternalError> {
-    for selector in document.rules.keys() {
+    let override_rules = document.overrides.iter().flat_map(|table| table.rules.keys());
+    let override_categories = document
+        .overrides
+        .iter()
+        .flat_map(|table| table.categories.keys());
+    validate_selectors(
+        document.rules.keys().chain(override_rules),
+        document.categories.keys().chain(override_categories),
+    )?;
+    validate_thresholds(document)
+}
+
+/// Every rule and category selector of the file, top-level and override alike,
+/// refused the same way.
+fn validate_selectors<'a>(
+    rules: impl Iterator<Item = &'a String>,
+    categories: impl Iterator<Item = &'a String>,
+) -> Result<(), InternalError> {
+    for selector in rules {
         if let Err(error) = validate_rule_selector(selector) {
             return Err(configuration_selector_error(error.code));
         }
@@ -120,7 +205,7 @@ fn validate_document(document: &ConfigurationDocument) -> Result<(), InternalErr
             return Err(configuration_selector_error("unknown-rule"));
         }
     }
-    for selector in document.categories.keys() {
+    for selector in categories {
         if let Err(error) = validate_category_selector(selector) {
             return Err(configuration_selector_error(error.code));
         }
@@ -128,6 +213,10 @@ fn validate_document(document: &ConfigurationDocument) -> Result<(), InternalErr
             return Err(configuration_selector_error("unknown-category"));
         }
     }
+    Ok(())
+}
+
+fn validate_thresholds(document: &ConfigurationDocument) -> Result<(), InternalError> {
     if let Some(structure) = &document.structure
         && [structure.cyclomatic_threshold, structure.cognitive_threshold]
             .iter()

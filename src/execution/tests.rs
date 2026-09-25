@@ -79,6 +79,7 @@ fn clean_result() -> ExecutionResult {
         cargo_health: None,
         repo: None,
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
         error: None,
     }
 }

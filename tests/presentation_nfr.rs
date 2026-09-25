@@ -113,7 +113,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 18,
+        schema_version: 19,
         audit: Audit::build(DIAGNOSTICS, DIAGNOSTICS * 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
@@ -132,8 +132,11 @@ fn fixture_report() -> InspectReport {
             exit_code: Some(0),
             build_finished: Some(true),
             noise_lines: Some(0),
+            ignored: 0,
+            excluded_generated: 0,
         },
         diagnostics,
+        suppressions: Vec::new(),
         delta: None,
         errors: Vec::new(),
         summary,

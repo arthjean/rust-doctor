@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fmt::Write as _;
 
 use serde::ser::{Error as _, SerializeStruct};
 use serde::{Deserialize, Serialize, Serializer};
@@ -14,10 +13,14 @@ use crate::source_kernel::SourceMeasurement;
 
 mod density;
 mod ranking;
+mod packages;
 mod reason;
+mod share;
 mod source_inventory;
 
+pub use packages::PackageAudit;
 pub use reason::ScoreReason;
+pub use share::ShareError;
 
 use density::{DensityScope, Scale, calculate_dimensions, contributions, tier_weight};
 
@@ -41,8 +44,6 @@ pub(crate) fn source_file_inventory(
 }
 
 pub const SCORE_MODEL: &str = "core-v4";
-const SHARE_BASE_URL: &str = "https://rust-doctor.com/share";
-const MAX_SHARED_COUNT: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {
@@ -65,6 +66,8 @@ pub struct Audit {
     /// What the report's errors and its policy say against the score, which a narrower scope
     /// inherits for the same reasons.
     stage_reasons: BTreeSet<ScoreReason>,
+    /// One score per scanned workspace member, in name order.
+    pub packages: Vec<PackageAudit>,
 }
 
 /// Per-severity count of a single quantity.
@@ -191,25 +194,6 @@ pub enum ScoreLabel {
     Critical,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShareError {
-    ScoreUnavailable,
-    NonAuthoritative,
-    InvalidPayload,
-}
-
-impl fmt::Display for ShareError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::ScoreUnavailable => "the audit does not contain a score",
-            Self::NonAuthoritative => "the audit score is not authoritative",
-            Self::InvalidPayload => "the audit exceeds the public share bounds",
-        })
-    }
-}
-
-impl std::error::Error for ShareError {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ScoreDimension {
     Security,
@@ -315,13 +299,18 @@ impl Audit {
 
     /// `stage_reasons` is what the report's errors and its policy say against the score: each
     /// error gives its own reason (`ScoreReason::of_error`), distinct from a scan cut short.
+    /// `members` are the scanned workspace members with what the walk measured of each, and
+    /// each is scored over its own findings beside the workspace.
     pub(crate) fn build_from_inventory(
         inventory: SourceFileInventory,
+        members: Vec<(String, SourceFileInventory)>,
         status: Status,
         stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        Self::build_with_inventory(inventory, status, stage_reasons, diagnostics)
+        let mut audit = Self::build_with_inventory(inventory, status, stage_reasons, diagnostics);
+        audit.packages = packages::score(members, status, &audit.stage_reasons, diagnostics);
+        audit
     }
 
     fn build_with_inventory(
@@ -362,11 +351,12 @@ impl Audit {
             score,
             inventory_is_complete,
             stage_reasons,
+            packages: Vec::new(),
         }
     }
 
     pub(crate) fn rebuild_for_scope(&self, status: Status, diagnostics: &[Diagnostic]) -> Self {
-        Self::build_with_inventory(
+        let mut rebuilt = Self::build_with_inventory(
             SourceFileInventory {
                 files: self.source_files,
                 production_lines: self.production_lines,
@@ -375,29 +365,10 @@ impl Audit {
             status,
             self.stage_reasons.clone(),
             diagnostics,
-        )
-    }
-
-    pub fn share_url(&self) -> Result<String, ShareError> {
-        let score = self.score.as_ref().ok_or(ShareError::ScoreUnavailable)?;
-        if !score.authoritative {
-            return Err(ShareError::NonAuthoritative);
-        }
-        if !self.is_valid() {
-            return Err(ShareError::InvalidPayload);
-        }
-
-        // The counts the block already publishes, not a third summation over the same
-        // categories that nothing kept in step with the first two.
-        let (_, occurrences) = self.totals();
-        build_share_url(
-            score.value,
-            occurrences.errors,
-            occurrences.warnings,
-            occurrences.info,
-            self.source_files,
-            self.production_lines,
-        )
+        );
+        rebuilt.packages =
+            packages::rescore(&self.packages, status, &self.stage_reasons, diagnostics);
+        rebuilt
     }
 
     pub fn is_valid(&self) -> bool {
@@ -411,6 +382,7 @@ impl Audit {
             && is_scorable_workspace(self.source_files, self.production_lines)
                 == self.score.is_some()
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
+            && self.packages.iter().all(PackageAudit::is_valid)
     }
 
     /// Both quantities aggregated over every category of the block.
@@ -434,11 +406,18 @@ impl Serialize for Audit {
         if !self.is_valid() {
             return Err(S::Error::custom("invalid audit state"));
         }
-        let mut state = serializer.serialize_struct("Audit", 4)?;
+        let mut state = serializer.serialize_struct("Audit", 5)?;
         state.serialize_field("source_files", &self.source_files)?;
         state.serialize_field("production_lines", &self.production_lines)?;
         state.serialize_field("categories", &self.categories)?;
         state.serialize_field("score", &self.score)?;
+        // Absent rather than empty, as `related` is: only a report that failed
+        // before the workspace answered has no member to list.
+        if self.packages.is_empty() {
+            state.skip_field("packages")?;
+        } else {
+            state.serialize_field("packages", &self.packages)?;
+        }
         state.end()
     }
 }
@@ -945,41 +924,6 @@ const fn score_label(score: u8) -> ScoreLabel {
     } else {
         ScoreLabel::Critical
     }
-}
-
-fn build_share_url(
-    score: u8,
-    errors: usize,
-    warnings: usize,
-    info: usize,
-    source_files: usize,
-    production_lines: usize,
-) -> Result<String, ShareError> {
-    if score > 100
-        || [errors, warnings, info, source_files, production_lines]
-            .into_iter()
-            .any(|count| count > MAX_SHARED_COUNT)
-    {
-        return Err(ShareError::InvalidPayload);
-    }
-
-    // The model comes first and is never omitted: every number after it is a
-    // reading of one scale, and a payload that names none is a score the page
-    // it opens has to guess the meaning of. `core-v2` and `core-v3` publish
-    // the same shape over the same rules for very different values.
-    let mut url = format!("{SHARE_BASE_URL}?s={score}&m={SCORE_MODEL}");
-    for (key, count) in [
-        ("e", errors),
-        ("w", warnings),
-        ("i", info),
-        ("f", source_files),
-        ("l", production_lines),
-    ] {
-        if count > 0 {
-            let _ = write!(url, "&{key}={count}");
-        }
-    }
-    Ok(url)
 }
 
 #[cfg(test)]

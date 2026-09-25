@@ -98,6 +98,7 @@ pub(super) fn inspect_resolution(metadata: &Metadata, active: &ActiveRules, scan
                         .ok()
                         .map(|path| path.as_str().to_owned()),
                     span: None,
+                    key: None,
                 });
             }
         }
@@ -117,6 +118,7 @@ pub(super) fn inspect_resolution(metadata: &Metadata, active: &ActiveRules, scan
                         package: owner.clone(),
                         manifest_path: Some(LOCKFILE.to_owned()),
                         span: None,
+                        key: None,
                     });
                 }
             }

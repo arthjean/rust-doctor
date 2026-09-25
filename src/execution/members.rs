@@ -23,11 +23,15 @@ pub(super) struct Members {
 }
 
 impl Members {
-    pub(super) fn of(metadata: &Metadata) -> Self {
+    /// The members a run lints: every one, or the ones `--package` selected.
+    pub(super) fn of(metadata: &Metadata, selected: Option<&BTreeSet<String>>) -> Self {
         let names = metadata
             .packages
             .iter()
             .filter(|package| metadata.workspace_members.contains(&package.id))
+            .filter(|package| {
+                selected.is_none_or(|selected| selected.contains(package.name.as_str()))
+            })
             .map(|package| (package.id.repr.clone(), package.name.to_string()))
             .collect();
         Self { names }

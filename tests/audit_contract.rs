@@ -18,7 +18,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
         "tests/fixtures/projects/clean",
     )));
     let value = serde_json::to_value(&clean).unwrap();
-    assert_eq!(clean.schema_version, 18);
+    assert_eq!(clean.schema_version, 19);
     assert_eq!(clean.status, Status::Complete);
     assert_eq!(clean.audit.source_files, 1);
     assert_eq!(clean.audit.production_lines, 5);
@@ -46,8 +46,14 @@ fn report_v9_exposes_one_canonical_audit_block() {
         .collect();
     assert_eq!(
         audit_keys,
-        ["categories", "production_lines", "score", "source_files"]
+        ["categories", "packages", "production_lines", "score", "source_files"]
     );
+    // The one member is the workspace, so its score is the workspace's.
+    assert_eq!(clean.audit.packages.len(), 1, "the clean fixture has one member");
+    let member = &clean.audit.packages[0];
+    assert_eq!(member.name, "clean");
+    assert_eq!((member.source_files, member.production_lines), (1, 5));
+    assert_eq!(member.score.as_ref().map(|score| score.value), Some(100));
 }
 
 #[test]

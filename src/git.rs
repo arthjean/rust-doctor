@@ -18,6 +18,7 @@
 //! one of its own limits.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -125,7 +126,7 @@ pub(crate) fn run_git(
     workspace_root: &Path,
     call: &GitCall,
 ) -> Result<Vec<u8>, InternalError> {
-    run_git_configured(git, workspace_root, call, None)
+    run_git_configured(git, workspace_root, call, None, None)
 }
 
 pub(crate) fn run_git_with_index(
@@ -134,7 +135,19 @@ pub(crate) fn run_git_with_index(
     call: &GitCall,
     index: &Path,
 ) -> Result<Vec<u8>, InternalError> {
-    run_git_configured(git, workspace_root, call, Some(index))
+    run_git_configured(git, workspace_root, call, Some(index), None)
+}
+
+/// Runs a call that reads `input` on its stdin, as `check-attr --stdin` does.
+/// The input is written on a thread of its own, so a git that answers before
+/// it has read everything cannot block this process on a full pipe.
+pub(crate) fn run_git_with_input(
+    git: &Path,
+    workspace_root: &Path,
+    call: &GitCall,
+    input: Vec<u8>,
+) -> Result<Vec<u8>, InternalError> {
+    run_git_configured(git, workspace_root, call, None, Some(input))
 }
 
 /// Runs a call whose answer is its exit code rather than its output.
@@ -160,14 +173,25 @@ fn run_git_configured(
     workspace_root: &Path,
     call: &GitCall,
     index: Option<&Path>,
+    input: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, InternalError> {
     let mut command = git_command(git, workspace_root, &call.arguments);
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let unavailable = || UNAVAILABLE.error(call.stage);
     let failure = || call.failure.error(call.stage);
     let mut child = command.spawn().map_err(|_| unavailable())?;
+    // Dropping the handle once written is what tells git the input ended.
+    let writer = match (input, child.stdin.take()) {
+        (Some(input), Some(mut stdin)) => {
+            Some(thread::spawn(move || stdin.write_all(&input)))
+        }
+        _ => None,
+    };
     let stdout = child.stdout.take().ok_or_else(unavailable)?;
     let stderr = child.stderr.take().ok_or_else(unavailable)?;
     let stdout_limit = call.stdout_limit;
@@ -176,6 +200,9 @@ fn run_git_configured(
     let stdout_reader = thread::spawn(move || collect_bounded(stdout, stdout_limit));
     let stderr_reader = thread::spawn(move || collect_bounded(stderr, STDERR_OUTPUT_LIMIT));
     let status = child.wait().map_err(|_| failure())?;
+    if let Some(writer) = writer {
+        writer.join().map_err(|_| failure())?.map_err(|_| failure())?;
+    }
     let stdout = stdout_reader
         .join()
         .map_err(|_| failure())?

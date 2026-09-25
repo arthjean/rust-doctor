@@ -193,9 +193,12 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
             exit_code: Some(0),
             build_finished: Some(true),
             noise_lines: Some(0),
+            ignored: 0,
+            excluded_generated: 0,
         },
         summary: Summary::from_diagnostics(&diagnostics),
         diagnostics,
+        suppressions: Vec::new(),
         delta: None,
         errors: Vec::new(),
         gate,
@@ -626,6 +629,7 @@ fn complete_analysis_side(
         }),
         error: None,
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
     }
 }
 
@@ -774,6 +778,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
     });
     assert_eq!(complete.status, Status::Complete);
     assert!(complete.complete);
@@ -804,6 +809,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
     });
     assert_eq!(incomplete.status, Status::Incomplete);
     assert!(!incomplete.complete);
@@ -833,6 +839,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
             message: "metadata unavailable".to_owned(),
         }),
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
     });
     assert_eq!(failed.status, Status::Failed);
     assert_eq!(failed.exit_code(), 2);
@@ -897,6 +904,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        exclusions: Default::default(),
     });
 
     assert_eq!(report.status, Status::Incomplete);

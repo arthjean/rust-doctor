@@ -44,6 +44,7 @@ use cargo_metadata::Metadata;
 use ra_ap_syntax::ast::{self, HasAttrs};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
+use crate::generated::has_generator_header;
 use crate::policy::{ActiveRules, PolicyPlan, Producer, RuleDefinition};
 use crate::report::{ComplexityFigures, DiagnosticContext};
 use crate::source_kernel::{Enumeration, SourceUnit};
@@ -245,7 +246,7 @@ impl Readable {
                 ),
             });
         }
-        if is_generated(unit.source()) {
+        if has_generator_header(unit.source()) {
             return Self::Generated;
         }
         Self::Yes
@@ -656,22 +657,6 @@ fn unanimous_context(members: &[Member]) -> Option<DiagnosticContext> {
     contexts
         .all(|context| context.is_some())
         .then_some(anchor)
-}
-
-/// Does a recognized generator header open this file?
-///
-/// The conventions are the ones generators actually write: the `@generated`
-/// marker Meta and prost use, the `DO NOT EDIT` banner protoc and bindgen
-/// write, and the "Automatically generated" sentence of older tools. Only the
-/// opening lines are read: a file that merely documents these markers, as this
-/// one does, is not carrying them as a header.
-fn is_generated(source: &str) -> bool {
-    source.lines().take(10).any(|line| {
-        line.contains("@generated")
-            || line.contains("DO NOT EDIT")
-            || line.contains("Automatically generated")
-            || line.contains("automatically generated")
-    })
 }
 
 /// Identity of a family: its rule and its normalized key, never its position.

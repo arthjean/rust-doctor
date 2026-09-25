@@ -87,12 +87,14 @@ pub(crate) fn execute(
         };
     // Both sides are measured under the current configuration: a threshold
     // moved between the two commits must not report the move as a finding.
+    let declared = crate::generated::declared(prepared.workspace_root());
     let context = ExecutionContext {
         programs: &programs,
         plan,
         settings: &prepared.configuration.structure,
         environment: &environment,
         options,
+        declared: &declared,
     };
     let baseline = context.run(
         baseline_target,

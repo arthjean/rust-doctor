@@ -79,8 +79,11 @@ fn report() -> InspectReport {
             exit_code: Some(0),
             build_finished: Some(true),
             noise_lines: Some(0),
+            ignored: 0,
+            excluded_generated: 0,
         },
         diagnostics,
+        suppressions: Vec::new(),
         delta: None,
         errors: Vec::new(),
         summary,
@@ -93,7 +96,7 @@ fn report() -> InspectReport {
 }
 
 fn rescan_command() -> RescanCommand {
-    RescanCommand::for_inspection(false, None, &[], &[], None).unwrap()
+    RescanCommand::for_inspection(false, None, &[], &[], &[], None).unwrap()
 }
 
 fn payload() -> HandoffPayload {
@@ -200,6 +203,7 @@ fn hostile_fields_are_excluded_or_refused_before_delivery() {
             RescanCommand::for_inspection(
                 false,
                 None,
+                &[],
                 &[],
                 &[],
                 Some(RescanScope {

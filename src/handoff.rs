@@ -494,6 +494,7 @@ impl RescanCommand {
         blocking: Option<BlockingLevel>,
         rule_overrides: &[RuleOverride],
         category_overrides: &[CategoryOverride],
+        packages: &[String],
         scope: Option<RescanScope<'_>>,
     ) -> Result<Self, HandoffError> {
         let mut arguments = vec!["rust-doctor".to_owned(), ".".to_owned()];
@@ -511,6 +512,10 @@ impl RescanCommand {
         for category_override in category_overrides {
             arguments.push("--category".to_owned());
             arguments.push(category_override.to_string());
+        }
+        for package in packages {
+            arguments.push("--package".to_owned());
+            arguments.push(package.clone());
         }
         if let Some(scope) = scope {
             arguments.push("--scope".to_owned());

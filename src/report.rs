@@ -23,11 +23,12 @@ use crate::execution::{RunDeadline, RunOptions};
 use crate::progress::ProgressSink;
 use crate::git_scope::{ChangeMode, ChangeOptions, ScopeMode, ScopeReport, ScopeRequest};
 use crate::policy::{
-    BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PolicyInput,
-    PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
+    BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PathOverrideReport,
+    PolicyInput, PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
 };
 
 mod assembly;
+mod exclusion;
 mod normalize;
 mod sanitize;
 
@@ -36,7 +37,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 18;
+pub const SCHEMA_VERSION: u8 = 19;
 
 /// The error code every stage a passed `--max-duration` stopped or skipped
 /// reports under.
@@ -51,6 +52,7 @@ pub struct InspectRequest {
     change_options: ChangeOptions,
     max_duration: Option<Duration>,
     progress: Option<ProgressSink>,
+    packages: BTreeSet<String>,
 }
 
 impl InspectRequest {
@@ -63,7 +65,20 @@ impl InspectRequest {
             change_options: ChangeOptions::default(),
             max_duration: None,
             progress: None,
+            packages: BTreeSet::new(),
         }
+    }
+
+    /// Scans and scores this workspace member only. Repeated, it selects
+    /// several. Without it, every member is scanned.
+    pub fn with_package(mut self, name: impl Into<String>) -> Self {
+        self.packages.insert(name.into());
+        self
+    }
+
+    /// The members the request selected, `None` when it selected none.
+    pub(crate) fn packages(&self) -> Option<&BTreeSet<String>> {
+        (!self.packages.is_empty()).then_some(&self.packages)
     }
 
     /// Bounds the whole run in wall-clock time. Past it, every process the
@@ -147,6 +162,7 @@ impl InspectRequest {
         RunOptions {
             deadline: self.max_duration.map(RunDeadline::starting_now),
             progress: self.progress.clone(),
+            packages: self.packages().cloned(),
         }
     }
 }
@@ -180,10 +196,52 @@ pub struct InspectReport {
     pub toolchain: ToolchainReport,
     pub scan: ScanReport,
     pub diagnostics: Vec<Diagnostic>,
+    /// Every `rust-doctor: allow(...)` directive in a scanned file, and what
+    /// became of it.
+    pub suppressions: Vec<SuppressionReport>,
     pub delta: Option<DeltaReport>,
     pub errors: Vec<ReportError>,
     pub summary: Summary,
     pub gate: GateReport,
+}
+
+/// One site-level suppression directive, and whether it suppressed anything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SuppressionReport {
+    pub path: String,
+    pub line: usize,
+    pub rules: Vec<String>,
+    pub status: SuppressionStatus,
+    /// What to write instead, on a directive that names a Clippy lint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// The catalogued id closest to an unknown one, within three edits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+/// What became of a directive. Only `applied` suppressed a finding; every
+/// other status suppressed nothing, and says why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SuppressionStatus {
+    Applied,
+    Unused,
+    MissingReason,
+    UseExpect,
+    UnknownRule,
+}
+
+impl SuppressionStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Unused => "unused",
+            Self::MissingReason => "missing-reason",
+            Self::UseExpect => "use-expect",
+            Self::UnknownRule => "unknown-rule",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -191,6 +249,10 @@ pub struct PolicyReport {
     pub config_file: Option<String>,
     pub blocking: PolicyBlockingReport,
     pub rules: Vec<PolicyRuleReport>,
+    /// The globs of `[ignore] paths`, as the configuration wrote them.
+    pub ignore: Vec<String>,
+    /// The `[[overrides]]` tables, in the order the later one wins in.
+    pub overrides: Vec<PathOverrideReport>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -236,10 +298,13 @@ pub struct PolicyRuleReport {
 pub enum NotEvaluated {
     /// The installed Clippy does not list the lint, so the command left it out.
     UnknownToToolchain,
+    /// `--package` scoped the scan to members, and the rule judges the
+    /// repository rather than a member.
+    PackageScoped,
 }
 
 impl PolicyReport {
-    fn from_plan(plan: &PolicyPlan, unknown_to_toolchain: &[&str]) -> Self {
+    fn from_plan(plan: &PolicyPlan, not_evaluated: &[(&str, NotEvaluated)]) -> Self {
         Self {
             config_file: plan.config_file().map(str::to_owned),
             blocking: PolicyBlockingReport {
@@ -259,12 +324,15 @@ impl PolicyReport {
                         corpus_noise_basis_points: measurement
                             .map(CorpusMeasurement::noise_basis_points),
                         corpus_reviewed_sites: measurement.map(CorpusMeasurement::reviewed),
-                        not_evaluated: unknown_to_toolchain
-                            .contains(&definition.id)
-                            .then_some(NotEvaluated::UnknownToToolchain),
+                        not_evaluated: not_evaluated
+                            .iter()
+                            .find(|(id, _)| *id == definition.id)
+                            .map(|(_, reason)| *reason),
                     }
                 })
                 .collect(),
+            ignore: plan.paths().ignore_report(),
+            overrides: plan.paths().overrides_report(),
         }
     }
 }
@@ -326,7 +394,7 @@ impl Serialize for InspectReport {
         if !self.is_valid() {
             return Err(S::Error::custom("invalid report state"));
         }
-        let mut state = serializer.serialize_struct("InspectReport", 14)?;
+        let mut state = serializer.serialize_struct("InspectReport", 15)?;
         state.serialize_field("schema_version", &self.schema_version)?;
         state.serialize_field("audit", &self.audit)?;
         state.serialize_field("status", &self.status)?;
@@ -337,6 +405,7 @@ impl Serialize for InspectReport {
         state.serialize_field("toolchain", &self.toolchain)?;
         state.serialize_field("scan", &self.scan)?;
         state.serialize_field("diagnostics", &self.diagnostics)?;
+        state.serialize_field("suppressions", &self.suppressions)?;
         state.serialize_field("delta", &self.delta)?;
         state.serialize_field("errors", &self.errors)?;
         state.serialize_field("summary", &self.summary)?;
@@ -384,6 +453,11 @@ pub struct ScanReport {
     pub exit_code: Option<i32>,
     pub build_finished: Option<bool>,
     pub noise_lines: Option<usize>,
+    /// Diagnostics removed because `[ignore] paths` covers their file.
+    pub ignored: usize,
+    /// Diagnostics removed because their file is declared generated or
+    /// vendored, or opens on a generator header.
+    pub excluded_generated: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

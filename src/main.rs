@@ -272,6 +272,9 @@ struct InspectArgs {
         value_parser = clap::value_parser!(u64).range(1..=86_400)
     )]
     max_duration: Option<u64>,
+    /// Scan and score this workspace member only. Repeat it to select several.
+    #[arg(long, value_name = "NAME")]
+    package: Vec<String>,
 }
 
 impl InspectArgs {
@@ -298,6 +301,9 @@ impl InspectArgs {
         for category_override in &self.category {
             request = request.with_category_override(category_override.clone());
         }
+        for package in &self.package {
+            request = request.with_package(package.clone());
+        }
         request
     }
 
@@ -310,6 +316,7 @@ impl InspectArgs {
             self.blocking,
             &self.rule,
             &self.category,
+            &self.package,
             selection.map(|selection| RescanScope {
                 mode: selection.mode,
                 base: selection.base.as_deref(),
