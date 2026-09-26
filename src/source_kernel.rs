@@ -326,8 +326,8 @@ pub(crate) struct Enumeration {
     /// happened, so it says so.
     complete: bool,
     /// Units read and kept out of every detector and of the measurement: a
-    /// path the configuration ignores, or a package `--package` did not
-    /// select. They are still walked, so a module they declare is reached,
+    /// path the configuration ignores, a file declared or headed generated, or
+    /// a package `--package` did not select. They are still walked, so a module they declare is reached,
     /// and still read for the crate references a dependency is judged by.
     excluded: BTreeSet<Identity>,
     /// The members `--package` selected, `None` when every member is scanned.
@@ -353,19 +353,19 @@ impl Enumeration {
         self.units.values()
     }
 
-    /// Keeps out of every detector and of the measurement the units under a
-    /// path `ignored` names, and, when `selected` is given, every unit no
-    /// selected member reaches.
+    /// Keeps out of every detector and of the measurement the units
+    /// `excluded` names, ignored or generated, and, when `selected` is given,
+    /// every unit no selected member reaches.
     pub(crate) fn narrow(
         &mut self,
-        ignored: impl Fn(&str) -> bool,
+        excluded: impl Fn(&SourceUnit) -> bool,
         selected: Option<&BTreeSet<String>>,
     ) {
         self.excluded = self
             .units
             .iter()
             .filter(|(_, unit)| {
-                ignored(unit.relative_path())
+                excluded(unit)
                     || selected.is_some_and(|selected| {
                         !unit.package_names().any(|name| selected.contains(name))
                     })

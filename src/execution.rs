@@ -482,7 +482,18 @@ impl ExecutionContext<'_> {
         }
         let mut enumeration = source_kernel::enumerate(&metadata);
         let packages = self.options.packages.as_ref();
-        enumeration.narrow(|path| self.plan.is_ignored(path), packages);
+        // A generated file is left out of the measurement as an ignored one
+        // is: lines nobody writes by hand would otherwise dilute the density
+        // the score divides by.
+        enumeration.narrow(
+            |unit| {
+                let path = unit.relative_path();
+                self.plan.is_ignored(path)
+                    || self.declared.contains(path)
+                    || crate::generated::has_generator_header(unit.source())
+            },
+            packages,
+        );
         let exclusions = exclusions::gather(&metadata, &enumeration, packages, self.declared);
         // A pass the deadline has already passed is not started: it is named
         // at its own stage instead, so the report says what it did not read.

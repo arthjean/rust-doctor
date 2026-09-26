@@ -43,7 +43,8 @@ because an interpolated shell command is a finding wherever it runs. The reason
 is written above each rather than left to be inferred from an asymmetry.
 
 Excluded is still reached. `Enumeration::narrow` keeps a unit under an
-`[ignore]` path, or one no `--package` member reaches, out of every detector
+`[ignore]` path, a file declared or headed generated, or one no `--package`
+member reaches, out of every detector
 and of the measurement, while the walk still follows its `mod` declarations,
 `references` still reads its crate names, and `reached()` still counts it as
 compiled, so the orphan detector never mistakes an ignored file for a dead one.

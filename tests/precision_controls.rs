@@ -241,6 +241,10 @@ fn a_file_declared_generated_or_headed_as_one_grades_nothing() {
     // table entry of the manifest marked generated.
     assert_eq!(report["scan"]["excluded_generated"], 4);
     assert!(report["errors"].as_array().unwrap().is_empty());
+    // Nor are their lines in the denominator, as an ignored file's are not:
+    // only the three kept files are measured, so generated code cannot dilute
+    // the density it would grade.
+    assert_eq!(report["audit"]["production_lines"], 15);
 
     // The base side is a snapshot outside git, and still reads the
     // declaration: nothing a declared file holds reads as fixed.
@@ -263,6 +267,7 @@ fn a_file_declared_generated_or_headed_as_one_grades_nothing() {
         .unwrap();
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["scan"]["excluded_generated"], 1);
+    assert_eq!(report["audit"]["production_lines"], 21, "only the headed file leaves");
     assert!(
         findings(&report)
             .iter()

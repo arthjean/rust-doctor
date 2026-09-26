@@ -76,10 +76,14 @@ pub(super) fn gather(
     let workspace_root = metadata.workspace_root.as_std_path();
     let mut generated = declared.clone();
     let mut directives = Vec::new();
-    for unit in enumeration.units() {
+    // Read over every unit the walk loaded: a headed file is already out of
+    // the scanned ones, and its Clippy findings still have to be left out.
+    for unit in enumeration.reached() {
         if generated::has_generator_header(unit.source()) {
             generated.insert(unit.relative_path().to_owned());
         }
+    }
+    for unit in enumeration.units() {
         directives.extend(directive::in_rust(
             unit.relative_path(),
             unit.source(),
