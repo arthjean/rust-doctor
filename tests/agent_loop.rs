@@ -428,12 +428,29 @@ fn an_unusable_index_fails_the_staged_scan() {
     fs::write(root.join("notes.md"), "master\n").unwrap();
     git(&root, &["add", "notes.md"]);
     commit(&root, "master notes");
+    // The identity is passed here as `commit` passes it: a runner with no
+    // global one refuses the merge before it writes the conflict.
     let merge = Command::new("git")
-        .args(["merge", "--quiet", "feature"])
+        .args([
+            "-c",
+            "user.name=Rust Doctor",
+            "-c",
+            "user.email=rust-doctor@example.invalid",
+            "merge",
+            "--quiet",
+            "feature",
+        ])
         .current_dir(&root)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
         .output()
         .unwrap();
     assert!(!merge.status.success(), "the merge was meant to conflict");
+    assert!(
+        !git(&root, &["ls-files", "--unmerged"]).stdout.is_empty(),
+        "the merge failed without leaving a conflict: {}",
+        String::from_utf8_lossy(&merge.stderr)
+    );
     let (code, report) = json(&root, &["--staged", "--scope", "files"]);
     assert_eq!(code, Some(2), "{report}");
     assert_eq!(
