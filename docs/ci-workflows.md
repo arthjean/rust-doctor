@@ -3,9 +3,8 @@
 | Workflow | When | What it settles |
 |---|---|---|
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install |
-| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from the checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged, and uploads the report the comment workflow posts |
+| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from the checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged, and posts the summary as one sticky pull request comment |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
-| `rust-doctor-comment.yml` | the dogfood scan completing on a pull request | Posts the scan's report as one sticky pull request comment, edited on each push, forks included. It is exactly what `rust-doctor ci install --comment` writes, and a test holds it to that |
 | `corpus.yml` | manual, pull request touching the record, its harness or a producer | Reproduces the pinned measurement of `tests/corpus.json` from the restored clone cache, under the toolchain the artifact names, and writes the position proof that anchors every published site |
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
@@ -36,12 +35,15 @@ moves the clocks only: the counter assertions that prove the near-duplicate
 scoring stays nominated rather than pairwise hold on any machine and are never
 relaxed.
 
-The comment workflow is split from the scan on purpose. The scan runs the pull
-request's code, so it holds a read-only token and uploads `rust-doctor-report`.
-The comment job runs from `workflow_run` in this repository's context, holds
-the only `pull-requests: write` token, finds the pull request from GitHub by
-the scanned commit rather than from the report, and never checks out or builds
-anything. `pull_request_target` appears nowhere: GitHub's guidance forbids it
+The comment is posted from the scan job itself, as React Doctor's Action does
+(`react-doctor/action.yml`, "Update sticky PR comment"), and rendered by the
+binary built from the commit under review, so it never waits on a release. The
+job holds `pull-requests: write`. GitHub reduces that token to read on a pull
+request from a fork, so a fork gets a warning in the job instead of a comment,
+and a pull request from this repository's own branches runs its code beside a
+token its author could already use. A `workflow_run` job could comment on
+forks too, but it renders with a published binary, which lags every change to
+the report. `pull_request_target` appears nowhere: GitHub's guidance forbids it
 beside a checkout of pull request code
 ([Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)).
 

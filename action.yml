@@ -8,8 +8,8 @@ branding:
 # Every input reaches the shell through `env`, never through `${{ }}` inside a
 # run block: a branch name or an argument is text the caller may not control,
 # and interpolating it into a script is a command injection. rust-doctor
-# itself reaches no network; the npm install and the artifact upload are the
-# runner's.
+# itself reaches no network; the npm install, the artifact upload and the pull
+# request comment are the runner's, the last with the workflow's own token.
 
 inputs:
   version:
@@ -40,6 +40,10 @@ inputs:
     description: Further rust-doctor arguments, split on whitespace.
     required: false
     default: ""
+  comment:
+    description: "On a pull request, post the summary as one sticky comment, edited on each push. Needs `pull-requests: write`; a pull request from a fork gets a read-only token, and a warning instead."
+    required: false
+    default: "true"
 
 outputs:
   score:
@@ -108,14 +112,21 @@ runs:
         rust-doctor "${arguments[@]}" > "$report"
         echo "exit-code=$?" >> "$GITHUB_OUTPUT"
 
+    # Rendered once, for the job summary and the pull request comment.
     - name: Summarize
       if: always()
       shell: bash
       env:
         REPORT: ${{ steps.scan.outputs.report }}
       run: |
-        rust-doctor report markdown "$REPORT" >> "$GITHUB_STEP_SUMMARY" \
-          || echo "rust-doctor wrote no report that could be rendered." >> "$GITHUB_STEP_SUMMARY"
+        summary="$RUNNER_TEMP/rust-doctor/summary.md"
+        mkdir -p "$(dirname "$summary")"
+        if rust-doctor report markdown "$REPORT" > "$summary"; then
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+        else
+          : > "$summary"
+          echo "rust-doctor wrote no report that could be rendered." >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - name: Upload the report
       if: always()
@@ -125,6 +136,32 @@ runs:
         path: ${{ steps.scan.outputs.report }}
         if-no-files-found: ignore
         retention-days: 7
+
+    - name: Comment on the pull request
+      if: always() && github.event_name == 'pull_request' && inputs.comment == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+        summary="$RUNNER_TEMP/rust-doctor/summary.md"
+        if [ ! -s "$summary" ]; then
+          echo "::notice::rust-doctor wrote no report, so no comment was posted."
+          exit 0
+        fi
+        body="$(printf '<!-- rust-doctor -->\n\n'; cat "$summary")"
+        if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/comments"); then
+          echo "::warning::rust-doctor could not read the pull request's comments, so none was posted."
+          exit 0
+        fi
+        comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
+        if [ -n "$comment" ]; then
+          gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
+        else
+          gh api -X POST "repos/$REPOSITORY/issues/$PULL_REQUEST/comments" -f body="$body" > /dev/null
+        fi || echo "::warning::rust-doctor could not post the pull request comment. A pull request from a fork gets a read-only token."
 
     # Only numbers and booleans are read out of the report, so nothing it
     # carries can write a second output line.

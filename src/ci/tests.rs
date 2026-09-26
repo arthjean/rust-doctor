@@ -62,14 +62,19 @@ pub(crate) fn execute(block: &str, environment: &[(&str, &str)]) -> Vec<Vec<Stri
 
 /// Runs `block` under bash with every external tool stubbed. A scan the stub
 /// runs exits with `SCAN_STATUS`, 0 unless the environment sets it; `jq`
-/// answers `JQ_1` then `JQ_2`; `gh` logs its arguments; `NO_REPORT` leaves the
-/// uploaded report out.
+/// answers `JQ_1` then `JQ_2`; `gh` logs its arguments and, under
+/// `GH_REFUSES`, refuses every write as a fork's read-only token would.
+/// `NO_REPORT` leaves the report and its rendered summary out, and
+/// `EMPTY_REPORT` leaves both empty.
 pub(crate) fn run_stubbed(block: &str, environment: &[(&str, &str)]) -> Execution {
     let root = scratch("ci-tests", "execute");
     let log = root.join("argv");
     fs::create_dir_all(root.join("rust-doctor")).unwrap();
     if !environment.iter().any(|(name, _)| *name == "NO_REPORT") {
-        fs::write(root.join("rust-doctor/report.json"), "{}").unwrap();
+        let empty = environment.iter().any(|(name, _)| *name == "EMPTY_REPORT");
+        fs::write(root.join("rust-doctor/report.json"), if empty { "" } else { "{}" }).unwrap();
+        let summary = if empty { "" } else { "## rust-doctor\n" };
+        fs::write(root.join("rust-doctor/summary.md"), summary).unwrap();
     }
     let prelude = r#"
 rust-doctor() {
@@ -79,7 +84,11 @@ rust-doctor() {
 }
 git() { :; }
 npm() { :; }
-gh() { echo "$*" >> "$GH_LOG"; echo '[]'; }
+gh() {
+  echo "$*" >> "$GH_LOG"
+  if [ "${1:-}" = api ] && [ "${2:-}" = -X ] && [ -n "${GH_REFUSES:-}" ]; then return 1; fi
+  echo '[]'
+}
 jq() {
   cat > /dev/null
   # Each call runs in a command substitution, so the count lives in a file.
@@ -145,6 +154,7 @@ fn workflow_options(blocking: Option<BlockingLevel>) -> WorkflowOptions {
         blocking,
         branch: "trunk".to_owned(),
         toolchain: VALIDATED_TOOLCHAIN.to_owned(),
+        comment: false,
     }
 }
 
@@ -195,21 +205,11 @@ fn every_command_the_scan_workflow_runs_parses_against_the_cli() {
 }
 
 #[test]
-fn every_command_the_comment_workflow_runs_parses_against_the_cli() {
-    let workflow = comment_workflow();
-    let invocations: Vec<Vec<String>> = run_blocks(&workflow)
-        .iter()
-        .flat_map(|block| execute(block, &[("HEAD_SHA", "abc"), ("HEAD_OWNER", "fork"), ("HEAD_BRANCH", "topic"), ("REPOSITORY", "o/r")]))
-        .collect();
-    assert!(!invocations.is_empty());
-    assert_parses(&invocations);
-}
-
-#[test]
 fn the_scan_workflow_runs_read_only_and_never_interpolates_into_a_shell() {
     let workflow = scan_workflow(&workflow_options(None));
     assert!(workflow.starts_with(MARKER));
-    assert!(workflow.contains("permissions:\n  contents: read\n"));
+    assert!(workflow.contains("permissions:\n  contents: read\n\njobs:"));
+    assert!(!workflow.contains("pull-requests") && !workflow.contains("<!-- rust-doctor -->"));
     assert!(workflow.contains("persist-credentials: false"));
     assert!(workflow.contains("branches: ['trunk']"));
     assert!(workflow.contains(&format!("toolchain: '{VALIDATED_TOOLCHAIN}'")));
@@ -227,20 +227,28 @@ fn the_scan_workflow_runs_read_only_and_never_interpolates_into_a_shell() {
     }
 }
 
+/// `--comment` grants the one write permission and adds the step, and the
+/// Action runs the same script byte for byte.
 #[test]
-fn the_comment_workflow_holds_the_only_write_token_and_never_builds_the_pull_request() {
-    let workflow = comment_workflow();
-    assert!(workflow.starts_with(MARKER));
-    assert!(workflow.contains("workflow_run:\n    workflows: [Rust Doctor]"));
-    assert!(workflow.contains("\npermissions: {}\n"));
+fn the_comment_is_opt_in_and_the_action_runs_the_same_script() {
+    let workflow = scan_workflow(&WorkflowOptions {
+        comment: true,
+        ..workflow_options(None)
+    });
+    assert!(workflow.contains("permissions:\n  contents: read\n  pull-requests: write\n\njobs:"));
     assert_eq!(workflow.matches("pull-requests: write").count(), 1);
-    assert!(workflow.contains("<!-- rust-doctor -->"));
-    for absent in ["actions/checkout", "cargo ", "\n  pull_request_target"] {
-        assert!(!workflow.contains(absent), "the comment workflow names {absent}");
-    }
-    for block in run_blocks(&workflow) {
+    assert!(workflow.contains("if: always() && github.event_name == 'pull_request'"));
+    assert!(!workflow.contains("pull_request_target"));
+    let blocks = run_blocks(&workflow);
+    assert_eq!(blocks.len(), 3, "install, scan, comment");
+    assert_eq!(blocks.last().map(String::as_str), Some(COMMENT_SCRIPT.trim_end()));
+    for block in &blocks {
         assert!(!block.contains("${{"), "a run block interpolates: {block}");
     }
+    let action_comment = run_blocks(ACTION)
+        .into_iter()
+        .find(|block| block.contains("<!-- rust-doctor -->"));
+    assert_eq!(action_comment.as_deref().map(str::trim_end), Some(COMMENT_SCRIPT.trim_end()));
 }
 
 #[test]
@@ -264,7 +272,7 @@ fn a_branch_or_toolchain_that_could_escape_its_scalar_is_refused() {
 }
 
 fn options_for(root: &Path, branch: &str, toolchain: &str) -> Result<WorkflowOptions, CiError> {
-    options(root, None, Some(branch.to_owned()), toolchain.to_owned())
+    options(root, None, Some(branch.to_owned()), toolchain.to_owned(), false)
 }
 
 const ACTION: &str = include_str!("../../action.yml");
@@ -283,11 +291,12 @@ fn input_default(name: &str) -> Option<String> {
 
 #[test]
 fn the_action_declares_its_inputs_and_defaults_to_this_release() {
-    for input in ["version", "toolchain", "scope", "base", "blocking", "working-directory", "args"] {
+    for input in ["version", "toolchain", "scope", "base", "blocking", "working-directory", "args", "comment"] {
         assert!(input_default(input).is_some(), "action.yml declares no default for `{input}`");
     }
     assert_eq!(input_default("version").as_deref(), Some(env!("CARGO_PKG_VERSION")));
     assert_eq!(input_default("toolchain").as_deref(), Some(VALIDATED_TOOLCHAIN));
+    assert_eq!(input_default("comment").as_deref(), Some("true"));
     for output in ["score", "authoritative", "introduced", "fixed", "exit-code"] {
         assert!(ACTION.contains(&format!("\n  {output}:\n")), "action.yml has no `{output}` output");
     }
@@ -300,7 +309,7 @@ fn the_action_declares_its_inputs_and_defaults_to_this_release() {
 #[test]
 fn every_command_the_action_runs_parses_against_the_cli() {
     let blocks = run_blocks(ACTION);
-    assert_eq!(blocks.len(), 5, "install, scan, summary, outputs, exit");
+    assert_eq!(blocks.len(), 6, "install, scan, summary, comment, outputs, exit");
     let cases: [(&[(&str, &str)], &str); 4] = [
         (
             &[("PULL_REQUEST_BASE", "main")],
@@ -327,6 +336,8 @@ fn every_command_the_action_runs_parses_against_the_cli() {
             ("VERSION", "0.9.0"),
             ("REPORT", "report.json"),
             ("EXIT_CODE", "0"),
+            ("REPOSITORY", "o/r"),
+            ("PULL_REQUEST", "7"),
         ];
         environment.retain(|(name, _)| !inputs.iter().any(|(input, _)| input == name));
         environment.extend_from_slice(inputs);
@@ -347,19 +358,15 @@ fn every_command_the_action_runs_parses_against_the_cli() {
     }
 }
 
-/// This repository runs what `ci install --comment` writes, byte for byte,
-/// and scans itself through the Action from its own checkout.
+/// This repository scans itself through the Action from its own checkout,
+/// with the permission its comment needs.
 #[test]
-fn this_repository_runs_the_comment_workflow_and_the_action_it_ships() {
-    assert_eq!(
-        include_str!("../../.github/workflows/rust-doctor-comment.yml"),
-        comment_workflow(),
-        "regenerate it with `rust-doctor ci install --comment --update`"
-    );
+fn this_repository_runs_the_action_it_ships() {
     let dogfood = include_str!("../../.github/workflows/dogfood.yml");
-    assert!(dogfood.starts_with("name: Rust Doctor\n"), "the comment workflow follows it by name");
+    assert!(dogfood.starts_with("name: Rust Doctor\n"));
     assert!(dogfood.contains("uses: ./\n"));
     assert!(dogfood.contains("pull_request:"));
+    assert!(dogfood.contains("  pull-requests: write\n"));
 }
 
 /// A scan that exits 2 still leaves an exit code for the summary, the upload
@@ -389,46 +396,41 @@ fn a_failed_scan_still_publishes_and_then_fails_the_step() {
     let after_scan = ACTION.split("id: scan").nth(1).unwrap();
     assert_eq!(
         after_scan.matches("if: always()").count(),
-        4,
-        "summary, upload, outputs and exit run after a failed scan"
+        5,
+        "summary, upload, comment, outputs and exit run after a failed scan"
     );
 }
 
-/// The comment step as a second push, a first push, a scan that uploaded
-/// nothing, and a commit no open pull request is at.
+/// The comment step as a second push, a first push, a fork's read-only token,
+/// a scan that rendered nothing or an empty summary.
 #[test]
-fn the_comment_is_edited_in_place_and_skipped_without_a_report() {
-    let workflow = comment_workflow();
-    let post = run_blocks(&workflow).pop().unwrap();
-    let head = [
-        ("HEAD_SHA", "abc"),
-        ("HEAD_OWNER", "fork"),
-        ("HEAD_BRANCH", "topic"),
-        ("REPOSITORY", "o/r"),
-    ];
+fn the_comment_is_edited_in_place_and_never_fails_the_job() {
+    let pull_request = [("REPOSITORY", "o/r"), ("PULL_REQUEST", "7")];
     let with = |extra: &[(&'static str, &'static str)]| {
-        let mut environment = head.to_vec();
+        let mut environment = pull_request.to_vec();
         environment.extend_from_slice(extra);
-        run_stubbed(&post, &environment)
+        run_stubbed(COMMENT_SCRIPT, &environment)
     };
 
-    let edited = with(&[("JQ_1", "7"), ("JQ_2", "9")]);
+    let edited = with(&[("JQ_1", "9")]);
     assert_eq!(edited.status, Some(0));
-    assert!(edited.gh.contains("-X GET repos/o/r/pulls -f state=open -f head=fork:topic"), "{}", edited.gh);
-    assert!(edited.gh.contains("-X PATCH repos/o/r/issues/comments/9 -f body=<!-- rust-doctor -->"), "{}", edited.gh);
+    assert!(edited.gh.contains("api --paginate repos/o/r/issues/7/comments"), "{}", edited.gh);
+    assert!(edited.gh.contains("-X PATCH repos/o/r/issues/comments/9 -f body=<!-- rust-doctor -->\n\n## rust-doctor"), "{}", edited.gh);
     assert!(!edited.gh.contains("-X POST"));
 
-    let created = with(&[("JQ_1", "7"), ("JQ_2", "")]);
+    let created = with(&[("JQ_1", "")]);
     assert_eq!(created.status, Some(0));
     assert!(created.gh.contains("-X POST repos/o/r/issues/7/comments -f body=<!-- rust-doctor -->"), "{}", created.gh);
 
-    let missing = with(&[("NO_REPORT", "1")]);
-    assert_eq!(missing.status, Some(0));
-    assert!(missing.gh.is_empty(), "nothing is posted without a report");
-    assert!(missing.stdout.contains("::notice::"), "{}", missing.stdout);
+    let fork = with(&[("JQ_1", ""), ("GH_REFUSES", "1")]);
+    assert_eq!(fork.status, Some(0), "a read-only token never fails the job");
+    assert!(fork.gh.contains("-X POST"), "{}", fork.gh);
+    assert!(fork.stdout.contains("::warning::"), "{}", fork.stdout);
 
-    let closed = with(&[("JQ_1", "")]);
-    assert_eq!(closed.status, Some(0));
-    assert!(!closed.gh.contains("comments"), "{}", closed.gh);
-    assert!(closed.stdout.contains("::notice::"));
+    for absent in ["NO_REPORT", "EMPTY_REPORT"] {
+        let skipped = with(&[(absent, "1")]);
+        assert_eq!(skipped.status, Some(0), "{absent}");
+        assert!(skipped.gh.is_empty(), "nothing is posted without a summary: {}", skipped.gh);
+        assert!(skipped.stdout.contains("::notice::"), "{}", skipped.stdout);
+    }
 }

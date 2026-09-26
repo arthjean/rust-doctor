@@ -110,25 +110,21 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
         workflow
     );
 
-    // With it, the file rust-doctor wrote is rewritten, and the comment
-    // workflow joins it.
+    // With it, the file rust-doctor wrote is rewritten, and --comment moves
+    // the sticky comment into the same job.
     let updated = install(
         &root,
         &["--update", "--blocking", "warning", "--branch", "main", "--toolchain", "1.98.0", "--comment"],
     );
     assert!(updated.status.success(), "{}", text(&updated.stderr));
-    assert_eq!(
-        text(&updated.stdout),
-        "Rewrote .github/workflows/rust-doctor.yml\nWrote .github/workflows/rust-doctor-comment.yml\n"
-    );
+    assert_eq!(text(&updated.stdout), "Rewrote .github/workflows/rust-doctor.yml\n");
     let rewritten = fs::read_to_string(root.join(".github/workflows/rust-doctor.yml")).unwrap();
     assert!(rewritten.contains("branches: ['main']"));
     assert!(rewritten.contains("toolchain: '1.98.0'"));
     assert!(rewritten.contains("--base \"origin/$BASE_REF\" --blocking warning)"));
-    let comment =
-        fs::read_to_string(root.join(".github/workflows/rust-doctor-comment.yml")).unwrap();
-    assert!(comment.contains("workflow_run:") && comment.contains("<!-- rust-doctor -->"));
-    assert!(!comment.contains("actions/checkout"));
+    assert!(rewritten.contains("  contents: read\n  pull-requests: write\n"));
+    assert!(rewritten.contains("<!-- rust-doctor -->"));
+    assert!(!root.join(".github/workflows/rust-doctor-comment.yml").exists());
     fs::remove_dir_all(root).unwrap();
 }
 

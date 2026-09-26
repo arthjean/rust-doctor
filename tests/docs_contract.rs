@@ -413,11 +413,6 @@ fn the_workflows_the_map_counts_all_pin_the_toolchain_it_names() {
 
     for path in &workflows {
         let text = fs::read_to_string(path).expect("a workflow should be readable");
-        // The comment workflow installs no Rust: it renders a saved report and
-        // posts it, and `src/ci/tests.rs` holds it to never running cargo.
-        if !text.contains("rust-toolchain") {
-            continue;
-        }
         let pinned = quoted_after(&text, "toolchain: \"");
         assert!(
             pinned.contains(&toolchain),
