@@ -345,7 +345,14 @@ function proveCli(installed) {
     { cwd: installed.install, env: installed.environment },
   ));
   assert(human.code === direct.code, "packed and direct scan exit codes differ");
-  assert(/^Scanning Rust files\.\.\.$/mu.test(human.stderr.trim()), "human progress is missing");
+  // Off a terminal each phase prints once, on its own line (src/progress_line.rs).
+  const progress = human.stderr.trim().split("\n");
+  assert(
+    progress.every((line) =>
+      /^(Compiling dependencies\.\.\.|Linting .+ \(\d+\/\d+\)|Running native passes\.\.\.)$/u.test(line)),
+    "human progress is not the phase lines",
+  );
+  assert(progress.includes("Running native passes..."), "human progress is missing");
   const sections = sectionOrder(human.stdout);
   const scan = human.stdout.match(/Scanned (\d+) files in (\d+\.\d)s/u);
   const terminalScore = human.stdout.match(/(\d+) \/ 100 ([A-Za-z ]+)/u);
