@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "CI that reports where reviewers look",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 2
     },
     {
       "id": "EP-006",
@@ -321,7 +321,7 @@
       "blocked_by": [],
       "started_at": "2026-09-25",
       "completed_at": "2026-09-25",
-      "reviewed_at": "2026-09-25"
+      "reviewed_at": "2026-09-26"
     },
     {
       "id": "US-021",
@@ -333,7 +333,7 @@
       "blocked_by": [],
       "started_at": "2026-09-25",
       "completed_at": "2026-09-25",
-      "reviewed_at": "2026-09-25"
+      "reviewed_at": "2026-09-26"
     },
     {
       "id": "US-022",
@@ -345,7 +345,7 @@
       "blocked_by": [],
       "started_at": "2026-09-25",
       "completed_at": "2026-09-25",
-      "reviewed_at": "2026-09-25"
+      "reviewed_at": "2026-09-26"
     },
     {
       "id": "US-023",
@@ -357,62 +357,62 @@
       "blocked_by": [],
       "started_at": "2026-09-25",
       "completed_at": "2026-09-25",
-      "reviewed_at": "2026-09-25"
+      "reviewed_at": "2026-09-26"
     },
     {
       "id": "US-024",
       "title": "rust-doctor ci install",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-014"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-025",
       "title": "Render a saved report as Markdown",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-09-25",
+      "completed_at": "2026-09-25",
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-026",
       "title": "A composite GitHub Action with outputs and a job summary",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-024",
         "US-025"
       ],
-      "started_at": null,
+      "started_at": "2026-09-25",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-027",
       "title": "A fork-safe sticky pull request comment",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-026"
       ],
-      "started_at": null,
+      "started_at": "2026-09-25",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": "2026-09-25"
     },
     {
       "id": "US-028",
