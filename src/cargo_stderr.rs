@@ -70,17 +70,37 @@ pub(crate) fn excerpt(
     );
     let lines: Vec<String> = text
         .lines()
+        .map(plain)
         .filter(|line| !is_progress(line))
-        .map(|line| {
-            line.chars()
-                .filter(|character| !character.is_control())
-                .collect::<String>()
-                .trim()
-                .to_owned()
-        })
+        .map(|line| line.trim().to_owned())
         .filter(|line| !line.is_empty())
         .collect();
     tail(&lines)
+}
+
+/// `line` without its terminal escapes or control characters. Cargo colors
+/// its stderr when `CARGO_TERM_COLOR` or `term.color` says `always`, as CI
+/// runners often do, and dropping the escape character alone would publish
+/// the `[1m[91m` that followed it and hide a colored status line from
+/// [`is_progress`].
+fn plain(line: &str) -> String {
+    let mut plain = String::with_capacity(line.len());
+    let mut characters = line.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' {
+            // A control sequence runs from `[` to its final byte, `@` to `~`.
+            if characters.next_if_eq(&'[').is_some() {
+                for next in characters.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            }
+        } else if !character.is_control() {
+            plain.push(character);
+        }
+    }
+    plain
 }
 
 /// Replaces every prefix, in the order given, in both its lexical and its
@@ -149,9 +169,21 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
         assert!(published.contains("TOML parse error at line 1, column 6"));
         assert!(!published.contains("Checking"));
         assert!(!published.contains('\x1b'));
+        assert!(published.ends_with("TOML parse error at line 1, column 6 bold"), "{published}");
         assert_eq!(
             excerpt(b"   Compiling a v0.1.0\n", Path::new("/work"), None),
             None
+        );
+    }
+
+    /// What Cargo prints under `CARGO_TERM_COLOR=always`.
+    #[test]
+    fn a_colored_stderr_publishes_the_same_words() {
+        let stderr = b"\x1b[1m\x1b[92m    Checking\x1b[0m a v0.1.0 (/work/a)\n\
+\x1b[1m\x1b[91merror\x1b[0m\x1b[1m: failed to parse lock file at: /work/Cargo.lock\x1b[0m\n";
+        assert_eq!(
+            excerpt(stderr, Path::new("/work"), None).as_deref(),
+            Some("error: failed to parse lock file at: ./Cargo.lock")
         );
     }
 
