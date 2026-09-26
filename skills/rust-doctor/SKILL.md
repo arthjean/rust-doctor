@@ -159,6 +159,8 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
 | `rust-doctor hook install cursor` | A Cursor `stop` hook that asks for a follow-up on findings |
 | `rust-doctor skill install --agent all --update` | Refresh this skill for Claude Code, Codex and Cursor after an upgrade |
+| `rust-doctor ci install --comment` | A GitHub Actions workflow judging each pull request in baseline scope, plus its sticky comment |
+| `rust-doctor report markdown report.json --limit 20` | A saved `--json` report as Markdown, without scanning |
 
 Every installer prints what it writes, takes `--dry-run`, and never writes over
 a file it did not create or through a symlink. The end-of-turn hook runs

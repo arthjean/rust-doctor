@@ -80,6 +80,8 @@ fn every_flag_the_skill_documents_is_a_flag_the_cli_accepts() {
         &["hook", "install", "claude"],
         &["hook", "install", "cursor"],
         &["hook", "run"],
+        &["ci", "install"],
+        &["report", "markdown"],
     ]
     .iter()
     .map(|command| help(command))

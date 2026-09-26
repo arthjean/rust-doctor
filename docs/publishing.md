@@ -6,6 +6,15 @@ dependencies. Releasing is one version bump in `Cargo.toml`, mirrored into
 `npm/rust-doctor/package.json` and `bun.lock`, then a `v<version>` tag:
 `release.yml` refuses a tag that disagrees with the manifest.
 
+The bump also moves the `version` default of `action.yml` and the
+`rust-doctor@<version>` that `.github/workflows/rust-doctor-comment.yml`
+installs: the `ci` unit tests hold the first to `Cargo.toml` and the second to
+what `ci install --comment` writes, byte for byte. `uses:
+arthjean/rust-doctor@v0` resolves the floating `v0` tag, which moves only once
+the tag run is green, so it never names a version npm does not serve yet:
+`git tag -f v0 v<version> && git push -f origin v0`. A `v1` starts its own tag
+when the report schema or the Action's inputs break.
+
 Two scars from the retired account constrain the names. `@rust-doctor/linux-x64`
 still resolves, owned by `npm-support`, so that scope cannot be reclaimed and
 the binaries live under `@rustdoctor/*`. Versions 0.1.1 through 0.2.0 of

@@ -43,13 +43,17 @@ Works with Claude Code, Codex, and Cursor, and copies the same context to your c
 
 ### 3. Run in CI
 
-Rust Doctor reviews every pull request and reports only the issues your change introduced, not your existing backlog. Set it up from the report menu:
+Rust Doctor reviews every pull request and reports only the issues your change introduced, not your existing backlog. Set it up with one command, or from the report menu:
 
 ```bash
-rust-doctor          # then pick "Add to GitHub Actions"
+rust-doctor ci install --comment
 ```
 
-This writes `.github/workflows/rust-doctor.yml`, pinned to the version that wrote it, and never overwrites an existing file. The gate exits non-zero only when a diagnostic reaches the blocking level, which you change anytime with `--blocking`.
+This writes `.github/workflows/rust-doctor.yml`, pinned to the version that wrote it and to the toolchain it was validated on, and never overwrites a file it did not write (`--update` rewrites its own). Pull requests fail only on what they introduce, at the level `--blocking` sets; pushes to your default branch report without failing. `--comment` adds a second workflow that posts the result as one comment per pull request, forks included.
+
+To compose your own workflow, use the Action: `uses: arthjean/rust-doctor@v0`, with the outputs `score`, `authoritative`, `introduced`, `fixed` and `exit-code`.
+
+The binary still never reaches the network: the comment is posted by that workflow's own GitHub token, in a job that never checks out or builds the pull request's code.
 
 [CI docs →](https://rust-doctor.com/docs/ci-cd)
 

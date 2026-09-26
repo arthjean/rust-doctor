@@ -1,8 +1,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod ci;
 mod handoff;
 mod hook;
 mod progress_line;
+mod report_command;
 mod skill;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
@@ -95,7 +97,14 @@ impl Cli {
     fn into_inspect_args(self) -> InspectArgs {
         match self.command {
             Some(CliCommand::Inspect(arguments)) => arguments,
-            Some(CliCommand::Rules(_) | CliCommand::Skill(_) | CliCommand::Hook(_)) | None => {
+            Some(
+                CliCommand::Rules(_)
+                | CliCommand::Skill(_)
+                | CliCommand::Hook(_)
+                | CliCommand::Ci(_)
+                | CliCommand::Report(_),
+            )
+            | None => {
                 self.inspect
             }
         }
@@ -115,6 +124,10 @@ enum CliCommand {
     Skill(SkillArgs),
     #[command(about = "Install or run the hooks that rescan a commit or an agent's turn")]
     Hook(HookArgs),
+    #[command(about = "Write the GitHub Actions workflow that scans every pull request")]
+    Ci(ci::CiArgs),
+    #[command(about = "Render a report a scan already saved, without scanning")]
+    Report(report_command::ReportArgs),
 }
 
 /// The hooks that turn a rescan into a habit. Only `install` writes, and only
@@ -355,6 +368,12 @@ fn main() -> ExitCode {
     }
     if let Some(CliCommand::Hook(arguments)) = &cli.command {
         return run_hook(arguments);
+    }
+    if let Some(CliCommand::Ci(arguments)) = &cli.command {
+        return ci::run(arguments);
+    }
+    if let Some(CliCommand::Report(arguments)) = &cli.command {
+        return report_command::run(arguments);
     }
     run_inspect(cli.into_inspect_args())
 }

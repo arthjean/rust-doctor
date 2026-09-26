@@ -36,7 +36,6 @@ mod input;
 mod model;
 mod screens;
 mod text;
-mod workflow;
 
 use canvas::Canvas;
 use model::{Entry, Layout, Row, build_entries, build_rows, pluralize, project_name, resolve_layout};
@@ -169,7 +168,7 @@ impl<'a> App<'a> {
             rows,
             entries,
             view: View::Landing { selected: 0 },
-            ci_available: workflow::can_install(session.workspace_root),
+            ci_available: crate::ci::can_install(session.workspace_root),
             selected_entry,
             offset: 0,
             read: BTreeSet::new(),

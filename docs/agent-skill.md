@@ -14,8 +14,8 @@ install creates the skill directory itself, so either the whole skill lands or
 nothing does. `--update` rewrites a copy only when its front matter says
 `name: rust-doctor`, and names the version the replaced copy recorded, since an
 old skill documents flags the binary no longer has. No install writes through
-a symlink. `src/tui/workflow.rs` makes
-the same guarantee one file at a time, with `create_new`.
+a symlink. `src/ci.rs` makes the same guarantee for the workflows
+`ci install` writes, with `create_new`.
 
 It lives in this repository rather than beside the agent that installs it
 because a skill naming a flag is a second copy of the CLI surface, and the copy

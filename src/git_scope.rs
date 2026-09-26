@@ -494,6 +494,15 @@ fn resolve_with(
     Ok(report)
 }
 
+/// The default branch of the repository `workspace_root` sits in, the one a
+/// changed-work scope compares against when no base is named, or `None` when
+/// none resolves.
+pub fn default_branch(workspace_root: &Path) -> Option<String> {
+    base::default_branch(workspace_root, &mut |call| {
+        run_git(Path::new("git"), workspace_root, call)
+    })
+}
+
 /// The selector to compare against: the one named, or the index's own
 /// `HEAD`, or the default branch the repository answers for. The index is
 /// judged against the commit it would follow; the working tree against the

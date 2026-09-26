@@ -20,6 +20,7 @@ use crate::{
 fn the_report_holds_the_size_bound_it_reports_for() {
     for own in [
         include_str!("../render.rs"),
+        include_str!("markdown.rs"),
         include_str!("scope.rs"),
         include_str!("score_header.rs"),
         include_str!("score_header/tests.rs"),

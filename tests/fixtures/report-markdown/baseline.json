@@ -1,0 +1,429 @@
+{
+  "schema_version": 19,
+  "audit": {
+    "source_files": 1,
+    "production_lines": 18,
+    "categories": [
+      {
+        "name": "Security",
+        "errors": 0,
+        "warnings": 3,
+        "info": 0,
+        "unknown": 0,
+        "distinct": {
+          "errors": 0,
+          "warnings": 3,
+          "info": 0,
+          "unknown": 0,
+          "total": 3
+        },
+        "occurrences": {
+          "errors": 0,
+          "warnings": 3,
+          "info": 0,
+          "unknown": 0,
+          "total": 3
+        }
+      },
+      {
+        "name": "Bugs",
+        "errors": 0,
+        "warnings": 1,
+        "info": 0,
+        "unknown": 0,
+        "distinct": {
+          "errors": 0,
+          "warnings": 1,
+          "info": 0,
+          "unknown": 0,
+          "total": 1
+        },
+        "occurrences": {
+          "errors": 0,
+          "warnings": 1,
+          "info": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      },
+      {
+        "name": "Dependencies",
+        "errors": 0,
+        "warnings": 2,
+        "info": 0,
+        "unknown": 0,
+        "distinct": {
+          "errors": 0,
+          "warnings": 2,
+          "info": 0,
+          "unknown": 0,
+          "total": 2
+        },
+        "occurrences": {
+          "errors": 0,
+          "warnings": 2,
+          "info": 0,
+          "unknown": 0,
+          "total": 2
+        }
+      },
+      {
+        "name": "Maintainability",
+        "errors": 0,
+        "warnings": 1,
+        "info": 0,
+        "unknown": 0,
+        "distinct": {
+          "errors": 0,
+          "warnings": 1,
+          "info": 0,
+          "unknown": 0,
+          "total": 1
+        },
+        "occurrences": {
+          "errors": 0,
+          "warnings": 1,
+          "info": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    ],
+    "score": {
+      "model": "core-v4",
+      "value": 40,
+      "label": "Critical",
+      "authoritative": false,
+      "reasons": [
+        "stage-failed"
+      ],
+      "dimensions": {
+        "security": 5,
+        "reliability": 90,
+        "maintainability": 72,
+        "performance": 100,
+        "dependencies": 51
+      },
+      "worst_tier": "P0",
+      "applied_ceiling": 40,
+      "projected_after_top_three": null,
+      "projected_rule_ids": []
+    },
+    "packages": [
+      {
+        "name": "policy-gate-product-loop",
+        "source_files": 1,
+        "production_lines": 18,
+        "score": {
+          "model": "core-v4",
+          "value": 40,
+          "label": "Critical",
+          "authoritative": false,
+          "reasons": [
+            "stage-failed"
+          ],
+          "dimensions": {
+            "security": 5,
+            "reliability": 90,
+            "maintainability": 100,
+            "performance": 100,
+            "dependencies": 51
+          },
+          "worst_tier": "P0",
+          "applied_ceiling": 40,
+          "projected_after_top_three": null,
+          "projected_rule_ids": []
+        }
+      }
+    ]
+  },
+  "status": "incomplete",
+  "complete": false,
+  "policy": {
+    "config_file": null,
+    "blocking": {
+      "level": "error",
+      "source": "default"
+    },
+    "rules": [],
+    "ignore": [],
+    "overrides": []
+  },
+  "scope": {
+    "mode": "baseline",
+    "execution_scope": "workspace",
+    "comparison_base": "0000000000000000000000000000000000000000",
+    "files": null,
+    "base_ref": "origin/main",
+    "staged": false,
+    "untracked_unreported": null
+  },
+  "project": {
+    "workspace_root": ".",
+    "manifest_path": "Cargo.toml",
+    "packages": [
+      {
+        "name": "policy-gate-product-loop",
+        "manifest_path": "app/Cargo.toml",
+        "targets": [
+          "policy_gate_product_loop"
+        ]
+      }
+    ]
+  },
+  "toolchain": {
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "clippy": "clippy 0.1.98 (88d9e12ae1 2026-08-18)",
+    "rust_doctor": "0.7.0",
+    "removed_lint_flags": []
+  },
+  "scan": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--no-deps",
+      "--keep-going",
+      "--message-format=json",
+      "--",
+      "-A"
+    ],
+    "exit_code": 101,
+    "build_finished": null,
+    "noise_lines": 0,
+    "ignored": 0,
+    "excluded_generated": 0
+  },
+  "diagnostics": [
+    {
+      "id": "18954a6f868f13c4a4851d4181f63f6324d935fb40ca9dfbbcb9c181e7e0f0f3",
+      "source": "rust-doctor",
+      "code": "rust_doctor::cargo::unbounded_registry_dependency",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "reliability",
+      "message": "Registry dependency \"fixture_registry_alias\" uses an unbounded \"*\" version requirement.",
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
+      "package": "policy-gate-product-loop",
+      "target": null,
+      "path": "app/Cargo.toml",
+      "span": null,
+      "occurrences": 1
+    },
+    {
+      "id": "cb3be7e6d2e4012a96f2383f76c26d88b09a0b3bbbab59f432b4d63ed3f95d36",
+      "source": "rust-doctor",
+      "code": "rust_doctor::cargo::unpinned_git_dependency",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "security",
+      "message": "Git dependency \"local_git_alias\" is not pinned to a full commit revision.",
+      "help": "Set rev to the full 40-character commit SHA intended by the project.",
+      "package": "policy-gate-product-loop",
+      "target": null,
+      "path": "app/Cargo.toml",
+      "span": null,
+      "occurrences": 1
+    },
+    {
+      "id": "0791afbf945a45f25474013e9360e50ae70d4c4e8fd387ca8566452d7eb95695",
+      "source": "rust-doctor",
+      "code": "rust_doctor::cargo::unused_dependency",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "dependencies",
+      "message": "Declared dependency \"local_git_alias\" is referenced by no source of its package.",
+      "help": "Remove the entry no source references, or switch this rule off with --rule or rust-doctor.toml for a crate needed for linking alone; references made only through macro expansion or doctests are not seen.",
+      "package": "policy-gate-product-loop",
+      "target": null,
+      "path": "app/Cargo.toml",
+      "span": null,
+      "occurrences": 1
+    },
+    {
+      "id": "2fa3579dece96a44645e2a2154fc473a28527105f8309f722d026cead3b0c1f7",
+      "source": "rust-doctor",
+      "code": "rust_doctor::cargo::unused_dependency",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "dependencies",
+      "message": "Declared dependency \"fixture_registry_alias\" is referenced by no source of its package.",
+      "help": "Remove the entry no source references, or switch this rule off with --rule or rust-doctor.toml for a crate needed for linking alone; references made only through macro expansion or doctests are not seen.",
+      "package": "policy-gate-product-loop",
+      "target": null,
+      "path": "app/Cargo.toml",
+      "span": null,
+      "occurrences": 1
+    },
+    {
+      "id": "d18c7fbe8f49893b05e3f8ee8437c80a0edc4f798b00a1a4a0ee50cda7f06740",
+      "source": "rust-doctor",
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "security",
+      "message": "Reqwest client builder disables TLS certificate verification.",
+      "help": "Keep TLS verification enabled and configure the required trust roots or server name instead.",
+      "package": "policy-gate-product-loop",
+      "target": "policy_gate_product_loop",
+      "path": "app/src/lib.rs",
+      "span": {
+        "line_start": 2,
+        "column_start": 68,
+        "line_end": 2,
+        "column_end": 72
+      },
+      "occurrences": 1
+    },
+    {
+      "id": "0f5f5622283dff747a6e898d7a6365796d031049bf68af0cd3134a2345840652",
+      "source": "rust-doctor",
+      "code": "rust_doctor::source::dynamic_shell_command",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "security",
+      "message": "A dynamic value is interpolated into a shell command string.",
+      "help": "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
+      "package": "policy-gate-product-loop",
+      "target": "policy_gate_product_loop",
+      "path": "app/src/lib.rs",
+      "span": {
+        "line_start": 5,
+        "column_start": 14,
+        "line_end": 5,
+        "column_end": 36
+      },
+      "occurrences": 1
+    },
+    {
+      "id": "5797253c95fbffe065361dbb6e78e91c1025b5bc01965c2816ef90527830ebf4",
+      "source": "rust-doctor",
+      "code": "rust_doctor::repo::unignored_build_output",
+      "base_severity": "warning",
+      "severity": "warning",
+      "category": "maintainability",
+      "message": "git does not ignore target/, so build output can be committed",
+      "help": "Add the target directory to .gitignore so build artifacts stay out of the repository; the directory judged is Cargo's, including a custom target-dir set in .cargo/config.toml, and any ignore source git honors counts.",
+      "package": null,
+      "target": null,
+      "path": "target",
+      "span": null,
+      "occurrences": 1
+    },
+    {
+      "id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "source": "clippy",
+      "code": "clippy::eq_op",
+      "base_severity": "error",
+      "severity": "error",
+      "category": "correctness",
+      "message": "equal expressions as operands to `==` | <img src=x onerror=alert(1)> [click](https://evil.example) **now** @maintainer\nsecond line",
+      "help": null,
+      "package": "policy-gate-product-loop",
+      "target": "policy_gate_product_loop",
+      "path": "app/src/lib.rs",
+      "span": {
+        "line_start": 9,
+        "column_start": 8,
+        "line_end": 9,
+        "column_end": 14
+      },
+      "occurrences": 1
+    }
+  ],
+  "suppressions": [],
+  "delta": {
+    "fingerprint_version": 1,
+    "base_diagnostics": 6,
+    "current_diagnostics": 8,
+    "introduced": [
+      "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "d18c7fbe8f49893b05e3f8ee8437c80a0edc4f798b00a1a4a0ee50cda7f06740",
+      "18954a6f868f13c4a4851d4181f63f6324d935fb40ca9dfbbcb9c181e7e0f0f3"
+    ],
+    "pre_existing": [
+      {
+        "current_id": "cb3be7e6d2e4012a96f2383f76c26d88b09a0b3bbbab59f432b4d63ed3f95d36",
+        "baseline_id": "cb3be7e6d2e4012a96f2383f76c26d88b09a0b3bbbab59f432b4d63ed3f95d36"
+      },
+      {
+        "current_id": "0791afbf945a45f25474013e9360e50ae70d4c4e8fd387ca8566452d7eb95695",
+        "baseline_id": "0791afbf945a45f25474013e9360e50ae70d4c4e8fd387ca8566452d7eb95695"
+      },
+      {
+        "current_id": "2fa3579dece96a44645e2a2154fc473a28527105f8309f722d026cead3b0c1f7",
+        "baseline_id": "2fa3579dece96a44645e2a2154fc473a28527105f8309f722d026cead3b0c1f7"
+      },
+      {
+        "current_id": "0f5f5622283dff747a6e898d7a6365796d031049bf68af0cd3134a2345840652",
+        "baseline_id": "0f5f5622283dff747a6e898d7a6365796d031049bf68af0cd3134a2345840652"
+      },
+      {
+        "current_id": "5797253c95fbffe065361dbb6e78e91c1025b5bc01965c2816ef90527830ebf4",
+        "baseline_id": "5797253c95fbffe065361dbb6e78e91c1025b5bc01965c2816ef90527830ebf4"
+      }
+    ],
+    "fixed": [
+      {
+        "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "source": "rust-doctor",
+        "code": "rust_doctor::cargo::unpinned_git_dependency",
+        "base_severity": "warning",
+        "severity": "warning",
+        "category": "security",
+        "message": "Git dependency \"local_git_alias\" is not pinned to a full commit revision.",
+        "help": "Set rev to the full 40-character commit SHA intended by the project.",
+        "package": "policy-gate-product-loop",
+        "target": null,
+        "path": "app/Cargo.toml",
+        "span": null,
+        "occurrences": 1
+      }
+    ],
+    "summary": {
+      "introduced": 3,
+      "pre_existing": 5,
+      "fixed": 1,
+      "cross_file_matches": 0
+    }
+  },
+  "errors": [
+    {
+      "stage": "execution",
+      "code": "build-finished-missing",
+      "message": "Cargo did not emit build-finished"
+    },
+    {
+      "stage": "execution",
+      "code": "clippy-exit",
+      "message": "Clippy exited with status 101. Cargo reported: error: failed to get `local-git-dependency` as a dependency of package `policy-gate-product-loop v0.1.0 (./app)` Caused by: failed to load source for dependency `local-git-dependency` Caused by: unable to update file://policy_gate_git_dependency/?branch=main Caused by: can't checkout from 'file://policy_gate_git_dependency/': you are in the offline mode (--offline)"
+    }
+  ],
+  "summary": {
+    "errors": 0,
+    "warnings": 7,
+    "info": 0,
+    "unknown": 0,
+    "total": 7,
+    "distinct": {
+      "errors": 0,
+      "warnings": 7,
+      "info": 0,
+      "unknown": 0,
+      "total": 7
+    },
+    "occurrences": {
+      "errors": 0,
+      "warnings": 7,
+      "info": 0,
+      "unknown": 0,
+      "total": 7
+    }
+  },
+  "gate": {
+    "blocking": "error",
+    "status": "not-evaluated",
+    "blocking_diagnostics": null
+  }
+}

@@ -43,6 +43,40 @@ pub(super) fn detect(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<BaseSelector, InternalError> {
+    let (candidate, selector) = first_resolving(workspace_root, run).ok_or_else(base_undetected)?;
+    let branch = candidate.strip_prefix("origin/").unwrap_or(&candidate);
+    let checked_out = probe(
+        workspace_root,
+        run,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    );
+    Ok(if checked_out.as_deref() == Some(branch) {
+        BaseSelector::head()
+    } else {
+        selector
+    })
+}
+
+/// The name of the default branch the repository answers for, the candidate
+/// [`detect`] would compare against with its remote dropped: what a CI
+/// workflow triggers on.
+pub(super) fn default_branch(
+    workspace_root: &Path,
+    run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
+) -> Option<String> {
+    let (candidate, _) = first_resolving(workspace_root, run)?;
+    Some(
+        candidate
+            .strip_prefix("origin/")
+            .unwrap_or(&candidate)
+            .to_owned(),
+    )
+}
+
+fn first_resolving(
+    workspace_root: &Path,
+    run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
+) -> Option<(String, BaseSelector)> {
     let remote_head = probe(
         workspace_root,
         run,
@@ -69,22 +103,11 @@ pub(super) fn detect(
             ],
         )
         .is_some();
-        if !resolves {
-            continue;
+        if resolves {
+            return Some((candidate, selector));
         }
-        let branch = candidate.strip_prefix("origin/").unwrap_or(&candidate);
-        let checked_out = probe(
-            workspace_root,
-            run,
-            ["symbolic-ref", "--quiet", "--short", "HEAD"],
-        );
-        return Ok(if checked_out.as_deref() == Some(branch) {
-            BaseSelector::head()
-        } else {
-            selector
-        });
     }
-    Err(base_undetected())
+    None
 }
 
 /// Whether git says this clone is shallow, which is what turns an unavailable

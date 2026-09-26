@@ -1,0 +1,150 @@
+name: rust-doctor
+description: Scan a Rust workspace with rust-doctor, publish its score and delta as outputs and a job summary, and upload the report.
+author: Arthur Jean
+branding:
+  icon: activity
+  color: orange
+
+# Every input reaches the shell through `env`, never through `${{ }}` inside a
+# run block: a branch name or an argument is text the caller may not control,
+# and interpolating it into a script is a command injection. rust-doctor
+# itself reaches no network; the npm install and the artifact upload are the
+# runner's.
+
+inputs:
+  version:
+    description: The rust-doctor version to install through the npm launcher, or `preinstalled` to run the rust-doctor already on PATH.
+    required: false
+    default: "0.7.0"
+  toolchain:
+    description: The Rust toolchain to install with Clippy. Defaults to the one this release was validated on.
+    required: false
+    default: "1.97.1"
+  scope:
+    description: full, files, lines or baseline. Empty scans a pull request in baseline scope against its base, and anything else in full scope.
+    required: false
+    default: ""
+  base:
+    description: The ref a files, lines or baseline scope compares against. Empty takes the pull request's base, or the default branch the repository answers for.
+    required: false
+    default: ""
+  blocking:
+    description: none, error or warning. Empty lets the workspace's rust-doctor.toml decide.
+    required: false
+    default: ""
+  working-directory:
+    description: The workspace to scan.
+    required: false
+    default: "."
+  args:
+    description: Further rust-doctor arguments, split on whitespace.
+    required: false
+    default: ""
+
+outputs:
+  score:
+    description: The score out of 100, empty when none was computed.
+    value: ${{ steps.outputs.outputs.score }}
+  authoritative:
+    description: Whether the score is authoritative, true or false.
+    value: ${{ steps.outputs.outputs.authoritative }}
+  introduced:
+    description: Findings the change introduced, in baseline scope. Empty otherwise.
+    value: ${{ steps.outputs.outputs.introduced }}
+  fixed:
+    description: Findings the change fixed, in baseline scope. Empty otherwise.
+    value: ${{ steps.outputs.outputs.fixed }}
+  exit-code:
+    description: The scan's exit code, 0 passed, 1 gate failed or incomplete, 2 failed.
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: clippy
+
+    - name: Install rust-doctor
+      if: inputs.version != 'preinstalled'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: npm install -g "rust-doctor@$VERSION"
+
+    # The scan's exit code is kept rather than raised here, so the summary,
+    # the artifact and the outputs exist for a failed scan too.
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        SCOPE: ${{ inputs.scope }}
+        BASE: ${{ inputs.base }}
+        BLOCKING: ${{ inputs.blocking }}
+        ARGS: ${{ inputs.args }}
+        WORKSPACE: ${{ inputs.working-directory }}
+        PULL_REQUEST_BASE: ${{ github.base_ref }}
+      run: |
+        set -uo pipefail
+        report="$RUNNER_TEMP/rust-doctor/report.json"
+        mkdir -p "$(dirname "$report")"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+        scope="$SCOPE"
+        base="$BASE"
+        if [ -z "$scope" ]; then
+          if [ -n "${PULL_REQUEST_BASE:-}" ]; then scope=baseline; else scope=full; fi
+        fi
+        if [ -z "$base" ] && [ "$scope" != full ] && [ -n "${PULL_REQUEST_BASE:-}" ]; then
+          base="origin/$PULL_REQUEST_BASE"
+        fi
+        arguments=("$WORKSPACE" --yes --json --scope "$scope")
+        if [ -n "$base" ]; then arguments+=(--base "$base"); fi
+        if [ -n "$BLOCKING" ]; then arguments+=(--blocking "$BLOCKING"); fi
+        if [ -n "$ARGS" ]; then
+          read -r -a extra <<< "$ARGS"
+          arguments+=("${extra[@]}")
+        fi
+        rust-doctor "${arguments[@]}" > "$report"
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Summarize
+      if: always()
+      shell: bash
+      env:
+        REPORT: ${{ steps.scan.outputs.report }}
+      run: |
+        rust-doctor report markdown "$REPORT" >> "$GITHUB_STEP_SUMMARY" \
+          || echo "rust-doctor wrote no report that could be rendered." >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: rust-doctor-report
+        path: ${{ steps.scan.outputs.report }}
+        if-no-files-found: ignore
+        retention-days: 7
+
+    # Only numbers and booleans are read out of the report, so nothing it
+    # carries can write a second output line.
+    - name: Set the outputs
+      id: outputs
+      if: always()
+      shell: bash
+      env:
+        REPORT: ${{ steps.scan.outputs.report }}
+      run: |
+        jq -r '
+          "score=\(.audit.score.value | numbers // "")",
+          "authoritative=\(.audit.score.authoritative | booleans // false)",
+          "introduced=\(.delta.summary.introduced | numbers // "")",
+          "fixed=\(.delta.summary.fixed | numbers // "")"
+        ' "$REPORT" >> "$GITHUB_OUTPUT" || echo "authoritative=false" >> "$GITHUB_OUTPUT"
+
+    - name: Exit with the scan's code
+      if: always()
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+      run: exit "${EXIT_CODE:-2}"

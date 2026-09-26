@@ -19,12 +19,7 @@ use serde_json::{Value, json};
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
 fn binary() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
-    command
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("RUSTFLAGS");
-    command
+    support::rust_doctor()
 }
 
 fn git(root: &Path, arguments: &[&str]) -> Output {
@@ -97,9 +92,7 @@ fn repository(name: &str) -> PathBuf {
 }
 
 fn workspace(name: &str) -> PathBuf {
-    let root = support::temporary_target(&format!("agent-hooks-{name}"), &NEXT_WORKSPACE);
-    fs::create_dir_all(&root).unwrap();
-    root
+    support::fresh_workspace(&format!("agent-hooks-{name}"), &NEXT_WORKSPACE)
 }
 
 /// A directory outside every git repository. `target/` sits inside this one,

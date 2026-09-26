@@ -30,7 +30,6 @@ fn the_interactive_report_holds_the_size_bound_the_report_reports_for() {
         include_str!("screens/viewer.rs"),
         include_str!("text.rs"),
         include_str!("tests.rs"),
-        include_str!("workflow.rs"),
     ] {
         let lines = own.lines().count();
         assert!(
@@ -66,7 +65,22 @@ fn an_incomplete_scan_names_the_stages_that_did_not_finish() {
 #[test]
 fn installing_the_workflow_leaves_the_landing_pointing_at_a_real_entry() {
     let workspace = scratch("tui-tests", "landing-cursor");
-    fs::create_dir_all(workspace.join(".git")).unwrap();
+    // The entry writes what `rust-doctor ci install` writes, which triggers on
+    // the default branch the repository answers for: it needs one.
+    for arguments in [
+        &["init", "--quiet", "--initial-branch=main"][..],
+        &["-c", "user.name=Rust Doctor", "-c", "user.email=rust-doctor@example.invalid",
+          "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "initial"],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(&workspace)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {arguments:?}");
+    }
     let report = report(Status::Complete, &[]);
     let presentation = presentation(&["clippy::a", "clippy::b"]);
     let session = session(&report, &presentation, &workspace);

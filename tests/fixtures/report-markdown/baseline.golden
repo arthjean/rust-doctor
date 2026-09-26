@@ -1,0 +1,13 @@
+## rust-doctor
+
+**Score: 40/100 (Critical)**, not authoritative: stage-failed.
+
+**Against the base:** 3 introduced, 1 fixed.
+
+| Rule | Location | Severity | Message |
+|---|---|---|---|
+| [`clippy::eq_op`](https://rust-doctor.com/rules/clippy%3A%3Aeq_op) | app/src/lib.rs:9 | error | equal expressions as operands to \`==\` \| &lt;img src=x onerror=alert(1)&gt; \[click\](https:&#8203;//evil.example) \*\*now\*\* @&#8203;maintainer second line |
+| [`rust_doctor::cargo::unbounded_registry_dependency`](https://rust-doctor.com/rules/rust_doctor%3A%3Acargo%3A%3Aunbounded_registry_dependency) | app/Cargo.toml | warning | Registry dependency "fixture\_registry\_alias" uses an unbounded "\*" version requirement. |
+| [`rust_doctor::source::disabled_tls_verification`](https://rust-doctor.com/rules/rust_doctor%3A%3Asource%3A%3Adisabled_tls_verification) | app/src/lib.rs:2 | warning | Reqwest client builder disables TLS certificate verification. |
+
+3 introduced findings.

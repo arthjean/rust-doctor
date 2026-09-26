@@ -11,6 +11,7 @@ use crate::presentation::{
 use crate::terminal_text::{sanitize, truncate, wrap};
 use crate::{GateStatus, InspectReport, Status};
 
+pub mod markdown;
 mod narrowing;
 mod scope;
 mod score_header;

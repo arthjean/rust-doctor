@@ -131,11 +131,11 @@ what enforce that, one per module, each naming its own, and two of them cover
 - Dependencies are pinned exactly (`= 1.8.5`, not `^1.8`) and `Cargo.lock` is
   committed: `missing_lockfile` requires it for a binary crate.
 - Releasing is one version bump in `Cargo.toml`, mirrored into
-  `npm/rust-doctor/package.json` and `bun.lock`, then a `v<version>` tag whose
-  note already exists at `.github/releases/v<version>.md`.
+  `npm/rust-doctor/package.json`, `bun.lock` and `action.yml`, then a
+  `v<version>` tag whose note already exists at `.github/releases/v<version>.md`.
   [docs/publishing.md](docs/publishing.md) and `.claude/skills/release`
-- Four workflows settle four different questions, and every one of them pins
-  toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
+- Five workflows settle five different questions, and every one that installs
+  Rust pins toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
 - `skills/rust-doctor/` ships inside the crate and is checked against `--help`
   and `catalog()` by `tests/skill_contract.rs`.
   [docs/agent-skill.md](docs/agent-skill.md)

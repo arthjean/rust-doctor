@@ -12,7 +12,7 @@ use super::model::{Entry, Row};
 use super::screens::{CopyFeedback, MenuInput, Notice};
 use super::{
     App, CI_ACTIONS, Flow, INSTALL_ACTION, LandingAction, Layout, Outcome, RECOMMENDATION_ACTIONS,
-    View, handoff, screens, visible_start, workflow,
+    View, handoff, screens, visible_start,
 };
 
 impl App<'_> {
@@ -252,7 +252,7 @@ impl App<'_> {
     /// Writes the workflow, answering with what the reader has to be told.
     /// Nothing to say means it landed.
     pub(super) fn install_workflow(&mut self) -> Option<Notice> {
-        match workflow::install(self.session.workspace_root) {
+        match crate::ci::install_default(self.session.workspace_root) {
             Ok(path) => {
                 self.ci_available = false;
                 self.installed_workflow = Some(path);

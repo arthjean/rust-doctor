@@ -120,6 +120,24 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
+/// A fresh directory under `target/<scope>/`, created.
+pub(crate) fn fresh_workspace(scope: &str, counter: &AtomicUsize) -> PathBuf {
+    let root = temporary_target(scope, counter);
+    fs::create_dir_all(&root).expect("a scratch workspace should be creatable");
+    root
+}
+
+/// The binary under test, with the variables removed that would point its git
+/// at another repository or turn its Clippy's warnings into errors.
+pub(crate) fn rust_doctor() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
+    command
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("RUSTFLAGS");
+    command
+}
+
 /// One Cargo artifact cache per scanned workspace, keyed by its path.
 ///
 /// A scan really runs `cargo clippy` inside the workspace it is given. A

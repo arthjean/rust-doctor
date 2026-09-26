@@ -1,0 +1,71 @@
+# Written by rust-doctor ci install --comment; `rust-doctor ci install --comment --update` rewrites it.
+#
+# Runs after the scan workflow, in this repository's context, so a pull
+# request from a fork gets its comment too. It never checks out the pull
+# request and never runs cargo: it reads the report the scan uploaded and
+# posts it with this workflow's token. rust-doctor itself reaches no network.
+# Never move this job to `pull_request_target`.
+name: Rust Doctor comment
+
+on:
+  workflow_run:
+    workflows: [Rust Doctor]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    name: Comment
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download the report
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          name: rust-doctor-report
+          path: ${{ runner.temp }}/rust-doctor
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Install rust-doctor
+        if: steps.download.outcome == 'success'
+        run: npm install -g rust-doctor@0.7.0
+
+      # The pull request is looked up from GitHub by the commit the scan ran
+      # on, never read from the report, which the code under review could
+      # have written.
+      - name: Post or update the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/rust-doctor/report.json"
+          if [ ! -f "$report" ]; then
+            echo "::notice::The scan uploaded no rust-doctor report, so no comment was posted."
+            exit 0
+          fi
+          pull_request=$(gh api -X GET "repos/$REPOSITORY/pulls" -f state=open -f head="$HEAD_OWNER:$HEAD_BRANCH" \
+            | jq -r --arg sha "$HEAD_SHA" '[.[] | select(.head.sha == $sha) | .number] | first // empty')
+          if [ -z "$pull_request" ]; then
+            echo "::notice::No open pull request is at $HEAD_SHA, so no comment was posted."
+            exit 0
+          fi
+          body="$(printf '<!-- rust-doctor -->\n\n'; rust-doctor report markdown "$report")"
+          comment=$(gh api --paginate "repos/$REPOSITORY/issues/$pull_request/comments" \
+            | jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty')
+          if [ -n "$comment" ]; then
+            gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/$REPOSITORY/issues/$pull_request/comments" -f body="$body" > /dev/null
+          fi

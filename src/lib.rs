@@ -44,7 +44,7 @@ pub use audit::{
     SeverityCounts, ShareError,
 };
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
-pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport};
+pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport, default_branch};
 pub use policy::{
     BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, PathOverrideReport,
     RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,

@@ -27,6 +27,7 @@ exclude = [
     "tests/docs_contract.rs",
     ".claude/",
     ".github/",
+    "action.yml",
 ]
 
 [lib]

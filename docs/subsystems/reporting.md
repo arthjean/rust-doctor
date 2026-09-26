@@ -217,15 +217,29 @@ scrollback. And it never renders on a run that asked for `--json`, `--yes` or
 agents, and someone who needs an error message the report has no room for. Every
 existing test asserts against the linear renderer, which is unchanged.
 
-The only file the tool writes into a scanned workspace is
-`.github/workflows/rust-doctor.yml`, only from the CI menu entry, and never over
-an existing file (`src/tui/workflow.rs`): the refusal is the creation itself,
-`create_new`, rather than a check followed by a write. That workflow installs
-the published
+The CI menu entry writes `.github/workflows/rust-doctor.yml` through the same
+writer as `rust-doctor ci install` (`src/ci.rs`), with its defaults, and never
+over an existing file: the refusal is the creation itself, `create_new`, rather
+than a check followed by a write. That workflow installs the published
 launcher, `npm install -g rust-doctor@<version>`, pinned to the version of the
 binary that wrote it: the pin comes from `CARGO_PKG_VERSION` rather than a
 string in the template, so a release cannot forget to move it, and a generated
 gate keeps scanning with the rule set its author saw.
+
+## The Markdown report
+
+`rust-doctor report markdown <FILE>` renders a report a scan already saved
+(`src/render/markdown.rs`), for a job summary or a pull request comment. It
+opens the one file named, spawns nothing, and refuses a file over 64 MiB,
+invalid JSON or another `schema_version` with exit 2 and nothing on stdout: the
+file may come from another run, so it is read as JSON and checked rather than
+trusted. It prints the score, its label and its authority with the reasons,
+the introduced and fixed counts in baseline scope, and up to `--limit` findings,
+the introduced ones in baseline scope, each linked to its rule page. Every text
+field is escaped, and a zero-width space breaks every mention, issue reference
+and bare link, because a finding's message is text the scanned repository chose
+and the comment is posted by the workflow's bot to people it could otherwise
+mention or mislead. `tests/fixtures/report-markdown/` pins the output.
 
 ## The code frame
 

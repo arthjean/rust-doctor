@@ -23,6 +23,12 @@ pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
 
 const RULE_BASE_URL: &str = "https://rust-doctor.com/rules/";
 
+/// The page rust-doctor.com publishes for a rule, with the id encoded as one
+/// path segment so no id, however it is spelled, can reach another page.
+pub fn rule_url(rule_id: &str) -> String {
+    format!("{RULE_BASE_URL}{}", percent_encode_path_segment(rule_id))
+}
+
 /// The label both reports put over compiler notes, after every scored finding.
 pub const COMPILER_NOTES_HEADING: &str = "Compiler notes (not scored)";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
@@ -286,7 +292,7 @@ fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Ve
             ),
             DiagnosticGroup {
                 title: rule_title(&rule_id),
-                rule_url: format!("{RULE_BASE_URL}{}", percent_encode_path_segment(&rule_id)),
+                rule_url: rule_url(&rule_id),
                 rule_id,
                 severity,
                 category,
