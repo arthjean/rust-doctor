@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "CI that reports where reviewers look",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 3
+      "stories_done": 4
     },
     {
       "id": "EP-006",
@@ -404,14 +404,14 @@
       "id": "US-027",
       "title": "A fork-safe sticky pull request comment",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-026"
       ],
       "started_at": "2026-09-25",
-      "completed_at": null,
+      "completed_at": "2026-09-26",
       "reviewed_at": "2026-09-26"
     },
     {
