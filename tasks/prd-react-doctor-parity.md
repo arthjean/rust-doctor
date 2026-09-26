@@ -8,6 +8,7 @@
 | 1.0 | 2026-09-25 | Arthur Jean | Initial draft, from the parity audit of 2026-09-25 (98 verified gaps, 799 citations re-read) |
 | 1.1 | 2026-09-25 | Arthur Jean | EP-001 review: US-003's test-target criterion amended to the default-target scope the scan already has |
 | 1.2 | 2026-09-25 | Arthur Jean | EP-002 review: US-007's stage name and Edge Case 3 restated to the error the report already had for a failed Clippy exit |
+| 1.3 | 2026-09-26 | Arthur Jean | EP-005 review: US-027 moves the sticky comment into the scan job, React Doctor's model, and gives up the comment on fork pull requests |
 
 ## Problem Statement
 
@@ -728,6 +729,13 @@ These commands must pass for every user story:
 - [ ] Given a second push to the same pull request, when the comment job runs, then the existing comment is edited, not duplicated
 - [ ] Given no artifact (the scan failed before writing it), when the comment job runs, then it posts nothing and succeeds with a notice
 - [ ] `ci install` (US-024) can emit this workflow with `--comment`, and the README states that the binary never reaches the network, while this job uses the workflow's token
+
+**Amendment, 2026-09-26 (EP-005 review).** The `workflow_run` job renders the report with the published binary it installs, so on this repository no pull request could show the comment before a release carrying `report markdown`, and afterwards every report schema change would break it until the next release. The comment moves into the scan job, as React Doctor's Action posts it (`react-doctor/action.yml`, "Update sticky PR comment"), rendered by the binary the job already runs: in this repository, the one built from the commit under review. The criteria are restated as:
+- `action.yml` takes `comment` (default `true`) and `ci install --comment` adds the same step to its workflow with `permissions: pull-requests: write`. On a pull request the step upserts one comment identified by `<!-- rust-doctor -->` through `gh api`, from the summary the scan step rendered with `report markdown`, and the two run one script a test holds byte for byte.
+- A second push edits the bot's existing comment rather than adding one.
+- Given no rendered summary (the scan failed before writing its report), nothing is posted and the step succeeds with a notice.
+- Given a pull request from a fork, GitHub reduces the token to read, the post fails, and the step succeeds with a warning: forks get no comment, as with React Doctor. The pull request's code now runs in a job holding `pull-requests: write` on same-repository pull requests, whose authors can already write, so the release line's "no step runs privileged on untrusted code" holds for untrusted (fork) code only.
+- The README states that the binary never reaches the network and that the comment is posted with the workflow's token.
 
 ---
 
