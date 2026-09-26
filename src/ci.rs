@@ -1,15 +1,16 @@
-//! `rust-doctor ci install`: the GitHub Actions workflows that run the scan on
+//! `rust-doctor ci install`: the GitHub Actions workflow that runs the scan on
 //! every pull request, written without the interactive report. The report's
 //! menu entry calls the same writer with the same defaults.
 //!
-//! The scan workflow judges a pull request in baseline scope, so the backlog
-//! the default branch already carries is nobody's pull request's problem, and
+//! The workflow judges a pull request in baseline scope, so the backlog the
+//! default branch already carries is nobody's pull request's problem, and
 //! scans a push to that branch with `--blocking none`, so it reports without
-//! ever turning the branch red. The comment workflow is a second file, run by
-//! `workflow_run` in the base repository's context: it holds the one token
-//! that can write to a pull request, and it never checks out or builds the
-//! pull request's code. The binary reaches no network in either: the comment
-//! is posted by `gh` with the workflow's own token.
+//! ever turning the branch red. With `--comment`, the same job posts the
+//! summary as one sticky pull request comment, the way React Doctor's Action
+//! does: the job gains `pull-requests: write`, which GitHub reduces to read
+//! on a pull request from a fork, so a fork gets a warning instead of a
+//! comment. The binary reaches no network: the comment is posted by `gh` with
+//! the workflow's own token.
 
 use std::fmt;
 use std::fs;
@@ -23,15 +24,14 @@ use rust_doctor::BlockingLevel;
 use crate::workspace_write::{create_new, symlinked_component};
 
 pub const WORKFLOW_PATH: &str = ".github/workflows/rust-doctor.yml";
-pub const COMMENT_WORKFLOW_PATH: &str = ".github/workflows/rust-doctor-comment.yml";
 
 /// The toolchain this release was validated on. The workflow pins it rather
 /// than tracking `stable`: Clippy's diagnostics are the product, and a gate
 /// whose lints move every six weeks fails builds for reasons nobody chose.
 pub const VALIDATED_TOOLCHAIN: &str = "1.97.1";
 
-/// The line every workflow this command writes opens with, and the one
-/// `--update` requires before it rewrites a file.
+/// The line the workflow this command writes opens with, and the one
+/// `--update` requires before it rewrites the file.
 const MARKER: &str = "# Written by rust-doctor ci install";
 
 /// Exit code of an install that could not run: no branch, an invalid value, a
@@ -62,11 +62,12 @@ enum CiCommand {
         /// The Rust toolchain the workflow installs.
         #[arg(long, value_name = "VERSION", default_value = VALIDATED_TOOLCHAIN)]
         toolchain: String,
-        /// Also write .github/workflows/rust-doctor-comment.yml, which posts
-        /// the report as one pull request comment, forks included.
+        /// Also post the summary as one sticky pull request comment, which
+        /// grants the job `pull-requests: write`. A pull request from a fork
+        /// gets a read-only token, and a warning instead of the comment.
         #[arg(long)]
         comment: bool,
-        /// Rewrite workflows this command wrote before.
+        /// Rewrite the workflow this command wrote before.
         #[arg(long)]
         update: bool,
         /// Print what would be written, and write nothing.
@@ -81,6 +82,7 @@ pub struct WorkflowOptions {
     pub blocking: Option<BlockingLevel>,
     pub branch: String,
     pub toolchain: String,
+    pub comment: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,8 +153,8 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
         update,
         dry_run,
     } = &arguments.command;
-    let planned = options(path, *blocking, branch.clone(), toolchain.clone())
-        .and_then(|options| plan(path, &options, *comment, *update));
+    let planned = options(path, *blocking, branch.clone(), toolchain.clone(), *comment)
+        .and_then(|options| plan(path, &options, *update));
     let planned = match planned {
         Ok(planned) => planned,
         Err(error) => {
@@ -190,8 +192,8 @@ pub fn can_install(root: &Path) -> bool {
 /// The interactive report's entry: the scan workflow with every default
 /// `ci install` has, answering with the path it wrote.
 pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
-    let options = options(root, None, None, VALIDATED_TOOLCHAIN.to_owned())?;
-    let planned = plan(root, &options, false, false)?;
+    let options = options(root, None, None, VALIDATED_TOOLCHAIN.to_owned(), false)?;
+    let planned = plan(root, &options, false)?;
     write(root, &planned)?;
     Ok(PathBuf::from(WORKFLOW_PATH))
 }
@@ -201,6 +203,7 @@ fn options(
     blocking: Option<BlockingLevel>,
     branch: Option<String>,
     toolchain: String,
+    comment: bool,
 ) -> Result<WorkflowOptions, CiError> {
     let branch = branch
         .or_else(|| rust_doctor::default_branch(root))
@@ -219,6 +222,7 @@ fn options(
         blocking,
         branch,
         toolchain,
+        comment,
     })
 }
 
@@ -235,18 +239,9 @@ fn is_branch_name(branch: &str) -> bool {
         })
 }
 
-/// Every file the install writes, checked before any is written: a refusal
-/// of one leaves the other unwritten too.
-fn plan(
-    root: &Path,
-    options: &WorkflowOptions,
-    comment: bool,
-    update: bool,
-) -> Result<Vec<Planned>, CiError> {
-    let mut files = vec![(WORKFLOW_PATH, scan_workflow(options))];
-    if comment {
-        files.push((COMMENT_WORKFLOW_PATH, comment_workflow()));
-    }
+/// Every file the install writes, checked before any is written.
+fn plan(root: &Path, options: &WorkflowOptions, update: bool) -> Result<Vec<Planned>, CiError> {
+    let files = vec![(WORKFLOW_PATH, scan_workflow(options))];
     files
         .into_iter()
         .map(|(path, content)| {
@@ -314,7 +309,14 @@ pub fn scan_workflow(options: &WorkflowOptions) -> String {
         .blocking
         .map(|level| format!(" --blocking {}", level.as_str()))
         .unwrap_or_default();
+    let (permission, step) = if options.comment {
+        ("\n  pull-requests: write", COMMENT_STEP.replace("{SCRIPT}", &indented(COMMENT_SCRIPT, 10)))
+    } else {
+        ("", String::new())
+    };
     SCAN_WORKFLOW
+        .replace("{COMMENT_PERMISSION}", permission)
+        .replace("{COMMENT_STEP}", &step)
         .replace("{MARKER}", MARKER)
         .replace("{BRANCH}", &options.branch)
         .replace("{TOOLCHAIN}", &options.toolchain)
@@ -322,11 +324,13 @@ pub fn scan_workflow(options: &WorkflowOptions) -> String {
         .replace("{BLOCKING}", &blocking)
 }
 
-/// The comment workflow, which reads what the scan uploaded and nothing else.
-pub fn comment_workflow() -> String {
-    COMMENT_WORKFLOW
-        .replace("{MARKER}", MARKER)
-        .replace("{VERSION}", env!("CARGO_PKG_VERSION"))
+fn indented(script: &str, depth: usize) -> String {
+    let margin = " ".repeat(depth);
+    script
+        .lines()
+        .map(|line| if line.is_empty() { String::new() } else { format!("{margin}{line}") })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 const SCAN_WORKFLOW: &str = r#"{MARKER}; `rust-doctor ci install --update` rewrites it.
@@ -343,7 +347,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read
+  contents: read{COMMENT_PERMISSION}
 
 jobs:
   inspect:
@@ -389,7 +393,9 @@ jobs:
           scan_status=$?
           set -e
 
-          rust-doctor report markdown "$report" >> "$GITHUB_STEP_SUMMARY" || true
+          summary="$RUNNER_TEMP/rust-doctor/summary.md"
+          rust-doctor report markdown "$report" > "$summary" || true
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
           exit "$scan_status"
 
       - name: Upload the report
@@ -400,79 +406,43 @@ jobs:
           path: ${{ runner.temp }}/rust-doctor/report.json
           if-no-files-found: ignore
           retention-days: 7
-"#;
+{COMMENT_STEP}"#;
 
-const COMMENT_WORKFLOW: &str = r#"{MARKER} --comment; `rust-doctor ci install --comment --update` rewrites it.
-#
-# Runs after the scan workflow, in this repository's context, so a pull
-# request from a fork gets its comment too. It never checks out the pull
-# request and never runs cargo: it reads the report the scan uploaded and
-# posts it with this workflow's token. rust-doctor itself reaches no network.
-# Never move this job to `pull_request_target`.
-name: Rust Doctor comment
-
-on:
-  workflow_run:
-    workflows: [Rust Doctor]
-    types: [completed]
-
-permissions: {}
-
-jobs:
-  comment:
-    name: Comment
-    if: github.event.workflow_run.event == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      pull-requests: write
-    steps:
-      - name: Download the report
-        id: download
-        continue-on-error: true
-        uses: actions/download-artifact@v5
-        with:
-          name: rust-doctor-report
-          path: ${{ runner.temp }}/rust-doctor
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
-
-      - name: Install rust-doctor
-        if: steps.download.outcome == 'success'
-        run: npm install -g rust-doctor@{VERSION}
-
-      # The pull request is looked up from GitHub by the commit the scan ran
-      # on, never read from the report, which the code under review could
-      # have written.
-      - name: Post or update the comment
+const COMMENT_STEP: &str = r#"
+      # One sticky comment per pull request, edited on each push. A pull
+      # request from a fork gets a read-only token, and a warning instead.
+      - name: Comment on the pull request
+        if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
-          report="$RUNNER_TEMP/rust-doctor/report.json"
-          if [ ! -f "$report" ]; then
-            echo "::notice::The scan uploaded no rust-doctor report, so no comment was posted."
-            exit 0
-          fi
-          pull_request=$(gh api -X GET "repos/$REPOSITORY/pulls" -f state=open -f head="$HEAD_OWNER:$HEAD_BRANCH" \
-            | jq -r --arg sha "$HEAD_SHA" '[.[] | select(.head.sha == $sha) | .number] | first // empty')
-          if [ -z "$pull_request" ]; then
-            echo "::notice::No open pull request is at $HEAD_SHA, so no comment was posted."
-            exit 0
-          fi
-          body="$(printf '<!-- rust-doctor -->\n\n'; rust-doctor report markdown "$report")"
-          comment=$(gh api --paginate "repos/$REPOSITORY/issues/$pull_request/comments" \
-            | jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty')
-          if [ -n "$comment" ]; then
-            gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
-          else
-            gh api -X POST "repos/$REPOSITORY/issues/$pull_request/comments" -f body="$body" > /dev/null
-          fi
+{SCRIPT}
+"#;
+
+/// Posts the summary the scan step rendered as the pull request's one
+/// `<!-- rust-doctor -->` comment, editing the bot's earlier one. `action.yml`
+/// runs the same script, and a test holds the two to it. Nothing here fails
+/// the job: the scan's exit code is the verdict, and a fork's read-only token
+/// is expected.
+const COMMENT_SCRIPT: &str = r#"set -euo pipefail
+summary="$RUNNER_TEMP/rust-doctor/summary.md"
+if [ ! -s "$summary" ]; then
+  echo "::notice::rust-doctor wrote no report, so no comment was posted."
+  exit 0
+fi
+body="$(printf '<!-- rust-doctor -->\n\n'; cat "$summary")"
+if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/comments"); then
+  echo "::warning::rust-doctor could not read the pull request's comments, so none was posted."
+  exit 0
+fi
+comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
+if [ -n "$comment" ]; then
+  gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
+else
+  gh api -X POST "repos/$REPOSITORY/issues/$PULL_REQUEST/comments" -f body="$body" > /dev/null
+fi || echo "::warning::rust-doctor could not post the pull request comment. A pull request from a fork gets a read-only token."
 "#;
 
 #[cfg(test)]

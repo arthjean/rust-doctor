@@ -134,8 +134,8 @@ what enforce that, one per module, each naming its own, and two of them cover
   `npm/rust-doctor/package.json`, `bun.lock` and `action.yml`, then a
   `v<version>` tag whose note already exists at `.github/releases/v<version>.md`.
   [docs/publishing.md](docs/publishing.md) and `.claude/skills/release`
-- Five workflows settle five different questions, and every one that installs
-  Rust pins toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
+- Four workflows settle four different questions, and every one of them pins
+  toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
 - `skills/rust-doctor/` ships inside the crate and is checked against `--help`
   and `catalog()` by `tests/skill_contract.rs`.
   [docs/agent-skill.md](docs/agent-skill.md)

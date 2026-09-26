@@ -19,8 +19,12 @@ concurrency:
   group: rust-doctor-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The Action posts the sticky pull request comment from this job, the way
+# React Doctor's does. GitHub reduces the token to read on a pull request from
+# a fork, so a fork gets a warning instead of a comment.
 permissions:
   contents: read
+  pull-requests: write
 
 defaults:
   run:
@@ -61,9 +65,10 @@ jobs:
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       # The Action from this checkout, driving the binary just built: its
-      # outputs, its job summary and the `rust-doctor-report` artifact that
-      # rust-doctor-comment.yml posts on the pull request. A pull request is
-      # scanned in baseline scope against its base, a push in full scope.
+      # outputs, its job summary, the `rust-doctor-report` artifact and, on a
+      # pull request, the sticky comment, all rendered by the code under
+      # review. A pull request is scanned in baseline scope against its base,
+      # a push in full scope.
       - name: Scan
         id: scan
         uses: ./
