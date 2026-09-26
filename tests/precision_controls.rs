@@ -402,3 +402,35 @@ fn a_manifest_directive_above_a_dependency_key_suppresses_the_finding_it_names()
         report["suppressions"]
     );
 }
+
+#[test]
+fn a_cargo_config_directive_above_rustflags_suppresses_the_finding_there() {
+    let root = workspace("suppressed");
+    fs::create_dir_all(root.join(".cargo")).unwrap();
+    fs::write(
+        root.join(".cargo/config.toml"),
+        "[build]\n# rust-doctor: allow(rust_doctor::cargo::permissive_rustflags) -- legacy crate\nrustflags = [\n  \"-A\",\n  \"warnings\",\n]\n",
+    )
+    .unwrap();
+    let report = json(&root, &[]);
+    assert!(
+        report["suppressions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|suppression| suppression["path"] == ".cargo/config.toml"
+                && suppression["line"] == 2
+                && suppression["status"] == "applied"),
+        "{}",
+        report["suppressions"]
+    );
+    assert!(
+        !report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|diagnostic| diagnostic["path"] == ".cargo/config.toml"),
+        "{}",
+        report["diagnostics"]
+    );
+}
