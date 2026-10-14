@@ -107,6 +107,7 @@ pub mod negative_allowed_eager_transmute {
     }
 
     pub fn allowed_eager_transmute(byte: u8) -> Option<AllowedOpcode> {
+        // SAFETY: fixture code, compiled and linted but never run.
         (byte < 2).then_some(unsafe { std::mem::transmute::<u8, AllowedOpcode>(byte) })
     }
 }
@@ -299,6 +300,7 @@ pub mod negative_allowed_match_str_case_mismatch {
 pub mod negative_allowed_mem_replace_with_uninit {
     #[allow(deprecated, invalid_value, reason = "the admission contract requires a silent counterpart")]
     pub fn allowed_mem_replace_with_uninit(values: &mut Vec<u8>) -> Vec<u8> {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::replace(values, std::mem::uninitialized()) }
     }
 }
@@ -332,6 +334,7 @@ pub mod negative_allowed_modulo_one {
 pub mod negative_allowed_mut_from_ref {
     pub fn allowed_mut_from_ref(value: &u8) -> &mut u8 {
         let pointer: *mut u8 = Box::into_raw(Box::new(*value));
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { &mut *pointer }
     }
 }
@@ -370,6 +373,7 @@ pub mod negative_allowed_nonsensical_open_options {
 #[allow(clippy::not_unsafe_ptr_arg_deref, reason = "the admission contract requires a silent counterpart")]
 pub mod negative_allowed_not_unsafe_ptr_arg_deref {
     pub fn allowed_not_unsafe_ptr_arg_deref(pointer: *const u8) -> u8 {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { *pointer }
     }
 }
@@ -483,6 +487,7 @@ pub mod negative_allowed_size_of_in_element_count {
     pub fn allowed_size_of_in_element_count(count: usize) -> [u16; 8] {
         let source = [2_u16; 8];
         let mut target = [0_u16; 8];
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe {
             std::ptr::copy_nonoverlapping(source.as_ptr(), target.as_mut_ptr(), count * std::mem::size_of::<u16>());
         }
@@ -502,6 +507,7 @@ pub mod negative_allowed_suspicious_splitn {
 #[allow(clippy::transmute_null_to_fn, reason = "the admission contract requires a silent counterpart")]
 pub mod negative_allowed_transmute_null_to_fn {
     pub fn allowed_transmute_null_to_fn() -> fn() {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::transmute::<*const (), fn()>(std::ptr::null()) }
     }
 }
@@ -510,6 +516,7 @@ pub mod negative_allowed_transmute_null_to_fn {
 #[allow(clippy::transmuting_null, reason = "the admission contract requires a silent counterpart")]
 pub mod negative_allowed_transmuting_null {
     pub fn allowed_transmuting_null() -> &'static u8 {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::transmute::<*const u8, &u8>(std::ptr::null()) }
     }
 }
@@ -519,6 +526,7 @@ pub mod negative_allowed_transmuting_null {
 pub mod negative_allowed_uninit_assumed_init {
     #[allow(invalid_value, reason = "the admission contract requires a silent counterpart")]
     pub fn allowed_uninit_assumed_init() -> [u8; 4] {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::MaybeUninit::uninit().assume_init() }
     }
 }
@@ -528,6 +536,7 @@ pub mod negative_allowed_uninit_assumed_init {
 pub mod negative_allowed_uninit_vec {
     pub fn allowed_uninit_vec() -> Vec<u8> {
         let mut values: Vec<u8> = Vec::with_capacity(10);
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe {
             values.set_len(10);
         }
@@ -570,6 +579,7 @@ pub mod negative_allowed_unit_return_expecting_ord {
 #[allow(clippy::unsound_collection_transmute, reason = "the admission contract requires a silent counterpart")]
 pub mod negative_allowed_unsound_collection_transmute {
     pub fn allowed_unsound_collection_transmute(values: Vec<u8>) -> Vec<u32> {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::transmute::<Vec<u8>, Vec<u32>>(values) }
     }
 }
@@ -613,6 +623,7 @@ pub mod negative_allowed_while_immutable_condition {
 #[allow(clippy::wrong_transmute, reason = "the admission contract requires a silent counterpart")]
 pub mod negative_allowed_wrong_transmute {
     pub fn allowed_wrong_transmute(value: f64) -> *const u8 {
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { std::mem::transmute::<f64, *const u8>(value) }
     }
 }
@@ -622,6 +633,7 @@ pub mod negative_allowed_wrong_transmute {
 pub mod negative_allowed_zst_offset {
     pub fn allowed_zst_offset() -> *const () {
         let pointer: *const () = &();
+        // SAFETY: fixture code, compiled and linted but never run.
         unsafe { pointer.offset(1) }
     }
 }

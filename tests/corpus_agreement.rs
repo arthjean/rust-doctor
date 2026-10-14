@@ -17,7 +17,8 @@ use std::fs;
 use serde_json::Value;
 use support::corpus::coefficients::coefficients;
 use support::corpus::agreement::{
-    AdjudicatedPair, Agreement, ENROLLED_SCOPES, Independence, PROTOCOL_JUDGE, Pass, ProtocolScope,
+    AdjudicatedPair, Agreement, ENROLLED_SCOPES, Independence, PROTOCOL_JUDGE, PROTOCOL_JUDGES, Pass,
+    ProtocolScope,
     SCHEMA_VERSION, agreement_defects, escalations_open, protocol_defects,
 };
 use support::corpus::position::PositionProof;
@@ -78,6 +79,17 @@ const ESCALATED_AGENT: [(&str, &str, u64); 2] = [
         "crates/vibesql-executor/src/select/executor/aggregation/window.rs",
         352,
     ),
+];
+
+/// The five sites of `clippy::undocumented_unsafe_blocks` its two passes split
+/// on, the first Clippy scope judged under the protocol. Named by position for
+/// the reason the lists above are.
+const ESCALATED_UNSAFE: [(&str, &str, u64); 5] = [
+    ("anyhow", "src/error.rs", 478),
+    ("anyhow", "src/error.rs", 823),
+    ("anyhow", "src/error.rs", 859),
+    ("anyhow", "src/error.rs", 951),
+    ("bytes", "src/buf/uninit_slice.rs", 60),
 ];
 
 fn site(line: u64, verdict: Verdict) -> ReviewedSite {
@@ -489,13 +501,41 @@ fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
     assert_eq!(agreement.escalations_open, escalations_open(agreement));
     assert_eq!(
         agreement.escalations_open,
-        (ESCALATED.len() + ESCALATED_OVERSIZED.len() + ESCALATED_AGENT.len()) as u64
+        (ESCALATED.len() + ESCALATED_OVERSIZED.len() + ESCALATED_AGENT.len() + ESCALATED_UNSAFE.len())
+            as u64
     );
 
     let mut forged = adjudication(vec![site(7, Verdict::TruePositive)], vec![disagreeing(9)]);
     forged.agreement.escalations_open = 0;
     let named = defect_naming(&agreement_defects(&forged), "escalations_open published");
     assert!(named.contains('0'), "{named}");
+}
+
+/// The escalations of the undocumented-unsafe scope are findable, split, judged
+/// by the model that produced them, and unpublished.
+#[test]
+fn the_five_escalations_of_the_undocumented_unsafe_scope_are_findable() {
+    let artifact = artifact();
+    let rule = "clippy::undocumented_unsafe_blocks";
+    for (repository, path, line) in ESCALATED_UNSAFE {
+        let found = artifact.adjudication.agreement.pairs.iter().find(|pair| {
+            pair.rule == rule && pair.repository == repository && pair.path == path && pair.line == line
+        });
+        assert!(found.is_some(), "escalation absent: {repository}/{path}:{line}");
+        let Some(found) = found else { continue };
+        assert_eq!(found.population, Population::Healthy);
+        assert_eq!(found.independence, Independence::SeparateContext);
+        assert!(!found.agrees());
+        for judged in &found.passes {
+            assert_eq!(judged.judge, PROTOCOL_JUDGES[1]);
+        }
+        assert!(
+            !artifact.adjudication.reviewed.iter().any(|site| {
+                site.rule == rule && site.repository == repository && site.path == path && site.line == line
+            }),
+            "{repository}/{path}:{line} is escalated and published"
+        );
+    }
 }
 
 /// Escalation is derived from a disagreement, never stored beside it.
@@ -625,10 +665,10 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    assert_eq!(counts.get(&Provenance::Agent), Some(&354));
+    assert_eq!(counts.get(&Provenance::Agent), Some(&369));
     assert_eq!(counts.get(&Provenance::Unrecorded), Some(&98));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 452);
+    assert_eq!(artifact.adjudication.reviewed.len(), 467);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite
@@ -704,7 +744,8 @@ fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
         for rate in precision {
             if enrolled(population, rate.id.as_str()) {
                 assert_eq!(rate.doubly_judged, rate.reviewed, "{}", rate.id);
-                assert_eq!(rate.judges, vec![PROTOCOL_JUDGE.to_owned()], "{}", rate.id);
+                assert_eq!(rate.judges.len(), 1, "{}", rate.id);
+                assert!(PROTOCOL_JUDGES.contains(&rate.judges[0].as_str()), "{}", rate.id);
             } else {
                 assert_eq!(rate.doubly_judged, 0, "{}", rate.id);
             }

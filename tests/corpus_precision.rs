@@ -35,7 +35,12 @@ use support::corpus::{
 
 static NEXT_SCOPE: AtomicUsize = AtomicUsize::new(0);
 
-const SCAN_ARGUMENTS: [&str; 2] = ["--json", "--yes"];
+/// The corpus is measured without a RustSec database. The one a machine holds
+/// is whatever `cargo audit` last fetched there, so the advisory rules would
+/// report differently on every machine and every day, and a record has to
+/// replay. A path holding no `crates/` directory is how a scan is told to read
+/// none; both advisory rules then publish `not_evaluated`.
+const SCAN_ARGUMENTS: [&str; 4] = ["--json", "--yes", "--advisory-db", "/dev/null"];
 
 fn binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_rust-doctor"))
@@ -1232,7 +1237,15 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// repositories, which is what a group Clippy denies by default should find in
 /// code that passes `cargo clippy`, and the agent population is scanned with
 /// every Clippy rule off. `docs/parity-release-1-2026-10.md` records it.
-const ADMISSION_DEBT: [&str; 104] = [
+///
+/// Six of the seven rules EP-006 of the same PRD admitted on 2026-09-26 enter
+/// here, each proven on a fixture; `docs/parity-release-3-2026-10.md` records
+/// the replay. The healthy repositories never trigger `crosspointer_transmute`,
+/// `missing_transmute_annotations`, the blocking-call rule or the SQL rule, and
+/// the two advisory rules are not evaluated on the corpus at all, since the
+/// harness reads no RustSec database so that the record replays. The seventh,
+/// `undocumented_unsafe_blocks`, was measured on its 113 healthy sites instead.
+const ADMISSION_DEBT: [&str; 110] = [
     "clippy::absurd_extreme_comparisons",
     "clippy::almost_swapped",
     "clippy::approx_constant",
@@ -1243,6 +1256,7 @@ const ADMISSION_DEBT: [&str; 104] = [
     "clippy::bad_bit_mask",
     "clippy::cast_slice_different_sizes",
     "clippy::char_indices_as_byte_indices",
+    "clippy::crosspointer_transmute",
     "clippy::dbg_macro",
     "clippy::deprecated_semver",
     "clippy::derive_ord_xor_partial_ord",
@@ -1271,6 +1285,7 @@ const ADMISSION_DEBT: [&str; 104] = [
     "clippy::match_str_case_mismatch",
     "clippy::mem_replace_with_uninit",
     "clippy::min_max",
+    "clippy::missing_transmute_annotations",
     "clippy::mistyped_literal_suffixes",
     "clippy::modulo_one",
     "clippy::mut_from_ref",
@@ -1326,13 +1341,17 @@ const ADMISSION_DEBT: [&str; 104] = [
     "rust_doctor::cargo::release_debug_symbols",
     "rust_doctor::cargo::test_only_dependency",
     "rust_doctor::cargo::unbounded_registry_dependency",
+    "rust_doctor::cargo::unmaintained_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::cargo::unused_dependency",
+    "rust_doctor::cargo::vulnerable_dependency",
     "rust_doctor::repo::hardcoded_credential",
     "rust_doctor::repo::tracked_secret_file",
     "rust_doctor::repo::unignored_build_output",
+    "rust_doctor::source::blocking_call_in_async",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::source::sql_built_from_format",
     "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::stacked_allow_attribute",
@@ -1558,6 +1577,17 @@ fn the_agent_population_reproduces_from_the_local_cache() {
     let population = &published.agent_population;
     let binary = binary();
 
+    // The published arguments are what switch Clippy off on untrusted code, so
+    // they are checked against the catalog this binary ships before anything
+    // runs: a rule admitted since the record was written would otherwise
+    // compile the population, and the static check above only fails after.
+    let active: Vec<&str> = rust_doctor::catalog()
+        .into_iter()
+        .map(|rule| rule.id)
+        .filter(|id| id.starts_with("clippy::"))
+        .filter(|id| !population.scan_arguments.contains(&format!("{id}=off")))
+        .collect();
+    assert!(active.is_empty(), "refusing to compile untrusted code: {active:?} stay active");
     let arguments: Vec<&str> = population.scan_arguments.iter().map(String::as_str).collect();
     let replayed = run(&paths(&cache, &artifacts, &binary), &population.manifest(), &arguments).unwrap();
     if replayed.observations != population.observations {

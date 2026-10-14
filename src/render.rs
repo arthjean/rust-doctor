@@ -149,6 +149,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_totals(writer, presentation, options)?;
     render_categories(writer, report, options)?;
     render_configuration(writer, report, options)?;
+    render_advisory_database(writer, report, options)?;
     render_narrowing(writer, report, options)?;
     render_delta(writer, report, options)?;
     render_gate(writer, report, options)?;
@@ -568,6 +569,43 @@ fn render_configuration<W: Write>(
         options,
         Style::Muted,
     )
+}
+
+/// The one line the advisory rules owe the reader: that no local database
+/// answered them, or that the one that did is stale.
+fn render_advisory_database<W: Write>(
+    writer: &mut W,
+    report: &InspectReport,
+    options: TerminalOptions<'_>,
+) -> Result<(), RenderError> {
+    let missing = report.policy.as_ref().is_some_and(|policy| {
+        policy
+            .rules
+            .iter()
+            .any(|rule| rule.not_evaluated == Some(crate::NotEvaluated::AdvisoryDbMissing))
+    });
+    if missing {
+        return line(
+            writer,
+            "No local RustSec database: run cargo audit once to create one.",
+            options,
+            Style::Muted,
+        );
+    }
+    let age = report
+        .scan
+        .advisory_db
+        .as_ref()
+        .and_then(|database| database.age_days(std::time::SystemTime::now()));
+    match age {
+        Some(days) if days > crate::cargo_health::STALE_AFTER_DAYS => line(
+            writer,
+            &format!("The advisory database is {days} days old."),
+            options,
+            Style::Warning,
+        ),
+        _ => Ok(()),
+    }
 }
 
 /// What a baseline comparison found, and every finding the branch fixed.

@@ -523,6 +523,7 @@ impl RescanCommand {
                 match scope.mode {
                     ScopeMode::Files => "files",
                     ScopeMode::Lines => "lines",
+                    ScopeMode::Contextual => "contextual",
                     ScopeMode::Baseline => "baseline",
                     ScopeMode::Full => return Err(HandoffError::UnsafePayload),
                 }

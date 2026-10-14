@@ -38,7 +38,7 @@ fn the_pack_holds_the_size_bound_it_judges_for() {
 }
 
 fn inspect(metadata: &Metadata) -> Vec<Candidate> {
-    super::inspect(metadata, &PolicyPlan::default()).candidates
+    super::inspect(metadata, &PolicyPlan::default(), None).candidates
 }
 
 static NEXT_CARGO_HOME: AtomicUsize = AtomicUsize::new(0);
@@ -156,8 +156,10 @@ fn producer_uses_its_canonical_catalog_entries() {
             CARGO_TEST_ONLY_DEPENDENCY.id,
             CARGO_UNBOUNDED_REGISTRY.id,
             CARGO_UNCHECKED_RELEASE_OVERFLOW.id,
+            CARGO_UNMAINTAINED_DEPENDENCY.id,
             CARGO_UNPINNED_GIT.id,
             CARGO_UNUSED_DEPENDENCY.id,
+            CARGO_VULNERABLE_DEPENDENCY.id,
         ]
     );
     assert!(
@@ -492,7 +494,7 @@ fn policy_prunes_the_producer_and_each_inactive_predicate() {
             input.with_rule(id, RuleLevel::Off)
         });
     let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-    let scan = super::inspect(&metadata, &all_off);
+    let scan = super::inspect(&metadata, &all_off, None);
     assert!(scan.candidates.is_empty());
     assert_eq!(scan.counters.dependencies_evaluated, 0);
     assert_eq!(scan.counters.unbounded_registry_predicates, 0);
@@ -503,7 +505,7 @@ fn policy_prunes_the_producer_and_each_inactive_predicate() {
         .with_rule(CARGO_DUPLICATE_MAJOR_VERSIONS.id, RuleLevel::Off)
         .with_rule(CARGO_MISSING_LOCKFILE.id, RuleLevel::Off);
     let git_off = PolicyPlan::compile(&git_off).expect("policy should compile");
-    let scan = super::inspect(&metadata, &git_off);
+    let scan = super::inspect(&metadata, &git_off, None);
     assert!(scan.counters.dependencies_evaluated > 0);
     assert!(scan.counters.unbounded_registry_predicates > 0);
     assert_eq!(scan.counters.unpinned_git_predicates, 0);
@@ -739,7 +741,7 @@ fn the_debug_symbols_rule_reads_the_named_level_and_the_strip_modes() {
     let observed = |manifest: &str| {
         fs::write(scratch.join("Cargo.toml"), manifest)
             .expect("the scratch manifest should be writable");
-        let scan = super::inspect(&metadata, &PolicyPlan::default());
+        let scan = super::inspect(&metadata, &PolicyPlan::default(), None);
         assert!(scan.errors.is_empty(), "{:?}", scan.errors);
         scan.candidates
             .iter()
@@ -774,7 +776,7 @@ fn a_malformed_cargo_config_abstains_with_a_bounded_error() {
         .to_str()
         .expect("the scratch path should be UTF-8")
         .into();
-    let scan = super::inspect(&metadata, &PolicyPlan::default());
+    let scan = super::inspect(&metadata, &PolicyPlan::default(), None);
     assert!(
         scan.errors
             .iter()
@@ -819,7 +821,7 @@ fn resolution_scan(name: &str) -> CargoHealthScan {
     let root = resolution_fixture(name);
     let before = fixture_hashes(&root);
     let (metadata, _) = offline_metadata(&root, &format!("resolution-{name}"));
-    let scan = super::inspect(&metadata, &PolicyPlan::default());
+    let scan = super::inspect(&metadata, &PolicyPlan::default(), None);
     assert_eq!(fixture_hashes(&root), before, "{name} was mutated");
     scan
 }

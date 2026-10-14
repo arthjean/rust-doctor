@@ -10,6 +10,7 @@ fn locked(entries: &[(&str, &str, &[&str])]) -> Vec<LockedPackage> {
         .map(|(name, version, dependencies)| LockedPackage {
             name: (*name).to_owned(),
             version: (*version).to_owned(),
+            source: None,
             dependencies: dependencies.iter().map(|dependency| (*dependency).to_owned()).collect(),
         })
         .collect()

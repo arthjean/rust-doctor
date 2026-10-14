@@ -150,7 +150,7 @@ fn semantic_policy_failures_are_single_private_v7_reports_before_discovery() {
         ]);
         assert_eq!(output.status.code(), Some(2), "{selector:?}");
         let report = json_report(&output);
-        assert_eq!(report["schema_version"], 19);
+        assert_eq!(report["schema_version"], 21);
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["gate"]["status"], "not-evaluated");
@@ -226,10 +226,42 @@ fn rules_list_publishes_the_shipped_catalog() {
         assert_eq!(entry["category"], rule.category);
         assert_eq!(entry["tier"], rule.tier.as_str());
         assert_eq!(entry["help"], rule.help);
+        assert_eq!(entry["diff_scope"], serde_json::to_value(rule.diff_scope).unwrap());
         // Every catalogued rule ships at warn: an error by default would be a
         // policy the reader never chose.
         assert_eq!(entry["default_level"], "warn");
     }
+
+    // US-004: the rules whose cause can sit above their site reach their
+    // function under `--scope contextual`; the span-less lockfile rules reach
+    // their file; every other rule is judged on its line.
+    let reaching = |reach: &str| -> Vec<&str> {
+        entries
+            .iter()
+            .filter(|entry| entry["diff_scope"] == reach)
+            .map(|entry| entry["id"].as_str().unwrap())
+            .collect()
+    };
+    assert_eq!(
+        reaching("item"),
+        [
+            "clippy::await_holding_lock",
+            "clippy::await_holding_refcell_ref",
+            "clippy::unused_async",
+            "rust_doctor::source::blocking_call_in_async",
+            "rust_doctor::source::disabled_tls_verification",
+            "rust_doctor::source::dynamic_shell_command",
+            "rust_doctor::source::sql_built_from_format",
+        ]
+    );
+    assert_eq!(
+        reaching("file"),
+        [
+            "rust_doctor::cargo::duplicate_major_versions",
+            "rust_doctor::cargo::missing_lockfile",
+        ]
+    );
+    assert_eq!(reaching("line").len(), entries.len() - 9);
 
     // A producer is named by the identifier's prefix, and the published field
     // has to agree with it, since the website groups by one and explains the

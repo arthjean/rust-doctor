@@ -339,13 +339,51 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
 /// First credential match of a line: the pattern name and the byte range of
 /// the matched token. A prefix inside a longer identifier is not a match.
 fn credential_match(line: &str) -> Option<(&'static str, (usize, usize))> {
-    let bytes = line.as_bytes();
     if let Some(range) = private_key_block(line) {
         return Some(("private key block", range));
     }
-    for pattern in &CREDENTIAL_PATTERNS {
-        let mut from = 0;
-        while let Some(offset) = line[from..].find(pattern.prefix) {
+    CREDENTIAL_PATTERNS.iter().find_map(|pattern| {
+        pattern_ranges(line, pattern)
+            .next()
+            .map(|range| (pattern.name, range))
+    })
+}
+
+/// Every credential the rule would match on a line, as sorted, disjoint byte
+/// ranges.
+///
+/// The rule reports the first match of a line, but a code frame prints the
+/// whole line and the lines around it, so whatever renders source text masks
+/// every match rather than the one a finding names.
+pub(crate) fn credential_ranges(line: &str) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> = private_key_block(line)
+        .into_iter()
+        .chain(
+            CREDENTIAL_PATTERNS
+                .iter()
+                .flat_map(|pattern| pattern_ranges(line, pattern)),
+        )
+        .collect();
+    ranges.sort_unstable();
+    let mut disjoint: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        match disjoint.last_mut() {
+            Some(last) if start < last.1 => last.1 = last.1.max(end),
+            _ => disjoint.push((start, end)),
+        }
+    }
+    disjoint
+}
+
+/// The byte ranges of one pattern on a line, left to right.
+fn pattern_ranges<'a>(
+    line: &'a str,
+    pattern: &'a CredentialPattern,
+) -> impl Iterator<Item = (usize, usize)> + 'a {
+    let bytes = line.as_bytes();
+    let mut from = 0;
+    std::iter::from_fn(move || {
+        while let Some(offset) = line.get(from..)?.find(pattern.prefix) {
             let start = from + offset;
             let boundary = start == 0
                 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
@@ -354,13 +392,19 @@ fn credential_match(line: &str) -> Option<(&'static str, (usize, usize))> {
                 .iter()
                 .take_while(|byte| (pattern.tail)(**byte))
                 .count();
-            if boundary && tail_length >= pattern.minimum_tail {
-                return Some((pattern.name, (start, tail_start + tail_length)));
-            }
             from = tail_start;
+            if boundary && tail_length >= pattern.minimum_tail {
+                from = tail_start + tail_length;
+                return Some((start, from));
+            }
         }
-    }
-    None
+        None
+    })
+}
+
+/// Whether a line opens a PEM private key, whose body lines follow it.
+pub(crate) fn opens_private_key(line: &str) -> bool {
+    private_key_block(line).is_some()
 }
 
 fn private_key_block(line: &str) -> Option<(usize, usize)> {

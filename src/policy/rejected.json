@@ -83,6 +83,11 @@
       "reason": "Inert on an unconfigured workspace: its threshold defaults to zero in the scanned workspace's own clippy.toml, which a scan neither provides nor should impose, and deep nesting already drives the nesting-weighted score of rust_doctor::structure::complex_function."
     },
     {
+      "class": "style-only",
+      "id": "clippy::multiple_unsafe_ops_per_block",
+      "reason": "Asks for one unsafe block per unsafe operation, a granularity preference: a block holding several operations is sound when their invariants hold, and clippy::undocumented_unsafe_blocks already asks each block to state them."
+    },
+    {
       "class": "covered",
       "id": "clippy::too_many_lines",
       "reason": "rust_doctor::structure::oversized_unit reports the same defect and also names the oversized files, impl blocks and modules that a per-function lint cannot see."

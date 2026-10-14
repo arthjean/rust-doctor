@@ -412,7 +412,7 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     let oracle = oracle();
     let path = fixture("oracle");
     let baseline = inspect(InspectRequest::new(&path));
-    assert_eq!(baseline.schema_version, 19);
+    assert_eq!(baseline.schema_version, 21);
     assert_eq!(baseline.status, Status::Complete);
     assert!(baseline.complete);
     let published = serde_json::to_value(&baseline).expect("a valid report should serialize");
@@ -483,8 +483,9 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     // declares to trigger the pinning rules, `fixture_git_dep` and
     // `fixture_registry_dep`, are also what they look like: declared and
     // referenced by nothing, so `unused_dependency` reports both.
-    const ADMITTED_AFTER_EP018: [(&str, usize); 5] = [
+    const ADMITTED_AFTER_EP018: [(&str, usize); 6] = [
         ("clippy::expect_used", 1),
+        ("clippy::undocumented_unsafe_blocks", 1),
         ("rust_doctor::cargo::unused_dependency", 2),
         ("rust_doctor::structure::crate_level_allow", 1),
         ("rust_doctor::structure::duplicate_function_body", 1),
@@ -662,7 +663,7 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
 fn denied_candidate_is_retained_in_an_incomplete_report_and_hostile_policy_stops_early() {
     let oracle = oracle();
     let denied = inspect(InspectRequest::new(fixture("denied")));
-    assert_eq!(denied.schema_version, 19);
+    assert_eq!(denied.schema_version, 21);
     assert_eq!(denied.status, Status::Incomplete);
     assert!(!denied.complete);
     assert_eq!(denied.gate.status, GateStatus::NotEvaluated);

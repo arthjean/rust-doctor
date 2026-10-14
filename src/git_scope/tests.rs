@@ -535,17 +535,29 @@ fn a_lines_scope_keeps_a_finding_only_where_its_span_meets_a_change() {
         }),
     )
     .unwrap();
+    // A pure deletion leaves its file changed: listed, with a point and no
+    // line, so no span meets it.
     assert_eq!(
         scope.files(),
-        Some(&["src/lib.rs".to_owned(), "src/new.rs".to_owned()][..])
+        Some(
+            &[
+                "src/gone.rs".to_owned(),
+                "src/lib.rs".to_owned(),
+                "src/new.rs".to_owned()
+            ][..]
+        )
     );
     assert!(!scope.includes_span(Some("src/lib.rs"), Some((40, 40))));
     assert!(scope.includes_span(Some("src/lib.rs"), Some((12, 20))));
     assert!(scope.includes_span(Some("src/lib.rs"), Some((1, 10))));
-    assert!(!scope.includes_span(Some("src/lib.rs"), None));
+    // US-002: a span-less finding is about its file, in scope when it changed.
+    assert!(scope.includes_span(Some("src/lib.rs"), None));
+    assert!(scope.includes_span(Some("src/gone.rs"), None));
+    assert!(!scope.includes_span(Some("src/other.rs"), None));
     assert!(!scope.includes_span(None, Some((10, 10))));
     assert!(scope.includes_span(Some("src/new.rs"), Some((400, 400))));
     assert!(!scope.includes_span(Some("src/gone.rs"), Some((3, 3))));
+    assert!(!scope.includes_span(Some("src/gone.rs"), Some((4, 4))));
     assert_eq!(scope.untracked_unreported(), None);
 }
 
@@ -580,6 +592,37 @@ fn untracked_files_join_only_a_working_tree_files_or_lines_scope() {
     }
 }
 
+/// US-004: a contextual scope widens an item-reach rule to the function
+/// around its site and a file-reach rule to its file, never a line-reach rule,
+/// and a file that does not parse falls back to the line test.
+#[test]
+fn a_contextual_scope_widens_only_the_reach_a_rule_declares() {
+    let source = "fn held() {\n    let guard = lock();\n    wait();\n}\n\nfn other() {}\n";
+    let changes = lines::FileChanges {
+        ranges: vec![(3, 3)],
+        deletions: Vec::new(),
+    };
+    let ranges = LineRanges::from([("src/lib.rs".to_owned(), changes)]);
+    let contextual =
+        ScopeReport::lines_scope(BASE.to_owned(), ranges.clone(), Vec::new(), true).unwrap();
+    let lines = ScopeReport::lines_scope(BASE.to_owned(), ranges, Vec::new(), false).unwrap();
+    assert_eq!(contextual.mode(), ScopeMode::Contextual);
+    let read = |text: &'static str| move |_: &str| Some(text.to_owned());
+    let guard = (Some("src/lib.rs"), Some((2, 2)));
+
+    assert!(contextual.includes_reach(guard.0, guard.1, DiffScope::Item, read(source)));
+    assert!(!lines.includes_reach(guard.0, guard.1, DiffScope::Item, read(source)));
+    assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Line, read(source)));
+    assert!(contextual.includes_reach(guard.0, guard.1, DiffScope::File, read(source)));
+    // Another function of the same file did not change.
+    assert!(!contextual.includes_reach(guard.0, Some((6, 6)), DiffScope::Item, read(source)));
+    // A file that does not parse is judged on its line, which did not change.
+    let broken = "fn held( {\n    let guard = lock();\n    wait();\n}\n";
+    assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Item, read(broken)));
+    assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Item, |_| None));
+    assert!(!contextual.includes_reach(Some("src/other.rs"), guard.1, DiffScope::File, read(source)));
+}
+
 /// Every file of the module stays under the bound `oversized_unit` reports at,
 /// tests included: the pass that scopes the scan has to pass the rule it
 /// raises.
@@ -588,6 +631,7 @@ fn the_scope_holds_the_size_bound_it_reports_for() {
     for own in [
         include_str!("../git_scope.rs"),
         include_str!("base.rs"),
+        include_str!("items.rs"),
         include_str!("lines.rs"),
         include_str!("tests.rs"),
     ] {

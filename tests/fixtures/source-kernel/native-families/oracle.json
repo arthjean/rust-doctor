@@ -1,0 +1,180 @@
+{
+  "findings": [
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 6, "column_start": 5, "line_end": 6, "column_end": 23 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 10, "column_start": 5, "line_end": 10, "column_end": 10 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 14, "column_start": 5, "line_end": 14, "column_end": 13 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 18, "column_start": 5, "line_end": 18, "column_end": 28 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 22, "column_start": 5, "line_end": 22, "column_end": 19 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 26, "column_start": 5, "line_end": 26, "column_end": 18 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 30, "column_start": 5, "line_end": 30, "column_end": 25 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 34, "column_start": 5, "line_end": 34, "column_end": 28 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 38, "column_start": 5, "line_end": 38, "column_end": 24 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 42, "column_start": 5, "line_end": 42, "column_end": 21 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 46, "column_start": 5, "line_end": 46, "column_end": 33 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 50, "column_start": 40, "line_end": 50, "column_end": 46 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 55, "column_start": 28, "line_end": 55, "column_end": 34 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 60, "column_start": 9, "line_end": 60, "column_end": 27 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 65, "column_start": 29, "line_end": 65, "column_end": 42 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 69, "column_start": 5, "line_end": 69, "column_end": 27 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/blocking.rs",
+      "span": { "line_start": 77, "column_start": 13, "line_end": 77, "column_end": 31 },
+      "context": "tests"
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 2, "column_start": 17, "line_end": 2, "column_end": 50 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 6, "column_start": 26, "line_end": 6, "column_end": 82 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 10, "column_start": 24, "line_end": 10, "column_end": 94 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 15, "column_start": 19, "line_end": 15, "column_end": 23 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 22, "column_start": 17, "line_end": 22, "column_end": 29 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 27, "column_start": 11, "line_end": 27, "column_end": 64 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 31, "column_start": 23, "line_end": 31, "column_end": 69 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 36, "column_start": 18, "line_end": 36, "column_end": 69 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 41, "column_start": 18, "line_end": 41, "column_end": 71 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 45, "column_start": 43, "line_end": 45, "column_end": 96 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 50, "column_start": 26, "line_end": 50, "column_end": 77 }
+    },
+    {
+      "code": "rust_doctor::source::sql_built_from_format",
+      "path": "service/src/sql.rs",
+      "span": { "line_start": 55, "column_start": 18, "line_end": 55, "column_end": 71 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/tests/blocking.rs",
+      "span": { "line_start": 3, "column_start": 24, "line_end": 3, "column_end": 37 },
+      "context": "tests"
+    }
+  ],
+  "negative_cases": {
+    "rust_doctor::source::blocking_call_in_async": [
+      { "path": "service/src/blocking_negative.rs", "symbol": "async_equivalents" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "calls_a_synchronous_helper" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "synchronous" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "offloaded" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "in_a_thread" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "nested_synchronous_function" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "async_process" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "async_http" },
+      { "path": "service/src/blocking_negative.rs", "symbol": "unlisted" }
+    ],
+    "rust_doctor::source::sql_built_from_format": [
+      { "path": "service/src/sql_negative.rs", "symbol": "sqlx_macro" },
+      { "path": "service/src/sql_negative.rs", "symbol": "sqlx_literal" },
+      { "path": "service/src/sql_negative.rs", "symbol": "sqlx_bound" },
+      { "path": "service/src/sql_negative.rs", "symbol": "literal_arguments" },
+      { "path": "service/src/sql_negative.rs", "symbol": "const_arguments" },
+      { "path": "service/src/sql_negative.rs", "symbol": "literal_pushed" },
+      { "path": "service/src/sql_negative.rs", "symbol": "unlisted_receiver" },
+      { "path": "service/src/sql_negative.rs", "symbol": "unlisted_constructor" },
+      { "path": "service/src/sql_negative.rs", "symbol": "pattern_bound_client" }
+    ]
+  }
+}

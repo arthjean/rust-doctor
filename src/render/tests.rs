@@ -117,6 +117,7 @@ fn report_of(
             noise_lines: Some(0),
             ignored: 0,
             excluded_generated: 0,
+            advisory_db: None,
         },
         diagnostics,
         suppressions: Vec::new(),

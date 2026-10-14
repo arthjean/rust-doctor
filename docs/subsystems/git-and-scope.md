@@ -56,6 +56,29 @@ finding's span with the new-side ranges `git_scope/lines.rs` reads from
 `git diff --unified=0`, so editing one line of a large file stops surfacing the
 file's backlog without the second compilation baseline pays.
 
+A lines scope keeps what the change caused even where it has no changed line.
+A span-less finding, a lockfile entry or an inherited dependency, is about its
+file and stays when that file changed; `lines.rs` records a pure deletion as a
+point so a file only pruned still counts as changed. Dependency declarations
+now carry their key's span (`cargo_health/keys.rs`), never their identity. A
+clone family stays when any member meets the scope, and `project_diagnostics`
+promotes that member to primary: filtering on the first member in sorted order
+hid every new copy of older code.
+
+`--scope contextual` is the lines scope plus each rule's `diff_scope`. An
+`item` rule, whose cause can sit above its site (`await_holding_lock` lands on
+the guard's `let`), is kept when the innermost `fn` around it holds a changed
+line or a deletion point, nested `fn` and closure bodies excluded, which
+`git_scope/items.rs` parses from the judged tree. A file that does not parse
+falls back to the line test, and a `line` rule is never widened. The hooks stay
+on `lines` until `docs/contextual-scope-2026-10.md` is replayed over a release.
+
+Discovery stops its upward walk at the first directory holding `.git`, so a
+manifest above an unrelated repository is never scanned. With none found, it
+lists manifests below through `git ls-files` or a walk, four levels deep, past
+hidden, `target` and `node_modules` trees: one is scanned and named on stderr,
+several fail as `ambiguous-workspace`. A Tauri root used to be a dead end.
+
 `--staged` judges the index. `baseline/staged.rs` reads it through the one
 `GIT_INDEX_FILE` a hook hands over, refuses a conflicted or locked one, and
 checks it out into a private tree the way a baseline snapshot is written; every

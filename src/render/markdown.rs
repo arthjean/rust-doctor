@@ -17,6 +17,10 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::SCHEMA_VERSION;
+
+/// The oldest report this renders. Schema 21 added only the `contextual` scope
+/// mode, so a report a 20 binary saved reads the same.
+const READABLE_FROM: u8 = 20;
 use crate::presentation::rule_url;
 
 /// The largest report file `report markdown` reads.
@@ -93,7 +97,8 @@ pub fn read_saved_report(path: &Path) -> Result<Value, MarkdownError> {
 /// `limit` findings, the introduced ones in baseline scope.
 pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownError> {
     let found = report.get("schema_version").and_then(Value::as_u64);
-    if found != Some(u64::from(SCHEMA_VERSION)) {
+    let readable = u64::from(READABLE_FROM)..=u64::from(SCHEMA_VERSION);
+    if !found.is_some_and(|found| readable.contains(&found)) {
         return Err(MarkdownError::SchemaMismatch { found });
     }
     let score = report

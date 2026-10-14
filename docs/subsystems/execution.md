@@ -7,7 +7,7 @@ the shape of what came back. `execution/clippy.rs` is the pass that compiles,
 `execution/baseline.rs` the dual run a `--scope baseline` comparison needs, and
 each carries its tests in a file of its own.
 
-Four rules hold it together, and each of them replaced something that had a
+Five rules hold it together, and each of them replaced something that had a
 cost.
 
 One list of the producers that degrade rather than abort.
@@ -20,6 +20,17 @@ workspace whose `.cargo/config.toml` could not be read published a
 itself authoritative.
 `every_producer_error_drops_the_authoritative_flag_at_its_own_stage` asserts the
 four together, because the defect was never the missing clause.
+
+The advisory database is read, never fetched. `cargo_health/advisories.rs`
+judges each crates.io package `Cargo.lock` resolves against the RustSec
+database `--advisory-db` names, or the one `cargo audit` or `cargo deny` left
+under `$CARGO_HOME`, and only `main.rs` looks for one: a library caller of
+`inspect` names its database or reads none. A machine without one publishes
+both advisory rules `advisory-db-missing` and keeps the score authoritative,
+since a check nobody could run is not a failed stage. Fetching the database was
+the alternative, and it would be the tool's first network call. The report
+publishes where the database came from and its date, never its path, and a
+database older than thirty days is read and its age printed.
 
 The result is assembled from what came back, never asked back for what it was
 given. `ExecutionContext::run` owns the metadata to the end, so the three

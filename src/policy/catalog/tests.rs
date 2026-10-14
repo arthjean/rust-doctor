@@ -16,6 +16,7 @@ static SYNTHETIC_CLIPPY_RULE: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
     help: "Synthetic authoring proof.",
+    diff_scope: DiffScope::Line,
 };
 
 /// The shipped catalog with one more rule in it, built rather than retyped.
@@ -53,7 +54,7 @@ const HISTORICAL_IDS: [&str; 7] = [
 #[test]
 fn catalog_is_the_exact_normative_inventory() {
     validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-    assert_eq!(CATALOG.len(), 126);
+    assert_eq!(CATALOG.len(), 133);
     assert_eq!(
         CATEGORIES,
         [
@@ -86,7 +87,7 @@ fn catalog_is_the_exact_normative_inventory() {
         .filter(|definition| definition.producer == Producer::Clippy)
         .map(|definition| definition.id)
         .collect();
-    assert_eq!(clippy_ids.len(), 101);
+    assert_eq!(clippy_ids.len(), 104);
     assert!(
         clippy_ids
             .iter()
@@ -123,9 +124,9 @@ fn exact_lookup_and_producer_subsets_use_canonical_definitions() {
     }
 
     let plan = PolicyPlan::default();
-    assert_eq!(plan.active_rules(Producer::Clippy).count(), 101);
-    assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 11);
-    assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 2);
+    assert_eq!(plan.active_rules(Producer::Clippy).count(), 104);
+    assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 13);
+    assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 4);
     assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
     assert_eq!(plan.active_rules(Producer::Repo).count(), 3);
 }

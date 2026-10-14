@@ -8,7 +8,7 @@ use std::rc::Rc;
 struct UnsafeSend {
     value: Rc<u8>,
 }
-
+// SAFETY: none; this impl is the defect non_send_fields_in_send_ty reports.
 unsafe impl Send for UnsafeSend {}
 
 pub fn clear_readonly(mut permissions: std::fs::Permissions) {

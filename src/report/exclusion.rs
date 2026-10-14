@@ -117,27 +117,27 @@ fn suppress(
 
 /// A native finding of a named rule, in the directive's file, whose primary
 /// span starts on the directive's line or on the next one. A dependency
-/// finding has no span, and is covered when the next line declares its key.
+/// finding is also covered when the next line declares its key, which is all
+/// an inherited entry, published without a span, can be matched by.
 fn covers(
     directive: &Directive,
     diagnostic: &Diagnostic,
     dependency_keys: &BTreeMap<String, String>,
 ) -> bool {
+    let on_line = diagnostic.span.as_ref().is_some_and(|span| {
+        span.line_start == directive.line || span.line_start == directive.line + 1
+    });
+    let by_key = directive
+        .key
+        .as_ref()
+        .is_some_and(|key| dependency_keys.get(&diagnostic.id) == Some(key));
     diagnostic.source == DiagnosticSource::RustDoctor
         && diagnostic.path.as_deref() == Some(directive.path.as_str())
         && diagnostic
             .code
             .as_ref()
             .is_some_and(|code| directive.rules.contains(code))
-        && diagnostic.span.as_ref().map_or_else(
-            || {
-                directive
-                    .key
-                    .as_ref()
-                    .is_some_and(|key| dependency_keys.get(&diagnostic.id) == Some(key))
-            },
-            |span| span.line_start == directive.line || span.line_start == directive.line + 1,
-        )
+        && (on_line || by_key)
 }
 
 /// The catalogued id nearest to `rule`, when one is within `HINT_DISTANCE`.

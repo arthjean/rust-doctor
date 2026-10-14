@@ -26,8 +26,9 @@ diagnostic's `unscored`, the score's `reasons`, `toolchain.rust_doctor`,
 `toolchain.removed_lint_flags`, a policy rule's `not_evaluated`, and the
 scope's `base_ref`, `staged` and `untracked_unreported`, v19 the policy's
 `ignore` and `overrides`, the audit's `packages`, the report's `suppressions`,
-and the scan's `ignored` and `excluded_generated`. A
-`toolchain` error such as `lint-list-unavailable` is a notice: published, and no
+and the scan's `ignored` and `excluded_generated`, v20 the scan's
+`advisory_db`, v21 the scope `mode` `contextual` and the discovery error
+`ambiguous-workspace`. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
 reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
@@ -251,8 +252,17 @@ bytes are refused if they carry a NUL or do not decode, and every escape
 sequence is neutralized before a byte reaches a frame. Both reports call
 `code_frame`, and `src/presentation/code_frame/tests.rs` carries the tests.
 
-Three rules hold it together, and each of them replaced something that had a
+Four rules hold it together, and each of them replaced something that had a
 cost.
+
+No detected key reaches a frame. Every line a frame keeps passes through the
+repository pass's own credential matcher (`repo_hygiene::credential_ranges`),
+which leaves each match's first four characters and `<redacted>`, nothing for a
+value under eight, and masks whole the body of a PEM key the frame opened. The
+caret is remapped onto the mask. `hardcoded_credential` kept the value out of
+its message while both reports printed it in the frame under carets, into
+transcripts and CI logs. Masking every line, not a range the finding carries,
+covers the lines around it and other rules' frames beside a key.
 
 One reader, walking lines. `read_window` reads line by line to the window it
 needs and decodes only the lines it keeps. The byte prefix it replaced capped

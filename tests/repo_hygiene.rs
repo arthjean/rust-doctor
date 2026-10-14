@@ -310,7 +310,8 @@ fn hardcoded_credentials_are_reported_by_pattern_name_without_the_value() {
         "{finding}"
     );
     assert!(finding["context"].is_null(), "{finding}");
-    // FR-12: neither the terminal nor the JSON carries the matched value.
+    // FR-12: the JSON does not carry the matched value. The rendered
+    // surfaces are asserted on their own text by the test below.
     assert!(!report.to_string().contains(&key));
     // P1 security: the finding weighs and caps the overall score at 65.
     assert!(report["audit"]["score"]["value"].as_u64().unwrap() <= 65, "{report}");
@@ -366,4 +367,51 @@ fn the_three_rules_are_switchable_off() {
             "{code} still fired switched off"
         );
     }
+}
+
+fn rust_doctor(root: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .args(arguments)
+        .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .env_remove("RUSTFLAGS")
+        .output()
+        .expect("the binary should start")
+}
+
+/// US-001 and FR-12 on rendered text: the linear report draws a code frame
+/// under every finding, and neither it nor the Markdown a CI job posts prints
+/// a key the scan matched, on the reported line or on the lines around it.
+#[test]
+fn a_detected_credential_is_absent_from_every_rendered_surface() {
+    let root = workspace("repo-hygiene-rendered");
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    let key = fake_aws_key();
+    let token = format!("xoxb-{}", "1234567890ab");
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "pub fn fixture() -> &'static str {{\n    \"{key}\"\n}}\n\
+             pub const OTHER: &str = \"{token}\";\n"
+        ),
+    )
+    .unwrap();
+    commit_all(&root);
+    let path = root.to_str().unwrap();
+
+    let linear = rust_doctor(&root, &[path, "--yes", "--verbose"]);
+    let stdout = String::from_utf8_lossy(&linear.stdout);
+    assert!(stdout.contains(CREDENTIAL), "{stdout}");
+    assert!(stdout.contains("AKIA<redacted>"), "{stdout}");
+    assert!(!stdout.contains(&key) && !stdout.contains(&token), "{stdout}");
+    let stderr = String::from_utf8_lossy(&linear.stderr);
+    assert!(!stderr.contains(&key) && !stderr.contains(&token), "{stderr}");
+
+    let json = rust_doctor(&root, &[path, "--yes", "--json"]);
+    let saved = root.join("target/report.json");
+    fs::create_dir_all(root.join("target")).unwrap();
+    fs::write(&saved, &json.stdout).unwrap();
+    let markdown = rust_doctor(&root, &["report", "markdown", saved.to_str().unwrap()]);
+    let rendered = String::from_utf8_lossy(&markdown.stdout);
+    assert!(rendered.contains("hardcoded_credential"), "{rendered}");
+    assert!(!rendered.contains(&key) && !rendered.contains(&token), "{rendered}");
 }

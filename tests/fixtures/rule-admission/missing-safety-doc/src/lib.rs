@@ -6,6 +6,7 @@
 
 /// Reads the byte the pointer designates.
 pub unsafe fn positive(pointer: *const u8) -> u8 {
+    // SAFETY: the caller is trusted to pass a readable pointer.
     unsafe { *pointer }
 }
 
@@ -15,5 +16,6 @@ pub unsafe fn positive(pointer: *const u8) -> u8 {
 ///
 /// `pointer` must be non-null, aligned, and valid for a read of one byte.
 pub unsafe fn negative(pointer: *const u8) -> u8 {
+    // SAFETY: the caller upholds the contract stated above.
     unsafe { *pointer }
 }

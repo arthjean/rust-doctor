@@ -222,7 +222,17 @@ fn id_hash(report: &Value) -> String {
 }
 
 fn legacy_v3_id(diagnostic: &Value) -> String {
-    let span = diagnostic["span"].as_object().map_or_else(
+    // A dependency finding's identity never read its span: it had none until
+    // US-002 anchored it at its key, and `normalize_cargo_health_candidate`
+    // still fingerprints it without one so a baseline survives lines inserted
+    // above the key.
+    let manifest_level = diagnostic["code"]
+        .as_str()
+        .is_some_and(|code| code.starts_with("rust_doctor::cargo::"));
+    let span = diagnostic["span"]
+        .as_object()
+        .filter(|_| !manifest_level)
+        .map_or_else(
         || "null".to_owned(),
         |span| {
             format!(
@@ -326,7 +336,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let (default_exit, default) = &reports["default"];
     assert_eq!(*default_exit, 0);
-    assert_eq!(default["schema_version"], 19);
+    assert_eq!(default["schema_version"], 21);
     assert_eq!(default["status"], "complete");
     // Nine warnings since EP-002 of the suppression PRD: the two decoy
     // dependencies this fixture declares and never references, the unbounded
@@ -475,6 +485,8 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
                 "--rule",
                 "clippy::char_indices_as_byte_indices=off",
                 "--rule",
+                "clippy::crosspointer_transmute=off",
+                "--rule",
                 "clippy::dbg_macro=off",
                 "--rule",
                 "clippy::deprecated_semver=off",
@@ -540,6 +552,8 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
                 "clippy::min_max=off",
                 "--rule",
                 "clippy::missing_safety_doc=off",
+                "--rule",
+                "clippy::missing_transmute_annotations=off",
                 "--rule",
                 "clippy::mistyped_literal_suffixes=off",
                 "--rule",
@@ -616,6 +630,8 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
                 "clippy::transmuting_null=off",
                 "--rule",
                 "clippy::type_complexity=off",
+                "--rule",
+                "clippy::undocumented_unsafe_blocks=off",
                 "--rule",
                 "clippy::unimplemented=off",
                 "--rule",

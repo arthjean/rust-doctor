@@ -107,11 +107,6 @@ pub fn shell_local_type(user: &str) {
     let _ = Command::new("sh").arg("-c").arg(format!("echo {user}"));
 }
 
-pub fn shell_variable_builder(user: &str) {
-    let mut stored = std::process::Command::new("sh");
-    let _ = stored.arg("-c").arg(format!("echo {user}"));
-}
-
 pub fn shell_args(user: &str) {
     let _ = std::process::Command::new("sh").args(["-c", user]);
 }
@@ -167,4 +162,38 @@ fn cfg_test_builder() {
 #[test]
 fn test_builder() {
     let _ = http_client::Client::builder().tls_danger_accept_invalid_hostnames(true);
+}
+
+pub fn tls_reassigned_flag(check: bool) {
+    let mut insecure = true;
+    if check {
+        insecure = false;
+    }
+    let _ = http_client::Client::builder().tls_danger_accept_invalid_certs(insecure);
+}
+
+pub fn tls_pattern_flag() {
+    let (insecure, _) = (true, 0);
+    let _ = http_client::Client::builder().tls_danger_accept_invalid_certs(insecure);
+}
+
+pub fn tls_branch_shadow(check: bool) {
+    let insecure = true;
+    if check {
+        let insecure = false;
+        let _ = insecure;
+    }
+    let _ = http_client::Client::builder().tls_danger_accept_invalid_certs(insecure);
+}
+
+pub fn shell_reassigned_builder(user: &str, check: bool) {
+    let mut stored = std::process::Command::new("sh");
+    if check {
+        stored = std::process::Command::new("printf");
+    }
+    let _ = stored.arg("-c").arg(format!("echo {user}"));
+}
+
+pub fn shell_parameter_builder(stored: &mut std::process::Command, user: &str) {
+    let _ = stored.arg("-c").arg(format!("echo {user}"));
 }

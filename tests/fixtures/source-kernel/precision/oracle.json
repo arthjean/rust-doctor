@@ -1,7 +1,7 @@
 {
   "positive_counts": {
-    "rust_doctor::source::disabled_tls_verification": 7,
-    "rust_doctor::source::dynamic_shell_command": 6
+    "rust_doctor::source::disabled_tls_verification": 8,
+    "rust_doctor::source::dynamic_shell_command": 7
   },
   "findings": [
     {
@@ -66,6 +66,16 @@
     },
     {
       "code": "rust_doctor::source::dynamic_shell_command",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 61, "column_start": 34, "line_end": 61, "column_end": 56 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_tls_verification",
+      "path": "app/src/positives.rs",
+      "span": { "line_start": 67, "column_start": 72, "line_end": 67, "column_end": 80 }
+    },
+    {
+      "code": "rust_doctor::source::dynamic_shell_command",
       "path": "app/src/shared.rs",
       "span": { "line_start": 2, "column_start": 80, "line_end": 2, "column_end": 102 }
     }
@@ -94,12 +104,14 @@
       { "case": "unknown-alias", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_unknown_alias" },
       { "case": "missing-argument", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_argument_missing" },
       { "case": "nested-self-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_nested_self_shadow" },
-      { "case": "glob-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_glob_shadow" }
+      { "case": "glob-shadow", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_glob_shadow" },
+      { "case": "reassigned-binding", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_reassigned_flag" },
+      { "case": "pattern-binding", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_pattern_flag" },
+      { "case": "branch-shadowed-binding", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "tls_branch_shadow" }
     ],
     "rust_doctor::source::dynamic_shell_command": [
       { "case": "glob-provenance", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_glob_provenance" },
       { "case": "local-type", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_local_type" },
-      { "case": "variable-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_variable_builder" },
       { "case": "args", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_args" },
       { "case": "literal-payload", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_literal" },
       { "case": "literal-interpolation", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_literal_interpolation" },
@@ -109,7 +121,9 @@
       { "case": "variable-flag", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_variable_flag" },
       { "case": "intersected-error", "workspace": "errors", "path": "src/intersected.rs", "symbol": "intersected" },
       { "case": "helper", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_helper" },
-      { "case": "direct-arguments", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_direct_arguments" }
+      { "case": "direct-arguments", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_direct_arguments" },
+      { "case": "reassigned-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_reassigned_builder" },
+      { "case": "parameter-builder", "workspace": "precision", "path": "app/src/negative.rs", "symbol": "shell_parameter_builder" }
     ]
   }
 }

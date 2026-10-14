@@ -8,10 +8,15 @@ use crate::cargo_stderr;
 use crate::execution::run_bounded;
 use crate::internal_error::InternalError;
 
+mod discovery;
+
 #[derive(Debug)]
 pub(crate) struct ResolvedScanTarget {
     pub(crate) manifest_path: PathBuf,
     pub(crate) metadata: Metadata,
+    /// The directory discovery found the workspace in below the requested
+    /// path, relative to it, when none was above it.
+    pub(crate) discovered: Option<String>,
 }
 
 impl ResolvedScanTarget {
@@ -53,14 +58,15 @@ fn resolve_with(
     path: &Path,
     load: impl FnOnce(&Path, &Path) -> Result<Metadata, InternalError>,
 ) -> Result<ResolvedScanTarget, ResolutionFailure> {
-    let manifest_path = discover_manifest(path).map_err(|error| ResolutionFailure {
-        manifest_path: None,
-        error,
-    })?;
+    let (manifest_path, discovered) =
+        discover_manifest(path).map_err(|error| ResolutionFailure {
+            manifest_path: None,
+            error,
+        })?;
     let Some(manifest_directory) = manifest_path.parent() else {
         return Err(ResolutionFailure {
             manifest_path: Some(manifest_path.clone()),
-            error: no_manifest_error(&manifest_path, "manifest has no parent directory"),
+            error: no_manifest_error("manifest has no parent directory"),
         });
     };
     let metadata = load(&manifest_path, manifest_directory).map_err(|error| ResolutionFailure {
@@ -71,54 +77,69 @@ fn resolve_with(
     Ok(ResolvedScanTarget {
         manifest_path,
         metadata,
+        discovered,
     })
 }
 
-fn discover_manifest(path: &Path) -> Result<PathBuf, InternalError> {
+/// The manifest a path names, found at it or above it, or else the one
+/// workspace below it, with the directory it was found in.
+///
+/// The upward walk stops at the first directory holding `.git`, a file in a
+/// worktree or a submodule and a directory otherwise: a manifest above the
+/// repository belongs to another project, and scanning it would judge code
+/// the reader never pointed at.
+fn discover_manifest(path: &Path) -> Result<(PathBuf, Option<String>), InternalError> {
     if path.file_name() == Some(OsStr::new("Cargo.toml")) {
-        return resolve_manifest_boundary(path);
+        return resolve_manifest_boundary(path).map(|manifest| (manifest, None));
     }
 
     if !path.is_dir() {
-        return Err(no_manifest_error(path, "path is not a directory"));
+        return Err(no_manifest_error("path is not a directory"));
     }
 
-    let directory = path.canonicalize().map_err(|error| {
-        no_manifest_error(path, format!("could not resolve directory: {error}"))
-    })?;
+    let directory = path
+        .canonicalize()
+        .map_err(|error| no_manifest_error(format!("could not resolve directory: {error}")))?;
     for ancestor in directory.ancestors() {
         let candidate = ancestor.join("Cargo.toml");
         match candidate.symlink_metadata() {
-            Ok(_) => return resolve_manifest_boundary(&candidate),
+            Ok(_) => return resolve_manifest_boundary(&candidate).map(|manifest| (manifest, None)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(invalid_manifest_error(
-                    &candidate,
-                    format!("could not inspect manifest path: {error}"),
-                ));
+                return Err(invalid_manifest_error(format!(
+                    "could not inspect manifest path: {error}"
+                )));
             }
+        }
+        if ancestor.join(".git").symlink_metadata().is_ok() {
+            break;
         }
     }
 
-    Err(no_manifest_error(
-        path,
-        "no Cargo.toml found in this path or its ancestors",
-    ))
+    match discovery::workspaces_below(&directory).as_slice() {
+        [] => Err(no_manifest_error(NO_MANIFEST)),
+        // The candidate is resolved, then held to the requested directory: a
+        // manifest reached through a link out of it never qualifies.
+        [only] => resolve_manifest_boundary(&directory.join(only).join("Cargo.toml"))
+            .and_then(|manifest| {
+                manifest
+                    .starts_with(&directory)
+                    .then(|| (manifest, Some(only.clone())))
+                    .ok_or_else(|| no_manifest_error(NO_MANIFEST))
+            }),
+        several => Err(discovery::ambiguous(several)),
+    }
 }
 
 fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
     let resolved = path.canonicalize().map_err(|error| {
-        invalid_manifest_error(path, format!("could not resolve manifest path: {error}"))
+        invalid_manifest_error(format!("could not resolve manifest path: {error}"))
     })?;
     let metadata = resolved.metadata().map_err(|error| {
-        invalid_manifest_error(
-            path,
-            format!("could not inspect resolved manifest: {error}"),
-        )
+        invalid_manifest_error(format!("could not inspect resolved manifest: {error}"))
     })?;
     if !metadata.is_file() {
         return Err(invalid_manifest_error(
-            path,
             "manifest path does not resolve to a regular file",
         ));
     }
@@ -126,20 +147,16 @@ fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
     Ok(resolved)
 }
 
-fn no_manifest_error(path: &Path, detail: impl AsRef<str>) -> InternalError {
-    InternalError::new(
-        "discovery",
-        "no-manifest",
-        format!("{}: {}", detail.as_ref(), path.display()),
-    )
+const NO_MANIFEST: &str = "no Cargo.toml found in this path or its ancestors";
+
+/// The path is the reader's own, so the message does not repeat it: a report
+/// names no absolute path, and a relative one would only echo the argument.
+fn no_manifest_error(detail: impl Into<String>) -> InternalError {
+    InternalError::new("discovery", "no-manifest", detail)
 }
 
-fn invalid_manifest_error(path: &Path, detail: impl AsRef<str>) -> InternalError {
-    InternalError::new(
-        "discovery",
-        "invalid-manifest",
-        format!("{}: {}", detail.as_ref(), path.display()),
-    )
+fn invalid_manifest_error(detail: impl Into<String>) -> InternalError {
+    InternalError::new("discovery", "invalid-manifest", detail)
 }
 
 fn load_metadata(

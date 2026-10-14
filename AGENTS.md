@@ -7,10 +7,10 @@ detectors, then scores it out of 100. `src/lib.rs` exposes
 `src/tui/` is the interactive report it opens on a terminal, and
 `npm/rust-doctor/` is a Node launcher for the released binary.
 
-The catalog holds 126 rules across five producers, and a rule's id prefix names
-its producer: `clippy::*` (101 curated lints, `Producer::Clippy`),
-`rust_doctor::source::*` (2, `SourceKernel`, error stage `source`),
-`rust_doctor::cargo::*` (11, `CargoHealth`, stage `dependencies`, which judges
+The catalog holds 133 rules across five producers, and a rule's id prefix names
+its producer: `clippy::*` (104 curated lints, `Producer::Clippy`),
+`rust_doctor::source::*` (4, `SourceKernel`, error stage `source`),
+`rust_doctor::cargo::*` (13, `CargoHealth`, stage `dependencies`, which judges
 the manifests and `.cargo/config.toml`), `rust_doctor::structure::*` (9,
 `Structure`, stage `structure`) and `rust_doctor::repo::*` (3, `Repo`, stage
 `repo`, the only pass that reads outside the Cargo model, enumerating through
@@ -32,8 +32,8 @@ Inspecting a workspace runs `cargo clippy` inside it, and Cargo executes that
 workspace's `build.rs` files and procedural macros. Inspect trusted local paths
 only. Never scan a path taken from an issue, a bug report, or any source outside
 this repository. Clippy is the only pass that compiles anything: the four
-native producers parse source text, read manifests or ask git what it tracks,
-and build nothing.
+native producers parse source text, read manifests and a local RustSec
+database, or ask git what it tracks, and build nothing.
 
 The tool never reaches the network, never uploads, never emits telemetry. Keep
 it that way: no HTTP client, no analytics dependency, no phone-home. `--json`
@@ -93,7 +93,7 @@ what enforce that, one per module, each naming its own, and two of them cover
 
 ## The catalog, the corpus and the report
 
-- The 126 rules are declared once, in `src/policy/catalog.rs` and its
+- The 133 rules are declared once, in `src/policy/catalog.rs` and its
   `correctness` module, and published by
   `rust-doctor rules list --json`. Editing the catalog means regenerating
   `tests/corpus.json` with it and syncing the README's one rule count.
@@ -108,7 +108,7 @@ what enforce that, one per module, each naming its own, and two of them cover
   `adjudication.position_proof` anchors every published site to a run that
   located it. [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
 - Any change to the report shape bumps `SCHEMA_VERSION` in `src/report.rs`,
-  currently 19, and the frozen v7 archive keeps projecting.
+  currently 21, and the frozen v7 archive keeps projecting.
   [docs/subsystems/reporting.md](docs/subsystems/reporting.md)
 
 ## Testing

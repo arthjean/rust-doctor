@@ -176,22 +176,29 @@ pub(crate) struct ProtocolScope {
 /// scopes deepened to their whole production subpopulation carry the same two
 /// rule ids the agent population already had: a list of rules could no longer
 /// say which side of the record a double pass was run on.
-pub(crate) const ENROLLED_SCOPES: [(Population, &str); 6] = [
+pub(crate) const ENROLLED_SCOPES: [(Population, &str); 7] = [
     (Population::Agent, "rust_doctor::structure::duplicate_function_body"),
     (Population::Agent, "rust_doctor::structure::near_duplicate_function_body"),
     (Population::Agent, "rust_doctor::structure::orphan_module_file"),
     (Population::Agent, "rust_doctor::structure::oversized_unit"),
+    (Population::Healthy, "clippy::undocumented_unsafe_blocks"),
     (Population::Healthy, "rust_doctor::structure::near_duplicate_function_body"),
     (Population::Healthy, "rust_doctor::structure::oversized_unit"),
 ];
 
-/// The judge behind every pass produced under the protocol.
+/// The judge behind every pass produced under the protocol before 2026-09-26.
 ///
-/// One name, because the two passes of a pair are separated by their context
-/// and not by their model: `Independence::SeparateContext` is what each pair
-/// declares, and a second model would be a different claim recorded under the
-/// same field.
+/// One name per scope, because the two passes of a pair are separated by their
+/// context and not by their model: `Independence::SeparateContext` is what each
+/// pair declares, and a second model would be a different claim recorded under
+/// the same field.
 pub(crate) const PROTOCOL_JUDGE: &str = "claude-opus-5";
+
+/// Every model that has judged under the protocol, oldest first. A pass names
+/// the model that produced it, so a scope judged after a model change names the
+/// newer one rather than borrowing the older name; what stays fixed is that
+/// both passes of a pair, and every pair of one scope, name the same judge.
+pub(crate) const PROTOCOL_JUDGES: [&str; 2] = [PROTOCOL_JUDGE, "claude-opus-5-5"];
 
 /// Number of pairs whose two passes disagreed.
 pub(crate) fn escalations_open(agreement: &Agreement) -> u64 {

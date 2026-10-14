@@ -469,6 +469,32 @@ mod tests {
         assert!(!copied[0].contains("enter copy context"));
     }
 
+    /// US-001: the viewer draws its frame from the same masked lines as the
+    /// linear report, so a key the scan matched never reaches the screen.
+    #[test]
+    fn the_viewer_frame_never_prints_a_detected_credential() {
+        let root = crate::test_scratch::scratch("tui-viewer", "credential");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!("pub fn fixture() -> &'static str {{\n    \"{key}\"\n}}\n"),
+        )
+        .unwrap();
+        let location = GroupLocation {
+            path: "src/lib.rs".to_owned(),
+            span: rust_doctor::DiagnosticSpan {
+                line_start: 2,
+                column_start: 6,
+                line_end: 2,
+                column_end: 26,
+            },
+        };
+        let rendered = visible(&code_frame_lines(&root, &location, 120)).join("\n");
+        assert!(rendered.contains("AKIA<redacted>"), "{rendered}");
+        assert!(!rendered.contains(&key), "{rendered}");
+    }
+
     fn sample_row(rule_id: &str, severity: Severity, site_count: usize) -> Row {
         Row {
             rule_id: rule_id.to_owned(),

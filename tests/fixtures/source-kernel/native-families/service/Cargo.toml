@@ -1,0 +1,14 @@
+[package]
+name = "native-families-service"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+diesel = { path = "../diesel" }
+postgres = { path = "../postgres" }
+reqwest = { path = "../reqwest" }
+rusqlite = { path = "../rusqlite" }
+sqlx = { path = "../sqlx" }
+tokio = { path = "../tokio" }
+tokio-postgres = { path = "../tokio-postgres" }

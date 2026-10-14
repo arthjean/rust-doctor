@@ -195,6 +195,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
             noise_lines: Some(0),
             ignored: 0,
             excluded_generated: 0,
+            advisory_db: None,
         },
         summary: Summary::from_diagnostics(&diagnostics),
         diagnostics,
@@ -315,7 +316,7 @@ fn files_projection_is_exact_and_runs_after_policy_before_summary_and_gate() {
     )
     .unwrap();
 
-    project_diagnostics(&mut diagnostics, &scope);
+    project_diagnostics(&mut diagnostics, &scope, Path::new("."));
     diagnostics.sort_by(compare_diagnostics);
 
     assert_eq!(diagnostics.len(), 2);
@@ -343,7 +344,7 @@ fn files_projection_is_exact_and_runs_after_policy_before_summary_and_gate() {
     );
 
     let empty_scope = ScopeReport::files_scope("0".repeat(40), Vec::new()).unwrap();
-    project_diagnostics(&mut diagnostics, &empty_scope);
+    project_diagnostics(&mut diagnostics, &empty_scope, Path::new("."));
     assert_eq!(Summary::from_diagnostics(&diagnostics), Summary::default());
     assert_eq!(
         evaluate_gate(Status::Complete, &diagnostics, BlockingLevel::Error),
@@ -578,7 +579,7 @@ fn scan(
 /// kernel. The test constructors reproduce that wiring rather than letting
 /// normalization run it again.
 fn cargo_health_scan(metadata: &Metadata) -> Option<cargo_health::CargoHealthScan> {
-    Some(cargo_health::inspect(metadata, &PolicyPlan::default()))
+    Some(cargo_health::inspect(metadata, &PolicyPlan::default(), None))
 }
 
 fn complete_analysis_side(
@@ -616,6 +617,7 @@ fn complete_analysis_side(
                 message,
                 package: Some("example".to_owned()),
                 target: Some("example".to_owned()),
+                context: None,
                 path: path.to_owned(),
                 span: crate::source_text::SourceSpan {
                     line_start: 3,
@@ -878,6 +880,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
             message: "A dynamic value is interpolated into a shell command string.",
             package: Some("example".to_owned()),
             target: None,
+            context: None,
             path: "src/source.rs".to_owned(),
             span: crate::source_text::SourceSpan {
                 line_start: 4,

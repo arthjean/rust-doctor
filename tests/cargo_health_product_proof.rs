@@ -291,7 +291,7 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     );
     assert_eq!(output.status.code(), Some(0));
     let report = report(&output);
-    assert_eq!(report["schema_version"], 19);
+    assert_eq!(report["schema_version"], 21);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["complete"], true);
     let findings = native_findings(&report);
@@ -312,7 +312,11 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     assert_eq!(finding["package"], "cargo-health-offline-registry");
     assert_eq!(finding["path"], "Cargo.toml");
     assert!(finding["target"].is_null());
-    assert!(finding["span"].is_null());
+    // US-002: anchored at the dependency key in the member manifest.
+    assert_eq!(
+        finding["span"],
+        serde_json::json!({"line_start": 7, "column_start": 1, "line_end": 7, "column_end": 23})
+    );
     assert_eq!(
         report["scan"]["command"]
             .as_array()

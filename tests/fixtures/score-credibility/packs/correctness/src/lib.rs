@@ -88,6 +88,7 @@ pub enum PositiveOpcode {
 }
 
 pub fn positive_eager_transmute(byte: u8) -> Option<PositiveOpcode> {
+    // SAFETY: fixture code, compiled and linted but never run.
     (byte < 2).then_some(unsafe { std::mem::transmute::<u8, PositiveOpcode>(byte) })
 }
 
@@ -226,6 +227,7 @@ pub fn positive_match_str_case_mismatch(text: &str) -> u8 {
 /// clippy::mem_replace_with_uninit
 #[allow(deprecated, invalid_value, reason = "the admission contract requires a silent counterpart")]
 pub fn positive_mem_replace_with_uninit(values: &mut Vec<u8>) -> Vec<u8> {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::replace(values, std::mem::uninitialized()) }
 }
 
@@ -247,6 +249,7 @@ pub fn positive_modulo_one(value: u8) -> u8 {
 /// clippy::mut_from_ref
 pub fn positive_mut_from_ref(value: &u8) -> &mut u8 {
     let pointer: *mut u8 = Box::into_raw(Box::new(*value));
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { &mut *pointer }
 }
 
@@ -273,6 +276,7 @@ pub fn positive_nonsensical_open_options() -> std::io::Result<std::fs::File> {
 
 /// clippy::not_unsafe_ptr_arg_deref
 pub fn positive_not_unsafe_ptr_arg_deref(pointer: *const u8) -> u8 {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { *pointer }
 }
 
@@ -353,6 +357,7 @@ pub fn positive_self_assignment(point: &mut PositivePoint) {
 pub fn positive_size_of_in_element_count(count: usize) -> [u16; 8] {
     let source = [2_u16; 8];
     let mut target = [0_u16; 8];
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe {
         std::ptr::copy_nonoverlapping(source.as_ptr(), target.as_mut_ptr(), count * std::mem::size_of::<u16>());
     }
@@ -366,23 +371,27 @@ pub fn positive_suspicious_splitn(text: &str) -> usize {
 
 /// clippy::transmute_null_to_fn
 pub fn positive_transmute_null_to_fn() -> fn() {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::transmute::<*const (), fn()>(std::ptr::null()) }
 }
 
 /// clippy::transmuting_null
 pub fn positive_transmuting_null() -> &'static u8 {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::transmute::<*const u8, &u8>(std::ptr::null()) }
 }
 
 /// clippy::uninit_assumed_init
 #[allow(invalid_value, reason = "the admission contract requires a silent counterpart")]
 pub fn positive_uninit_assumed_init() -> [u8; 4] {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::MaybeUninit::uninit().assume_init() }
 }
 
 /// clippy::uninit_vec
 pub fn positive_uninit_vec() -> Vec<u8> {
     let mut values: Vec<u8> = Vec::with_capacity(10);
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe {
         values.set_len(10);
     }
@@ -413,6 +422,7 @@ pub fn positive_unit_return_expecting_ord(values: &mut [u8]) {
 
 /// clippy::unsound_collection_transmute
 pub fn positive_unsound_collection_transmute(values: Vec<u8>) -> Vec<u32> {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::transmute::<Vec<u8>, Vec<u32>>(values) }
 }
 
@@ -441,11 +451,13 @@ pub fn positive_while_immutable_condition(limit: u8) -> u8 {
 
 /// clippy::wrong_transmute
 pub fn positive_wrong_transmute(value: f64) -> *const u8 {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { std::mem::transmute::<f64, *const u8>(value) }
 }
 
 /// clippy::zst_offset
 pub fn positive_zst_offset() -> *const () {
     let pointer: *const () = &();
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { pointer.offset(1) }
 }

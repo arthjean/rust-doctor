@@ -5,6 +5,7 @@ mod handoff;
 mod hook;
 mod progress_line;
 mod report_command;
+mod scope_argument;
 mod skill;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
@@ -24,8 +25,9 @@ use std::time::{Duration, Instant};
 
 use clap::builder::TypedValueParser;
 use clap::error::ErrorKind;
-use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use progress_line::ProgressLine;
+use scope_argument::{ScopeArgument, ScopeSelection, validate_scope};
 use handoff::{
     HandoffError, RescanCommand, RescanScope, available_agents, build_prompt, copy_to_clipboard,
     launch_agent,
@@ -33,8 +35,8 @@ use handoff::{
 use rust_doctor::presentation::ReportPresentation;
 use rust_doctor::render::{TerminalOptions, render_json, render_terminal_with_presentation};
 use rust_doctor::{
-    BlockingLevel, CategoryOverride, InspectReport, InspectRequest, InspectionSession, RuleOverride,
-    ScopeMode, Status,
+    AdvisoryDatabase, BlockingLevel, CategoryOverride, InspectReport, InspectRequest, InspectionSession,
+    RuleOverride, Status,
 };
 
 const TRUST_WARNING: &str = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";
@@ -261,7 +263,9 @@ struct InspectArgs {
     #[arg(long, value_enum)]
     blocking: Option<BlockingLevel>,
     /// What to judge: the whole workspace, the files or the lines changed
-    /// since a base, or what the change introduced against a scan of the base.
+    /// since a base, those lines plus the functions holding them for a rule
+    /// whose cause can sit above its site (contextual), or what the change
+    /// introduced against a scan of the base.
     #[arg(long, value_enum)]
     scope: Option<ScopeArgument>,
     /// The ref a files, lines or baseline scope compares against. Without it,
@@ -288,6 +292,9 @@ struct InspectArgs {
     /// Scan and score this workspace member only. Repeat it to select several.
     #[arg(long, value_name = "NAME")]
     package: Vec<String>,
+    /// RustSec database to read, else the one cargo audit or cargo deny left; never fetched.
+    #[arg(long, value_name = "PATH")]
+    advisory_db: Option<PathBuf>,
 }
 
 impl InspectArgs {
@@ -317,7 +324,9 @@ impl InspectArgs {
         for package in &self.package {
             request = request.with_package(package.clone());
         }
-        request
+        AdvisoryDatabase::locate(self.advisory_db.clone())
+            .into_iter()
+            .fold(request, InspectRequest::with_advisory_db)
     }
 
     fn rescan_command(
@@ -338,24 +347,6 @@ impl InspectArgs {
             }),
         )
     }
-}
-
-/// A changed-work scope the invocation asked for, checked for combinations
-/// that mean nothing before any process starts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ScopeSelection {
-    mode: ScopeMode,
-    base: Option<String>,
-    staged: bool,
-    include_untracked: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum ScopeArgument {
-    Full,
-    Files,
-    Lines,
-    Baseline,
 }
 
 fn main() -> ExitCode {
@@ -490,7 +481,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         term.as_deref() == Some(OsStr::new("dumb")),
     );
     // The phases replace the static line this used to print. A JSON reader
-    // gets no progress at all, as it got no line before.
+    // gets none of them, only where discovery found the workspace.
     let progress = ProgressLine::new(
         io::stderr().is_terminal() && term.as_deref() != Some(OsStr::new("dumb")),
     );
@@ -499,10 +490,9 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     // narrowing to what changed is what `--scope files` and `--scope baseline`
     // are for, and a question asked before the scan is a question asked before
     // the reader has seen a single finding.
-    let mut request = arguments.request(selection.as_ref());
-    if !arguments.json {
-        request = request.with_progress(progress.sink());
-    }
+    let request = arguments
+        .request(selection.as_ref())
+        .with_progress(progress.sink(!arguments.json));
     let session = InspectionSession::prepare(request);
     let rescan_command = arguments.rescan_command(selection.as_ref());
 
@@ -632,54 +622,6 @@ fn run_interactive_report(
     }
 }
 
-fn validate_scope(
-    arguments: &InspectArgs,
-) -> Result<Option<ScopeSelection>, (ErrorKind, &'static str)> {
-    let mode = match arguments.scope {
-        None | Some(ScopeArgument::Full) => {
-            return match (
-                arguments.base.is_some(),
-                arguments.staged,
-                arguments.include_untracked,
-            ) {
-                (false, false, false) => Ok(None),
-                (true, _, _) => Err((
-                    ErrorKind::ArgumentConflict,
-                    "--base <REF> requires --scope files, --scope lines or --scope baseline",
-                )),
-                (_, true, _) => Err((
-                    ErrorKind::ArgumentConflict,
-                    "--staged cannot judge the full codebase: pass --scope files, lines or baseline",
-                )),
-                (_, _, true) => Err((
-                    ErrorKind::ArgumentConflict,
-                    "--include-untracked requires --scope files or --scope lines",
-                )),
-            };
-        }
-        Some(ScopeArgument::Files) => ScopeMode::Files,
-        Some(ScopeArgument::Lines) => ScopeMode::Lines,
-        Some(ScopeArgument::Baseline) => ScopeMode::Baseline,
-    };
-    if arguments.include_untracked && mode == ScopeMode::Baseline {
-        return Err((
-            ErrorKind::ArgumentConflict,
-            "--include-untracked requires --scope files or --scope lines",
-        ));
-    }
-    if arguments.include_untracked && arguments.staged {
-        return Err((
-            ErrorKind::ArgumentConflict,
-            "--include-untracked cannot be combined with --staged: the index holds no untracked file",
-        ));
-    }
-    Ok(Some(ScopeSelection {
-        mode,
-        base: arguments.base.clone(),
-        staged: arguments.staged,
-        include_untracked: arguments.include_untracked,
-    }))
-}
 
 /// The variables that say nobody can drive an interactive report, whatever the
 /// terminals look like: an agent's shell, a git hook, or a CI provider. An
@@ -796,6 +738,7 @@ fn clap_error(kind: ErrorKind, message: &'static str) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_doctor::ScopeMode;
 
     #[test]
     fn root_and_historical_subcommand_share_arguments() {
@@ -917,6 +860,7 @@ mod tests {
         for (mode, scope) in [
             ("files", ScopeMode::Files),
             ("lines", ScopeMode::Lines),
+            ("contextual", ScopeMode::Contextual),
             ("baseline", ScopeMode::Baseline),
         ] {
             assert_eq!(

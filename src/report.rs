@@ -18,6 +18,7 @@ use serde::ser::{Error as _, SerializeStruct};
 use serde::{Serialize, Serializer};
 
 use crate::audit::{Audit, SeverityCounts};
+use crate::cargo_health::{AdvisoryDatabase, AdvisoryDbReport};
 use crate::delta::DeltaReport;
 use crate::execution::{RunDeadline, RunOptions};
 use crate::progress::ProgressSink;
@@ -37,7 +38,7 @@ pub(crate) use assembly::{
     preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 19;
+pub const SCHEMA_VERSION: u8 = 21;
 
 /// The error code every stage a passed `--max-duration` stopped or skipped
 /// reports under.
@@ -53,6 +54,7 @@ pub struct InspectRequest {
     max_duration: Option<Duration>,
     progress: Option<ProgressSink>,
     packages: BTreeSet<String>,
+    advisory_db: Option<AdvisoryDatabase>,
 }
 
 impl InspectRequest {
@@ -66,7 +68,17 @@ impl InspectRequest {
             max_duration: None,
             progress: None,
             packages: BTreeSet::new(),
+            advisory_db: None,
         }
+    }
+
+    /// The RustSec database the two advisory rules read. Without it they are
+    /// published as not evaluated: the library never looks for one on its
+    /// own, and the command line hands it the one `--advisory-db` names or
+    /// the one `cargo audit` or `cargo deny` left under `$CARGO_HOME`.
+    pub fn with_advisory_db(mut self, database: AdvisoryDatabase) -> Self {
+        self.advisory_db = Some(database);
+        self
     }
 
     /// Scans and scores this workspace member only. Repeated, it selects
@@ -148,6 +160,7 @@ impl InspectRequest {
             ScopeMode::Full => return ScopeRequest::Full,
             ScopeMode::Files => ChangeMode::Files,
             ScopeMode::Lines => ChangeMode::Lines,
+            ScopeMode::Contextual => ChangeMode::Contextual,
             ScopeMode::Baseline => ChangeMode::Baseline,
         };
         ScopeRequest::Changed {
@@ -163,6 +176,7 @@ impl InspectRequest {
             deadline: self.max_duration.map(RunDeadline::starting_now),
             progress: self.progress.clone(),
             packages: self.packages().cloned(),
+            advisory_db: self.advisory_db.clone(),
         }
     }
 }
@@ -301,6 +315,10 @@ pub enum NotEvaluated {
     /// `--package` scoped the scan to members, and the rule judges the
     /// repository rather than a member.
     PackageScoped,
+    /// No local RustSec database was found to read the rule from. The score
+    /// keeps its authority: the machine never fetched one, and the tool never
+    /// fetches.
+    AdvisoryDbMissing,
 }
 
 impl PolicyReport {
@@ -458,6 +476,10 @@ pub struct ScanReport {
     /// Diagnostics removed because their file is declared generated or
     /// vendored, or opens on a generator header.
     pub excluded_generated: usize,
+    /// The RustSec database the advisory rules read: which tool left it and
+    /// how recent it is, never where it sits. Absent when none was read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advisory_db: Option<AdvisoryDbReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -67,7 +67,7 @@ fn native_source_findings_join_the_existing_v3_report() {
     let after = content_hashes(&root);
 
     assert_eq!(before, after);
-    assert_eq!(report.schema_version, 19);
+    assert_eq!(report.schema_version, 21);
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     assert!(report.complete);
     assert_eq!(report.exit_code(), 0);
@@ -78,20 +78,20 @@ fn native_source_findings_join_the_existing_v3_report() {
     );
 
     let native = source_findings(&report);
-    assert_eq!(native.len(), 13, "{:?}", report.diagnostics);
+    assert_eq!(native.len(), 15, "{:?}", report.diagnostics);
     assert_eq!(
         native
             .iter()
             .filter(|diagnostic| diagnostic.code.as_deref() == Some(TLS))
             .count(),
-        7
+        8
     );
     assert_eq!(
         native
             .iter()
             .filter(|diagnostic| diagnostic.code.as_deref() == Some(SHELL))
             .count(),
-        6
+        7
     );
     assert!(native.iter().all(|diagnostic| {
         diagnostic.id.len() == 64

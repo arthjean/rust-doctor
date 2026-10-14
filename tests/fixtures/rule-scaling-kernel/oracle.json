@@ -144,13 +144,23 @@
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
       "message": "Registry dependency \"fixture_registry_dep\" uses an unbounded \"*\" version requirement.",
       "path": "Cargo.toml",
-      "span": null
+      "span": {
+        "line_start": 15,
+        "column_start": 1,
+        "line_end": 15,
+        "column_end": 21
+      }
     },
     {
       "id": "rust_doctor::cargo::unpinned_git_dependency",
       "message": "Git dependency \"fixture_git_dep\" is not pinned to a full commit revision.",
       "path": "Cargo.toml",
-      "span": null
+      "span": {
+        "line_start": 14,
+        "column_start": 1,
+        "line_end": 14,
+        "column_end": 16
+      }
     },
     {
       "id": "rust_doctor::source::disabled_tls_verification",
@@ -231,56 +241,56 @@
   "compatibility": {
     "git_change_scope_output_hashes": {
       "files-empty": {
-        "member-manifest": "1dac48d9e195c6df87cb57c7a183c2d6e65339f0362f0ac13b1b664d7d718ef8",
-        "member-subdirectory": "1dac48d9e195c6df87cb57c7a183c2d6e65339f0362f0ac13b1b664d7d718ef8",
-        "workspace": "a08ba7d99206dfa6166416ad3aa6aac9242e3c7a931d66c978199402beb02152"
+        "member-manifest": "c2abcd9a4c6fcaa8b1449daa409c55fa7d37677455ac2b5b558f1b3533555684",
+        "member-subdirectory": "c2abcd9a4c6fcaa8b1449daa409c55fa7d37677455ac2b5b558f1b3533555684",
+        "workspace": "d2b6783b078b81aee39e974a687b001ba83bb7752671fccd2ef118f57e429eaa"
       },
       "files-manifest": {
-        "member-manifest": "1d41815acebbd05061cff041fd604abe479fae45df79da22ed626d766473857e",
-        "member-subdirectory": "1d41815acebbd05061cff041fd604abe479fae45df79da22ed626d766473857e",
-        "workspace": "5933b55e8718b277b0f0c96ca1e1bb6aab1f4d970f833ecfd4d88c4572e66613"
+        "member-manifest": "1797159e9d2ca3604f7e437b2d10ccdef13034de20f59e6d429c6153f408d5af",
+        "member-subdirectory": "1797159e9d2ca3604f7e437b2d10ccdef13034de20f59e6d429c6153f408d5af",
+        "workspace": "9d681aa595e795dcf63b6f78ece2f06cc6c37354edb25df8f5c7f3e16f727641"
       },
       "files-source": {
-        "member-manifest": "fa2158bcd81d05ea4e2fd62aa30bdf20804f6c9bc03153f745620030a925563a",
-        "member-subdirectory": "fa2158bcd81d05ea4e2fd62aa30bdf20804f6c9bc03153f745620030a925563a",
-        "workspace": "180e8a9640fbf620df1649ace06d47661cab4cfe3c787c54072021a59d3c2d70"
+        "member-manifest": "9a93ce5d7bd69abab4ed4bb71c49dba927c7e9a248444344bf5a63bdf466e54b",
+        "member-subdirectory": "9a93ce5d7bd69abab4ed4bb71c49dba927c7e9a248444344bf5a63bdf466e54b",
+        "workspace": "283c0a2fd8371b1172846552602da1c8e4442b60cc206b26879e072f9e04d154"
       },
       "full": {
-        "member-manifest": "a2a46f8ea83192ea02a855ce9154dee161fa00b04ac7d49b7d3f9bd164c5f6f3",
-        "member-subdirectory": "a2a46f8ea83192ea02a855ce9154dee161fa00b04ac7d49b7d3f9bd164c5f6f3",
-        "workspace": "7efcd6aa4bfa1d4b213eb4012de4d07558a1d3f5a9405a2e3ec610bd0d4692a4"
+        "member-manifest": "0187b07d44013cc57c34524191096695e2e8cf924a032b34959147b505f96b02",
+        "member-subdirectory": "0187b07d44013cc57c34524191096695e2e8cf924a032b34959147b505f96b02",
+        "workspace": "7c48c35bca90802b734dfffc4106109e5c9fff86a63309ea8ad71394bbe99efd"
       }
     },
     "persistent_configuration_output_hashes": {
       "absent": {
-        "member-manifest": "b7841206c3222d207f783d5b674016ae60ee62ffbf7bbb534a954ba32fd07a0f",
-        "member-subdirectory": "b7841206c3222d207f783d5b674016ae60ee62ffbf7bbb534a954ba32fd07a0f",
-        "workspace": "32c0e05227600c510af5d71bad69d4c9d6d43d154e36f92901904ccf54e2c6ba"
+        "member-manifest": "af7f6d7888377861378874737a78d7c1f9f44b9d51b769443b699bcf33157594",
+        "member-subdirectory": "af7f6d7888377861378874737a78d7c1f9f44b9d51b769443b699bcf33157594",
+        "workspace": "e351a48d8360c3a4436380b9d66400ee9c627547327255fffe56ea41a4fe35c4"
       },
       "config-rule": {
-        "member-manifest": "9ded31df0e3095f8cbce3117f2e9a2be97bb82ba0d1d87db8bd62f92d126dc7b",
-        "member-subdirectory": "9ded31df0e3095f8cbce3117f2e9a2be97bb82ba0d1d87db8bd62f92d126dc7b",
-        "workspace": "2792d2380f13e4de385a2f3742b05bcb330070c2d7cc40379067ae883ec517b0"
+        "member-manifest": "f13002b76ae4d7551c211968a34139f367e7aeb5632b4affecf56b0785dd3dc3",
+        "member-subdirectory": "f13002b76ae4d7551c211968a34139f367e7aeb5632b4affecf56b0785dd3dc3",
+        "workspace": "641bbc6c39d8d86b24e1dfa8182e6c86ae1b680064202555e935e7de7362e00f"
       },
       "empty": {
-        "member-manifest": "9b8f946da462d989732c744125f7ca28005f81d20b7ec3a0464586d97e414eb2",
-        "member-subdirectory": "9b8f946da462d989732c744125f7ca28005f81d20b7ec3a0464586d97e414eb2",
-        "workspace": "558e0da2cd5340ce6b9a8de66ea9c60d4e6df76453a2199746e47ed8bdacc503"
+        "member-manifest": "238df98e47e56dce96fb4ab1815044722fbf2e786919cd0790a3324a48df24bd",
+        "member-subdirectory": "238df98e47e56dce96fb4ab1815044722fbf2e786919cd0790a3324a48df24bd",
+        "workspace": "e990666263e2e804674937e22cd3f792f09f93c9081a7dfc3bb3892fb17ddc03"
       },
       "request-blocking": {
-        "member-manifest": "3a3fffea14f20342ac0a3ee33fb1c69c0efb9e6c5b77a9f72201952994d99d1f",
-        "member-subdirectory": "3a3fffea14f20342ac0a3ee33fb1c69c0efb9e6c5b77a9f72201952994d99d1f",
-        "workspace": "e6f9e6d10bc2815ccbb4c9c2562c5a63b0510ff1e767dae7a19a745c94742464"
+        "member-manifest": "5350fb8fe72170a242b41e776f64675626a2db28d41f8c51536442c511d48b1d",
+        "member-subdirectory": "5350fb8fe72170a242b41e776f64675626a2db28d41f8c51536442c511d48b1d",
+        "workspace": "0c3e426c303024be5d88380636e3a23b419f2dbf9bcec772ade614ca91c842b4"
       },
       "request-category-off": {
-        "member-manifest": "92ebb158a721b4adca8c2eb69c902c031ca91cf1f5ca06eaeaa7bf370e717be8",
-        "member-subdirectory": "92ebb158a721b4adca8c2eb69c902c031ca91cf1f5ca06eaeaa7bf370e717be8",
-        "workspace": "fa9dd03e2b984540af3cd0d2e33e3bea2ad078db5cc13c339202280e416a58e2"
+        "member-manifest": "0cc982701074d3600ea5804b94438d1c6797abebe0692bd9742beba5d0dcbac2",
+        "member-subdirectory": "0cc982701074d3600ea5804b94438d1c6797abebe0692bd9742beba5d0dcbac2",
+        "workspace": "f16402c78384afd19ac04cb4115d93e499e63aca89905c9bb170e7adb4de9222"
       },
       "shell-reactivated": {
-        "member-manifest": "1b2ac5f711c629c4f5a6594894980b0a2a21098babc2efc86174cf15fba69123",
-        "member-subdirectory": "1b2ac5f711c629c4f5a6594894980b0a2a21098babc2efc86174cf15fba69123",
-        "workspace": "562937a21a2964079551a1c66cedb9cffdf1b729ec6236fe322ae0d0543e1eea"
+        "member-manifest": "aa50083cb808b31497fe3461b72d2f047d35738b7c13780a7cadaa0ab5188d1d",
+        "member-subdirectory": "aa50083cb808b31497fe3461b72d2f047d35738b7c13780a7cadaa0ab5188d1d",
+        "workspace": "c3d7435dc018bb5a0e210ebeb9e93674d6ee24f909370e1fa6eb77e9761322b8"
       }
     },
     "policy_disabled_clippy_rules": {
@@ -307,6 +317,7 @@
         "clippy::bad_bit_mask",
         "clippy::cast_slice_different_sizes",
         "clippy::char_indices_as_byte_indices",
+        "clippy::crosspointer_transmute",
         "clippy::dbg_macro",
         "clippy::deprecated_semver",
         "clippy::derive_ord_xor_partial_ord",
@@ -340,6 +351,7 @@
         "clippy::mem_replace_with_uninit",
         "clippy::min_max",
         "clippy::missing_safety_doc",
+        "clippy::missing_transmute_annotations",
         "clippy::mistyped_literal_suffixes",
         "clippy::modulo_one",
         "clippy::mut_from_ref",
@@ -378,6 +390,7 @@
         "clippy::transmute_null_to_fn",
         "clippy::transmuting_null",
         "clippy::type_complexity",
+        "clippy::undocumented_unsafe_blocks",
         "clippy::unimplemented",
         "clippy::uninit_assumed_init",
         "clippy::uninit_vec",

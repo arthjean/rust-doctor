@@ -55,3 +55,14 @@ pub fn shell_imported_command(user: &str) {
 pub fn write_report(buffer: &mut Vec<u8>) -> std::io::Result<()> {
     buffer.write_all(b"report")
 }
+
+pub fn shell_variable_builder(user: &str) {
+    let mut stored = std::process::Command::new("sh");
+    let _ = stored.arg("-c").arg(format!("echo {user}"));
+}
+
+const INSECURE: bool = true;
+
+pub fn tls_const_flag() {
+    let _ = http_client::Client::builder().danger_accept_invalid_certs(INSECURE);
+}

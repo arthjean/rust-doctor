@@ -314,3 +314,53 @@ fn the_readme_rule_count_matches_the_published_catalog() {
         "README no longer states \"{expected}\""
     );
 }
+
+/// US-032: a workspace with no `unsafe` code carries none of the unsafe and
+/// transmute lints the catalog admitted. This repository is one: the
+/// precondition is read from the syntax of every file under `src/`, so an
+/// `unsafe` inside a string or a comment does not count, and the scan is the
+/// one a user runs.
+#[test]
+fn a_workspace_without_unsafe_code_fires_no_unsafe_lint() {
+    const UNSAFE_LINTS: [&str; 3] = [
+        "clippy::crosspointer_transmute",
+        "clippy::missing_transmute_annotations",
+        "clippy::undocumented_unsafe_blocks",
+    ];
+    let catalog = catalogued();
+    assert!(UNSAFE_LINTS.iter().all(|id| catalog.contains(*id)));
+
+    let mut pending = vec![repository().join("src")];
+    let mut files = 0;
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).expect("src/ should be readable") {
+            let path = entry.expect("a directory entry should be readable").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                files += 1;
+                let text = fs::read_to_string(&path).expect("a source file should be readable");
+                let parse = ra_ap_syntax::SourceFile::parse(&text, ra_ap_syntax::Edition::Edition2024);
+                assert!(
+                    parse
+                        .syntax_node()
+                        .descendants_with_tokens()
+                        .all(|element| element.kind() != ra_ap_syntax::SyntaxKind::UNSAFE_KW),
+                    "{} holds unsafe code",
+                    path.display()
+                );
+            }
+        }
+    }
+    assert!(files > 100, "the walk read {files} files");
+
+    let report = inspect(InspectRequest::new(repository()));
+    assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
+    let fired: Vec<&str> = report
+        .diagnostics
+        .iter()
+        .filter_map(|diagnostic| diagnostic.code.as_deref())
+        .filter(|code| UNSAFE_LINTS.contains(code))
+        .collect();
+    assert!(fired.is_empty(), "the self-scan reported {fired:?}");
+}

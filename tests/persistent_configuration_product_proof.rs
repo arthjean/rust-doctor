@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use support::rule_scaling::oracle;
 
 const SHELL_RULE: &str = "rust_doctor::source::dynamic_shell_command";
-const RULES: [&str; 126] = [
+const RULES: [&str; 133] = [
     "clippy::absurd_extreme_comparisons",
     "clippy::almost_swapped",
     "clippy::approx_constant",
@@ -26,6 +26,7 @@ const RULES: [&str; 126] = [
     "clippy::bad_bit_mask",
     "clippy::cast_slice_different_sizes",
     "clippy::char_indices_as_byte_indices",
+    "clippy::crosspointer_transmute",
     "clippy::dbg_macro",
     "clippy::deprecated_semver",
     "clippy::derive_ord_xor_partial_ord",
@@ -59,6 +60,7 @@ const RULES: [&str; 126] = [
     "clippy::mem_replace_with_uninit",
     "clippy::min_max",
     "clippy::missing_safety_doc",
+    "clippy::missing_transmute_annotations",
     "clippy::mistyped_literal_suffixes",
     "clippy::modulo_one",
     "clippy::mut_from_ref",
@@ -97,6 +99,7 @@ const RULES: [&str; 126] = [
     "clippy::transmute_null_to_fn",
     "clippy::transmuting_null",
     "clippy::type_complexity",
+    "clippy::undocumented_unsafe_blocks",
     "clippy::unimplemented",
     "clippy::uninit_assumed_init",
     "clippy::uninit_vec",
@@ -126,13 +129,17 @@ const RULES: [&str; 126] = [
     "rust_doctor::cargo::test_only_dependency",
     "rust_doctor::cargo::unbounded_registry_dependency",
     "rust_doctor::cargo::unchecked_release_overflow",
+    "rust_doctor::cargo::unmaintained_dependency",
     "rust_doctor::cargo::unpinned_git_dependency",
     "rust_doctor::cargo::unused_dependency",
+    "rust_doctor::cargo::vulnerable_dependency",
     "rust_doctor::repo::hardcoded_credential",
     "rust_doctor::repo::tracked_secret_file",
     "rust_doctor::repo::unignored_build_output",
+    "rust_doctor::source::blocking_call_in_async",
     "rust_doctor::source::disabled_tls_verification",
     SHELL_RULE,
+    "rust_doctor::source::sql_built_from_format",
     "rust_doctor::structure::complex_function",
     "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::duplicate_function_body",
@@ -491,9 +498,9 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
                 }
             }
             let report = first_report.unwrap();
-            assert_eq!(report["schema_version"], 19);
+            assert_eq!(report["schema_version"], 21);
             assert_eq!(report["project"]["manifest_path"], expected_manifest);
-            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 126);
+            assert_eq!(report["policy"]["rules"].as_array().unwrap().len(), 133);
             let rule_ids: Vec<_> = report["policy"]["rules"]
                 .as_array()
                 .unwrap()
@@ -685,7 +692,7 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         assert_eq!((metadata, tool_versions, clippy), (1, 0, 0));
         assert!(!execution_started);
         let report = report(&output);
-        assert_eq!(report["schema_version"], 19);
+        assert_eq!(report["schema_version"], 21);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["gate"]["status"], "not-evaluated");

@@ -15,9 +15,10 @@ use std::path::Path;
 use cargo_metadata::Metadata;
 use serde::Deserialize;
 
+use super::advisories::{self, AdvisoryDatabase};
 use super::{
-    CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE, Candidate, CargoHealthError,
-    CargoHealthScan, produces_a_binary, workspace_packages,
+    ADVISORY_RULES, CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE, Candidate,
+    CargoHealthError, CargoHealthScan, produces_a_binary, workspace_packages,
 };
 use crate::policy::ActiveRules;
 
@@ -45,6 +46,7 @@ struct LockDocument {
 struct LockPackage {
     name: Option<String>,
     version: Option<String>,
+    source: Option<String>,
     #[serde(default)]
     dependencies: Vec<String>,
 }
@@ -55,6 +57,8 @@ struct LockPackage {
 pub(super) struct LockedPackage {
     pub(super) name: String,
     pub(super) version: String,
+    /// Where the package comes from, absent for a path or workspace member.
+    pub(super) source: Option<String>,
     pub(super) dependencies: Vec<String>,
 }
 
@@ -65,20 +69,34 @@ enum Resolution {
     Absent,
     /// The file exists but its resolution section is unusable.
     Unusable(CargoHealthError),
-    /// The resolved graph, in file order.
-    Packages(Vec<LockedPackage>),
+    /// The resolved graph, in file order, and the text it was read from.
+    Packages(Vec<LockedPackage>, String),
 }
 
-/// The two rules that read the resolved graph rather than the manifests.
-pub(super) fn inspect_resolution(metadata: &Metadata, active: &ActiveRules, scan: &mut CargoHealthScan) {
+/// The four rules that read the resolved graph rather than the manifests.
+pub(super) fn inspect_resolution(
+    metadata: &Metadata,
+    active: &ActiveRules,
+    database: Option<&AdvisoryDatabase>,
+    scan: &mut CargoHealthScan,
+) {
     let missing_lockfile = active.on(&CARGO_MISSING_LOCKFILE);
     let duplicate_majors = active.on(&CARGO_DUPLICATE_MAJOR_VERSIONS);
-    if !missing_lockfile && !duplicate_majors {
+    let advisories = active.any_of(&ADVISORY_RULES);
+    if !missing_lockfile && !duplicate_majors && !advisories {
         return;
     }
     let workspace_root = metadata.workspace_root.as_std_path();
 
-    match read_resolution(workspace_root) {
+    let resolution = read_resolution(workspace_root);
+    if advisories {
+        let (packages, text) = match &resolution {
+            Resolution::Packages(packages, text) => (packages.as_slice(), text.as_str()),
+            Resolution::Absent | Resolution::Unusable(_) => (&[][..], ""),
+        };
+        advisories::inspect(database, packages, text, &resolution_owner(metadata), active, scan);
+    }
+    match resolution {
         Resolution::Absent if missing_lockfile => {
             for package in workspace_packages(metadata).filter(|package| produces_a_binary(package))
             {
@@ -104,7 +122,7 @@ pub(super) fn inspect_resolution(metadata: &Metadata, active: &ActiveRules, scan
         }
         Resolution::Absent => {}
         Resolution::Unusable(error) => scan.errors.push(error),
-        Resolution::Packages(packages) => {
+        Resolution::Packages(packages, _) => {
             scan.counters.resolved_packages = packages.len();
             if duplicate_majors {
                 let owner = resolution_owner(metadata);
@@ -181,6 +199,7 @@ fn read_resolution(workspace_root: &Path) -> Resolution {
             Some(LockedPackage {
                 name: entry.name.clone()?,
                 version: entry.version.clone()?,
+                source: entry.source.clone(),
                 dependencies: entry.dependencies.clone(),
             })
         })
@@ -191,7 +210,7 @@ fn read_resolution(workspace_root: &Path) -> Resolution {
             message: "the lockfile carries a resolved package without a name or a version",
         });
     }
-    Resolution::Packages(packages)
+    Resolution::Packages(packages, contents)
 }
 
 /// How one version of a duplicated crate reaches the workspace.

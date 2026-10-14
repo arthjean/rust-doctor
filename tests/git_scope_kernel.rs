@@ -70,6 +70,7 @@ fn cli(path: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("inspect")
         .arg("--json")
+        .args(support::NO_ADVISORY_DB)
         .args(arguments)
         .arg(path)
         .env("CARGO_NET_OFFLINE", "true")
@@ -187,6 +188,7 @@ fn instrumented_cli(root: &Path, arguments: &[&str], scope: &str) -> (Output, Ve
     let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("inspect")
         .arg("--json")
+        .args(support::NO_ADVISORY_DB)
         .args(arguments)
         .arg(root)
         .env("PATH", processes.command_path())
@@ -226,7 +228,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 19);
+    assert_eq!(full.schema_version, 21);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -569,7 +571,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 19);
+        assert_eq!(report.schema_version, 21);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

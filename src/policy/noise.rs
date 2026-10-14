@@ -105,7 +105,7 @@ impl CorpusMeasurement {
 }
 
 /// The sample the pinned corpus adjudicated per rule, sorted by id.
-pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
+pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 23] = [
     CorpusMeasurement::new("clippy::exit", 5, 5),
     CorpusMeasurement::new("clippy::expect_used", 4, 5),
     CorpusMeasurement::new("clippy::indexing_slicing", 40, 40),
@@ -119,6 +119,7 @@ pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
     CorpusMeasurement::new("clippy::stable_sort_primitive", 0, 1),
     CorpusMeasurement::new("clippy::string_slice", 40, 40),
     CorpusMeasurement::new("clippy::too_many_arguments", 1, 1),
+    CorpusMeasurement::new("clippy::undocumented_unsafe_blocks", 3, 15),
     CorpusMeasurement::new("clippy::unreachable", 4, 5),
     CorpusMeasurement::new("clippy::unwrap_used", 5, 5),
     CorpusMeasurement::new("rust_doctor::cargo::duplicate_major_versions", 0, 1),

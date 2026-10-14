@@ -12,7 +12,8 @@
       "producer": "clippy",
       "default_level": "warn",
       "tier": "P3",
-      "help": "Remove dbg! or replace it with intentional logging."
+      "help": "Remove dbg! or replace it with intentional logging.",
+      "diff_scope": "line"
     },
     {
       "id": "clippy::todo",
@@ -20,7 +21,8 @@
       "producer": "clippy",
       "default_level": "warn",
       "tier": "P2",
-      "help": "Replace todo! with the intended implementation or remove the reachable placeholder."
+      "help": "Replace todo! with the intended implementation or remove the reachable placeholder.",
+      "diff_scope": "line"
     },
     {
       "id": "clippy::unimplemented",
@@ -28,7 +30,8 @@
       "producer": "clippy",
       "default_level": "warn",
       "tier": "P1",
-      "help": "Implement this code path or remove the reachable placeholder."
+      "help": "Implement this code path or remove the reachable placeholder.",
+      "diff_scope": "line"
     },
     {
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
@@ -36,7 +39,8 @@
       "producer": "cargo-health",
       "default_level": "warn",
       "tier": "P3",
-      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project."
+      "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
+      "diff_scope": "line"
     },
     {
       "id": "rust_doctor::cargo::unpinned_git_dependency",
@@ -44,7 +48,8 @@
       "producer": "cargo-health",
       "default_level": "warn",
       "tier": "P1",
-      "help": "Set rev to the full 40-character commit SHA intended by the project."
+      "help": "Set rev to the full 40-character commit SHA intended by the project.",
+      "diff_scope": "line"
     },
     {
       "id": "rust_doctor::source::disabled_tls_verification",
@@ -52,7 +57,8 @@
       "producer": "source-kernel",
       "default_level": "warn",
       "tier": "P0",
-      "help": "Keep TLS verification enabled and configure the required trust roots or server name instead."
+      "help": "Keep TLS verification enabled and configure the required trust roots or server name instead.",
+      "diff_scope": "item"
     },
     {
       "id": "rust_doctor::source::dynamic_shell_command",
@@ -60,7 +66,8 @@
       "producer": "source-kernel",
       "default_level": "warn",
       "tier": "P0",
-      "help": "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary."
+      "help": "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
+      "diff_scope": "item"
     }
   ],
   "clippy_command": [

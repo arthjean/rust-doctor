@@ -209,6 +209,11 @@ impl PreparedInspection {
         self.target.workspace_root()
     }
 
+    /// Where discovery found the workspace below the requested path.
+    pub(crate) fn discovered(&self) -> Option<&str> {
+        self.target.discovered.as_deref()
+    }
+
     /// Refuses a `--package` selection naming anything but a member.
     pub(crate) fn check_packages(&self, selected: &BTreeSet<String>) -> Result<(), InternalError> {
         exclusions::check_packages(&self.target.metadata, selected)
@@ -255,6 +260,9 @@ pub(crate) struct RunOptions {
     /// `None` scans every member. A selection is checked against the
     /// workspace before the run starts, so every name in it is a member.
     pub(crate) packages: Option<BTreeSet<String>>,
+    /// The RustSec database the advisory rules read, `None` when there is
+    /// none to read.
+    pub(crate) advisory_db: Option<cargo_health::AdvisoryDatabase>,
 }
 
 /// Everything one run holds constant, gathered once.
@@ -420,6 +428,7 @@ impl ExecutionContext<'_> {
         let ResolvedScanTarget {
             manifest_path,
             metadata,
+            ..
         } = target;
         let source_rules = self.active(Producer::SourceKernel);
         let structure_rules = self.active(Producer::Structure);
@@ -434,7 +443,7 @@ impl ExecutionContext<'_> {
         // tool just wrote instead of the one the repository commits.
         let mut cargo_health = self
             .active(Producer::CargoHealth)
-            .then(|| cargo_health::inspect(&metadata, self.plan));
+            .then(|| cargo_health::inspect(&metadata, self.plan, self.options.advisory_db.as_ref()));
         // The repository pass reads git, not Cargo: it sits in the
         // manifest-level slot beside the dependency pack, before the
         // compilation that Clippy triggers, and reads nothing that pass will

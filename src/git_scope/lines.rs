@@ -5,8 +5,9 @@
 //! following hunks belong to, and `@@ ` opens a hunk and states both sides'
 //! counts, which is how many content lines follow and are skipped unread.
 //! Everything else is metadata this scope has no use for. A
-//! pure deletion states a count of zero and contributes no range, and a file
-//! whose new side is `/dev/null` was deleted and has none either.
+//! pure deletion states a count of zero and contributes no range but a point,
+//! the new-side line the removed ones followed, and a file whose new side is
+//! `/dev/null` was deleted and has neither.
 
 use std::collections::BTreeMap;
 
@@ -15,8 +16,27 @@ use crate::workspace_path;
 
 use super::{PATH_LIMIT, STAGE, invalid_path};
 
-/// Inclusive `[first, last]` new-side line ranges, per workspace-relative path.
-pub(crate) type LineRanges = BTreeMap<String, Vec<(usize, usize)>>;
+/// What a diff changed in each file, per workspace-relative path.
+pub(crate) type LineRanges = BTreeMap<String, FileChanges>;
+
+/// What a diff changed in one file, on its new side.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct FileChanges {
+    /// Inclusive `[first, last]` ranges of added or rewritten lines.
+    pub(crate) ranges: Vec<(usize, usize)>,
+    /// Where a pure deletion removed lines: the new-side line they followed,
+    /// `0` at the top of the file. A point holds no line, so no span meets it:
+    /// it makes the file changed, and a scope that reads the enclosing item
+    /// counts it there.
+    pub(crate) deletions: Vec<usize>,
+}
+
+/// The new side of one hunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NewSide {
+    Lines(usize, usize),
+    After(usize),
+}
 
 pub(super) fn parse_patch(output: &[u8]) -> Result<LineRanges, InternalError> {
     let mut ranges = LineRanges::new();
@@ -43,13 +63,19 @@ pub(super) fn parse_patch(output: &[u8]) -> Result<LineRanges, InternalError> {
             current = Some(new_side_path(target)?);
         } else if let Some(header) = line.strip_prefix(b"@@ ") {
             let path = current.as_ref().ok_or_else(invalid_patch)?;
-            let (old_count, range) = hunk_counts(header)?;
-            if let (Some(path), Some(range)) = (path, range) {
-                ranges.entry(path.clone()).or_default().push(range);
+            let (old_count, side) = hunk_counts(header)?;
+            if let Some(path) = path {
+                let changes = ranges.entry(path.clone()).or_default();
+                match side {
+                    NewSide::Lines(start, last) => changes.ranges.push((start, last)),
+                    NewSide::After(line) => changes.deletions.push(line),
+                }
             }
-            pending = old_count
-                .checked_add(range.map_or(0, |(start, last)| last - start + 1))
-                .ok_or_else(invalid_patch)?;
+            let added = match side {
+                NewSide::Lines(start, last) => last - start + 1,
+                NewSide::After(_) => 0,
+            };
+            pending = old_count.checked_add(added).ok_or_else(invalid_patch)?;
         }
     }
     if pending > 0 {
@@ -82,9 +108,9 @@ fn new_side_path(target: &[u8]) -> Result<Option<String>, InternalError> {
         .ok_or_else(invalid_path)
 }
 
-/// The old-side count and the new-side range of `-a,b +c,d @@`, the range
-/// `None` when `d` is zero.
-fn hunk_counts(header: &[u8]) -> Result<(usize, Option<(usize, usize)>), InternalError> {
+/// The old-side count and the new side of `-a,b +c,d @@`: the range of lines,
+/// or the line `c` the deletion followed when `d` is zero.
+fn hunk_counts(header: &[u8]) -> Result<(usize, NewSide), InternalError> {
     let header = std::str::from_utf8(header).map_err(|_| invalid_patch())?;
     let side = |sign: char| -> Result<(usize, usize), InternalError> {
         let field = header
@@ -100,13 +126,13 @@ fn hunk_counts(header: &[u8]) -> Result<(usize, Option<(usize, usize)>), Interna
     let (_, old_count) = side('-')?;
     let (start, count) = side('+')?;
     if count == 0 {
-        return Ok((old_count, None));
+        return Ok((old_count, NewSide::After(start)));
     }
     let last = start
         .checked_add(count - 1)
         .filter(|_| start > 0)
         .ok_or_else(invalid_patch)?;
-    Ok((old_count, Some((start, last))))
+    Ok((old_count, NewSide::Lines(start, last)))
 }
 
 /// Undoes git's C-style quoting of a path: `\"`, `\\`, the named escapes and
@@ -158,7 +184,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hunks_land_on_their_new_side_path_and_deletions_add_nothing() {
+    fn hunks_land_on_their_new_side_path_and_deletions_add_a_point() {
         let patch = b"diff --git a/gone.rs b/gone.rs\n\
 deleted file mode 100644\n\
 --- a/gone.rs\n\
@@ -200,13 +226,20 @@ rename to moved.rs\n\
 -a\n\
 +b\n";
         let ranges = parse_patch(patch).unwrap();
+        let lines = |ranges: Vec<(usize, usize)>, deletions: Vec<usize>| FileChanges {
+            ranges,
+            deletions,
+        };
         assert_eq!(
             ranges,
             LineRanges::from([
-                ("moved.rs".to_owned(), vec![(3, 3)]),
-                ("q\"t.rs".to_owned(), vec![(1, 1)]),
-                ("sp ace.rs".to_owned(), vec![(2, 2), (4, 4), (10, 12)]),
-                ("é.rs".to_owned(), vec![(1, 1)]),
+                ("moved.rs".to_owned(), lines(vec![(3, 3)], vec![])),
+                ("q\"t.rs".to_owned(), lines(vec![(1, 1)], vec![])),
+                (
+                    "sp ace.rs".to_owned(),
+                    lines(vec![(2, 2), (4, 4), (10, 12)], vec![6])
+                ),
+                ("é.rs".to_owned(), lines(vec![(1, 1)], vec![])),
             ])
         );
     }

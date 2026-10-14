@@ -28,10 +28,12 @@ use std::path::Path;
 use serde::{Serialize, Serializer};
 
 use crate::internal_error::InternalError;
+use crate::policy::DiffScope;
 use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git, run_git_with_index};
 use crate::workspace_path;
 
 mod base;
+mod items;
 mod lines;
 #[cfg(test)]
 mod tests;
@@ -80,6 +82,9 @@ pub(crate) enum ChangeMode {
     Files,
     /// The changed lines of the changed files.
     Lines,
+    /// The changed lines, plus the functions holding them for a rule whose
+    /// cause can sit above the line it reports.
+    Contextual,
     /// What the change introduced, against a scan of the base.
     Baseline,
 }
@@ -215,6 +220,7 @@ pub enum ScopeMode {
     Full,
     Files,
     Lines,
+    Contextual,
     Baseline,
 }
 
@@ -251,10 +257,12 @@ pub(crate) enum ResolvedScope {
     },
     /// `files` is every path with a changed line, plus every untracked file the
     /// caller included; a path absent from `ranges` is changed whole.
+    /// `contextual` widens an item-reach rule to its enclosing function.
     Lines {
         comparison_base: String,
         files: Vec<String>,
         ranges: LineRanges,
+        contextual: bool,
     },
     Baseline {
         comparison_base: String,
@@ -277,7 +285,12 @@ impl ScopeReport {
         match self.kind {
             ResolvedScope::Full => ScopeMode::Full,
             ResolvedScope::Files { .. } => ScopeMode::Files,
-            ResolvedScope::Lines { .. } => ScopeMode::Lines,
+            ResolvedScope::Lines {
+                contextual: false, ..
+            } => ScopeMode::Lines,
+            ResolvedScope::Lines {
+                contextual: true, ..
+            } => ScopeMode::Contextual,
             ResolvedScope::Baseline { .. } => ScopeMode::Baseline,
         }
     }
@@ -370,12 +383,14 @@ impl ScopeReport {
         comparison_base: String,
         ranges: LineRanges,
         untracked: Vec<String>,
+        contextual: bool,
     ) -> Result<Self, InternalError> {
         let files = ranges.keys().cloned().chain(untracked).collect();
         let scope = Self::of(ResolvedScope::Lines {
             comparison_base,
             files: sorted(files),
             ranges,
+            contextual,
         });
         scope.ensure_output_bound()?;
         Ok(scope)
@@ -405,8 +420,10 @@ impl ScopeReport {
     /// Whether a diagnostic at `path` spanning `lines` belongs to the scope.
     ///
     /// A files scope asks for the path alone. A lines scope also needs the
-    /// span to meet a changed range, so a finding with no span is out of it,
-    /// as a finding with no path is out of both.
+    /// span to meet a changed range. A finding with no span is about its
+    /// whole file, a dependency declared in a manifest or a lockfile entry,
+    /// so it is in a lines scope exactly when its file changed. A finding with
+    /// no path is out of both.
     pub(crate) fn includes_span(&self, path: Option<&str>, lines: Option<(usize, usize)>) -> bool {
         let (files, ranges) = match &self.kind {
             ResolvedScope::Full | ResolvedScope::Baseline { .. } => return true,
@@ -420,13 +437,57 @@ impl ScopeReport {
             .binary_search_by(|candidate| candidate.as_str().cmp(path))
             .is_ok();
         match (ranges.map(|ranges| ranges.get(path)), lines) {
-            (None, _) => listed,
-            (Some(_), None) => false,
-            // Listed without ranges: an untracked file, changed whole.
-            (Some(None), Some(_)) => listed,
+            // A files scope, a span-less finding, or a file listed without
+            // ranges: an untracked file, changed whole.
+            (None, _) | (Some(_), None) | (Some(None), Some(_)) => listed,
             (Some(Some(changed)), Some((first, last))) => changed
+                .ranges
                 .iter()
                 .any(|(start, end)| first <= *end && *start <= last),
+        }
+    }
+}
+
+impl ScopeReport {
+    /// Whether a diagnostic belongs to the scope once its rule's reach is
+    /// read: what [`Self::includes_span`] keeps, plus, under a contextual
+    /// scope, an item-reach finding whose enclosing function changed and a
+    /// file-reach finding whose file changed. `source` reads a file of the
+    /// judged tree, and is asked only for an item-reach finding the line test
+    /// did not keep. A line-reach rule is never widened.
+    pub(crate) fn includes_reach(
+        &self,
+        path: Option<&str>,
+        lines: Option<(usize, usize)>,
+        reach: DiffScope,
+        source: impl FnOnce(&str) -> Option<String>,
+    ) -> bool {
+        if self.includes_span(path, lines) {
+            return true;
+        }
+        let (
+            ResolvedScope::Lines {
+                files,
+                ranges,
+                contextual: true,
+                ..
+            },
+            Some(path),
+            Some((line, _)),
+        ) = (&self.kind, path, lines)
+        else {
+            return false;
+        };
+        match reach {
+            DiffScope::Line => false,
+            DiffScope::File => files
+                .binary_search_by(|candidate| candidate.as_str().cmp(path))
+                .is_ok(),
+            DiffScope::Item => ranges.get(path).is_some_and(|changes| {
+                source(path)
+                    .and_then(|text| items::enclosing_fn(&text, line))
+                    .is_some_and(|item| item.holds(changes))
+            }),
         }
     }
 }
@@ -484,7 +545,9 @@ fn resolve_with(
     let mut report = match change.mode {
         ChangeMode::Baseline => ScopeReport::baseline_scope(comparison_base),
         ChangeMode::Files => changed_files(change, comparison_base, workspace_root, &mut run)?,
-        ChangeMode::Lines => changed_lines(change, comparison_base, workspace_root, &mut run)?,
+        ChangeMode::Lines | ChangeMode::Contextual => {
+            changed_lines(change, comparison_base, workspace_root, &mut run)?
+        }
     };
     // Only a base the repository answered for is published: one the caller
     // named is the caller's, and no report of this crate carries it.
@@ -574,7 +637,12 @@ fn changed_lines(
     } else {
         Vec::new()
     };
-    ScopeReport::lines_scope(comparison_base, lines::parse_patch(&patch)?, included)
+    ScopeReport::lines_scope(
+        comparison_base,
+        lines::parse_patch(&patch)?,
+        included,
+        change.mode == ChangeMode::Contextual,
+    )
 }
 
 /// The untracked Rust files a scope could have judged and did not: counted

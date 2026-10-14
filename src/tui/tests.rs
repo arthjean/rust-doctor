@@ -457,6 +457,7 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
             noise_lines: Some(0),
             ignored: 0,
             excluded_generated: 0,
+            advisory_db: None,
         },
         diagnostics: Vec::new(),
         suppressions: Vec::new(),

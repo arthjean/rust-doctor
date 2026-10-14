@@ -198,7 +198,7 @@ fn a_report_that_cannot_be_trusted_is_refused_with_nothing_on_stdout() {
     other_schema["schema_version"] = json!(17);
     let cases = [
         ("other-schema.json", serde_json::to_vec(&other_schema).unwrap()),
-        ("invalid.json", b"{\"schema_version\": 19,".to_vec()),
+        ("invalid.json", b"{\"schema_version\": 20,".to_vec()),
     ];
     for (name, content) in cases {
         let path = root.join(name);

@@ -376,11 +376,11 @@ fn a_line_the_scan_budget_cut_short_is_never_shown() {
     fs::write(&path, "one\ntwo\nthree\n").unwrap();
 
     // Seven bytes reach the end of "one\n" and stop three bytes into "two\n".
-    let cut = read_window(File::open(&path).unwrap(), 1, 7).unwrap();
+    let (cut, _) = read_window(File::open(&path).unwrap(), 1, 7).unwrap();
     assert_eq!(cut, vec!["one".to_owned()]);
 
     // The same read with the budget landing on a line terminator keeps the line.
-    let whole = read_window(File::open(&path).unwrap(), 1, 8).unwrap();
+    let (whole, _) = read_window(File::open(&path).unwrap(), 1, 8).unwrap();
     assert_eq!(whole, vec!["one".to_owned(), "two".to_owned()]);
 
     fs::remove_dir_all(root).unwrap();
@@ -428,4 +428,95 @@ fn terminal_width_is_exact_because_non_ascii_is_escaped() {
         "\\u{2764}\\u{FE0F}1\\u{FE0F}\\u{20E3}"
     );
     assert_eq!(sanitize_line("a\tb").text, "a   b");
+}
+
+/// US-001: a key the repository pass matches never reaches a frame, on the
+/// reported line or around it, and the caret covers what replaced it.
+#[test]
+fn every_credential_of_a_frame_is_masked_and_the_caret_covers_the_mask() {
+    let root = scratch("presentation-tests", "redaction");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let aws = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+    let slack = format!("xoxb-{}", "1234567890ab");
+    fs::write(
+        root.join("src/lib.rs"),
+        format!("// {slack}\nconst A: &str = \"{aws}\"; const B: &str = \"{slack}\";\nfn f() {{}}\n"),
+    )
+    .unwrap();
+    let column_start = "const A: &str = \"".len() + 1;
+    let location = at("src/lib.rs", 2, column_start, column_start + aws.len());
+    let frame = code_frame(&root, &location).unwrap();
+    let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+    for text in &rendered {
+        assert!(!text.contains(&aws) && !text.contains(&slack), "{rendered:?}");
+    }
+    assert_eq!(rendered[0], "// xoxb<redacted>");
+    let reported = primary(&frame);
+    assert_eq!(
+        reported.text,
+        "const A: &str = \"AKIA<redacted>\"; const B: &str = \"xoxb<redacted>\";"
+    );
+    let marker = reported.marker.unwrap();
+    let masked = &reported.text[marker.column_start - 1..marker.column_end - 1];
+    assert_eq!(masked, "AKIA<redacted>");
+}
+
+/// A value too short to spare four characters keeps none of them, and the
+/// body of a PEM key the frame opened is masked whole.
+#[test]
+fn a_short_value_and_a_private_key_body_print_no_character_of_the_key() {
+    assert_eq!(masked("sk-1234"), REDACTED);
+    assert_eq!(masked("sk-12345"), format!("sk-1{REDACTED}"));
+    let mut in_body = false;
+    assert_eq!(redact_line("x", &mut in_body).text, "x");
+    let edit = ColumnEdit {
+        start: 2,
+        end: 9,
+        width: REDACTED.len(),
+    };
+    let short = RedactedLine {
+        text: format!("a {REDACTED} b"),
+        edits: vec![edit],
+    };
+    assert_eq!(short.column(3), 3);
+    assert_eq!(short.column(10), 3 + REDACTED.len());
+
+    let root = scratch("presentation-tests", "pem");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7";
+    fs::write(
+        root.join("src/key.pem"),
+        format!("-----BEGIN {}PRIVATE KEY-----\n{body}\n{body}\n-----END PRIVATE KEY-----\n", "RSA "),
+    )
+    .unwrap();
+    let frame = code_frame(&root, &at("src/key.pem", 1, 1, 32)).unwrap();
+    let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(rendered[0], "----<redacted>");
+    assert_eq!(rendered[1], REDACTED);
+    assert_eq!(rendered[2], REDACTED);
+    assert_eq!(rendered[3], "-----END PRIVATE KEY-----");
+}
+
+/// A frame whose window opens inside a PEM body, below a header it does not
+/// show, still masks the body: the header read on the way to the window is
+/// what says the key is open.
+#[test]
+fn a_window_opening_inside_a_private_key_body_masks_it() {
+    let root = scratch("presentation-tests", "pem-window");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7";
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "const KEY: &str = \"-----BEGIN {}PRIVATE KEY-----\n{body}\n{body}\n{body}\n\
+             -----END PRIVATE KEY-----\";\nfn f() {{}}\n",
+            "RSA "
+        ),
+    )
+    .unwrap();
+    let frame = code_frame(&root, &at("src/lib.rs", 6, 1, 10)).unwrap();
+    let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(rendered[0], REDACTED, "{rendered:?}");
+    assert!(rendered.iter().all(|text| !text.contains(body)), "{rendered:?}");
+    assert_eq!(rendered[1], "-----END PRIVATE KEY-----\";");
 }

@@ -11,6 +11,11 @@ use rust_doctor::{Diagnostic, DiagnosticSource, InspectRequest, Status, inspect}
 use serde_json::Value;
 
 const DETECTORS: &str = include_str!("../src/source_kernel/detectors.rs");
+/// The detector families that live in modules of their own.
+const FAMILIES: [(&str, &str); 2] = [
+    ("blocking.rs", include_str!("../src/source_kernel/detectors/blocking.rs")),
+    ("sql.rs", include_str!("../src/source_kernel/detectors/sql.rs")),
+];
 const KERNEL: &str = include_str!("../src/source_kernel.rs");
 
 fn fixture(name: &str) -> PathBuf {
@@ -115,16 +120,24 @@ fn imported_forms_are_reported_like_fully_qualified_ones() {
 
 /// US-069: no literal path comparison survives in the detectors. This test
 /// fails if a qualified path string reappears in them.
+///
+/// The one place a qualified path may be written is a `#[cfg(test)]` variant
+/// table, whose strings are source text the US-033 gate renders and parses,
+/// never compared against anything a detector reads.
 #[test]
 fn no_detector_compares_a_written_qualified_path() {
-    let offending: Vec<_> = DETECTORS
-        .lines()
-        .enumerate()
-        .flat_map(|(index, line)| {
-            string_literals(line)
+    let offending: Vec<_> = [("detectors.rs", DETECTORS)]
+        .into_iter()
+        .chain(FAMILIES)
+        .flat_map(|(file, source)| {
+            outside_variant_tables(source)
                 .into_iter()
-                .filter(|literal| literal.contains("::"))
-                .map(move |literal| format!("line {}: {literal}", index + 1))
+                .flat_map(move |(number, line)| {
+                    string_literals(line)
+                        .into_iter()
+                        .filter(|literal| literal.contains("::"))
+                        .map(move |literal| format!("{file}:{number}: {literal}"))
+                })
         })
         .collect();
 
@@ -136,6 +149,29 @@ fn no_detector_compares_a_written_qualified_path() {
     // above would pass on a file empty of any target.
     assert!(DETECTORS.contains("segments: &[\"process\", \"Command\"]"));
     assert!(DETECTORS.contains("krate: \"reqwest\""));
+    assert!(FAMILIES[0].1.contains("(&[\"thread\"], \"sleep\")"));
+    assert!(FAMILIES[1].1.contains("(\"rusqlite\", \"Connection\""));
+}
+
+/// The numbered lines of `source` outside its `#[cfg(test)]` statics, each of
+/// which runs from the attribute to the first line reduced to `};`.
+fn outside_variant_tables(source: &str) -> Vec<(usize, &str)> {
+    let mut kept = Vec::new();
+    let mut in_table = false;
+    let mut after_attribute = false;
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if after_attribute && trimmed.contains("static ") {
+            in_table = true;
+        }
+        after_attribute = trimmed == "#[cfg(test)]";
+        if in_table {
+            in_table = trimmed != "};";
+            continue;
+        }
+        kept.push((index + 1, line));
+    }
+    kept
 }
 
 /// US-071: reachability carries no field named after a crate or a rule.

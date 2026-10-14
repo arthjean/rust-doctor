@@ -5,7 +5,7 @@ description: Use when Rust code just changed and must not regress, when the user
 
 # rust-doctor
 
-`rust-doctor` scans a Cargo workspace with 126 curated rules and scores it out of
+`rust-doctor` scans a Cargo workspace with 133 curated rules and scores it out of
 100. It runs locally, reaches no network and uploads nothing. The scan runs
 `cargo clippy` inside the workspace, which executes its build scripts and
 procedural macros, so scan trusted local paths only.
@@ -146,6 +146,7 @@ Prefer fixing the code, then the narrowest control:
 | --- | --- |
 | `rust-doctor . --json` | Full structured report, the shape every step above reads |
 | `rust-doctor . --json --scope lines` | Only the lines the branch touched |
+| `rust-doctor . --json --scope contextual` | Those lines, plus the findings a rule reports above them in a function they changed, such as a lock held across an `.await` you added; for reviewing a change, not for the rescan loop |
 | `rust-doctor . --json --scope baseline` | Only what the branch introduced |
 | `rust-doctor . --json --scope files --base <REF>` | Only the files touched since a ref you name |
 | `rust-doctor . --json --staged --scope lines` | Only what the next commit records |
@@ -154,6 +155,7 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |
 | `rust-doctor . --blocking <none\|error\|warning>` | The level that makes the run exit non-zero |
+| `rust-doctor . --json --advisory-db <PATH>` | Judge `Cargo.lock` against a RustSec database you name instead of the one `cargo audit` left |
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
 | `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines` |
 | `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
@@ -171,7 +173,9 @@ scan itself fails.
 
 A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
 in `audit.score.reasons`, and keeps the findings collected before the limit.
-When the score is partial, `audit.score.reasons` says why.
+When the score is partial, `audit.score.reasons` says why. Without a local
+RustSec database the two advisory rules publish `not_evaluated` and the score
+stays authoritative; the scan never downloads one.
 
 Use `--json` for anything you parse. `--verbose` is for a human reading a
 terminal, and a run with neither flag on a terminal opens an interactive report

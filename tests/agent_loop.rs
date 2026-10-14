@@ -483,3 +483,279 @@ fn staged_is_refused_with_the_full_scope() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+/// The vendored-registry fixture, committed on `master` with a bounded
+/// requirement, so a change can make it unbounded without touching the lock.
+fn registry_repository(name: &str) -> PathBuf {
+    fn copy(source: &Path, destination: &Path) {
+        fs::create_dir_all(destination).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_name() == "target" {
+                continue;
+            }
+            let to = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &to);
+            } else {
+                fs::copy(entry.path(), to).unwrap();
+            }
+        }
+    }
+    let root = support::temporary_target(&format!("agent-loop-{name}"), &NEXT_REPOSITORY);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cargo-health/offline-registry"),
+        &root,
+    );
+    set_requirement(&root, "1");
+    fs::write(root.join(".gitignore"), "/target\n/cargo-home\n").unwrap();
+    git(&root, &["init", "--quiet", "--initial-branch=master"]);
+    git(&root, &["add", "."]);
+    commit(&root, "initial");
+    root
+}
+
+/// Rewrites line 7 of the manifest, the one dependency's declaration.
+fn set_requirement(root: &Path, requirement: &str) {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let mut lines: Vec<&str> = manifest.lines().collect();
+    let declaration = format!(
+        "fixture_registry_alias = {{ package = \"fixture-registry-dep\", version = \"{requirement}\" }}"
+    );
+    assert!(lines[6].starts_with("fixture_registry_alias = "), "{manifest}");
+    lines[6] = &declaration;
+    fs::write(root.join("Cargo.toml"), lines.join("\n") + "\n").unwrap();
+}
+
+fn offline(root: &Path, command: &mut Command) -> Output {
+    command
+        .current_dir(root)
+        .env("CARGO_HOME", root.join("cargo-home"))
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .env("CLAUDE_PROJECT_DIR", root)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("RUSTFLAGS")
+        .output()
+        .unwrap()
+}
+
+fn registry_findings(report: &Value) -> Vec<(String, u64)> {
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic["code"] == "rust_doctor::cargo::unbounded_registry_dependency"
+        })
+        .map(|diagnostic| {
+            (
+                diagnostic["path"].as_str().unwrap().to_owned(),
+                diagnostic["span"]["line_start"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// US-002: a dependency requirement made unbounded in the change is judged by
+/// the scope that judges the change, at its key, by the pre-commit command and
+/// by the Stop hook alike; a change that leaves the manifest alone does not
+/// bring the declaration back.
+#[test]
+fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
+    let root = registry_repository("unbounded");
+    let staged_lines = |root: &Path| {
+        let output = offline(
+            root,
+            Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+                .arg(root)
+                .args(["--json", "--yes", "--staged", "--scope", "lines"]),
+        );
+        let report = serde_json::from_slice::<Value>(&output.stdout);
+        assert!(
+            report.is_ok(),
+            "no report: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        report.unwrap()
+    };
+
+    set_requirement(&root, "*");
+    git(&root, &["add", "Cargo.toml"]);
+    let report = staged_lines(&root);
+    assert_eq!(
+        registry_findings(&report),
+        [("Cargo.toml".to_owned(), 7)],
+        "{report}"
+    );
+
+    // The Stop hook judges the working tree against HEAD: the same addition,
+    // unstaged, blocks the turn and is named at its key.
+    git(&root, &["reset", "--quiet", "Cargo.toml"]);
+    let mut hook = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
+    hook.args(["hook", "run", "claude"]).stdin(std::process::Stdio::null());
+    let blocked = offline(&root, &mut hook);
+    let message = String::from_utf8_lossy(&blocked.stderr);
+    assert_eq!(blocked.status.code(), Some(2), "{message}");
+    assert!(
+        message.contains("- rust_doctor::cargo::unbounded_registry_dependency Cargo.toml:7"),
+        "{message}"
+    );
+
+    // Committed as unbounded, then a change elsewhere: the declaration is
+    // legacy, and a lines scope that does not touch the manifest drops it.
+    git(&root, &["add", "Cargo.toml"]);
+    commit(&root, "unbounded");
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn registry_fixture() -> u8 {\n    dbg!(fixture_registry_alias::value())\n}\npub fn other() {}\n",
+    )
+    .unwrap();
+    git(&root, &["add", "src/lib.rs"]);
+    let report = staged_lines(&root);
+    assert!(registry_findings(&report).is_empty(), "{report}");
+
+    // The span is a location, not an identity: lines inserted above the key
+    // move it, and a baseline run still pairs it with the base's finding.
+    commit(&root, "other");
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        manifest.replacen("[dependencies]\n", "[dependencies]\n# moved down\n\n", 1),
+    )
+    .unwrap();
+    let output = offline(
+        &root,
+        Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+            .arg(&root)
+            .args(["--json", "--yes", "--scope", "baseline", "--base", "HEAD"]),
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["delta"]["summary"]["introduced"], 0, "{report}");
+    assert_eq!(report["delta"]["summary"]["fixed"], 0, "{report}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// US-002: a lockfile finding has no line, so it is in a lines scope exactly
+/// when the lockfile changed, a change that only deletes entries included.
+#[test]
+fn a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope() {
+    let root = support::temporary_target("agent-loop-lockfile", &NEXT_REPOSITORY);
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cargo-health/resolution/duplicate");
+    fs::create_dir_all(root.join("src")).unwrap();
+    for file in ["Cargo.toml", "Cargo.lock", "src/lib.rs"] {
+        fs::copy(fixture.join(file), root.join(file)).unwrap();
+    }
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    git(&root, &["init", "--quiet", "--initial-branch=master"]);
+    git(&root, &["add", "."]);
+    commit(&root, "initial");
+
+    let duplicates = |root: &Path| -> Vec<Value> {
+        let output = offline(
+            root,
+            Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+                .arg(root)
+                .args(["--json", "--yes", "--staged", "--scope", "lines"]),
+        );
+        let report = serde_json::from_slice::<Value>(&output.stdout);
+        assert!(
+            report.is_ok(),
+            "no report: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        report.unwrap()["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic["code"] == "rust_doctor::cargo::duplicate_major_versions"
+            })
+            .cloned()
+            .collect()
+    };
+
+    let lock = fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    let pruned = lock
+        .replacen("[[package]]\nname = \"aligned\"\nversion = \"0.3.1\"\n\n", "", 1)
+        .replacen(" \"aligned 0.3.1\",\n", "", 1);
+    assert_ne!(pruned, lock);
+    fs::write(root.join("Cargo.lock"), &pruned).unwrap();
+    git(&root, &["add", "Cargo.lock"]);
+    let found = duplicates(&root);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0]["path"], "Cargo.lock");
+    assert!(found[0]["span"].is_null(), "{found:?}");
+
+    git(&root, &["reset", "--quiet", "--hard"]);
+    fs::write(root.join("src/lib.rs"), "pub fn changed() {}\n").unwrap();
+    git(&root, &["add", "src/lib.rs"]);
+    assert!(duplicates(&root).is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A function large enough for the clone rules, named once per copy.
+fn clone_body(name: &str) -> String {
+    format!(
+        "pub fn {name}(values: &[u32]) -> u32 {{\n    let mut sum = 0;\n    for value in values {{\n        \
+         if *value > 10 {{\n            sum += value * 2;\n        }} else {{\n            sum += value + 1;\n        }}\n    \
+         }}\n    let doubled = sum * 3;\n    doubled + u32::from(values.is_empty())\n}}\n"
+    )
+}
+
+fn duplicates(report: &Value) -> Vec<Value> {
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic["code"] == "rust_doctor::structure::duplicate_function_body"
+        })
+        .cloned()
+        .collect()
+}
+
+/// US-003: a copy the change wrote next to committed code is reported at the
+/// copy, under the same identity a full scan gives the family; a change that
+/// reaches no member leaves the family out.
+#[test]
+fn a_staged_copy_of_committed_code_is_reported_at_the_copy() {
+    let root = repository("clone");
+    fs::write(root.join("src/a.rs"), clone_body("first_total")).unwrap();
+    let library = library_with_todo_on_line_40() + "pub mod a;\n";
+    fs::write(root.join("src/lib.rs"), &library).unwrap();
+    git(&root, &["add", "."]);
+    commit(&root, "original");
+
+    fs::write(root.join("src/b.rs"), clone_body("second_total")).unwrap();
+    fs::write(root.join("src/lib.rs"), library.clone() + "pub mod b;\n").unwrap();
+    git(&root, &["add", "."]);
+    let (code, scoped) = json(&root, &["--staged", "--scope", "lines"]);
+    assert_eq!(code, Some(0), "{scoped}");
+    let family = duplicates(&scoped);
+    assert_eq!(family.len(), 1, "{scoped}");
+    assert_eq!(family[0]["path"], "src/b.rs", "{scoped}");
+    assert_eq!(family[0]["related"][0]["path"], "src/a.rs", "{scoped}");
+
+    let (_, full) = json(&root, &["--scope", "full"]);
+    let unscoped = duplicates(&full);
+    assert_eq!(unscoped.len(), 1, "{full}");
+    assert_eq!(unscoped[0]["path"], "src/a.rs", "{full}");
+    assert_eq!(unscoped[0]["id"], family[0]["id"]);
+
+    commit(&root, "copy");
+    edit_lines_10_to_12(&root);
+    let mut lines: Vec<String> = fs::read_to_string(root.join("src/lib.rs"))
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    lines.extend(["pub mod a;".to_owned(), "pub mod b;".to_owned()]);
+    fs::write(root.join("src/lib.rs"), lines.join("\n") + "\n").unwrap();
+    git(&root, &["add", "."]);
+    let (_, elsewhere) = json(&root, &["--staged", "--scope", "lines"]);
+    assert!(duplicates(&elsewhere).is_empty(), "{elsewhere}");
+    fs::remove_dir_all(root).unwrap();
+}

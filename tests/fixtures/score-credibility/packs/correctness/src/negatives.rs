@@ -69,6 +69,7 @@ pub enum NegativeOpcode {
 }
 
 pub fn negative_eager_transmute(byte: u8) -> Option<NegativeOpcode> {
+    // SAFETY: fixture code, compiled and linted but never run.
     (byte < 2).then(|| unsafe { std::mem::transmute::<u8, NegativeOpcode>(byte) })
 }
 
@@ -241,6 +242,7 @@ pub fn negative_nonsensical_open_options() -> std::io::Result<std::fs::File> {
 ///
 /// `pointer` must be non-null, aligned, and valid for a read of one byte.
 pub unsafe fn negative_not_unsafe_ptr_arg_deref(pointer: *const u8) -> u8 {
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe { *pointer }
 }
 
@@ -316,6 +318,7 @@ pub fn negative_self_assignment(point: &mut NegativePoint, other: &NegativePoint
 pub fn negative_size_of_in_element_count(count: usize) -> [u16; 8] {
     let source = [2_u16; 8];
     let mut target = [0_u16; 8];
+    // SAFETY: fixture code, compiled and linted but never run.
     unsafe {
         std::ptr::copy_nonoverlapping(source.as_ptr(), target.as_mut_ptr(), count);
     }

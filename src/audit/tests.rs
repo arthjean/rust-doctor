@@ -622,7 +622,7 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-    assert_eq!(score.value, 21);
+    assert_eq!(score.value, 20);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
@@ -630,7 +630,7 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
 
     // Two of the five are the density and three are not, which is the whole model in one score.
     // `security` and `dependencies` fall on their own: two `P0` sites weigh sixteen against a
-    // lambda of four, and the eleven manifest rules are charged per workspace, so neither is
+    // lambda of four, and the thirteen manifest rules are charged per workspace, so neither is
     // diluted by fifty kilolines. `performance` is its `P2` ceiling and `security` would be capped
     // at twenty if the curve had not already taken it below. Reliability sits under the 34 it sat
     // at when every site weighed one, because its `P1` and `P2` rules now weigh four and two and
@@ -642,7 +642,7 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.
     assert_eq!(score.dimensions.performance, 75);
-    assert_eq!(score.dimensions.dependencies, 2);
+    assert_eq!(score.dimensions.dependencies, 1);
     assert!(
         score
             .dimensions

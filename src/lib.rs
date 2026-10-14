@@ -46,8 +46,8 @@ pub use audit::{
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport, default_branch};
 pub use policy::{
-    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, PathOverrideReport,
-    RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,
+    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, DiffScope,
+    PathOverrideReport, RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,
 };
 /// The file length `rust_doctor::structure::oversized_unit` reports at.
 ///
@@ -55,6 +55,7 @@ pub use policy::{
 /// and must not restate the number: `src/tui/` and `src/handoff.rs` are
 /// compiled into the binary, not the library, and a second `1000` written
 /// there is a second place to keep in step with the rule.
+pub use cargo_health::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
 pub use report::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
@@ -129,6 +130,9 @@ impl InspectionSession {
                 )));
             }
         };
+        if let (Some(directory), Some(progress)) = (prepared.discovered(), &options.progress) {
+            progress.report(progress::Progress::Discovered { directory });
+        }
         // A member name is checked here, once the workspace answered which
         // members it has, and before any process is started for it.
         if let Some(Err(error)) = request

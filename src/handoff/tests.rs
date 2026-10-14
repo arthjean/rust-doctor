@@ -81,6 +81,7 @@ fn report() -> InspectReport {
             noise_lines: Some(0),
             ignored: 0,
             excluded_generated: 0,
+            advisory_db: None,
         },
         diagnostics,
         suppressions: Vec::new(),
@@ -437,4 +438,52 @@ fn the_prompt_names_the_ceiling_and_the_rules_holding_it_first() {
     let ceiling_at = text.find("Ceiling:").expect("the ceiling line is present");
     let group_at = text.find("1. ").expect("the first group follows");
     assert!(audit_at < ceiling_at && ceiling_at < group_at, "{text}");
+}
+
+/// US-001: the prompt an agent receives is built from a real scan of a
+/// committed key, and carries the finding without a byte of the value.
+#[test]
+fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
+    let root = scratch("handoff-tests", "credential");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"handoff-credential\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+    std::fs::write(
+        root.join("src/lib.rs"),
+        format!("pub fn fixture() -> &'static str {{\n    \"{key}\"\n}}\n"),
+    )
+    .unwrap();
+    for arguments in [
+        &["init", "--quiet"][..],
+        &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A"],
+        &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--quiet", "-m", "base"],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {arguments:?}");
+    }
+
+    let report = rust_doctor::inspect(rust_doctor::InspectRequest::new(&root));
+    let presentation = ReportPresentation::derive(&report);
+    assert!(
+        presentation
+            .groups
+            .iter()
+            .any(|group| group.rule_id == "rust_doctor::repo::hardcoded_credential"),
+        "{:?}",
+        report.errors
+    );
+    let prompt = build_prompt(&report, &presentation, &rescan_command()).unwrap();
+    assert!(prompt.as_str().contains("hardcoded_credential"), "{}", prompt.as_str());
+    assert!(!prompt.as_str().contains(&key), "{}", prompt.as_str());
 }

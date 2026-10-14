@@ -34,6 +34,7 @@ fn cli(path: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("inspect")
         .arg("--json")
+        .args(support::NO_ADVISORY_DB)
         .args(arguments)
         .arg(path)
         .env("CARGO_NET_OFFLINE", "true")
@@ -49,6 +50,7 @@ fn json(output: &Output) -> Value {
 fn terminal(path: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("inspect")
+        .args(support::NO_ADVISORY_DB)
         .arg(path)
         .env("CARGO_NET_OFFLINE", "true")
         .stdin(Stdio::null())
@@ -71,7 +73,7 @@ fn root_member_manifest_and_subdirectory_keep_one_workspace_and_selected_manifes
         assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
         let policy = report.policy.as_ref().unwrap();
         assert!(policy.config_file.is_none());
-        assert_eq!(policy.rules.len(), 126);
+        assert_eq!(policy.rules.len(), 133);
         assert!(
             policy
                 .rules
@@ -133,14 +135,14 @@ fn v7_policy_precedence_and_blocking_are_shared_by_cli_and_api() {
         ));
     let api = inspect(request);
     let policy = api.policy.as_ref().unwrap();
-    assert_eq!(api.schema_version, 19);
+    assert_eq!(api.schema_version, 21);
     assert_eq!(policy.config_file.as_deref(), Some("rust-doctor.toml"));
     assert_eq!(policy.blocking.level, BlockingLevel::Warning);
     assert_eq!(policy.blocking.source, BlockingLevelSource::Config);
-    assert_eq!(policy.rules.len(), 126);
+    assert_eq!(policy.rules.len(), 133);
     assert_eq!(policy.rules[0].id, "clippy::absurd_extreme_comparisons");
     assert_eq!(
-        policy.rules[125].id,
+        policy.rules[132].id,
         "rust_doctor::structure::unreferenced_feature"
     );
 
@@ -252,7 +254,7 @@ fn all_configuration_error_families_are_failed_private_v7_reports_for_api_and_cl
         }
 
         let api = inspect(InspectRequest::new(&workspace));
-        assert_eq!(api.schema_version, 19, "{expected_code}");
+        assert_eq!(api.schema_version, 21, "{expected_code}");
         assert_eq!(api.status, Status::Failed, "{expected_code}");
         assert_eq!(api.exit_code(), 2, "{expected_code}");
         assert!(api.policy.is_none(), "{expected_code}");
@@ -269,7 +271,7 @@ fn all_configuration_error_families_are_failed_private_v7_reports_for_api_and_cl
         let cli_output = cli(&workspace, &[]);
         assert_eq!(cli_output.status.code(), Some(2), "{expected_code}");
         let cli_report = json(&cli_output);
-        assert_eq!(cli_report["schema_version"], 19, "{expected_code}");
+        assert_eq!(cli_report["schema_version"], 21, "{expected_code}");
         assert_eq!(cli_report["policy"], Value::Null, "{expected_code}");
         assert_eq!(
             cli_report["gate"]["status"], "not-evaluated",
@@ -294,7 +296,7 @@ fn invalid_workspace_configuration_fails_after_metadata_and_before_all_analysis(
     let report = inspect(InspectRequest::new(&workspace));
 
     assert_eq!(report.status, Status::Failed);
-    assert_eq!(report.schema_version, 19);
+    assert_eq!(report.schema_version, 21);
     assert!(report.policy.is_none());
     assert_eq!(report.exit_code(), 2);
     assert!(report.project.is_some());
@@ -358,7 +360,7 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     ))
     .unwrap();
 
-    assert_eq!(current["schema_version"], 19);
+    assert_eq!(current["schema_version"], 21);
     assert_eq!(baseline["schema_version"], 4);
     current.as_object_mut().unwrap().remove("schema_version");
     current.as_object_mut().unwrap().remove("audit");
@@ -397,4 +399,118 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     current["scan"].as_object_mut().unwrap().remove("command");
     baseline["scan"].as_object_mut().unwrap().remove("command");
     assert_eq!(current, baseline);
+}
+
+/// A directory tree written from `(path, contents)` pairs, under a repository
+/// of its own so the upward walk stops there and never reaches this crate.
+fn discovery_tree(files: &[(&str, &str)]) -> PathBuf {
+    let root = support::fresh_workspace("configuration-kernel-discovery", &NEXT_WORKSPACE);
+    for (path, contents) in files {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, contents).unwrap();
+    }
+    let status = Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(&root)
+        .env_remove("GIT_DIR")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    root
+}
+
+fn package(name: &str) -> String {
+    format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n")
+}
+
+fn discover(root: &Path) -> (Output, Value) {
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg("inspect")
+        .arg("--json")
+        .args(support::NO_ADVISORY_DB)
+        .arg(root)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .output()
+        .unwrap();
+    let report = json(&output);
+    (output, report)
+}
+
+/// US-005: at the root of a Tauri-shaped repository the one workspace below
+/// is scanned and named on stderr; a manifest nested inside it is its member,
+/// not a second candidate, and one in an ignored or skipped tree never counts.
+#[test]
+fn the_one_workspace_below_a_repository_root_is_scanned_and_named() {
+    let root = discovery_tree(&[
+        (".gitignore", "/src-tauri/target\n/ignored\n"),
+        ("package.json", "{\"name\": \"app\"}\n"),
+        ("src-tauri/Cargo.toml", &package("tauri-app")),
+        ("src-tauri/src/lib.rs", "pub fn run() {}\n"),
+        ("src-tauri/crates/helper/Cargo.toml", &package("helper")),
+        ("src-tauri/target/debug/build/x/Cargo.toml", &package("built")),
+        ("node_modules/native/Cargo.toml", &package("native")),
+        ("ignored/Cargo.toml", &package("ignored")),
+    ]);
+    let (output, report) = discover(&root);
+    assert_eq!(report["status"], "complete", "{report}");
+    assert_eq!(report["project"]["packages"][0]["name"], "tauri-app", "{report}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No Cargo workspace at this path: scanning the one in src-tauri/."),
+        "{stderr}"
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(root.to_str().unwrap()));
+}
+
+/// US-005: several workspaces below are listed, sorted, and the run refuses
+/// to pick one; manifests only in build or ignored trees keep the old error;
+/// and a manifest above the repository is never selected.
+#[test]
+fn several_workspaces_are_refused_and_nothing_qualifies_from_outside_the_repository() {
+    let root = discovery_tree(&[
+        ("src-tauri/Cargo.toml", &package("tauri-app")),
+        ("src-tauri/src/lib.rs", ""),
+        ("backend/Cargo.toml", &package("backend")),
+        ("backend/src/lib.rs", ""),
+    ]);
+    let (output, report) = discover(&root);
+    assert_eq!(output.status.code(), Some(2), "{report}");
+    assert_eq!(report["errors"][0]["stage"], "discovery", "{report}");
+    assert_eq!(report["errors"][0]["code"], "ambiguous-workspace", "{report}");
+    assert_eq!(
+        report["errors"][0]["message"],
+        "Several Cargo workspaces under this path: backend, src-tauri. Pass one of them."
+    );
+    assert!(!report.to_string().contains(root.to_str().unwrap()), "{report}");
+
+    let built = discovery_tree(&[
+        (".gitignore", "/vendored\n"),
+        ("target/debug/build/x/Cargo.toml", &package("built")),
+        ("vendored/Cargo.toml", &package("vendored")),
+    ]);
+    let (output, report) = discover(&built);
+    assert_eq!(output.status.code(), Some(2), "{report}");
+    assert_eq!(report["errors"][0]["code"], "no-manifest", "{report}");
+
+    // An outer workspace with an unrelated repository below it: the walk up
+    // from inside that repository stops at its root.
+    let outer = discovery_tree(&[("Cargo.toml", &package("outer")), ("src/lib.rs", "")]);
+    fs::create_dir_all(outer.join("inner/docs")).unwrap();
+    let status = Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(outer.join("inner"))
+        .env_remove("GIT_DIR")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let (output, report) = discover(&outer.join("inner/docs"));
+    assert_eq!(output.status.code(), Some(2), "{report}");
+    assert_eq!(report["errors"][0]["code"], "no-manifest", "{report}");
+    assert_eq!(
+        report["errors"][0]["message"],
+        "no Cargo.toml found in this path or its ancestors"
+    );
+    assert!(!report.to_string().contains(outer.to_str().unwrap()), "{report}");
 }

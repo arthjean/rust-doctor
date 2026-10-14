@@ -9,8 +9,9 @@ use crate::policy::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
     CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE, CARGO_PERMISSIVE_LINT_TABLE,
     CARGO_PERMISSIVE_RUSTFLAGS, CARGO_RELEASE_DEBUG_SYMBOLS, CARGO_TEST_ONLY_DEPENDENCY,
-    CARGO_UNBOUNDED_REGISTRY, CARGO_UNCHECKED_RELEASE_OVERFLOW, CARGO_UNPINNED_GIT,
-    ActiveRules, CARGO_UNUSED_DEPENDENCY, PolicyPlan, Producer, RuleDefinition,
+    CARGO_UNBOUNDED_REGISTRY, CARGO_UNCHECKED_RELEASE_OVERFLOW, CARGO_UNMAINTAINED_DEPENDENCY,
+    CARGO_UNPINNED_GIT, ActiveRules, CARGO_UNUSED_DEPENDENCY, CARGO_VULNERABLE_DEPENDENCY,
+    PolicyPlan, Producer, RuleDefinition,
 };
 use crate::source_kernel::references::{self, CrateReferences, Mention};
 use crate::source_kernel::Enumeration;
@@ -21,6 +22,11 @@ use crate::source_text::{SourceSpan, byte_range_span, line_starts};
 /// the source walk that only they need is started.
 const TRUTH_RULES: [&RuleDefinition; 2] =
     [&CARGO_UNUSED_DEPENDENCY, &CARGO_TEST_ONLY_DEPENDENCY];
+
+/// The two rules the local RustSec database answers, named once: the
+/// resolution pass asks whether either is on before looking for a database.
+pub(crate) const ADVISORY_RULES: [&RuleDefinition; 2] =
+    [&CARGO_VULNERABLE_DEPENDENCY, &CARGO_UNMAINTAINED_DEPENDENCY];
 
 /// The two rules the release profile carries, named once: the entry point asks
 /// whether either is on before reading the root manifest, and
@@ -44,9 +50,10 @@ pub(crate) struct Candidate {
     /// Position of the offending manifest key, when the pack re-read the
     /// manifest itself; the metadata-derived predicates carry none.
     pub(crate) span: Option<SourceSpan>,
-    /// The dependency key a declaration finding is about. Those findings have
-    /// no span, and their published identity must not gain one, so a
-    /// suppression directive written above the key finds them by this name.
+    /// The dependency key a declaration finding is about. Its published
+    /// identity must not gain the key's span, and an inherited entry has
+    /// none, so a suppression directive written above the key finds them by
+    /// this name.
     pub(crate) key: Option<String>,
 }
 
@@ -62,6 +69,8 @@ pub(crate) struct CargoHealthError {
 pub(crate) struct CargoHealthScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<CargoHealthError>,
+    /// Whether a RustSec database was read, and what it was.
+    pub(crate) advisory: AdvisoryOutcome,
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: CargoHealthCounters,
 }
@@ -77,7 +86,11 @@ pub(crate) struct CargoHealthCounters {
 
 
 
-pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan {
+pub(crate) fn inspect(
+    metadata: &Metadata,
+    plan: &PolicyPlan,
+    database: Option<&AdvisoryDatabase>,
+) -> CargoHealthScan {
     let active = ActiveRules::of(plan, Producer::CargoHealth);
     if !active.any() {
         return CargoHealthScan::default();
@@ -94,7 +107,7 @@ pub(crate) fn inspect(metadata: &Metadata, plan: &PolicyPlan) -> CargoHealthScan
         inspect_rustflags(metadata, &mut scan);
     }
     inspect_declarations(metadata, &active, &mut scan);
-    inspect_resolution(metadata, &active, &mut scan);
+    inspect_resolution(metadata, &active, database, &mut scan);
     scan
 }
 
@@ -108,20 +121,21 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
             .strip_prefix(&metadata.workspace_root)
             .ok()
             .map(|path| path.as_str().to_owned());
-        let mut name = |definition: &'static RuleDefinition, key: &str, message: String| {
-            scan.candidates.push(Candidate {
-                definition,
-                message,
-                package: package.name.to_string(),
-                manifest_path: manifest_path.clone(),
-                span: None,
-                key: Some(key.to_owned()),
-            });
-        };
-
+        let declared = DeclaredKeys::read(package);
         for dependency in &package.dependencies {
             scan.counters.dependencies_evaluated += 1;
             let key = dependency.rename.as_deref().unwrap_or(&dependency.name);
+            let span = declared.as_ref().and_then(|keys| keys.span(dependency));
+            let mut name = |definition: &'static RuleDefinition, key: &str, message: String| {
+                scan.candidates.push(Candidate {
+                    definition,
+                    message,
+                    package: package.name.to_string(),
+                    manifest_path: manifest_path.clone(),
+                    span,
+                    key: Some(key.to_owned()),
+                });
+            };
             if active.on(&CARGO_UNBOUNDED_REGISTRY) {
                 scan.counters.unbounded_registry_predicates += 1;
                 if is_unbounded_registry(dependency) {
@@ -198,16 +212,19 @@ pub(crate) fn inspect_dependency_truth(
             continue;
         }
         let judged = Judged::of(package, metadata);
+        let mut declared = None;
         for dependency in &package.dependencies {
             if let Some((definition, message)) =
                 judge_dependency(dependency, &judged, enumeration, collected, &active)
             {
+                // Read on the first finding only: most packages earn none.
+                let keys = declared.get_or_insert_with(|| DeclaredKeys::read(package));
                 scan.candidates.push(Candidate {
                     definition,
                     message,
                     package: package.name.to_string(),
                     manifest_path: judged.manifest_path.clone(),
-                    span: None,
+                    span: keys.as_ref().and_then(|keys| keys.span(dependency)),
                     key: Some(
                         dependency
                             .rename
@@ -828,7 +845,12 @@ fn has_full_git_revision(source: &str) -> bool {
     revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+mod advisories;
+mod keys;
 mod resolution;
+pub use advisories::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
+pub(crate) use advisories::{AdvisoryOutcome, STALE_AFTER_DAYS};
+use keys::DeclaredKeys;
 use resolution::{inspect_resolution, resolution_owner};
 
 #[cfg(test)]

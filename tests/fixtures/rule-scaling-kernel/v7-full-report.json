@@ -70,6 +70,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::crosspointer_transmute",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::dbg_macro",
         "category": "maintainability",
         "level": "warn",
@@ -264,6 +270,12 @@
       {
         "id": "clippy::missing_safety_doc",
         "category": "maintainability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "clippy::missing_transmute_annotations",
+        "category": "correctness",
         "level": "warn",
         "source": "default"
       },
@@ -496,6 +508,12 @@
         "source": "default"
       },
       {
+        "id": "clippy::undocumented_unsafe_blocks",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "clippy::unimplemented",
         "category": "correctness",
         "level": "warn",
@@ -670,6 +688,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::cargo::unmaintained_dependency",
+        "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::cargo::unpinned_git_dependency",
         "category": "security",
         "level": "warn",
@@ -678,6 +702,12 @@
       {
         "id": "rust_doctor::cargo::unused_dependency",
         "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::cargo::vulnerable_dependency",
+        "category": "security",
         "level": "warn",
         "source": "default"
       },
@@ -700,6 +730,12 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::source::blocking_call_in_async",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::source::disabled_tls_verification",
         "category": "security",
         "level": "warn",
@@ -707,6 +743,12 @@
       },
       {
         "id": "rust_doctor::source::dynamic_shell_command",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::sql_built_from_format",
         "category": "security",
         "level": "warn",
         "source": "default"

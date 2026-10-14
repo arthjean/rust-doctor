@@ -5,7 +5,7 @@ it grows.
 
 ## The published catalog
 
-`rust-doctor rules list --json` prints the 126 catalogued rules, each with its
+`rust-doctor rules list --json` prints the 133 catalogued rules, each with its
 category, producer, default level, tier and help. It reads no filesystem: the
 catalog is what the binary was compiled with. `rust_doctor::catalog()` is the
 same projection for library callers, and `CatalogEntry` is the only public

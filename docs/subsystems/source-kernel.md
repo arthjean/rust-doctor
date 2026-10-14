@@ -2,13 +2,15 @@
 
 `src/source_kernel.rs` is the types and the detector registry. `walk.rs` is the
 workspace walk that fills them, `aliases.rs` the per-unit import map,
-`detectors.rs` the two native detectors and `references.rs` the crate names the
-dependency rules judge a manifest against. `src/source_text.rs` sits outside the
+`detectors.rs` the provenance helpers and the TLS and shell detectors,
+`detectors/blocking.rs` and `detectors/sql.rs` the two families Clippy cannot
+express, `bindings.rs` what a local name holds, and `references.rs` the crate
+names the dependency rules judge a manifest against. `src/source_text.rs` sits outside the
 module on purpose: span arithmetic and the two syntax-text helpers are read by
 `repo_hygiene` and `cargo_health`, which parse no Rust at all and have no
 business depending on the walk for a span type.
 
-Four rules hold it together, and each of them replaced something that had a
+Six rules hold it together, and each of them replaced something that had a
 cost.
 
 One walk, one enumeration. `enumerate` loads and parses each reachable file
@@ -41,6 +43,27 @@ file no target names on its own. A detector that stays quiet in test code calls
 against a self-signed test server, and `dynamic_shell` deliberately does not,
 because an interpolated shell command is a finding wherever it runs. The reason
 is written above each rather than left to be inferred from an asymmetry.
+
+One binding answer, or none. A detector reads an argument through the `let`
+it was stored in with `Context::value`, which asks `bindings::Resolver`: the
+nearest preceding binding of that name whose block encloses the site, followed
+eight bindings deep. A binding reassigned later, bound by a pattern, a
+`let`-else, or shadowed on one branch answers indeterminate, and every detector
+abstains on indeterminate. Each detector used to accept only the value written
+inline, so storing a builder in a `let` silenced it. The resolver indexes a
+function body once and keeps that index while the walk stays in the body:
+rescanning the body per question cost 5 to 8 percent of the whole pass, and
+`src/source_kernel/tests/benchmark.rs` holds the pass to 10 percent over its cost before
+resolution existed.
+
+One table of rewrites per rule. Every detector's rule declares a canonical
+positive and negative beside it, and `src/source_kernel/tests/variants.rs` renders both under
+eight rewrites that keep the verdict: renamed bindings, an aliased import, the
+fully qualified path, a nested block, an inline module, an extracted receiver,
+reformatting. A positive that goes silent fails unless the table names the
+rewrite as a known miss with its reason, and a rule without a table fails. A
+detector written against the one form its author had in mind is what this
+replaced.
 
 Excluded is still reached. `Enumeration::narrow` keeps a unit under an
 `[ignore]` path, a file declared or headed generated, or one no `--package`

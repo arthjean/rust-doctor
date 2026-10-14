@@ -19,16 +19,17 @@ use super::normalize::{
 use super::exclusion::{self, Exclusion};
 use super::sanitize::{HomePaths, home_paths, sanitize_text};
 use super::{
-    Diagnostic, DiagnosticContext, GateReport, GateStatus, InspectReport, NotEvaluated,
-    PackageReport, PolicyReport, ProjectReport, ReportError, SCHEMA_VERSION, ScanReport,
-    Severity, Status, Summary, ToolchainReport,
+    Diagnostic, DiagnosticContext, DiagnosticSpan, GateReport, GateStatus, InspectReport,
+    NotEvaluated, PackageReport, PolicyReport, ProjectReport, RelatedLocation, ReportError,
+    SCHEMA_VERSION, ScanReport, Severity, Status, Summary, ToolchainReport,
 };
 use crate::audit::{self, Audit, ScoreReason, SourceFileInventory};
+use crate::cargo_health::{self, AdvisoryOutcome};
 use crate::delta::DeltaReport;
 use crate::execution::{BaselineExecution, ExecutionResult, ScanExecution};
 use crate::git_scope::ScopeReport;
 use crate::internal_error::InternalError;
-use crate::policy::{BlockingLevel, PolicyError, PolicyPlan, Producer};
+use crate::policy::{BlockingLevel, DiffScope, PolicyError, PolicyPlan, Producer};
 use crate::workspace_path;
 
 /// What the run that produced a report got as far as.
@@ -199,7 +200,11 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
     let summary = Summary::from_diagnostics(&diagnostics);
     let gate = evaluate_gate(status, &diagnostics, blocking);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
-    let scan = scan_report(result.scan.finished(), &exclusion);
+    let scan = scan_report(
+        result.scan.finished(),
+        &exclusion,
+        result.cargo_health.as_ref().map(|health| &health.advisory),
+    );
     let errors = report_errors(&result, workspace_root, &home);
     let source_inventory =
         result
@@ -213,10 +218,15 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                 )
             });
     let not_evaluated = not_evaluated(&result, plan);
+    // A rule no local database could answer leaves the score its authority:
+    // the tool never fetches one, so its absence says nothing about the scan.
+    let unevaluated = not_evaluated
+        .iter()
+        .any(|(_, reason)| *reason != NotEvaluated::AdvisoryDbMissing);
     let stage_reasons = errors
         .iter()
         .filter_map(|error| ScoreReason::of_error(&error.code))
-        .chain((!not_evaluated.is_empty()).then_some(ScoreReason::RulesNotEvaluated))
+        .chain(unevaluated.then_some(ScoreReason::RulesNotEvaluated))
         .collect();
     let members = member_inventories(&result, source_inventory.complete);
     let audit = Audit::build_from_inventory(
@@ -305,8 +315,9 @@ fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, 
 }
 
 /// Every active rule the run did not evaluate, and why: a Clippy lint the
-/// installed toolchain does not list, or a repository rule a `--package` scan
-/// has no member to judge with.
+/// installed toolchain does not list, a repository rule a `--package` scan
+/// has no member to judge with, or an advisory rule no local database
+/// answers.
 fn not_evaluated(
     result: &ExecutionResult,
     plan: Option<&PolicyPlan>,
@@ -322,7 +333,16 @@ fn not_evaluated(
         .into_iter()
         .flat_map(|plan| plan.active_rules(Producer::Repo))
         .map(|(definition, _)| (definition.id, NotEvaluated::PackageScoped));
-    unknown.chain(package_scoped).collect()
+    let missing_database = result
+        .cargo_health
+        .as_ref()
+        .filter(|health| health.advisory == AdvisoryOutcome::Missing)
+        .and(plan)
+        .into_iter()
+        .flat_map(|plan| plan.active_rules(Producer::CargoHealth))
+        .filter(|(definition, _)| cargo_health::ADVISORY_RULES.contains(definition))
+        .map(|(definition, _)| (definition.id, NotEvaluated::AdvisoryDbMissing));
+    unknown.chain(package_scoped).chain(missing_database).collect()
 }
 
 /// Every diagnostic the five producers published, merged on identity, ordered
@@ -404,7 +424,7 @@ fn diagnostics_from_execution(
     let exclusion =
         exclusion::apply(&mut diagnostics, plan, &result.exclusions, &dependency_keys);
     if let Some(scope) = scope {
-        project_diagnostics(&mut diagnostics, scope);
+        project_diagnostics(&mut diagnostics, scope, workspace_root);
     }
     diagnostics.sort_by(compare_diagnostics);
     (diagnostics, exclusion)
@@ -455,7 +475,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             clippy: None,
             removed_lint_flags: Vec::new(),
         },
-        scan: scan_report(None, &Exclusion::default()),
+        scan: scan_report(None, &Exclusion::default(), None),
         diagnostics: Vec::new(),
         suppressions: Vec::new(),
         delta: None,
@@ -469,16 +489,75 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
     }
 }
 
-pub(super) fn project_diagnostics(diagnostics: &mut Vec<Diagnostic>, scope: &ScopeReport) {
-    diagnostics.retain(|diagnostic| {
-        scope.includes_span(
+/// Keeps what the scope judges. A structural finding is a family, and it is
+/// kept when any member meets the scope: a copy the change wrote next to old
+/// code is the change's finding, whichever of the two sorts first. The first
+/// member that meets the scope becomes the primary site, so the report points
+/// at the copy, and the previous primary joins the related sites. The family's
+/// identity ignores which member is primary, so the swap renames nothing.
+///
+/// Under a contextual scope a finding is also kept by its rule's reach: an
+/// item-reach rule when the function around its site changed, read from the
+/// judged tree under `workspace_root`, and a file-reach rule when its file
+/// changed.
+pub(super) fn project_diagnostics(
+    diagnostics: &mut Vec<Diagnostic>,
+    scope: &ScopeReport,
+    workspace_root: &Path,
+) {
+    let meets = |path: Option<&str>, span: Option<&DiagnosticSpan>| {
+        scope.includes_span(path, span.map(|span| (span.line_start, span.line_end)))
+    };
+    diagnostics.retain_mut(|diagnostic| {
+        let reach = diagnostic
+            .code
+            .as_deref()
+            .and_then(crate::policy::find)
+            .map_or(DiffScope::Line, |definition| definition.diff_scope);
+        if scope.includes_reach(
             diagnostic.path.as_deref(),
             diagnostic
                 .span
                 .as_ref()
                 .map(|span| (span.line_start, span.line_end)),
-        )
+            reach,
+            |path| judged_source(workspace_root, path),
+        ) {
+            return true;
+        }
+        let Some(index) = diagnostic
+            .related
+            .iter()
+            .position(|location| meets(Some(&location.path), Some(&location.span)))
+        else {
+            return false;
+        };
+        let promoted = diagnostic.related.remove(index);
+        let previous = diagnostic
+            .path
+            .replace(promoted.path)
+            .zip(diagnostic.span.replace(promoted.span));
+        if let Some((path, span)) = previous {
+            diagnostic.related.push(RelatedLocation { path, span });
+            diagnostic.related.sort_by(|left, right| {
+                (&left.path, left.span.line_start, left.span.column_start)
+                    .cmp(&(&right.path, right.span.line_start, right.span.column_start))
+            });
+        }
+        true
     });
+}
+
+/// A file of the judged tree, for the enclosing-function test: bounded like
+/// the source walk, and refused when its path does not decode to one inside
+/// the workspace.
+fn judged_source(workspace_root: &Path, path: &str) -> Option<String> {
+    const SOURCE_LIMIT: u64 = 8 * 1024 * 1024;
+    let file = workspace_root.join(workspace_path::decode_normalized_relative(path)?);
+    let metadata = std::fs::symlink_metadata(&file).ok()?;
+    (metadata.is_file() && metadata.len() <= SOURCE_LIMIT)
+        .then(|| std::fs::read_to_string(&file).ok())
+        .flatten()
 }
 
 fn classify(result: &ExecutionResult) -> Status {
@@ -536,7 +615,11 @@ fn project_report(
     })
 }
 
-fn scan_report(scan: Option<&ScanExecution>, exclusion: &Exclusion) -> ScanReport {
+fn scan_report(
+    scan: Option<&ScanExecution>,
+    exclusion: &Exclusion,
+    advisory: Option<&AdvisoryOutcome>,
+) -> ScanReport {
     ScanReport {
         command: scan.map(|scan| scan.command.clone()),
         exit_code: scan.and_then(|scan| scan.exit_code),
@@ -544,6 +627,10 @@ fn scan_report(scan: Option<&ScanExecution>, exclusion: &Exclusion) -> ScanRepor
         noise_lines: scan.map(|scan| scan.noise_lines),
         ignored: exclusion.ignored,
         excluded_generated: exclusion.excluded_generated,
+        advisory_db: match advisory {
+            Some(AdvisoryOutcome::Consulted(report)) => Some(report.clone()),
+            _ => None,
+        },
     }
 }
 

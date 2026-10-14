@@ -42,15 +42,30 @@ impl ProgressLine {
         })
     }
 
-    pub(crate) fn sink(self: &Arc<Self>) -> ProgressSink {
+    /// The sink a scan reports to. Without `phases` it shows only where
+    /// discovery found the workspace, which a JSON reader still needs to hear:
+    /// the report names files relative to a directory it did not pass.
+    pub(crate) fn sink(self: &Arc<Self>, phases: bool) -> ProgressSink {
         let line = Arc::clone(self);
-        ProgressSink::new(move |progress| line.show(progress))
+        ProgressSink::new(move |progress| {
+            if phases || matches!(progress, Progress::Discovered { .. }) {
+                line.show(progress);
+            }
+        })
     }
 
     fn show(&self, progress: Progress<'_>) {
         let (phase, text) = describe(progress);
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let mut stderr = io::stderr().lock();
+        // Where the workspace was found is a fact the reader keeps, not a
+        // phase the next one overwrites: it gets a line of its own.
+        if let Progress::Discovered { .. } = progress {
+            let erase = if state.on_screen { ERASE_LINE } else { "" };
+            let _ = writeln!(stderr, "{erase}{text}");
+            state.on_screen = false;
+            return;
+        }
         if !self.rewrite {
             if state.printed.insert(phase) {
                 let _ = writeln!(stderr, "{text}");
@@ -98,6 +113,13 @@ fn describe(progress: Progress<'_>) -> (&'static str, String) {
             ),
         ),
         Progress::NativePasses => ("native passes", "Running native passes...".to_owned()),
+        Progress::Discovered { directory } => (
+            "discovered",
+            format!(
+                "No Cargo workspace at this path: scanning the one in {}/.",
+                rust_doctor::terminal_text::sanitize(directory)
+            ),
+        ),
     }
 }
 

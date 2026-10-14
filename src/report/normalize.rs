@@ -75,7 +75,7 @@ pub(super) fn normalize_diagnostics(
     let plan = PolicyPlan::default();
     let mut merged = BTreeMap::<String, Diagnostic>::new();
     if let Some(metadata) = metadata {
-        for candidate in &cargo_health::inspect(metadata, &plan).candidates {
+        for candidate in &cargo_health::inspect(metadata, &plan, None).candidates {
             merge_diagnostic(
                 &mut merged,
                 normalize_cargo_health_candidate(candidate, workspace_root, home),
@@ -172,8 +172,7 @@ pub(super) fn normalize_source_candidate(
     Diagnostic {
         id,
         source,
-        // Native diagnostic: no Cargo target carries it.
-        context: None,
+        context: candidate.context,
         code,
         base_severity: canonical_severity(definition.default_level),
         severity: canonical_severity(definition.default_level),

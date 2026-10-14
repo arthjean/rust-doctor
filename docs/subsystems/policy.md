@@ -3,7 +3,7 @@
 `src/policy.rs` is the level algebra: the two override kinds, the precedence
 between a request, a configuration file and the shipped default, and the
 `PolicyPlan` every producer reads. `catalog.rs` and `catalog/correctness.rs` are the
-126 declarations, `catalog.rs` the lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
+133 declarations, `catalog.rs` the lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
 the tests, `noise.rs` the adjudicated rate the score ranks by, and
 `coverage.rs` the candidate queue.
 
@@ -45,6 +45,12 @@ replaced all drifted silently: a rule admitted to `CATALOG` and forgotten in
 the second list left every assertion passing over a catalog that no longer
 shipped, and a field added to the published shape changed
 `rules list --json` without moving the record that was supposed to freeze it.
+
+A rule says how far its cause can sit from its site. `diff_scope` is `line`
+for almost every rule, `item` for the seven whose finding lands on a line the
+change need not touch, and `file` for the span-less lockfile rules.
+`rules list --json` publishes it, the report does not embed it, and only
+`--scope contextual` reads it (`docs/subsystems/git-and-scope.md`).
 
 Where a finding is, is policy too. `paths.rs` holds the `[ignore]` globs and
 the `[[overrides]]` tables of `rust-doctor.toml`, read once into the plan, and

@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::GroupLocation;
+use crate::DiagnosticSpan;
 use crate::terminal_text::{escape_end, opens_escape};
 use crate::workspace_path;
 
@@ -153,11 +154,11 @@ fn read_code_frame(
     }
 
     let start = window_start(location);
-    let window = match read_window(file, start, SCAN_MAX_BYTES) {
-        Ok(window) => window,
+    let (window, key_open) = match read_window(file, start, SCAN_MAX_BYTES) {
+        Ok(read) => read,
         Err(reason) => return Err(fail(reason)),
     };
-    frame_from_window(location, start, &window)
+    frame_from_window(location, start, &window, key_open)
         .ok_or_else(|| fail(CodeFrameUnavailableReason::Unavailable))
 }
 
@@ -186,15 +187,20 @@ fn window_start(location: &GroupLocation) -> usize {
 /// The budget is a parameter rather than the constant read directly, so that
 /// the one branch answering what happens when it runs out mid-line is reachable
 /// from a test without an eight megabyte fixture.
+///
+/// It also answers whether a PEM private key is open where the window starts:
+/// a header above the window leaves the body lines inside it unmatchable by
+/// any credential pattern, and only the lines walked past can say so.
 fn read_window(
     file: File,
     start: usize,
     budget: u64,
-) -> Result<Vec<String>, CodeFrameUnavailableReason> {
+) -> Result<(Vec<String>, bool), CodeFrameUnavailableReason> {
     let last = start.saturating_add(FRAME_MAX_LINES).saturating_sub(1);
     let mut reader = BufReader::new(file.take(budget));
     let mut window = Vec::with_capacity(FRAME_MAX_LINES);
     let mut raw = Vec::new();
+    let mut key_open = false;
     for number in 1..=last {
         raw.clear();
         let read = reader
@@ -210,11 +216,12 @@ fn read_window(
             break;
         }
         if number < start {
+            track_private_key(&String::from_utf8_lossy(&raw), &mut key_open);
             continue;
         }
         window.push(retain_line(&raw)?);
     }
-    Ok(window)
+    Ok((window, key_open))
 }
 
 /// One kept line, stripped of its terminator, bounded and decoded.
@@ -258,17 +265,20 @@ fn frame_from_window(
     location: &GroupLocation,
     start: usize,
     window: &[String],
+    key_open: bool,
 ) -> Option<CodeFrame> {
     let primary = location.span.line_start.max(1);
     if primary.saturating_sub(start) >= window.len() {
         return None;
     }
     let mut lines = Vec::with_capacity(window.len());
+    let mut in_key_body = key_open;
     for (offset, source) in window.iter().enumerate() {
         let number = start.saturating_add(offset);
-        let sanitized = sanitize_line(source);
+        let redacted = redact_line(source, &mut in_key_body);
+        let sanitized = sanitize_line(&redacted.text);
         let is_primary = number == primary;
-        let marker = is_primary.then(|| marker_for(location, &sanitized));
+        let marker = is_primary.then(|| marker_for(&redacted.span(&location.span), &sanitized));
         lines.push(CodeFrameLine {
             number,
             text: sanitized.text,
@@ -289,8 +299,7 @@ fn frame_from_window(
 /// rather than borrowing a column from a line the reader cannot see, and a
 /// span pointing past a line the sanitizer cut stops where the cut did rather
 /// than at the frame's own edge.
-fn marker_for(location: &GroupLocation, sanitized: &SanitizedLine) -> CodeFrameMarker {
-    let span = &location.span;
+fn marker_for(span: &DiagnosticSpan, sanitized: &SanitizedLine) -> CodeFrameMarker {
     let start = sanitized.source_column(span.column_start);
     let end = if span.line_end > span.line_start {
         sanitized.width
@@ -306,6 +315,129 @@ fn marker_for(location: &GroupLocation, sanitized: &SanitizedLine) -> CodeFrameM
             .min(last_column)
             .max(column_start.saturating_add(1)),
     }
+}
+
+/// What a frame keeps of a credential: its first four characters, which name
+/// the kind of key as react-doctor keeps the type prefix visible, and never
+/// more. A value too short to spare four characters loses all of them.
+const REDACTED: &str = "<redacted>";
+const REDACTED_PREFIX_CHARS: usize = 4;
+const REDACTED_MIN_CHARS: usize = 8;
+
+/// A source line with every credential the repository pass matches replaced.
+///
+/// The frame is the one place rust-doctor reads source text for display, so
+/// masking here covers the linear report and the viewer at once. It masks
+/// every line of the frame, not only the reported one: the lines around a
+/// finding, and the frame of any other rule's finding beside a key, would
+/// otherwise print it in full.
+struct RedactedLine {
+    text: String,
+    edits: Vec<ColumnEdit>,
+}
+
+/// One replacement, in characters of the source line: `[start, end)` became
+/// `width` characters.
+struct ColumnEdit {
+    start: usize,
+    end: usize,
+    width: usize,
+}
+
+impl RedactedLine {
+    /// The span with its columns moved onto the masked text, so the caret
+    /// under a credential covers what replaced it.
+    fn span(&self, span: &DiagnosticSpan) -> DiagnosticSpan {
+        DiagnosticSpan {
+            column_start: self.column(span.column_start),
+            column_end: self.column(span.column_end),
+            ..span.clone()
+        }
+    }
+
+    fn column(&self, column: usize) -> usize {
+        let index = column.saturating_sub(1);
+        let mut added = 0usize;
+        let mut removed = 0usize;
+        for edit in &self.edits {
+            if index >= edit.end {
+                added = added.saturating_add(edit.width);
+                removed = removed.saturating_add(edit.end.saturating_sub(edit.start));
+            } else if index > edit.start {
+                return edit
+                    .start
+                    .saturating_sub(removed)
+                    .saturating_add(added)
+                    .saturating_add(1);
+            } else {
+                break;
+            }
+        }
+        index.saturating_sub(removed).saturating_add(added).saturating_add(1)
+    }
+}
+
+/// Masks the credentials of one line. A line inside a PEM private key, which
+/// a header in or above this frame opened, is masked whole: its body is the
+/// key, and no pattern of the rule matches a base64 line on its own.
+fn redact_line(source: &str, in_key_body: &mut bool) -> RedactedLine {
+    if *in_key_body {
+        if source.contains("-----END ") {
+            *in_key_body = false;
+        } else {
+            let width = source.chars().count();
+            return RedactedLine {
+                text: REDACTED.to_owned(),
+                edits: vec![ColumnEdit {
+                    start: 0,
+                    end: width,
+                    width: REDACTED.len(),
+                }],
+            };
+        }
+    }
+    track_private_key(source, in_key_body);
+    let mut text = String::with_capacity(source.len());
+    let mut edits = Vec::new();
+    let mut copied = 0usize;
+    for (start, end) in crate::repo_hygiene::credential_ranges(source) {
+        let (Some(before), Some(value)) = (source.get(copied..start), source.get(start..end))
+        else {
+            continue;
+        };
+        text.push_str(before);
+        let replacement = masked(value);
+        let char_start = source.get(..start).map_or(0, |head| head.chars().count());
+        edits.push(ColumnEdit {
+            start: char_start,
+            end: char_start.saturating_add(value.chars().count()),
+            width: replacement.chars().count(),
+        });
+        text.push_str(&replacement);
+        copied = end;
+    }
+    text.push_str(source.get(copied..).unwrap_or_default());
+    RedactedLine { text, edits }
+}
+
+/// Whether a PEM private key is open after `line`: an `-----END ` line closes
+/// it, and a private key header opens one.
+fn track_private_key(line: &str, open: &mut bool) {
+    if *open && line.contains("-----END ") {
+        *open = false;
+    }
+    if crate::repo_hygiene::opens_private_key(line) {
+        *open = true;
+    }
+}
+
+fn masked(value: &str) -> String {
+    let kept: String = if value.chars().count() >= REDACTED_MIN_CHARS {
+        value.chars().take(REDACTED_PREFIX_CHARS).collect()
+    } else {
+        String::new()
+    };
+    kept + REDACTED
 }
 
 struct SanitizedLine {

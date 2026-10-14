@@ -127,6 +127,12 @@ pub(crate) fn fresh_workspace(scope: &str, counter: &AtomicUsize) -> PathBuf {
     root
 }
 
+/// The arguments that make a scan read no RustSec database. Without them the
+/// binary reads the one `cargo audit` left on the machine running the test, as
+/// `inspect` never does, so a CLI report compared against an API report or a
+/// frozen one would differ between a developer's machine and CI.
+pub(crate) const NO_ADVISORY_DB: [&str; 2] = ["--advisory-db", "/dev/null"];
+
 /// The binary under test, with the variables removed that would point its git
 /// at another repository or turn its Clippy's warnings into errors.
 pub(crate) fn rust_doctor() -> Command {
@@ -170,9 +176,11 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// policy rule, and the scope's `base_ref`, `staged` and
 /// `untracked_unreported`, v19 the policy's `ignore` and `overrides`, the
 /// `packages` of the audit, the report's `suppressions`, and the scan's
-/// `ignored` and `excluded_generated` counts. No historical field is removed or
-/// retyped, so the projection
-/// consists solely of removing the members added since.
+/// `ignored` and `excluded_generated` counts, v20 the scan's `advisory_db`,
+/// v21 the `contextual` value of the scope's `mode`, which a v7 report never
+/// carries since its scan named no such scope. No historical field is removed
+/// or retyped, so the projection consists solely of removing the members added
+/// since.
 ///
 /// This is the condition that makes a frozen archive durable: a schema that
 /// adds projects, a schema that moves the value of an existing field does not.
@@ -234,7 +242,7 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
             projected = remove_member(&projected, scope, added);
         }
     }
-    for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated"] {
+    for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated", "advisory_db"] {
         if let Some(member) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
             projected = remove_member(&projected, member, added);
         }

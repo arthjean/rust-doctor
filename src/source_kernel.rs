@@ -24,6 +24,7 @@ use crate::report::DiagnosticContext;
 use crate::source_text::{SourceSpan, line_starts, source_span};
 
 mod aliases;
+mod bindings;
 mod detectors;
 pub(crate) mod references;
 #[cfg(test)]
@@ -92,6 +93,11 @@ pub(crate) struct Candidate {
     pub(crate) message: &'static str,
     pub(crate) package: Option<String>,
     pub(crate) target: Option<String>,
+    /// Non-production context of the finding: the unit's, when every target
+    /// reaching it agrees on one, or `Tests` under a `#[cfg(test)]` module or
+    /// a `#[test]` function of a shipped file. A finding carrying one is
+    /// published and weighs nothing, like every other rule's.
+    pub(crate) context: Option<DiagnosticContext>,
     pub(crate) path: String,
     pub(crate) span: SourceSpan,
 }
@@ -603,8 +609,10 @@ fn analyze_unit(
             .iter()
             .map(|reach| enumeration.tables.get(&reach.package_id)),
     );
+    let bindings = bindings::Resolver::default();
     let context = detectors::Context {
         aliases: &aliases,
+        bindings: &bindings,
         crates: &crates,
         error_ranges: &unit.error_ranges,
         edition: unit.edition,
@@ -613,6 +621,7 @@ fn analyze_unit(
     let emitter = Emitter {
         package: unit.package(),
         target: unit.target(),
+        context: unit.context(&enumeration.contexts),
         path: unit.relative_path(),
         line_starts: line_starts(unit.source()),
         source: unit.source(),
@@ -627,7 +636,7 @@ fn analyze_unit(
                 .entry(detector.definition.id)
                 .or_default() += 1;
             if let Some(detection) = (detector.inspect)(&context, &node) {
-                emitter.insert(&mut findings.candidates, detector.definition, &detection);
+                emitter.insert(&mut findings.candidates, detector.definition, &detection, &node);
             }
         }
     }
@@ -638,6 +647,7 @@ fn analyze_unit(
 struct Emitter<'a> {
     package: Option<String>,
     target: Option<String>,
+    context: Option<DiagnosticContext>,
     path: &'a str,
     line_starts: Vec<usize>,
     source: &'a str,
@@ -649,6 +659,7 @@ impl Emitter<'_> {
         candidates: &mut BTreeMap<CandidateKey, Candidate>,
         definition: &'static RuleDefinition,
         detection: &Detection,
+        node: &ra_ap_syntax::SyntaxNode,
     ) {
         if detection.range.is_empty() {
             return;
@@ -658,6 +669,9 @@ impl Emitter<'_> {
             message: detection.message,
             package: self.package.clone(),
             target: self.target.clone(),
+            context: self.context.or_else(|| {
+                detectors::under_test_attribute(node).then_some(DiagnosticContext::Tests)
+            }),
             path: self.path.to_owned(),
             span: source_span(detection.range, &self.line_starts, self.source),
         };
@@ -669,6 +683,7 @@ impl Emitter<'_> {
                 existing.package =
                     unanimous([existing.package.take(), candidate.package]).flatten();
                 existing.target = unanimous([existing.target.take(), candidate.target]).flatten();
+                existing.context = unanimous([existing.context.take(), candidate.context]).flatten();
             }
             Entry::Vacant(slot) => {
                 slot.insert(candidate);

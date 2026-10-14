@@ -3,14 +3,19 @@ use std::path::PathBuf;
 use cargo_metadata::{Metadata, MetadataCommand};
 use ra_ap_syntax::{Edition, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
+mod benchmark;
+mod bindings;
 mod gate;
 mod measurement;
+mod registry;
+mod variants;
 
 use super::walk::enumerate_with_limits;
 use super::*;
 
 use crate::policy::{
-    PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL,
+    PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_BLOCKING_IN_ASYNC, SOURCE_DISABLED_TLS,
+    SOURCE_DYNAMIC_SHELL, SOURCE_SQL_FROM_FORMAT,
     STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_DUPLICATE_FUNCTION_BODY,
     STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT,
     STRUCTURE_STACKED_ALLOW, STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE,
@@ -92,6 +97,7 @@ static SILENT_RULE: RuleDefinition = RuleDefinition {
     default_level: RuleLevel::Warn,
     tier: RuleTier::P3,
     help: "Synthetic registry proof.",
+    diff_scope: crate::policy::DiffScope::Line,
 };
 
 /// A registered detector that never emits: it proves that a silent
@@ -102,7 +108,7 @@ static SILENT: Detector = Detector {
     inspect: silent,
 };
 
-const REGISTERED: [&Detector; 2] = DETECTORS;
+const REGISTERED: [&Detector; DETECTORS.len()] = DETECTORS;
 
 fn silent(_: &detectors::Context<'_>, _: &SyntaxNode) -> Option<Detection> {
     None
@@ -201,18 +207,28 @@ fn pinned_parser_supports_all_target_editions_and_recoverable_errors() {
 }
 
 #[test]
-fn producer_uses_the_two_canonical_catalog_entries() {
+fn producer_uses_its_canonical_catalog_entries() {
     let definitions: Vec<_> = PolicyPlan::default()
         .active_rules(Producer::SourceKernel)
         .map(|(definition, _)| definition.id)
         .collect();
-    assert_eq!(definitions, [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]);
+    assert_eq!(
+        definitions,
+        [
+            SOURCE_BLOCKING_IN_ASYNC.id,
+            SOURCE_DISABLED_TLS.id,
+            SOURCE_DYNAMIC_SHELL.id,
+            SOURCE_SQL_FROM_FORMAT.id,
+        ]
+    );
 }
 
 #[test]
 fn policy_prunes_source_io_and_each_inactive_predicate() {
     let metadata = metadata("precision");
     let all_off = PolicyInput::default()
+        .with_rule(SOURCE_BLOCKING_IN_ASYNC.id, RuleLevel::Off)
+        .with_rule(SOURCE_SQL_FROM_FORMAT.id, RuleLevel::Off)
         .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)
         .with_rule(SOURCE_DYNAMIC_SHELL.id, RuleLevel::Off)
         .with_rule(STRUCTURE_UNREASONED_ALLOW.id, RuleLevel::Off)
@@ -295,77 +311,6 @@ fn build() { let _ = Client::builder().danger_accept_invalid_certs(true); }",
     }
 }
 
-/// The walk is single and independent of the registry: the number of
-/// visited nodes depends neither on the number of detectors nor on their
-/// order, and a silent detector does not change the result.
-#[test]
-fn the_registry_shares_one_traversal_and_stays_order_independent() {
-    let source = "use std::process::Command;
-fn run(user: &str) {
-    let _ = Command::new(\"sh\").arg(\"-c\").arg(format!(\"echo {user}\"));
-    let _ = http_client::Client::builder().danger_accept_invalid_certs(true);
-}";
-    let nodes = SourceFile::parse(source, Edition::Edition2024)
-        .tree()
-        .syntax()
-        .descendants()
-        .count();
-    let method_calls = SourceFile::parse(source, Edition::Edition2024)
-        .tree()
-        .syntax()
-        .descendants()
-        .filter(|node| node.kind() == SyntaxKind::METHOD_CALL_EXPR)
-        .count();
-
-    let (expected, counters) = analyze(source, &REGISTERED);
-    assert_eq!(expected, [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]);
-    assert_eq!(counters.nodes_visited, nodes);
-    for detector in REGISTERED {
-        assert_eq!(
-            solicitations(&counters, detector.definition.id),
-            method_calls,
-            "{}",
-            detector.definition.id
-        );
-    }
-
-    let permuted = analyze(source, &[REGISTERED[1], REGISTERED[0]]);
-    assert_eq!(permuted.0, expected);
-    assert_eq!(permuted.1.nodes_visited, nodes);
-
-    let single = analyze(source, &[REGISTERED[0]]);
-    assert_eq!(single.1.nodes_visited, nodes);
-    assert_eq!(solicitations(&single.1, SOURCE_DYNAMIC_SHELL.id), 0);
-
-    // A registered detector that emits nothing leaves the result unchanged.
-    let with_silent = analyze(source, &[REGISTERED[0], &SILENT, REGISTERED[1]]);
-    assert_eq!(with_silent.0, expected);
-    assert_eq!(with_silent.1.nodes_visited, nodes);
-    assert_eq!(solicitations(&with_silent.1, SILENT_RULE.id), 1);
-}
-
-/// Grouping the registry by node kind may not change what a detector is
-/// asked: a detector is solicited on every node of its kind and on no other,
-/// whichever kinds its neighbours declared.
-#[test]
-fn a_detector_is_solicited_on_its_own_kind_and_never_on_another() {
-    let source = "fn run(user: &str) { let _ = Command::new(\"sh\").arg(user); }";
-    let tree = SourceFile::parse(source, Edition::Edition2024);
-    let source_files = tree
-        .tree()
-        .syntax()
-        .descendants()
-        .filter(|node| node.kind() == SyntaxKind::SOURCE_FILE)
-        .count();
-
-    let (_, counters) = analyze(source, &[&SILENT, REGISTERED[0], REGISTERED[1]]);
-    assert_eq!(solicitations(&counters, SILENT_RULE.id), source_files);
-    assert_eq!(source_files, 1);
-    for detector in REGISTERED {
-        assert!(solicitations(&counters, detector.definition.id) > 0);
-    }
-}
-
 /// `format!` arguments are classified after parsing, never after splitting the
 /// token tree on commas and gluing the remaining tokens back into text.
 ///
@@ -439,7 +384,7 @@ fn corpus_follows_modules_once_and_emits_only_closed_predicates() {
     let scanned = scan(&metadata("precision"));
     assert!(scanned.errors.is_empty(), "{:?}", scanned.errors);
     assert_eq!(scanned.walk.files_read, 13);
-    assert_eq!(scanned.candidates.len(), 13, "{:?}", scanned.candidates);
+    assert_eq!(scanned.candidates.len(), 15, "{:?}", scanned.candidates);
     assert!(
         scanned
             .candidates
@@ -457,7 +402,7 @@ fn corpus_follows_modules_once_and_emits_only_closed_predicates() {
             .iter()
             .filter(|candidate| candidate.definition.id == SOURCE_DISABLED_TLS.id)
             .count(),
-        7
+        8
     );
     assert!(
         scanned
@@ -638,7 +583,7 @@ fn target_editions_do_not_override_the_package_edition() {
 
     assert!(scanned.errors.is_empty(), "{:?}", scanned.errors);
     assert_eq!(scanned.walk.files_read, 11);
-    assert_eq!(scanned.candidates.len(), 13);
+    assert_eq!(scanned.candidates.len(), 15);
     assert!(
         scanned
             .candidates
@@ -968,6 +913,7 @@ fn an_empty_detection_range_emits_nothing() {
     let emitter = Emitter {
         package: None,
         target: None,
+        context: None,
         path: "src/lib.rs",
         line_starts: line_starts("fn main() {}"),
         source: "fn main() {}",
@@ -980,6 +926,7 @@ fn an_empty_detection_range_emits_nothing() {
             message: "unreachable",
             range: TextRange::empty(0.into()),
         },
+        &SourceFile::parse("fn main() {}", Edition::Edition2024).syntax_node(),
     );
     assert!(candidates.is_empty());
 }

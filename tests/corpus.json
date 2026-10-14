@@ -19,6 +19,10 @@
       },
       {
         "population": "healthy",
+        "rule": "clippy::undocumented_unsafe_blocks"
+      },
+      {
+        "population": "healthy",
         "rule": "rust_doctor::structure::near_duplicate_function_body"
       },
       {
@@ -28,6 +32,21 @@
     ],
     "agreement": {
       "coefficients": [
+        {
+          "ac1_basis_points": 5842,
+          "agreed": 15,
+          "kappa_basis_points": 3750,
+          "kappa_status": "defined",
+          "pairs": 20,
+          "population": "healthy",
+          "rule": "clippy::undocumented_unsafe_blocks",
+          "table": {
+            "both_false_positive": 3,
+            "both_true_positive": 12,
+            "first_only_false_positive": 2,
+            "second_only_false_positive": 3
+          }
+        },
         {
           "ac1_basis_points": -10000,
           "agreed": 0,
@@ -134,8 +153,428 @@
           }
         }
       ],
-      "escalations_open": 12,
+      "escalations_open": 17,
       "pairs": [
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 157,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block calls `ErrorImpl::error`, an `unsafe fn` whose definition (src/error.rs:941) has no documented safety contract, and nothing at this safe `source` impl says why `self.error.inner` meets that contract, so no justification exists anywhere.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block calls the unsafe fn ErrorImpl::error, whose contract is not documented at src/error.rs:941. No comment at the call site or on the surrounding StdError impl explains why self.error.inner is a valid ErrorImpl whose vtable matches its type.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/context.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 478,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Safe fn `downcast` opens a multi-operation unsafe block whose only comments describe mechanics (vtable lookup, ManuallyDrop), and nothing states why the vtable or the pointer read is sound.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block in `downcast` explains each unsafe step inline: the vtable yields a pointer to a value of type E (479-480), `ManuallyDrop` keeps E from being dropped twice (486-488), and the rest is dropped outside E (493), so the reasoning is present, just not with a `SAFETY:` prefix.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 697,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Safe `DerefMut::deref_mut` calls `ErrorImpl::error_mut` with no comment, and the callee's unsafe contract is undocumented.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The safe `DerefMut::deref_mut` calls the unsafe `ErrorImpl::error_mut` with no comment, and neither the function nor `Error` states the invariant that `inner` points to a live `ErrorImpl` with a matching vtable.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 750,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the direct and only use of the enclosing `unsafe fn object_drop_front`, whose contract `// Safety: requires layout of *e to match ErrorImpl<E>` is stated just above it.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the direct use of the contract of its enclosing `unsafe fn object_drop_front`, written as `// Safety: requires layout of *e to match ErrorImpl<E>` (743), and a comment right above it explains the ManuallyDrop cast.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 823,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The `// Safety:` on the enclosing `unsafe fn context_downcast` (line 813) only covers the layout cast, while this block is one of four in the function and depends on something that comment never states: the `NonNull::new_unchecked` argument is non-null because it is a field projection of a live pointer.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block sits inside unsafe fn context_downcast, whose '// Safety: requires layout of *e to match ErrorImpl<ContextError<C, E>>' comment at line 813 states the contract, and new_unchecked is sound because inner is derived with addr_of! from that already-valid non-null pointer on the line above.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 859,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Inside `unsafe fn context_chain_downcast`, whose `// Safety: requires layout...` contract is stated, `new_unchecked` wraps a field projection of that non-null, contract-valid pointer, so soundness follows directly from the contract.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`NonNull::new_unchecked` needs the pointer to be non-null, and the enclosing function's Safety comment (851) only covers layout, so nothing at the site says why `inner` cannot be null.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 885,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Reading the vtable of `inner` after `drop(unerased)` relies on `ManuallyDrop<Error>` keeping the next allocation alive, which goes beyond the stated layout contract and is stated nowhere.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`vtable(inner.ptr)` works on the inner error of the next link in the chain, which the enclosing function's layout contract (868) does not cover, and the adjacent comments (882, 886) describe what the code does without saying why it is sound.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 951,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The enclosing `unsafe fn error_mut` has no documented safety contract, and the adjacent comment only describes the vtable mechanics, not why it is sound to turn `by_ref` into `by_mut`.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the whole body of `unsafe fn error_mut`, so it only passes the caller's obligation through, and the comment right above it (949-950) explains the vtable dispatch it relies on.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1017,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Inside a safe `Display::fmt` impl, the block calls the undocumented `unsafe fn ErrorImpl::error` on `self.erase()`, and there is no comment here or at either callee (lines 932-945) saying why the erased reference satisfies the vtable layout requirement.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The Display impl calls the unsafe fn ErrorImpl::error on self.erase() with no comment. The only nearby prose, in erase at lines 933-935, describes type erasure, not why this call meets the undocumented contract of ErrorImpl::error, even though the same file writes '// Safety:' comments at its other unsafe call sites (for example lines 162, 186, 242).",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/error.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 13,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl<T> Send for Own<T>` has no `T: Send` bound and no comment explaining why that is sound.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl<T: ?Sized> Send for Own<T>` claims Send with no `T: Send` bound and no comment, a soundness-relevant claim a reader cannot check without a stated reason.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/ptr.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 176,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the whole body of the one-line wrapper `pub unsafe fn read`, which forwards `ptr::read`'s contract unchanged to its caller.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the only statement of `pub unsafe fn read`, which mirrors `ptr::read` and hands that exact contract to its caller.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/ptr.rs",
+          "population": "healthy",
+          "repository": "anyhow",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1599,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl BufMut for Vec<u8>` has no comment stating how the impl upholds the unsafe trait's contract, while nearby blocks in the same file do carry SAFETY comments.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl BufMut for Vec<u8>` has no comment saying how this impl meets the unsafe trait's contract on `remaining_mut`, `chunk_mut` and `advance_mut`, even though the neighboring `put_bytes` (1591) does carry a SAFETY comment.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/buf/buf_mut.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 60,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The block is the standard reference cast from `[MaybeUninit<u8>]` to its `#[repr(transparent)]` newtype, and that representation plus the safety invariants are stated on the `UninitSlice` type itself (lines 7-22) a few lines above.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The pointer cast from &[MaybeUninit<u8>] to &UninitSlice is sound only because of #[repr(transparent)] at line 21. Nothing states that reasoning at the cast, and the type's documented invariants (lines 13-16) cover reading and writing, not layout-compatible casts.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/buf/uninit_slice.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 645,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`slice::from_raw_parts(self.ptr, self.len)` in safe `as_slice` depends on a ptr/len validity invariant that is written neither at the site nor on the `Bytes` struct fields.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`slice::from_raw_parts(self.ptr, self.len)` in `as_slice` has no comment, and the `Bytes` struct (101-103) documents no invariant on `ptr` and `len`.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1034,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Calling `vtable.into_mut` on a ManuallyDrop'd `Bytes` transfers ownership with no comment explaining why the data/ptr/len triple is valid and not double-freed.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The call through `vtable.into_mut` in `From<Bytes> for BytesMut` has no comment explaining why `ManuallyDrop` plus handing over data/ptr/len meets the vtable function's contract.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 639,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The long unsafe block in `reserve_inner` has comments about amortized-cost policy only, and never states why `get_vec_pos` and the pointer arithmetic are sound, even though the `kind == KIND_VEC` check above it is what makes them so.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The long comments before and inside the large unsafe block in `reserve_inner` justify the amortized reuse heuristic, not the soundness of `get_vec_pos` and the pointer copies that follow.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes_mut.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1003,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`slice::from_raw_parts(self.ptr, self.len)` depends on `ptr` pointing to `len` initialized bytes, and this private `as_slice` states that nowhere, nor do the undocumented `BytesMut` fields (lines 60-65), even though this same file writes `// SAFETY:` comments on its other blocks (lines 85, 336, 341).",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "slice::from_raw_parts relies on ptr being valid for len initialized bytes. The struct at lines 60-65 never states that invariant, and the file otherwise puts '// SAFETY:' comments on its unsafe blocks (lines 85, 336, 452, 928).",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes_mut.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1264,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl BufMut for BytesMut` has no comment stating how the impl upholds the trait's unsafe contract.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`unsafe impl BufMut for BytesMut` has no comment on how the impl meets the trait's safety contract, while the `advance` just above it (1253) does have one.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes_mut.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1834,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "Dereferencing raw `shared` in `(*shared).is_unique()` relies on the non-VEC kind implying a live `Shared` pointer, and nothing at the site says so.",
+              "verdict": "true_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "`(*shared).is_unique()` dereferences a raw pointer, and its validity depends on the unstated invariant that a non-`KIND_VEC` `BytesMut` holds a live `Shared`, which is never written down there.",
+              "verdict": "true_positive"
+            }
+          ],
+          "path": "src/bytes_mut.rs",
+          "population": "healthy",
+          "repository": "bytes",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
+        {
+          "context": "production",
+          "independence": "separate_context",
+          "line": 1429,
+          "passes": [
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The six-line comment just above the transmute explains in full why every stored usize is a valid `LevelFilter` discriminant, so the justification is present, just not prefixed `SAFETY:`.",
+              "verdict": "false_positive"
+            },
+            {
+              "judge": "claude-opus-5-5",
+              "justification": "The six lines right above it (1423-1428) are a full soundness argument for the transmute: `LevelFilter` is `repr(usize)` and the private atomic is only ever set from a `LevelFilter`.",
+              "verdict": "false_positive"
+            }
+          ],
+          "path": "src/lib.rs",
+          "population": "healthy",
+          "repository": "log",
+          "rule": "clippy::undocumented_unsafe_blocks"
+        },
         {
           "context": "production",
           "family": "4672c67d096ea362da37770212be890f996f97c768fc4004978fc27e4b64c0d0",
@@ -4958,9 +5397,9 @@
     },
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
     "position_proof": {
-      "date": "2026-09-25",
-      "digest": "2b3c827d5f910e969d4e686ac3553f2fb20d0a6b6779a0beee4c76c4bb5e322e",
-      "sites": 671,
+      "date": "2026-09-26",
+      "digest": "961355f7c38460fd58817d61b96260fd4af9094eff048fe848f269448bfc843a",
+      "sites": 706,
       "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
     },
     "protocol_cutoff": "2026-08-21",
@@ -6240,6 +6679,171 @@
         "provenance": "unrecorded",
         "repository": "hexyl",
         "rule": "clippy::too_many_arguments",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "No comment at the call or on the StdError impl says why `self.error.inner` satisfies the undocumented contract of the `unsafe fn ErrorImpl::error` it calls.",
+        "line": 157,
+        "path": "src/context.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Safe `DerefMut::deref_mut` calls `ErrorImpl::error_mut` with no comment, and the callee's unsafe contract is undocumented.",
+        "line": 697,
+        "path": "src/error.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The block is the direct and only use of the enclosing `unsafe fn object_drop_front`, whose contract `// Safety: requires layout of *e to match ErrorImpl<E>` is stated just above it.",
+        "line": 750,
+        "path": "src/error.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Reading the vtable of `inner` after `drop(unerased)` relies on `ManuallyDrop<Error>` keeping the next allocation alive, which goes beyond the stated layout contract and is stated nowhere.",
+        "line": 885,
+        "path": "src/error.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The safe `Display::fmt` calls the undocumented `unsafe fn ErrorImpl::error` on `self.erase()` with no statement of why the erased reference meets its layout requirement.",
+        "line": 1017,
+        "path": "src/error.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "`unsafe impl<T> Send for Own<T>` has no `T: Send` bound and no comment explaining why that is sound.",
+        "line": 13,
+        "path": "src/ptr.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The block is the whole body of the one-line wrapper `pub unsafe fn read`, which forwards `ptr::read`'s contract unchanged to its caller.",
+        "line": 176,
+        "path": "src/ptr.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "anyhow",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "false_positive"
+      },
+      {
+        "context": "production",
+        "justification": "`unsafe impl BufMut for Vec<u8>` has no comment stating how the impl upholds the unsafe trait's contract, while nearby blocks in the same file do carry SAFETY comments.",
+        "line": 1599,
+        "path": "src/buf/buf_mut.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "`slice::from_raw_parts(self.ptr, self.len)` in safe `as_slice` depends on a ptr/len validity invariant that is written neither at the site nor on the `Bytes` struct fields.",
+        "line": 645,
+        "path": "src/bytes.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Calling `vtable.into_mut` on a ManuallyDrop'd `Bytes` transfers ownership with no comment explaining why the data/ptr/len triple is valid and not double-freed.",
+        "line": 1034,
+        "path": "src/bytes.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The long unsafe block in `reserve_inner` has comments about amortized-cost policy only, and never states why `get_vec_pos` and the pointer arithmetic are sound, even though the `kind == KIND_VEC` check above it is what makes them so.",
+        "line": 639,
+        "path": "src/bytes_mut.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "`slice::from_raw_parts(self.ptr, self.len)` relies on `ptr` being valid for `len` initialized bytes, which neither `as_slice` nor the `BytesMut` fields state, while the file documents its other unsafe blocks.",
+        "line": 1003,
+        "path": "src/bytes_mut.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "`unsafe impl BufMut for BytesMut` has no comment stating how the impl upholds the trait's unsafe contract.",
+        "line": 1264,
+        "path": "src/bytes_mut.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "Dereferencing raw `shared` in `(*shared).is_unique()` relies on the non-VEC kind implying a live `Shared` pointer, and nothing at the site says so.",
+        "line": 1834,
+        "path": "src/bytes_mut.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "bytes",
+        "rule": "clippy::undocumented_unsafe_blocks",
+        "verdict": "true_positive"
+      },
+      {
+        "context": "production",
+        "justification": "The six-line comment just above the transmute explains in full why every stored usize is a valid `LevelFilter` discriminant, so the justification is present, just not prefixed `SAFETY:`.",
+        "line": 1429,
+        "path": "src/lib.rs",
+        "population": "healthy",
+        "provenance": "agent",
+        "repository": "log",
+        "rule": "clippy::undocumented_unsafe_blocks",
         "verdict": "false_positive"
       },
       {
@@ -10252,7 +10856,7 @@
         "verdict": "false_positive"
       }
     ],
-    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. The agreement of those passes is published per rule and population in adjudication.agreement.coefficients, which the suite recomputes from the pairs on record: no count and no coefficient is stated here, because a number written in prose is a number no test compares. The four structural rules of the agent population are drawn by that same stride over their production-context subpopulation, at the target their plan publishes, bounded by what the population can supply, with the population, the target and the positions the stride landed on recorded in adjudication.sampling_plan and the draw enrolled in adjudication.adjudicated_after_cutoff. That subpopulation is the findings the scan publishes with no context, and it excludes a finding under a tests, benches or examples directory or in a file named tests.rs even where the scan attributes no context to it: the correction of August 2026 to how a module declared out of line under a cfg(test) attribute is classified shrank all four populations, and one predicate now decides both what a rule is measured over and what the record may publish as a production site. A population that changes size does not keep its sample, since the stride recomputes every position from n, so each of the four plans names the positions of the sites an earlier plan drew that survived the correction, in adjudication.sampling_plan.carried_over. The carry-over extends the sample and never edits the draw: a carried position is a position of the corrected population that the new stride did not select, and the verdicts behind it are the verdicts already on record rather than a re-reading of the same site. The two healthy structural scopes that the agent population also measures are drawn by that same stride over their production-context subpopulation, and drawn to the whole of it: rust_doctor::structure::oversized_unit publishes a target of 46 over a population of 46 and rust_doctor::structure::near_duplicate_function_body a target of 30 over 30, so the stride selects every site and the target of the protocol is read as a floor rather than as a quota, which is what lets a scope the reviewer can exhaust ask for all of it. Neither draw carries anything over, since a draw that takes the whole population has nothing left to carry. Neither can be deepened either. The healthy near_duplicate_function_body scope holds 30 production families across the ten pinned repositories, under the 40 sites per arm that the difference interval of rate_comparison names as its nominal coverage floor, and it publishes that fact on the row rather than withholding the comparison. No sampling decision can move it: the limit is the corpus, not the draw, and deepening the scope means pinning more repositories rather than reviewing more of these.",
+    "sampling": "Deterministic sample of up to 5 sites per rule. The population of a rule is the set of its corpus findings ordered canonically by (repository, path, line); sites sharing that identity are collapsed once. From a population of n such sites the sample takes k = min(5, n) of them, at the indices floor(i * n / k) for i in [0, k), a regular stride from the first site, so the sample follows the same distribution as the findings a user actually receives. Every sampled site was read in the pinned source with its surrounding code. The published rate is the rate of that sample, never of the unreviewed population; at k = 5 the sample resolves steps of 20 points, so it separates a rule with no observed false positive from one that has some, and cannot place a rule precisely against the 5 % threshold. Structural rules sample their production-context subpopulation, with the same stride: a family marked as a test, benchmark, example or build-script context does not weigh on the score, so the rate that decides what a structural rule costs is the rate of the families that do. rust_doctor::structure::duplicate_function_body samples k = min(20, n) of that subpopulation, because its published target is a rate at or under 5 percent and a five-site sample cannot resolve that threshold; the other structural rules sample five. The unit of a structural sample is the family or unit the diagnostic reports, read at its anchor together with its related sites. The all-context measurement of 2026-08-09, which this replaced, is recorded in docs/structural-precision-2026-08.md with its composition. Three rules were deepened on 2026-08-11, past the five-site default, because five sites resolve steps of twenty points and cannot place a rule against the threshold. clippy::indexing_slicing takes k = 40 of its 241 sites by the same stride, which contains the k = 5 stride it replaces. clippy::string_slice reviews its whole population of 40, so its rate is exact rather than sampled. rust_doctor::structure::complex_function reviews 31 of the 34 production families it observes. Every added site was judged twice by independent passes blind to each other, and the three sites where the passes disagreed are excluded from the sample and left to a human verdict rather than settled by the agent that produced them, which is why complex_function reviews 31 and not 34. The agreement of those passes is published per rule and population in adjudication.agreement.coefficients, which the suite recomputes from the pairs on record: no count and no coefficient is stated here, because a number written in prose is a number no test compares. The four structural rules of the agent population are drawn by that same stride over their production-context subpopulation, at the target their plan publishes, bounded by what the population can supply, with the population, the target and the positions the stride landed on recorded in adjudication.sampling_plan and the draw enrolled in adjudication.adjudicated_after_cutoff. That subpopulation is the findings the scan publishes with no context, and it excludes a finding under a tests, benches or examples directory or in a file named tests.rs even where the scan attributes no context to it: the correction of August 2026 to how a module declared out of line under a cfg(test) attribute is classified shrank all four populations, and one predicate now decides both what a rule is measured over and what the record may publish as a production site. A population that changes size does not keep its sample, since the stride recomputes every position from n, so each of the four plans names the positions of the sites an earlier plan drew that survived the correction, in adjudication.sampling_plan.carried_over. The carry-over extends the sample and never edits the draw: a carried position is a position of the corrected population that the new stride did not select, and the verdicts behind it are the verdicts already on record rather than a re-reading of the same site. The two healthy structural scopes that the agent population also measures are drawn by that same stride over their production-context subpopulation, and drawn to the whole of it: rust_doctor::structure::oversized_unit publishes a target of 46 over a population of 46 and rust_doctor::structure::near_duplicate_function_body a target of 30 over 30, so the stride selects every site and the target of the protocol is read as a floor rather than as a quota, which is what lets a scope the reviewer can exhaust ask for all of it. Neither draw carries anything over, since a draw that takes the whole population has nothing left to carry. Neither can be deepened either. The healthy near_duplicate_function_body scope holds 30 production families across the ten pinned repositories, under the 40 sites per arm that the difference interval of rate_comparison names as its nominal coverage floor, and it publishes that fact on the row rather than withholding the comparison. No sampling decision can move it: the limit is the corpus, not the draw, and deepening the scope means pinning more repositories rather than reviewing more of these. clippy::undocumented_unsafe_blocks, the first Clippy rule enrolled under the protocol, samples the protocol target of 20 over its healthy production sites with the same stride: its first draw of five was redrawn at twenty before any verdict was published, and the five positions it had taken are positions the twenty-site stride selects as well, so nothing is carried over. Its passes name claude-opus-5-5, the model that produced them.",
     "sampling_plan": [
       {
         "carried_over": [
@@ -10431,6 +11035,35 @@
         "observed": 811,
         "population": "agent",
         "rule": "rust_doctor::structure::oversized_unit",
+        "target": 20
+      },
+      {
+        "carried_over": [],
+        "indices": [
+          0,
+          5,
+          11,
+          16,
+          22,
+          28,
+          33,
+          39,
+          45,
+          50,
+          56,
+          62,
+          67,
+          73,
+          79,
+          84,
+          90,
+          96,
+          101,
+          107
+        ],
+        "observed": 113,
+        "population": "healthy",
+        "rule": "clippy::undocumented_unsafe_blocks",
         "target": 20
       },
       {
@@ -11080,11 +11713,11 @@
       {
         "authoritative": false,
         "commit": "4d9b33d9ab5a379425db3807d7e66c000b3a4bc6",
-        "distinct": 3650,
+        "distinct": 3656,
         "exit_code": 1,
-        "findings_digest": "9e2496bd0c32880f2e3644fc98656429551f51ae90113f516e09ccd909b4f7e9",
+        "findings_digest": "deb88aa148eb0e9d0310d1bef062db4daf7aaaf9abad4b9957822bca522d141b",
         "name": "vibesql",
-        "occurrences": 9984,
+        "occurrences": 9990,
         "outcome": "processed",
         "production_lines": 413822,
         "reasons": [
@@ -11100,6 +11733,16 @@
             "distinct": 1,
             "id": "rust_doctor::cargo::unchecked_release_overflow",
             "occurrences": 1
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::source::blocking_call_in_async",
+            "occurrences": 3
+          },
+          {
+            "distinct": 3,
+            "id": "rust_doctor::source::sql_built_from_format",
+            "occurrences": 3
           },
           {
             "distinct": 784,
@@ -11148,13 +11791,13 @@
           }
         ],
         "score": {
-          "applied_ceiling": null,
+          "applied_ceiling": 65,
           "dimensions": [
             {
-              "density_micro": 0,
+              "density_micro": 9666,
               "name": "security",
-              "score": 100,
-              "worst_tier": null
+              "score": 50,
+              "worst_tier": "P1"
             },
             {
               "density_micro": 720825,
@@ -11183,8 +11826,8 @@
           ],
           "label": "Needs work",
           "model": "core-v4",
-          "value": 73,
-          "worst_tier": "P2"
+          "value": 58,
+          "worst_tier": "P1"
         },
         "status": "incomplete"
       },
@@ -11531,6 +12174,22 @@
         "separation": null,
         "status": "unobserved",
         "tier": "P1",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 0,
+        "id": "clippy::crosspointer_transmute",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "unobserved",
+        "tier": "P2",
         "true_positives": null
       },
       {
@@ -12059,6 +12718,22 @@
         "separation": null,
         "status": "unobserved",
         "tier": "P3",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 0,
+        "id": "clippy::missing_transmute_annotations",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "unobserved",
+        "tier": "P2",
         "true_positives": null
       },
       {
@@ -12674,6 +13349,22 @@
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
+        "id": "clippy::undocumented_unsafe_blocks",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "unobserved",
+        "tier": "P2",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 0,
         "id": "clippy::unimplemented",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -13140,6 +13831,22 @@
         "false_positive_rate_basis_points": null,
         "false_positives": null,
         "findings": 0,
+        "id": "rust_doctor::cargo::unmaintained_dependency",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "unobserved",
+        "tier": "P2",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 0,
         "id": "rust_doctor::cargo::unpinned_git_dependency",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -13165,6 +13872,22 @@
         "separation": null,
         "status": "incomplete",
         "tier": "P2",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 0,
+        "id": "rust_doctor::cargo::vulnerable_dependency",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "unobserved",
+        "tier": "P1",
         "true_positives": null
       },
       {
@@ -13219,6 +13942,22 @@
         "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
+        "findings": 3,
+        "id": "rust_doctor::source::blocking_call_in_async",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "incomplete",
+        "tier": "P2",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
         "findings": 0,
         "id": "rust_doctor::source::disabled_tls_verification",
         "interval_high_basis_points": null,
@@ -13245,6 +13984,22 @@
         "separation": null,
         "status": "unobserved",
         "tier": "P0",
+        "true_positives": null
+      },
+      {
+        "doubly_judged": 0,
+        "false_positive_rate_basis_points": null,
+        "false_positives": null,
+        "findings": 3,
+        "id": "rust_doctor::source::sql_built_from_format",
+        "interval_high_basis_points": null,
+        "interval_low_basis_points": null,
+        "judges": [],
+        "provenance": [],
+        "reviewed": 0,
+        "separation": null,
+        "status": "incomplete",
+        "tier": "P1",
         "true_positives": null
       },
       {
@@ -13535,6 +14290,8 @@
     "scan_arguments": [
       "--json",
       "--yes",
+      "--advisory-db",
+      "/dev/null",
       "--rule",
       "clippy::absurd_extreme_comparisons=off",
       "--rule",
@@ -13555,6 +14312,8 @@
       "clippy::cast_slice_different_sizes=off",
       "--rule",
       "clippy::char_indices_as_byte_indices=off",
+      "--rule",
+      "clippy::crosspointer_transmute=off",
       "--rule",
       "clippy::dbg_macro=off",
       "--rule",
@@ -13621,6 +14380,8 @@
       "clippy::min_max=off",
       "--rule",
       "clippy::missing_safety_doc=off",
+      "--rule",
+      "clippy::missing_transmute_annotations=off",
       "--rule",
       "clippy::mistyped_literal_suffixes=off",
       "--rule",
@@ -13697,6 +14458,8 @@
       "clippy::transmuting_null=off",
       "--rule",
       "clippy::type_complexity=off",
+      "--rule",
+      "clippy::undocumented_unsafe_blocks=off",
       "--rule",
       "clippy::unimplemented=off",
       "--rule",
@@ -13805,6 +14568,11 @@
       "default_level": "warn",
       "id": "clippy::char_indices_as_byte_indices",
       "tier": "P1"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::crosspointer_transmute",
+      "tier": "P2"
     },
     {
       "default_level": "warn",
@@ -13970,6 +14738,11 @@
       "default_level": "warn",
       "id": "clippy::missing_safety_doc",
       "tier": "P3"
+    },
+    {
+      "default_level": "warn",
+      "id": "clippy::missing_transmute_annotations",
+      "tier": "P2"
     },
     {
       "default_level": "warn",
@@ -14163,6 +14936,11 @@
     },
     {
       "default_level": "warn",
+      "id": "clippy::undocumented_unsafe_blocks",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
       "id": "clippy::unimplemented",
       "tier": "P1"
     },
@@ -14308,6 +15086,11 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::cargo::unmaintained_dependency",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::cargo::unpinned_git_dependency",
       "tier": "P1"
     },
@@ -14315,6 +15098,11 @@
       "default_level": "warn",
       "id": "rust_doctor::cargo::unused_dependency",
       "tier": "P2"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::cargo::vulnerable_dependency",
+      "tier": "P1"
     },
     {
       "default_level": "warn",
@@ -14333,6 +15121,11 @@
     },
     {
       "default_level": "warn",
+      "id": "rust_doctor::source::blocking_call_in_async",
+      "tier": "P2"
+    },
+    {
+      "default_level": "warn",
       "id": "rust_doctor::source::disabled_tls_verification",
       "tier": "P0"
     },
@@ -14340,6 +15133,11 @@
       "default_level": "warn",
       "id": "rust_doctor::source::dynamic_shell_command",
       "tier": "P0"
+    },
+    {
+      "default_level": "warn",
+      "id": "rust_doctor::source::sql_built_from_format",
+      "tier": "P1"
     },
     {
       "default_level": "warn",
@@ -14400,6 +15198,7 @@
       "clippy::bad_bit_mask",
       "clippy::cast_slice_different_sizes",
       "clippy::char_indices_as_byte_indices",
+      "clippy::crosspointer_transmute",
       "clippy::dbg_macro",
       "clippy::deprecated_semver",
       "clippy::derive_ord_xor_partial_ord",
@@ -14433,6 +15232,7 @@
       "clippy::mem_replace_with_uninit",
       "clippy::min_max",
       "clippy::missing_safety_doc",
+      "clippy::missing_transmute_annotations",
       "clippy::mistyped_literal_suffixes",
       "clippy::modulo_one",
       "clippy::mut_from_ref",
@@ -14471,6 +15271,7 @@
       "clippy::transmute_null_to_fn",
       "clippy::transmuting_null",
       "clippy::type_complexity",
+      "clippy::undocumented_unsafe_blocks",
       "clippy::unimplemented",
       "clippy::uninit_assumed_init",
       "clippy::uninit_vec",
@@ -14500,13 +15301,17 @@
       "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
       "rust_doctor::cargo::unchecked_release_overflow",
+      "rust_doctor::cargo::unmaintained_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
+      "rust_doctor::cargo::vulnerable_dependency",
       "rust_doctor::repo::hardcoded_credential",
       "rust_doctor::repo::tracked_secret_file",
       "rust_doctor::repo::unignored_build_output",
+      "rust_doctor::source::blocking_call_in_async",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::source::sql_built_from_format",
       "rust_doctor::structure::complex_function",
       "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::duplicate_function_body",
@@ -14534,6 +15339,7 @@
       "clippy::print_stderr",
       "clippy::string_slice",
       "clippy::too_many_arguments",
+      "clippy::undocumented_unsafe_blocks",
       "clippy::unreachable",
       "clippy::unwrap_used",
       "rust_doctor::cargo::unchecked_release_overflow",
@@ -14556,6 +15362,7 @@
       "clippy::bad_bit_mask",
       "clippy::cast_slice_different_sizes",
       "clippy::char_indices_as_byte_indices",
+      "clippy::crosspointer_transmute",
       "clippy::dbg_macro",
       "clippy::deprecated_semver",
       "clippy::derive_ord_xor_partial_ord",
@@ -14584,6 +15391,7 @@
       "clippy::match_str_case_mismatch",
       "clippy::mem_replace_with_uninit",
       "clippy::min_max",
+      "clippy::missing_transmute_annotations",
       "clippy::mistyped_literal_suffixes",
       "clippy::modulo_one",
       "clippy::mut_from_ref",
@@ -14639,13 +15447,17 @@
       "rust_doctor::cargo::release_debug_symbols",
       "rust_doctor::cargo::test_only_dependency",
       "rust_doctor::cargo::unbounded_registry_dependency",
+      "rust_doctor::cargo::unmaintained_dependency",
       "rust_doctor::cargo::unpinned_git_dependency",
       "rust_doctor::cargo::unused_dependency",
+      "rust_doctor::cargo::vulnerable_dependency",
       "rust_doctor::repo::hardcoded_credential",
       "rust_doctor::repo::tracked_secret_file",
       "rust_doctor::repo::unignored_build_output",
+      "rust_doctor::source::blocking_call_in_async",
       "rust_doctor::source::disabled_tls_verification",
       "rust_doctor::source::dynamic_shell_command",
+      "rust_doctor::source::sql_built_from_format",
       "rust_doctor::structure::crate_level_allow",
       "rust_doctor::structure::orphan_module_file",
       "rust_doctor::structure::stacked_allow_attribute",
@@ -14661,7 +15473,9 @@
     "processed": 10,
     "scan_arguments": [
       "--json",
-      "--yes"
+      "--yes",
+      "--advisory-db",
+      "/dev/null"
     ],
     "skipped": 0
   },
@@ -14836,11 +15650,11 @@
     {
       "authoritative": true,
       "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3",
-      "distinct": 50,
+      "distinct": 107,
       "exit_code": 0,
-      "findings_digest": "d6c1760436de858e4aff577c3c2c0b89675c611dc1e74a416f78d70b3c2e0e11",
+      "findings_digest": "1e2f30ff1367846091d83d99fe4746850d351f97fb3d666d7f3880e1ce0d8389",
       "name": "anyhow",
-      "occurrences": 69,
+      "occurrences": 126,
       "outcome": "processed",
       "production_lines": 4113,
       "reasons": [],
@@ -14859,6 +15673,11 @@
           "distinct": 3,
           "id": "clippy::print_stderr",
           "occurrences": 3
+        },
+        {
+          "distinct": 57,
+          "id": "clippy::undocumented_unsafe_blocks",
+          "occurrences": 57
         },
         {
           "distinct": 2,
@@ -14906,9 +15725,9 @@
             "worst_tier": null
           },
           {
-            "density_micro": 1076732,
+            "density_micro": 22271918,
             "name": "reliability",
-            "score": 75,
+            "score": 11,
             "worst_tier": "P2"
           },
           {
@@ -14930,9 +15749,9 @@
             "worst_tier": null
           }
         ],
-        "label": "Great",
+        "label": "Needs work",
         "model": "core-v4",
-        "value": 88,
+        "value": 73,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -15024,11 +15843,11 @@
     {
       "authoritative": true,
       "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
-      "distinct": 94,
+      "distinct": 143,
       "exit_code": 0,
-      "findings_digest": "9444d29bc7bf04ce1e95cc3858e9c4865f3dee4eaedb91a922797e4246373031",
+      "findings_digest": "961fb58e7f58b63db3bed351a7a6deab15d81240c86e9bb08f0c7310b669a7d1",
       "name": "bytes",
-      "occurrences": 152,
+      "occurrences": 248,
       "outcome": "processed",
       "production_lines": 9881,
       "reasons": [],
@@ -15062,6 +15881,11 @@
           "distinct": 2,
           "id": "clippy::string_slice",
           "occurrences": 2
+        },
+        {
+          "distinct": 49,
+          "id": "clippy::undocumented_unsafe_blocks",
+          "occurrences": 96
         },
         {
           "distinct": 2,
@@ -15099,9 +15923,9 @@
             "worst_tier": null
           },
           {
-            "density_micro": 315646,
+            "density_micro": 7899960,
             "name": "reliability",
-            "score": 75,
+            "score": 45,
             "worst_tier": "P2"
           },
           {
@@ -15125,7 +15949,7 @@
         ],
         "label": "Great",
         "model": "core-v4",
-        "value": 89,
+        "value": 82,
         "worst_tier": "P2"
       },
       "status": "complete"
@@ -15133,11 +15957,11 @@
     {
       "authoritative": true,
       "commit": "7027d45303b412be6fa9c09d689cc6276748fb38",
-      "distinct": 59,
+      "distinct": 60,
       "exit_code": 0,
-      "findings_digest": "b6fb1b6fab32976d34bea9d463e8f267f3bb09e5d6d86c9e475f0c199c4e4f28",
+      "findings_digest": "bcf93527e4885bf7f63b293f95bcd862ae07dd25f1917487696182ebb156577e",
       "name": "fd",
-      "occurrences": 75,
+      "occurrences": 76,
       "outcome": "processed",
       "production_lines": 4676,
       "reasons": [],
@@ -15161,6 +15985,11 @@
           "distinct": 12,
           "id": "clippy::string_slice",
           "occurrences": 12
+        },
+        {
+          "distinct": 1,
+          "id": "clippy::undocumented_unsafe_blocks",
+          "occurrences": 1
         },
         {
           "distinct": 2,
@@ -15218,7 +16047,7 @@
             "worst_tier": null
           },
           {
-            "density_micro": 1435137,
+            "density_micro": 1762211,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
@@ -15361,11 +16190,11 @@
     {
       "authoritative": true,
       "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
-      "distinct": 32,
+      "distinct": 35,
       "exit_code": 0,
-      "findings_digest": "9e13145966a2d1454c6937184421b9016fa6c4bd5e9acf4a2920e9655140458b",
+      "findings_digest": "5a2dbf151cf028cf2e6546ccda9f7a0bcdfca2cfff975c6f4545df5edaa043df",
       "name": "log",
-      "occurrences": 49,
+      "occurrences": 52,
       "outcome": "processed",
       "production_lines": 5745,
       "reasons": [],
@@ -15379,6 +16208,11 @@
           "distinct": 1,
           "id": "clippy::panic",
           "occurrences": 1
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::undocumented_unsafe_blocks",
+          "occurrences": 3
         },
         {
           "distinct": 1,
@@ -15426,7 +16260,7 @@
             "worst_tier": null
           },
           {
-            "density_micro": 265274,
+            "density_micro": 1063916,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
@@ -15604,11 +16438,11 @@
     {
       "authoritative": true,
       "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1",
-      "distinct": 122,
+      "distinct": 125,
       "exit_code": 0,
-      "findings_digest": "2f21de96c43e64668185a9509cdffac03d62a65a284877630fb30d14c77576a3",
+      "findings_digest": "0e25967b64e4ec9f8df49daebcc59c42b52a9d45a1c4256cd6ee1ecfe8f17035",
       "name": "serde_json",
-      "occurrences": 175,
+      "occurrences": 178,
       "outcome": "processed",
       "production_lines": 18301,
       "reasons": [],
@@ -15632,6 +16466,11 @@
           "distinct": 8,
           "id": "clippy::string_slice",
           "occurrences": 8
+        },
+        {
+          "distinct": 3,
+          "id": "clippy::undocumented_unsafe_blocks",
+          "occurrences": 3
         },
         {
           "distinct": 5,
@@ -15689,7 +16528,7 @@
             "worst_tier": null
           },
           {
-            "density_micro": 718136,
+            "density_micro": 968843,
             "name": "reliability",
             "score": 75,
             "worst_tier": "P2"
@@ -16058,6 +16897,22 @@
       "separation": null,
       "status": "unobserved",
       "tier": "P1",
+      "true_positives": null
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::crosspointer_transmute",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P2",
       "true_positives": null
     },
     {
@@ -16598,6 +17453,22 @@
       "status": "measured",
       "tier": "P3",
       "true_positives": 2
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "clippy::missing_transmute_annotations",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
     },
     {
       "doubly_judged": 0,
@@ -17225,6 +18096,26 @@
       "true_positives": null
     },
     {
+      "doubly_judged": 15,
+      "false_positive_rate_basis_points": 2000,
+      "false_positives": 3,
+      "findings": 113,
+      "id": "clippy::undocumented_unsafe_blocks",
+      "interval_high_basis_points": 4519,
+      "interval_low_basis_points": 705,
+      "judges": [
+        "claude-opus-5-5"
+      ],
+      "provenance": [
+        "agent"
+      ],
+      "reviewed": 15,
+      "separation": "above",
+      "status": "measured",
+      "tier": "P2",
+      "true_positives": 12
+    },
+    {
       "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
@@ -17701,6 +18592,22 @@
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
+      "id": "rust_doctor::cargo::unmaintained_dependency",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
       "id": "rust_doctor::cargo::unpinned_git_dependency",
       "interval_high_basis_points": null,
       "interval_low_basis_points": null,
@@ -17726,6 +18633,22 @@
       "separation": null,
       "status": "unobserved",
       "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::cargo::vulnerable_dependency",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P1",
       "true_positives": null
     },
     {
@@ -17781,6 +18704,22 @@
       "false_positive_rate_basis_points": null,
       "false_positives": null,
       "findings": 0,
+      "id": "rust_doctor::source::blocking_call_in_async",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P2",
+      "true_positives": null
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
       "id": "rust_doctor::source::disabled_tls_verification",
       "interval_high_basis_points": null,
       "interval_low_basis_points": null,
@@ -17806,6 +18745,22 @@
       "separation": null,
       "status": "unobserved",
       "tier": "P0",
+      "true_positives": null
+    },
+    {
+      "doubly_judged": 0,
+      "false_positive_rate_basis_points": null,
+      "false_positives": null,
+      "findings": 0,
+      "id": "rust_doctor::source::sql_built_from_format",
+      "interval_high_basis_points": null,
+      "interval_low_basis_points": null,
+      "judges": [],
+      "provenance": [],
+      "reviewed": 0,
+      "separation": null,
+      "status": "unobserved",
+      "tier": "P1",
       "true_positives": null
     },
     {
@@ -17981,13 +18936,13 @@
           "repositories": 1
         }
       ],
-      "ceilings_applied": 0,
+      "ceilings_applied": 1,
       "collapsed_into_one_band": false,
       "collapsed_into_one_value": false,
       "maximum": 89,
       "median_centi": 8300,
-      "minimum": 73,
-      "spread": 16,
+      "minimum": 58,
+      "spread": 31,
       "values": [
         {
           "label": "Great",
@@ -18017,7 +18972,7 @@
         {
           "label": "Needs work",
           "name": "vibesql",
-          "value": 73
+          "value": 58
         },
         {
           "label": "Great",
@@ -18035,21 +18990,25 @@
       "bands": [
         {
           "label": "Great",
-          "repositories": 10
+          "repositories": 9
+        },
+        {
+          "label": "Needs work",
+          "repositories": 1
         }
       ],
       "ceilings_applied": 0,
-      "collapsed_into_one_band": true,
+      "collapsed_into_one_band": false,
       "collapsed_into_one_value": false,
       "maximum": 100,
-      "median_centi": 8950,
-      "minimum": 85,
-      "spread": 15,
+      "median_centi": 8900,
+      "minimum": 73,
+      "spread": 27,
       "values": [
         {
-          "label": "Great",
+          "label": "Needs work",
           "name": "anyhow",
-          "value": 88
+          "value": 73
         },
         {
           "label": "Great",
@@ -18059,7 +19018,7 @@
         {
           "label": "Great",
           "name": "bytes",
-          "value": 89
+          "value": 82
         },
         {
           "label": "Great",
@@ -18099,9 +19058,9 @@
       ]
     },
     "maximum": 100,
-    "minimum": 73,
-    "separation_centi": 650,
-    "spread": 27
+    "minimum": 58,
+    "separation_centi": 600,
+    "spread": 42
   },
   "smoothing": {
     "prior_false_positives": 1,

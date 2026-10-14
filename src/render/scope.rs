@@ -37,9 +37,15 @@ pub(super) fn render_scope<W: Write>(
         ResolvedScope::Lines {
             comparison_base,
             files,
+            contextual,
             ..
         } => format!(
-            "Scope: {judged} lines ({} files, {})",
+            "Scope: {judged} lines{} ({} files, {})",
+            if *contextual {
+                " and the functions holding them"
+            } else {
+                ""
+            },
             files.len(),
             base(comparison_base)
         ),
