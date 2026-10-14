@@ -106,3 +106,82 @@ fn a_detector_is_solicited_on_its_own_kind_and_never_on_another() {
         assert_eq!(solicitations(&counters, rule), expected, "{rule}");
     }
 }
+
+/// A rule whose detector matches a crate outside the sysroot declares a gate
+/// on that crate, and a gate names a crate one of its detectors matches: a
+/// rule written for one crate's API never reads another version of it
+/// unannounced, and no gate closes a rule over a crate it never reads.
+#[test]
+fn every_crate_a_detector_matches_is_gated_on_its_rule() {
+    let normalized = |name: &str| name.replace('-', "_");
+    for detector in REGISTERED {
+        let gated: Vec<String> = detector
+            .definition
+            .requires
+            .iter()
+            .map(|gate| normalized(gate.krate))
+            .collect();
+        for krate in detector.crates {
+            assert!(
+                gated.contains(&normalized(krate)),
+                "{} matches `{krate}` and declares no gate on it",
+                detector.definition.id
+            );
+        }
+    }
+    for rule in crate::policy::CATALOG.iter().filter(|rule| !rule.requires.is_empty()) {
+        for gate in rule.requires {
+            assert!(
+                REGISTERED.iter().any(|detector| detector.definition.id == rule.id
+                    && detector.crates.iter().any(|krate| normalized(krate) == normalized(gate.krate))),
+                "{} gates on `{}`, which none of its detectors matches",
+                rule.id,
+                gate.krate
+            );
+        }
+    }
+    // The crates a detector's own tables name, read from its source, are the
+    // crates it declares: a table that gains a crate gains its gate.
+    let sources = [
+        include_str!("../detectors.rs"),
+        include_str!("../detectors/blocking.rs"),
+        include_str!("../detectors/shell.rs"),
+        include_str!("../detectors/sql.rs"),
+        include_str!("../detectors/http.rs"),
+        include_str!("../detectors/runtime.rs"),
+        include_str!("../detectors/secrets.rs"),
+        include_str!("../detectors/web.rs"),
+    ];
+    let declared: Vec<&str> = REGISTERED.iter().flat_map(|detector| detector.crates.iter().copied()).collect();
+    for source in sources {
+        for head in source.split("krate: \"").skip(1).chain(source.split("(&[\"").skip(1)).chain(source.split("(\"").skip(1)) {
+            let name = head.split('"').next().unwrap_or_default();
+            let tabled = head.split('"').nth(1).is_some_and(|rest| rest.starts_with(", "));
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_lowercase() || c == '_') || !tabled {
+                continue;
+            }
+            if ["std", "core", "alloc"].contains(&name) || !KNOWN_LIBRARY_CRATES.contains(&name) {
+                continue;
+            }
+            assert!(declared.contains(&name), "a detector table names `{name}`, which no detector declares");
+        }
+    }
+}
+
+/// Library crates a detector table can name. A table entry that is not one
+/// of them, a method or a shell name, is not a crate.
+const KNOWN_LIBRARY_CRATES: [&str; 13] = [
+    "actix_cors",
+    "cookie",
+    "diesel",
+    "futures",
+    "jsonwebtoken",
+    "postgres",
+    "reqwest",
+    "rusqlite",
+    "sea_orm",
+    "sqlx",
+    "tokio",
+    "tokio_postgres",
+    "tower_http",
+];

@@ -59,6 +59,10 @@ pub(crate) struct ScanExecution {
     pub(crate) not_evaluated: Vec<&'static str>,
     /// The lint-level flags removed from the caller's rustflags.
     pub(crate) removed_lint_flags: Vec<String>,
+    /// Members the pass never linted, a build failure or the deadline having
+    /// stopped it first. Their silence is no clean bill of health, so none of
+    /// them is scored.
+    pub(crate) unlinted: Vec<String>,
 }
 
 #[derive(Debug)]

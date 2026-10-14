@@ -12,16 +12,18 @@
 //! child's whole process group when it passes: Cargo, every rustc it started
 //! and every build script those started, since killing Cargo alone leaves a
 //! sleeping build script holding the pipes open. On Unix the child leads a
-//! group of its own and the group is killed through `kill(1)`, which keeps
-//! `libc` out of the normal dependencies. On Windows `taskkill /T` kills the
-//! tree it can see, and `docs/subsystems/execution.md` records the limit.
+//! group of its own and the group is killed with `kill(2)`; the same group is
+//! registered with `interrupt` while it runs, so a handled Ctrl-C kills it
+//! too. On Windows `taskkill /T` kills the tree it can see, and
+//! `docs/subsystems/execution.md` records the limit.
 
 use std::io;
-use std::process::{ChildStdout, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use super::interrupt;
 use crate::bounded_read::collect_bounded;
 use crate::cargo_stderr::STDERR_LIMIT;
 
@@ -59,6 +61,76 @@ impl RunDeadline {
             self.limit.as_secs()
         )
     }
+
+    /// The nearer of a child's own `timeout` and the run's deadline, and
+    /// whether the run's is the one that applies.
+    pub(crate) fn capped(timeout: Duration, run: Option<Self>) -> (Self, bool) {
+        match run {
+            Some(run) if run.remaining() < timeout => (run, true),
+            _ => (Self::starting_now(timeout), false),
+        }
+    }
+}
+
+/// A child started under the run's bounds: it leads a process group of its
+/// own when a deadline is set or the interrupt handlers are installed, a
+/// watchdog kills that group as the deadline passes, and the group is
+/// registered so a handled signal kills it.
+///
+/// A child with neither stays in the caller's group. The group is what the
+/// watchdog and the interrupt watcher kill, and it is also what a terminal's
+/// Ctrl-C no longer reaches, so a library caller without the handlers keeps
+/// Cargo in its own group, where that Ctrl-C still takes it down.
+pub(crate) struct BoundedChild {
+    pub(crate) child: Child,
+    watchdog: Option<Watchdog>,
+    registered: Option<u32>,
+}
+
+pub(crate) fn spawn(mut command: Command, deadline: Option<RunDeadline>) -> io::Result<BoundedChild> {
+    if interrupt::requested() {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, interrupt::MESSAGE));
+    }
+    let grouped = deadline.is_some() || interrupt::installed();
+    #[cfg(unix)]
+    if grouped {
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    }
+    let child = command.spawn()?;
+    let registered = grouped.then(|| child.id());
+    if let Some(group) = registered {
+        interrupt::register(group);
+    }
+    let watchdog = deadline.map(|deadline| Watchdog::arm(child.id(), deadline.remaining()));
+    Ok(BoundedChild {
+        child,
+        watchdog,
+        registered,
+    })
+}
+
+impl BoundedChild {
+    /// Waits for the child, and says whether the watchdog killed its group
+    /// before it exited.
+    pub(crate) fn wait(mut self) -> (io::Result<ExitStatus>, bool) {
+        let status = self.child.wait();
+        let expired = self.watchdog.take().is_some_and(Watchdog::disarm);
+        (status, expired)
+    }
+}
+
+impl Drop for BoundedChild {
+    /// The group leaves the register once its leader is reaped, and a child
+    /// abandoned on an error path is not killed later by a watchdog nobody
+    /// waits on.
+    fn drop(&mut self) {
+        if let Some(watchdog) = self.watchdog.take() {
+            watchdog.disarm();
+        }
+        if let Some(group) = self.registered.take() {
+            interrupt::unregister(group);
+        }
+    }
 }
 
 /// What a bounded child left behind.
@@ -83,23 +155,14 @@ pub(crate) fn run<T>(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Only a bounded child leads a group of its own. The group is what the
-    // watchdog kills, and it is also what a terminal's Ctrl-C no longer
-    // reaches: a child with no deadline stays in the caller's group, so an
-    // interrupted scan still takes Cargo down with it.
-    #[cfg(unix)]
-    if deadline.is_some() {
-        std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    }
-    let mut child = command.spawn()?;
-    let errors = child
+    let mut bounded = spawn(command, deadline)?;
+    let errors = bounded
+        .child
         .stderr
         .take()
         .map(|stream| thread::spawn(move || collect_bounded(stream, STDERR_LIMIT)));
-    let watchdog = deadline.map(|deadline| Watchdog::arm(child.id(), deadline.remaining()));
-    let output = child.stdout.take().map(read);
-    let status = child.wait();
-    let expired = watchdog.is_some_and(Watchdog::disarm);
+    let output = bounded.child.stdout.take().map(read);
+    let (status, expired) = bounded.wait();
     let stderr = errors
         .and_then(|handle| handle.join().ok())
         .and_then(Result::ok)
@@ -140,19 +203,22 @@ impl Watchdog {
 }
 
 /// Kills the group `pid` leads. The child is not reaped until the caller's
-/// wait returns, so the group id cannot have been reused by then.
+/// wait returns, and its group leaves the interrupt register only then, so the
+/// group id cannot have been reused by the time either killer reaches it.
 #[cfg(unix)]
-fn kill_tree(pid: u32) {
-    let _ = Command::new("kill")
-        .args(["-s", "KILL", "--", &format!("-{pid}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+pub(super) fn kill_tree(pid: u32) {
+    let Ok(group) = libc::pid_t::try_from(pid) else {
+        return;
+    };
+    // SAFETY: `kill` takes plain integers and touches no memory of ours. A
+    // negative pid names the process group, never a single process.
+    unsafe {
+        libc::kill(-group, libc::SIGKILL);
+    }
 }
 
 #[cfg(windows)]
-fn kill_tree(pid: u32) {
+pub(super) fn kill_tree(pid: u32) {
     let _ = Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
         .stdin(Stdio::null())

@@ -34,6 +34,10 @@ inputs:
     description: none, error or warning. Empty lets the workspace's rust-doctor.toml decide.
     required: false
     default: ""
+  warning-exit-code:
+    description: "An exit code from 3 to 125 for a scan whose gate passed but that holds a finding `--blocking warning` would block. Like a gate failure, it fails only a pull request. Empty keeps such a scan at 0."
+    required: false
+    default: ""
   working-directory:
     description: The workspace to scan.
     required: false
@@ -105,6 +109,7 @@ runs:
         SCOPE: ${{ inputs.scope }}
         BASE: ${{ inputs.base }}
         BLOCKING: ${{ inputs.blocking }}
+        WARNING_EXIT_CODE: ${{ inputs.warning-exit-code }}
         ARGS: ${{ inputs.args }}
         WORKSPACE: ${{ inputs.working-directory }}
         PULL_REQUEST_BASE: ${{ github.base_ref }}
@@ -132,6 +137,7 @@ runs:
         arguments=("$WORKSPACE" --yes --json --scope "$scope")
         if [ -n "$base" ]; then arguments+=(--base "$base"); fi
         if [ -n "$BLOCKING" ]; then arguments+=(--blocking "$BLOCKING"); fi
+        if [ -n "${WARNING_EXIT_CODE:-}" ]; then arguments+=(--warning-exit-code "$WARNING_EXIT_CODE"); fi
         if [ -n "$ARGS" ]; then
           read -r -a extra <<< "$ARGS"
           arguments+=("${extra[@]}")
@@ -218,18 +224,19 @@ runs:
           "fixed=\(.delta.summary.fixed | numbers // "")"
         ' "$REPORT" >> "$GITHUB_OUTPUT" || echo "authoritative=false" >> "$GITHUB_OUTPUT"
 
-    # Only a pull request fails on the gate (1): a push or any other event is a
-    # health snapshot that reports without turning the branch red. A scan that
-    # could not run (2) fails on every event.
+    # Only a pull request fails on the gate (1) or on the warning code: a push
+    # or any other event is a health snapshot that reports without turning the
+    # branch red. A scan that could not run (2) fails on every event.
     - name: Exit with the scan's code
       if: always()
       shell: bash
       env:
         EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
         EVENT_NAME: ${{ github.event_name }}
+        WARNING_EXIT_CODE: ${{ inputs.warning-exit-code }}
       run: |
         code="${EXIT_CODE:-2}"
-        if [ "$code" = 1 ] && [ "${EVENT_NAME:-}" != pull_request ]; then
+        if { [ "$code" = 1 ] || [ "$code" = "${WARNING_EXIT_CODE:-}" ]; } && [ "${EVENT_NAME:-}" != pull_request ]; then
           echo "::notice::The gate failed, and only a pull request fails on it: this ${EVENT_NAME:-run} reports without failing."
           code=0
         fi

@@ -9,8 +9,8 @@
 use super::*;
 use crate::test_scratch::scratch;
 use console::Key;
-use rust_doctor::presentation::{DiagnosticGroup, GroupDiagnostic};
-use rust_doctor::{AuditCategoryName, Severity};
+use rust_doctor::presentation::{DiagnosticGroup, GroupDiagnostic, incomplete_message};
+use rust_doctor::{AuditCategoryName, Severity, Status};
 use std::fs;
 
 /// The interactive report passes the rule the linear one publishes. `tui.rs`
@@ -55,8 +55,82 @@ fn an_incomplete_scan_names_the_stages_that_did_not_finish() {
     assert_eq!(incomplete_message(&report(Status::Complete, &[])), None);
     assert_eq!(
         incomplete_message(&report(Status::Incomplete, &["structure", "repo"])),
-        Some("structure and repo checks did not complete: results are incomplete.".to_owned())
+        Some("No issues detected, but repo and structure checks did not complete.".to_owned())
     );
+}
+
+/// A group mixing a shipped and a test site labels only the test site, in the
+/// list the issue prompt copies; a group framed on a test site says so on its
+/// meta line; and a report whose files hold no production line says why it
+/// carries no score.
+#[test]
+fn a_test_site_is_labeled_and_an_unscored_report_says_why() {
+    use rust_doctor::{DiagnosticContext, DiagnosticSpan};
+
+    let mut presentation = presentation(&["clippy::mixed", "clippy::tests_only"]);
+    let template = presentation.groups[0].diagnostics[0].clone();
+    let site = |path: &str, line: usize, context| GroupDiagnostic {
+        path: Some(path.to_owned()),
+        span: Some(DiagnosticSpan {
+            line_start: line,
+            column_start: 5,
+            line_end: line,
+            column_end: 9,
+        }),
+        context,
+        ..template.clone()
+    };
+    presentation.groups[0].diagnostics = vec![
+        site("src/lib.rs", 3, None),
+        site("tests/it.rs", 7, Some(DiagnosticContext::Tests)),
+    ];
+    presentation.groups[0].occurrences = 2;
+    presentation.groups[1].diagnostics = vec![site("tests/only.rs", 2, Some(DiagnosticContext::Tests))];
+
+    let rows = model::build_rows(&presentation);
+    assert_eq!(rows[0].sites, ["src/lib.rs:3", "tests/it.rs:7 (tests, not scored)"]);
+    let prompt = handoff::build_issue_prompt(&handoff::IssuePrompt {
+        project_name: "workspace",
+        rule_id: &rows[0].rule_id,
+        title: &rows[0].title,
+        category: rows[0].category.as_str(),
+        is_error: false,
+        site_count: rows[0].site_count,
+        message: &rows[0].message,
+        help: None,
+        rule_url: &rows[0].rule_url,
+        sites: &rows[0].sites,
+    })
+    .unwrap();
+    assert!(prompt.as_str().contains("- src/lib.rs:3\n"), "{}", prompt.as_str());
+    assert!(prompt.as_str().contains("- tests/it.rs:7 (tests, not scored)"), "{}", prompt.as_str());
+
+    let mut report = report(Status::Complete, &[]);
+    report.audit.source_files = 2;
+    let session = session(&report, &presentation, Path::new("."));
+    let mut app = App::new(&session);
+    let layout = resolve_layout(160, 48, app.entries.len());
+    let text = |app: &App<'_>| -> String {
+        app.frame(layout)
+            .iter()
+            .map(|line| line.render(false, false))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let landing = text(&app).split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        landing.contains("Score unavailable: only tests, benches, examples or build scripts were found."),
+        "{landing}"
+    );
+
+    press(&mut app, &[Key::Enter]);
+    assert!(matches!(app.view, View::Issues), "Review opens the viewer");
+    let mixed = text(&app);
+    assert!(mixed.contains("src/lib.rs:3"), "{mixed}");
+    assert!(!mixed.contains(" · tests"), "{mixed}");
+    press(&mut app, &[Key::ArrowDown]);
+    let framed_on_a_test = text(&app);
+    assert!(framed_on_a_test.contains("tests/only.rs:2 · tests"), "{framed_on_a_test}");
 }
 
 /// Adding the workflow removes the entry that offered it, so coming back to
@@ -476,5 +550,7 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
             status: GateStatus::Passed,
             blocking_diagnostics: Some(0),
         },
+        timings: None,
+        base_side_cache: None,
     }
 }

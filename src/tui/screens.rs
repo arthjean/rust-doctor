@@ -12,7 +12,7 @@ use rust_doctor::AuditScore;
 use rust_doctor::score_block;
 
 use super::model::{HORIZONTAL_PADDING_COLUMNS, pluralize, score_color};
-use super::text::{Color, Line, Span, Style};
+use super::text::{self, Color, Line, Span, Style};
 
 mod menu;
 mod viewer;
@@ -32,14 +32,15 @@ pub enum ScoreVariant {
 
 /// The two-column score block: face on the left, value, bar and branding on the
 /// right. `displayed` is the counted-up value of the current animation frame,
-/// `displayed_projection` the head of the projected gain.
+/// `displayed_projection` the head of the projected gain. A report without a
+/// score passes the line saying why, the one the linear report prints.
 ///
 /// `width` is the room the block may occupy, its guard column included. The
 /// geometry and the tables come from [`score_block`], shared with the linear
 /// report so a score reads the same in both.
 pub fn score_header(
     variant: ScoreVariant,
-    score: Option<&AuditScore>,
+    score: Result<&AuditScore, &str>,
     project_name: &str,
     finding_count: usize,
     width: usize,
@@ -47,20 +48,25 @@ pub fn score_header(
     displayed_projection: Option<u8>,
 ) -> Vec<Line> {
     let box_width = width.saturating_sub(score_block::RIGHT_EDGE_SAFETY_COLUMNS);
-    let Some(score) = score else {
-        return [
-            branding_line(),
-            Line::text(
-                format!("{} · {project_name}", pluralize(finding_count, "finding")),
-                Style::DIM,
-            ),
-        ]
-        .into_iter()
-        .map(|line| {
-            line.indented(HORIZONTAL_PADDING_COLUMNS)
-                .truncate_end(box_width)
-        })
-        .collect();
+    let score = match score {
+        Ok(score) => score,
+        Err(unscored) => {
+            let inner = box_width.saturating_sub(HORIZONTAL_PADDING_COLUMNS);
+            // The reason wraps rather than truncates: cut, it no longer says
+            // why.
+            let reason = text::wrap_spans(&[Span::new(unscored, Style::color(Color::Yellow))], inner);
+            return std::iter::once(branding_line())
+                .chain(reason)
+                .chain([Line::text(
+                    format!("{} · {project_name}", pluralize(finding_count, "finding")),
+                    Style::DIM,
+                )])
+                .map(|line| {
+                    line.indented(HORIZONTAL_PADDING_COLUMNS)
+                        .truncate_end(box_width)
+                })
+                .collect();
+        }
     };
 
     let color = score_color(score.label);
@@ -196,7 +202,7 @@ mod tests {
         partial.reasons = vec![rust_doctor::ScoreReason::StageFailed];
         let rendered = visible(&score_header(
             ScoreVariant::Landing,
-            Some(&partial),
+            Ok(&partial),
             "workspace",
             2,
             200,
@@ -214,7 +220,7 @@ mod tests {
     fn the_score_block_is_four_rows_of_face_score_bar_and_branding() {
         let rendered = visible(&score_header(
             ScoreVariant::Landing,
-            Some(&score(90, ScoreLabel::Great)),
+            Ok(&score(90, ScoreLabel::Great)),
             "delgres-ceramique",
             2,
             60,
@@ -239,7 +245,7 @@ mod tests {
                 projected.projected_after_top_three = Some(90);
                 for rendered in visible(&score_header(
                     ScoreVariant::Landing,
-                    Some(&projected),
+                    Ok(&projected),
                     "workspace",
                     4,
                     width,
@@ -261,7 +267,7 @@ mod tests {
         projected.projected_after_top_three = Some(90);
         let rendered = visible(&score_header(
             ScoreVariant::Landing,
-            Some(&projected),
+            Ok(&projected),
             "workspace",
             4,
             60,
@@ -281,7 +287,7 @@ mod tests {
     fn a_terminal_too_narrow_for_the_face_keeps_the_score_and_the_branding() {
         let rendered = visible(&score_header(
             ScoreVariant::Viewer,
-            Some(&score(40, ScoreLabel::Critical)),
+            Ok(&score(40, ScoreLabel::Critical)),
             "workspace",
             1,
             20,

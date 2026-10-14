@@ -14,7 +14,7 @@
 /// both are `&'static str`: a value computed at runtime cannot become one.
 /// `message` is the only part that carries detail, and `report::sanitize_text`
 /// is what strips a path or a home directory out of it before publication.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InternalError {
     pub(crate) stage: &'static str,
     pub(crate) code: &'static str,

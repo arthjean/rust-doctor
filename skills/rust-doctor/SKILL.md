@@ -5,7 +5,7 @@ description: Use when Rust code just changed and must not regress, when the user
 
 # rust-doctor
 
-`rust-doctor` scans a Cargo workspace with 133 curated rules and scores it out of
+`rust-doctor` scans a Cargo workspace with 142 curated rules and scores it out of
 100. It runs locally, reaches no network and uploads nothing. The scan runs
 `cargo clippy` inside the workspace, which executes its build scripts and
 procedural macros, so scan trusted local paths only.
@@ -118,10 +118,20 @@ left.
 
 ## Explaining or tuning a rule
 
+Every rule publishes, in `rules list --json` and in the handoff prompt, a
+`not_a_defect_when` check: the situation in which a finding of it is not a
+defect. Apply it to each site before editing; a site it describes is left
+alone, and a rule that keeps hitting it is tuned below rather than fixed.
+
 `rust-doctor rules list --json` prints every catalogued rule with its category,
 producer, default level, tier and help, which is what a diagnostic's `code`
-resolves against. Explain the rule from its help before offering to switch it
-off: most findings people dislike are real.
+resolves against. `rust-doctor rules explain <id> . --json` adds the rule's
+corpus noise and the level this workspace's `rust-doctor.toml` sets, with its
+source and every `[[overrides]]` table touching it; `rust-doctor why
+<path:line> --report report.json --json` names each finding at that line, the
+directives near it and the one to write, without scanning again. Explain the
+rule from its help before offering to switch it off: most findings people
+dislike are real.
 
 Prefer fixing the code, then the narrowest control:
 
@@ -152,15 +162,19 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor . --json --staged --scope lines` | Only what the next commit records |
 | `rust-doctor . --json --package <NAME>` | One workspace member, scored alone; every scan publishes `audit.packages` |
 | `rust-doctor rules list --json` | The catalog the binary shipped with |
+| `rust-doctor rules explain todo . --json` | One rule, by id or unambiguous suffix, and how this workspace sets it |
+| `rust-doctor why src/lib.rs:12 --json` | Why a line is reported, scanning only its member; `--report <FILE>` reads a saved report instead |
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |
 | `rust-doctor . --blocking <none\|error\|warning>` | The level that makes the run exit non-zero |
 | `rust-doctor . --json --advisory-db <PATH>` | Judge `Cargo.lock` against a RustSec database you name instead of the one `cargo audit` left |
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
+| `rust-doctor . --json --timings` | Publish how long each phase took, in milliseconds, under `timings` |
 | `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines` |
 | `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
 | `rust-doctor hook install cursor` | A Cursor `stop` hook that asks for a follow-up on findings |
 | `rust-doctor skill install --agent all --update` | Refresh this skill for Claude Code, Codex and Cursor after an upgrade |
+| `rust-doctor setup --dry-run` | Plan the skill, the git hook and the end-of-turn hooks for the agents detected on `PATH` or in the workspace; without `--dry-run` it writes them, and never adds CI |
 | `rust-doctor ci install --comment` | A GitHub Actions workflow judging each pull request in baseline scope, plus its sticky comment |
 | `rust-doctor report markdown report.json --limit 20` | A saved `--json` report as Markdown, without scanning |
 
@@ -174,8 +188,19 @@ with up to ten findings when the turn introduced one, and never blocks when the
 scan itself fails. The Cursor hook stays silent on a turn whose `status` is not
 `completed` or whose `loop_count` is already 1.
 
+| Exit status | Meaning |
+| --- | --- |
+| `0` | the scan completed and the gate passed |
+| `1` | the gate failed, or the scan is incomplete |
+| `2` | the scan failed, ran past --max-duration, or the arguments are invalid |
+| `3-125` | --warning-exit-code: the gate passed with a finding --blocking warning would block |
+| `130` | a SIGINT or SIGTERM stopped the scan |
+
+The precedence is 2, 1, the warning code, then 0.
 A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
-in `audit.score.reasons`, and keeps the findings collected before the limit.
+in `audit.score.reasons`, and keeps the findings collected before the limit. An interrupted run (Ctrl-C
+or SIGTERM) exits 130 with `interrupted` in `errors`, leaving no process
+behind.
 When the score is partial, `audit.score.reasons` says why. Without a local
 RustSec database the two advisory rules publish `not_evaluated` and the score
 stays authoritative; the scan never downloads one.

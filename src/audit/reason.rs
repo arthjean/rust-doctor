@@ -36,7 +36,7 @@ impl ScoreReason {
         match code {
             "deadline-exceeded" => Some(Self::DeadlineExceeded),
             "packages-unlinted" => Some(Self::PackagesUnlinted),
-            "lint-list-unavailable" => None,
+            "lint-list-unavailable" | crate::delta::LINE_MAP_NOTICE => None,
             _ => Some(Self::StageFailed),
         }
     }

@@ -1,8 +1,16 @@
 pub mod blocking;
 pub mod blocking_negative;
 pub mod blocking_reach;
+pub mod http;
+pub mod http_negative;
+pub mod runtime;
+pub mod runtime_negative;
+pub mod secrets;
+pub mod secrets_negative;
 pub mod shell;
 pub mod shell_negative;
 pub mod sql;
 pub mod sql_negative;
 pub mod sql_reach;
+pub mod web;
+pub mod web_negative;

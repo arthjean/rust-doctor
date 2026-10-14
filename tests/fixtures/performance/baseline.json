@@ -1,0 +1,108 @@
+{
+  "host": {
+    "cores": 16,
+    "cpu_model": "AMD Ryzen 7 7800X3D 8-Core Processor",
+    "toolchain": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  },
+  "samples": 5,
+  "subjects": {
+    "rust-doctor": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 62
+          },
+          "clippy_dependencies": {
+            "mad": 7,
+            "median": 4387
+          },
+          "clippy_linting": {
+            "mad": 2,
+            "median": 410
+          },
+          "lint_list": {
+            "mad": 0,
+            "median": 14
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 11
+          },
+          "probes": {
+            "mad": 0,
+            "median": 18
+          },
+          "repo": {
+            "mad": 0,
+            "median": 0
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 61
+          },
+          "structure": {
+            "mad": 1,
+            "median": 224
+          },
+          "total": {
+            "mad": 4,
+            "median": 5001
+          },
+          "walk": {
+            "mad": 0,
+            "median": 164
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 43
+          },
+          "clippy_dependencies": {
+            "mad": 1,
+            "median": 54
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 5
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 14
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 11
+          },
+          "probes": {
+            "mad": 0,
+            "median": 18
+          },
+          "repo": {
+            "mad": 0,
+            "median": 0
+          },
+          "source_kernel": {
+            "mad": 1,
+            "median": 60
+          },
+          "structure": {
+            "mad": 1,
+            "median": 168
+          },
+          "total": {
+            "mad": 1,
+            "median": 372
+          },
+          "walk": {
+            "mad": 1,
+            "median": 164
+          }
+        }
+      },
+      "commit": "1f5d913fed2db8b5e81369a0268c0de6b9f904cf"
+    }
+  },
+  "warmups": 1
+}

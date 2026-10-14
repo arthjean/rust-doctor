@@ -194,16 +194,12 @@ fn detail_pane(state: &ViewerState<'_>, row: Option<&Row>, width: usize) -> Vec<
     let mut lines = vec![title.truncate_end(width)];
 
     let body_width = width.saturating_sub(DETAIL_INDENT_COLUMNS);
+    let mut meta = format!("{} · {} · {}", row.category.as_str(), variant.label, row.location);
+    if let Some(context) = row.context {
+        meta = format!("{meta} · {context}");
+    }
     let mut body = vec![
-        Line::text(
-            format!(
-                "{} · {} · {}",
-                row.category.as_str(),
-                variant.label,
-                row.location
-            ),
-            Style::DIM,
-        )
+        Line::text(meta, Style::DIM)
         .truncate_end(body_width),
     ];
 
@@ -509,6 +505,7 @@ mod tests {
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),
+            context: None,
             note: false,
         }
     }

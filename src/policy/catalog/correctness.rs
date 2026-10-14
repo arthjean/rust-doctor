@@ -17,6 +17,9 @@ pub(crate) static CLIPPY_ABSURD_EXTREME_COMPARISONS: RuleDefinition = RuleDefini
     tier: RuleTier::P1,
     help: "Rewrite the comparison against the type's real range: as written it always yields the same answer.",
     diff_scope: DiffScope::Line,
+    title: "Comparison with a type extreme, always constant",
+    not_a_defect_when: "The compared type is a platform-dependent alias such as usize or c_long, and the comparison deliberately detects the target's width, so it varies across targets even though it is constant on this one.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ALMOST_SWAPPED: RuleDefinition = RuleDefinition {
     id: "clippy::almost_swapped",
@@ -26,6 +29,9 @@ pub(crate) static CLIPPY_ALMOST_SWAPPED: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use std::mem::swap: the second assignment reads the value the first one already overwrote.",
     diff_scope: DiffScope::Line,
+    title: "Two assignments that were meant as a swap",
+    not_a_defect_when: "Both places are meant to end up holding the same value (a deliberate copy, not a swap), in which case the second assignment is only redundant.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_APPROX_CONSTANT: RuleDefinition = RuleDefinition {
     id: "clippy::approx_constant",
@@ -35,6 +41,9 @@ pub(crate) static CLIPPY_APPROX_CONSTANT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use the matching constant from std::f64::consts (or f32) instead of a truncated literal.",
     diff_scope: DiffScope::Line,
+    title: "Float literal approximating a standard math constant",
+    not_a_defect_when: "The literal is a value fixed by an external specification or test vector that merely resembles the constant, such as a 3.14 mandated by a file format or a reference output.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ASYNC_YIELDS_ASYNC: RuleDefinition = RuleDefinition {
     id: "clippy::async_yields_async",
@@ -44,6 +53,9 @@ pub(crate) static CLIPPY_ASYNC_YIELDS_ASYNC: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Await the inner future inside the block, so the caller receives its output rather than another future.",
     diff_scope: DiffScope::Line,
+    title: "Async block returning an unawaited future",
+    not_a_defect_when: "The block deliberately returns a future for the caller to await later, such as a factory that hands back a JoinHandle or a lazily started request.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_BAD_BIT_MASK: RuleDefinition = RuleDefinition {
     id: "clippy::bad_bit_mask",
@@ -53,6 +65,9 @@ pub(crate) static CLIPPY_BAD_BIT_MASK: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Fix the mask or the constant: this bit-mask comparison can never be true, or is always true.",
     diff_scope: DiffScope::Line,
+    title: "Bit mask comparison with a constant result",
+    not_a_defect_when: "The mask or the compared value is a cfg- or target-dependent constant that only makes the result fixed in this configuration, while it varies on other builds.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_CAST_SLICE_DIFFERENT_SIZES: RuleDefinition = RuleDefinition {
     id: "clippy::cast_slice_different_sizes",
@@ -62,6 +77,9 @@ pub(crate) static CLIPPY_CAST_SLICE_DIFFERENT_SIZES: RuleDefinition = RuleDefini
     tier: RuleTier::P1,
     help: "Rebuild the slice pointer with std::ptr::slice_from_raw_parts and a length counted in the new element type.",
     diff_scope: DiffScope::Line,
+    title: "Slice pointer cast across differently sized elements",
+    not_a_defect_when: "The cast pointer is only used to read its address and the slice is rebuilt immediately with a length counted in the new element type, so the stale length metadata is never read.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_CHAR_INDICES_AS_BYTE_INDICES: RuleDefinition = RuleDefinition {
     id: "clippy::char_indices_as_byte_indices",
@@ -71,6 +89,9 @@ pub(crate) static CLIPPY_CHAR_INDICES_AS_BYTE_INDICES: RuleDefinition = RuleDefi
     tier: RuleTier::P1,
     help: "Iterate with char_indices(), which yields byte offsets, before using the index to slice or index the string.",
     diff_scope: DiffScope::Line,
+    title: "Char position from enumerate used as byte index",
+    not_a_defect_when: "The string is guaranteed ASCII-only (checked with is_ascii or produced from a fixed ASCII alphabet), so character positions and byte offsets coincide.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_DEPRECATED_SEMVER: RuleDefinition = RuleDefinition {
     id: "clippy::deprecated_semver",
@@ -80,6 +101,9 @@ pub(crate) static CLIPPY_DEPRECATED_SEMVER: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Put a valid semantic version, such as \"1.2.0\", in the since field of #[deprecated].",
     diff_scope: DiffScope::Line,
+    title: "Deprecated attribute with a non-semver since value",
+    not_a_defect_when: "The project versions its releases with a documented non-semver scheme, such as calendar versions, so the since value names a real release even though it is not semver.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_DERIVE_ORD_XOR_PARTIAL_ORD: RuleDefinition = RuleDefinition {
     id: "clippy::derive_ord_xor_partial_ord",
@@ -89,6 +113,9 @@ pub(crate) static CLIPPY_DERIVE_ORD_XOR_PARTIAL_ORD: RuleDefinition = RuleDefini
     tier: RuleTier::P1,
     help: "Derive both Ord and PartialOrd, or implement both by hand so they agree.",
     diff_scope: DiffScope::Line,
+    title: "Derived Ord paired with hand-written PartialOrd",
+    not_a_defect_when: "The hand-written partial_cmp simply returns Some(self.cmp(other)), so both orderings agree by construction.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_DERIVED_HASH_WITH_MANUAL_EQ: RuleDefinition = RuleDefinition {
     id: "clippy::derived_hash_with_manual_eq",
@@ -98,6 +125,9 @@ pub(crate) static CLIPPY_DERIVED_HASH_WITH_MANUAL_EQ: RuleDefinition = RuleDefin
     tier: RuleTier::P1,
     help: "Derive both Hash and PartialEq, or implement Hash by hand on the same fields PartialEq compares.",
     diff_scope: DiffScope::Line,
+    title: "Derived Hash paired with hand-written PartialEq",
+    not_a_defect_when: "The manual PartialEq compares exactly the fields the derive hashes, for example only adding a pointer-equality fast path, so equal values still hash equally.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_EAGER_TRANSMUTE: RuleDefinition = RuleDefinition {
     id: "clippy::eager_transmute",
@@ -107,6 +137,9 @@ pub(crate) static CLIPPY_EAGER_TRANSMUTE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Move the transmute inside a closure passed to then(), so it only runs once the bound check has passed.",
     diff_scope: DiffScope::Line,
+    title: "Transmute evaluated before its bound check",
+    not_a_defect_when: "Every bit pattern of the source type is a valid value of the target type, so evaluating the transmute before the check can never produce an invalid value.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ENUM_CLIKE_UNPORTABLE_VARIANT: RuleDefinition = RuleDefinition {
     id: "clippy::enum_clike_unportable_variant",
@@ -116,6 +149,9 @@ pub(crate) static CLIPPY_ENUM_CLIKE_UNPORTABLE_VARIANT: RuleDefinition = RuleDef
     tier: RuleTier::P1,
     help: "Give the enum a fixed-width repr such as u64, or keep every discriminant within 32 bits.",
     diff_scope: DiffScope::Line,
+    title: "C-like enum discriminant overflowing 32-bit targets",
+    not_a_defect_when: "The crate refuses to build on 32-bit targets (a compile_error! or cfg on target_pointer_width), so the discriminant always fits isize or usize.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_EQ_OP: RuleDefinition = RuleDefinition {
     id: "clippy::eq_op",
@@ -125,6 +161,9 @@ pub(crate) static CLIPPY_EQ_OP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Compare against the value you meant: both operands are the same expression, so the result is fixed.",
     diff_scope: DiffScope::Line,
+    title: "Identical operands on both sides of operator",
+    not_a_defect_when: "The code is a test asserting that a custom PartialEq or operator implementation is reflexive, where comparing a value with itself is the point.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ERASING_OP: RuleDefinition = RuleDefinition {
     id: "clippy::erasing_op",
@@ -134,6 +173,9 @@ pub(crate) static CLIPPY_ERASING_OP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove the operation or fix the operand: multiplying by zero or masking with zero always yields zero.",
     diff_scope: DiffScope::Line,
+    title: "Operation that always yields zero",
+    not_a_defect_when: "The zero operand is a named constant that is zero only in this configuration, and the expression is kept so the formula stays correct when the constant changes.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_IF_LET_MUTEX: RuleDefinition = RuleDefinition {
     id: "clippy::if_let_mutex",
@@ -143,6 +185,9 @@ pub(crate) static CLIPPY_IF_LET_MUTEX: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Bind the first lock's result before the if let, so no guard is still held when the else branch locks again.",
     diff_scope: DiffScope::Line,
+    title: "Mutex locked again inside its own if let",
+    not_a_defect_when: "The crate is on edition 2024 and the second lock is only in the else branch, where the scrutinee's guard has already been dropped, so the lock cannot deadlock.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_IFS_SAME_COND: RuleDefinition = RuleDefinition {
     id: "clippy::ifs_same_cond",
@@ -152,6 +197,9 @@ pub(crate) static CLIPPY_IFS_SAME_COND: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Change the repeated condition: the later branch is unreachable because an earlier one tests the same thing.",
     diff_scope: DiffScope::Line,
+    title: "Consecutive if branches with identical conditions",
+    not_a_defect_when: "The repeated condition reads state that changes between the two evaluations, such as a method with side effects or a value behind interior mutability.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_IMPL_HASH_BORROW_WITH_STR_AND_BYTES: RuleDefinition = RuleDefinition {
     id: "clippy::impl_hash_borrow_with_str_and_bytes",
@@ -161,6 +209,9 @@ pub(crate) static CLIPPY_IMPL_HASH_BORROW_WITH_STR_AND_BYTES: RuleDefinition = R
     tier: RuleTier::P1,
     help: "Drop the Borrow<[u8]> impl, since str and [u8] hash differently and map lookups through it can fail.",
     diff_scope: DiffScope::Line,
+    title: "Type borrowable as both str and bytes",
+    not_a_defect_when: "The type is never used as the key of a HashMap, HashSet or other hash-based collection, so the different hashes of its two borrowed forms are never compared.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_IMPOSSIBLE_COMPARISONS: RuleDefinition = RuleDefinition {
     id: "clippy::impossible_comparisons",
@@ -170,6 +221,9 @@ pub(crate) static CLIPPY_IMPOSSIBLE_COMPARISONS: RuleDefinition = RuleDefinition
     tier: RuleTier::P1,
     help: "Fix the bounds: no value satisfies both comparisons, so the condition is always false.",
     diff_scope: DiffScope::Line,
+    title: "Double comparison no value can satisfy",
+    not_a_defect_when: "The bounds are cfg- or target-dependent constants that only collide in this configuration, so the condition is satisfiable on other builds.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INEFFECTIVE_BIT_MASK: RuleDefinition = RuleDefinition {
     id: "clippy::ineffective_bit_mask",
@@ -179,6 +233,9 @@ pub(crate) static CLIPPY_INEFFECTIVE_BIT_MASK: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Drop the mask, which cannot change the comparison's result, or fix the constant it was meant to use.",
     diff_scope: DiffScope::Line,
+    title: "Bit mask that cannot change the comparison",
+    not_a_defect_when: "The mask is a named flag constant that is irrelevant only in this configuration and is kept so the expression stays correct when the constant changes.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INFINITE_ITER: RuleDefinition = RuleDefinition {
     id: "clippy::infinite_iter",
@@ -188,6 +245,9 @@ pub(crate) static CLIPPY_INFINITE_ITER: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Bound the iterator with take() or a terminating condition before consuming it.",
     diff_scope: DiffScope::Line,
+    title: "Consuming an iterator that never ends",
+    not_a_defect_when: "The consumer is meant to run forever, such as for_each driving a server or event loop on an endless iterator until the process is stopped.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INHERENT_TO_STRING_SHADOW_DISPLAY: RuleDefinition = RuleDefinition {
     id: "clippy::inherent_to_string_shadow_display",
@@ -197,6 +257,9 @@ pub(crate) static CLIPPY_INHERENT_TO_STRING_SHADOW_DISPLAY: RuleDefinition = Rul
     tier: RuleTier::P1,
     help: "Remove the inherent to_string and let the Display implementation provide it.",
     diff_scope: DiffScope::Line,
+    title: "Inherent to_string shadowing the Display implementation",
+    not_a_defect_when: "The inherent to_string returns exactly what Display prints and is kept only as published API for backward compatibility.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INLINE_FN_WITHOUT_BODY: RuleDefinition = RuleDefinition {
     id: "clippy::inline_fn_without_body",
@@ -206,6 +269,9 @@ pub(crate) static CLIPPY_INLINE_FN_WITHOUT_BODY: RuleDefinition = RuleDefinition
     tier: RuleTier::P1,
     help: "Remove #[inline] from the method declaration, or put it on the implementations that have a body.",
     diff_scope: DiffScope::Line,
+    title: "Inline attribute on a bodiless trait method",
+    not_a_defect_when: "The attribute comes from a macro that emits #[inline] uniformly on every trait method, where it is a harmless no-op on the declaration.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INVERTED_SATURATING_SUB: RuleDefinition = RuleDefinition {
     id: "clippy::inverted_saturating_sub",
@@ -215,6 +281,9 @@ pub(crate) static CLIPPY_INVERTED_SATURATING_SUB: RuleDefinition = RuleDefinitio
     tier: RuleTier::P1,
     help: "Swap the operands: the guard proves the subtraction as written underflows.",
     diff_scope: DiffScope::Line,
+    title: "Guarded subtraction with operands in wrong order",
+    not_a_defect_when: "The guarded branch is meant to produce zero and the saturating_sub is written that way for symmetry with a sibling branch, though returning 0 states it directly.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_INVISIBLE_CHARACTERS: RuleDefinition = RuleDefinition {
     id: "clippy::invisible_characters",
@@ -224,6 +293,9 @@ pub(crate) static CLIPPY_INVISIBLE_CHARACTERS: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Replace the invisible character with its \\u{...} escape, or delete it if it is accidental.",
     diff_scope: DiffScope::Line,
+    title: "Invisible character inside a string literal",
+    not_a_defect_when: "The zero-width or soft-hyphen character is the intended payload, such as test data exercising Unicode handling, and the code around it says so.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ITER_NEXT_LOOP: RuleDefinition = RuleDefinition {
     id: "clippy::iter_next_loop",
@@ -233,6 +305,9 @@ pub(crate) static CLIPPY_ITER_NEXT_LOOP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Iterate over the collection itself; iterating over next() runs the loop at most once.",
     diff_scope: DiffScope::Line,
+    title: "For loop over next() instead of the iterator",
+    not_a_defect_when: "Visiting at most the first element is the intent and the loop serves as a terse if let, though an if let would state that intent better.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ITER_SKIP_ZERO: RuleDefinition = RuleDefinition {
     id: "clippy::iter_skip_zero",
@@ -242,6 +317,9 @@ pub(crate) static CLIPPY_ITER_SKIP_ZERO: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove skip(0), or skip the number of elements you actually meant to.",
     diff_scope: DiffScope::Line,
+    title: "skip(0) that skips nothing",
+    not_a_defect_when: "The call is emitted by a macro or code generator that writes skip(n) uniformly and n happens to be zero for this instance, where it is a harmless no-op.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ITERATOR_STEP_BY_ZERO: RuleDefinition = RuleDefinition {
     id: "clippy::iterator_step_by_zero",
@@ -251,6 +329,9 @@ pub(crate) static CLIPPY_ITERATOR_STEP_BY_ZERO: RuleDefinition = RuleDefinition 
     tier: RuleTier::P1,
     help: "Pass a non-zero step to step_by, which panics on zero.",
     diff_scope: DiffScope::Line,
+    title: "step_by(0) that panics at runtime",
+    not_a_defect_when: "The call is in a test marked #[should_panic] that deliberately exercises step_by's zero-step contract.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_LINT_GROUPS_PRIORITY: RuleDefinition = RuleDefinition {
     id: "clippy::lint_groups_priority",
@@ -260,6 +341,9 @@ pub(crate) static CLIPPY_LINT_GROUPS_PRIORITY: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Give the lint group a lower priority, such as priority = -1, so the individual lint levels in the same table override it.",
     diff_scope: DiffScope::Line,
+    title: "Lint group sharing priority with an individual lint",
+    not_a_defect_when: "The group and the individual lint in the same table set the same level, so their relative order cannot change the effective level of any lint.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MATCH_STR_CASE_MISMATCH: RuleDefinition = RuleDefinition {
     id: "clippy::match_str_case_mismatch",
@@ -269,6 +353,9 @@ pub(crate) static CLIPPY_MATCH_STR_CASE_MISMATCH: RuleDefinition = RuleDefinitio
     tier: RuleTier::P1,
     help: "Write the match arm in the case the scrutinee was converted to, or it can never match.",
     diff_scope: DiffScope::Line,
+    title: "Match arm case contradicting the converted scrutinee",
+    not_a_defect_when: "There is effectively no such case: an arm containing characters the conversion removes can never match, so only a deliberately unreachable placeholder arm would qualify.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MEM_REPLACE_WITH_UNINIT: RuleDefinition = RuleDefinition {
     id: "clippy::mem_replace_with_uninit",
@@ -278,6 +365,9 @@ pub(crate) static CLIPPY_MEM_REPLACE_WITH_UNINIT: RuleDefinition = RuleDefinitio
     tier: RuleTier::P1,
     help: "Use std::mem::take, or replace with a real value, instead of an uninitialized or zeroed one.",
     diff_scope: DiffScope::Line,
+    title: "mem::replace with uninitialized or zeroed memory",
+    not_a_defect_when: "The replaced type is valid for the all-zero bit pattern, such as a plain integer or a repr(C) struct of integers, and mem::zeroed is used deliberately as its value.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MIN_MAX: RuleDefinition = RuleDefinition {
     id: "clippy::min_max",
@@ -287,6 +377,9 @@ pub(crate) static CLIPPY_MIN_MAX: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Fix the bound order, or use clamp(min, max): as nested, the result is always the same constant.",
     diff_scope: DiffScope::Line,
+    title: "Nested min and max clamping to a constant",
+    not_a_defect_when: "The bounds are cfg-dependent constants that only cross in this configuration, so the clamp yields a varying result on other builds.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MISTYPED_LITERAL_SUFFIXES: RuleDefinition = RuleDefinition {
     id: "clippy::mistyped_literal_suffixes",
@@ -296,6 +389,9 @@ pub(crate) static CLIPPY_MISTYPED_LITERAL_SUFFIXES: RuleDefinition = RuleDefinit
     tier: RuleTier::P1,
     help: "Write the suffix with its type prefix, such as _i32 or _u8, instead of a digit group that looks like one.",
     diff_scope: DiffScope::Line,
+    title: "Digit group that looks like a type suffix",
+    not_a_defect_when: "The trailing digit group is a genuine part of the value written with unusual grouping, such as an identifier or code number, not an attempt at a typed literal.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MODULO_ONE: RuleDefinition = RuleDefinition {
     id: "clippy::modulo_one",
@@ -305,6 +401,9 @@ pub(crate) static CLIPPY_MODULO_ONE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove the modulo by one, which is always zero, or use the divisor you meant.",
     diff_scope: DiffScope::Line,
+    title: "Integer modulo by one, always zero",
+    not_a_defect_when: "The divisor is a named constant that equals one only in this configuration and is kept so the expression stays correct when the constant changes.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_MUT_FROM_REF: RuleDefinition = RuleDefinition {
     id: "clippy::mut_from_ref",
@@ -314,6 +413,9 @@ pub(crate) static CLIPPY_MUT_FROM_REF: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Take &mut self or a &mut argument, or return a shared reference: a &mut obtained from a & reference is unsound.",
     diff_scope: DiffScope::Line,
+    title: "Mutable reference returned from a shared one",
+    not_a_defect_when: "The function is unsafe and its documented contract makes callers guarantee exclusive access, as in an arena or UnsafeCell-backed pool handing out disjoint slots.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_NEVER_LOOP: RuleDefinition = RuleDefinition {
     id: "clippy::never_loop",
@@ -323,6 +425,9 @@ pub(crate) static CLIPPY_NEVER_LOOP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove the loop that never iterates twice, or fix its control flow.",
     diff_scope: DiffScope::Line,
+    title: "Loop that always exits on its first pass",
+    not_a_defect_when: "The loop is a deliberate run-once block exited with break, written before labeled blocks were stable or to keep an MSRV below Rust 1.65.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_NON_OCTAL_UNIX_PERMISSIONS: RuleDefinition = RuleDefinition {
     id: "clippy::non_octal_unix_permissions",
@@ -332,6 +437,9 @@ pub(crate) static CLIPPY_NON_OCTAL_UNIX_PERMISSIONS: RuleDefinition = RuleDefini
     tier: RuleTier::P1,
     help: "Write the permission bits as an octal literal, such as 0o644.",
     diff_scope: DiffScope::Line,
+    title: "Decimal literal passed as Unix permission bits",
+    not_a_defect_when: "The decimal value was chosen deliberately to equal the intended bits, such as 420 standing for 0o644, and the code says so.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_NONSENSICAL_OPEN_OPTIONS: RuleDefinition = RuleDefinition {
     id: "clippy::nonsensical_open_options",
@@ -341,6 +449,9 @@ pub(crate) static CLIPPY_NONSENSICAL_OPEN_OPTIONS: RuleDefinition = RuleDefiniti
     tier: RuleTier::P1,
     help: "Remove the option that contradicts the others, such as truncate without write access.",
     diff_scope: DiffScope::Line,
+    title: "Contradictory file OpenOptions combination",
+    not_a_defect_when: "There is effectively no such case: the flagged combination, such as truncate without write, either fails at open time or is silently ignored, so the chain always needs fixing.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_NOT_UNSAFE_PTR_ARG_DEREF: RuleDefinition = RuleDefinition {
     id: "clippy::not_unsafe_ptr_arg_deref",
@@ -350,6 +461,9 @@ pub(crate) static CLIPPY_NOT_UNSAFE_PTR_ARG_DEREF: RuleDefinition = RuleDefiniti
     tier: RuleTier::P1,
     help: "Mark the function unsafe and document its safety contract, or take a reference instead of a raw pointer.",
     diff_scope: DiffScope::Line,
+    title: "Safe public fn dereferencing a raw pointer argument",
+    not_a_defect_when: "The function is an FFI entry point whose safe signature is fixed by a C caller and it validates the pointer (null check plus documented ownership rules) before dereferencing it.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_OPTION_ENV_UNWRAP: RuleDefinition = RuleDefinition {
     id: "clippy::option_env_unwrap",
@@ -359,6 +473,9 @@ pub(crate) static CLIPPY_OPTION_ENV_UNWRAP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use env! for a variable required at build time, or handle the None option_env! returns when it is unset.",
     diff_scope: DiffScope::Line,
+    title: "Unwrapped option_env! instead of env!",
+    not_a_defect_when: "The variable is always provided at compile time by the crate's own build script through cargo:rustc-env, so the unwrap cannot fail, though env! would say so directly.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_OUT_OF_BOUNDS_INDEXING: RuleDefinition = RuleDefinition {
     id: "clippy::out_of_bounds_indexing",
@@ -368,6 +485,9 @@ pub(crate) static CLIPPY_OUT_OF_BOUNDS_INDEXING: RuleDefinition = RuleDefinition
     tier: RuleTier::P1,
     help: "Index within the array's length, or use get() to handle a range that may exceed it.",
     diff_scope: DiffScope::Line,
+    title: "Constant index past an array's length",
+    not_a_defect_when: "The access sits in a cfg or const branch that is never compiled or reached for this array length, such as code shared across several fixed array sizes.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_PANICKING_OVERFLOW_CHECKS: RuleDefinition = RuleDefinition {
     id: "clippy::panicking_overflow_checks",
@@ -377,6 +497,9 @@ pub(crate) static CLIPPY_PANICKING_OVERFLOW_CHECKS: RuleDefinition = RuleDefinit
     tier: RuleTier::P1,
     help: "Use checked_add or overflowing_add: in debug builds the addition panics before the comparison can detect overflow.",
     diff_scope: DiffScope::Line,
+    title: "Overflow check that panics before detecting overflow",
+    not_a_defect_when: "There is effectively no such case: in builds with overflow checks the addition panics before the comparison runs, so checked_add or overflowing_add is always the correct form.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_PANICKING_UNWRAP: RuleDefinition = RuleDefinition {
     id: "clippy::panicking_unwrap",
@@ -386,6 +509,9 @@ pub(crate) static CLIPPY_PANICKING_UNWRAP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove the unwrap on the branch where the value is known to be None or Err, or fix the condition.",
     diff_scope: DiffScope::Line,
+    title: "Unwrap on a value known to fail",
+    not_a_defect_when: "The unwrap is in a test marked #[should_panic] that deliberately exercises the failure path.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_POSSIBLE_MISSING_COMMA: RuleDefinition = RuleDefinition {
     id: "clippy::possible_missing_comma",
@@ -395,6 +521,9 @@ pub(crate) static CLIPPY_POSSIBLE_MISSING_COMMA: RuleDefinition = RuleDefinition
     tier: RuleTier::P1,
     help: "Add the missing comma between the array elements, or parenthesize the subtraction if it is intended.",
     diff_scope: DiffScope::Line,
+    title: "Array literal likely missing a comma",
+    not_a_defect_when: "The binary operator is meant, such as an element computed as base - 1 broken across lines, which parentheses would make explicit.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_READ_LINE_WITHOUT_TRIM: RuleDefinition = RuleDefinition {
     id: "clippy::read_line_without_trim",
@@ -404,6 +533,9 @@ pub(crate) static CLIPPY_READ_LINE_WITHOUT_TRIM: RuleDefinition = RuleDefinition
     tier: RuleTier::P1,
     help: "Trim the line before parsing it: read_line keeps the trailing newline, so the parse always fails.",
     diff_scope: DiffScope::Line,
+    title: "Parsing read_line output without trimming the newline",
+    not_a_defect_when: "The line is trimmed or stripped of its newline in a helper the lint does not follow before the parse sees it.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_RECURSIVE_FORMAT_IMPL: RuleDefinition = RuleDefinition {
     id: "clippy::recursive_format_impl",
@@ -413,6 +545,9 @@ pub(crate) static CLIPPY_RECURSIVE_FORMAT_IMPL: RuleDefinition = RuleDefinition 
     tier: RuleTier::P1,
     help: "Format the fields instead of self: formatting self inside its own Display or Debug impl recurses forever.",
     diff_scope: DiffScope::Line,
+    title: "Display or Debug impl formatting itself recursively",
+    not_a_defect_when: "The formatted value only looks like self but is a field or deref target with its own implementation of that trait, so no recursion occurs.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_REDUNDANT_COMPARISONS: RuleDefinition = RuleDefinition {
     id: "clippy::redundant_comparisons",
@@ -422,6 +557,9 @@ pub(crate) static CLIPPY_REDUNDANT_COMPARISONS: RuleDefinition = RuleDefinition 
     tier: RuleTier::P1,
     help: "Remove the comparison implied by the other one.",
     diff_scope: DiffScope::Line,
+    title: "Double comparison where one side is implied",
+    not_a_defect_when: "The implied bound is a cfg-dependent constant that only makes it redundant in this configuration, while it constrains the value on other builds.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_REVERSED_EMPTY_RANGES: RuleDefinition = RuleDefinition {
     id: "clippy::reversed_empty_ranges",
@@ -431,6 +569,9 @@ pub(crate) static CLIPPY_REVERSED_EMPTY_RANGES: RuleDefinition = RuleDefinition 
     tier: RuleTier::P1,
     help: "Write the range from low to high and call rev() to iterate downward.",
     diff_scope: DiffScope::Line,
+    title: "Range with reversed bounds that is empty",
+    not_a_defect_when: "The code is a test that deliberately builds a reversed range to check how an API handles empty input.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_SELF_ASSIGNMENT: RuleDefinition = RuleDefinition {
     id: "clippy::self_assignment",
@@ -440,6 +581,9 @@ pub(crate) static CLIPPY_SELF_ASSIGNMENT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Assign the value you meant: assigning a place to itself does nothing.",
     diff_scope: DiffScope::Line,
+    title: "Place assigned to itself",
+    not_a_defect_when: "There is effectively no such case for a plain place: the assignment changes nothing, so it is either a typo for another value or dead code to delete.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_SIZE_OF_IN_ELEMENT_COUNT: RuleDefinition = RuleDefinition {
     id: "clippy::size_of_in_element_count",
@@ -449,6 +593,9 @@ pub(crate) static CLIPPY_SIZE_OF_IN_ELEMENT_COUNT: RuleDefinition = RuleDefiniti
     tier: RuleTier::P1,
     help: "Pass the element count, not a byte count: this function already multiplies by the element size.",
     diff_scope: DiffScope::Line,
+    title: "Byte size passed where element count expected",
+    not_a_defect_when: "The element type is one byte wide, such as u8, so the byte count and the element count are the same number.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_SUSPICIOUS_SPLITN: RuleDefinition = RuleDefinition {
     id: "clippy::suspicious_splitn",
@@ -458,6 +605,9 @@ pub(crate) static CLIPPY_SUSPICIOUS_SPLITN: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Pass a count of at least 2 to splitn, which with 0 or 1 never splits.",
     diff_scope: DiffScope::Line,
+    title: "splitn count of zero or one never splits",
+    not_a_defect_when: "The count comes from a shared constant or generic code path where 1 deliberately yields the whole string as a single item for this instance.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_TRANSMUTE_NULL_TO_FN: RuleDefinition = RuleDefinition {
     id: "clippy::transmute_null_to_fn",
@@ -467,6 +617,9 @@ pub(crate) static CLIPPY_TRANSMUTE_NULL_TO_FN: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use Option<fn()> and None instead of transmuting a null pointer into a function pointer.",
     diff_scope: DiffScope::Line,
+    title: "Transmuting null into a function pointer",
+    not_a_defect_when: "There is no such case: a null function pointer is undefined behavior the moment it exists, so the code always needs Option<fn> and None instead.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_TRANSMUTING_NULL: RuleDefinition = RuleDefinition {
     id: "clippy::transmuting_null",
@@ -476,6 +629,9 @@ pub(crate) static CLIPPY_TRANSMUTING_NULL: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use Option<&T> and None instead of transmuting a null pointer into a reference.",
     diff_scope: DiffScope::Line,
+    title: "Transmuting null into a reference",
+    not_a_defect_when: "There is no such case: a null reference is undefined behavior the moment it exists, so the code always needs Option<&T> and None instead.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNINIT_ASSUMED_INIT: RuleDefinition = RuleDefinition {
     id: "clippy::uninit_assumed_init",
@@ -485,6 +641,9 @@ pub(crate) static CLIPPY_UNINIT_ASSUMED_INIT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Initialize the value, or keep it as MaybeUninit until every byte is written.",
     diff_scope: DiffScope::Line,
+    title: "assume_init on uninitialized MaybeUninit memory",
+    not_a_defect_when: "The assumed type consists only of MaybeUninit values, such as [MaybeUninit<T>; N], which is valid while uninitialized and is the documented idiom for building an array element by element.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNINIT_VEC: RuleDefinition = RuleDefinition {
     id: "clippy::uninit_vec",
@@ -494,6 +653,9 @@ pub(crate) static CLIPPY_UNINIT_VEC: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Fill the vector with real values, for instance vec![0; n] or resize, instead of set_len over uninitialized memory.",
     diff_scope: DiffScope::Line,
+    title: "Vec length set over uninitialized memory",
+    not_a_defect_when: "The element type is MaybeUninit<T>, for which a vector of uninitialized elements is valid until each one is written.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNIT_CMP: RuleDefinition = RuleDefinition {
     id: "clippy::unit_cmp",
@@ -503,6 +665,9 @@ pub(crate) static CLIPPY_UNIT_CMP: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Compare the values the expressions produce, not unit, which always compares equal.",
     diff_scope: DiffScope::Line,
+    title: "Comparing two unit values",
+    not_a_defect_when: "The comparison sits in generic or macro-generated test code where the compared type is () only for this instantiation and a real value in others.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNIT_HASH: RuleDefinition = RuleDefinition {
     id: "clippy::unit_hash",
@@ -512,6 +677,9 @@ pub(crate) static CLIPPY_UNIT_HASH: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Hash the value you meant: hashing unit adds nothing to the hasher.",
     diff_scope: DiffScope::Line,
+    title: "Hashing a unit value",
+    not_a_defect_when: "The hash call is generated for a generic or macro-produced type that is () in this instance, where hashing nothing is the correct result.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNIT_RETURN_EXPECTING_ORD: RuleDefinition = RuleDefinition {
     id: "clippy::unit_return_expecting_ord",
@@ -521,6 +689,9 @@ pub(crate) static CLIPPY_UNIT_RETURN_EXPECTING_ORD: RuleDefinition = RuleDefinit
     tier: RuleTier::P1,
     help: "Return the sort key from the closure: a trailing semicolon makes it return unit.",
     diff_scope: DiffScope::Line,
+    title: "Sort key closure returning unit",
+    not_a_defect_when: "There is effectively no such case: a closure returning unit gives every element the same key, so the sort or comparison silently does nothing.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNSOUND_COLLECTION_TRANSMUTE: RuleDefinition = RuleDefinition {
     id: "clippy::unsound_collection_transmute",
@@ -530,6 +701,9 @@ pub(crate) static CLIPPY_UNSOUND_COLLECTION_TRANSMUTE: RuleDefinition = RuleDefi
     tier: RuleTier::P1,
     help: "Convert the elements with into_iter().map(...).collect() instead of transmuting the collection.",
     diff_scope: DiffScope::Line,
+    title: "Transmute between incompatible collection layouts",
+    not_a_defect_when: "There is no such case: transmuting a collection between element types of different layout is undefined behavior regardless of intent, so the conversion always needs rewriting.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_UNUSED_IO_AMOUNT: RuleDefinition = RuleDefinition {
     id: "clippy::unused_io_amount",
@@ -539,6 +713,9 @@ pub(crate) static CLIPPY_UNUSED_IO_AMOUNT: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use write_all or read_exact, or handle the byte count write and read return.",
     diff_scope: DiffScope::Line,
+    title: "Ignored byte count from read or write",
+    not_a_defect_when: "The reader or writer is documented to always process the whole buffer, such as a Vec<u8> or a Cursor over a Vec, so a partial transfer cannot happen.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_USELESS_ATTRIBUTE: RuleDefinition = RuleDefinition {
     id: "clippy::useless_attribute",
@@ -548,6 +725,9 @@ pub(crate) static CLIPPY_USELESS_ATTRIBUTE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Move the attribute to the item it should govern, or make it an inner #! attribute if it was meant for the module.",
     diff_scope: DiffScope::Line,
+    title: "Ineffective lint attribute on an extern crate item",
+    not_a_defect_when: "The attribute allows a lint that genuinely fires on that item itself, such as unused_extern_crates or deprecated, so it is placed correctly.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_VEC_RESIZE_TO_ZERO: RuleDefinition = RuleDefinition {
     id: "clippy::vec_resize_to_zero",
@@ -557,6 +737,9 @@ pub(crate) static CLIPPY_VEC_RESIZE_TO_ZERO: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Use clear() to empty the vector, or swap the resize arguments if you meant to grow it.",
     diff_scope: DiffScope::Line,
+    title: "Vec resized to zero, likely swapped arguments",
+    not_a_defect_when: "Emptying the vector is the intent and resize(0, value) was written deliberately for uniformity with neighboring resize calls, though clear() states it directly.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_WHILE_IMMUTABLE_CONDITION: RuleDefinition = RuleDefinition {
     id: "clippy::while_immutable_condition",
@@ -566,6 +749,9 @@ pub(crate) static CLIPPY_WHILE_IMMUTABLE_CONDITION: RuleDefinition = RuleDefinit
     tier: RuleTier::P1,
     help: "Update a variable of the condition inside the loop, or the loop never ends once entered.",
     diff_scope: DiffScope::Line,
+    title: "While condition the loop body never changes",
+    not_a_defect_when: "The condition reads state another thread, a signal handler or a callee changes through interior mutability, such as an atomic or Cell hidden behind a function call the lint cannot follow.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_WRONG_TRANSMUTE: RuleDefinition = RuleDefinition {
     id: "clippy::wrong_transmute",
@@ -575,6 +761,9 @@ pub(crate) static CLIPPY_WRONG_TRANSMUTE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Transmute only between types whose values mean the same thing, or convert with the dedicated method instead.",
     diff_scope: DiffScope::Line,
+    title: "Transmute between unrelated types like float and pointer",
+    not_a_defect_when: "There is effectively no such case: transmuting between such types is useless or undefined, so the code always needs a real conversion.",
+    requires: &[],
 };
 pub(crate) static CLIPPY_ZST_OFFSET: RuleDefinition = RuleDefinition {
     id: "clippy::zst_offset",
@@ -584,4 +773,7 @@ pub(crate) static CLIPPY_ZST_OFFSET: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Remove pointer arithmetic on a zero-sized type, which never moves the pointer.",
     diff_scope: DiffScope::Line,
+    title: "Pointer offset on a zero-sized type",
+    not_a_defect_when: "The pointer arithmetic is in generic code instantiated with a zero-sized type here and with sized types elsewhere, where moving by zero is the correct no-op.",
+    requires: &[],
 };

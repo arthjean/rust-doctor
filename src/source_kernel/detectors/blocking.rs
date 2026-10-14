@@ -27,18 +27,21 @@ pub(in crate::source_kernel) static BLOCKING_CALL: Detector = Detector {
     definition: &SOURCE_BLOCKING_IN_ASYNC,
     node: SyntaxKind::CALL_EXPR,
     inspect: blocking_call,
+    crates: &[],
 };
 
 pub(in crate::source_kernel) static BLOCKING_METHOD: Detector = Detector {
     definition: &SOURCE_BLOCKING_IN_ASYNC,
     node: SyntaxKind::METHOD_CALL_EXPR,
     inspect: blocking_method,
+    crates: &[],
 };
 
 #[cfg(test)]
 pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants {
     rule: SOURCE_BLOCKING_IN_ASYNC.id,
     positive: super::Case {
+        attributes: "",
         asynchronous: true,
         import: "std::process::Command",
         parameters: "$program: &str",
@@ -47,6 +50,7 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
         chain: ".output()",
     },
     negative: super::Case {
+        attributes: "",
         asynchronous: false,
         import: "std::process::Command",
         parameters: "$program: &str",
@@ -311,7 +315,7 @@ fn report(
 /// synchronous function says no, and a synchronous closure handed to one of
 /// the offloading calls runs on another thread, so it says no as well. Any
 /// other closure runs where it is called and is looked through.
-fn in_async_code(call: &SyntaxNode) -> bool {
+pub(in crate::source_kernel) fn in_async_code(call: &SyntaxNode) -> bool {
     for ancestor in call.ancestors().skip(1) {
         if let Some(function) = ast::Fn::cast(ancestor.clone()) {
             return function.async_token().is_some();
@@ -350,5 +354,12 @@ fn offloaded(closure: &ast::ClosureExpr) -> bool {
     } else {
         ast::MethodCallExpr::cast(call).and_then(|call| call.name_ref())
     };
-    name.is_some_and(|name| OFFLOADING_CALLS.contains(&name.text().as_str()))
+    // `block_in_place` hands the executor to another worker, which a
+    // current-thread runtime does not have: there the closure is still on the
+    // executor, when it does not panic first.
+    name.is_some_and(|name| {
+        OFFLOADING_CALLS.contains(&name.text().as_str())
+            && !(name.text() == "block_in_place"
+                && super::runtime::current_thread(closure.syntax()))
+    })
 }

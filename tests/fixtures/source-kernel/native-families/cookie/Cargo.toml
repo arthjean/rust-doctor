@@ -1,0 +1,5 @@
+[package]
+name = "cookie"
+version = "0.18.0"
+edition = "2024"
+publish = false

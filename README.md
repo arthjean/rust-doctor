@@ -5,7 +5,7 @@
 
 Your agent writes bad Rust, this catches it.
 
-Rust Doctor scans your Cargo workspace with 133 curated rules and finds issues across security, correctness, reliability, performance, maintainability, and dependencies. It ends on a score out of 100 and the three rules worth fixing first.
+Rust Doctor scans your Cargo workspace with 142 curated rules and finds issues across security, correctness, reliability, performance, maintainability, and dependencies. It ends on a score out of 100 and the three rules worth fixing first.
 
 Works on any Cargo workspace - a single binary crate, a library, a virtual workspace with dozens of members, you name it.
 
@@ -25,13 +25,13 @@ npx rust-doctor@latest
 
 ### 2. Install for agents
 
-Once you have an audit, install the skill so your coding agent fixes what it found. The skill teaches it which finding to repair first, how the score is capped, and what to look for in a file the scan already flagged.
+Once you have an audit, set up the loop so your coding agent fixes what it found. The skill teaches it which finding to repair first, how the score is capped, and what to look for in a file the scan already flagged; the hooks rescan each commit and each agent turn.
 
 ```bash
-npx rust-doctor@latest skill install
+npx rust-doctor@latest setup
 ```
 
-This writes `.claude/skills/rust-doctor/` for Claude Code, from the binary rather than the network, and never over an existing skill.
+This detects Claude Code, Codex and Cursor from their commands on `PATH` and their project directories, then writes the skill for each, the git pre-commit hook, and the end-of-turn hook of Claude Code or Cursor, from the binary rather than the network. It prints the plan and checks every file before writing any (`--dry-run` stops there), and never writes over a file it did not create. `skill install` installs the skill alone.
 
 For a one-off handoff instead, the report sends the findings straight to an agent, with the rules, their spans, and the scan scope already written into the prompt.
 

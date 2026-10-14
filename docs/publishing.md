@@ -60,7 +60,11 @@ workflow as its trusted publisher. Nothing else is shared between the two jobs,
 because the two registries answer differently. `npm publish --dry-run` asks the
 registry and refuses a version already published, so the npm skip has to guard
 its dry run; `cargo publish --dry-run` never asks, so the crates.io skip guards
-the upload alone and the validation keeps running between releases.
+the upload alone and the validation keeps running between releases. That
+verification runs in its own step, which holds no token, and the upload runs
+`cargo publish --no-verify` in the step that does: compiling the package runs
+build scripts and procedural macros, and `rust_doctor::repo::secret_in_build_step`
+reports a compiling step with a secret in scope, this workflow included.
 
 The two lines have to be told apart. npm restarted at 0.3.0 because 0.1.1
 through 0.2.0 were unpublished there; crates.io still serves its own 0.2.0,

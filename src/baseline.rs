@@ -8,6 +8,7 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::execution::RunDeadline;
 use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure};
 
@@ -161,6 +162,7 @@ pub(crate) fn persistent_target(target_directory: &Path, side: &str) -> Option<P
 pub(crate) fn materialize(
     workspace_root: &Path,
     comparison_base: &str,
+    deadline: Option<RunDeadline>,
 ) -> Result<Snapshot, InternalError> {
     let inventory_entries = git::run_git(
         Path::new("git"),
@@ -175,6 +177,7 @@ pub(crate) fn materialize(
             failure: INVENTORY_FAILURE,
             overflow: LIMIT_EXCEEDED,
         },
+        deadline,
     )?;
     let inventory = parse_inventory(&inventory_entries)?;
     let repository_root = repository_root(workspace_root)?;
@@ -193,7 +196,8 @@ pub(crate) fn materialize(
         cleanup_pending: true,
     };
 
-    let result = materialize_inventory(workspace_root, comparison_base, &inventory, &snapshot);
+    let result =
+        materialize_inventory(workspace_root, comparison_base, &inventory, &snapshot, deadline);
     match result {
         Ok(()) => Ok(snapshot),
         Err(error) => match snapshot.cleanup() {
@@ -208,6 +212,7 @@ fn materialize_inventory(
     comparison_base: &str,
     inventory: &Inventory,
     snapshot: &Snapshot,
+    deadline: Option<RunDeadline>,
 ) -> Result<(), InternalError> {
     fs::create_dir(&snapshot.tree).map_err(|_| temp_unavailable())?;
     fs::create_dir(&snapshot.target).map_err(|_| temp_unavailable())?;
@@ -224,6 +229,7 @@ fn materialize_inventory(
             overflow: MATERIALIZATION_FAILURE,
         },
         &index,
+        deadline,
     )?;
 
     let mut prefix = OsString::from("--prefix=");
@@ -248,6 +254,7 @@ fn materialize_inventory(
             overflow: MATERIALIZATION_FAILURE,
         },
         &index,
+        deadline,
     )?;
 
     validate_materialized_symlinks(&snapshot.tree, &inventory.symlinks)

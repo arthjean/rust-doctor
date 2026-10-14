@@ -93,6 +93,8 @@ fn report() -> InspectReport {
             status: GateStatus::Passed,
             blocking_diagnostics: Some(0),
         },
+        timings: None,
+        base_side_cache: None,
     }
 }
 
@@ -188,6 +190,13 @@ fn prompt_uses_bounded_groups_relative_locations_and_rescan_command() {
     );
     assert!(!prompt.as_str().contains("source is deliberately excluded"));
     assert!(prompt.as_str().len() <= MAX_HANDOFF_BYTES);
+    // US-045: the rule's not-a-defect check sits under its help, and the
+    // agent is told to apply it before editing.
+    let check = rust_doctor::presentation::canonical_not_a_defect("clippy::todo").unwrap();
+    let help_at = prompt.as_str().find("   Help: ").unwrap();
+    let check_at = prompt.as_str().find(&format!("   Not a defect when: {check}")).unwrap();
+    assert!(help_at < check_at, "{}", prompt.as_str());
+    assert!(prompt.as_str().contains("apply its rule's \"Not a defect when\" check"));
 }
 
 #[test]
@@ -363,7 +372,8 @@ fn non_zero_agent_and_clipboard_fallback_are_typed() {
     let payload = payload();
     assert_eq!(
         without_text_busy(|| launch_agent(&agent, &payload, &root)),
-        Err(HandoffError::AgentExited(AgentTarget::Codex))
+        Ok(()),
+        "an agent that exits non-zero after a launch is not a handoff failure"
     );
 
     let first = root.join("first-copy");
@@ -486,4 +496,37 @@ fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
     let prompt = build_prompt(&report, &presentation, &rescan_command()).unwrap();
     assert!(prompt.as_str().contains("hardcoded_credential"), "{}", prompt.as_str());
     assert!(!prompt.as_str().contains(&key), "{}", prompt.as_str());
+
+    // US-032: the prompt printed when no clipboard takes it is the same one.
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    print_instead(&HandoffError::ClipboardUnavailable.to_string(), &prompt, &mut stdout, &mut stderr);
+    let printed = String::from_utf8(stdout).unwrap();
+    assert!(printed.contains("hardcoded_credential"), "{printed}");
+    assert!(!printed.contains(&key), "{printed}");
+}
+
+/// US-032: an agent that cannot start is named on stderr, and the prompt it
+/// would have received prints between the rulers on stdout.
+#[test]
+fn an_agent_that_cannot_start_is_named_and_its_prompt_printed() {
+    let root = scratch("handoff-tests", "agent-missing");
+    let agent = AvailableAgent {
+        target: AgentTarget::Codex,
+        executable: root.join("codex"),
+    };
+    let payload = payload();
+    let error = launch_agent(&agent, &payload, &root);
+    assert_eq!(error, Err(HandoffError::AgentUnavailable(AgentTarget::Codex)));
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let reason = format!("Warning: could not launch {}: {}", agent.executable.display(), HandoffError::AgentUnavailable(AgentTarget::Codex));
+    print_instead(&reason, &payload, &mut stdout, &mut stderr);
+    let stderr = String::from_utf8(stderr).unwrap();
+    assert!(stderr.contains(&agent.executable.display().to_string()), "{stderr}");
+    assert_eq!(
+        String::from_utf8(stdout).unwrap(),
+        format!("{PROMPT_RULER}\n{}\n{PROMPT_RULER}\n", payload.as_str())
+    );
+    for error in [HandoffError::ClipboardUnavailable, HandoffError::ClipboardFailed] {
+        assert!(!error.to_string().contains("another destination"), "{error}");
+    }
 }

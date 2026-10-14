@@ -75,7 +75,10 @@ fn every_flag_the_skill_documents_is_a_flag_the_cli_accepts() {
     let accepted: String = [
         &[][..],
         &["rules", "list"],
+        &["rules", "explain"],
+        &["why"],
         &["skill", "install"],
+        &["setup"],
         &["hook", "install", "git"],
         &["hook", "install", "claude"],
         &["hook", "install", "cursor"],
@@ -99,6 +102,36 @@ fn every_flag_the_skill_documents_is_a_flag_the_cli_accepts() {
             );
         }
     }
+}
+
+/// The two subcommands that explain without a rerun are the ones an agent
+/// reaches for before suppressing anything, so the skill names both.
+#[test]
+fn the_skill_names_the_subcommands_that_explain_a_rule_and_a_site() {
+    let skill = skill_document("SKILL.md");
+    for command in ["rust-doctor rules explain", "rust-doctor why", "rust-doctor setup"] {
+        assert!(skill.contains(command), "SKILL.md omits `{command}`");
+    }
+    assert!(help(&[]).contains("why"), "`--help` omits `why`");
+    assert!(help(&["rules"]).contains("explain"), "`rules --help` omits `explain`");
+}
+
+/// Every row of the exit-status table `--help` prints is a row of the skill's,
+/// word for word.
+#[test]
+fn the_skill_carries_the_exit_status_table_help_prints() {
+    let skill = skill_document("SKILL.md");
+    let help = help(&[]);
+    let table = help.split("Exit status:\n").nth(1).unwrap_or_default();
+    let mut rows = 0;
+    for line in table.lines().take_while(|line| line.starts_with("  ")) {
+        let (code, meaning) = line.trim().split_once(char::is_whitespace).unwrap_or_default();
+        let row = format!("| `{code}` | {} |", meaning.trim());
+        assert!(skill.contains(&row), "SKILL.md lacks the row {row}");
+        rows += 1;
+    }
+    assert_eq!(rows, 5, "{help}");
+    assert!(skill.contains("The precedence is 2, 1, the warning code, then 0."));
 }
 
 #[test]

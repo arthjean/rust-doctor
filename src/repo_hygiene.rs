@@ -15,10 +15,12 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::internal_error::InternalError;
+use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_status};
 use crate::policy::{
     ActiveRules, Producer,
-    PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT,
+    PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_IGNORED_LOCKFILE, REPO_SECRET_IN_BUILD_STEP,
+    REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT,
     RuleDefinition,
 };
 use crate::report::DiagnosticContext;
@@ -26,6 +28,7 @@ use crate::source_text::SourceSpan;
 use crate::workspace_path;
 
 mod credentials;
+mod workflows;
 
 pub(crate) use credentials::{credential_ranges, opens_private_key};
 
@@ -83,20 +86,37 @@ pub(crate) enum IgnoreProbe {
     Unavailable,
 }
 
-pub(crate) fn inspect(workspace_root: &Path, plan: &PolicyPlan) -> RepoScan {
+/// The lockfile `ignored_lockfile` asks git about, at the workspace root.
+const LOCKFILE: &str = "Cargo.lock";
+
+/// `binary` says whether a workspace member produces a binary, the only kind
+/// of workspace whose lockfile has to be committed.
+pub(crate) fn inspect(
+    workspace_root: &Path,
+    plan: &PolicyPlan,
+    binary: bool,
+    deadline: Option<RunDeadline>,
+) -> RepoScan {
     inspect_with(
         workspace_root,
         plan,
-        |call| run_git(Path::new("git"), workspace_root, call),
-        |directory| probe_ignore(workspace_root, directory),
+        binary,
+        |call| run_git(Path::new("git"), workspace_root, call, deadline),
+        // A directory is asked with its trailing slash first, a file never:
+        // `Cargo.lock/` matches a directory-only pattern the file escapes.
+        |path| match path.strip_suffix('/') {
+            Some(directory) => probe_ignore(workspace_root, directory, deadline),
+            None => ask_git_check_ignore(workspace_root, path, deadline),
+        },
     )
 }
 
 fn inspect_with(
     workspace_root: &Path,
     plan: &PolicyPlan,
+    binary: bool,
     mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
-    probe: impl FnOnce(&str) -> IgnoreProbe,
+    mut probe: impl FnMut(&str) -> IgnoreProbe,
 ) -> RepoScan {
     let active = ActiveRules::of(plan, Producer::Repo);
     let mut scan = RepoScan::default();
@@ -121,29 +141,16 @@ fn inspect_with(
     }
 
     for path in &paths {
-        if active.on(&REPO_TRACKED_SECRET_FILE)
-            && !is_test_material(path)
-            && is_secret_file_name(file_name(path))
-            && let Some(published) = workspace_path::normalize_changed(path)
-        {
-            scan.findings.push(RepoFinding {
-                definition: &REPO_TRACKED_SECRET_FILE,
-                message: format!(
-                    "the repository tracks {published}, whose name marks it as secret-bearing"
-                ),
-                path: published,
-                span: None,
-                context: None,
-            });
-        }
-        if active.on(&REPO_HARDCODED_CREDENTIAL) {
-            scan_credentials(workspace_root, path, &mut scan);
-        }
+        inspect_tracked(workspace_root, path, &active, &mut scan);
+    }
+
+    if active.on(&REPO_IGNORED_LOCKFILE) && binary {
+        scan.findings.extend(ignored_lockfile(workspace_root, &paths, &mut probe));
     }
 
     if active.on(&REPO_UNIGNORED_BUILD_OUTPUT)
         && let Some(directory) = build_directory(workspace_root)
-        && probe(&directory) == IgnoreProbe::NotIgnored
+        && probe(&format!("{directory}/")) == IgnoreProbe::NotIgnored
         && let Some(published) = workspace_path::normalize_changed(&directory)
     {
         scan.findings.push(RepoFinding {
@@ -156,6 +163,35 @@ fn inspect_with(
     }
 
     scan
+}
+
+/// The rules that judge one tracked path: its name, its text, and whether it
+/// is a workflow GitHub runs.
+fn inspect_tracked(workspace_root: &Path, path: &str, active: &ActiveRules, scan: &mut RepoScan) {
+    if active.on(&REPO_TRACKED_SECRET_FILE)
+        && !is_test_material(path)
+        && (is_secret_file_name(file_name(path))
+            || (workflows::is_cargo_credentials(path)
+                && read_bounded(&workspace_root.join(path), MAX_FILE_BYTES)
+                    .is_some_and(|source| workflows::holds_registry_token(&source))))
+        && let Some(published) = workspace_path::normalize_changed(path)
+    {
+        scan.findings.push(RepoFinding {
+            definition: &REPO_TRACKED_SECRET_FILE,
+            message: format!(
+                "the repository tracks {published}, whose name marks it as secret-bearing"
+            ),
+            path: published,
+            span: None,
+            context: None,
+        });
+    }
+    if active.on(&REPO_HARDCODED_CREDENTIAL) {
+        scan_credentials(workspace_root, path, scan);
+    }
+    if active.on(&REPO_SECRET_IN_BUILD_STEP) && workflows::is_workflow(path) {
+        workflows::scan_workflow(workspace_root, path, scan);
+    }
 }
 
 /// Everything git tracks, or the reason the pass abstains.
@@ -257,17 +293,7 @@ fn path_context(path: &str) -> Option<DiagnosticContext> {
 fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
     // The enumeration validated the path, so the join cannot leave the
     // workspace; a symlink still could, so only regular files are read.
-    let file = workspace_root.join(path);
-    let Ok(metadata) = fs::symlink_metadata(&file) else {
-        return;
-    };
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
-        return;
-    }
-    let Ok(bytes) = fs::read(&file) else {
-        return;
-    };
-    let Ok(source) = String::from_utf8(bytes) else {
+    let Some(source) = read_bounded(&workspace_root.join(path), MAX_FILE_BYTES) else {
         return;
     };
     let Some(published) = workspace_path::normalize_changed(path) else {
@@ -297,6 +323,40 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
             context,
         });
     }
+}
+
+/// A lockfile git tracks is committed whatever the ignore files say; one that
+/// exists, is untracked and is ignored will never be. Without a definite
+/// answer from git the rule abstains, and so it does for a workspace nested in
+/// a larger repository: there the ignore file is the enclosing repository's,
+/// and an ignored nested lockfile is its choice, a fixture or an example whose
+/// lockfile a test run generates.
+fn ignored_lockfile(
+    workspace_root: &Path,
+    tracked: &[String],
+    probe: &mut impl FnMut(&str) -> IgnoreProbe,
+) -> Option<RepoFinding> {
+    (workspace_root.join(".git").exists()
+        && workspace_root.join(LOCKFILE).is_file()
+        && !tracked.iter().any(|path| path == LOCKFILE)
+        && probe(LOCKFILE) == IgnoreProbe::Ignored)
+        .then(|| RepoFinding {
+            definition: &REPO_IGNORED_LOCKFILE,
+            message: format!("git ignores {LOCKFILE}, so this binary's resolved versions are never committed"),
+            path: LOCKFILE.to_owned(),
+            span: None,
+            context: None,
+        })
+}
+
+/// A regular file's text, when it is UTF-8 and at most `limit` bytes. A
+/// symlink is never followed: it could leave the workspace.
+fn read_bounded(file: &Path, limit: u64) -> Option<String> {
+    let metadata = fs::symlink_metadata(file).ok()?;
+    if !metadata.is_file() || metadata.len() > limit {
+        return None;
+    }
+    String::from_utf8(fs::read(file).ok()?).ok()
 }
 
 /// The directory Cargo builds into, workspace-relative: `target` unless the
@@ -332,7 +392,11 @@ fn build_directory(workspace_root: &Path) -> Option<String> {
     Some(directory)
 }
 
-fn probe_ignore(workspace_root: &Path, directory: &str) -> IgnoreProbe {
+fn probe_ignore(
+    workspace_root: &Path,
+    directory: &str,
+    deadline: Option<RunDeadline>,
+) -> IgnoreProbe {
     // The trailing slash makes a directory-only pattern like `target/` match
     // even before a first build creates the directory; the anchored and bare
     // spellings match it too.
@@ -344,15 +408,19 @@ fn probe_ignore(workspace_root: &Path, directory: &str) -> IgnoreProbe {
     // that workspace is exactly one where the build path is unignored and its
     // link shows up as untracked. Abstaining there would hide the rule's own
     // case from the user most exposed to it.
-    match ask_git_check_ignore(workspace_root, &format!("{directory}/")) {
-        IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, directory),
+    match ask_git_check_ignore(workspace_root, &format!("{directory}/"), deadline) {
+        IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, directory, deadline),
         answered => answered,
     }
 }
 
-fn ask_git_check_ignore(workspace_root: &Path, path: &str) -> IgnoreProbe {
+fn ask_git_check_ignore(
+    workspace_root: &Path,
+    path: &str,
+    deadline: Option<RunDeadline>,
+) -> IgnoreProbe {
     let arguments = git_arguments(workspace_root, ["check-ignore", "--quiet", "--", path]);
-    match run_git_status(Path::new("git"), workspace_root, &arguments) {
+    match run_git_status(Path::new("git"), workspace_root, &arguments, deadline) {
         Some(0) => IgnoreProbe::Ignored,
         Some(1) => IgnoreProbe::NotIgnored,
         _ => IgnoreProbe::Unavailable,
@@ -416,14 +484,14 @@ mod tests {
         fs::write(workspace.join(".gitignore"), "/target/\n").expect("gitignore should write");
         symlink(&elsewhere, workspace.join("target")).expect("the symlink should be created");
         assert_eq!(
-            probe_ignore(&workspace, "target"),
+            probe_ignore(&workspace, "target", None),
             IgnoreProbe::NotIgnored,
             "a directory-only pattern does not cover the link that stands in for it"
         );
 
         // The same workspace, with the spelling that does cover a link.
         fs::write(workspace.join(".gitignore"), "/target\n").expect("gitignore should write");
-        assert_eq!(probe_ignore(&workspace, "target"), IgnoreProbe::Ignored);
+        assert_eq!(probe_ignore(&workspace, "target", None), IgnoreProbe::Ignored);
 
         fs::remove_dir_all(&scratch).expect("the scratch tree should be removable");
     }
@@ -433,6 +501,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("."),
             &plan(),
+            false,
             |call| Err(call.failure.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
@@ -445,6 +514,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("."),
             &plan(),
+            false,
             |_| {
                 Err(InternalError::new(
                     "scope",
@@ -465,6 +535,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("."),
             &plan(),
+            false,
             |call| Err(call.overflow.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
@@ -481,6 +552,7 @@ mod tests {
         let scan = inspect_with(
             Path::new("/nonexistent/rust-doctor-repo-hygiene"),
             &plan(),
+            false,
             |_| Ok(ls_files_output(&borrowed)),
             |_| IgnoreProbe::Unavailable,
         );

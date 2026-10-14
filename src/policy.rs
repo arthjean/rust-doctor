@@ -15,7 +15,7 @@ mod noise;
 mod paths;
 
 pub use catalog::RuleTier;
-pub use catalog::{CatalogEntry, DiffScope, catalog};
+pub use catalog::{CatalogEntry, CrateGate, DiffScope, catalog};
 use catalog::find_in;
 pub(crate) use catalog::{
     CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE,
@@ -23,9 +23,10 @@ pub(crate) use catalog::{
     CARGO_PERMISSIVE_RUSTFLAGS, CARGO_RELEASE_DEBUG_SYMBOLS, CARGO_TEST_ONLY_DEPENDENCY,
     CARGO_UNBOUNDED_REGISTRY, CARGO_UNCHECKED_RELEASE_OVERFLOW, CARGO_UNMAINTAINED_DEPENDENCY,
     CARGO_UNPINNED_GIT, CARGO_UNUSED_DEPENDENCY, CARGO_VULNERABLE_DEPENDENCY, CATALOG, CATEGORIES, Producer, REPO_HARDCODED_CREDENTIAL,
-    REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT, RuleDefinition, SOURCE_BLOCKING_IN_ASYNC,
-    SOURCE_DISABLED_TLS,
-    SOURCE_DYNAMIC_SHELL, SOURCE_SQL_FROM_FORMAT, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW,
+    REPO_IGNORED_LOCKFILE, REPO_SECRET_IN_BUILD_STEP, REPO_TRACKED_SECRET_FILE, REPO_UNIGNORED_BUILD_OUTPUT, RuleDefinition, SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD,
+    SOURCE_BLOCK_ON_IN_ASYNC, SOURCE_BLOCKING_IN_ASYNC, SOURCE_DISABLED_JWT_VALIDATION, SOURCE_DISABLED_TLS,
+    SOURCE_DYNAMIC_SHELL, SOURCE_INSECURE_AUTH_COOKIE, SOURCE_PERMISSIVE_CORS, SOURCE_SECRET_ENV_FALLBACK,
+    SOURCE_SQL_FROM_FORMAT, SOURCE_UNCHECKED_HTTP_STATUS, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW,
     STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
     STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_STACKED_ALLOW,
     STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, find,
@@ -211,6 +212,19 @@ pub enum RuleLevelSource {
     ConfigRule,
     RequestCategory,
     RequestRule,
+}
+
+impl RuleLevelSource {
+    /// The name the report's `policy.rules[].source` publishes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::ConfigCategory => "config-category",
+            Self::ConfigRule => "config-rule",
+            Self::RequestCategory => "request-category",
+            Self::RequestRule => "request-rule",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

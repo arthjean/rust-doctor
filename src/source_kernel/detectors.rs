@@ -24,8 +24,12 @@ use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS};
 use crate::source_text::{compact, intersects_errors};
 
 mod blocking;
+mod http;
+mod runtime;
+mod secrets;
 mod shell;
 mod sql;
+mod web;
 
 /// Dependency aliases of a unit: identifier written in the code to canonical
 /// crate name.
@@ -54,6 +58,11 @@ pub(super) struct Detector {
     pub(super) definition: &'static RuleDefinition,
     pub(super) node: SyntaxKind,
     pub(super) inspect: fn(&Context<'_>, &SyntaxNode) -> Option<Detection>,
+    /// The crates outside the sysroot whose items the detector matches, with
+    /// `-` read as `_`. Each one carries a gate on the rule, which a catalog
+    /// test holds.
+    #[allow(dead_code, reason = "read by the test that holds every matched crate to a gate")]
+    pub(super) crates: &'static [&'static str],
 }
 
 pub(super) struct Detection {
@@ -241,7 +250,7 @@ impl Context<'_> {
     /// `cmd.arg("-c")` after `let mut cmd = Command::new("sh")` starts from
     /// `Command::new("sh")`, and `conn.execute(..)` after `let conn =
     /// Connection::open(path)?` from `Connection::open(path)`.
-    fn chain_root(&self, expression: ast::Expr) -> Option<ast::Expr> {
+    pub(super) fn chain_root(&self, expression: ast::Expr) -> Option<ast::Expr> {
         let mut expression = expression;
         for _ in 0..CHAIN_DEPTH {
             match self.value(strip_wrappers(expression))? {
@@ -414,6 +423,7 @@ static DISABLED_TLS: Detector = Detector {
     definition: &SOURCE_DISABLED_TLS,
     node: SyntaxKind::METHOD_CALL_EXPR,
     inspect: disabled_tls,
+    crates: &["reqwest"],
 };
 
 /// The canonical cases of one native rule, which the variant gate in
@@ -458,6 +468,8 @@ pub(super) struct Semantic {
 
 #[cfg(test)]
 pub(super) struct Case {
+    /// The attributes written on the function holding the case.
+    pub(super) attributes: &'static str,
     pub(super) asynchronous: bool,
     pub(super) import: &'static str,
     pub(super) parameters: &'static str,
@@ -467,17 +479,25 @@ pub(super) struct Case {
 }
 
 #[cfg(test)]
-pub(super) static VARIANTS: [&Variants; 4] = [
+pub(super) static VARIANTS: [&Variants; 11] = [
     &blocking::VARIANTS,
     &TLS_VARIANTS,
     &shell::VARIANTS,
     &sql::VARIANTS,
+    &runtime::BLOCK_IN_PLACE_VARIANTS,
+    &runtime::BLOCK_ON_VARIANTS,
+    &http::VARIANTS,
+    &secrets::VARIANTS,
+    &web::CORS_VARIANTS,
+    &web::COOKIE_VARIANTS,
+    &web::JWT_VARIANTS,
 ];
 
 #[cfg(test)]
 static TLS_VARIANTS: Variants = Variants {
     rule: SOURCE_DISABLED_TLS.id,
     positive: Case {
+        attributes: "",
         asynchronous: false,
         import: "reqwest::Client",
         parameters: "",
@@ -486,6 +506,7 @@ static TLS_VARIANTS: Variants = Variants {
         chain: ".danger_accept_invalid_certs($insecure)",
     },
     negative: Case {
+        attributes: "",
         asynchronous: false,
         import: "reqwest::Client",
         parameters: "",
@@ -517,7 +538,7 @@ static TLS_VARIANTS: Variants = Variants {
     ],
 };
 
-pub(super) static DETECTORS: [&Detector; 7] = [
+pub(super) static DETECTORS: [&Detector; 17] = [
     &blocking::BLOCKING_CALL,
     &blocking::BLOCKING_METHOD,
     &DISABLED_TLS,
@@ -525,6 +546,16 @@ pub(super) static DETECTORS: [&Detector; 7] = [
     &shell::TAINTED_PROGRAM,
     &sql::SQL_CALL,
     &sql::SQL_METHOD,
+    &runtime::BLOCK_IN_PLACE,
+    &runtime::BLOCK_ON_CALL,
+    &runtime::BLOCK_ON_METHOD,
+    &http::UNCHECKED_STATUS,
+    &secrets::SECRET_FALLBACK,
+    &web::CORS_CALL,
+    &web::CORS_CREDENTIALS,
+    &web::AUTH_COOKIE,
+    &web::JWT_METHOD,
+    &web::JWT_CALL,
 ];
 
 /// Reqwest's builder disabling certificate or hostname verification.
@@ -584,7 +615,7 @@ pub(super) fn only_argument(arguments: ast::ArgList) -> Option<ast::Expr> {
     }
 }
 
-fn literal_bool(expression: &ast::Expr, expected: bool) -> bool {
+pub(super) fn literal_bool(expression: &ast::Expr, expected: bool) -> bool {
     matches!(
         expression,
         ast::Expr::Literal(literal) if literal.kind() == LiteralKind::Bool(expected)
@@ -625,7 +656,7 @@ fn plain_segments(path: &ast::Path) -> Option<Vec<String>> {
 /// item, which is what covers an inline `#[cfg(test)]` module of a shipped
 /// file. One question, so a detector that wants to stay quiet in tests asks it
 /// once instead of composing two half-answers.
-fn in_test_code(context: &Context<'_>, node: &SyntaxNode) -> bool {
+pub(super) fn in_test_code(context: &Context<'_>, node: &SyntaxNode) -> bool {
     context.test_code || under_test_attribute(node)
 }
 

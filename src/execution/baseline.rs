@@ -17,9 +17,10 @@ use crate::internal_error::InternalError;
 use crate::policy::PolicyPlan;
 use crate::scan_target;
 
+use super::side_cache::{self, CacheOutcome, CachedSide, KeyInputs, Lookup, SideCache};
 use super::{
-    CommandEnvironment, ExecutionContext, ExecutionResult, PreparedInspection, Programs,
-    RunOptions,
+    CommandEnvironment, ExecutionContext, ExecutionResult, KnownLints, PreparedInspection,
+    Programs, RunOptions, Toolchain,
 };
 
 /// What `rustup show active-toolchain` may print before the answer is refused.
@@ -31,19 +32,39 @@ const RUSTUP_OUTPUT_LIMIT: usize = 4_096;
 
 #[derive(Debug)]
 pub(crate) struct BaselineExecution {
-    baseline: ExecutionResult,
+    baseline: BaseSide,
     current: ExecutionResult,
+    /// Where a complete base side this run computed is stored.
+    cache: Option<SideCache>,
+    outcome: CacheOutcome,
+}
+
+/// The base side: scanned now, or read back from the side cache.
+#[derive(Debug)]
+pub(crate) enum BaseSide {
+    Ran(Box<ExecutionResult>),
+    Cached(CachedSide),
 }
 
 impl BaselineExecution {
-    pub(crate) fn into_sides(self) -> (ExecutionResult, ExecutionResult) {
+    pub(crate) fn into_parts(self) -> (BaseSide, ExecutionResult, Option<SideCache>, CacheOutcome) {
+        (self.baseline, self.current, self.cache, self.outcome)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_sides(self) -> (BaseSide, ExecutionResult) {
         (self.baseline, self.current)
     }
 
     #[cfg(test)]
     pub(crate) fn from_complete_sides(baseline: ExecutionResult, current: ExecutionResult) -> Self {
         assert!(baseline.is_complete());
-        Self { baseline, current }
+        Self {
+            baseline: BaseSide::Ran(Box::new(baseline)),
+            current,
+            cache: None,
+            outcome: CacheOutcome::Disabled,
+        }
     }
 }
 
@@ -54,40 +75,87 @@ pub(crate) struct Side<'a> {
     pub(crate) target_dir: &'a Path,
 }
 
+/// What a comparison settles before either side runs: the toolchain both are
+/// pinned to, and whether the base side is already in the cache, which is what
+/// decides whether a snapshot is needed at all.
+#[derive(Debug)]
+pub(crate) struct BaselineSetup {
+    environment: CommandEnvironment,
+    toolchain: Toolchain,
+    lints: Option<KnownLints>,
+    declared: std::collections::BTreeSet<String>,
+    cache: Lookup,
+}
+
+impl BaselineSetup {
+    /// Whether the base side has to be scanned, and so materialized.
+    pub(crate) const fn needs_snapshot(&self) -> bool {
+        !matches!(self.cache, Lookup::Hit(_))
+    }
+}
+
+pub(crate) fn setup(
+    prepared: &PreparedInspection,
+    comparison_base: &str,
+    plan: &PolicyPlan,
+    options: &RunOptions,
+) -> Result<BaselineSetup, InternalError> {
+    let workspace_root = prepared.workspace_root();
+    let environment = command_environment(workspace_root)?;
+    let lint_list = plan.active_rules(crate::policy::Producer::Clippy).next().is_some();
+    let (toolchain, lints) = super::resolve_toolchain(
+        &Programs::default(),
+        workspace_root,
+        &environment,
+        options,
+        lint_list,
+    )?;
+    // Both sides are measured under the current configuration: a threshold
+    // moved between the two commits must not report the move as a finding.
+    let declared = crate::generated::declared(workspace_root, options.deadline);
+    let cache = side_cache::lookup(
+        &KeyInputs {
+            workspace_root,
+            target_directory: prepared.target_directory(),
+            comparison_base,
+            toolchain: &toolchain,
+            environment: &environment,
+            lints: lints.as_ref(),
+            plan,
+            settings: &prepared.configuration.structure,
+            declared: &declared,
+            options,
+        },
+        &prepared.target.metadata,
+    );
+    Ok(BaselineSetup {
+        environment,
+        toolchain,
+        lints,
+        declared,
+        cache,
+    })
+}
+
 /// Runs the base side, then the current one: the working tree, or, when
-/// `staged` names one, the tree the index was written into.
+/// `staged` names one, the tree the index was written into. A base side the
+/// cache holds is not run, and `base` is then never read.
 pub(crate) fn execute(
     prepared: PreparedInspection,
-    base: Side<'_>,
+    setup: BaselineSetup,
+    base: Option<Side<'_>>,
     staged: Option<Side<'_>>,
     plan: &PolicyPlan,
     options: &RunOptions,
 ) -> Result<BaselineExecution, Box<ExecutionResult>> {
-    let (baseline_workspace, baseline_target_dir) = (base.workspace, base.target_dir);
     let programs = Programs::default();
-    let environment = match command_environment(prepared.workspace_root()) {
-        Ok(environment) => environment,
-        Err(error) => return Err(Box::new(prepared.fail(error))),
-    };
-    let baseline_target = match scan_target::resolve_isolated(
-        baseline_workspace,
-        &programs.cargo,
-        baseline_target_dir,
-        environment.rustup_toolchain.as_deref(),
-    ) {
-        Ok(target) => target,
-        Err(_) => {
-            return Err(Box::new(prepared.fail(crate::baseline::scan_incomplete())));
-        }
-    };
-    let toolchain =
-        match super::resolve_toolchain(&programs, prepared.workspace_root(), &environment) {
-            Ok(toolchain) => toolchain,
-            Err(error) => return Err(Box::new(prepared.fail(error))),
-        };
-    // Both sides are measured under the current configuration: a threshold
-    // moved between the two commits must not report the move as a finding.
-    let declared = crate::generated::declared(prepared.workspace_root());
+    let BaselineSetup {
+        environment,
+        toolchain,
+        lints,
+        declared,
+        cache,
+    } = setup;
     let context = ExecutionContext {
         programs: &programs,
         plan,
@@ -96,29 +164,61 @@ pub(crate) fn execute(
         options,
         declared: &declared,
     };
-    let baseline = context.run(
-        baseline_target,
-        toolchain.clone(),
-        Some(baseline_target_dir),
-    );
-    if !baseline.is_complete() {
-        let mut current = prepared.fail(crate::baseline::scan_incomplete());
-        current.toolchain = Some(toolchain);
-        return Err(Box::new(current));
-    }
+    let outcome = cache.outcome();
+    let (baseline, cache) = match cache {
+        Lookup::Hit(cached) => (BaseSide::Cached(cached), None),
+        Lookup::Disabled | Lookup::Miss(_) => {
+            let Some(base) = base else {
+                return Err(Box::new(prepared.fail(crate::baseline::scan_incomplete())));
+            };
+            let target = crate::timings::timed(
+                options.timings.as_ref(),
+                crate::timings::Phase::Metadata,
+                || {
+                    scan_target::resolve_isolated(
+                        base.workspace,
+                        &programs.cargo,
+                        base.target_dir,
+                        environment.rustup_toolchain.as_deref(),
+                        options.deadline,
+                    )
+                },
+            );
+            let Ok(target) = target else {
+                return Err(Box::new(prepared.fail(crate::baseline::scan_incomplete())));
+            };
+            let baseline = context.run(target, toolchain.clone(), lints.clone(), Some(base.target_dir));
+            if !baseline.is_complete() {
+                let mut current = prepared.fail(crate::baseline::scan_incomplete());
+                current.toolchain = Some(toolchain);
+                return Err(Box::new(current));
+            }
+            let store = match cache {
+                Lookup::Miss(store) => Some(store),
+                Lookup::Disabled | Lookup::Hit(_) => None,
+            };
+            (BaseSide::Ran(Box::new(baseline)), store)
+        }
+    };
     let current = match staged {
-        None => context.run(prepared.target, toolchain, None),
+        None => context.run(prepared.target, toolchain, lints, None),
         Some(staged) => match scan_target::resolve_isolated(
             staged.workspace,
             &programs.cargo,
             staged.target_dir,
             environment.rustup_toolchain.as_deref(),
+            options.deadline,
         ) {
-            Ok(target) => context.run(target, toolchain, Some(staged.target_dir)),
+            Ok(target) => context.run(target, toolchain, lints, Some(staged.target_dir)),
             Err(failure) => return Err(Box::new(prepared.fail(failure.error))),
         },
     };
-    Ok(BaselineExecution { baseline, current })
+    Ok(BaselineExecution {
+        baseline,
+        current,
+        cache,
+        outcome,
+    })
 }
 
 /// The toolchain both sides are pinned to, or the refusal to compare at all.

@@ -142,38 +142,38 @@
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-evidence-00",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-evidence-01",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-evidence-02",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-evidence-03",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-message-00",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,
@@ -191,10 +191,10 @@
     },
     {
       "cross_file_matches": 0,
-      "fixed": 1,
-      "introduced": 1,
+      "fixed": 0,
+      "introduced": 0,
       "name": "changed-message-prefix-00",
-      "pre_existing": 0
+      "pre_existing": 1
     },
     {
       "cross_file_matches": 0,

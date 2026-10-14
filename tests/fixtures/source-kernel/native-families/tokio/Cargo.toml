@@ -3,3 +3,6 @@ name = "tokio"
 version = "1.0.0"
 edition = "2024"
 publish = false
+
+[dependencies]
+tokio-macros = { path = "../tokio-macros" }

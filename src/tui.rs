@@ -26,7 +26,7 @@ use std::time::Duration;
 use console::Term;
 use rust_doctor::presentation::ReportPresentation;
 use rust_doctor::score_block;
-use rust_doctor::{InspectReport, Status};
+use rust_doctor::InspectReport;
 
 use crate::handoff::{self, AvailableAgent};
 
@@ -260,25 +260,6 @@ fn actions_from(labels: &[&str]) -> Vec<Action> {
 }
 
 // --------------------------------------------------------------- derivations
-
-fn incomplete_message(report: &InspectReport) -> Option<String> {
-    if report.status == Status::Complete {
-        return None;
-    }
-    let mut stages: Vec<&str> = report
-        .errors
-        .iter()
-        .map(|error| error.stage.as_str())
-        .collect();
-    stages.dedup();
-    if stages.is_empty() {
-        return Some("The scan did not complete: results are incomplete.".to_owned());
-    }
-    Some(format!(
-        "{} checks did not complete: results are incomplete.",
-        stages.join(" and ")
-    ))
-}
 
 /// Where a viewport of `height` rows starts so that `selected` stays inside it.
 /// This is the only rule the list scrolls by: the selection keeps it up to

@@ -10,6 +10,8 @@
 
 mod agent;
 
+pub(crate) use agent::{AgentHook, install as install_agent};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,7 +22,6 @@ use rust_doctor::git_hook::{self, HookSetup};
 
 use crate::workspace_write::{create_new, on_path, symlinked_component};
 
-use agent::AgentHook;
 
 /// The hooks that turn a rescan into a habit. Only `install` writes, and only
 /// what it prints.
@@ -76,14 +77,14 @@ enum HookTarget {
 
 /// How an install treats what it would write.
 #[derive(Debug, Clone, Copy, Args)]
-struct WriteArgs {
+pub(crate) struct WriteArgs {
     /// Rewrite a hook rust-doctor installed before that differs from the
     /// current one.
     #[arg(long)]
-    update: bool,
+    pub(crate) update: bool,
     /// Print what would be written, and write nothing.
     #[arg(long)]
-    dry_run: bool,
+    pub(crate) dry_run: bool,
 }
 
 /// `rust-doctor hook`.
@@ -91,14 +92,14 @@ pub fn run(arguments: &HookArgs) -> ExitCode {
     match &arguments.command {
         HookCommand::Run { agent } => agent::run(*agent),
         HookCommand::Install { target } => match target {
-            HookTarget::Git { path, write } => install_git(path, *write),
+            HookTarget::Git { path, write } => ExitCode::from(install_git(path, *write)),
             HookTarget::Claude {
                 path,
                 shared,
                 write,
-            } => agent::install(AgentHook::Claude, path, *shared, *write),
+            } => ExitCode::from(agent::install(AgentHook::Claude, path, *shared, *write)),
             HookTarget::Cursor { path, write } => {
-                agent::install(AgentHook::Cursor, path, false, *write)
+                ExitCode::from(agent::install(AgentHook::Cursor, path, false, *write))
             }
         },
     }
@@ -152,11 +153,11 @@ fn script_command(script: &str) -> &str {
 }
 
 /// `rust-doctor hook install git`.
-fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
+pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     let WriteArgs { update, dry_run } = write;
     let Some(location) = git_hook::locate(workspace) else {
         eprintln!("rust-doctor: not a git repository, so no pre-commit hook was installed.");
-        return ExitCode::from(FAILED);
+        return FAILED;
     };
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let toplevel = canonical(&location.toplevel);
@@ -172,7 +173,7 @@ fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
                 "Add this hook to it:\n\n{}",
                 manager_snippet(config, &command)
             );
-            return ExitCode::SUCCESS;
+            return 0;
         }
         HookSetup::HooksPath(directory)
         | HookSetup::CargoHusky(directory)
@@ -186,14 +187,14 @@ fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
     let Ok(shown) = target.strip_prefix(&toplevel) else {
         println!("The hooks directory is outside this working tree, so nothing was written.");
         println!("Add this line to its pre-commit hook:\n\n{command}");
-        return ExitCode::FAILURE;
+        return 1;
     };
     if let Some(link) = symlinked_component(&toplevel, shown) {
         eprintln!(
             "rust-doctor: {} is a symlink, and nothing is written through one.",
             link.display()
         );
-        return ExitCode::from(FAILED);
+        return FAILED;
     }
     let shown = shown.display();
     let script = hook_script(&command);
@@ -204,20 +205,20 @@ fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
             println!("{shown} exists and was not written by rust-doctor, so nothing was written.");
             println!("Add this line to it:\n\n{command}");
             return if update {
-                ExitCode::from(FAILED)
+                FAILED
             } else {
-                ExitCode::FAILURE
+                1
             };
         }
         if existing == script {
             println!("The rust-doctor pre-commit hook is already installed in {shown}.");
-            return ExitCode::SUCCESS;
+            return 0;
         }
         if !update {
             println!(
                 "{shown} holds an outdated rust-doctor pre-commit hook: pass --update to rewrite it."
             );
-            return ExitCode::FAILURE;
+            return 1;
         }
         println!(
             "{} {shown}: `{}` becomes `{command}`.",
@@ -228,7 +229,7 @@ fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
     }
     if dry_run {
         print!("Would write {shown}:\n\n{script}");
-        return ExitCode::SUCCESS;
+        return 0;
     }
     let written = if replaced {
         fs::write(&target, script.as_bytes())
@@ -237,13 +238,13 @@ fn install_git(workspace: &Path, write: WriteArgs) -> ExitCode {
     };
     if let Err(error) = written.and_then(|()| make_executable(&target)) {
         eprintln!("rust-doctor: {shown} could not be written: {error}.");
-        return ExitCode::from(FAILED);
+        return FAILED;
     }
     print!("Wrote {shown}:\n\n{script}");
     if !on_path("rust-doctor") {
         eprintln!("Warning: `rust-doctor` is not on PATH, and the hook runs it by name.");
     }
-    ExitCode::SUCCESS
+    0
 }
 
 /// The exact entry for a hook manager's own file, printed rather than merged:

@@ -197,6 +197,14 @@ struct Verdict {
     pre_existing: Vec<(String, String)>,
     fixed: Vec<String>,
     cross_file_matches: usize,
+    /// Pairs the count pass made, once evidence was spent.
+    counted: usize,
+}
+
+impl Verdict {
+    fn counted(self, counted: usize) -> Self {
+        Self { counted, ..self }
+    }
 }
 
 fn verdict(
@@ -213,6 +221,7 @@ fn verdict(
             .collect(),
         fixed: fixed.iter().map(|id| (*id).to_owned()).collect(),
         cross_file_matches,
+        counted: 0,
     }
 }
 
@@ -244,6 +253,7 @@ impl Scenario {
                 .map(|diagnostic| diagnostic.id)
                 .collect(),
             cross_file_matches: delta.summary.cross_file_matches,
+            counted: delta.summary.rule_count_matches,
         }
     }
 }
@@ -270,17 +280,19 @@ fn identity_cases() -> Vec<MatchingCase> {
             },
             expected: verdict(&["current"], &[], &["base"], 0),
         },
+        // The message identifies a finding while evidence pairs; once it is
+        // spent, a reworded finding of one rule at one place is the same one.
         MatchingCase {
-            name: "the message is part of the identity",
+            name: "a reworded finding at its place pairs by count",
             build: |scenario| {
                 scenario.baseline = vec![diagnostic("base", None, None)];
                 scenario.current = vec![diagnostic("current", None, None)];
                 scenario.baseline[0].message = "old message".to_owned();
             },
-            expected: verdict(&["current"], &[], &["base"], 0),
+            expected: verdict(&[], &[("current", "base")], &[], 0).counted(1),
         },
         MatchingCase {
-            name: "changed code under an unchanged span is a different finding",
+            name: "an edit under an unchanged span pairs by count, not on evidence",
             build: |scenario| {
                 scenario.write_baseline("src/changed.rs", ORIGINAL);
                 scenario.write_current("src/changed.rs", "todo!(\"changed\");\n");
@@ -295,15 +307,15 @@ fn identity_cases() -> Vec<MatchingCase> {
                     Some(span(1, 1, 18)),
                 )];
             },
-            expected: verdict(&["current"], &[], &["base"], 0),
+            expected: verdict(&[], &[("current", "base")], &[], 0).counted(1),
         },
         // `workspace_path` percent-encodes `%` and every control character of a
         // published path. Opening the published spelling literally resolved to
         // no file at all, so every finding in a file whose name carries one
         // silently lost its proof and fell back to its message, which is the
         // weakest identity the module has. Here the two excerpts differ, so a
-        // proof that was read says introduced and a proof that was not says
-        // pre-existing.
+        // proof that was read leaves the pair to the count pass, and a proof
+        // that was not pairs it on the message.
         MatchingCase {
             name: "an encoded path is decoded before the evidence is read",
             build: |scenario| {
@@ -314,7 +326,7 @@ fn identity_cases() -> Vec<MatchingCase> {
                 scenario.current =
                     vec![diagnostic("current", Some(published), Some(span(1, 1, 14)))];
             },
-            expected: verdict(&["current"], &[], &["base"], 0),
+            expected: verdict(&[], &[("current", "base")], &[], 0).counted(1),
         },
     ]
 }
@@ -465,22 +477,22 @@ fn fallback_matching_reserves_unavailable_baselines_for_available_currents() {
     ];
     let baseline_candidates = vec![
         Candidate {
-            diagnostic: &baseline[0],
             fingerprint: None,
+            ..Candidate::new(&baseline[0])
         },
         Candidate {
-            diagnostic: &baseline[1],
             fingerprint: Some(DeltaFingerprintV1([1; 32])),
+            ..Candidate::new(&baseline[1])
         },
     ];
     let current_candidates = vec![
         Candidate {
-            diagnostic: &current[0],
             fingerprint: None,
+            ..Candidate::new(&current[0])
         },
         Candidate {
-            diagnostic: &current[1],
             fingerprint: Some(DeltaFingerprintV1([2; 32])),
+            ..Candidate::new(&current[1])
         },
     ];
 
@@ -568,13 +580,14 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
     assert_eq!(delta.summary.cross_file_matches, 1, "{delta:?}");
 
-    // A per-site diagnostic keeps the matching it had: its message is part of
-    // what identifies it, because nothing else does.
+    // A per-site diagnostic is identified by its message while evidence
+    // pairs; reworded at its own place, it is left to the count pass.
     let site = diagnostic("site", Some("src/lib.rs"), Some(span(1, 1, 2)));
     let mut reworded = site.clone();
     reworded.message = "another message".to_owned();
     let delta = compute(&[site], &[reworded], baseline_root, current_root).unwrap();
-    assert_eq!(delta.summary.introduced, 1, "{delta:?}");
+    assert_eq!(delta.summary.introduced, 0, "{delta:?}");
+    assert_eq!(delta.summary.rule_count_matches, 1, "{delta:?}");
 }
 
 /// The one arithmetic the evidence rests on, at its edges.

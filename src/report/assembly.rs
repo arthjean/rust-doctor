@@ -25,8 +25,10 @@ use super::{
 };
 use crate::audit::{self, Audit, ScoreReason, SourceFileInventory};
 use crate::cargo_health::{self, AdvisoryOutcome};
-use crate::delta::DeltaReport;
-use crate::execution::{BaselineExecution, ExecutionResult, ScanExecution};
+use crate::delta::{DeltaReport, DiffMap};
+use crate::execution::{
+    BaseSide, BaselineExecution, ExecutionResult, ScanExecution, SideCache, interrupt,
+};
 use crate::git_scope::ScopeReport;
 use crate::internal_error::InternalError;
 use crate::policy::{BlockingLevel, DiffScope, PolicyError, PolicyPlan, Producer};
@@ -62,9 +64,10 @@ pub(crate) fn from_baseline_execution(
     execution: Result<BaselineExecution, Box<ExecutionResult>>,
     plan: &PolicyPlan,
     scope: ScopeReport,
+    map: &DiffMap,
 ) -> InspectReport {
     match execution {
-        Ok(execution) => analyze_baseline_execution(execution, plan, scope).into_report(),
+        Ok(execution) => analyze_baseline_execution(execution, plan, scope).into_report(map),
         Err(execution) => force_baseline_gate(from_origin(
             *execution,
             Origin::Planned(plan, scope),
@@ -73,35 +76,74 @@ pub(crate) fn from_baseline_execution(
 }
 
 pub(super) struct BaselineAnalysis {
-    pub(super) baseline: InspectReport,
+    pub(super) baseline: BaseReport,
     pub(super) current: InspectReport,
-    pub(super) baseline_root: Option<PathBuf>,
     pub(super) current_root: Option<PathBuf>,
+    /// Where to store the base side once its evidence is read, with the base
+    /// workspace's members.
+    store: Option<(SideCache, Vec<(String, String)>)>,
+}
+
+/// What a comparison needs of its base side: whether it completed, its
+/// diagnostics, and the evidence they pair on, read back from the cache or
+/// still to read under `root`.
+pub(super) struct BaseReport {
+    pub(super) status: Status,
+    pub(super) diagnostics: Vec<Diagnostic>,
+    evidence: Option<crate::delta::Evidence>,
+    root: Option<PathBuf>,
 }
 
 impl BaselineAnalysis {
-    pub(super) fn into_report(self) -> InspectReport {
+    /// The comparison, its base side placed through `map`.
+    pub(super) fn into_report(self, map: &DiffMap) -> InspectReport {
         let Self {
             baseline,
             mut current,
-            baseline_root,
             current_root,
+            store,
         } = self;
-        if baseline.status != Status::Complete || current.status != Status::Complete {
+        if baseline.status != Status::Complete {
             return force_baseline_gate(current);
         }
-        let (Some(baseline_root), Some(current_root)) = (baseline_root, current_root) else {
+        let evidence = match (baseline.evidence, &baseline.root) {
+            (Some(evidence), _) => Some(evidence),
+            (None, Some(root)) => Some(crate::delta::evidence(&baseline.diagnostics, root)),
+            (None, None) => None,
+        };
+        // A complete base side is stored whatever became of the current one:
+        // an edit that does not compile yet is when the next run comes soonest.
+        if let (Some((cache, members)), Some(evidence)) = (store, &evidence) {
+            cache.store(members, &baseline.diagnostics, evidence);
+        }
+        if current.status != Status::Complete {
+            return force_baseline_gate(current);
+        }
+        let (Some(evidence), Some(current_root)) = (evidence, current_root) else {
             return baseline_report_failure(current, crate::baseline::scan_incomplete());
         };
-        let delta = match crate::delta::compute(
+        let delta = match crate::delta::compute_with(
             &baseline.diagnostics,
+            &evidence,
             &current.diagnostics,
-            &baseline_root,
             &current_root,
+            map,
         ) {
             Ok(delta) => delta,
             Err(error) => return baseline_report_failure(current, error),
         };
+        // A comparison without the full line map still completes: it pairs
+        // on line distance and says so, as a notice that weighs nothing.
+        if let Some(notice) = map.notice() {
+            current.errors.push(ReportError {
+                stage: notice.stage.to_owned(),
+                code: notice.code.to_owned(),
+                message: notice.message.clone(),
+            });
+            current.errors.sort_by(|left, right| {
+                (&left.stage, &left.code, &left.message).cmp(&(&right.stage, &right.code, &right.message))
+            });
+        }
         current.gate = evaluate_baseline_gate(
             current.status,
             &current.diagnostics,
@@ -126,20 +168,44 @@ pub(super) fn analyze_baseline_execution(
     plan: &PolicyPlan,
     scope: ScopeReport,
 ) -> BaselineAnalysis {
-    let (baseline, current) = execution.into_sides();
-    let baseline_root = baseline
-        .metadata
-        .as_ref()
-        .map(|metadata| metadata.workspace_root.as_std_path().to_path_buf());
+    let (baseline, current, cache, outcome) = execution.into_parts();
     let current_root = current
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path().to_path_buf());
+    let (baseline, store) = match baseline {
+        BaseSide::Ran(baseline) => {
+            let root = baseline
+                .metadata
+                .as_ref()
+                .map(|metadata| metadata.workspace_root.as_std_path().to_path_buf());
+            let members = baseline.metadata.as_ref().map(crate::execution::side_cache_members);
+            let report = from_origin(*baseline, Origin::Planned(plan, scope.clone()));
+            let base = BaseReport {
+                status: report.status,
+                diagnostics: report.diagnostics,
+                evidence: None,
+                root,
+            };
+            (base, cache.zip(members))
+        }
+        BaseSide::Cached(cached) => {
+            let base = BaseReport {
+                status: Status::Complete,
+                diagnostics: cached.diagnostics,
+                evidence: Some(cached.evidence),
+                root: None,
+            };
+            (base, None)
+        }
+    };
+    let mut current = from_origin(current, Origin::Planned(plan, scope));
+    current.base_side_cache = Some(outcome);
     BaselineAnalysis {
-        baseline: from_origin(baseline, Origin::Planned(plan, scope.clone())),
-        current: from_origin(current, Origin::Planned(plan, scope)),
-        baseline_root,
+        baseline,
+        current,
         current_root,
+        store,
     }
 }
 
@@ -170,6 +236,21 @@ pub(crate) fn baseline_report_failure(
         &report.diagnostics,
     );
     force_baseline_gate(report)
+}
+
+/// A run a handled SIGINT or SIGTERM stopped: one failed report, at the stage
+/// the signal stopped, since what the run had found is no longer a judgment of
+/// anything.
+pub(crate) fn interrupted_failure(report: InspectReport) -> InspectReport {
+    let clippy = report
+        .errors
+        .iter()
+        .any(|error| error.code == interrupt::CODE && error.stage == "clippy");
+    let stage = if clippy { "clippy" } else { "execution" };
+    baseline_report_failure(
+        report,
+        InternalError::new(stage, interrupt::CODE, interrupt::MESSAGE),
+    )
 }
 
 fn force_baseline_gate(mut report: InspectReport) -> InspectReport {
@@ -220,18 +301,29 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
     let not_evaluated = not_evaluated(&result, plan);
     // A rule no local database could answer leaves the score its authority:
     // the tool never fetches one, so its absence says nothing about the scan.
-    let unevaluated = not_evaluated
-        .iter()
-        .any(|(_, reason)| *reason != NotEvaluated::AdvisoryDbMissing);
+    let unevaluated = not_evaluated.iter().any(|(_, reason)| {
+        !matches!(
+            reason,
+            NotEvaluated::AdvisoryDbMissing
+                | NotEvaluated::CrateAbsent
+                | NotEvaluated::CrateVersionUnsupported
+        )
+    });
     let stage_reasons = errors
         .iter()
         .filter_map(|error| ScoreReason::of_error(&error.code))
         .chain(unevaluated.then_some(ScoreReason::RulesNotEvaluated))
         .collect();
     let members = member_inventories(&result, source_inventory.complete);
+    let unlinted = result
+        .scan
+        .finished()
+        .map(|scan| scan.unlinted.iter().cloned().collect())
+        .unwrap_or_default();
     let audit = Audit::build_from_inventory(
         source_inventory,
         members,
+        &unlinted,
         status,
         stage_reasons,
         &diagnostics,
@@ -270,6 +362,8 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         errors,
         summary,
         gate,
+        timings: None,
+        base_side_cache: None,
     }
 }
 
@@ -316,8 +410,8 @@ fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, 
 
 /// Every active rule the run did not evaluate, and why: a Clippy lint the
 /// installed toolchain does not list, a repository rule a `--package` scan
-/// has no member to judge with, or an advisory rule no local database
-/// answers.
+/// has no member to judge with, an advisory rule no local database answers,
+/// or a gated source rule whose crate no unit resolves inside its range.
 fn not_evaluated(
     result: &ExecutionResult,
     plan: Option<&PolicyPlan>,
@@ -342,7 +436,15 @@ fn not_evaluated(
         .flat_map(|plan| plan.active_rules(Producer::CargoHealth))
         .filter(|(definition, _)| cargo_health::ADVISORY_RULES.contains(definition))
         .map(|(definition, _)| (definition.id, NotEvaluated::AdvisoryDbMissing));
-    unknown.chain(package_scoped).chain(missing_database).collect()
+    let ungated = result
+        .source
+        .iter()
+        .flat_map(|source| source.not_evaluated.iter().copied());
+    unknown
+        .chain(package_scoped)
+        .chain(missing_database)
+        .chain(ungated)
+        .collect()
 }
 
 /// Every diagnostic the five producers published, merged on identity, ordered
@@ -486,6 +588,8 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             status: GateStatus::NotEvaluated,
             blocking_diagnostics: None,
         },
+        timings: None,
+        base_side_cache: None,
     }
 }
 
@@ -777,12 +881,14 @@ fn evaluate_baseline_gate(
         };
     }
     let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
-    // A compiler note is introduced like any finding and blocks nothing, as in the full gate.
+    // A compiler note, or a finding of a build script or a test, is introduced
+    // like any finding and blocks nothing: one surface decides blocking, the
+    // full gate's.
     let blocking_diagnostics = diagnostics
         .iter()
         .filter(|diagnostic| {
             introduced.contains(&diagnostic.id)
-                && diagnostic.unscored.is_none()
+                && DiagnosticContext::weighs(diagnostic)
                 && is_blocking(diagnostic, blocking)
         })
         .count();

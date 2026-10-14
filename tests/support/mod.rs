@@ -61,9 +61,10 @@ pub(crate) const CATEGORIES: [&str; 6] = [
 /// Clippy warns about by default, then one `-W` per active Clippy rule of
 /// `policy.rules`, in published order.
 ///
-/// `-A clippy::all` opens the lint section and never closes it: a `-W` that
-/// follows wins, so the raised rules are exactly the catalogued ones and no
-/// other lint reaches the report without a category, a tier and a help.
+/// `-A clippy::all` opens the lint section: a `-W` that follows wins, so the
+/// raised rules are exactly the catalogued ones and no other lint reaches the
+/// report without a category, a tier and a help. `-W warnings` closes it, so
+/// an inherited `-D warnings` cannot fail the build on a catalogued warning.
 pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String> {
     let base = [
         "cargo",
@@ -96,6 +97,7 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
                     ]
                 }),
         )
+        .chain(["-W".to_owned(), "warnings".to_owned()])
         .collect()
 }
 
@@ -134,13 +136,18 @@ pub(crate) fn fresh_workspace(scope: &str, counter: &AtomicUsize) -> PathBuf {
 pub(crate) const NO_ADVISORY_DB: [&str; 2] = ["--advisory-db", "/dev/null"];
 
 /// The binary under test, with the variables removed that would point its git
-/// at another repository or turn its Clippy's warnings into errors.
+/// at another repository, turn its Clippy's warnings into errors, or add the
+/// line an agent reads about its skill to stderr when the suite itself runs
+/// under an agent.
 pub(crate) fn rust_doctor() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
     command
         .env_remove("GIT_DIR")
         .env_remove("GIT_INDEX_FILE")
-        .env_remove("RUSTFLAGS");
+        .env_remove("RUSTFLAGS")
+        .env_remove("CLAUDECODE")
+        .env_remove("CODEX_SANDBOX")
+        .env_remove("CURSOR_AGENT");
     command
 }
 
@@ -178,7 +185,13 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// `packages` of the audit, the report's `suppressions`, and the scan's
 /// `ignored` and `excluded_generated` counts, v20 the scan's `advisory_db`,
 /// v21 the `contextual` value of the scope's `mode`, which a v7 report never
-/// carries since its scan named no such scope. No historical field is removed
+/// carries since its scan named no such scope, v22 the `timings` of a run that
+/// asks for them and the `unlinted` mark of an audited package, which live in
+/// a member the projection drops whole or that a v7 run never requests, and
+/// the `rule_count_matches` of a delta summary, v23 the `crate-absent` and
+/// `crate-version-unsupported` reasons of a rule gated on a crate, carried by
+/// the `not_evaluated` member v18 added. No
+/// historical field is removed
 /// or retyped, so the projection consists solely of removing the members added
 /// since.
 ///
@@ -241,6 +254,9 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
         if let Some(scope) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
             projected = remove_member(&projected, scope, added);
         }
+    }
+    if let Some(summary) = find(&projected, 0, b"\"rule_count_matches\":") {
+        projected = remove_member(&projected, summary, "rule_count_matches");
     }
     for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated", "advisory_db"] {
         if let Some(member) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
@@ -472,7 +488,7 @@ impl ProcessHarness {
                     "operation=\n",
                     "for argument in \"$@\"; do\n",
                     "  case \"$argument\" in\n",
-                    "    rev-parse|merge-base|diff|ls-tree|read-tree|checkout-index) operation=$argument; printf 'git-%s\\n' \"$argument\" >> \"$RUST_DOCTOR_PROCESS_LOG\"; break ;;\n",
+                    "    rev-parse|merge-base|diff|diff-index|ls-tree|read-tree|checkout-index) operation=$argument; printf 'git-%s\\n' \"$argument\" >> \"$RUST_DOCTOR_PROCESS_LOG\"; break ;;\n",
                     "  esac\n",
                     "done\n",
                     "case \"$RUST_DOCTOR_GIT_FAULT:$operation\" in\n",

@@ -125,10 +125,11 @@ fn project_v9_value_to_v7(report: &mut Value) {
         .as_array_mut()
         .expect("policy rules should be an array")
     {
-        rule.as_object_mut()
-            .expect("a rule should be an object")
-            .remove("tier")
-            .expect("schema v9 should publish a tier per rule");
+        let rule = rule.as_object_mut().expect("a rule should be an object");
+        rule.remove("tier").expect("schema v9 should publish a tier per rule");
+        // v18 published why a rule was not evaluated, and v23 says it of
+        // every rule gated on a crate the workspace does not depend on.
+        rule.remove("not_evaluated");
     }
     report["toolchain"]
         .as_object_mut()
@@ -166,6 +167,15 @@ fn project_v9_value_to_v7(report: &mut Value) {
         .expect("report should be an object")
         .remove("suppressions")
         .expect("schema v19 should list the suppression directives");
+    if let Some(summary) = report
+        .get_mut("delta")
+        .and_then(|delta| delta.get_mut("summary"))
+        .and_then(Value::as_object_mut)
+    {
+        summary
+            .remove("rule_count_matches")
+            .expect("schema v22 should count the pairs made by count");
+    }
 }
 
 fn snapshot(root: &Path) -> Vec<Vec<u8>> {
@@ -228,7 +238,7 @@ fn api_full_and_files_resolve_one_workspace_without_mutating_git() {
     let before = snapshot(&root);
     let full = inspect(InspectRequest::new(&root));
     assert_eq!(full.status, Status::Complete, "{:?}", full.errors);
-    assert_eq!(full.schema_version, 21);
+    assert_eq!(full.schema_version, 23);
     let full_scope = full.scope.unwrap();
     assert_eq!(full_scope.mode(), ScopeMode::Full);
     assert_eq!(full_scope.execution_scope(), ExecutionScope::Workspace);
@@ -571,7 +581,7 @@ fn invalid_api_base_stops_before_discovery_without_disclosing_input() {
         assert!(!format!("{request:?}").contains(hostile));
         let report = inspect(request);
 
-        assert_eq!(report.schema_version, 21);
+        assert_eq!(report.schema_version, 23);
         assert_eq!(report.status, Status::Failed);
         assert!(report.project.is_none());
         assert!(report.policy.is_none());

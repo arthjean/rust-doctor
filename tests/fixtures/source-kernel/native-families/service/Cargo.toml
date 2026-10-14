@@ -5,7 +5,11 @@ edition = "2024"
 publish = false
 
 [dependencies]
+actix-cors = { path = "../actix-cors" }
+cookie = { path = "../cookie" }
 diesel = { path = "../diesel" }
+futures = { path = "../futures" }
+jsonwebtoken = { path = "../jsonwebtoken" }
 postgres = { path = "../postgres" }
 reqwest = { path = "../reqwest" }
 rusqlite = { path = "../rusqlite" }
@@ -13,3 +17,4 @@ sea-orm = { path = "../sea-orm" }
 sqlx = { path = "../sqlx" }
 tokio = { path = "../tokio" }
 tokio-postgres = { path = "../tokio-postgres" }
+tower-http = { path = "../tower-http" }

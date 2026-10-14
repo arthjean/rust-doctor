@@ -8,7 +8,7 @@
 //! enough on its own, since a line number moves on every edit above it and a
 //! message states counts that the next commit changes.
 //!
-//! Four rules hold it together.
+//! Five rules hold it together.
 //!
 //! A candidate is a diagnostic, not a row beside one. `Candidate` borrows the
 //! `Diagnostic` it speaks for, so the pairing cannot drift out of step with
@@ -34,13 +34,26 @@
 //! message rather than disappearing. The two budgets used to share one constant
 //! named for neither.
 //!
+//! A pairing is decided by what the diff did, never by arrival order. Before
+//! any pass, `diff_map` maps every base path through Git's renames and every
+//! base line through the patch's hunks, and among candidates of one key the
+//! current finding nearest the mapped base line is paired. A duplicate
+//! inserted above an old finding is then the one reported introduced, where
+//! first-in, first-out used to report the old one. Once evidence has paired
+//! all it can, the findings left over in one (renamed path, rule) pair by
+//! count, which is what keeps an edit inside a flagged line, a renamed
+//! variable or a rewrapped call, from reading as a fix and an introduction.
+//! US-028 measured the alternatives on 125 real commit pairs
+//! (`docs/delta-pairing-2026-10.md`). The accepted blind spot is a fix and an
+//! addition of one rule in one file, which offset each other.
+//!
 //! The stage a failure names is this one. Refusing a comparison over
 //! `DIAGNOSTIC_LIMIT` diagnostics used to be reported with the git baseline's
 //! own failure, so a run that hit the diagnostic ceiling published
 //! `stage: "baseline"` and told the reader their snapshot exceeded a limit,
 //! which was true of nothing.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -51,6 +64,10 @@ use crate::internal_error::InternalError;
 use crate::policy::Producer;
 use crate::report::{Diagnostic, DiagnosticSource, DiagnosticSpan};
 use crate::workspace_path;
+
+mod diff_map;
+
+pub(crate) use diff_map::{DiffMap, NOTICE_CODE as LINE_MAP_NOTICE};
 
 const STAGE: &str = "delta";
 pub(crate) const FINGERPRINT_VERSION: u8 = 1;
@@ -84,6 +101,9 @@ pub struct DeltaSummary {
     pub pre_existing: usize,
     pub fixed: usize,
     pub cross_file_matches: usize,
+    /// Pairs made by count within one (renamed path, rule) once evidence was
+    /// spent: a finding whose line the commit edited without fixing it.
+    pub rule_count_matches: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -101,11 +121,15 @@ struct FallbackKey<'a> {
     message: &'a str,
 }
 
-/// One diagnostic and the strongest identity that could be built for it.
+/// One diagnostic, the strongest identity that could be built for it, and
+/// where it sits in the current side's coordinates: a base finding is placed
+/// through the diff map, a current one where it is.
 #[derive(Debug)]
 struct Candidate<'a> {
     diagnostic: &'a Diagnostic,
     fingerprint: Option<DeltaFingerprintV1>,
+    place: Option<&'a str>,
+    line: usize,
 }
 
 impl<'a> Candidate<'a> {
@@ -113,11 +137,23 @@ impl<'a> Candidate<'a> {
         Self {
             diagnostic,
             fingerprint: structural_identity(diagnostic).map(structural_fingerprint),
+            place: diagnostic.path.as_deref(),
+            line: diagnostic.span.as_ref().map_or(0, |span| span.line_start),
         }
     }
 
+    /// The path the scan published, which is where its evidence is read.
     fn path(&self) -> Option<&'a str> {
         self.diagnostic.path.as_deref()
+    }
+
+    /// Moves a base candidate to where the diff says it now is.
+    fn place_through(&mut self, map: &'a DiffMap) {
+        if let Some(path) = self.path() {
+            let current = map.current_path(path);
+            self.place = Some(current);
+            self.line = map.mapped_line(current, self.line);
+        }
     }
 
     fn fallback(&self) -> FallbackKey<'a> {
@@ -281,17 +317,59 @@ impl EvidenceLoader {
     }
 }
 
+/// The identity each diagnostic's evidence gives it, read from the sources
+/// under `root`: what a side cache stores so a later comparison needs neither
+/// the snapshot nor a second read of it.
+pub(crate) type Evidence = Vec<Option<[u8; 32]>>;
+
+#[cfg(test)]
 pub(crate) fn compute(
     baseline: &[Diagnostic],
     current: &[Diagnostic],
     baseline_root: &Path,
     current_root: &Path,
 ) -> Result<DeltaReport, InternalError> {
+    if baseline.len() > DIAGNOSTIC_LIMIT {
+        return Err(limit_exceeded());
+    }
+    let evidence = evidence(baseline, baseline_root);
+    compute_with(baseline, &evidence, current, current_root, &DiffMap::default())
+}
+
+/// Reads the evidence of one side, in the order of its diagnostics.
+pub(crate) fn evidence(diagnostics: &[Diagnostic], root: &Path) -> Evidence {
+    if diagnostics.len() > DIAGNOSTIC_LIMIT {
+        return vec![None; diagnostics.len()];
+    }
+    candidates(diagnostics, root)
+        .iter()
+        .map(|candidate| candidate.fingerprint.map(|fingerprint| fingerprint.0))
+        .collect()
+}
+
+/// Pairs the current side against a base side whose evidence was read
+/// already, by [`evidence`] now or by an earlier run that cached it, placing
+/// the base side through `map`.
+pub(crate) fn compute_with<'a>(
+    baseline: &'a [Diagnostic],
+    baseline_evidence: &[Option<[u8; 32]>],
+    current: &'a [Diagnostic],
+    current_root: &Path,
+    map: &'a DiffMap,
+) -> Result<DeltaReport, InternalError> {
     if baseline.len() > DIAGNOSTIC_LIMIT || current.len() > DIAGNOSTIC_LIMIT {
         return Err(limit_exceeded());
     }
-
-    let baseline_candidates = candidates(baseline, baseline_root);
+    let baseline_candidates = baseline
+        .iter()
+        .zip(baseline_evidence.iter().chain(std::iter::repeat(&None)))
+        .map(|(diagnostic, fingerprint)| {
+            let mut candidate = Candidate::new(diagnostic);
+            candidate.fingerprint = fingerprint.map(DeltaFingerprintV1);
+            candidate.place_through(map);
+            candidate
+        })
+        .collect::<Vec<_>>();
     let current_candidates = candidates(current, current_root);
     Ok(match_candidates(&baseline_candidates, &current_candidates))
 }
@@ -410,7 +488,7 @@ fn normalize_proof(source: &str, remaining_budget: usize) -> Option<String> {
 fn same_path_stable<'a>(
     candidate: &Candidate<'a>,
 ) -> Option<(Option<&'a str>, DeltaFingerprintV1)> {
-    Some((candidate.path(), candidate.fingerprint?))
+    Some((candidate.place, candidate.fingerprint?))
 }
 
 /// Same file, same message, from a side that has no proof to offer.
@@ -418,7 +496,7 @@ fn same_path_unproven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>,
     candidate
         .fingerprint
         .is_none()
-        .then(|| (candidate.path(), candidate.fallback()))
+        .then(|| (candidate.place, candidate.fallback()))
 }
 
 /// Same file, same message, from a side that does carry a proof.
@@ -426,12 +504,24 @@ fn same_path_proven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, F
     candidate
         .fingerprint
         .is_some()
-        .then(|| (candidate.path(), candidate.fallback()))
+        .then(|| (candidate.place, candidate.fallback()))
 }
 
 /// Same file, same message, whatever proof the side carries.
 fn same_path_fallback<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, FallbackKey<'a>)> {
-    Some((candidate.path(), candidate.fallback()))
+    Some((candidate.place, candidate.fallback()))
+}
+
+/// Same place, same rule, whatever the evidence: what evidence left unpaired
+/// in one file pairs by count.
+fn same_rule<'a>(
+    candidate: &Candidate<'a>,
+) -> Option<(Option<&'a str>, DiagnosticSource, Option<&'a str>)> {
+    Some((
+        candidate.place,
+        candidate.diagnostic.source,
+        candidate.diagnostic.code.as_deref(),
+    ))
 }
 
 /// Same proof, any file: the finding moved.
@@ -457,15 +547,18 @@ fn match_candidates(baseline: &[Candidate<'_>], current: &[Candidate<'_>]) -> De
     // `a_message_match_on_the_original_file_wins_over_a_moved_proof` is the
     // input that puts the two in competition.
     let moved = matching.pass(moved_stable, moved_stable);
-
     debug_assert!(
         moved.iter().all(|&(baseline_index, current_index)| {
-            baseline.get(baseline_index).map(Candidate::path)
-                != current.get(current_index).map(Candidate::path)
+            baseline.get(baseline_index).map(|candidate| candidate.place)
+                != current.get(current_index).map(|candidate| candidate.place)
         }),
-        "same-path stable candidates must be exhausted before cross-file matching"
+        "same-place stable candidates must be exhausted before cross-file matching"
     );
-    matching.into_report(moved.len())
+    // What evidence left in one file and one rule is the same finding under
+    // an edit: a renamed variable inside the flagged expression, a rewrapped
+    // call. Paired by count, nearest line first.
+    let counted = matching.pass(same_rule, same_rule);
+    matching.into_report(counted.len())
 }
 
 /// The state of one pairing: which baseline candidates are spent, and which
@@ -487,50 +580,70 @@ impl<'a, 'd> Matching<'a, 'd> {
         }
     }
 
-    /// Pairs what is still free on the key the two sides answer on, in index
-    /// order, and returns the pairs it made.
+    /// Pairs what is still free on the key the two sides answer on and
+    /// returns the pairs it made.
     ///
-    /// A side that answers `None` sits the pass out. Both sides are walked in
-    /// index order and equal keys queue, so the same two scans always produce
-    /// the same pairing.
+    /// A side that answers `None` sits the pass out. Within one key, each
+    /// base candidate, in the order of its mapped line, takes the free current
+    /// candidate nearest that line, the earlier line on a tie, so the same two
+    /// scans always produce the same pairing.
     fn pass<Key: Ord>(
         &mut self,
         baseline_key: impl Fn(&Candidate<'d>) -> Option<Key>,
         current_key: impl Fn(&Candidate<'d>) -> Option<Key>,
     ) -> Vec<(usize, usize)> {
         let (baseline, current) = (self.baseline, self.current);
-        let mut available = BTreeMap::<Key, VecDeque<usize>>::new();
+        let mut groups = BTreeMap::<Key, (Vec<(usize, usize)>, BTreeSet<(usize, usize)>)>::new();
         for (index, candidate) in baseline.iter().enumerate() {
             if self.consumed.get(index).is_some_and(|consumed| !consumed)
                 && let Some(key) = baseline_key(candidate)
             {
-                available.entry(key).or_default().push_back(index);
+                groups.entry(key).or_default().0.push((candidate.line, index));
+            }
+        }
+        for (index, candidate) in current.iter().enumerate() {
+            if self.matched.get(index).is_some_and(Option::is_none)
+                && let Some(key) = current_key(candidate)
+                && let Some((_, free)) = groups.get_mut(&key)
+            {
+                free.insert((candidate.line, index));
             }
         }
 
         let mut made = Vec::new();
-        for (current_index, candidate) in current.iter().enumerate() {
-            if self.matched.get(current_index).is_none_or(Option::is_some) {
-                continue;
+        for (mut bases, mut free) in groups.into_values() {
+            bases.sort_unstable();
+            for (line, baseline_index) in bases {
+                let Some(nearest) = nearest(&free, line) else {
+                    break;
+                };
+                free.remove(&nearest);
+                let current_index = nearest.1;
+                if let Some(consumed) = self.consumed.get_mut(baseline_index) {
+                    *consumed = true;
+                }
+                if let Some(matched) = self.matched.get_mut(current_index) {
+                    *matched = Some(baseline_index);
+                }
+                made.push((baseline_index, current_index));
             }
-            let Some(key) = current_key(candidate) else {
-                continue;
-            };
-            let Some(baseline_index) = available.get_mut(&key).and_then(VecDeque::pop_front) else {
-                continue;
-            };
-            if let Some(consumed) = self.consumed.get_mut(baseline_index) {
-                *consumed = true;
-            }
-            if let Some(matched) = self.matched.get_mut(current_index) {
-                *matched = Some(baseline_index);
-            }
-            made.push((baseline_index, current_index));
         }
         made
     }
 
-    fn into_report(self, cross_file_matches: usize) -> DeltaReport {
+    fn into_report(self, rule_count_matches: usize) -> DeltaReport {
+        // A pair whose two published paths differ crossed files: along a
+        // rename, or on evidence that followed code out of its file.
+        let cross_file_matches = self
+            .current
+            .iter()
+            .zip(&self.matched)
+            .filter(|(candidate, matched)| {
+                matched
+                    .and_then(|index| self.baseline.get(index))
+                    .is_some_and(|base| base.path() != candidate.path())
+            })
+            .count();
         let introduced = self
             .current
             .iter()
@@ -566,11 +679,24 @@ impl<'a, 'd> Matching<'a, 'd> {
                 pre_existing: pre_existing.len(),
                 fixed: fixed.len(),
                 cross_file_matches,
+                rule_count_matches,
             },
             introduced,
             pre_existing,
             fixed,
         }
+    }
+}
+
+/// The free current candidate nearest `line`, the earlier line on a tie.
+fn nearest(free: &BTreeSet<(usize, usize)>, line: usize) -> Option<(usize, usize)> {
+    let below = free.range(..(line, 0)).next_back().copied();
+    let above = free.range((line, 0)..).next().copied();
+    match (below, above) {
+        (Some(below), Some(above)) => {
+            Some(if line - below.0 <= above.0 - line { below } else { above })
+        }
+        (below, above) => below.or(above),
     }
 }
 

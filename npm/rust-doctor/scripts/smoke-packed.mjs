@@ -25,6 +25,13 @@ import {
 
 const artifactPath = join(repositoryRoot, "target/local-cli-dogfood.json");
 
+// The proof replays a user's run. An agent marker inherited from the shell
+// that started it adds the line an agent reads about its skill to stderr,
+// which is a different run from the one a user makes.
+for (const marker of ["CLAUDECODE", "CODEX_SANDBOX", "CURSOR_AGENT"]) {
+  delete process.env[marker];
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -335,6 +342,93 @@ function installPacked(temporary, packed) {
   };
 }
 
+// The path `npm install -g` and the Action take, beside the bun leg above:
+// npm's global layout and its optional-dependency selection, offline.
+//
+// npm applies `overrides` only from a root project, never to a global
+// install, and offline it cannot resolve the wrapper's exact-version
+// optional dependencies from a registry: it skips them as optional, without
+// a word. So the local native tarball goes into the same global install, as a
+// sibling package the launcher resolves through the prefix's node_modules,
+// which is the layout a user's registry install produces.
+function installWithNpm(temporary, packed) {
+  const prefix = join(temporary, "npm-prefix");
+  const cache = join(prefix, "npm-cache");
+  mkdirSync(cache, { recursive: true });
+  const offline = {
+    ...process.env,
+    npm_config_cache: cache,
+    npm_config_registry: "http://127.0.0.1:9",
+    npm_config_update_notifier: "false",
+    HTTP_PROXY: "http://127.0.0.1:9",
+    HTTPS_PROXY: "http://127.0.0.1:9",
+    ALL_PROXY: "http://127.0.0.1:9",
+    NO_PROXY: "",
+  };
+  const installation = output(run([
+    commandPath("npm"),
+    "install",
+    "-g",
+    "--prefix",
+    prefix,
+    "--ignore-scripts",
+    "--offline",
+    "--no-audit",
+    "--no-fund",
+    packed.nativeArchive,
+    packed.wrapperArchive,
+  ], { cwd: temporary, env: offline }));
+  assert(
+    installation.code === 0,
+    `npm refused the packed tarballs offline (${installation.code}):\n${installation.stderr}`,
+  );
+  assert(!/registry\.npmjs|GET https?:|ECONNREFUSED/u.test(installation.stderr), "npm install attempted registry access");
+
+  const wrapper = join(prefix, "bin/rust-doctor");
+  const launcher = join(prefix, "lib/node_modules/rust-doctor/lib/launcher.js");
+  assert(existsSync(wrapper), "npm installed no rust-doctor bin");
+  const resolved = successful(run([
+    "node",
+    "--input-type=module",
+    "-e",
+    `import { createRequire } from "node:module"; process.stdout.write(createRequire(${JSON.stringify(launcher)}).resolve("@rustdoctor/linux-x64/bin/rust-doctor"));`,
+  ], { cwd: temporary }), "native resolution from the npm launcher");
+  assert(
+    relative(prefix, resolve(resolved)).startsWith("lib/node_modules/@rustdoctor/linux-x64/"),
+    `the npm launcher resolved its native binary outside the prefix: ${resolved}`,
+  );
+
+  const pathGuard = join(temporary, "npm-path-guard");
+  const pathGuardMarker = join(temporary, "npm-path-fallback-used");
+  mkdirSync(pathGuard);
+  writeFileSync(join(pathGuard, "rust-doctor"), `#!/bin/sh\nprintf used > "${pathGuardMarker}"\nexit 97\n`);
+  chmodSync(join(pathGuard, "rust-doctor"), 0o755);
+  const environment = {
+    ...offline,
+    CARGO_NET_OFFLINE: "true",
+    CARGO_TARGET_DIR: join(temporary, "npm-scan-target"),
+    CI: "1",
+    NO_COLOR: "1",
+    PATH: `${pathGuard}:${process.env.PATH}`,
+  };
+  const version = output(run([wrapper, "--version"], { cwd: temporary, env: environment }));
+  assert(version.code === 0, `npm-installed --version failed: ${version.stderr}`);
+  assert(version.stdout.trim() === `rust-doctor ${packed.version}`, "npm-installed version is inconsistent");
+  const fixture = join(repositoryRoot, "tests/fixtures/kernel-contract/todo");
+  const scan = output(run([wrapper, fixture, "--json"], { cwd: temporary, env: environment }));
+  assert(scan.code === 0, `npm-installed --json scan failed (${scan.code}): ${scan.stderr}`);
+  assert(scan.stderr === "", "npm-installed JSON stderr must be empty");
+  const report = JSON.parse(scan.stdout);
+  assert(report.schema_version === shippedSchemaVersion(), "npm-installed JSON schema differs");
+  assert(!existsSync(pathGuardMarker), "the npm launcher used a rust-doctor binary from PATH");
+  return {
+    npm_version: successful(run([commandPath("npm"), "--version"], { env: offline }), "npm version"),
+    npm_version_exit: version.code,
+    npm_json_exit: scan.code,
+    npm_native: "resolved under the prefix's lib/node_modules",
+  };
+}
+
 function proveCli(installed) {
   const human = output(run(
     [installed.wrapper, repositoryRoot, "--yes"],
@@ -605,7 +699,7 @@ async function packageEvidence(packed, installed) {
   };
 }
 
-function buildArtifact({ evidence, installed, cli, deterministic, handoff, interruption, nonMutation }) {
+function buildArtifact({ evidence, installed, npm, cli, deterministic, handoff, interruption, nonMutation }) {
   const measuredCriteria = [
     installed.criterion,
     ...cli.criteria,
@@ -638,6 +732,9 @@ function buildArtifact({ evidence, installed, cli, deterministic, handoff, inter
     commands: [
       "bun run scripts/pack-local.mjs",
       "bun install --ignore-scripts --backend=copyfile",
+      "npm install -g --prefix <scratch> --ignore-scripts --offline <native> <wrapper>",
+      "<scratch>/bin/rust-doctor --version",
+      "<scratch>/bin/rust-doctor <fixture> --json",
       "node_modules/.bin/rust-doctor --version",
       "node_modules/.bin/rust-doctor <repository> --yes",
       "node_modules/.bin/rust-doctor <repository> --json",
@@ -646,6 +743,7 @@ function buildArtifact({ evidence, installed, cli, deterministic, handoff, inter
     ],
     observations: {
       ...installed.observation,
+      ...npm,
       ...cli.observation,
       ...handoff.observation,
       ...deterministic.observation,
@@ -689,6 +787,7 @@ try {
   const before = await repositoryState();
   packed = packLocal();
   const installed = installPacked(temporary, packed);
+  const npm = installWithNpm(temporary, packed);
   const cli = proveCli(installed);
   const deterministic = proveDeterminism(installed);
   const handoff = proveHandoff(temporary, installed);
@@ -699,6 +798,7 @@ try {
   const artifact = buildArtifact({
     evidence,
     installed,
+    npm,
     cli,
     deterministic,
     handoff,

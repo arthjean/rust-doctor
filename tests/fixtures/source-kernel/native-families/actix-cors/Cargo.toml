@@ -1,0 +1,5 @@
+[package]
+name = "actix-cors"
+version = "0.7.0"
+edition = "2024"
+publish = false

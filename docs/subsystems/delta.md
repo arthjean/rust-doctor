@@ -17,8 +17,28 @@ cold build of the whole dependency graph. A directory that cannot be created or
 written falls back to that temporary target, and Cargo's build-directory lock
 serializes two runs on one workspace.
 
-Four rules hold it together, and each of them replaced something that had a
+Five rules hold it together, and each of them replaced something that had a
 cost.
+
+A pairing is decided by what the diff did, never by arrival order.
+`delta/diff_map.rs` reads two bounded `git diff-index` calls before any pass,
+the plumbing because `git diff` writes the index back: `--name-status -z` maps
+every base path through Git's renames, and a `--unified=0` patch under one
+mebibyte maps every base line through the hunks above it. Within one key, each
+base finding takes the current finding nearest its mapped line, so a duplicate
+inserted above an old one is the one reported introduced; first-in, first-out
+reported the old one. Once evidence has paired what it can, the findings left
+in one (renamed path, rule) pair by count, `rule_count_matches` in the summary:
+a variable renamed inside `cfg.get("k").unwrap()` used to read as a fix and an
+introduction. US-028 measured three policies on 125 real commit pairs
+(`docs/delta-pairing-2026-10.md`), and this one, (d), removed all 29 false
+introductions without adding any. The accepted blind spots are a fix and an
+addition of one rule in one file, which offset each other, and an identical
+excerpt fixed in one file and added in another, which evidence follows across
+files as it follows a module extraction without a rename. A map git could not
+read, too large or past the deadline, publishes `line-map-unavailable` as a
+notice and pairs on raw line distance: it decides which finding is reported,
+never how many.
 
 A candidate is a diagnostic, not a row beside one. `Candidate` borrows the
 `Diagnostic` it speaks for. The two index-parallel slices it replaced reached
@@ -33,8 +53,9 @@ used to be four calls carrying six anonymous closures, two of them identical
 word for word, and a trailing positional `bool` announcing that the match was a
 move. Nothing tied that flag to the key: the key of the last pass omits the
 path, and the flag said so a second time, so the count the report publishes
-could disagree with the pairing that produced it. `cross_file_matches` is now
-the length of what the moved pass returned. That pass runs last, so a message
+could disagree with the pairing that produced it. `cross_file_matches` now
+counts the pairs whose two published paths differ, along a rename or on moved
+evidence. The moved pass runs after the message passes, so a message
 match on the original file wins over a proof match elsewhere, which is a product
 decision rather than a consequence:
 `a_message_match_on_the_original_file_wins_over_a_moved_proof` is the one input

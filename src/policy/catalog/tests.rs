@@ -17,6 +17,9 @@ static SYNTHETIC_CLIPPY_RULE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P2,
     help: "Synthetic authoring proof.",
     diff_scope: DiffScope::Line,
+    title: "Synthetic authoring proof",
+    not_a_defect_when: "It never fires outside this test.",
+    requires: &[],
 };
 
 /// The shipped catalog with one more rule in it, built rather than retyped.
@@ -54,7 +57,7 @@ const HISTORICAL_IDS: [&str; 7] = [
 #[test]
 fn catalog_is_the_exact_normative_inventory() {
     validate_catalog(&CATALOG).expect("canonical catalog should be valid");
-    assert_eq!(CATALOG.len(), 133);
+    assert_eq!(CATALOG.len(), 142);
     assert_eq!(
         CATEGORIES,
         [
@@ -126,9 +129,9 @@ fn exact_lookup_and_producer_subsets_use_canonical_definitions() {
     let plan = PolicyPlan::default();
     assert_eq!(plan.active_rules(Producer::Clippy).count(), 104);
     assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 13);
-    assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 4);
+    assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 11);
     assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
-    assert_eq!(plan.active_rules(Producer::Repo).count(), 3);
+    assert_eq!(plan.active_rules(Producer::Repo).count(), 5);
 }
 
 #[test]
@@ -151,6 +154,38 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
     let mut empty = CATALOG;
     empty[0] = &EMPTY_HELP;
     assert_eq!(validate_catalog(&empty), Err(CatalogError::EmptyMetadata));
+
+    // US-045: a rule says what it catches in a headline and when a finding
+    // of it is not a defect, and a gate's range is a Cargo requirement.
+    static EMPTY_CHECK: RuleDefinition = RuleDefinition {
+        not_a_defect_when: " ",
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
+    };
+    static LONG_TITLE: RuleDefinition = RuleDefinition {
+        title: "one two three four five six seven eight nine",
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
+    };
+    static BAD_GATE: RuleDefinition = RuleDefinition {
+        requires: &[super::CrateGate { krate: "tokio", versions: "one or two" }],
+        ..CLIPPY_ABSURD_EXTREME_COMPARISONS
+    };
+    for (definition, expected) in [
+        (&EMPTY_CHECK, CatalogError::EmptyMetadata),
+        (&LONG_TITLE, CatalogError::TitleTooLong),
+        (&BAD_GATE, CatalogError::InvalidGate),
+    ] {
+        let mut catalog = CATALOG;
+        catalog[0] = definition;
+        assert_eq!(validate_catalog(&catalog), Err(expected));
+    }
+    let explained = crate::catalog()
+        .into_iter()
+        .find(|rule| rule.id == "rust_doctor::source::disabled_tls_verification")
+        .map(|rule| rule.not_a_defect_when);
+    assert!(
+        explained.is_some_and(|check| check.contains("local test server with a self-signed certificate")),
+        "{explained:?}"
+    );
 
     static UNKNOWN_CATEGORY: RuleDefinition = RuleDefinition {
         category: "style",
@@ -276,6 +311,7 @@ fn the_tier_is_independent_from_the_default_level() {
     assert_eq!(
         blocking,
         [
+            "rust_doctor::source::disabled_jwt_validation",
             "rust_doctor::source::disabled_tls_verification",
             "rust_doctor::source::dynamic_shell_command",
         ],
@@ -329,7 +365,11 @@ fn a_synthetic_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
         .filter(|rule| rule.definition.producer == Producer::Clippy && rule.level.is_active())
         .map(|rule| rule.definition.id)
         .collect();
-    let expected: Vec<_> = active.iter().flat_map(|id| ["-W", id]).collect();
+    let expected: Vec<_> = active
+        .iter()
+        .flat_map(|id| ["-W", id])
+        .chain(["-W", "warnings"])
+        .collect();
     assert_eq!(warned, expected);
     assert!(active.contains(&SYNTHETIC_CLIPPY_RULE.id));
     assert!(

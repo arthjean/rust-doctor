@@ -81,7 +81,7 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
     let before_temp = temporary_snapshots();
     let mut expected_output = None;
     let mut observed_counts = None;
-    for _ in 0..30 {
+    for run in 0..30 {
         let output = inspect(
             fixture,
             &[
@@ -96,23 +96,39 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         );
         assert_eq!(output.status.code(), Some(expected_exit), "{name}");
         let counts = fixture.processes.counts();
-        assert_eq!(
-            counts,
-            BTreeMap::from([
-                ("cargo-version".to_owned(), 1),
-                ("clippy".to_owned(), 2),
-                ("clippy-version".to_owned(), 1),
-                ("git-checkout-index".to_owned(), 1),
-                ("git-ls-tree".to_owned(), 1),
-                ("git-merge-base".to_owned(), 1),
-                ("git-read-tree".to_owned(), 1),
-                ("git-rev-parse".to_owned(), 1),
-                ("metadata".to_owned(), 2),
-                ("rustc-version".to_owned(), 1),
-                ("rustup-toolchain".to_owned(), 1),
-            ]),
-            "{name}"
-        );
+        // The first run of a base scans it and stores it; every later run
+        // reads it back from the side cache: no snapshot, no metadata and no
+        // Clippy for the base side, and the same bytes on stdout.
+        let scanned = BTreeMap::from([
+            ("cargo-version".to_owned(), 1),
+            ("clippy".to_owned(), 2),
+            ("clippy-version".to_owned(), 1),
+            ("git-checkout-index".to_owned(), 1),
+            ("git-diff-index".to_owned(), 2),
+            ("git-ls-tree".to_owned(), 1),
+            ("git-merge-base".to_owned(), 1),
+            ("git-read-tree".to_owned(), 1),
+            ("git-rev-parse".to_owned(), 2),
+            ("metadata".to_owned(), 2),
+            ("rustc-version".to_owned(), 1),
+            ("rustup-toolchain".to_owned(), 1),
+        ]);
+        let cached = BTreeMap::from([
+            ("cargo-version".to_owned(), 1),
+            ("clippy".to_owned(), 1),
+            ("clippy-version".to_owned(), 1),
+            ("git-diff-index".to_owned(), 2),
+            ("git-merge-base".to_owned(), 1),
+            ("git-rev-parse".to_owned(), 2),
+            ("metadata".to_owned(), 1),
+            ("rustc-version".to_owned(), 1),
+            ("rustup-toolchain".to_owned(), 1),
+        ]);
+        if run == 0 {
+            assert!(counts == scanned || counts == cached, "{name}: {counts:?}");
+        } else {
+            assert_eq!(counts, cached, "{name}");
+        }
         observed_counts.get_or_insert(counts);
         if let Some(expected) = &expected_output {
             assert_eq!(&output.stdout, expected, "{name}");
@@ -139,7 +155,7 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         assert!(!rendered.contains(private), "{name} leaked {private:?}");
     }
     let report: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(report["schema_version"], 21);
+    assert_eq!(report["schema_version"], 23);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["scope"]["mode"], "baseline");
     assert_eq!(report["delta"]["fingerprint_version"], 1);
@@ -296,11 +312,18 @@ fn error_evaluation() -> Value {
                 code: "baseline-limit-exceeded",
                 status: "failed",
                 exit_code: 2,
+                // The toolchain and the base tree are resolved before the
+                // snapshot, since the side cache keys on them.
                 processes: process_counts(&[
+                    ("cargo-version", 1),
+                    ("clippy-version", 1),
+                    ("git-diff-index", 2),
                     ("git-ls-tree", 1),
                     ("git-merge-base", 1),
-                    ("git-rev-parse", 1),
+                    ("git-rev-parse", 2),
                     ("metadata", 1),
+                    ("rustc-version", 1),
+                    ("rustup-toolchain", 1),
                 ]),
             },
             Some("baseline-limit"),
@@ -312,11 +335,18 @@ fn error_evaluation() -> Value {
                 code: "baseline-entry-invalid",
                 status: "failed",
                 exit_code: 2,
+                // The toolchain and the base tree are resolved before the
+                // snapshot, since the side cache keys on them.
                 processes: process_counts(&[
+                    ("cargo-version", 1),
+                    ("clippy-version", 1),
+                    ("git-diff-index", 2),
                     ("git-ls-tree", 1),
                     ("git-merge-base", 1),
-                    ("git-rev-parse", 1),
+                    ("git-rev-parse", 2),
                     ("metadata", 1),
+                    ("rustc-version", 1),
+                    ("rustup-toolchain", 1),
                 ]),
             },
             Some("baseline-gitlink"),
@@ -346,12 +376,16 @@ fn error_evaluation() -> Value {
             status: "failed",
             exit_code: 2,
             processes: process_counts(&[
+                ("cargo-version", 1),
+                ("clippy-version", 1),
                 ("git-checkout-index", 1),
+                ("git-diff-index", 2),
                 ("git-ls-tree", 1),
                 ("git-merge-base", 1),
                 ("git-read-tree", 1),
-                ("git-rev-parse", 1),
+                ("git-rev-parse", 2),
                 ("metadata", 2),
+                ("rustc-version", 1),
                 ("rustup-toolchain", 1),
             ]),
         },
@@ -377,10 +411,11 @@ fn error_evaluation() -> Value {
                 ("clippy", 2),
                 ("clippy-version", 1),
                 ("git-checkout-index", 1),
+                ("git-diff-index", 2),
                 ("git-ls-tree", 1),
                 ("git-merge-base", 1),
                 ("git-read-tree", 1),
-                ("git-rev-parse", 1),
+                ("git-rev-parse", 2),
                 ("metadata", 2),
                 ("rustc-version", 1),
                 ("rustup-toolchain", 1),
@@ -406,10 +441,11 @@ fn error_evaluation() -> Value {
                 ("clippy", 2),
                 ("clippy-version", 1),
                 ("git-checkout-index", 1),
+                ("git-diff-index", 2),
                 ("git-ls-tree", 1),
                 ("git-merge-base", 1),
                 ("git-read-tree", 1),
-                ("git-rev-parse", 1),
+                ("git-rev-parse", 2),
                 ("metadata", 2),
                 ("rustc-version", 1),
                 ("rustup-toolchain", 1),
@@ -535,7 +571,10 @@ fn local_evaluation() -> Value {
         "pub fn introduced() -> bool { todo!(\"introduced\") }\n",
     );
     let (changed, evaluation) = run_delta_state(&fixture, "changed-and-fixed", 1);
-    assert_eq!(changed["delta"]["summary"]["fixed"], 2);
+    // `todo!("old")` rewritten in place is the same finding edited, which the
+    // count pass pairs: only the removed one is fixed.
+    assert_eq!(changed["delta"]["summary"]["fixed"], 1);
+    assert_eq!(changed["delta"]["summary"]["rule_count_matches"], 1);
     let full = inspect(&fixture, &["--blocking", "warning"], &fixture.target);
     let full: Value = serde_json::from_slice(&full.stdout).unwrap();
     assert_eq!(full["delta"], Value::Null);

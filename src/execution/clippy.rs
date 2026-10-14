@@ -9,19 +9,23 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
+use std::time::Instant;
 
 use cargo_metadata::Metadata;
 
 use super::members::Members;
 use super::messages::{self, ScanExecution};
 use super::rustflags::RustflagsOverride;
-use super::{CommandEnvironment, ExecutionContext, lint_list, process};
+use super::{
+    CommandEnvironment, ExecutionContext, KnownLints, RunDeadline, interrupt, lint_list, process,
+};
 use crate::cargo_stderr;
 use crate::internal_error::InternalError;
 #[cfg(test)]
 use crate::policy::PolicyPlan;
 use crate::policy::{Producer, RuleDefinition, RuleLevel};
 use crate::progress::Progress;
+use crate::timings::Phase;
 
 /// Cargo's default targets: libraries and binaries, that is, what the project
 /// publishes.
@@ -62,9 +66,31 @@ const BASE_ARGS: [&str; 5] = [
 /// lint section.
 const SILENCE_UNCATALOGUED: [&str; 2] = ["-A", "clippy::all"];
 
+/// Closes the lint section, after every catalogued `-W`: an inherited
+/// `-D warnings` from any rustflags source Cargo reads, `[target.*]` tables
+/// and `CARGO_BUILD_RUSTFLAGS` included, would otherwise turn the first
+/// catalogued warning into a build failure. Observed on 1.97.1: the later
+/// flag wins and the warning stays a warning.
+const WARNINGS_STAY_WARNINGS: [&str; 2] = ["-W", "warnings"];
+
 /// Appended when the installed Clippy's lint list could not be read, so a
 /// catalogued lint it does not know is allowed instead of failing the build.
 const TOLERATE_UNKNOWN: [&str; 2] = ["-A", "unknown_lints"];
+
+/// What Cargo prints on stderr while another process holds one of its locks,
+/// and what the deadline's message then says. Observed on 1.97.1: the build
+/// directory's is rust-analyzer's own check most of the time, the package
+/// cache's any other Cargo resolving or fetching under the same home.
+const LOCK_WAITS: [(&str, &str); 2] = [
+    (
+        "Blocking waiting for file lock on build directory",
+        " Cargo waited on the build directory lock held by another Cargo or rust-analyzer.",
+    ),
+    (
+        "Blocking waiting for file lock on package cache",
+        " Cargo waited on the package cache lock held by another Cargo.",
+    ),
+];
 
 #[cfg(test)]
 pub(super) fn arguments_for_plan(plan: &PolicyPlan) -> Vec<&'static str> {
@@ -83,6 +109,7 @@ pub(crate) fn arguments_for_rules<'a>(
             arguments.extend([flag, definition.id]);
         }
     }
+    arguments.extend(WARNINGS_STAY_WARNINGS);
     arguments
 }
 
@@ -95,11 +122,15 @@ pub(super) fn run(
     context: &ExecutionContext<'_>,
     metadata: &Metadata,
     target_dir: Option<&Path>,
+    known: Option<KnownLints>,
 ) -> Result<ScanExecution, InternalError> {
     let workspace_root = metadata.workspace_root.as_std_path();
     let selected = context.options.packages.as_ref();
     let members = Members::of(metadata, selected);
-    let known = lint_list::probe(context, workspace_root);
+    let timings = context.options.timings.as_ref();
+    // Asked beside the version probes. A run that holds no answer passes
+    // every `-W` with unknown lints allowed, as one whose probe failed does.
+    let known = known.unwrap_or_else(|| Err(lint_list::unavailable()));
     let not_evaluated: Vec<&'static str> = known.as_ref().map_or_else(|_| Vec::new(), |known| {
         context
             .plan
@@ -141,9 +172,16 @@ pub(super) fn run(
         progress.report(Progress::Dependencies);
     }
     let mut linted = BTreeSet::new();
+    // The first member Cargo checked ends the dependencies: what came before
+    // it compiled what the workspace depends on, what comes after lints it.
+    let spawned = Instant::now();
+    let mut first_member = None;
     let finished = process::run(command, context.options.deadline, |stdout| {
         messages::collect_observed(std::io::BufReader::new(stdout), &mut |message| {
             members.observe(message, &mut linted, context.options.progress.as_ref());
+            if first_member.is_none() && !linted.is_empty() {
+                first_member = Some(Instant::now());
+            }
         })
     })
     .map_err(|error| {
@@ -153,6 +191,15 @@ pub(super) fn run(
             format!("Clippy could not be started: {error}"),
         )
     })?;
+
+    if let Some(timings) = timings {
+        let linting_from = first_member.unwrap_or_else(Instant::now);
+        timings.record(
+            Phase::ClippyDependencies,
+            linting_from.saturating_duration_since(spawned),
+        );
+        timings.record(Phase::ClippyLinting, linting_from.elapsed());
+    }
 
     let Some(mut stream) = finished.output else {
         return Err(InternalError::new(
@@ -173,28 +220,18 @@ pub(super) fn run(
         }
     };
     let succeeded = exit_success == Some(true) && stream.build_finished == Some(true);
-    if finished.expired
-        && let Some(deadline) = context.options.deadline
-    {
-        stream
-            .errors
-            .push(InternalError::new("clippy", "deadline-exceeded", deadline.message()));
-    } else if stream.build_finished == Some(false) {
-        // Only a build Cargo ran and reported failed has members to name. One
-        // that never started, over a lockfile it could not parse, linted
-        // nothing, and its exit error already quotes why.
-        let unlinted = members.unlinted(&stream.messages);
-        if !unlinted.is_empty() {
-            stream.errors.push(InternalError::new(
-                "clippy",
-                "packages-unlinted",
-                format!(
-                    "Not linted because it did not compile: {}",
-                    unlinted.join(", ")
-                ),
-            ));
-        }
-    }
+    // Only a build Cargo ran and reported failed, or one the deadline cut
+    // short, has members to name. One that never started, over a lockfile it
+    // could not parse, linted nothing, and its exit error already quotes why.
+    let unlinted = if finished.expired || stream.build_finished == Some(false) {
+        members.unlinted(&stream.messages)
+    } else {
+        Vec::new()
+    };
+    let deadline = context.options.deadline.filter(|_| finished.expired);
+    stream
+        .errors
+        .extend(cut_short(deadline, &unlinted, &finished.stderr));
 
     Ok(ScanExecution {
         command: std::iter::once("cargo".to_owned())
@@ -217,6 +254,43 @@ pub(super) fn run(
         deadline_exceeded: finished.expired,
         not_evaluated,
         removed_lint_flags: rustflags.removed,
+        unlinted,
+    })
+}
+
+/// Why the pass ended before linting everything, when it did: the deadline
+/// killed it, a signal did, or members did not compile. The deadline names the
+/// members it left unlinted and the Cargo lock it was waiting on, if any.
+fn cut_short(
+    deadline: Option<RunDeadline>,
+    unlinted: &[String],
+    stderr: &[u8],
+) -> Option<InternalError> {
+    if let Some(deadline) = deadline {
+        let mut message = deadline.message();
+        if !unlinted.is_empty() {
+            message.push_str(&format!(" Not linted: {}.", unlinted.join(", ")));
+        }
+        let stderr = String::from_utf8_lossy(stderr);
+        for (wait, sentence) in LOCK_WAITS {
+            if stderr.contains(wait) {
+                message.push_str(sentence);
+            }
+        }
+        return Some(InternalError::new("clippy", "deadline-exceeded", message));
+    }
+    if interrupt::requested() {
+        return Some(InternalError::new("clippy", interrupt::CODE, interrupt::MESSAGE));
+    }
+    (!unlinted.is_empty()).then(|| {
+        InternalError::new(
+            "clippy",
+            "packages-unlinted",
+            format!(
+                "Not linted because it did not compile: {}",
+                unlinted.join(", ")
+            ),
+        )
     })
 }
 
@@ -259,11 +333,15 @@ pub(crate) enum ClippyExecution {
     #[default]
     NotRun,
     Disabled,
-    Finished(ScanExecution),
+    Finished(Box<ScanExecution>),
 }
 
 impl ClippyExecution {
-    pub(crate) const fn finished(&self) -> Option<&ScanExecution> {
+    pub(crate) fn from_scan(scan: ScanExecution) -> Self {
+        Self::Finished(Box::new(scan))
+    }
+
+    pub(crate) fn finished(&self) -> Option<&ScanExecution> {
         match self {
             Self::Finished(scan) => Some(scan),
             Self::NotRun | Self::Disabled => None,
@@ -290,7 +368,7 @@ impl ClippyExecution {
     #[cfg(test)]
     pub(super) fn into_finished(self) -> Option<ScanExecution> {
         match self {
-            Self::Finished(scan) => Some(scan),
+            Self::Finished(scan) => Some(*scan),
             Self::NotRun | Self::Disabled => None,
         }
     }

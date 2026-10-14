@@ -13,7 +13,10 @@
       "default_level": "warn",
       "tier": "P3",
       "help": "Remove dbg! or replace it with intentional logging.",
-      "diff_scope": "line"
+      "diff_scope": "line",
+      "title": "Leftover dbg! debugging macro",
+      "not_a_defect_when": "The dbg! sits in test code or a throwaway example where printing intermediate values to stderr is the point, and it never reaches library or shipped binary code.",
+      "requires": []
     },
     {
       "id": "clippy::todo",
@@ -22,7 +25,10 @@
       "default_level": "warn",
       "tier": "P2",
       "help": "Replace todo! with the intended implementation or remove the reachable placeholder.",
-      "diff_scope": "line"
+      "diff_scope": "line",
+      "title": "Leftover todo! placeholder",
+      "not_a_defect_when": "The todo! sits on a path shipped builds cannot reach, such as a stub behind an unreleased feature flag or in a test helper, and a tracking issue is referenced next to it.",
+      "requires": []
     },
     {
       "id": "clippy::unimplemented",
@@ -31,7 +37,10 @@
       "default_level": "warn",
       "tier": "P1",
       "help": "Implement this code path or remove the reachable placeholder.",
-      "diff_scope": "line"
+      "diff_scope": "line",
+      "title": "Leftover unimplemented! placeholder",
+      "not_a_defect_when": "The unimplemented! marks a trait method the type deliberately does not support, such as an optional method in a test double, and callers are documented never to reach it.",
+      "requires": []
     },
     {
       "id": "rust_doctor::cargo::unbounded_registry_dependency",
@@ -40,7 +49,10 @@
       "default_level": "warn",
       "tier": "P3",
       "help": "Replace the unbounded version requirement with the minimum compatible version intended by the project.",
-      "diff_scope": "line"
+      "diff_scope": "line",
+      "title": "Registry dependency accepting any version",
+      "not_a_defect_when": "The requirement sits in an unpublished internal tool built only with a committed Cargo.lock and --locked, so the lockfile is the real pin and no consumer resolves the open requirement.",
+      "requires": []
     },
     {
       "id": "rust_doctor::cargo::unpinned_git_dependency",
@@ -49,7 +61,10 @@
       "default_level": "warn",
       "tier": "P1",
       "help": "Set rev to the full 40-character commit SHA intended by the project.",
-      "diff_scope": "line"
+      "diff_scope": "line",
+      "title": "Git dependency pinned by branch or tag",
+      "not_a_defect_when": "The tag lives in a repository the team controls where tags are immutable by policy, and Cargo.lock is committed, so the resolved commit is already fixed for every build.",
+      "requires": []
     },
     {
       "id": "rust_doctor::source::disabled_tls_verification",
@@ -58,7 +73,15 @@
       "default_level": "warn",
       "tier": "P0",
       "help": "Keep TLS verification enabled and configure the required trust roots or server name instead.",
-      "diff_scope": "item"
+      "diff_scope": "item",
+      "title": "TLS certificate or hostname verification turned off",
+      "not_a_defect_when": "The client only talks to a local test server with a self-signed certificate, in test code or behind an explicit opt-in flag production builds never set.",
+      "requires": [
+        {
+          "crate": "reqwest",
+          "versions": "*"
+        }
+      ]
     },
     {
       "id": "rust_doctor::source::dynamic_shell_command",
@@ -67,7 +90,10 @@
       "default_level": "warn",
       "tier": "P0",
       "help": "Avoid the shell and pass values as separate Command arguments to a fixed program; otherwise apply shell-specific escaping at the trust boundary.",
-      "diff_scope": "item"
+      "diff_scope": "item",
+      "title": "Shell command string built from runtime values",
+      "not_a_defect_when": "Every interpolated value is program-controlled, such as a path from CARGO_MANIFEST_DIR in a build script or a subcommand chosen from a fixed enum, so no untrusted input reaches the shell.",
+      "requires": []
     }
   ],
   "clippy_command": [
@@ -93,10 +119,35 @@
   "identity_severity": "base",
   "effective_error_clippy_flag": "-W",
   "exit_contract": [
-    { "scan_status": "complete", "complete": true, "gate_status": "passed", "exit_code": 0 },
-    { "scan_status": "complete", "complete": true, "gate_status": "failed", "exit_code": 1 },
-    { "scan_status": "incomplete", "complete": false, "gate_status": "not-evaluated", "exit_code": 1 },
-    { "scan_status": "failed", "complete": false, "gate_status": "not-evaluated", "exit_code": 2 },
-    { "scan_status": "clap-error", "complete": false, "gate_status": null, "exit_code": 2 }
+    {
+      "scan_status": "complete",
+      "complete": true,
+      "gate_status": "passed",
+      "exit_code": 0
+    },
+    {
+      "scan_status": "complete",
+      "complete": true,
+      "gate_status": "failed",
+      "exit_code": 1
+    },
+    {
+      "scan_status": "incomplete",
+      "complete": false,
+      "gate_status": "not-evaluated",
+      "exit_code": 1
+    },
+    {
+      "scan_status": "failed",
+      "complete": false,
+      "gate_status": "not-evaluated",
+      "exit_code": 2
+    },
+    {
+      "scan_status": "clap-error",
+      "complete": false,
+      "gate_status": null,
+      "exit_code": 2
+    }
   ]
 }

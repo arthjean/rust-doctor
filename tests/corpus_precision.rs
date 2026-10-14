@@ -1246,7 +1246,15 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// the two advisory rules are not evaluated on the corpus at all, since the
 /// harness reads no RustSec database so that the record replays. The seventh,
 /// `undocumented_unsafe_blocks`, was measured on its 113 healthy sites instead.
-const ADMISSION_DEBT: [&str; 110] = [
+///
+/// The nine rules EP-006 of the react-doctor gap closure PRD admitted on
+/// 2026-10-14 enter here, each proven on a fixture: the replay of that day
+/// found none of them in either population. Most of the corpus depends on none
+/// of the crates the six gated rules read, so the reports publish them
+/// `crate-absent`, and the repositories that do never trigger them; nor does
+/// any of them fall back on a secret, ignore its lockfile or compile with a
+/// secret in a workflow step.
+const ADMISSION_DEBT: [&str; 119] = [
     "clippy::absurd_extreme_comparisons",
     "clippy::almost_swapped",
     "clippy::approx_constant",
@@ -1347,12 +1355,21 @@ const ADMISSION_DEBT: [&str; 110] = [
     "rust_doctor::cargo::unused_dependency",
     "rust_doctor::cargo::vulnerable_dependency",
     "rust_doctor::repo::hardcoded_credential",
+    "rust_doctor::repo::ignored_lockfile",
+    "rust_doctor::repo::secret_in_build_step",
     "rust_doctor::repo::tracked_secret_file",
     "rust_doctor::repo::unignored_build_output",
+    "rust_doctor::source::block_in_place_on_current_thread",
+    "rust_doctor::source::block_on_in_async",
     "rust_doctor::source::blocking_call_in_async",
+    "rust_doctor::source::disabled_jwt_validation",
     "rust_doctor::source::disabled_tls_verification",
     "rust_doctor::source::dynamic_shell_command",
+    "rust_doctor::source::insecure_auth_cookie",
+    "rust_doctor::source::permissive_cors",
+    "rust_doctor::source::secret_env_fallback",
     "rust_doctor::source::sql_built_from_format",
+    "rust_doctor::source::unchecked_http_status",
     "rust_doctor::structure::crate_level_allow",
     "rust_doctor::structure::orphan_module_file",
     "rust_doctor::structure::stacked_allow_attribute",

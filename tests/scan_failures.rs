@@ -194,10 +194,28 @@ fn the_deadline_ends_the_scan_kills_the_build_script_and_keeps_what_was_found() 
 
     let report = json(&output);
     assert_eq!(report["status"], "incomplete");
-    assert_eq!(
-        error(&report, "clippy", "deadline-exceeded")["message"],
-        "The scan stopped at the 5 s limit set by --max-duration."
+    // The member whose build script never returns is named, and no score
+    // of its own reads its silence as clean.
+    // A parallel test run shares Cargo's home, so the scan may also have
+    // waited on another Cargo's package cache lock, which it then names.
+    let message = error(&report, "clippy", "deadline-exceeded")["message"]
+        .as_str()
+        .unwrap();
+    let expected = "The scan stopped at the 5 s limit set by --max-duration. Not linted: sleeper.";
+    assert!(message.starts_with(expected), "{message}");
+    let rest = &message[expected.len()..];
+    assert!(
+        ["", " Cargo waited on the package cache lock held by another Cargo."].contains(&rest),
+        "{message}"
     );
+    let sleeper = report["audit"]["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["name"] == "sleeper")
+        .unwrap();
+    assert_eq!(sleeper["unlinted"], true, "{sleeper}");
+    assert!(sleeper["score"].is_null(), "{sleeper}");
     assert!(reasons(&report).contains(&"deadline-exceeded"));
     // The member without a build script was linted before the deadline.
     assert!(
@@ -207,8 +225,17 @@ fn the_deadline_ends_the_scan_kills_the_build_script_and_keeps_what_was_found() 
             .iter()
             .any(|diagnostic| diagnostic["code"] == "clippy::todo")
     );
-    // The native passes that had not started are named at their own stage.
-    error(&report, "structure", "deadline-exceeded");
+    // The native passes ran beside Clippy rather than after it, so the
+    // deadline that stopped Clippy left none of them unstarted.
+    assert!(
+        report["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|error| error["stage"] == "clippy"),
+        "{}",
+        report["errors"]
+    );
 
     // The build script ran in Clippy's process group, which was killed whole.
     let pid = std::fs::read_to_string(&pid_file).unwrap();
@@ -225,6 +252,152 @@ fn the_deadline_ends_the_scan_kills_the_build_script_and_keeps_what_was_found() 
         !alive
     });
     assert!(gone, "the build script {pid} survived the deadline");
+}
+
+/// Ctrl-C during the base side of a baseline comparison stops everything the
+/// scan started, removes the snapshot, prints one failed report and exits 130.
+#[cfg(unix)]
+#[test]
+fn a_sigint_kills_the_build_and_leaves_one_failed_report_and_no_snapshot() {
+    let root = fixture("sleeping-build");
+    let scratch = support::temporary_target("interrupted", &std::sync::atomic::AtomicUsize::new(0));
+    let temporary = scratch.join("tmp");
+    std::fs::create_dir_all(&temporary).unwrap();
+    let pid_file = scratch.join("sleeper.pid");
+    let child = command(
+        &root,
+        &["--json", "--max-duration", "600", "--scope", "baseline", "--base", "HEAD"],
+    )
+    .env("RUST_DOCTOR_SLEEPER_PID", &pid_file)
+    .env("TMPDIR", &temporary)
+    // A target of its own: the deadline test builds the same fixture, and a
+    // build directory lock held by its sleeper would stall this one.
+    .env("CARGO_TARGET_DIR", scratch.join("target"))
+    .spawn()
+    .unwrap();
+    let started = Instant::now();
+    while !pid_file.exists() {
+        assert!(started.elapsed() < Duration::from_secs(120), "the build script never ran");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let sent = Command::new("kill")
+        .args(["-s", "INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130));
+    let report = json(&output);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(report["errors"].as_array().unwrap().len(), 1, "{}", report["errors"]);
+    assert_eq!(report["errors"][0]["code"], "interrupted");
+
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let gone = (0..50).any(|_| {
+        let alive = Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        if alive {
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        !alive
+    });
+    assert!(gone, "the build script {pid} survived the signal");
+    assert_eq!(std::fs::read_dir(&temporary).unwrap().count(), 0, "a snapshot was left behind");
+}
+
+/// A second signal does not wait for the report: the handler kills the
+/// registered groups itself and exits 130 with nothing printed.
+#[cfg(unix)]
+#[test]
+fn a_second_signal_kills_the_build_and_exits_at_once() {
+    let root = fixture("sleeping-build");
+    let scratch = support::temporary_target("interrupted-twice", &std::sync::atomic::AtomicUsize::new(0));
+    let temporary = scratch.join("tmp");
+    std::fs::create_dir_all(&temporary).unwrap();
+    let pid_file = scratch.join("sleeper.pid");
+    let child = command(&root, &["--json", "--max-duration", "600"])
+        .env("RUST_DOCTOR_SLEEPER_PID", &pid_file)
+        .env("TMPDIR", &temporary)
+        .env("CARGO_TARGET_DIR", scratch.join("target"))
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    while !pid_file.exists() {
+        assert!(started.elapsed() < Duration::from_secs(120), "the build script never ran");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Two different signals, since a second SIGINT still pending would merge
+    // with the first.
+    let pid = child.id().to_string();
+    let sent = Command::new("sh")
+        .args(["-c", "kill -s INT \"$1\"; kill -s TERM \"$1\"", "sh", &pid])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130));
+    assert!(output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stdout));
+
+    let sleeper = std::fs::read_to_string(&pid_file).unwrap();
+    let gone = (0..50).any(|_| {
+        let alive = Command::new("kill")
+            .args(["-0", sleeper.trim()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        if alive {
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        !alive
+    });
+    assert!(gone, "the build script {sleeper} survived two signals");
+}
+
+/// A toolchain probe that never answers is killed at the run's deadline, not
+/// at its own ten seconds.
+#[cfg(unix)]
+#[test]
+fn a_version_probe_that_sleeps_ends_at_the_run_deadline() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cargo = String::from_utf8(
+        Command::new("sh")
+            .args(["-c", "command -v cargo"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let bin = support::temporary_target("sleeping-probe", &std::sync::atomic::AtomicUsize::new(0));
+    std::fs::create_dir_all(&bin).unwrap();
+    let fake = bin.join("cargo");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then sleep 60; fi\nexec {} \"$@\"\n",
+            cargo.trim()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let started = Instant::now();
+    let output = command(&fixture("lint-flags"), &["--json", "--max-duration", "2"])
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(4), "{:?}", started.elapsed());
+    let report = json(&output);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(
+        error(&report, "toolchain", "deadline-exceeded")["message"],
+        "The scan stopped at the 2 s limit set by --max-duration."
+    );
 }
 
 #[test]
@@ -271,6 +444,29 @@ fn the_workspace_configuration_cannot_deny_warnings_either() {
     let report = json(&run(&fixture("lint-flags-config"), &["--json"]));
     assert_eq!(report["status"], "complete", "{}", report["errors"]);
     assert_eq!(report["toolchain"]["removed_lint_flags"][0], "-D warnings");
+}
+
+/// A `-D warnings` from a `[target.'cfg(all())']` table, or from
+/// `CARGO_BUILD_RUSTFLAGS`, is not stripped, and the catalogued warning still
+/// stays a warning: the command closes on `-W warnings`, which wins.
+#[test]
+fn a_target_table_or_cargo_build_rustflags_cannot_deny_warnings() {
+    let target_table = run(&fixture("lint-flags-target-config"), &["--json"]);
+    let build_variable = command(&fixture("lint-flags"), &["--json"])
+        .env("CARGO_BUILD_RUSTFLAGS", "-Dwarnings")
+        .output()
+        .unwrap();
+    for output in [target_table, build_variable] {
+        let report = json(&output);
+        assert_eq!(report["status"], "complete", "{}", report["errors"]);
+        let todo = report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|diagnostic| diagnostic["code"] == "clippy::todo")
+            .unwrap();
+        assert_eq!(todo["base_severity"], "warning");
+    }
 }
 
 #[test]

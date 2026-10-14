@@ -49,6 +49,8 @@ fn arguments_prune_off_rules_but_keep_error_rules_at_warning() {
             "--",
             "-A",
             "clippy::all",
+            "-W",
+            "warnings",
         ]
     );
 }
@@ -91,6 +93,7 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
             .filter(|definition| definition.producer == Producer::Clippy)
             .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
     )
+    .chain(["-W".to_owned(), "warnings".to_owned()])
     .collect();
     assert_eq!(
         arguments,
@@ -130,4 +133,20 @@ fn a_disabled_pass_is_complete_and_an_unstarted_one_is_not() {
     assert!(ClippyExecution::Disabled.has_outcome());
     assert!(!ClippyExecution::NotRun.is_complete());
     assert!(!ClippyExecution::NotRun.has_outcome());
+}
+
+/// The deadline names the lock Cargo waited on, and only that one: a wait on
+/// the package cache is another Cargo under the same home, never the build
+/// directory rust-analyzer holds.
+#[test]
+fn a_deadline_names_the_lock_cargo_actually_waited_on() {
+    let deadline = Some(RunDeadline::starting_now(std::time::Duration::from_secs(5)));
+    let message = |stderr: &str| cut_short(deadline, &[], stderr.as_bytes()).unwrap().message;
+    let package_cache = message("    Blocking waiting for file lock on package cache\n");
+    assert!(package_cache.ends_with(" Cargo waited on the package cache lock held by another Cargo."));
+    assert!(!package_cache.contains("build directory"), "{package_cache}");
+    let build_directory = message("    Blocking waiting for file lock on build directory\n");
+    assert!(build_directory.ends_with("held by another Cargo or rust-analyzer."));
+    assert!(!build_directory.contains("package cache"), "{build_directory}");
+    assert!(!message("   Compiling sleeper v0.1.0\n").contains("lock"));
 }

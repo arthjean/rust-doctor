@@ -97,6 +97,7 @@ fn missing_git_has_the_single_closed_error() {
         Path::new("/definitely/missing/rust-doctor-git"),
         Path::new("/workspace"),
         &call,
+        None,
     )
     .unwrap_err();
     assert_eq!((error.stage, error.code), ("scope", "git-unavailable"));
@@ -116,6 +117,7 @@ fn every_outcome_is_reported_at_the_stage_of_its_call() {
             "baseline",
             git_arguments(Path::new("/workspace"), ["status"]),
         ),
+        None,
     )
     .unwrap_err();
     assert_eq!((error.stage, error.code), ("baseline", "git-unavailable"));
@@ -124,6 +126,7 @@ fn every_outcome_is_reported_at_the_stage_of_its_call() {
         Path::new("/definitely/missing/rust-doctor-git"),
         Path::new("/workspace"),
         &call("repo", git_arguments(Path::new("/workspace"), ["status"])),
+        None,
     )
     .unwrap_err();
     assert_eq!((error.stage, error.code), ("repo", "git-unavailable"));
@@ -162,7 +165,7 @@ fn real_process_output_limits_and_stderr_are_closed() {
         "printf 'credential=secret\\n' >&2\n",
     ));
     let scope_call = call("scope", git_arguments(&workspace, ["status"]));
-    let error = run_git(&oversized, &workspace, &scope_call).unwrap_err();
+    let error = run_git(&oversized, &workspace, &scope_call, None).unwrap_err();
     assert_eq!((error.stage, error.code), ("scope", "git-output-too-large"));
     assert!(!error.message.contains("credential=secret"));
 
@@ -171,7 +174,7 @@ fn real_process_output_limits_and_stderr_are_closed() {
         overflow: BASELINE_OVERFLOW,
         ..scope_call
     };
-    let error = run_git(&oversized, &workspace, &baseline_limit).unwrap_err();
+    let error = run_git(&oversized, &workspace, &baseline_limit, None).unwrap_err();
     assert_eq!(
         (error.stage, error.code),
         ("baseline", "baseline-limit-exceeded")
@@ -185,7 +188,7 @@ fn real_process_output_limits_and_stderr_are_closed() {
     let mut failing_call = call("scope", git_arguments(&workspace, ["status"]));
     failing_call.failure =
         GitFailure::new("git-diff-failed", "Git changed files could not be read.");
-    let error = run_git(&failing, &workspace, &failing_call).unwrap_err();
+    let error = run_git(&failing, &workspace, &failing_call, None).unwrap_err();
     assert_eq!(error.code, "git-diff-failed");
     assert!(!error.message.contains("https://secret"));
     assert!(!error.message.contains("credential=secret"));
@@ -199,6 +202,7 @@ fn real_process_output_limits_and_stderr_are_closed() {
         &exact_stderr,
         &workspace,
         &call("scope", git_arguments(&workspace, ["status"])),
+        None,
     )
     .unwrap();
     assert!(output.is_empty());
@@ -220,6 +224,7 @@ fn real_process_output_limits_and_stderr_are_closed() {
             overflow: BASELINE_OVERFLOW,
             ..call("baseline", git_arguments(&workspace, ["status"]))
         },
+        None,
     )
     .unwrap_err();
     assert_eq!(
@@ -239,14 +244,14 @@ fn a_status_call_answers_its_code_and_discards_both_streams() {
         "exit 1\n",
     ));
     let arguments = git_arguments(&workspace, ["check-ignore", "--quiet"]);
-    assert_eq!(run_git_status(&script, &workspace, &arguments), Some(1));
+    assert_eq!(run_git_status(&script, &workspace, &arguments, None), Some(1));
 
     assert_eq!(
         run_git_status(
             Path::new("/definitely/missing/rust-doctor-git"),
             &workspace,
             &arguments
-        ),
+        , None),
         None
     );
 }
@@ -263,4 +268,28 @@ fn the_git_layer_holds_the_size_bound_it_scans_for() {
             crate::structure::FILE_LINES
         );
     }
+}
+
+/// A git that hangs inside a scan is killed at the run's deadline and answers
+/// `deadline-exceeded` at its call's stage, rather than holding the scan past
+/// `--max-duration`.
+#[cfg(unix)]
+#[test]
+fn a_git_still_running_at_the_deadline_is_killed_at_its_stage() {
+    let (workspace, sleeping) = git_script("#!/bin/sh\nexec sleep 60\n");
+    let started = std::time::Instant::now();
+    let deadline = RunDeadline::starting_now(std::time::Duration::from_millis(300));
+    let error = run_git(
+        &sleeping,
+        &workspace,
+        &call("repo", git_arguments(&workspace, ["ls-files"])),
+        Some(deadline),
+    )
+    .unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!((error.stage, error.code), ("repo", "deadline-exceeded"));
+    assert_eq!(
+        run_git_status(&sleeping, &workspace, &[], Some(deadline)),
+        None
+    );
 }

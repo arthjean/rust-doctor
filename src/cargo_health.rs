@@ -792,6 +792,12 @@ fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
         .filter(|package| metadata.workspace_members.contains(&package.id))
 }
 
+/// Does any workspace member produce a binary? The repository pass asks it of
+/// the lockfile it finds ignored.
+pub(crate) fn workspace_produces_a_binary(metadata: &Metadata) -> bool {
+    workspace_packages(metadata).any(produces_a_binary)
+}
+
 fn produces_a_binary(package: &Package) -> bool {
     package
         .targets
@@ -851,6 +857,7 @@ mod resolution;
 pub use advisories::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub(crate) use advisories::{AdvisoryOutcome, STALE_AFTER_DAYS};
 use keys::DeclaredKeys;
+pub(crate) use resolution::locked_direct_versions;
 use resolution::{inspect_resolution, resolution_owner};
 
 #[cfg(test)]

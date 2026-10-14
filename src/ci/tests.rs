@@ -305,7 +305,17 @@ fn input_default(name: &str) -> Option<String> {
 
 #[test]
 fn the_action_declares_its_inputs_and_defaults_to_this_release() {
-    for input in ["version", "toolchain", "scope", "base", "blocking", "working-directory", "args", "comment"] {
+    for input in [
+        "version",
+        "toolchain",
+        "scope",
+        "base",
+        "blocking",
+        "warning-exit-code",
+        "working-directory",
+        "args",
+        "comment",
+    ] {
         assert!(input_default(input).is_some(), "action.yml declares no default for `{input}`");
     }
     assert_eq!(input_default("version").as_deref(), Some(env!("CARGO_PKG_VERSION")));
@@ -324,12 +334,16 @@ fn the_action_declares_its_inputs_and_defaults_to_this_release() {
 fn every_command_the_action_runs_parses_against_the_cli() {
     let blocks = run_blocks(ACTION);
     assert_eq!(blocks.len(), 6, "install, scan, summary, comment, outputs, exit");
-    let cases: [(&[(&str, &str)], &str); 4] = [
+    let cases: [(&[(&str, &str)], &str); 5] = [
         (
             &[("PULL_REQUEST_BASE", "main")],
             "rust-doctor . --yes --json --scope baseline --base origin/main",
         ),
         (&[], "rust-doctor . --yes --json --scope full"),
+        (
+            &[("WARNING_EXIT_CODE", "78")],
+            "rust-doctor . --yes --json --scope full --warning-exit-code 78",
+        ),
         (
             &[("SCOPE", "files"), ("BASE", "v1.0"), ("BLOCKING", "warning")],
             "rust-doctor . --yes --json --scope files --base v1.0 --blocking warning",
@@ -457,10 +471,11 @@ fn action_scan() -> String {
         .unwrap()
 }
 
-const SCAN_INPUTS: [(&str, &str); 5] = [
+const SCAN_INPUTS: [(&str, &str); 6] = [
     ("SCOPE", ""),
     ("BASE", ""),
     ("BLOCKING", ""),
+    ("WARNING_EXIT_CODE", ""),
     ("ARGS", ""),
     ("WORKSPACE", "."),
 ];
@@ -479,6 +494,12 @@ fn only_a_pull_request_fails_on_the_gate() {
     ] {
         let execution = run_stubbed(&exit, &[("EXIT_CODE", code), ("EVENT_NAME", event)]);
         assert_eq!(execution.status, Some(expected), "action: {code} on {event}");
+    }
+    // The warning code a caller chose fails a pull request and nothing else.
+    for (event, expected) in [("push", 0), ("pull_request", 78)] {
+        let environment = [("EXIT_CODE", "78"), ("EVENT_NAME", event), ("WARNING_EXIT_CODE", "78")];
+        let execution = run_stubbed(&exit, &environment);
+        assert_eq!(execution.status, Some(expected), "action: warning code on {event}");
     }
     let workflow = scan_workflow(&workflow_options(None));
     let scan = run_blocks(&workflow).pop().unwrap();

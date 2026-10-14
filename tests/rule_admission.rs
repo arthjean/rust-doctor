@@ -315,13 +315,14 @@ fn the_readme_rule_count_matches_the_published_catalog() {
     );
 }
 
-/// US-032: a workspace with no `unsafe` code carries none of the unsafe and
-/// transmute lints the catalog admitted. This repository is one: the
-/// precondition is read from the syntax of every file under `src/`, so an
-/// `unsafe` inside a string or a comment does not count, and the scan is the
-/// one a user runs.
+/// US-032: a workspace whose `unsafe` is confined and documented carries none
+/// of the unsafe and transmute lints the catalog admitted. This repository is
+/// one: its only `unsafe` is the signal and process-group boundary, every
+/// block of it under a `SAFETY:` comment. The confinement is read from the
+/// syntax of every file under `src/`, so an `unsafe` inside a string or a
+/// comment does not count, and the scan is the one a user runs.
 #[test]
-fn a_workspace_without_unsafe_code_fires_no_unsafe_lint() {
+fn a_workspace_whose_unsafe_is_documented_fires_no_unsafe_lint() {
     const UNSAFE_LINTS: [&str; 3] = [
         "clippy::crosspointer_transmute",
         "clippy::missing_transmute_annotations",
@@ -332,6 +333,7 @@ fn a_workspace_without_unsafe_code_fires_no_unsafe_lint() {
 
     let mut pending = vec![repository().join("src")];
     let mut files = 0;
+    let mut holding = Vec::new();
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(&directory).expect("src/ should be readable") {
             let path = entry.expect("a directory entry should be readable").path();
@@ -341,18 +343,26 @@ fn a_workspace_without_unsafe_code_fires_no_unsafe_lint() {
                 files += 1;
                 let text = fs::read_to_string(&path).expect("a source file should be readable");
                 let parse = ra_ap_syntax::SourceFile::parse(&text, ra_ap_syntax::Edition::Edition2024);
-                assert!(
-                    parse
-                        .syntax_node()
-                        .descendants_with_tokens()
-                        .all(|element| element.kind() != ra_ap_syntax::SyntaxKind::UNSAFE_KW),
-                    "{} holds unsafe code",
-                    path.display()
-                );
+                if parse
+                    .syntax_node()
+                    .descendants_with_tokens()
+                    .any(|element| element.kind() == ra_ap_syntax::SyntaxKind::UNSAFE_KW)
+                {
+                    holding.push(path.strip_prefix(repository()).unwrap().to_path_buf());
+                }
             }
         }
     }
     assert!(files > 100, "the walk read {files} files");
+    holding.sort();
+    assert_eq!(
+        holding,
+        [
+            std::path::PathBuf::from("src/execution/interrupt.rs"),
+            std::path::PathBuf::from("src/execution/process.rs"),
+        ],
+        "unsafe code left the signal and process-group boundary"
+    );
 
     let report = inspect(InspectRequest::new(repository()));
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);

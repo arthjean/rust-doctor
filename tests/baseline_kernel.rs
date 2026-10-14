@@ -325,7 +325,7 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     let baseline = report(&output);
     let baseline_events = fixture.processes.events();
 
-    assert_eq!(baseline["schema_version"], 21);
+    assert_eq!(baseline["schema_version"], 23);
     assert_eq!(baseline["status"], "complete");
     assert_eq!(baseline["complete"], true);
     assert_eq!(baseline["scope"]["mode"], "baseline");
@@ -413,10 +413,11 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
             ("clippy", 2),
             ("clippy-version", 1),
             ("git-checkout-index", 1),
+            ("git-diff-index", 2),
             ("git-ls-tree", 1),
             ("git-merge-base", 1),
             ("git-read-tree", 1),
-            ("git-rev-parse", 1),
+            ("git-rev-parse", 2),
             ("metadata", 2),
             ("rustc-version", 1),
             ("rustup-toolchain", 1),
@@ -523,7 +524,7 @@ fn baseline_gate_counts_only_introduced_diagnostics() {
 }
 
 #[test]
-fn invalid_baseline_metadata_fails_closed_before_versions_or_current_scan() {
+fn invalid_baseline_metadata_fails_closed_before_any_scan() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let fixture = fixture(false);
     let before_temp = temporary_snapshots();
@@ -547,7 +548,8 @@ fn invalid_baseline_metadata_fails_closed_before_versions_or_current_scan() {
         events.iter().filter(|event| *event == "metadata").count(),
         2
     );
-    assert!(!events.iter().any(|event| event.contains("version")));
+    // The versions are probed before the base side: the side cache keys on
+    // them. Nothing is linted on either side.
     assert!(!events.iter().any(|event| event == "clippy"));
     assert_eq!(temporary_snapshots(), before_temp);
 }
@@ -838,3 +840,63 @@ fn promisor_clone_fails_closed_without_fetching_or_writing_git_objects() {
 
 #[path = "baseline_kernel/delta.rs"]
 mod delta;
+
+/// The second baseline run on an unchanged base reads the base side from the
+/// side cache: the same bytes, and no Cargo process for the base side. A
+/// policy edit, a corrupt cache file and `RUST_DOCTOR_NO_CACHE=1` each make it
+/// scan the base again.
+#[test]
+fn an_unchanged_base_is_judged_once_and_read_back_from_the_side_cache() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let fixture = fixture(true);
+    let arguments = ["--scope", "baseline", "--base", SELECTOR];
+    let first = inspect(&fixture, &arguments, &fixture.target);
+    let second = inspect(&fixture, &arguments, &fixture.target);
+    assert_eq!(first.status.code(), Some(0));
+    assert_eq!(first.stdout, second.stdout);
+    let detail = fs::read_to_string(&fixture.detail_log).unwrap();
+    assert!(
+        !detail.lines().any(|line| line
+            .split('\t')
+            .nth(2)
+            .is_some_and(|target| target.ends_with("rust-doctor/baseline"))),
+        "the second run built the base side:\n{detail}"
+    );
+
+    let verbose = |environment: &[(&str, &str)]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
+        command
+            .args(["inspect", "--verbose", "--yes"])
+            .args(arguments)
+            .arg(&fixture.project)
+            .env("CARGO_TARGET_DIR", &fixture.target)
+            .env("CARGO_NET_OFFLINE", "true")
+            .env_remove("RUSTUP_TOOLCHAIN");
+        for (name, value) in environment {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let line = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("Base side cache: "))
+            .map(str::to_owned);
+        assert!(line.is_some(), "no cache line in:\n{stdout}");
+        line.unwrap()
+    };
+    assert_eq!(verbose(&[]), "hit");
+    assert_eq!(verbose(&[("RUST_DOCTOR_NO_CACHE", "1")]), "disabled");
+
+    let cache = fixture.target.join("rust-doctor/cache/base-sides.json");
+    let stored = fs::read(&cache).unwrap();
+    fs::write(&cache, &stored[..stored.len() / 2]).unwrap();
+    assert_eq!(verbose(&[]), "miss");
+    assert_eq!(verbose(&[]), "hit");
+
+    write(
+        fixture.project.join("rust-doctor.toml"),
+        "[rules]\n\"clippy::todo\" = \"error\"\n",
+    );
+    assert_eq!(verbose(&[]), "miss");
+    assert_eq!(verbose(&[]), "hit");
+}

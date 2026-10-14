@@ -3,7 +3,7 @@
 `src/policy.rs` is the level algebra: the two override kinds, the precedence
 between a request, a configuration file and the shipped default, and the
 `PolicyPlan` every producer reads. `catalog.rs` and `catalog/correctness.rs` are the
-133 declarations, `catalog.rs` the lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
+142 declarations, `catalog.rs` the lookup over them, `catalog/validate.rs` their admissibility, `catalog/tests.rs`
 the tests, `noise.rs` the adjudicated rate the score ranks by, and
 `coverage.rs` the candidate queue.
 
@@ -60,6 +60,12 @@ its category, unless the request set the rule's level: `--rule` and
 leaves off, since no producer ran it. Globs are `src/path_glob.rs`, `*`, `**`
 and `?` only, and a pattern that could be read two ways is refused as
 `invalid-glob`, named by key and index, never echoed.
+
+`src/policy/catalog/` keeps its statics in three files, `clippy.rs`,
+`correctness.rs` and `native.rs`, so no file of the catalog passes the size
+bound. `src/explain.rs` resolves a rule by id, suffix or near spelling, and
+reads a site back through the configuration and the suppression directives;
+`rules explain` and `why` are its two commands.
 
 `the_policy_holds_the_size_bound_the_catalog_publishes_for` keeps every file of
 the module under the 1000 lines `oversized_unit` reports, tests included. That

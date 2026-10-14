@@ -49,7 +49,7 @@ beside a checkout of pull request code
 
 The toolchain is pinned to 1.97.1 in every workflow that installs Rust rather
 than tracking `stable`, and is the default of `action.yml` and of
-`ci install` (`VALIDATED_TOOLCHAIN` in `src/ci.rs`). Clippy's diagnostics are the product: 104 curated lints of the 133
+`ci install` (`VALIDATED_TOOLCHAIN` in `src/ci.rs`). Clippy's diagnostics are the product: 104 curated lints of the 142
 catalogued rules are its own, and `tests/corpus.json` records the exact Clippy
 version its measurement was taken under.
 

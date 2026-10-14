@@ -79,14 +79,46 @@ survive. The workspace's `[build] rustflags = ["-D", "warnings"]` fails the
 build on 1.97.1 (observed 2026-09-25), so it is stripped the same way unless a
 `[target.*] rustflags` overrides it. `execution/lint_list.rs` reads
 `clippy-driver -W help` under ten seconds before any `-W` is passed, and a
-catalogued rule it does not list is published as not evaluated.
+catalogued rule it does not list is published as not evaluated. A `-D warnings`
+inherited from a `[target.<cfg>] rustflags` table or `CARGO_BUILD_RUSTFLAGS`
+cannot be stripped from the command line, so the command ends with
+`-W warnings`: on 1.97.1 the last level given wins and the build completes
+(observed 2026-10-14, pinned by
+`a_target_table_or_cargo_build_rustflags_cannot_deny_warnings`).
 
-`--max-duration` arms `execution/process.rs`'s watchdog. On Unix a bounded child
-leads its own process group, and the whole group is killed through `kill(1)`,
-which keeps `libc` a dev-dependency. Only bounded children get a group, because
-a terminal's Ctrl-C no longer reaches one. On Windows `taskkill /T` kills the
-tree it can see, and nothing tests it. Passes the deadline has not started are
-skipped at their own stage, and the structure budget is capped by what is left.
+`--max-duration` arms `execution/process.rs`'s watchdog, and every child the
+run starts goes through it: the version probes, `cargo metadata`, every git
+call, the snapshot and Clippy. A child still running at the deadline is killed
+with `deadline-exceeded` at its own stage. Clippy cut short names the members
+it never linted, their score is withheld rather than computed on nothing, and
+the message names the lock Cargo's stderr shows it waited on, the build
+directory's or the package cache's, and never one it did not. On Unix a bounded child leads its own process group, killed through
+`libc::kill`. `libc` is a normal dependency for that and for
+`execution/interrupt.rs`: a first SIGINT or SIGTERM kills every registered
+group and the run ends with one failed report, exit 130 and no snapshot left
+behind; a second exits at once. A terminal's Ctrl-C no longer reaches a child
+in its own group, which is why the handler kills them. On Windows `taskkill /T`
+kills the tree it can see, no signal is handled, and nothing tests either.
+
+The run overlaps what does not depend on itself. The three version probes and
+the lint list run concurrently. The dependency pack and the repository pass
+read the manifests, the lockfile and git on one thread while the walk reads the
+tree on the other, all of it before Clippy starts, so `build.rs` cannot write
+into what they measure. Clippy then runs on a thread of its own, the
+structural pass on another, and the source kernel and the dependency-truth
+rules on the calling thread; the deadline decides which of the three start
+before any does. The reports are byte-identical to the serial order on every
+fixture. `--timings`, and `--verbose` outside `--json`, publish each
+phase in milliseconds; `tests/performance.rs` medians them cold and warm with
+`cargo test --release --test performance -- --ignored --nocapture`.
+
+A baseline comparison reads its base side from
+`execution/side_cache.rs` when nothing it depends on moved: the base tree, the
+toolchain and lint list, the policy, the packages, the advisory database, the
+`CARGO`/`RUST`/`CC`/`CFLAGS`/`CXX` environment and the Cargo configuration
+outside the repository. The cache lives under the target directory,
+`RUST_DOCTOR_NO_CACHE=1` turns it off, a corrupt file is a miss, and only
+`--verbose` says which it was: the JSON is the same bytes either way.
 
 A member selection narrows the work, not only the report. `--package` reaches
 Clippy as one `-p <NAME>` per member where `--workspace` stood, narrows the

@@ -29,6 +29,7 @@ use serde::{Serialize, Serializer};
 
 use crate::internal_error::InternalError;
 use crate::policy::DiffScope;
+use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git, run_git_with_index};
 use crate::workspace_path;
 
@@ -522,10 +523,13 @@ pub(crate) fn resolve(
     scope: &ValidatedScope,
     workspace_root: &Path,
     index: Option<&Path>,
+    deadline: Option<RunDeadline>,
 ) -> Result<ScopeReport, InternalError> {
     resolve_with(scope, workspace_root, |call| match index {
-        Some(index) => run_git_with_index(Path::new("git"), workspace_root, call, index),
-        None => run_git(Path::new("git"), workspace_root, call),
+        Some(index) => {
+            run_git_with_index(Path::new("git"), workspace_root, call, index, deadline)
+        }
+        None => run_git(Path::new("git"), workspace_root, call, deadline),
     })
 }
 
@@ -562,7 +566,7 @@ fn resolve_with(
 /// none resolves.
 pub fn default_branch(workspace_root: &Path) -> Option<String> {
     base::default_branch(workspace_root, &mut |call| {
-        run_git(Path::new("git"), workspace_root, call)
+        run_git(Path::new("git"), workspace_root, call, None)
     })
 }
 

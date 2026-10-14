@@ -13,6 +13,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::Path;
 
+use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_with_input};
 
 /// The stage a failed call would report at. Nothing is published from it: any
@@ -25,10 +26,12 @@ const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const ATTRIBUTES: [&str; 2] = ["linguist-generated", "linguist-vendored"];
 
 /// Workspace-relative paths `.gitattributes` marks generated or vendored.
-pub(crate) fn declared(workspace_root: &Path) -> BTreeSet<String> {
+pub(crate) fn declared(workspace_root: &Path, deadline: Option<RunDeadline>) -> BTreeSet<String> {
     declared_with(workspace_root, |call, input| match input {
-        None => run_git(Path::new("git"), workspace_root, call),
-        Some(input) => run_git_with_input(Path::new("git"), workspace_root, call, input),
+        None => run_git(Path::new("git"), workspace_root, call, deadline),
+        Some(input) => {
+            run_git_with_input(Path::new("git"), workspace_root, call, input, deadline)
+        }
     })
 }
 

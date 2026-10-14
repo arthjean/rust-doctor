@@ -63,16 +63,18 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
             .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)
             .flat_map(|rule| ["-W".to_owned(), rule.id.clone()]),
     )
+    .chain(["-W".to_owned(), "warnings".to_owned()])
     .collect();
     // Seven base arguments since the scope is Cargo's default targets and
     // `--keep-going` lints past a broken member, then the
     // two that silence everything Clippy warns about by default, then one `-W`
-    // per active Clippy rule of the policy. The count is derived from the
+    // per active Clippy rule of the policy, then the `-W warnings` that keeps
+    // an inherited `-D warnings` from failing the build. The count is derived from the
     // published policy, never frozen, so that widening the catalog does not
     // require editing this test.
     assert_eq!(
         expected.len(),
-        9 + 2 * policy
+        11 + 2 * policy
             .rules
             .iter()
             .filter(|rule| rule.id.starts_with("clippy::") && rule.level != RuleLevel::Off)

@@ -163,6 +163,32 @@ pub(super) fn resolution_owner(metadata: &Metadata) -> String {
         .to_owned()
 }
 
+/// The version each workspace member's direct dependencies resolve to in
+/// `Cargo.lock`, keyed by member name and version, then by dependency name.
+/// Empty without a usable lockfile: the version gates then read the
+/// manifests' requirements instead.
+pub(crate) fn locked_direct_versions(
+    workspace_root: &Path,
+) -> BTreeMap<(String, String), BTreeMap<String, String>> {
+    let Resolution::Packages(packages, _) = read_resolution(workspace_root) else {
+        return BTreeMap::new();
+    };
+    let graph = Graph::of(&packages);
+    packages
+        .iter()
+        .filter(|package| package.source.is_none())
+        .map(|package| {
+            let dependencies = package
+                .dependencies
+                .iter()
+                .filter_map(|dependency| graph.resolve(dependency))
+                .map(|(name, version)| (name.to_owned(), version.to_owned()))
+                .collect();
+            ((package.name.clone(), package.version.clone()), dependencies)
+        })
+        .collect()
+}
+
 fn read_resolution(workspace_root: &Path) -> Resolution {
     let path = workspace_root.join(LOCKFILE);
     let Ok(metadata) = fs::metadata(&path) else {

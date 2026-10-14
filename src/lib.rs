@@ -11,6 +11,7 @@ mod configuration;
 mod delta;
 mod directive;
 mod execution;
+pub mod explain;
 mod generated;
 mod git;
 pub mod git_hook;
@@ -36,6 +37,7 @@ mod test_clock;
 #[path = "test_scratch.rs"]
 mod test_scratch;
 pub mod terminal_text;
+mod timings;
 mod workspace_path;
 
 pub use audit::{
@@ -46,7 +48,7 @@ pub use audit::{
 pub use delta::{DeltaMatch, DeltaReport, DeltaSummary};
 pub use git_scope::{ExecutionScope, ScopeMode, ScopeReport, default_branch};
 pub use policy::{
-    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, DiffScope,
+    BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, CrateGate, DiffScope,
     PathOverrideReport, RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,
 };
 /// The file length `rust_doctor::structure::oversized_unit` reports at.
@@ -57,12 +59,41 @@ pub use policy::{
 /// there is a second place to keep in step with the rule.
 pub use cargo_health::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
+pub use timings::Timings;
+pub use execution::CacheOutcome;
 
 /// The native source detectors run in process on one unit, for the regression
 /// seeds `tests/regression_seeds.rs` replays. Not a stable interface.
 #[doc(hidden)]
 pub mod seed_harness {
     pub use crate::source_kernel::harness::{CaseUnit, Detected, run_detectors};
+}
+/// The baseline comparison run on two reports already written, for the
+/// pairing measurement `tests/delta_pairing.rs` replays. Not a stable
+/// interface.
+#[doc(hidden)]
+pub mod delta_harness {
+    use std::path::Path;
+
+    use crate::{DeltaReport, Diagnostic};
+
+    /// Pairs `current`, whose sources live under `current_root`, against
+    /// `baseline`, whose sources live under `baseline_root`.
+    ///
+    /// # Errors
+    ///
+    /// The comparison's own error message, when a side exceeds its limit.
+    pub fn pair(
+        baseline: &[Diagnostic],
+        baseline_root: &Path,
+        current: &[Diagnostic],
+        current_root: &Path,
+    ) -> Result<DeltaReport, String> {
+        let evidence = crate::delta::evidence(baseline, baseline_root);
+        let map = crate::delta::DiffMap::default();
+        crate::delta::compute_with(baseline, &evidence, current, current_root, &map)
+            .map_err(|error| error.message)
+    }
 }
 pub use report::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
@@ -84,10 +115,29 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
 /// way a scan finds it, or `None` when none resolves. `ci install` places the
 /// workflow's scan from it.
 pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
-    scan_target::resolve(path, Path::new("cargo"))
+    scan_target::resolve(path, Path::new("cargo"), None)
         .ok()
         .map(|target| target.workspace_root().to_path_buf())
 }
+
+/// Installs SIGINT and SIGTERM handlers for a binary that scans. Every child
+/// a scan starts then leads a process group the handlers kill, the scan
+/// publishes a failed report with code `interrupted`, and [`interrupted`]
+/// answers true so the binary can exit 130. A second signal exits at once,
+/// and a signal outside a scan exits 130 straight away. Unix only: elsewhere
+/// it does nothing.
+pub fn handle_interrupts() {
+    execution::interrupt::install();
+}
+
+/// Whether a signal the handlers of [`handle_interrupts`] caught stopped the
+/// run.
+pub fn interrupted() -> bool {
+    execution::interrupt::requested()
+}
+
+/// The exit status of a run a handled signal stopped.
+pub const INTERRUPTED_EXIT_STATUS: u8 = execution::interrupt::EXIT_STATUS;
 
 #[derive(Debug)]
 pub struct InspectionSession {
@@ -95,22 +145,34 @@ pub struct InspectionSession {
     plan: policy::PolicyPlan,
     scope: git_scope::ValidatedScope,
     options: execution::RunOptions,
+    _scan: execution::interrupt::ScanGuard,
+}
+
+/// The report a handled signal leaves: one failed report naming the
+/// interruption, whatever the run had reached.
+fn settle(report: InspectReport) -> InspectReport {
+    if interrupted() {
+        report::interrupted_failure(report)
+    } else {
+        report
+    }
 }
 
 impl InspectionSession {
     pub fn prepare(request: InspectRequest) -> Result<Self, Box<InspectReport>> {
         let policy = request.policy().clone();
-        Self::prepare_with(request, &policy)
+        Self::prepare_with(request, &policy).map_err(|report| Box::new(settle(*report)))
     }
 
     fn prepare_with(
         request: InspectRequest,
         policy: &policy::PolicyInput,
     ) -> Result<Self, Box<InspectReport>> {
+        let scan = execution::interrupt::ScanGuard::enter();
         // The deadline starts here, before Cargo is first asked anything, so
-        // the time metadata and the baseline snapshot take counts against it.
-        // Neither is killed at it, since `cargo metadata --no-deps` resolves
-        // nothing: Clippy and its lint-list probe are.
+        // the time metadata and the baseline snapshot take counts against it,
+        // and every child the run starts, `cargo metadata`, the toolchain
+        // probes and git included, is killed at it.
         let options = request.run_options();
         // The overrides are read once, before any path is discovered and any
         // process is started. What comes back is what the plan compiles from,
@@ -137,7 +199,7 @@ impl InspectionSession {
                 )));
             }
         };
-        let prepared = match execution::prepare(&request.path) {
+        let prepared = match execution::prepare(&request.path, &options) {
             Ok(prepared) => prepared,
             Err(result) => {
                 return Err(Box::new(report::preparation_failure(
@@ -167,6 +229,7 @@ impl InspectionSession {
             plan,
             scope,
             options,
+            _scan: scan,
         })
     }
 
@@ -175,7 +238,10 @@ impl InspectionSession {
     }
 
     pub fn inspect(self) -> InspectReport {
-        inspect_prepared(self)
+        let timings = self.options.timings.clone();
+        let mut report = settle(inspect_prepared(self));
+        report.timings = timings.map(|timings| timings.finish());
+        report
     }
 }
 
@@ -193,12 +259,13 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         plan,
         scope: requested,
         options,
+        _scan,
     } = session;
     // The index is located and read before the scope, so the staged diff and
     // the staged tree are the same index, and a conflicted or unreadable one
     // fails the scan rather than passing it empty.
     let index = if requested.staged() {
-        match baseline::locate_index(prepared.workspace_root()) {
+        match baseline::locate_index(prepared.workspace_root(), options.deadline) {
             Ok(index) => Some(index),
             Err(error) => {
                 return report::preparation_failure(prepared.fail(error), plan.blocking());
@@ -211,6 +278,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         &requested,
         prepared.workspace_root(),
         index.as_ref().map(baseline::StagedIndex::path),
+        options.deadline,
     ) {
         Ok(scope) => scope,
         Err(error) => {
@@ -218,7 +286,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         }
     };
     let staged = match index.as_ref().map(|index| {
-        baseline::materialize_index(prepared.workspace_root(), index)
+        baseline::materialize_index(prepared.workspace_root(), index, options.deadline)
     }) {
         None => None,
         Some(Ok(snapshot)) => {
@@ -235,29 +303,9 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         target_dir: target,
     });
     let report = if let git_scope::ResolvedScope::Baseline { comparison_base } = scope.kind() {
-        let snapshot = match baseline::materialize(prepared.workspace_root(), comparison_base) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                return report::from_execution_scoped(prepared.fail(error), &plan, scope);
-            }
-        };
-        let target = baseline::persistent_target(prepared.target_directory(), "baseline")
-            .unwrap_or_else(|| snapshot.target().to_path_buf());
-        let execution = execution::execute_baseline(
-            prepared,
-            execution::Side {
-                workspace: snapshot.workspace(),
-                target_dir: &target,
-            },
-            staged_side,
-            &plan,
-            &options,
-        );
-        let report = report::from_baseline_execution(execution, &plan, scope);
-        match snapshot.cleanup() {
-            Ok(()) => report,
-            Err(error) => report::baseline_report_failure(report, error),
-        }
+        let comparison_base = comparison_base.clone();
+        let index = index.as_ref().map(baseline::StagedIndex::path);
+        inspect_baseline(prepared, &comparison_base, (staged_side, index), &plan, &options, scope)
     } else {
         let execution = match staged_side {
             Some(side) => execution::execute_staged(
@@ -272,6 +320,56 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         report::from_execution_scoped(execution, &plan, scope)
     };
     match staged.map(|(snapshot, _)| snapshot.cleanup()) {
+        None | Some(Ok(())) => report,
+        Some(Err(error)) => report::baseline_report_failure(report, error),
+    }
+}
+
+/// A `--scope baseline` comparison: the base side read from the side cache
+/// when it holds it, scanned from a snapshot otherwise, then the current side.
+fn inspect_baseline(
+    prepared: execution::PreparedInspection,
+    comparison_base: &str,
+    (staged, index): (Option<execution::Side<'_>>, Option<&Path>),
+    plan: &policy::PolicyPlan,
+    options: &execution::RunOptions,
+    scope: git_scope::ScopeReport,
+) -> InspectReport {
+    // What the diff did is read before either side runs: the renames and the
+    // line map the pairing places the base side through.
+    let map = delta::DiffMap::read(prepared.workspace_root(), comparison_base, index, options.deadline);
+    let setup = match execution::setup_baseline(&prepared, comparison_base, plan, options) {
+        Ok(setup) => setup,
+        Err(error) => {
+            let failed = Err(Box::new(prepared.fail(error)));
+            return report::from_baseline_execution(failed, plan, scope, &map);
+        }
+    };
+    // A hit needs no snapshot: the cache holds the base side's findings and
+    // the evidence the delta pairs them on.
+    let snapshot = if setup.needs_snapshot() {
+        match baseline::materialize(prepared.workspace_root(), comparison_base, options.deadline) {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                return report::from_execution_scoped(prepared.fail(error), plan, scope);
+            }
+        }
+    } else {
+        None
+    };
+    let target = snapshot.as_ref().map(|snapshot| {
+        baseline::persistent_target(prepared.target_directory(), "baseline")
+            .unwrap_or_else(|| snapshot.target().to_path_buf())
+    });
+    let base = snapshot.as_ref().zip(target.as_deref()).map(|(snapshot, target_dir)| {
+        execution::Side {
+            workspace: snapshot.workspace(),
+            target_dir,
+        }
+    });
+    let execution = execution::execute_baseline(prepared, setup, base, staged, plan, options);
+    let report = report::from_baseline_execution(execution, plan, scope, &map);
+    match snapshot.map(baseline::Snapshot::cleanup) {
         None | Some(Ok(())) => report,
         Some(Err(error)) => report::baseline_report_failure(report, error),
     }

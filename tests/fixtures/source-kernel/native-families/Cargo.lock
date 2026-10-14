@@ -3,14 +3,34 @@
 version = 4
 
 [[package]]
+name = "actix-cors"
+version = "0.7.0"
+
+[[package]]
+name = "cookie"
+version = "0.18.0"
+
+[[package]]
 name = "diesel"
 version = "0.1.0"
+
+[[package]]
+name = "futures"
+version = "0.3.0"
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.0.0"
 
 [[package]]
 name = "native-families-service"
 version = "0.1.0"
 dependencies = [
+ "actix-cors",
+ "cookie",
  "diesel",
+ "futures",
+ "jsonwebtoken",
  "postgres",
  "reqwest",
  "rusqlite",
@@ -18,6 +38,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tokio-postgres",
+ "tower-http",
 ]
 
 [[package]]
@@ -43,7 +64,18 @@ version = "0.1.0"
 [[package]]
 name = "tokio"
 version = "1.0.0"
+dependencies = [
+ "tokio-macros",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "1.0.0"
 
 [[package]]
 name = "tokio-postgres"
 version = "0.1.0"
+
+[[package]]
+name = "tower-http"
+version = "0.6.0"

@@ -15,6 +15,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
 use crate::internal_error::InternalError;
 
@@ -30,8 +31,8 @@ const SKIPPED: [&str; 2] = ["target", "node_modules"];
 /// The directories below `directory` holding a workspace, relative to it and
 /// spelled with `/`, sorted. A manifest below another one found is taken for
 /// that one's member and dropped.
-pub(super) fn workspaces_below(directory: &Path) -> Vec<String> {
-    let mut found = tracked(directory).unwrap_or_else(|| {
+pub(super) fn workspaces_below(directory: &Path, deadline: Option<RunDeadline>) -> Vec<String> {
+    let mut found = tracked(directory, deadline).unwrap_or_else(|| {
         let mut walked = Vec::new();
         walk(directory, "", 0, &mut walked);
         walked
@@ -70,7 +71,7 @@ pub(super) fn ambiguous(candidates: &[String]) -> InternalError {
 
 /// The manifests git lists below `directory`, tracked or untracked but not
 /// ignored, or `None` outside a repository.
-fn tracked(directory: &Path) -> Option<Vec<String>> {
+fn tracked(directory: &Path, deadline: Option<RunDeadline>) -> Option<Vec<String>> {
     let call = GitCall {
         arguments: git_arguments(
             directory,
@@ -89,7 +90,7 @@ fn tracked(directory: &Path) -> Option<Vec<String>> {
         failure: GitFailure::new("not-a-repository", "The path is not inside a git repository."),
         overflow: OUTPUT_TOO_LARGE,
     };
-    let listed = run_git(Path::new("git"), directory, &call).ok()?;
+    let listed = run_git(Path::new("git"), directory, &call, deadline).ok()?;
     Some(
         listed
             .split(|byte| *byte == 0)

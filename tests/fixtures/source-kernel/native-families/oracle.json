@@ -102,6 +102,57 @@
       "span": { "line_start": 23, "column_start": 5, "line_end": 23, "column_end": 10 }
     },
     {
+      "code": "rust_doctor::source::unchecked_http_status",
+      "path": "service/src/http.rs",
+      "span": { "line_start": 3, "column_start": 35, "line_end": 3, "column_end": 39 }
+    },
+    {
+      "code": "rust_doctor::source::unchecked_http_status",
+      "path": "service/src/http.rs",
+      "span": { "line_start": 8, "column_start": 14, "line_end": 8, "column_end": 18 }
+    },
+    {
+      "code": "rust_doctor::source::block_in_place_on_current_thread",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 3, "column_start": 5, "line_end": 6, "column_end": 7 }
+    },
+    {
+      "code": "rust_doctor::source::blocking_call_in_async",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 4, "column_start": 9, "line_end": 4, "column_end": 27 }
+    },
+    {
+      "code": "rust_doctor::source::block_on_in_async",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 11, "column_start": 5, "line_end": 11, "column_end": 31 }
+    },
+    {
+      "code": "rust_doctor::source::block_on_in_async",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 15, "column_start": 5, "line_end": 15, "column_end": 45 }
+    },
+    {
+      "code": "rust_doctor::source::block_on_in_async",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 19, "column_start": 21, "line_end": 19, "column_end": 73 }
+    },
+    {
+      "code": "rust_doctor::source::block_in_place_on_current_thread",
+      "path": "service/src/runtime.rs",
+      "span": { "line_start": 26, "column_start": 17, "line_end": 26, "column_end": 50 },
+      "context": "tests"
+    },
+    {
+      "code": "rust_doctor::source::secret_env_fallback",
+      "path": "service/src/secrets.rs",
+      "span": { "line_start": 4, "column_start": 28, "line_end": 4, "column_end": 37 }
+    },
+    {
+      "code": "rust_doctor::source::secret_env_fallback",
+      "path": "service/src/secrets.rs",
+      "span": { "line_start": 8, "column_start": 35, "line_end": 8, "column_end": 52 }
+    },
+    {
       "code": "rust_doctor::source::dynamic_shell_command",
       "path": "service/src/shell.rs",
       "span": { "line_start": 6, "column_start": 44, "line_end": 6, "column_end": 67 }
@@ -212,6 +263,36 @@
       "span": { "line_start": 31, "column_start": 17, "line_end": 31, "column_end": 21 }
     },
     {
+      "code": "rust_doctor::source::permissive_cors",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 4, "column_start": 84, "line_end": 4, "column_end": 88 }
+    },
+    {
+      "code": "rust_doctor::source::permissive_cors",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 8, "column_start": 5, "line_end": 8, "column_end": 33 }
+    },
+    {
+      "code": "rust_doctor::source::permissive_cors",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 12, "column_start": 5, "line_end": 12, "column_end": 35 }
+    },
+    {
+      "code": "rust_doctor::source::insecure_auth_cookie",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 16, "column_start": 62, "line_end": 16, "column_end": 67 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_jwt_validation",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 21, "column_start": 16, "line_end": 21, "column_end": 53 }
+    },
+    {
+      "code": "rust_doctor::source::disabled_jwt_validation",
+      "path": "service/src/web.rs",
+      "span": { "line_start": 26, "column_start": 5, "line_end": 26, "column_end": 45 }
+    },
+    {
       "code": "rust_doctor::source::blocking_call_in_async",
       "path": "service/tests/blocking.rs",
       "span": { "line_start": 3, "column_start": 24, "line_end": 3, "column_end": 37 },
@@ -250,6 +331,41 @@
       { "path": "service/src/shell_negative.rs", "symbol": "numeric_script" },
       { "path": "service/src/shell_negative.rs", "symbol": "script_file" },
       { "path": "service/src/shell_negative.rs", "symbol": "literal_script" }
+    ],
+    "rust_doctor::source::block_in_place_on_current_thread": [
+      { "path": "service/src/runtime_negative.rs", "symbol": "multi_thread_main" },
+      { "path": "service/src/runtime_negative.rs", "symbol": "outside_a_runtime" },
+      { "path": "service/src/runtime_negative.rs", "symbol": "multi_thread_test" }
+    ],
+    "rust_doctor::source::block_on_in_async": [
+      { "path": "service/src/runtime_negative.rs", "symbol": "synchronous_entry" },
+      { "path": "service/src/runtime_negative.rs", "symbol": "unrelated_block_on" }
+    ],
+    "rust_doctor::source::unchecked_http_status": [
+      { "path": "service/src/http_negative.rs", "symbol": "checked" },
+      { "path": "service/src/http_negative.rs", "symbol": "status_read_first" },
+      { "path": "service/src/http_negative.rs", "symbol": "handed_over" },
+      { "path": "service/src/http_negative.rs", "symbol": "client_from_elsewhere" }
+    ],
+    "rust_doctor::source::secret_env_fallback": [
+      { "path": "service/src/secrets_negative.rs", "symbol": "database_url" },
+      { "path": "service/src/secrets_negative.rs", "symbol": "placeholder" },
+      { "path": "service/src/secrets_negative.rs", "symbol": "header_name" },
+      { "path": "service/src/secrets_negative.rs", "symbol": "required" },
+      { "path": "service/src/secrets_negative.rs", "symbol": "fixture_secret" }
+    ],
+    "rust_doctor::source::permissive_cors": [
+      { "path": "service/src/web_negative.rs", "symbol": "permissive_without_credentials" },
+      { "path": "service/src/web_negative.rs", "symbol": "listed_origin" },
+      { "path": "service/src/web_negative.rs", "symbol": "any_origin_without_credentials" }
+    ],
+    "rust_doctor::source::insecure_auth_cookie": [
+      { "path": "service/src/web_negative.rs", "symbol": "readable_theme" },
+      { "path": "service/src/web_negative.rs", "symbol": "readable_csrf" }
+    ],
+    "rust_doctor::source::disabled_jwt_validation": [
+      { "path": "service/src/web_negative.rs", "symbol": "verified" },
+      { "path": "service/src/web_negative.rs", "symbol": "unsigned_fixture" }
     ]
   }
 }

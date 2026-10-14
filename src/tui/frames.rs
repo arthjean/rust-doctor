@@ -10,8 +10,9 @@ use super::screens::{Action, ScoreVariant, ViewerState};
 use super::text::{self, Line};
 use super::{
     App, CI_ACTIONS, EXIT_HINT, LandingAction, Layout, RECOMMENDATION_ACTIONS, View, actions_from,
-    incomplete_message, pluralize, screens, visible_start,
+    pluralize, screens, visible_start,
 };
+use rust_doctor::presentation::{incomplete_message, no_score_message};
 
 impl App<'_> {
     pub(super) fn frame(&self, layout: Layout) -> Vec<Line> {
@@ -118,7 +119,7 @@ impl App<'_> {
         };
         screens::score_header(
             variant,
-            score,
+            score.ok_or_else(|| no_score_message(self.session.report)),
             &self.project_name,
             self.session.presentation.finding_count,
             width,

@@ -5,7 +5,7 @@ use cargo_metadata::{Metadata, MetadataCommand};
 
 use crate::bounded_read::collect_bounded;
 use crate::cargo_stderr;
-use crate::execution::run_bounded;
+use crate::execution::{RunDeadline, run_bounded};
 use crate::internal_error::InternalError;
 
 mod discovery;
@@ -31,10 +31,16 @@ pub(crate) struct ResolutionFailure {
     pub(crate) error: InternalError,
 }
 
-pub(crate) fn resolve(path: &Path, cargo: &Path) -> Result<ResolvedScanTarget, ResolutionFailure> {
+/// Finds the workspace `path` names and asks Cargo for its metadata, killed
+/// at `deadline` when one is set.
+pub(crate) fn resolve(
+    path: &Path,
+    cargo: &Path,
+    deadline: Option<RunDeadline>,
+) -> Result<ResolvedScanTarget, ResolutionFailure> {
     resolve_with(path, |manifest_path, manifest_directory| {
-        load_metadata(manifest_path, manifest_directory, cargo, None, None)
-    })
+        load_metadata(manifest_path, manifest_directory, cargo, None, None, deadline)
+    }, deadline)
 }
 
 pub(crate) fn resolve_isolated(
@@ -42,6 +48,7 @@ pub(crate) fn resolve_isolated(
     cargo: &Path,
     target_dir: &Path,
     rustup_toolchain: Option<&OsStr>,
+    deadline: Option<RunDeadline>,
 ) -> Result<ResolvedScanTarget, ResolutionFailure> {
     resolve_with(path, |manifest_path, manifest_directory| {
         load_metadata(
@@ -50,16 +57,18 @@ pub(crate) fn resolve_isolated(
             cargo,
             Some(target_dir),
             rustup_toolchain,
+            deadline,
         )
-    })
+    }, deadline)
 }
 
 fn resolve_with(
     path: &Path,
     load: impl FnOnce(&Path, &Path) -> Result<Metadata, InternalError>,
+    deadline: Option<RunDeadline>,
 ) -> Result<ResolvedScanTarget, ResolutionFailure> {
     let (manifest_path, discovered) =
-        discover_manifest(path).map_err(|error| ResolutionFailure {
+        discover_manifest(path, deadline).map_err(|error| ResolutionFailure {
             manifest_path: None,
             error,
         })?;
@@ -88,7 +97,10 @@ fn resolve_with(
 /// worktree or a submodule and a directory otherwise: a manifest above the
 /// repository belongs to another project, and scanning it would judge code
 /// the reader never pointed at.
-fn discover_manifest(path: &Path) -> Result<(PathBuf, Option<String>), InternalError> {
+fn discover_manifest(
+    path: &Path,
+    deadline: Option<RunDeadline>,
+) -> Result<(PathBuf, Option<String>), InternalError> {
     if path.file_name() == Some(OsStr::new("Cargo.toml")) {
         return resolve_manifest_boundary(path).map(|manifest| (manifest, None));
     }
@@ -116,7 +128,7 @@ fn discover_manifest(path: &Path) -> Result<(PathBuf, Option<String>), InternalE
         }
     }
 
-    match discovery::workspaces_below(&directory).as_slice() {
+    match discovery::workspaces_below(&directory, deadline).as_slice() {
         [] => Err(no_manifest_error(NO_MANIFEST)),
         // The candidate is resolved, then held to the requested directory: a
         // manifest reached through a link out of it never qualifies.
@@ -165,6 +177,7 @@ fn load_metadata(
     cargo: &Path,
     target_dir: Option<&Path>,
     rustup_toolchain: Option<&OsStr>,
+    deadline: Option<RunDeadline>,
 ) -> Result<Metadata, InternalError> {
     let command = metadata_command(
         cargo,
@@ -174,7 +187,7 @@ fn load_metadata(
         rustup_toolchain,
     )
     .cargo_command();
-    let finished = run_bounded(command, None, |stdout| {
+    let finished = run_bounded(command, deadline, |stdout| {
         collect_bounded(stdout, METADATA_OUTPUT_LIMIT)
     })
     .map_err(|error| {
@@ -191,6 +204,13 @@ fn load_metadata(
             format!("cargo metadata failed: {detail}"),
         )
     };
+    if let Some(deadline) = deadline.filter(|_| finished.expired) {
+        return Err(InternalError::new(
+            "metadata",
+            crate::report::DEADLINE_EXCEEDED,
+            deadline.message(),
+        ));
+    }
     let status = finished
         .status
         .map_err(|error| failed(format!("its exit status could not be read: {error}")))?;
@@ -275,8 +295,8 @@ mod tests {
             let calls = Cell::new(0);
             let target = resolve_with(&path, |manifest, directory| {
                 calls.set(calls.get() + 1);
-                load_metadata(manifest, directory, Path::new("cargo"), None, None)
-            })
+                load_metadata(manifest, directory, Path::new("cargo"), None, None, None)
+            }, None)
             .unwrap();
 
             assert_eq!(calls.get(), 1);
@@ -317,6 +337,7 @@ mod tests {
                 missing_calls.set(missing_calls.get() + 1);
                 unreachable!("missing paths must not reach metadata")
             },
+            None,
         )
         .unwrap_err();
         assert_eq!(
@@ -330,7 +351,7 @@ mod tests {
         let ordinary = resolve_with(&ordinary_file, |_, _| {
             file_calls.set(file_calls.get() + 1);
             unreachable!("ordinary files must not reach metadata")
-        })
+        }, None)
         .unwrap_err();
         assert_eq!(
             (ordinary.error.stage, ordinary.error.code),
@@ -344,6 +365,7 @@ mod tests {
         let failure = resolve(
             &fixture(),
             Path::new("/definitely/missing/rust-doctor-cargo"),
+            None,
         )
         .unwrap_err();
 
@@ -370,7 +392,7 @@ mod tests {
         }
         fs::create_dir_all(root.join("Cargo.toml")).unwrap();
 
-        let directory = discover_manifest(&root).unwrap_err();
+        let directory = discover_manifest(&root, None).unwrap_err();
         assert_eq!(
             (directory.stage, directory.code),
             ("discovery", "invalid-manifest")
@@ -378,7 +400,7 @@ mod tests {
 
         fs::remove_dir_all(root.join("Cargo.toml")).unwrap();
         symlink("missing", root.join("Cargo.toml")).unwrap();
-        let dangling = discover_manifest(&root).unwrap_err();
+        let dangling = discover_manifest(&root, None).unwrap_err();
         assert_eq!(
             (dangling.stage, dangling.code),
             ("discovery", "invalid-manifest")

@@ -2,10 +2,14 @@
 
 //! The source rule families Clippy cannot express, scanned through the
 //! `inspect` a user runs: a blocking call inside async code, SQL text
-//! assembled from a runtime value, and a shell command line built from one. The fixture stubs the crates it calls
-//! (`tokio`, `reqwest`, `sqlx`, `diesel`, `rusqlite`, `postgres`,
-//! `tokio-postgres`, `sea-orm`) with their surface and none of their behavior, so the
-//! scan compiles offline and the detectors see the paths real code writes.
+//! assembled from a runtime value, a shell command line built from one, the
+//! tokio calls that panic, an unchecked HTTP status, a secret that falls back
+//! to a literal, and the web controls switched off. The fixture stubs the
+//! crates it calls (`tokio`, `tokio-macros`, `futures`, `reqwest`, `sqlx`,
+//! `diesel`, `rusqlite`, `postgres`, `tokio-postgres`, `sea-orm`,
+//! `tower-http`, `actix-cors`, `cookie`, `jsonwebtoken`) with their surface
+//! and none of their behavior, so the scan compiles offline and the detectors
+//! see the paths real code writes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +20,18 @@ use serde_json::{Value, json};
 const BLOCKING: &str = "rust_doctor::source::blocking_call_in_async";
 const SQL: &str = "rust_doctor::source::sql_built_from_format";
 const SHELL: &str = "rust_doctor::source::dynamic_shell_command";
+/// Every native source rule this fixture holds a positive and a negative for,
+/// with the fewest silences its oracle must record.
+const SERVICE_RULES: [(&str, usize); 8] = [
+    ("rust_doctor::source::block_in_place_on_current_thread", 3),
+    ("rust_doctor::source::block_on_in_async", 2),
+    ("rust_doctor::source::unchecked_http_status", 4),
+    ("rust_doctor::source::secret_env_fallback", 5),
+    ("rust_doctor::source::permissive_cors", 3),
+    ("rust_doctor::source::insecure_auth_cookie", 2),
+    ("rust_doctor::source::disabled_jwt_validation", 2),
+    (BLOCKING, 9),
+];
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/source-kernel/native-families")
@@ -33,7 +49,12 @@ fn both_families_report_exactly_their_positive_sites() {
     let observed: Vec<Value> = report
         .diagnostics
         .iter()
-        .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some(BLOCKING | SQL | SHELL)))
+        .filter(|diagnostic| {
+            diagnostic
+                .code
+                .as_deref()
+                .is_some_and(|code| code.starts_with("rust_doctor::source::"))
+        })
         .map(|diagnostic| {
             let span = diagnostic.span.as_ref().unwrap();
             let mut finding = json!({
@@ -55,7 +76,7 @@ fn both_families_report_exactly_their_positive_sites() {
     assert_eq!(json!(observed), oracle()["findings"]);
 
     let oracle = oracle();
-    for (code, minimum) in [(BLOCKING, 9), (SQL, 9), (SHELL, 5)] {
+    for (code, minimum) in SERVICE_RULES.into_iter().chain([(SQL, 9), (SHELL, 5)]) {
         let cases = oracle["negative_cases"][code].as_array().unwrap();
         assert!(cases.len() >= minimum, "{code} records too few silences");
         for case in cases {
@@ -97,7 +118,7 @@ fn a_blocking_call_in_test_code_carries_the_test_context() {
             ("service/tests/blocking.rs", Some(DiagnosticContext::Tests)),
         ]
     );
-    assert_eq!(blocking.len() - in_tests.len(), 19);
+    assert_eq!(blocking.len() - in_tests.len(), 20);
 }
 
 #[test]
@@ -154,4 +175,38 @@ fn a_helper_finding_names_the_helper_and_what_it_reaches() {
         messages.iter().any(|message| message.contains("`inner`") && message.contains("`std::thread::sleep`")),
         "{messages:?}"
     );
+}
+
+/// A rule is published as not evaluated when the workspace resolves a crate
+/// it was never validated on, and reports nothing there: the fixture writes a
+/// current-thread `block_in_place` against a tokio 0.2 stub, outside the
+/// rule's `>=1, <2`. The two not-evaluated reasons never cost the score its
+/// authority, since they say the rule had nothing to judge.
+#[test]
+fn a_crate_outside_the_validated_range_closes_the_rule_and_reports_nothing() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/source-kernel/version-gate");
+    let report = inspect(InspectRequest::new(fixture));
+    assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code.as_deref().is_none_or(|code| !code.starts_with("rust_doctor::source::"))),
+        "a closed gate reported a finding"
+    );
+    let published = serde_json::to_value(&report).unwrap();
+    let reason = |rule: &str| {
+        published["policy"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == rule)
+            .map(|entry| entry["not_evaluated"].clone())
+            .unwrap()
+    };
+    assert_eq!(reason("rust_doctor::source::block_in_place_on_current_thread"), "crate-version-unsupported");
+    assert_eq!(reason("rust_doctor::source::block_on_in_async"), "crate-version-unsupported");
+    assert_eq!(reason("rust_doctor::source::disabled_tls_verification"), "crate-absent");
+    assert_eq!(reason("rust_doctor::source::blocking_call_in_async"), Value::Null);
+    assert_eq!(published["audit"]["score"]["authoritative"], true);
 }

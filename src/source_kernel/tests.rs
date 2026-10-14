@@ -15,7 +15,7 @@ use super::walk::enumerate_with_limits;
 use super::*;
 
 use crate::policy::{
-    PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_BLOCKING_IN_ASYNC, SOURCE_DISABLED_TLS,
+    PolicyInput, Producer, RuleLevel, RuleTier, SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD, SOURCE_BLOCK_ON_IN_ASYNC, SOURCE_BLOCKING_IN_ASYNC, SOURCE_DISABLED_JWT_VALIDATION, SOURCE_DISABLED_TLS, SOURCE_INSECURE_AUTH_COOKIE, SOURCE_PERMISSIVE_CORS, SOURCE_SECRET_ENV_FALLBACK, SOURCE_UNCHECKED_HTTP_STATUS,
     SOURCE_DYNAMIC_SHELL, SOURCE_SQL_FROM_FORMAT,
     STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_CRATE_LEVEL_ALLOW, STRUCTURE_DUPLICATE_FUNCTION_BODY,
     STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY, STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT,
@@ -99,6 +99,9 @@ static SILENT_RULE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P3,
     help: "Synthetic registry proof.",
     diff_scope: crate::policy::DiffScope::Line,
+    title: "",
+    not_a_defect_when: "",
+    requires: &[],
 };
 
 /// A registered detector that never emits: it proves that a silent
@@ -107,6 +110,7 @@ static SILENT: Detector = Detector {
     definition: &SILENT_RULE,
     node: SyntaxKind::SOURCE_FILE,
     inspect: silent,
+    crates: &[],
 };
 
 const REGISTERED: [&Detector; DETECTORS.len()] = DETECTORS;
@@ -216,10 +220,17 @@ fn producer_uses_its_canonical_catalog_entries() {
     assert_eq!(
         definitions,
         [
+            SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD.id,
+            SOURCE_BLOCK_ON_IN_ASYNC.id,
             SOURCE_BLOCKING_IN_ASYNC.id,
+            SOURCE_DISABLED_JWT_VALIDATION.id,
             SOURCE_DISABLED_TLS.id,
             SOURCE_DYNAMIC_SHELL.id,
+            SOURCE_INSECURE_AUTH_COOKIE.id,
+            SOURCE_PERMISSIVE_CORS.id,
+            SOURCE_SECRET_ENV_FALLBACK.id,
             SOURCE_SQL_FROM_FORMAT.id,
+            SOURCE_UNCHECKED_HTTP_STATUS.id,
         ]
     );
 }
@@ -228,6 +239,13 @@ fn producer_uses_its_canonical_catalog_entries() {
 fn policy_prunes_source_io_and_each_inactive_predicate() {
     let metadata = metadata("precision");
     let all_off = PolicyInput::default()
+        .with_rule(SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD.id, RuleLevel::Off)
+        .with_rule(SOURCE_BLOCK_ON_IN_ASYNC.id, RuleLevel::Off)
+        .with_rule(SOURCE_DISABLED_JWT_VALIDATION.id, RuleLevel::Off)
+        .with_rule(SOURCE_INSECURE_AUTH_COOKIE.id, RuleLevel::Off)
+        .with_rule(SOURCE_PERMISSIVE_CORS.id, RuleLevel::Off)
+        .with_rule(SOURCE_SECRET_ENV_FALLBACK.id, RuleLevel::Off)
+        .with_rule(SOURCE_UNCHECKED_HTTP_STATUS.id, RuleLevel::Off)
         .with_rule(SOURCE_BLOCKING_IN_ASYNC.id, RuleLevel::Off)
         .with_rule(SOURCE_SQL_FROM_FORMAT.id, RuleLevel::Off)
         .with_rule(SOURCE_DISABLED_TLS.id, RuleLevel::Off)

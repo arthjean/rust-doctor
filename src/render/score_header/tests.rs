@@ -67,20 +67,21 @@ fn the_padding_this_file_writes_is_the_padding_the_geometry_counts() {
 
 /// The width the linear report guarantees carries the block whole. The
 /// assertion beside `MIN_WIDTH` proves at compile time that the bar fits; this
-/// proves nothing else is cut at that width either, which is what lets the
-/// block carry no narrow-terminal branch.
+/// proves nothing else is cut at that width either: the branding drops its URL
+/// rather than cut it, and carries it whole from 48 columns.
 #[test]
 fn the_width_the_report_guarantees_carries_the_block_whole() {
+    let full = format!(
+        "{} ({})",
+        score_block::BRANDING_NAME,
+        score_block::BRANDING_URL
+    );
     let output = rendered(100, ScoreLabel::Great, super::super::MIN_WIDTH, false);
     assert!(output.contains("100 / 100 Great"), "{output}");
-    assert!(
-        output.contains(&format!(
-            "{} ({})",
-            score_block::BRANDING_NAME,
-            score_block::BRANDING_URL
-        )),
-        "{output}"
-    );
+    assert!(output.contains(score_block::BRANDING_NAME), "{output}");
+    assert!(!output.contains('…') && !output.contains("https://"), "{output}");
+    let output = rendered(100, ScoreLabel::Great, 80, false);
+    assert!(output.contains(&full), "{output}");
 }
 
 #[test]
@@ -215,21 +216,23 @@ fn every_row_measures_as_many_columns_as_it_has_characters() {
     }
 }
 
-/// A right column too narrow for the branding cuts inside the URL and keeps the
-/// name plain and the URL dimmed. Cutting the rendered line instead lost the
-/// dimming altogether, on exactly the terminals the comment claimed to serve.
+/// A row cut inside its second piece keeps the first plain and the cut piece
+/// dimmed. Cutting the painted line instead lost the dimming altogether, on
+/// exactly the terminals the cut serves. The branding no longer cuts, since a
+/// cut link opens nothing, so the rule is proved on a row directly.
 #[test]
 fn a_cut_row_keeps_the_dimming_on_the_piece_it_cut() {
-    let output = rendered(100, ScoreLabel::Great, 40, true);
-    let branding = output.lines().nth(2).unwrap();
+    let row = Row::of([
+        ("name".to_owned(), Ink::Plain),
+        (" (a long dimmed tail)".to_owned(), Ink::Dim),
+    ])
+    .truncated(10);
+    let painted = row.painted("32", 0);
     assert!(
-        branding.contains(&format!("{}\u{1b}[{DIM}m", score_block::BRANDING_NAME)),
-        "the name should stay plain and the cut URL dim: {branding:?}"
+        painted.contains(&format!("name\u{1b}[{DIM}m")),
+        "the name should stay plain and the cut tail dim: {painted:?}"
     );
-    assert!(
-        !branding.contains(score_block::BRANDING_URL),
-        "the URL should have been cut at this width: {branding:?}"
-    );
+    assert!(!painted.contains("tail"), "the tail should have been cut: {painted:?}");
 }
 
 /// The fill rule and the easing are proved in [`score_block`]; what this

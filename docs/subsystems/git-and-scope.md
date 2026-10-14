@@ -85,6 +85,16 @@ checks it out into a private tree the way a baseline snapshot is written; every
 producer reads that tree instead of the working tree, building under
 `rust-doctor/staged`.
 
+The repository pass reads what git tracks and nothing else. Besides the
+secret files, now including a `.cargo/credentials(.toml)` that holds a
+registry token, it reports a binary's `Cargo.lock` that exists, is untracked
+and is ignored, only when the workspace is the repository's top level: a
+nested workspace's ignore file is the enclosing repository's choice, which is
+what every fixture of this repository is. `repo_hygiene/workflows.rs` walks
+each tracked `.github/workflows/*.yml` by indentation, no YAML parser, and
+reports a step that compiles with a secret in its step, job or workflow env,
+abstaining on anchors and on reusable-workflow jobs.
+
 `the_git_layer_holds_the_size_bound_it_scans_for` and
 `the_scope_holds_the_size_bound_it_reports_for` keep every file of both modules
 under the 1000 lines `oversized_unit` reports, tests included. That is why each

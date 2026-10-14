@@ -27,6 +27,7 @@ use crate::source_text::{SourceSpan, line_starts, source_span};
 mod aliases;
 mod bindings;
 mod detectors;
+mod gates;
 pub(crate) mod harness;
 pub(crate) mod references;
 #[cfg(test)]
@@ -136,6 +137,8 @@ pub(crate) struct SourceError {
 pub(crate) struct SourceScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<SourceError>,
+    /// The gated rules no unit opened, and why.
+    pub(crate) not_evaluated: Vec<(&'static str, crate::NotEvaluated)>,
     /// What soliciting the detectors did. What the walk did belongs to
     /// `SourceMeasurement`, which every plan produces, and is not copied here:
     /// a scan exists only when a source rule is active, and the walk is
@@ -343,6 +346,10 @@ pub(crate) struct Enumeration {
     /// Packages, by id, whose module tree the walk lost part of: a `mod`
     /// request it could not follow, or a file it could not read.
     incomplete_trees: BTreeSet<String>,
+    /// The version of each direct dependency per package, which a gated
+    /// rule's detectors are judged by. `None` for a unit no manifest
+    /// describes, a regression seed or a synthetic test, whose gates open.
+    versions: Option<gates::DependencyVersions>,
 }
 
 impl Enumeration {
@@ -527,15 +534,27 @@ fn unanimous<T: Eq>(values: impl IntoIterator<Item = T>) -> Option<T> {
 /// traversal nothing.
 struct Registry {
     by_kind: BTreeMap<SyntaxKind, Vec<&'static Detector>>,
+    /// The version gates of the active rules that declare any.
+    gates: Vec<gates::ParsedGates>,
 }
 
 impl Registry {
     fn new(detectors: impl IntoIterator<Item = &'static Detector>) -> Self {
         let mut by_kind: BTreeMap<SyntaxKind, Vec<&'static Detector>> = BTreeMap::new();
+        let mut gated = BTreeSet::new();
+        let mut parsed = Vec::new();
         for detector in detectors {
             by_kind.entry(detector.node).or_default().push(detector);
+            if gated.insert(detector.definition.id)
+                && let Some(gates) = gates::ParsedGates::of(detector.definition)
+            {
+                parsed.push(gates);
+            }
         }
-        Self { by_kind }
+        Self {
+            by_kind,
+            gates: parsed,
+        }
     }
 
     fn active(plan: &PolicyPlan) -> Self {
@@ -564,16 +583,44 @@ struct Findings {
     candidates: BTreeMap<CandidateKey, Candidate>,
     counters: AnalysisCounters,
     errors: Vec<SourceError>,
+    /// Per gated rule, the most permissive answer any unit's gate gave.
+    gates: BTreeMap<&'static str, gates::Gate>,
 }
 
 impl Findings {
-    fn into_scan(mut self) -> SourceScan {
+    fn into_scan(mut self, registry: &Registry) -> SourceScan {
         self.errors.sort();
         self.errors.dedup();
+        // A rule no unit opened was not evaluated: a crate at an unsupported
+        // version anywhere outranks one merely absent.
+        let not_evaluated = registry
+            .gates
+            .iter()
+            .filter_map(|gated| match self.gates.get(gated.rule) {
+                Some(gates::Gate::Open) => None,
+                Some(gates::Gate::Unsupported) => {
+                    Some((gated.rule, crate::NotEvaluated::CrateVersionUnsupported))
+                }
+                Some(gates::Gate::Absent) | None => Some((gated.rule, crate::NotEvaluated::CrateAbsent)),
+            })
+            .collect();
         SourceScan {
             candidates: self.candidates.into_values().collect(),
             errors: self.errors,
+            not_evaluated,
             counters: self.counters,
+        }
+    }
+
+    fn record_gate(&mut self, rule: &'static str, gate: gates::Gate) {
+        let rank = |gate: gates::Gate| match gate {
+            gates::Gate::Absent => 0,
+            gates::Gate::Unsupported => 1,
+            gates::Gate::Open => 2,
+        };
+        let entry = self.gates.entry(rule).or_insert(gate);
+        if rank(gate) > rank(*entry) {
+            *entry = gate;
         }
     }
 }
@@ -595,7 +642,7 @@ fn inspect_with_limits(enumeration: &Enumeration, limits: Limits, plan: &PolicyP
     for unit in enumeration.units() {
         analyze_unit(unit, enumeration, &registry, limits, &mut findings);
     }
-    findings.into_scan()
+    findings.into_scan(&registry)
 }
 
 /// Walks one unit's CST exactly once and solicits every active detector on the
@@ -640,9 +687,26 @@ fn analyze_unit(
         source: unit.source(),
     };
 
+    // A gated rule's detectors read the unit only when its gate opens. A unit
+    // no manifest describes has no versions to read and opens every gate.
+    let mut closed = BTreeSet::new();
+    for gated in &registry.gates {
+        let gate = enumeration.versions.as_ref().map_or(gates::Gate::Open, |versions| {
+            let reaching: Vec<_> = unit.package_ids().map(|id| versions.get(id)).collect();
+            gated.evaluate(&reaching)
+        });
+        findings.record_gate(gated.rule, gate);
+        if gate != gates::Gate::Open {
+            closed.insert(gated.rule);
+        }
+    }
+
     for node in tree.syntax().descendants() {
         findings.counters.nodes_visited += 1;
         for detector in registry.for_kind(node.kind()) {
+            if closed.contains(detector.definition.id) {
+                continue;
+            }
             *findings
                 .counters
                 .predicates

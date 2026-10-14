@@ -113,7 +113,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 21,
+        schema_version: 23,
         audit: Audit::build(DIAGNOSTICS, DIAGNOSTICS * 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
@@ -146,6 +146,8 @@ fn fixture_report() -> InspectReport {
             status: GateStatus::Passed,
             blocking_diagnostics: Some(0),
         },
+        timings: None,
+        base_side_cache: None,
     }
 }
 

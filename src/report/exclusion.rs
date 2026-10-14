@@ -150,7 +150,7 @@ fn closest(rule: &str) -> Option<String> {
         .map(|(_, id)| id.to_owned())
 }
 
-fn edit_distance(left: &str, right: &str) -> usize {
+pub(crate) fn edit_distance(left: &str, right: &str) -> usize {
     let right: Vec<char> = right.chars().collect();
     let mut previous: Vec<usize> = (0..=right.len()).collect();
     for (row, left_char) in left.chars().enumerate() {

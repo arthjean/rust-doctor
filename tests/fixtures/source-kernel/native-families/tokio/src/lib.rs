@@ -33,3 +33,47 @@ pub mod process {
         }
     }
 }
+
+pub use tokio_macros::{main, test};
+
+pub mod runtime {
+    pub struct Runtime;
+
+    impl Runtime {
+        pub fn new() -> std::io::Result<Self> {
+            Ok(Self)
+        }
+
+        pub fn block_on<F: std::future::Future>(&self, _future: F) -> F::Output {
+            panic!("stub")
+        }
+    }
+
+    pub struct Builder;
+
+    impl Builder {
+        pub fn new_current_thread() -> Self {
+            Self
+        }
+
+        pub fn new_multi_thread() -> Self {
+            Self
+        }
+
+        pub fn build(&mut self) -> std::io::Result<Runtime> {
+            Ok(Runtime)
+        }
+    }
+
+    pub struct Handle;
+
+    impl Handle {
+        pub fn current() -> Self {
+            Self
+        }
+
+        pub fn block_on<F: std::future::Future>(&self, _future: F) -> F::Output {
+            panic!("stub")
+        }
+    }
+}

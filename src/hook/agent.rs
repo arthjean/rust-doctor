@@ -126,19 +126,19 @@ fn current(hook: &Value, template: &Value) -> bool {
 }
 
 /// `rust-doctor hook install claude|cursor`.
-pub(super) fn install(
+pub(crate) fn install(
     agent: AgentHook,
     workspace: &Path,
     shared: bool,
     write: WriteArgs,
-) -> ExitCode {
+) -> u8 {
     let relative = agent.settings(shared);
     if let Some(link) = symlinked_component(workspace, Path::new(relative)) {
         eprintln!(
             "rust-doctor: {} is a symlink, and nothing is written through one.",
             link.display()
         );
-        return ExitCode::from(FAILED);
+        return FAILED;
     }
     let path = workspace.join(relative);
     let (existed, mut settings) = match read_settings(&path, relative) {
@@ -149,16 +149,16 @@ pub(super) fn install(
         eprintln!(
             "rust-doctor: {relative} does not hold the shape its agent reads: nothing was written."
         );
-        return ExitCode::from(FAILED);
+        return FAILED;
     };
     if let Some(code) = merge(agent, entries, relative, write) {
         return code;
     }
     if write.dry_run {
-        return ExitCode::SUCCESS;
+        return 0;
     }
     let Ok(serialized) = serde_json::to_string_pretty(&settings) else {
-        return ExitCode::from(FAILED);
+        return FAILED;
     };
     let serialized = serialized + "\n";
     let written = if existed {
@@ -168,17 +168,17 @@ pub(super) fn install(
     };
     if let Err(error) = written {
         eprintln!("rust-doctor: {relative} could not be written: {error}.");
-        return ExitCode::from(FAILED);
+        return FAILED;
     }
     if !on_path("rust-doctor") {
         eprintln!("Warning: `rust-doctor` is not on PATH, and the hook runs it by name.");
     }
-    ExitCode::SUCCESS
+    0
 }
 
 /// The settings file as it stands, an empty object when absent, and whether
 /// it existed; or the exit code of a file that could not be read or parsed.
-fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), ExitCode> {
+fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), u8> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -186,7 +186,7 @@ fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), ExitCode>
         }
         Err(error) => {
             eprintln!("rust-doctor: {relative} could not be read: {error}. Nothing was written.");
-            return Err(ExitCode::from(FAILED));
+            return Err(FAILED);
         }
     };
     serde_json::from_str(&text).map(|settings| (true, settings)).map_err(|error| {
@@ -195,7 +195,7 @@ fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), ExitCode>
             error.line(),
             error.column()
         );
-        ExitCode::from(FAILED)
+        FAILED
     })
 }
 
@@ -207,20 +207,20 @@ fn merge(
     entries: &mut Vec<Value>,
     relative: &str,
     write: WriteArgs,
-) -> Option<ExitCode> {
+) -> Option<u8> {
     let event = agent.event();
     let template = agent.hook();
     let mut ours = agent.ours(entries);
     if ours.iter().any(|hook| current(hook, &template)) {
         println!("The rust-doctor {event} hook is already in {relative}.");
-        return Some(ExitCode::SUCCESS);
+        return Some(0);
     }
     if let Some(hook) = ours.first_mut() {
         if !write.update {
             println!(
                 "The rust-doctor {event} hook in {relative} is outdated: pass --update to rewrite it."
             );
-            return Some(ExitCode::FAILURE);
+            return Some(1);
         }
         let previous = hook.to_string();
         if let (Some(hook), Some(keys)) = (hook.as_object_mut(), template.as_object()) {

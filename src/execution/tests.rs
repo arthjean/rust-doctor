@@ -29,7 +29,7 @@ fn execute(path: &Path) -> ExecutionResult {
 }
 
 fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
-    let prepared = match prepare_with(path, programs) {
+    let prepared = match prepare_with(path, programs, None) {
         Ok(prepared) => prepared,
         Err(result) => return *result,
     };
@@ -62,7 +62,7 @@ fn clean_result() -> ExecutionResult {
         manifest_path: None,
         metadata: None,
         toolchain: None,
-        scan: ClippyExecution::Finished(ScanExecution {
+        scan: ClippyExecution::from_scan(ScanExecution {
             command: vec!["cargo".to_owned(), "clippy".to_owned()],
             exit_code: Some(0),
             exit_success: Some(true),
@@ -228,6 +228,7 @@ fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
         &fixture("clean"),
         CLIPPY_PROBE,
         &CommandEnvironment::default(),
+        None,
     )
     .unwrap_err();
 
@@ -258,6 +259,7 @@ fn a_silent_preflight_failure_still_names_its_remedy() {
         &fixture("clean"),
         CLIPPY_PROBE,
         &CommandEnvironment::default(),
+        None,
     )
     .unwrap_err();
 

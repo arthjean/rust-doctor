@@ -19,7 +19,8 @@ use serde_json::Value;
 use crate::SCHEMA_VERSION;
 
 /// The oldest report this renders. Schema 21 added only the `contextual` scope
-/// mode, so a report a 20 binary saved reads the same.
+/// mode and 22 only optional fields, so a report a 20 binary saved reads the
+/// same.
 const READABLE_FROM: u8 = 20;
 use crate::presentation::rule_url;
 

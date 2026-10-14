@@ -24,6 +24,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 
 use crate::bounded_read::collect_bounded;
+use crate::execution::{RunDeadline, spawn_bounded};
 use crate::internal_error::InternalError;
 
 #[cfg(test)]
@@ -121,12 +122,16 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
 ///
 /// Stderr is read and discarded rather than returned: it is where git writes
 /// URLs and credential prompts, and no diagnostic of this crate carries it.
+/// A call made inside a scan carries the run's deadline, and a git still
+/// running when it passes is killed and answers `deadline-exceeded` at the
+/// call's stage.
 pub(crate) fn run_git(
     git: &Path,
     workspace_root: &Path,
     call: &GitCall,
+    deadline: Option<RunDeadline>,
 ) -> Result<Vec<u8>, InternalError> {
-    run_git_configured(git, workspace_root, call, None, None)
+    run_git_configured(git, workspace_root, call, None, None, deadline)
 }
 
 pub(crate) fn run_git_with_index(
@@ -134,8 +139,9 @@ pub(crate) fn run_git_with_index(
     workspace_root: &Path,
     call: &GitCall,
     index: &Path,
+    deadline: Option<RunDeadline>,
 ) -> Result<Vec<u8>, InternalError> {
-    run_git_configured(git, workspace_root, call, Some(index), None)
+    run_git_configured(git, workspace_root, call, Some(index), None, deadline)
 }
 
 /// Runs a call that reads `input` on its stdin, as `check-attr --stdin` does.
@@ -146,8 +152,9 @@ pub(crate) fn run_git_with_input(
     workspace_root: &Path,
     call: &GitCall,
     input: Vec<u8>,
+    deadline: Option<RunDeadline>,
 ) -> Result<Vec<u8>, InternalError> {
-    run_git_configured(git, workspace_root, call, None, Some(input))
+    run_git_configured(git, workspace_root, call, None, Some(input), deadline)
 }
 
 /// Runs a call whose answer is its exit code rather than its output.
@@ -159,13 +166,12 @@ pub(crate) fn run_git_status(
     git: &Path,
     workspace_root: &Path,
     arguments: &[OsString],
+    deadline: Option<RunDeadline>,
 ) -> Option<i32> {
-    git_command(git, workspace_root, arguments)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .ok()
-        .and_then(|status| status.code())
+    let mut command = git_command(git, workspace_root, arguments);
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    let (status, expired) = spawn_bounded(command, deadline).ok()?.wait();
+    status.ok().filter(|_| !expired).and_then(|status| status.code())
 }
 
 fn run_git_configured(
@@ -174,6 +180,7 @@ fn run_git_configured(
     call: &GitCall,
     index: Option<&Path>,
     input: Option<Vec<u8>>,
+    deadline: Option<RunDeadline>,
 ) -> Result<Vec<u8>, InternalError> {
     let mut command = git_command(git, workspace_root, &call.arguments);
     if let Some(index) = index {
@@ -184,7 +191,8 @@ fn run_git_configured(
     }
     let unavailable = || UNAVAILABLE.error(call.stage);
     let failure = || call.failure.error(call.stage);
-    let mut child = command.spawn().map_err(|_| unavailable())?;
+    let mut bounded = spawn_bounded(command, deadline).map_err(|_| unavailable())?;
+    let child = &mut bounded.child;
     // Dropping the handle once written is what tells git the input ended.
     let writer = match (input, child.stdin.take()) {
         (Some(input), Some(mut stdin)) => {
@@ -199,18 +207,18 @@ fn run_git_configured(
     // deadlock the moment git fills a pipe buffer it cannot flush.
     let stdout_reader = thread::spawn(move || collect_bounded(stdout, stdout_limit));
     let stderr_reader = thread::spawn(move || collect_bounded(stderr, STDERR_OUTPUT_LIMIT));
-    let status = child.wait().map_err(|_| failure())?;
-    if let Some(writer) = writer {
-        writer.join().map_err(|_| failure())?.map_err(|_| failure())?;
+    let (status, expired) = bounded.wait();
+    if let Some(deadline) = deadline.filter(|_| expired) {
+        return Err(InternalError::new(
+            call.stage,
+            crate::report::DEADLINE_EXCEEDED,
+            deadline.message(),
+        ));
     }
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| failure())?
-        .map_err(|_| failure())?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| failure())?
-        .map_err(|_| failure())?;
+    let status = status.map_err(|_| failure())?;
+    writer.map(|writer| joined(writer, failure)).transpose()?;
+    let stdout = joined(stdout_reader, failure)?;
+    let stderr = joined(stderr_reader, failure)?;
 
     if stdout.exceeded || stderr.exceeded {
         return Err(call.overflow.error(call.stage));
@@ -220,6 +228,15 @@ fn run_git_configured(
     }
 
     Ok(stdout.bytes)
+}
+
+/// What a writer or reader thread answered, its panic or its I/O error being
+/// the call's failure.
+fn joined<T, E>(
+    handle: thread::JoinHandle<Result<T, E>>,
+    failure: impl Fn() -> InternalError,
+) -> Result<T, InternalError> {
+    handle.join().map_err(|_| failure())?.map_err(|_| failure())
 }
 
 fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Command {

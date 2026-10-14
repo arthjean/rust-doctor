@@ -129,6 +129,8 @@ fn report_of(
             status: GateStatus::Passed,
             blocking_diagnostics: Some(0),
         },
+        timings: None,
+        base_side_cache: None,
     }
 }
 
@@ -208,7 +210,7 @@ fn terminal_sections_follow_the_normative_order() {
 
 #[test]
 fn widths_and_color_policy_are_stable() {
-    for width in [80, 100, 140] {
+    for width in [40, 60, 80, 100, 140] {
         let plain = rendered(&report(), width, false, false);
         assert!(
             plain
@@ -401,6 +403,7 @@ fn baseline_hides_pre_existing_details_and_keeps_introduced_and_fixed() {
             pre_existing: 1,
             fixed: 1,
             cross_file_matches: 1,
+            rule_count_matches: 0,
         },
     });
     report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics[..1]);
@@ -780,3 +783,5 @@ fn an_unscored_group_is_folded_onto_one_line() {
     assert!(!output.contains("Rule ID: clippy::todo"), "{output}");
     assert!(!output.contains("src/lib.rs:2:3"), "{output}");
 }
+
+mod summary;

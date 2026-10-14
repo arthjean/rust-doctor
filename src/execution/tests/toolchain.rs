@@ -101,6 +101,7 @@ fn a_version_probe_that_never_answers_times_out() {
         &fixture("clean"),
         CLIPPY_PROBE,
         &CommandEnvironment::default(),
+        None,
     )
     .unwrap_err();
     assert!(started.elapsed() < std::time::Duration::from_secs(15));
@@ -182,24 +183,32 @@ fn registry_repository() -> PathBuf {
 /// Every registry dependency the base side compiled, and whether Cargo found
 /// it fresh.
 fn baseline_registry_freshness(repository: &Path) -> Vec<bool> {
-    let prepared = prepare(repository).unwrap();
+    let prepared = prepare(repository, &RunOptions::default()).unwrap();
     let target =
         crate::baseline::persistent_target(prepared.target_directory(), "baseline").unwrap();
     assert!(target.ends_with("rust-doctor/baseline"));
-    let snapshot = crate::baseline::materialize(prepared.workspace_root(), "HEAD").unwrap();
+    let snapshot = crate::baseline::materialize(prepared.workspace_root(), "HEAD", None).unwrap();
+    let plan = PolicyPlan::default();
+    let options = RunOptions::default();
+    let setup = crate::execution::setup_baseline(&prepared, "HEAD", &plan, &options).unwrap();
     let execution = execute_baseline(
         prepared,
-        crate::execution::Side {
+        setup,
+        Some(crate::execution::Side {
             workspace: snapshot.workspace(),
             target_dir: &target,
-        },
+        }),
         None,
-        &PolicyPlan::default(),
-        &RunOptions::default(),
+        &plan,
+        &options,
     )
     .unwrap();
     snapshot.cleanup().unwrap();
-    let (baseline, _) = execution.into_sides();
+    let baseline = match execution.into_sides().0 {
+        crate::execution::BaseSide::Ran(baseline) => Some(baseline),
+        crate::execution::BaseSide::Cached(_) => None,
+    }
+    .expect("the base side was scanned");
     baseline
         .scan
         .finished()
@@ -236,4 +245,89 @@ fn a_target_directory_that_cannot_be_created_falls_back_to_the_snapshot() {
     let file = root.join("not-a-directory");
     fs::write(&file, "").unwrap();
     assert_eq!(crate::baseline::persistent_target(&file, "baseline"), None);
+}
+
+/// A Clippy pass the deadline ends while Cargo waits on the build directory's
+/// lock says so: the other Cargo, or rust-analyzer, is what to stop.
+#[cfg(unix)]
+#[test]
+fn a_deadline_spent_waiting_on_the_build_lock_names_the_lock() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_scratch::scratch("execution", "locked-cargo");
+    let cargo = root.join("cargo");
+    fs::write(
+        &cargo,
+        "#!/bin/sh\nif [ \"$1\" = clippy ] && [ \"$2\" != --version ]; then\n\
+         echo '    Blocking waiting for file lock on build directory' >&2\nexec sleep 60\nfi\n\
+         exec cargo \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+    let programs = Programs {
+        cargo,
+        ..Programs::default()
+    };
+    let path = fixture("clean");
+    let prepared = prepare_with(&path, &programs, None).unwrap();
+    let options = RunOptions {
+        deadline: Some(RunDeadline::starting_now(std::time::Duration::from_secs(3))),
+        ..RunOptions::default()
+    };
+    let result = execute_into(prepared, &programs, &PolicyPlan::default(), None, &options);
+    let scan = result.scan.finished().unwrap();
+    let error = scan
+        .errors
+        .iter()
+        .find(|error| error.code == "deadline-exceeded")
+        .unwrap();
+    assert!(
+        error.message.ends_with(
+            "Cargo waited on the build directory lock held by another Cargo or rust-analyzer."
+        ),
+        "{}",
+        error.message
+    );
+}
+
+/// Clippy failing to start ends the run where it always did, whatever the
+/// native passes running beside it found: one `execution` error, the
+/// toolchain kept, nothing scanned.
+#[cfg(unix)]
+#[test]
+fn a_clippy_that_cannot_start_returns_early_with_its_stage_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_scratch::scratch("execution", "unstartable-clippy");
+    let cargo = root.join("cargo");
+    // The second version probe takes the execute bit away, so the probes
+    // answer and the Clippy spawn that follows them cannot start.
+    fs::write(
+        &cargo,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in *--version) mkdir '{}/once' 2>/dev/null || chmod -x \"$0\";; esac\n\
+             exec cargo \"$@\"\n",
+            root.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+    let programs = Programs {
+        cargo,
+        ..Programs::default()
+    };
+    let path = fixture("clean");
+    let prepared = prepare_with(&path, &Programs::default(), None).unwrap();
+    let result = execute_into(
+        prepared,
+        &programs,
+        &PolicyPlan::default(),
+        Some(&scan_target_dir(&path)),
+        &RunOptions::default(),
+    );
+    assert_eq!(
+        result.error.as_ref().map(|error| (error.stage, error.code)),
+        Some(("execution", "clippy-start-failed"))
+    );
+    assert!(result.toolchain.is_some());
+    assert!(!result.scan.has_outcome());
+    assert!(result.source.is_none() && result.structure.is_none());
 }

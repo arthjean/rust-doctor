@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::git::{self, GitCall, GitFailure};
+use crate::execution::RunDeadline;
 use crate::internal_error::InternalError;
 
 use super::{
@@ -45,7 +46,10 @@ const INDEX_UNAVAILABLE: GitFailure = GitFailure::new(
     "The git index could not be read: nothing was judged.",
 );
 
-pub(crate) fn locate_index(workspace_root: &Path) -> Result<StagedIndex, InternalError> {
+pub(crate) fn locate_index(
+    workspace_root: &Path,
+    deadline: Option<RunDeadline>,
+) -> Result<StagedIndex, InternalError> {
     let unavailable = || INDEX_UNAVAILABLE.error(INDEX_STAGE);
     let path = match env::var_os("GIT_INDEX_FILE").filter(|file| !file.is_empty()) {
         // Git resolves a relative index against the directory it runs in,
@@ -60,6 +64,7 @@ pub(crate) fn locate_index(workspace_root: &Path) -> Result<StagedIndex, Interna
                     ["rev-parse", "--path-format=absolute", "--git-path", "index"],
                     COMMAND_OUTPUT_LIMIT,
                 ),
+                deadline,
             )?;
             let answer = String::from_utf8(answer).map_err(|_| unavailable())?;
             let path = PathBuf::from(answer.trim_end_matches('\n'));
@@ -84,6 +89,7 @@ pub(crate) fn locate_index(workspace_root: &Path) -> Result<StagedIndex, Interna
             INVENTORY_OUTPUT_LIMIT,
         ),
         &path,
+        deadline,
     )?;
     Ok(StagedIndex {
         symlinks: parse_index_listing(&listing)?,
@@ -152,6 +158,7 @@ fn parse_index_listing(output: &[u8]) -> Result<Vec<PathBuf>, InternalError> {
 pub(crate) fn materialize_index(
     workspace_root: &Path,
     index: &StagedIndex,
+    deadline: Option<RunDeadline>,
 ) -> Result<Snapshot, InternalError> {
     let failed = || {
         InternalError::new(
@@ -204,6 +211,7 @@ pub(crate) fn materialize_index(
                 ),
             },
             &index.path,
+            deadline,
         )?;
         validate_materialized_symlinks(&snapshot.tree, &index.symlinks).map_err(|_| failed())
     })();

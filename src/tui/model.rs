@@ -65,8 +65,12 @@ pub struct Row {
     pub rule_url: String,
     /// The site the detail pane frames: the first one carrying a span.
     pub frame: Option<GroupLocation>,
-    /// Every distinct `path:line` the rule reached, in report order.
+    /// Every distinct `path:line` the rule reached, in report order, a site
+    /// of a test, bench, example or build script carrying why it weighs
+    /// nothing.
     pub sites: Vec<String>,
+    /// What the framed site belongs to when it is not production code.
+    pub context: Option<&'static str>,
     /// A compiler note: published, weighing nothing, and listed after every
     /// scored row under its own heading, whatever category it falls in.
     pub note: bool,
@@ -108,7 +112,10 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
             .into_iter()
             .chain(diagnostic.related.iter().cloned())
         {
-            let site = format_site(&location);
+            let mut site = format_site(&location);
+            if let Some(note) = diagnostic.site_note() {
+                site = format!("{site} ({note})");
+            }
             if !sites.contains(&site) {
                 sites.push(site);
             }
@@ -129,6 +136,9 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
         rule_url: group.rule_url.clone(),
         frame,
         sites,
+        context: representative
+            .and_then(|diagnostic| diagnostic.context)
+            .map(|context| context.label()),
         note: group.is_compiler_note(),
     }
 }
@@ -501,6 +511,7 @@ mod tests {
             rule_url: String::new(),
             frame: None,
             sites: Vec::new(),
+            context: None,
             note: false,
         }
     }

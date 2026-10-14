@@ -55,22 +55,25 @@ pub enum Agent {
     Cursor,
 }
 
-/// What `--agent` names: one agent, or every one with a confirmed target.
+/// What `--agent` names: one agent, every one with a confirmed target, or
+/// the ones `setup` detects on `PATH` and in the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AgentSelection {
     Claude,
     Codex,
     Cursor,
     All,
+    Detected,
 }
 
 impl AgentSelection {
-    fn agents(self) -> Vec<Agent> {
+    fn agents(self, workspace_root: &Path) -> Vec<Agent> {
         match self {
             Self::Claude => vec![Agent::Claude],
             Self::Codex => vec![Agent::Codex],
             Self::Cursor => vec![Agent::Cursor],
             Self::All => TARGETS.iter().map(|(agent, _)| *agent).collect(),
+            Self::Detected => crate::setup::detected_agents(workspace_root),
         }
     }
 }
@@ -90,6 +93,7 @@ pub struct InstallOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SkillError {
+    NoAgentDetected,
     AlreadyPresent(&'static str),
     ForeignSkill(&'static str),
     Symlink(PathBuf),
@@ -99,6 +103,7 @@ pub enum SkillError {
 impl fmt::Display for SkillError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NoAgentDetected => write!(formatter, "no agent was detected: {}", crate::setup::PROBED),
             Self::AlreadyPresent(directory) => write!(
                 formatter,
                 "{directory} already exists; pass --update to refresh it"
@@ -170,6 +175,63 @@ fn stamped(document: &str) -> String {
     }
 }
 
+/// The agent markers the scan checks a skill for, each naming the agent
+/// whose environment sets it.
+const AGENT_MARKERS: [(&str, Agent); 3] = [
+    ("CLAUDECODE", Agent::Claude),
+    ("CODEX_SANDBOX", Agent::Codex),
+    ("CURSOR_AGENT", Agent::Cursor),
+];
+
+impl Agent {
+    /// The value `--agent` takes for it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Cursor => "cursor",
+        }
+    }
+}
+
+/// The agent running this process, from the first marker set to a
+/// non-empty value.
+pub fn running_agent(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Agent> {
+    AGENT_MARKERS
+        .into_iter()
+        .find(|(marker, _)| variable(marker).is_some_and(|value| !value.is_empty()))
+        .map(|(_, agent)| agent)
+}
+
+/// The line to show the agent when its skill under `workspace_root` is
+/// absent or was written by another version; nothing when it is current, or
+/// when the directory holds a skill that is not this one.
+pub fn stale_or_missing(workspace_root: &Path, agent: Agent) -> Option<String> {
+    let name = agent.name();
+    let current = env!("CARGO_PKG_VERSION");
+    let Ok(skill) = fs::read_to_string(workspace_root.join(directory(agent)).join("SKILL.md")) else {
+        return Some(format!(
+            "rust-doctor: no rust-doctor skill is installed for {name}; run `rust-doctor skill install --agent {name}`."
+        ));
+    };
+    let recorded = recorded_version(&skill);
+    (is_this_skill(&skill) && recorded.as_deref() != Some(current)).then(|| {
+        format!(
+            "rust-doctor: the {name} skill was written by rust-doctor {}, and this is {current}; run `rust-doctor skill install --agent {name} --update`.",
+            recorded.as_deref().unwrap_or("an unrecorded version")
+        )
+    })
+}
+
+/// The line a handoff prompt opens with when the agent's skill directory is
+/// absent, so the agent can install it before following the prompt.
+pub fn install_line(workspace_root: &Path, agent: Agent) -> Option<String> {
+    let name = agent.name();
+    (!workspace_root.join(directory(agent)).exists()).then(|| {
+        format!("The rust-doctor skill is not installed for this agent: run `rust-doctor skill install --agent {name}` first.")
+    })
+}
+
 /// Installs the skill for every agent `selection` names.
 ///
 /// Every target is checked before any is written, so a refusal of the third
@@ -179,7 +241,10 @@ pub fn install(
     selection: AgentSelection,
     options: InstallOptions,
 ) -> Result<Vec<Installed>, SkillError> {
-    let agents = selection.agents();
+    let agents = selection.agents(workspace_root);
+    if agents.is_empty() {
+        return Err(SkillError::NoAgentDetected);
+    }
     let checked = InstallOptions {
         dry_run: true,
         ..options
@@ -195,6 +260,47 @@ pub fn install(
         .into_iter()
         .map(|agent| install_one(workspace_root, directory(agent), options))
         .collect()
+}
+
+/// `skill install`: installs, prints every path it wrote or would write and
+/// every copy it replaced, and answers the exit status.
+pub fn install_and_print(workspace_root: &Path, selection: AgentSelection, options: InstallOptions) -> u8 {
+    let installed = match install(workspace_root, selection, options) {
+        Ok(installed) => installed,
+        Err(error @ SkillError::NoAgentDetected) => {
+            eprintln!("rust-doctor: the skill was not installed, {error}.");
+            return 2;
+        }
+        Err(error) => {
+            eprintln!("rust-doctor: the skill was not installed, {error}.");
+            return 1;
+        }
+    };
+    for copy in installed {
+        if let (Some(replaced), Some(directory)) = (
+            &copy.replaced,
+            copy.written.first().and_then(|path| path.parent()),
+        ) {
+            println!(
+                "{} {} with {} in {}.",
+                if options.dry_run { "Would replace" } else { "Replaced" },
+                replaced.as_deref().map_or_else(
+                    || "a copy that recorded no version".to_owned(),
+                    |version| format!("rust-doctor {version}")
+                ),
+                env!("CARGO_PKG_VERSION"),
+                directory.display()
+            );
+        }
+        for document in copy.written {
+            if options.dry_run {
+                println!("Would write {}", document.display());
+            } else {
+                println!("{}", document.display());
+            }
+        }
+    }
+    0
 }
 
 fn install_one(

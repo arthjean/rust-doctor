@@ -203,6 +203,8 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
         delta: None,
         errors: Vec::new(),
         gate,
+        timings: None,
+        base_side_cache: None,
     }
 }
 
@@ -598,7 +600,7 @@ fn complete_analysis_side(
         repo: None,
         metadata: Some(metadata),
         toolchain: None,
-        scan: ClippyExecution::Finished(scan(
+        scan: ClippyExecution::from_scan(scan(
             vec![compiler_message(
                 Some("clippy::todo"),
                 "warning",
@@ -612,6 +614,7 @@ fn complete_analysis_side(
         )),
         source_measurement: None,
         source: Some(crate::source_kernel::SourceScan {
+            not_evaluated: Vec::new(),
             candidates: vec![crate::source_kernel::Candidate {
                 definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
                 message: message.into(),
@@ -669,7 +672,7 @@ fn baseline_analysis_normalizes_every_active_producer_on_both_sides() {
         .collect();
     assert_eq!(current_codes, baseline_codes);
 
-    let report = analysis.into_report();
+    let report = analysis.into_report(&crate::delta::DiffMap::default());
     assert_eq!(report.gate.status, GateStatus::Passed);
     assert!(report.delta.is_some());
     assert_eq!(
@@ -775,7 +778,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         repo: None,
         metadata: Some(metadata.clone()),
         toolchain: None,
-        scan: ClippyExecution::Finished(scan(Vec::new(), 0, true, true)),
+        scan: ClippyExecution::from_scan(scan(Vec::new(), 0, true, true)),
         source: None,
         source_measurement: None,
         error: None,
@@ -795,7 +798,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         repo: None,
         metadata: Some(metadata),
         toolchain: None,
-        scan: ClippyExecution::Finished(scan(
+        scan: ClippyExecution::from_scan(scan(
             vec![compiler_message(
                 Some("E0001"),
                 "error",
@@ -875,6 +878,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         &HomePaths::default(),
     );
     let source = source_kernel::SourceScan {
+        not_evaluated: Vec::new(),
         candidates: vec![source_kernel::Candidate {
             definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
             message: "A dynamic value is interpolated into a shell command string.".into(),
@@ -902,7 +906,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         repo: None,
         metadata: Some(metadata),
         toolchain: None,
-        scan: ClippyExecution::Finished(scan(compiler_messages, 0, true, true)),
+        scan: ClippyExecution::from_scan(scan(compiler_messages, 0, true, true)),
         source: Some(source),
         source_measurement: None,
         error: None,
@@ -973,24 +977,4 @@ fn twenty_mixed_permutations_render_identically() {
         }
     }
     assert_eq!(seen.len(), 20);
-}
-
-/// The convention is Cargo's, and the outermost directory that matches decides:
-/// a file under `benches/` is bench material whatever it is named, and the
-/// `tests.rs` spelling only answers for a file no directory above it claims.
-/// Everything else is unmarked, because a file this reader does not recognize
-/// has to keep weighing on the score.
-#[test]
-fn a_conventional_path_names_the_target_it_belongs_to() {
-    let context = DiagnosticContext::from_conventional_path;
-    assert_eq!(context("src/tests/mod.rs"), Some(DiagnosticContext::Tests));
-    assert_eq!(context("tests/regression/case.rs"), Some(DiagnosticContext::Tests));
-    assert_eq!(context("src/modules/tests.rs"), Some(DiagnosticContext::Tests));
-    assert_eq!(context("benches/tests.rs"), Some(DiagnosticContext::Benchmark));
-    assert_eq!(context("examples/demo.rs"), Some(DiagnosticContext::Example));
-    assert_eq!(context("src/lib.rs"), None);
-    // A directory, not a stem: `tests_util` is a package name, and
-    // `src/latest.rs` merely ends in the four letters the file name is read on.
-    assert_eq!(context("tests_util/src/lib.rs"), None);
-    assert_eq!(context("src/latest.rs"), None);
 }

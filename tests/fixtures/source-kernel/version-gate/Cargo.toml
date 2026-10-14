@@ -1,0 +1,4 @@
+[workspace]
+members = ["service"]
+exclude = ["tokio"]
+resolver = "3"

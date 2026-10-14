@@ -10,7 +10,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rust_doctor::InspectReport;
-use rust_doctor::presentation::{DiagnosticGroup, ReportPresentation, canonical_rule_help};
+use rust_doctor::presentation::{
+    DiagnosticGroup, ReportPresentation, canonical_not_a_defect, canonical_rule_help,
+};
 use rust_doctor::terminal_text::sanitize;
 use rust_doctor::{BlockingLevel, CategoryOverride, RuleOverride, ScopeMode};
 
@@ -60,11 +62,30 @@ impl HandoffPayload {
     pub fn as_str(&self) -> &str {
         &self.body
     }
+
+    /// The payload with `line` first, held to the same checks and bound.
+    pub fn preceded_by(&self, line: &str) -> Result<Self, HandoffError> {
+        let mut prompt = PromptBuilder::new();
+        prompt.push_line(line);
+        for existing in self.body.lines() {
+            prompt.push_line(existing);
+        }
+        prompt.finish()
+    }
 }
 
 impl AvailableAgent {
     pub const fn label(&self) -> &'static str {
         self.target.label()
+    }
+
+    /// The agent whose skill directory this one reads.
+    pub const fn skill_agent(&self) -> crate::skill::Agent {
+        match self.target {
+            AgentTarget::ClaudeCode => crate::skill::Agent::Claude,
+            AgentTarget::Codex => crate::skill::Agent::Codex,
+            AgentTarget::Cursor => crate::skill::Agent::Cursor,
+        }
     }
 }
 
@@ -74,7 +95,6 @@ pub enum HandoffError {
     PayloadTooLarge,
     AgentUnavailable(AgentTarget),
     AgentSpawn(AgentTarget, io::ErrorKind),
-    AgentExited(AgentTarget),
     ClipboardUnavailable,
     ClipboardFailed,
 }
@@ -99,16 +119,11 @@ impl fmt::Display for HandoffError {
                 target.label(),
                 bounded_io_kind(*kind)
             ),
-            Self::AgentExited(target) => write!(
-                formatter,
-                "{} exited before handoff completed.",
-                target.label()
-            ),
             Self::ClipboardUnavailable => {
-                formatter.write_str("Clipboard unavailable; choose another destination.")
+                formatter.write_str("Clipboard unavailable: no clipboard command on PATH.")
             }
             Self::ClipboardFailed => {
-                formatter.write_str("Clipboard command failed; choose another destination.")
+                formatter.write_str("Clipboard command failed.")
             }
         }
     }
@@ -157,6 +172,9 @@ pub fn build_prompt(
     prompt
         .push_line(
             "Fix the highest-priority Rust Doctor findings. Preserve unrelated changes and rescan after the fixes.",
+        )
+        .push_line(
+            "Before editing a site, apply its rule's \"Not a defect when\" check: a site it describes is left as it is.",
         )
         .push_line(&audit);
     push_targets(&mut prompt, report);
@@ -250,6 +268,9 @@ fn push_group(
     if let Some(help) = canonical_rule_help(rule_id.as_str()) {
         prompt.push_line(&format!("   Help: {help}"));
     }
+    if let Some(check) = canonical_not_a_defect(rule_id.as_str()) {
+        prompt.push_line(&format!("   Not a defect when: {check}"));
+    }
     for diagnostic in &group.diagnostics {
         if *locations >= MAX_LOCATIONS {
             break;
@@ -329,6 +350,11 @@ pub fn build_issue_prompt(issue: &IssuePrompt<'_>) -> Result<HandoffPayload, Han
         prompt
             .push_line("")
             .push_line(&format!("Suggested fix: {}", sanitize(help)));
+    }
+    if let Some(check) = canonical_not_a_defect(&rule_id) {
+        prompt
+            .push_line("")
+            .push_line(&format!("Not a defect when: {check} Check this before editing."));
     }
 
     prompt
@@ -593,23 +619,66 @@ pub fn launch_agent(
     if !is_executable_file(&agent.executable) {
         return Err(HandoffError::AgentUnavailable(agent.target));
     }
-    let status = Command::new(&agent.executable)
+    // How the agent's session ended is its own business: a launched agent
+    // received the prompt, and the scan's exit code is what the process keeps.
+    Command::new(&agent.executable)
         .arg(payload.as_str())
         .current_dir(workspace_root)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|error| HandoffError::AgentSpawn(agent.target, error.kind()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(HandoffError::AgentExited(agent.target))
-    }
+        .map(drop)
+        .map_err(|error| HandoffError::AgentSpawn(agent.target, error.kind()))
 }
 
 pub fn copy_to_clipboard(payload: &HandoffPayload) -> Result<(), HandoffError> {
     copy_text(payload.as_str())
+}
+
+/// The line above and below a prompt printed because it could not be
+/// delivered.
+pub const PROMPT_RULER: &str = "---- Agent prompt ----";
+
+/// Launches the agent, or, when it cannot be found or started, warns with the
+/// executable it tried and prints the prompt instead, so building it was not
+/// wasted.
+pub fn launch_or_print(agent: &AvailableAgent, payload: &HandoffPayload, workspace_root: &Path) {
+    if let Err(error) = launch_agent(agent, payload, workspace_root) {
+        let reason = format!(
+            "Warning: could not launch {}: {error}",
+            agent.executable.display()
+        );
+        print_instead(&reason, payload, &mut io::stdout().lock(), &mut io::stderr().lock());
+    }
+}
+
+/// Copies the prompt, or, when no clipboard takes it, says why on stderr and
+/// prints the prompt on stdout.
+pub fn copy_or_print(payload: &HandoffPayload) {
+    match copy_to_clipboard(payload) {
+        Ok(()) => eprintln!("Prompt copied to clipboard."),
+        Err(error) => print_instead(
+            &error.to_string(),
+            payload,
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        ),
+    }
+}
+
+/// The reason on `stderr`, then the prompt between two rulers on `stdout`.
+/// The payload is already sanitized and bounded by [`PromptBuilder`]: what
+/// prints is exactly what an agent or a clipboard would have received. A
+/// closed stream leaves nothing more to tell.
+pub(crate) fn print_instead(
+    reason: &str,
+    payload: &HandoffPayload,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) {
+    let _ = writeln!(stderr, "{reason} The prompt follows.");
+    let _ = writeln!(stdout, "{PROMPT_RULER}\n{}\n{PROMPT_RULER}", payload.as_str());
 }
 
 /// Hands a URL to the desktop, reporting whether the launcher accepted it.

@@ -131,7 +131,7 @@ impl TerminalProfile {
                         .and_then(OsStr::to_str)
                         .and_then(|value| value.parse().ok())
                 })
-                .filter(|width| *width >= DEFAULT_WIDTH)
+                .filter(|width| *width > 0)
                 .unwrap_or(DEFAULT_WIDTH)
         };
         Self {
@@ -227,7 +227,8 @@ mod tests {
 
     /// The live size wins; a terminal whose size cannot be read falls back to
     /// `COLUMNS`, then to 80. A redirected or dumb terminal is 80 whatever it
-    /// says, and nothing is narrower than 80.
+    /// says. A narrow pane is kept as it is: the renderer clamps it at its own
+    /// floor of 40.
     #[test]
     fn the_width_is_the_terminal_then_columns_then_eighty() {
         let sized = Streams { columns: Some(120), ..TERMINALS };
@@ -236,7 +237,9 @@ mod tests {
         assert_eq!(profile(false, TERMINALS, &[("COLUMNS", "wide")]).width, 80);
         assert_eq!(profile(false, TERMINALS, &[]).width, 80);
         assert_eq!(profile(false, Streams { columns: Some(0), ..TERMINALS }, &[]).width, 80);
-        assert_eq!(profile(false, TERMINALS, &[("COLUMNS", "79")]).width, 80);
+        assert_eq!(profile(false, TERMINALS, &[("COLUMNS", "79")]).width, 79);
+        let narrow = Streams { columns: Some(30), ..TERMINALS };
+        assert_eq!(profile(false, narrow, &[]).width, 30);
         let redirected = Streams { stdout: false, ..sized };
         assert_eq!(profile(false, redirected, &[("COLUMNS", "140")]).width, 80);
         assert_eq!(profile(false, sized, &[("TERM", "dumb")]).width, 80);

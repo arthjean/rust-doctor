@@ -14,14 +14,16 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-use serde::ser::{Error as _, SerializeStruct};
-use serde::{Serialize, Serializer};
+use serde::ser::Error as _;
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::audit::{Audit, SeverityCounts};
 use crate::cargo_health::{AdvisoryDatabase, AdvisoryDbReport};
 use crate::delta::DeltaReport;
+use crate::execution::CacheOutcome;
 use crate::execution::{RunDeadline, RunOptions};
 use crate::progress::ProgressSink;
+use crate::timings::{TimingRecorder, Timings};
 use crate::git_scope::{ChangeMode, ChangeOptions, ScopeMode, ScopeReport, ScopeRequest};
 use crate::policy::{
     BlockingLevel, BlockingLevelSource, CategoryOverride, CorpusMeasurement, PathOverrideReport,
@@ -30,15 +32,16 @@ use crate::policy::{
 
 mod assembly;
 mod exclusion;
+pub(crate) use exclusion::edit_distance;
 mod normalize;
 mod sanitize;
 
 pub(crate) use assembly::{
-    baseline_report_failure, from_baseline_execution, from_execution_scoped, policy_failure,
-    preparation_failure, scope_failure,
+    baseline_report_failure, from_baseline_execution, from_execution_scoped,
+    interrupted_failure, policy_failure, preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 21;
+pub const SCHEMA_VERSION: u8 = 23;
 
 /// The error code every stage a passed `--max-duration` stopped or skipped
 /// reports under.
@@ -55,6 +58,7 @@ pub struct InspectRequest {
     progress: Option<ProgressSink>,
     packages: BTreeSet<String>,
     advisory_db: Option<AdvisoryDatabase>,
+    timings: bool,
 }
 
 impl InspectRequest {
@@ -69,7 +73,14 @@ impl InspectRequest {
             progress: None,
             packages: BTreeSet::new(),
             advisory_db: None,
+            timings: false,
         }
+    }
+
+    /// Publishes how long each phase took, as the report's `timings`.
+    pub const fn with_timings(mut self) -> Self {
+        self.timings = true;
+        self
     }
 
     /// The RustSec database the two advisory rules read. Without it they are
@@ -177,6 +188,7 @@ impl InspectRequest {
             progress: self.progress.clone(),
             packages: self.packages().cloned(),
             advisory_db: self.advisory_db.clone(),
+            timings: self.timings.then(TimingRecorder::start),
         }
     }
 }
@@ -217,6 +229,12 @@ pub struct InspectReport {
     pub errors: Vec<ReportError>,
     pub summary: Summary,
     pub gate: GateReport,
+    /// Milliseconds per phase, present only when the request asked for them.
+    pub timings: Option<Timings>,
+    /// Whether a baseline comparison read its base side from the side cache.
+    /// Shown under `--verbose`, never serialized: a report says what was
+    /// found, not how fast.
+    pub base_side_cache: Option<CacheOutcome>,
 }
 
 /// One site-level suppression directive, and whether it suppressed anything.
@@ -319,6 +337,13 @@ pub enum NotEvaluated {
     /// keeps its authority: the machine never fetched one, and the tool never
     /// fetches.
     AdvisoryDbMissing,
+    /// The rule's detectors match a crate no package of the workspace
+    /// depends on. The score keeps its authority: there was nothing to read.
+    CrateAbsent,
+    /// Every package depending on the rule's crate resolves it outside the
+    /// versions the rule was validated against. The score keeps its
+    /// authority, and the rule reports nothing rather than misreading an API.
+    CrateVersionUnsupported,
 }
 
 impl PolicyReport {
@@ -404,6 +429,31 @@ impl InspectReport {
     }
 }
 
+/// The report as it goes on the wire, field for field and in this order. A
+/// derived shape keeps the one optional member, `timings`, out of the bytes
+/// a run that did not ask for it writes.
+#[derive(Serialize)]
+#[serde(rename = "InspectReport")]
+struct Wire<'a> {
+    schema_version: u8,
+    audit: &'a Audit,
+    status: Status,
+    complete: bool,
+    policy: &'a Option<PolicyReport>,
+    scope: &'a Option<ScopeReport>,
+    project: &'a Option<ProjectReport>,
+    toolchain: &'a ToolchainReport,
+    scan: &'a ScanReport,
+    diagnostics: &'a [Diagnostic],
+    suppressions: &'a [SuppressionReport],
+    delta: &'a Option<DeltaReport>,
+    errors: &'a [ReportError],
+    summary: &'a Summary,
+    gate: &'a GateReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timings: Option<&'a Timings>,
+}
+
 impl Serialize for InspectReport {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -412,23 +462,25 @@ impl Serialize for InspectReport {
         if !self.is_valid() {
             return Err(S::Error::custom("invalid report state"));
         }
-        let mut state = serializer.serialize_struct("InspectReport", 15)?;
-        state.serialize_field("schema_version", &self.schema_version)?;
-        state.serialize_field("audit", &self.audit)?;
-        state.serialize_field("status", &self.status)?;
-        state.serialize_field("complete", &self.complete)?;
-        state.serialize_field("policy", &self.policy)?;
-        state.serialize_field("scope", &self.scope)?;
-        state.serialize_field("project", &self.project)?;
-        state.serialize_field("toolchain", &self.toolchain)?;
-        state.serialize_field("scan", &self.scan)?;
-        state.serialize_field("diagnostics", &self.diagnostics)?;
-        state.serialize_field("suppressions", &self.suppressions)?;
-        state.serialize_field("delta", &self.delta)?;
-        state.serialize_field("errors", &self.errors)?;
-        state.serialize_field("summary", &self.summary)?;
-        state.serialize_field("gate", &self.gate)?;
-        state.end()
+        Wire {
+            schema_version: self.schema_version,
+            audit: &self.audit,
+            status: self.status,
+            complete: self.complete,
+            policy: &self.policy,
+            scope: &self.scope,
+            project: &self.project,
+            toolchain: &self.toolchain,
+            scan: &self.scan,
+            diagnostics: &self.diagnostics,
+            suppressions: &self.suppressions,
+            delta: &self.delta,
+            errors: &self.errors,
+            summary: &self.summary,
+            gate: &self.gate,
+            timings: self.timings.as_ref(),
+        }
+        .serialize(serializer)
     }
 }
 
@@ -482,7 +534,7 @@ pub struct ScanReport {
     pub advisory_db: Option<AdvisoryDbReport>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
     pub id: String,
     pub source: DiagnosticSource,
@@ -517,7 +569,7 @@ pub struct Diagnostic {
     /// is absent rather than empty when a finding names a single site, so a
     /// per-site diagnostic serializes exactly as it did before this field
     /// existed.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<RelatedLocation>,
     /// How alike the sites of the finding are, in basis points, when the rule
     /// grouped them on a similarity rather than on an equality.
@@ -542,7 +594,7 @@ pub struct Diagnostic {
     pub occurrences: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelatedLocation {
     pub path: String,
     pub span: DiagnosticSpan,
@@ -551,7 +603,7 @@ pub struct RelatedLocation {
 /// Both complexity figures of one function, published together because each
 /// answers what the other cannot: cyclomatic counts the paths a test suite has
 /// to cover, cognitive weights the nesting a reader has to hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComplexityFigures {
     pub cyclomatic: u32,
     pub cognitive: u32,
@@ -566,7 +618,7 @@ pub struct ComplexityFigures {
 /// at a site where the toolchain had already written the exact expression.
 /// The catalogued help still travels beside it, since a replacement says what
 /// to write and not why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Suggestion {
     pub replacement: String,
     pub applicability: Applicability,
@@ -578,7 +630,7 @@ pub struct Suggestion {
 /// others are worth reading and not worth pasting: `MaybeIncorrect` may not
 /// compile, `HasPlaceholders` carries text the reader fills in, and
 /// `Unspecified` is a suggestion the lint author never rated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Applicability {
     MachineApplicable,
@@ -614,7 +666,7 @@ impl Applicability {
 /// Cargo declares. A library or a binary are not represented: they are the
 /// production, and a diagnostic coming from them simply does not carry this
 /// field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticContext {
     /// Integration test target, under `tests/`.
@@ -628,6 +680,16 @@ pub enum DiagnosticContext {
 }
 
 impl DiagnosticContext {
+    /// How a site of this target is labeled wherever a report prints it.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Tests => "tests",
+            Self::Benchmark => "bench",
+            Self::Example => "example",
+            Self::BuildScript => "build script",
+        }
+    }
+
     /// Closed reading of a Cargo target kind. A library, a binary and an
     /// unknown value are not marked: when in doubt, the diagnostic counts,
     /// because silencing a defect of the shipped code is the only mistake this
@@ -684,7 +746,7 @@ impl DiagnosticContext {
 }
 
 /// Closed reason a diagnostic is published and weighs nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnscoredReason {
     /// A compiler warning whose code the catalog does not describe: a rustc
@@ -692,7 +754,7 @@ pub enum UnscoredReason {
     Uncatalogued,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticSource {
     Rustc,
@@ -717,7 +779,7 @@ impl fmt::Display for DiagnosticSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
@@ -752,7 +814,7 @@ impl fmt::Display for Severity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticSpan {
     pub line_start: usize,
     pub column_start: usize,
@@ -854,63 +916,33 @@ impl InspectReport {
             (Status::Failed, _) => 2,
         }
     }
+
+    /// The exit status under `--warning-exit-code`: `warning` when the run
+    /// would exit 0, its gate is not `none`, and a finding would block under
+    /// `--blocking warning` with the gate's own weighting, counting only what
+    /// a baseline scope introduced. The precedence is 2, 1, `warning`, 0.
+    pub fn exit_code_with_warning(&self, warning: Option<u8>) -> u8 {
+        let code = self.exit_code();
+        let Some(warning) = warning else {
+            return code;
+        };
+        if code != 0 || self.gate.blocking == BlockingLevel::None {
+            return code;
+        }
+        let introduced: Option<BTreeSet<&str>> = self
+            .delta
+            .as_ref()
+            .map(|delta| delta.introduced.iter().map(String::as_str).collect());
+        let warns = self.diagnostics.iter().any(|diagnostic| {
+            DiagnosticContext::weighs(diagnostic)
+                && matches!(diagnostic.severity, Severity::Error | Severity::Warning)
+                && introduced
+                    .as_ref()
+                    .is_none_or(|introduced| introduced.contains(diagnostic.id.as_str()))
+        });
+        if warns { warning } else { 0 }
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests;

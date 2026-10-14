@@ -310,10 +310,19 @@ struct Layout {
 impl Layout {
     fn new(score: &AuditScore, width: usize) -> Self {
         let available = score_block::right_column_width(width);
-        let branding = Row::of([
-            (score_block::BRANDING_NAME.to_owned(), Ink::Plain),
-            (format!(" ({})", score_block::BRANDING_URL), Ink::Dim),
-        ]);
+        // A link cut in two opens nothing, so a pane too narrow for the URL
+        // gets the name alone; the links section closing the report carries
+        // the site whole.
+        let url = format!(" ({})", score_block::BRANDING_URL);
+        let fits = score_block::BRANDING_NAME.chars().count() + url.chars().count() <= available;
+        let branding = if fits {
+            Row::of([
+                (score_block::BRANDING_NAME.to_owned(), Ink::Plain),
+                (url, Ink::Dim),
+            ])
+        } else {
+            Row::of([(score_block::BRANDING_NAME.to_owned(), Ink::Plain)])
+        };
         Self {
             faces: score_block::face_rows(score.label),
             branding: branding.truncated(available),

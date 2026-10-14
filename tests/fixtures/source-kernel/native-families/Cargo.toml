@@ -1,4 +1,19 @@
 [workspace]
 members = ["service"]
-exclude = ["diesel", "postgres", "reqwest", "rusqlite", "sea-orm", "sqlx", "tokio", "tokio-postgres"]
+exclude = [
+    "actix-cors",
+    "cookie",
+    "diesel",
+    "futures",
+    "jsonwebtoken",
+    "postgres",
+    "reqwest",
+    "rusqlite",
+    "sea-orm",
+    "sqlx",
+    "tokio",
+    "tokio-macros",
+    "tokio-postgres",
+    "tower-http",
+]
 resolver = "3"

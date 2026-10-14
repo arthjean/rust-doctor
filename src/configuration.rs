@@ -77,7 +77,7 @@ pub(crate) fn load(target: &ResolvedScanTarget) -> Result<WorkspaceConfiguration
     load_path(&target.workspace_root().join(CONFIG_FILE_NAME))
 }
 
-fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalError> {
+pub(crate) fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalError> {
     match path.symlink_metadata() {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(WorkspaceConfiguration::default());

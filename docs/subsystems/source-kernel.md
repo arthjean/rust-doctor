@@ -83,6 +83,29 @@ and of the measurement, while the walk still follows its `mod` declarations,
 compiled, so the orphan detector never mistakes an ignored file for a dead one.
 Clippy compiles it all the same, and the report counts its findings out.
 
+A rule reads only the crate it was validated on. `RuleDefinition::requires`
+names crates and a `VersionReq`; `gates.rs` evaluates them per unit, on the
+lowest version any package reaching the unit resolves its direct dependency to
+in `Cargo.lock`, falling back to the requirement's lower bound, and unknown for
+`*`. A unit opens a gate when any gated crate is present (the PRD wrote "all
+of": `sql_built_from_format` names six drivers and a service uses one) and
+every present crate is in range; an unknown version opens. A rule no unit opens
+is published `crate-absent` or `crate-version-unsupported`, neither of which
+costs the score its authority, and
+`every_crate_a_detector_matches_is_gated_on_its_rule` keeps each detector's
+crates and its rule's gates one list. A synthetic unit carries no versions, so
+the harnesses see every gate open.
+
+The service rules of Release 3 live one family per file under `detectors/`:
+`runtime.rs` (a current-thread `block_in_place`, read off the function's own
+`#[tokio::main]` or `#[tokio::test]` attribute, and `block_on` in async code),
+`http.rs` (a reqwest body read with no status check on its chain or its
+binding), `secrets.rs` with its `vocabulary` (a secret-named variable falling
+back to a literal) and `web.rs` (CORS, auth cookie, JWT). All but `runtime.rs`
+stay silent in test code. The offline stubs of
+`tests/fixtures/source-kernel/native-families` hold their positives and
+negatives, and `version-gate` holds tokio 0.2.
+
 `the_kernel_holds_the_size_bound_it_enumerates_for` keeps every file of the
 module, and `source_text.rs` with it, under the 1000 lines `oversized_unit`
 reports, tests included. That is why the walk and the tests have files of their

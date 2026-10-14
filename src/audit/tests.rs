@@ -909,6 +909,7 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
             complete: false,
         },
         Vec::new(),
+        &std::collections::BTreeSet::new(),
         Status::Complete,
         std::collections::BTreeSet::new(),
         &[],

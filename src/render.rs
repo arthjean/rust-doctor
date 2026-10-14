@@ -15,9 +15,11 @@ pub mod markdown;
 mod narrowing;
 mod scope;
 mod score_header;
+mod summary;
 
 use narrowing::render_narrowing;
 use scope::render_scope;
+use summary::render_summary;
 
 const DEFAULT_WIDTH: usize = 80;
 
@@ -25,7 +27,7 @@ const DEFAULT_WIDTH: usize = 80;
 /// normalizes to it. That is what makes the score block total: at this width
 /// the block always fits, so neither it nor this file carries a
 /// narrow-terminal fallback with a second rounding of its own.
-const MIN_WIDTH: usize = 80;
+const MIN_WIDTH: usize = 40;
 const _: () = assert!(MIN_WIDTH >= crate::score_block::MIN_BLOCK_COLUMNS);
 /// Narrowest gutter a code frame is drawn with, so a report reads the same
 /// whether its frames sit at line 7 or line 700.
@@ -145,7 +147,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     // complexity hotspot.
     render_scope(writer, report, options)?;
     render_scanned(writer, report, options)?;
-    render_findings(writer, presentation, options)?;
+    render_findings(writer, report, presentation, options)?;
     render_totals(writer, presentation, options)?;
     render_categories(writer, report, options)?;
     render_configuration(writer, report, options)?;
@@ -176,7 +178,8 @@ fn render_failure<W: Write>(
     render_scan_errors(writer, report, options)
 }
 
-/// What the scan covered and how long it took.
+/// What the scan covered and how long it took, and under `--verbose` how long
+/// each phase took and whether the base side came from the cache.
 fn render_scanned<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -191,6 +194,30 @@ fn render_scanned<W: Write>(
         ),
         options,
         Style::Accent,
+    )?;
+    if !options.verbose {
+        return Ok(());
+    }
+    if let Some(outcome) = report.base_side_cache {
+        line(
+            writer,
+            &format!("Base side cache: {}", outcome.as_str()),
+            options,
+            Style::Muted,
+        )?;
+    }
+    let Some(timings) = report.timings.as_ref() else {
+        return Ok(());
+    };
+    let phases: Vec<String> = timings
+        .phases()
+        .map(|(phase, milliseconds)| format!("{phase} {milliseconds} ms"))
+        .collect();
+    line(
+        writer,
+        &format!("Phases: {}; total {} ms", phases.join(", "), timings.total),
+        options,
+        Style::Muted,
     )
 }
 
@@ -199,21 +226,22 @@ fn render_scanned<W: Write>(
 /// under their own heading, since they weigh nothing.
 fn render_findings<W: Write>(
     writer: &mut W,
+    report: &InspectReport,
     presentation: &ReportPresentation,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
     if presentation.issue_count == 0 {
-        return line(writer, "No issues found.", options, Style::Success);
+        return match crate::presentation::incomplete_message(report) {
+            Some(message) => line(writer, &message, options, Style::Warning),
+            None => line(writer, "No issues found.", options, Style::Success),
+        };
     }
     let (notes, scored): (Vec<_>, Vec<_>) = presentation
         .groups
         .iter()
         .partition(|group| group.is_compiler_note());
     if !options.verbose {
-        return match scored.first() {
-            Some(group) => render_group(writer, group, options, GroupView::Top),
-            None => line(writer, "No scored issues found.", options, Style::Success),
-        };
+        return render_summary(writer, &scored, options);
     }
     for group in scored {
         if group.is_unscored() {
@@ -388,7 +416,7 @@ fn render_group<W: Write>(
         }
         render_related(writer, diagnostic, options, view)?;
         if let Some(location) = diagnostic.location() {
-            render_code_frame(writer, &location, options)?;
+            render_code_frame(writer, &location, diagnostic.site_note(), options)?;
         }
     }
     link_line(
@@ -437,18 +465,20 @@ fn replacement_line(suggestion: &crate::Suggestion) -> String {
 fn render_code_frame<W: Write>(
     writer: &mut W,
     location: &crate::presentation::GroupLocation,
+    note: Option<String>,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
+    let note = note.map(|note| format!(" ({note})")).unwrap_or_default();
     let frame = match code_frame(options.workspace_root, location) {
         Ok(frame) => frame,
         Err(unavailable) => {
             if let Some(location) = unavailable.location {
-                line(writer, &location, options, Style::Accent)?;
+                line(writer, &format!("{location}{note}"), options, Style::Accent)?;
             }
             return line(writer, &unavailable.message, options, Style::Muted);
         }
     };
-    line(writer, &frame.location, options, Style::Accent)?;
+    line(writer, &format!("{}{note}", frame.location), options, Style::Accent)?;
     // The gutter comes from the frame rather than from a constant, so a source
     // row and the caret row under it agree on where the text begins whatever
     // line numbers the frame carries. The four columns are the floor the
@@ -741,7 +771,7 @@ fn render_score<W: Write>(
     let Some(score) = &report.audit.score else {
         return line(
             writer,
-            "Score unavailable: no Rust files were analyzed.",
+            crate::presentation::no_score_message(report),
             options,
             Style::Warning,
         );

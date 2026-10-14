@@ -150,7 +150,7 @@ fn semantic_policy_failures_are_single_private_v7_reports_before_discovery() {
         ]);
         assert_eq!(output.status.code(), Some(2), "{selector:?}");
         let report = json_report(&output);
-        assert_eq!(report["schema_version"], 21);
+        assert_eq!(report["schema_version"], 23);
         assert_eq!(report["policy"], Value::Null);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["gate"]["status"], "not-evaluated");
@@ -227,10 +227,24 @@ fn rules_list_publishes_the_shipped_catalog() {
         assert_eq!(entry["tier"], rule.tier.as_str());
         assert_eq!(entry["help"], rule.help);
         assert_eq!(entry["diff_scope"], serde_json::to_value(rule.diff_scope).unwrap());
+        // US-045 and US-038: a title, the check an agent applies before
+        // fixing, and the crates the rule was validated on.
+        assert_eq!(entry["title"], rule.title);
+        assert!(entry["title"].as_str().unwrap().split_whitespace().count() <= 8);
+        assert_eq!(entry["not_a_defect_when"], rule.not_a_defect_when);
+        assert!(!rule.not_a_defect_when.is_empty());
+        assert_eq!(entry["requires"], serde_json::to_value(rule.requires).unwrap());
         // Every catalogued rule ships at warn: an error by default would be a
         // policy the reader never chose.
         assert_eq!(entry["default_level"], "warn");
     }
+
+    let tls = entries
+        .iter()
+        .find(|entry| entry["id"] == "rust_doctor::source::disabled_tls_verification")
+        .unwrap();
+    assert!(tls["not_a_defect_when"].as_str().unwrap().contains("self-signed certificate"));
+    assert_eq!(tls["requires"], serde_json::json!([{ "crate": "reqwest", "versions": "*" }]));
 
     // US-004: the rules whose cause can sit above their site reach their
     // function under `--scope contextual`; the span-less lockfile rules reach
@@ -248,10 +262,17 @@ fn rules_list_publishes_the_shipped_catalog() {
             "clippy::await_holding_lock",
             "clippy::await_holding_refcell_ref",
             "clippy::unused_async",
+            "rust_doctor::source::block_in_place_on_current_thread",
+            "rust_doctor::source::block_on_in_async",
             "rust_doctor::source::blocking_call_in_async",
+            "rust_doctor::source::disabled_jwt_validation",
             "rust_doctor::source::disabled_tls_verification",
             "rust_doctor::source::dynamic_shell_command",
+            "rust_doctor::source::insecure_auth_cookie",
+            "rust_doctor::source::permissive_cors",
+            "rust_doctor::source::secret_env_fallback",
             "rust_doctor::source::sql_built_from_format",
+            "rust_doctor::source::unchecked_http_status",
         ]
     );
     assert_eq!(
@@ -261,7 +282,7 @@ fn rules_list_publishes_the_shipped_catalog() {
             "rust_doctor::cargo::missing_lockfile",
         ]
     );
-    assert_eq!(reaching("line").len(), entries.len() - 9);
+    assert_eq!(reaching("line").len(), entries.len() - 16);
 
     // A producer is named by the identifier's prefix, and the published field
     // has to agree with it, since the website groups by one and explains the

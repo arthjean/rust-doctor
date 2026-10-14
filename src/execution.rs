@@ -29,6 +29,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+use std::thread;
 
 use cargo_metadata::Metadata;
 
@@ -44,22 +45,29 @@ use crate::scan_target::{self, ResolvedScanTarget};
 use crate::source_kernel::{self, SourceMeasurement, SourceScan};
 use crate::structure::{self, StructureScan};
 use crate::terminal_text::{sanitize, truncate};
+use crate::timings::{Phase, TimingRecorder, timed};
 
 mod baseline;
 mod clippy;
 mod exclusions;
+pub(crate) mod interrupt;
 mod lint_list;
 mod members;
 mod messages;
 mod process;
 mod rustflags;
+mod side_cache;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use baseline::{BaselineExecution, Side, execute as execute_baseline};
+pub(crate) use baseline::{
+    BaseSide, BaselineExecution, Side, execute as execute_baseline, setup as setup_baseline,
+};
+pub use side_cache::CacheOutcome;
+pub(crate) use side_cache::{SideCache, members as side_cache_members};
 pub(crate) use clippy::ClippyExecution;
 pub(crate) use exclusions::ScanExclusions;
-pub(crate) use process::{RunDeadline, run as run_bounded};
+pub(crate) use process::{RunDeadline, run as run_bounded, spawn as spawn_bounded};
 #[cfg(test)]
 pub(crate) use clippy::arguments_for_rules as clippy_arguments_for_rules;
 pub(crate) use messages::{
@@ -200,7 +208,7 @@ pub(crate) struct Toolchain {
 
 #[derive(Debug)]
 pub(crate) struct PreparedInspection {
-    target: ResolvedScanTarget,
+    pub(crate) target: ResolvedScanTarget,
     pub(crate) configuration: WorkspaceConfiguration,
 }
 
@@ -263,6 +271,8 @@ pub(crate) struct RunOptions {
     /// The RustSec database the advisory rules read, `None` when there is
     /// none to read.
     pub(crate) advisory_db: Option<cargo_health::AdvisoryDatabase>,
+    /// Where each phase adds its duration, `None` when nobody asked.
+    pub(crate) timings: Option<TimingRecorder>,
 }
 
 /// Everything one run holds constant, gathered once.
@@ -304,15 +314,21 @@ impl CommandEnvironment {
     }
 }
 
-pub(crate) fn prepare(path: &Path) -> Result<PreparedInspection, Box<ExecutionResult>> {
-    prepare_with(path, &Programs::default())
+pub(crate) fn prepare(
+    path: &Path,
+    options: &RunOptions,
+) -> Result<PreparedInspection, Box<ExecutionResult>> {
+    timed(options.timings.as_ref(), Phase::Metadata, || {
+        prepare_with(path, &Programs::default(), options.deadline)
+    })
 }
 
 fn prepare_with(
     path: &Path,
     programs: &Programs,
+    deadline: Option<RunDeadline>,
 ) -> Result<PreparedInspection, Box<ExecutionResult>> {
-    let target = match scan_target::resolve(path, &programs.cargo) {
+    let target = match scan_target::resolve(path, &programs.cargo, deadline) {
         Ok(target) => target,
         Err(failure) => {
             return Err(Box::new(ExecutionResult::failed(
@@ -363,18 +379,28 @@ pub(crate) fn execute_staged(
 ) -> ExecutionResult {
     let programs = Programs::default();
     let environment = CommandEnvironment::default();
-    let target =
-        match scan_target::resolve_isolated(staged_workspace, &programs.cargo, target_dir, None) {
-            Ok(target) => target,
-            Err(failure) => return prepared.fail(failure.error),
-        };
+    let target = timed(options.timings.as_ref(), Phase::Metadata, || {
+        scan_target::resolve_isolated(
+            staged_workspace,
+            &programs.cargo,
+            target_dir,
+            None,
+            options.deadline,
+        )
+    });
+    let target = match target {
+        Ok(target) => target,
+        Err(failure) => return prepared.fail(failure.error),
+    };
     // Probed where Clippy runs, so a toolchain that rustup picks by directory
     // is the one the report names.
-    let toolchain = match resolve_toolchain(&programs, staged_workspace, &environment) {
-        Ok(toolchain) => toolchain,
+    let lint_list = plan.active_rules(Producer::Clippy).next().is_some();
+    let probed = resolve_toolchain(&programs, staged_workspace, &environment, options, lint_list);
+    let (toolchain, lints) = match probed {
+        Ok(probed) => probed,
         Err(error) => return prepared.fail(error),
     };
-    let declared = generated::declared(prepared.workspace_root());
+    let declared = generated::declared(prepared.workspace_root(), options.deadline);
     let context = ExecutionContext {
         programs: &programs,
         plan,
@@ -383,7 +409,7 @@ pub(crate) fn execute_staged(
         options,
         declared: &declared,
     };
-    context.run(target, toolchain, Some(target_dir))
+    context.run(target, toolchain, lints, Some(target_dir))
 }
 
 /// The same scan, told where Cargo may keep its artifacts.
@@ -401,11 +427,14 @@ fn execute_into(
     options: &RunOptions,
 ) -> ExecutionResult {
     let environment = CommandEnvironment::default();
-    let toolchain = match resolve_toolchain(programs, prepared.workspace_root(), &environment) {
-        Ok(toolchain) => toolchain,
+    let lint_list = plan.active_rules(Producer::Clippy).next().is_some();
+    let probed =
+        resolve_toolchain(programs, prepared.workspace_root(), &environment, options, lint_list);
+    let (toolchain, lints) = match probed {
+        Ok(probed) => probed,
         Err(error) => return prepared.fail(error),
     };
-    let declared = generated::declared(prepared.workspace_root());
+    let declared = generated::declared(prepared.workspace_root(), options.deadline);
     let context = ExecutionContext {
         programs,
         plan,
@@ -414,7 +443,7 @@ fn execute_into(
         options,
         declared: &declared,
     };
-    context.run(prepared.target, toolchain, target_dir)
+    context.run(prepared.target, toolchain, lints, target_dir)
 }
 
 impl ExecutionContext<'_> {
@@ -423,6 +452,7 @@ impl ExecutionContext<'_> {
         &self,
         target: ResolvedScanTarget,
         toolchain: Toolchain,
+        lints: Option<KnownLints>,
         target_dir: Option<&Path>,
     ) -> ExecutionResult {
         let ResolvedScanTarget {
@@ -430,110 +460,54 @@ impl ExecutionContext<'_> {
             metadata,
             ..
         } = target;
-        let source_rules = self.active(Producer::SourceKernel);
-        let structure_rules = self.active(Producer::Structure);
-        let dependency_truth = cargo_health::dependency_truth_required(self.plan);
-
-        // The dependency pack reads the resolved graph from disk, so it
-        // produces bounded errors like the source kernel: it runs here, not
-        // during normalization, so that its errors join those of the scan.
-        //
-        // It runs before Clippy: `cargo clippy` creates or rewrites
-        // `Cargo.lock`, so reading it afterwards would measure the graph the
-        // tool just wrote instead of the one the repository commits.
-        let mut cargo_health = self
-            .active(Producer::CargoHealth)
-            .then(|| cargo_health::inspect(&metadata, self.plan, self.options.advisory_db.as_ref()));
-        // The repository pass reads git, not Cargo: it sits in the
-        // manifest-level slot beside the dependency pack, before the
-        // compilation that Clippy triggers, and reads nothing that pass will
-        // rewrite.
-        // A repository is not a member: under `--package` the pass would judge
-        // files the selection never named, so it does not run, and the report
-        // says its rules were not evaluated.
-        let repo = (self.active(Producer::Repo) && self.options.packages.is_none())
-            .then(|| repo_hygiene::inspect(metadata.workspace_root.as_std_path(), self.plan));
-
-        let scan = if self.active(Producer::Clippy) {
-            match clippy::run(self, &metadata, target_dir) {
-                Ok(scan) => ClippyExecution::Finished(scan),
-                // Clippy could not be started, so this result has already
-                // failed and nothing it publishes will be read. The passes
-                // below are skipped here rather than behind an `error.is_none()`
-                // clause further down, which read as a general guard and was
-                // really "Clippy started".
-                Err(error) => {
-                    return ExecutionResult {
-                        toolchain: Some(toolchain),
-                        cargo_health,
-                        repo,
-                        ..ExecutionResult::failed(Some(manifest_path), Some(metadata), error)
-                    };
-                }
-            }
-        } else {
-            ClippyExecution::Disabled
-        };
-
-        // One walk feeds every producer that reads source text. The source
-        // kernel decides per call site, the structural pass decides per family,
-        // the dependency-truth rules read crate references off the same units,
-        // and enumerating the workspace twice for any of them would double the
-        // only expensive part of each.
-        //
-        // It runs whatever the plan asked for, because the walk is also the
-        // measurement: the score divides by the production lines it counts, and
-        // a plan with every native rule off still has a score. What the plan
-        // decides is which detectors are solicited, never whether the workspace
-        // is measured.
-        if let Some(progress) = &self.options.progress {
-            progress.report(Progress::NativePasses);
-        }
-        let mut enumeration = source_kernel::enumerate(&metadata);
-        let packages = self.options.packages.as_ref();
-        // A generated file is left out of the measurement as an ignored one
-        // is: lines nobody writes by hand would otherwise dilute the density
-        // the score divides by.
-        enumeration.narrow(
-            |unit| {
-                let path = unit.relative_path();
-                self.plan.is_ignored(path)
-                    || self.declared.contains(path)
-                    || crate::generated::has_generator_header(unit.source())
-            },
-            packages,
-        );
-        let exclusions = exclusions::gather(&metadata, &enumeration, packages, self.declared);
-        // A pass the deadline has already passed is not started: it is named
-        // at its own stage instead, so the report says what it did not read.
-        let mut deadline_skipped = Vec::new();
-        let mut in_time = |active: bool, stage: &'static str| match self.options.deadline {
-            Some(deadline) if active && deadline.passed() => {
-                deadline_skipped.push((stage, deadline.message()));
-                false
-            }
-            _ => active,
-        };
-        let source = in_time(source_rules, "source")
-            .then(|| source_kernel::inspect(&enumeration, self.plan));
-        let structure = in_time(structure_rules, "structure").then(|| {
-            let cap = self.options.deadline.map(RunDeadline::remaining);
-            structure::analyze(&metadata, &enumeration, self.plan, self.settings, cap)
+        // The manifest-level passes read files nothing else writes before
+        // Clippy, so they run on a thread of their own beside the walk.
+        let ((mut cargo_health, repo), (enumeration, exclusions)) = thread::scope(|scope| {
+            let manifests = scope.spawn(|| self.manifest_passes(&metadata));
+            let walked = self.walk(&metadata);
+            let manifests = manifests
+                .join()
+                .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
+            (manifests, walked)
         });
-        let dependency_truth = in_time(dependency_truth && cargo_health.is_some(), "dependencies");
-        // Both dependency-truth rules belong to the dependency pack, so a
-        // plan that asks for either has already put a scan here to merge
-        // into.
-        if let Some(scan) = cargo_health.as_mut().filter(|_| dependency_truth) {
-            let references = source_kernel::references::collect(&enumeration);
-            cargo_health::inspect_dependency_truth(
-                &metadata,
-                &enumeration,
-                &references,
-                self.plan,
-                scan,
-            );
-        }
+
+        // Clippy compiles on a thread of its own while the native passes read
+        // the walk on this one, so a scan costs the longer of the two rather
+        // than their sum. Neither writes anything the other reads, and the
+        // report sorts what both produced, so the output is the serial one.
+        let (clippy, natives) = thread::scope(|scope| {
+            let clippy = self.active(Producer::Clippy).then(|| {
+                let metadata = &metadata;
+                scope.spawn(move || clippy::run(self, metadata, target_dir, lints))
+            });
+            let natives = self.native_passes(&metadata, &enumeration, cargo_health.as_mut());
+            let clippy = clippy.map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    Err(InternalError::new(
+                        "execution",
+                        "clippy-thread-failed",
+                        "The Clippy pass ended without an answer.",
+                    ))
+                })
+            });
+            (clippy, natives)
+        });
+        let (source, structure, deadline_skipped) = natives;
+        let scan = match clippy {
+            Some(Ok(scan)) => ClippyExecution::from_scan(scan),
+            None => ClippyExecution::Disabled,
+            // Clippy could not be started, so this result has already failed
+            // and nothing the native passes found will be read: the early
+            // return and its stage error are what a serial run published.
+            Some(Err(error)) => {
+                return ExecutionResult {
+                    toolchain: Some(toolchain),
+                    cargo_health,
+                    repo,
+                    ..ExecutionResult::failed(Some(manifest_path), Some(metadata), error)
+                };
+            }
+        };
         // Taken last, once every producer above has read the units.
         let source_measurement = Some(enumeration.into_measurement());
 
@@ -556,38 +530,204 @@ impl ExecutionContext<'_> {
     fn active(&self, producer: Producer) -> bool {
         self.plan.active_rules(producer).next().is_some()
     }
+
+    /// The dependency pack and the repository pass.
+    fn manifest_passes(
+        &self,
+        metadata: &Metadata,
+    ) -> (Option<CargoHealthScan>, Option<RepoScan>) {
+        let timings = self.options.timings.as_ref();
+        // The dependency pack reads the resolved graph from disk, so it
+        // produces bounded errors like the source kernel: it runs here, not
+        // during normalization, so that its errors join those of the scan.
+        //
+        // It runs before Clippy: `cargo clippy` creates or rewrites
+        // `Cargo.lock`, so reading it afterwards would measure the graph the
+        // tool just wrote instead of the one the repository commits.
+        let cargo_health = self.active(Producer::CargoHealth).then(|| {
+            timed(timings, Phase::CargoHealth, || {
+                cargo_health::inspect(metadata, self.plan, self.options.advisory_db.as_ref())
+            })
+        });
+        // The repository pass reads git, not Cargo: it sits in the
+        // manifest-level slot beside the dependency pack, before the
+        // compilation that Clippy triggers, and reads nothing that pass will
+        // rewrite.
+        // A repository is not a member: under `--package` the pass would judge
+        // files the selection never named, so it does not run, and the report
+        // says its rules were not evaluated.
+        let repo = (self.active(Producer::Repo) && self.options.packages.is_none()).then(|| {
+            timed(timings, Phase::Repo, || {
+                repo_hygiene::inspect(
+                    metadata.workspace_root.as_std_path(),
+                    self.plan,
+                    cargo_health::workspace_produces_a_binary(metadata),
+                    self.options.deadline,
+                )
+            })
+        });
+        (cargo_health, repo)
+    }
+
+    /// One walk feeds every producer that reads source text. The source
+    /// kernel decides per call site, the structural pass decides per family,
+    /// the dependency-truth rules read crate references off the same units,
+    /// and enumerating the workspace twice for any of them would double the
+    /// only expensive part of each.
+    ///
+    /// It runs whatever the plan asked for, because the walk is also the
+    /// measurement: the score divides by the production lines it counts, and
+    /// a plan with every native rule off still has a score. What the plan
+    /// decides is which detectors are solicited, never whether the workspace
+    /// is measured.
+    ///
+    /// It runs before Clippy starts, so the tree it measures is the committed
+    /// one: a `build.rs` Clippy runs may write into the workspace.
+    fn walk(&self, metadata: &Metadata) -> (source_kernel::Enumeration, exclusions::ScanExclusions) {
+        if let Some(progress) = &self.options.progress {
+            progress.report(Progress::NativePasses);
+        }
+        let packages = self.options.packages.as_ref();
+        timed(self.options.timings.as_ref(), Phase::Walk, || {
+            let mut enumeration = source_kernel::enumerate(metadata);
+            // A generated file is left out of the measurement as an ignored
+            // one is: lines nobody writes by hand would otherwise dilute the
+            // density the score divides by.
+            enumeration.narrow(
+                |unit| {
+                    let path = unit.relative_path();
+                    self.plan.is_ignored(path)
+                        || self.declared.contains(path)
+                        || crate::generated::has_generator_header(unit.source())
+                },
+                packages,
+            );
+            let exclusions = exclusions::gather(metadata, &enumeration, packages, self.declared);
+            (enumeration, exclusions)
+        })
+    }
+
+    /// The source kernel, the structural pass and the dependency-truth rules,
+    /// over one walk, with the passes the deadline kept from starting.
+    fn native_passes(
+        &self,
+        metadata: &Metadata,
+        enumeration: &source_kernel::Enumeration,
+        cargo_health: Option<&mut CargoHealthScan>,
+    ) -> (Option<SourceScan>, Option<StructureScan>, Vec<(&'static str, String)>) {
+        let timings = self.options.timings.as_ref();
+        // A pass the deadline has already passed is not started: it is named
+        // at its own stage instead, so the report says what it did not read.
+        let mut deadline_skipped = Vec::new();
+        // A pass an interrupted run has not started is not started either:
+        // the report the run publishes names the interruption, not the pass.
+        let mut in_time = |active: bool, stage: &'static str| match self.options.deadline {
+            _ if interrupt::requested() => false,
+            Some(deadline) if active && deadline.passed() => {
+                deadline_skipped.push((stage, deadline.message()));
+                false
+            }
+            _ => active,
+        };
+        let source_in_time = in_time(self.active(Producer::SourceKernel), "source");
+        let structure_in_time = in_time(self.active(Producer::Structure), "structure");
+        let dependency_truth = cargo_health::dependency_truth_required(self.plan);
+        let dependency_truth = in_time(dependency_truth && cargo_health.is_some(), "dependencies");
+        // The structural pass, the longest of the three, reads the walk on a
+        // thread of its own while the other two read it on this one.
+        let (source, structure) = thread::scope(|scope| {
+            let structure = structure_in_time.then(|| {
+                scope.spawn(|| {
+                    let cap = self.options.deadline.map(RunDeadline::remaining);
+                    timed(timings, Phase::Structure, || {
+                        structure::analyze(metadata, enumeration, self.plan, self.settings, cap)
+                    })
+                })
+            });
+            let source = source_in_time.then(|| {
+                timed(timings, Phase::SourceKernel, || {
+                    source_kernel::inspect(enumeration, self.plan)
+                })
+            });
+            // Both dependency-truth rules belong to the dependency pack, so a
+            // plan that asks for either has already put a scan here to merge
+            // into.
+            if let Some(scan) = cargo_health.filter(|_| dependency_truth) {
+                timed(timings, Phase::CargoHealth, || {
+                    let references = source_kernel::references::collect(enumeration);
+                    cargo_health::inspect_dependency_truth(
+                        metadata,
+                        enumeration,
+                        &references,
+                        self.plan,
+                        scan,
+                    );
+                });
+            }
+            let structure = structure.map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+            });
+            (source, structure)
+        });
+        (source, structure, deadline_skipped)
+    }
 }
 
+/// What the installed Clippy lists, or the notice saying it could not be
+/// asked.
+pub(crate) type KnownLints = Result<BTreeSet<String>, InternalError>;
+
+/// The three versions, and the lint list when `lint_list` asks for it, probed
+/// concurrently: four short-lived processes cost the slowest of them.
 fn resolve_toolchain(
     programs: &Programs,
     workspace_root: &Path,
     environment: &CommandEnvironment,
-) -> Result<Toolchain, InternalError> {
-    let cargo = tool_version(
-        &programs.cargo,
-        &["--version"],
-        workspace_root,
-        CARGO_PROBE,
-        environment,
-    )?;
-    let rustc = tool_version(
-        &programs.rustc,
-        &["--version"],
-        workspace_root,
-        RUSTC_PROBE,
-        environment,
-    )?;
-    let clippy = tool_version(
-        &programs.cargo,
-        &["clippy", "--version"],
-        workspace_root,
-        CLIPPY_PROBE,
-        environment,
-    )?;
-    Ok(Toolchain {
-        cargo,
-        rustc,
-        clippy,
+    options: &RunOptions,
+    lint_list: bool,
+) -> Result<(Toolchain, Option<KnownLints>), InternalError> {
+    let timings = options.timings.as_ref();
+    let deadline = options.deadline;
+    timed(timings, Phase::Probes, || {
+        thread::scope(|scope| {
+            let lints = lint_list.then(|| {
+                scope.spawn(move || {
+                    timed(timings, Phase::LintList, || {
+                        lint_list::probe(
+                            &programs.clippy_driver,
+                            workspace_root,
+                            environment,
+                            deadline,
+                        )
+                    })
+                })
+            });
+            let probe = move |program: &Path, arguments: &[&str], probe: Probe| {
+                tool_version(program, arguments, workspace_root, probe, environment, deadline)
+                    .map_err(Some)
+            };
+            let rustc = scope.spawn(move || probe(&programs.rustc, &["--version"], RUSTC_PROBE));
+            let clippy = scope
+                .spawn(move || probe(&programs.cargo, &["clippy", "--version"], CLIPPY_PROBE));
+            let cargo = probe(&programs.cargo, &["--version"], CARGO_PROBE);
+            let rustc = rustc.join().unwrap_or(Err(None));
+            let clippy = clippy.join().unwrap_or(Err(None));
+            let lints = lints.map(|lints| lints.join().unwrap_or_else(|_| Err(lint_list::unavailable())));
+            // The first failure in the order a serial run met them.
+            let failed = |probe: Probe| {
+                move |error: Option<InternalError>| {
+                    error.unwrap_or_else(|| probe.failure(format!("{} probe ended without an answer", probe.label)))
+                }
+            };
+            let toolchain = Toolchain {
+                cargo: cargo.map_err(failed(CARGO_PROBE))?,
+                rustc: rustc.map_err(failed(RUSTC_PROBE))?,
+                clippy: clippy.map_err(failed(CLIPPY_PROBE))?,
+            };
+            Ok((toolchain, lints))
+        })
     })
 }
 
@@ -648,10 +788,22 @@ fn tool_version(
     working_directory: &Path,
     probe: Probe,
     environment: &CommandEnvironment,
+    deadline: Option<RunDeadline>,
 ) -> Result<String, InternalError> {
-    let output = run_probe(program, arguments, working_directory, environment).map_err(|error| {
-        probe.failure(format!("{} could not be started: {error}", probe.label))
-    })?;
+    // The nearer of the probe's own ten seconds and the run's deadline: a
+    // toolchain that hangs never carries the scan past `--max-duration`.
+    let (bound, run_bound) = RunDeadline::capped(lint_list::PROBE_TIMEOUT, deadline);
+    let output = run_probe(program, arguments, working_directory, environment, bound)
+        .map_err(|error| {
+            probe.failure(format!("{} could not be started: {error}", probe.label))
+        })?;
+    if output.expired && run_bound {
+        return Err(InternalError::new(
+            "toolchain",
+            crate::report::DEADLINE_EXCEEDED,
+            bound.message(),
+        ));
+    }
     if output.expired {
         return Err(InternalError::new(
             "toolchain",
@@ -696,7 +848,7 @@ struct ProbeOutput {
     /// The version itself did not fit the budget, so what was kept is a prefix
     /// of one rather than a version.
     truncated: bool,
-    /// The probe did not answer within its ten seconds and was killed.
+    /// The probe did not answer within its bound and was killed.
     expired: bool,
 }
 
@@ -713,10 +865,11 @@ fn run_probe(
     arguments: &[&str],
     working_directory: &Path,
     environment: &CommandEnvironment,
+    deadline: RunDeadline,
 ) -> io::Result<ProbeOutput> {
     let finished = process::run(
         version_command(program, arguments, working_directory, environment),
-        Some(RunDeadline::starting_now(lint_list::PROBE_TIMEOUT)),
+        Some(deadline),
         |stream| collect_bounded(stream, PROBE_OUTPUT_LIMIT),
     )?;
     let status = finished.status?;

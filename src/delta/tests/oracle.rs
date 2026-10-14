@@ -176,9 +176,11 @@ fn unproven_case(index: usize, scenario: &mut Scenario) -> String {
     }
 }
 
-/// One member of the identity changed, which has to read as a different
-/// finding. Case 23 shares a long prefix on purpose, since a prefix is what a
-/// cheap comparison would stop at.
+/// One member of the identity changed. A changed rule or source is a
+/// different finding; a changed excerpt or message at the same place and rule
+/// is the same finding edited, which the count pass pairs. Case 23 shares a
+/// long prefix on purpose, since a prefix is what a cheap comparison would
+/// stop at.
 fn changed_case(index: usize, scenario: &mut Scenario) -> String {
     match index {
         20..=23 => {

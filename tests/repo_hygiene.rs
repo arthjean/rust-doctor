@@ -22,6 +22,8 @@ mod support;
 const SECRET_FILE: &str = "rust_doctor::repo::tracked_secret_file";
 const CREDENTIAL: &str = "rust_doctor::repo::hardcoded_credential";
 const BUILD_OUTPUT: &str = "rust_doctor::repo::unignored_build_output";
+const IGNORED_LOCKFILE: &str = "rust_doctor::repo::ignored_lockfile";
+const BUILD_STEP: &str = "rust_doctor::repo::secret_in_build_step";
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
@@ -475,4 +477,79 @@ fn only_a_committed_key_or_deployed_password_is_a_credential() {
     let stdout = String::from_utf8_lossy(&linear.stdout);
     assert!(stdout.contains(CREDENTIAL), "{stdout}");
     assert!(!stdout.contains(&body) && !stdout.contains(password), "{stdout}");
+}
+
+/// US-043: a binary's lockfile that exists, is untracked and is ignored is
+/// reported at its path; a library's is not, since only a binary has to
+/// commit it.
+#[test]
+fn an_ignored_lockfile_is_reported_for_a_binary_only() {
+    let root = workspace("repo-hygiene-ignored-lockfile");
+    fs::write(root.join(".gitignore"), "/target\nCargo.lock\n").unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    commit_all(&root);
+    let report = report(&root);
+    let observed = diagnostics_of(&report, IGNORED_LOCKFILE);
+    assert_eq!(observed.len(), 1, "{report}");
+    assert_eq!(observed[0]["path"], "Cargo.lock");
+    assert_eq!(observed[0]["category"], "dependencies");
+
+    let library = workspace("repo-hygiene-ignored-lockfile-library");
+    fs::write(library.join(".gitignore"), "/target\nCargo.lock\n").unwrap();
+    commit_all(&library);
+    assert!(diagnostics_of(&self::report(&library), IGNORED_LOCKFILE).is_empty());
+}
+
+/// US-043: a tracked Cargo credentials file is a secret file when it holds a
+/// registry token, and its token never reaches the report; an empty template
+/// stays silent.
+#[test]
+fn a_tracked_cargo_credentials_file_with_a_token_is_a_secret_file() {
+    let root = workspace("repo-hygiene-cargo-credentials");
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    fs::create_dir_all(root.join(".cargo")).unwrap();
+    fs::write(root.join(".cargo/credentials.toml"), "[registry]\ntoken = \"placeholder-registry-value\"\n").unwrap();
+    fs::create_dir_all(root.join("member/.cargo")).unwrap();
+    fs::write(root.join("member/.cargo/credentials"), "[registry]\ntoken = \"\"\n").unwrap();
+    commit_all(&root);
+    let report = report(&root);
+    let paths: Vec<&str> = diagnostics_of(&report, SECRET_FILE)
+        .iter()
+        .filter_map(|finding| finding["path"].as_str())
+        .collect();
+    assert_eq!(paths, [".cargo/credentials.toml"], "{report}");
+    assert!(!report.to_string().contains("placeholder-registry-value"));
+}
+
+/// US-044: a workflow step that compiles with a registry token in its env is
+/// reported at the line that runs cargo, naming the scope and the variable;
+/// verifying without the token and publishing with `--no-verify` is silent.
+#[test]
+fn a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line() {
+    const WORKFLOW: &str = "name: release\non: push\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: Publish\n        env:\n          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}\n        run: cargo publish --locked\n";
+    let root = workspace("repo-hygiene-build-step");
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    fs::write(root.join(".github/workflows/release.yml"), WORKFLOW).unwrap();
+    commit_all(&root);
+    let report = report(&root);
+    let observed = diagnostics_of(&report, BUILD_STEP);
+    assert_eq!(observed.len(), 1, "{report}");
+    assert_eq!(observed[0]["path"], ".github/workflows/release.yml");
+    assert_eq!(observed[0]["span"]["line_start"], 11);
+    let message = observed[0]["message"].as_str().unwrap();
+    assert!(message.contains("step") && message.contains("CARGO_REGISTRY_TOKEN"), "{message}");
+    assert!(!report.to_string().contains("CRATES_IO_TOKEN"));
+
+    let fixed = workspace("repo-hygiene-build-step-fixed");
+    fs::write(fixed.join(".gitignore"), "/target\n").unwrap();
+    fs::create_dir_all(fixed.join(".github/workflows")).unwrap();
+    fs::write(
+        fixed.join(".github/workflows/release.yml"),
+        WORKFLOW.replace("      - name: Publish\n", "      - run: cargo publish --locked --dry-run\n      - name: Publish\n")
+            .replace("run: cargo publish --locked\n", "run: cargo publish --locked --no-verify\n"),
+    )
+    .unwrap();
+    commit_all(&fixed);
+    assert!(diagnostics_of(&self::report(&fixed), BUILD_STEP).is_empty());
 }

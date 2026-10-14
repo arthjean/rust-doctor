@@ -592,6 +592,16 @@
       "test": "tests/repo_hygiene.rs::hardcoded_credentials_are_reported_by_pattern_name_without_the_value"
     },
     {
+      "catches": "a binary's Cargo.lock that exists, is untracked and is ignored by git",
+      "id": "rust_doctor::repo::ignored_lockfile",
+      "test": "tests/repo_hygiene.rs::an_ignored_lockfile_is_reported_for_a_binary_only"
+    },
+    {
+      "catches": "a GitHub Actions step that compiles the workspace while a secret is in its step, job or workflow env",
+      "id": "rust_doctor::repo::secret_in_build_step",
+      "test": "tests/repo_hygiene.rs::a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line"
+    },
+    {
       "catches": "a git-tracked file whose name marks it as secret-bearing",
       "id": "rust_doctor::repo::tracked_secret_file",
       "test": "tests/repo_hygiene.rs::a_tracked_secret_file_is_reported_and_caps_the_security_dimension"
@@ -602,9 +612,27 @@
       "test": "tests/repo_hygiene.rs::a_missing_gitignore_reports_the_unignored_target_directory"
     },
     {
+      "catches": "tokio::task::block_in_place in a function running on a current-thread runtime, where tokio documents that it panics",
+      "id": "rust_doctor::source::block_in_place_on_current_thread",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/tokio/1/tokio/task/fn.block_in_place.html"
+    },
+    {
+      "catches": "a tokio Runtime or Handle block_on, or futures::executor::block_on, called inside async code",
+      "id": "rust_doctor::source::block_on_in_async",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/tokio/1/tokio/runtime/struct.Runtime.html#method.block_on"
+    },
+    {
       "catches": "a blocking std, reqwest::blocking or process call made directly inside async code",
       "id": "rust_doctor::source::blocking_call_in_async",
       "oracle": "source-kernel/native-families/oracle.json"
+    },
+    {
+      "catches": "jsonwebtoken signature validation turned off, or a token decoded without it",
+      "id": "rust_doctor::source::disabled_jwt_validation",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/jsonwebtoken/9/jsonwebtoken/struct.Validation.html#method.insecure_disable_signature_validation"
     },
     {
       "catches": "a client builder that turns certificate or hostname verification off",
@@ -617,9 +645,32 @@
       "oracle": "source-kernel/precision/oracle.json"
     },
     {
+      "catches": "http_only(false) on a cookie whose literal name marks it as a session or auth cookie",
+      "id": "rust_doctor::source::insecure_auth_cookie",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/cookie/0.18/cookie/struct.CookieBuilder.html#method.http_only"
+    },
+    {
+      "catches": "a CORS layer that accepts any origin with credentials, or a permissive constructor that does",
+      "id": "rust_doctor::source::permissive_cors",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/tower-http/0.6/tower_http/cors/struct.CorsLayer.html#method.very_permissive"
+    },
+    {
+      "catches": "a secret-named environment variable that falls back to a literal or an empty value",
+      "id": "rust_doctor::source::secret_env_fallback",
+      "oracle": "source-kernel/native-families/oracle.json"
+    },
+    {
       "catches": "SQL text assembled with format!, + or push_str from a runtime value and handed to a query call",
       "id": "rust_doctor::source::sql_built_from_format",
       "oracle": "source-kernel/native-families/oracle.json"
+    },
+    {
+      "catches": "a reqwest response body read when no link of its chain checks the HTTP status",
+      "id": "rust_doctor::source::unchecked_http_status",
+      "oracle": "source-kernel/native-families/oracle.json",
+      "reference": "https://docs.rs/reqwest/0.12/reqwest/struct.Response.html#method.error_for_status"
     },
     {
       "catches": "a function whose cyclomatic or cognitive complexity crosses its configured threshold",

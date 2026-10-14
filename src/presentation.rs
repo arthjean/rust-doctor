@@ -21,6 +21,12 @@ pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
     crate::policy::find(rule_id).map(|definition| definition.help)
 }
 
+/// When a finding of a catalogued rule is not a defect: the check an agent
+/// applies before editing the code.
+pub fn canonical_not_a_defect(rule_id: &str) -> Option<&'static str> {
+    crate::policy::find(rule_id).map(|definition| definition.not_a_defect_when)
+}
+
 const RULE_BASE_URL: &str = "https://rust-doctor.com/rules/";
 
 /// The page rust-doctor.com publishes for a rule, with the id encoded as one
@@ -141,6 +147,13 @@ impl DiagnosticGroup {
 }
 
 impl GroupDiagnostic {
+    /// What a printed site of this diagnostic says after its location when it
+    /// sits outside production code: `tests, not scored`.
+    pub fn site_note(&self) -> Option<String> {
+        self.context
+            .map(|context| format!("{}, not scored", context.label()))
+    }
+
     pub fn location(&self) -> Option<GroupLocation> {
         self.path
             .as_ref()
@@ -149,6 +162,47 @@ impl GroupDiagnostic {
                 path: path.clone(),
                 span: span.clone(),
             })
+    }
+}
+
+/// What both reports say of a scan that did not complete: that no issue was
+/// detected but which stages did not complete, when it found nothing, so
+/// "No issues found." never closes a scan that did not finish; which stages
+/// left the results incomplete otherwise. A notice, which narrows a check
+/// rather than failing it, names no stage.
+pub fn incomplete_message(report: &InspectReport) -> Option<String> {
+    if report.status == crate::Status::Complete {
+        return None;
+    }
+    let mut stages: Vec<&str> = report
+        .errors
+        .iter()
+        .filter(|error| crate::audit::ScoreReason::of_error(&error.code).is_some())
+        .map(|error| error.stage.as_str())
+        .collect();
+    stages.sort_unstable();
+    stages.dedup();
+    let named = match stages.as_slice() {
+        [] => None,
+        [stage] => Some(format!("{stage} checks")),
+        [rest @ .., last] => Some(format!("{} and {last} checks", rest.join(", "))),
+    };
+    Some(match (report.diagnostics.is_empty(), named) {
+        (true, named) => format!(
+            "No issues detected, but {} did not complete.",
+            named.as_deref().unwrap_or("the scan")
+        ),
+        (false, Some(named)) => format!("{named} did not complete: results are incomplete."),
+        (false, None) => "The scan did not complete: results are incomplete.".to_owned(),
+    })
+}
+
+/// Why a report carries no score, as both reports print it.
+pub fn no_score_message(report: &InspectReport) -> &'static str {
+    if report.audit.source_files > 0 && report.audit.production_lines == 0 {
+        "Score unavailable: only tests, benches, examples or build scripts were found."
+    } else {
+        "Score unavailable: no Rust files were analyzed."
     }
 }
 
@@ -432,6 +486,8 @@ mod tests {
                 status: GateStatus::Passed,
                 blocking_diagnostics: Some(0),
             },
+            timings: None,
+            base_side_cache: None,
         }
     }
 
@@ -664,6 +720,7 @@ mod tests {
                 pre_existing: 5,
                 fixed: 0,
                 cross_file_matches: 0,
+                rule_count_matches: 0,
             },
         });
 

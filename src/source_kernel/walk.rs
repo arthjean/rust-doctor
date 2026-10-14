@@ -201,6 +201,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         excluded: BTreeSet::new(),
         selected: None,
         incomplete_trees: refusals.incomplete,
+        versions: Some(super::gates::dependency_versions(metadata)),
     }
 }
 

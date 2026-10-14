@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use super::{ExecutionContext, RunDeadline, process};
+use super::{CommandEnvironment, RunDeadline, process};
 use crate::bounded_read::collect_bounded;
 use crate::internal_error::InternalError;
 use crate::policy::lint_table;
@@ -28,18 +28,17 @@ const TABLE_LIMIT: usize = 4 * 1024 * 1024;
 /// could not be asked. The notice never voids the score: the scan then passes
 /// every `-W` with `unknown_lints` allowed.
 pub(super) fn probe(
-    context: &ExecutionContext<'_>,
+    clippy_driver: &Path,
     workspace_root: &Path,
+    environment: &CommandEnvironment,
+    run: Option<RunDeadline>,
 ) -> Result<BTreeSet<String>, InternalError> {
-    let mut command = Command::new(&context.programs.clippy_driver);
+    let mut command = Command::new(clippy_driver);
     command.args(["-W", "help"]).current_dir(workspace_root);
-    context.environment.apply(&mut command);
+    environment.apply(&mut command);
     // The run's own deadline wins when it is the nearer one: the probe never
     // carries the scan past `--max-duration`.
-    let deadline = match context.options.deadline {
-        Some(run) if run.remaining() < PROBE_TIMEOUT => run,
-        _ => RunDeadline::starting_now(PROBE_TIMEOUT),
-    };
+    let (deadline, _) = RunDeadline::capped(PROBE_TIMEOUT, run);
     let finished = process::run(
         command,
         Some(deadline),
@@ -63,12 +62,14 @@ pub(super) fn probe(
     let names = table
         .map(|output| lint_table::lint_names(&String::from_utf8_lossy(&output.bytes)))
         .filter(|names| !names.is_empty());
-    names.ok_or_else(|| {
-        InternalError::new(
-            "toolchain",
-            "lint-list-unavailable",
-            "The installed Clippy did not list its lints, so every catalogued rule was \
-             passed with unknown lints allowed.",
-        )
-    })
+    names.ok_or_else(unavailable)
+}
+
+pub(super) fn unavailable() -> InternalError {
+    InternalError::new(
+        "toolchain",
+        "lint-list-unavailable",
+        "The installed Clippy did not list its lints, so every catalogued rule was \
+         passed with unknown lints allowed.",
+    )
 }

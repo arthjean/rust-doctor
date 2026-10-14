@@ -718,6 +718,18 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::repo::ignored_lockfile",
+        "category": "dependencies",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::repo::secret_in_build_step",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::repo::tracked_secret_file",
         "category": "security",
         "level": "warn",
@@ -730,8 +742,26 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::source::block_in_place_on_current_thread",
+        "category": "correctness",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::block_on_in_async",
+        "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::source::blocking_call_in_async",
         "category": "reliability",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::disabled_jwt_validation",
+        "category": "security",
         "level": "warn",
         "source": "default"
       },
@@ -748,8 +778,32 @@
         "source": "default"
       },
       {
+        "id": "rust_doctor::source::insecure_auth_cookie",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::permissive_cors",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::secret_env_fallback",
+        "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
         "id": "rust_doctor::source::sql_built_from_format",
         "category": "security",
+        "level": "warn",
+        "source": "default"
+      },
+      {
+        "id": "rust_doctor::source::unchecked_http_status",
+        "category": "reliability",
         "level": "warn",
         "source": "default"
       },

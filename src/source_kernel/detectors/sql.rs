@@ -27,18 +27,21 @@ pub(in crate::source_kernel) static SQL_CALL: Detector = Detector {
     definition: &SOURCE_SQL_FROM_FORMAT,
     node: SyntaxKind::CALL_EXPR,
     inspect: sql_call,
+    crates: &["sqlx", "diesel", "sea_orm"],
 };
 
 pub(in crate::source_kernel) static SQL_METHOD: Detector = Detector {
     definition: &SOURCE_SQL_FROM_FORMAT,
     node: SyntaxKind::METHOD_CALL_EXPR,
     inspect: sql_method,
+    crates: &["sqlx", "rusqlite", "postgres", "tokio_postgres"],
 };
 
 #[cfg(test)]
 pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants {
     rule: SOURCE_SQL_FROM_FORMAT.id,
     positive: super::Case {
+        attributes: "",
         asynchronous: false,
         import: "rusqlite::Connection",
         parameters: "$name: &str",
@@ -47,6 +50,7 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
         chain: ".execute(&format!(\"DELETE FROM users WHERE name = '{$name}'\"), ())",
     },
     negative: super::Case {
+        attributes: "",
         asynchronous: false,
         import: "rusqlite::Connection",
         parameters: "$name: &str",

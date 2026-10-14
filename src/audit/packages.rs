@@ -19,6 +19,10 @@ pub struct PackageAudit {
     pub source_files: usize,
     pub production_lines: usize,
     pub score: Option<AuditScore>,
+    /// Clippy never linted this member, so it carries no score: its silence
+    /// would read as clean. Absent when the member was linted.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unlinted: bool,
     /// Carried for a narrower scope to rebuild from, never published.
     #[serde(skip)]
     inventory_is_complete: bool,
@@ -26,7 +30,8 @@ pub struct PackageAudit {
 
 impl PackageAudit {
     pub(super) fn is_valid(&self) -> bool {
-        is_scorable_workspace(self.source_files, self.production_lines) == self.score.is_some()
+        (is_scorable_workspace(self.source_files, self.production_lines) && !self.unlinted)
+            == self.score.is_some()
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
     }
 
@@ -39,9 +44,11 @@ impl PackageAudit {
     }
 }
 
-/// Scores every member over its own findings.
+/// Scores every member over its own findings, except the ones Clippy never
+/// linted.
 pub(super) fn score(
     members: impl IntoIterator<Item = (String, SourceFileInventory)>,
+    unlinted: &BTreeSet<String>,
     status: Status,
     reasons: &BTreeSet<ScoreReason>,
     diagnostics: &[Diagnostic],
@@ -57,11 +64,13 @@ pub(super) fn score(
         .map(|(name, inventory)| {
             let own = owned.get(name.as_str()).map_or(&[][..], Vec::as_slice);
             let audit = Audit::build_with_inventory(inventory, status, reasons.clone(), own);
+            let unlinted = unlinted.contains(&name);
             PackageAudit {
                 name,
                 source_files: inventory.files,
                 production_lines: inventory.production_lines,
-                score: audit.score,
+                score: audit.score.filter(|_| !unlinted),
+                unlinted,
                 inventory_is_complete: inventory.complete,
             }
         })
@@ -79,6 +88,11 @@ pub(super) fn rescore(
         packages
             .iter()
             .map(|package| (package.name.clone(), package.inventory())),
+        &packages
+            .iter()
+            .filter(|package| package.unlinted)
+            .map(|package| package.name.clone())
+            .collect(),
         status,
         reasons,
         diagnostics,
@@ -131,16 +145,18 @@ mod tests {
         let audit = Audit::build_from_inventory(
             inventory,
             members(),
+            &BTreeSet::new(),
             Status::Complete,
             BTreeSet::new(),
             &diagnostics,
         );
         assert_eq!(audit.packages.len(), 2);
         let (alpha, beta) = (&audit.packages[0], &audit.packages[1]);
-        let clean = Audit::build_from_inventory(inventory, members(), Status::Complete, BTreeSet::new(), &[]);
+        let clean = Audit::build_from_inventory(inventory, members(), &BTreeSet::new(), Status::Complete, BTreeSet::new(), &[]);
         let one = Audit::build_from_inventory(
             inventory,
             members(),
+            &BTreeSet::new(),
             Status::Complete,
             BTreeSet::new(),
             &diagnostics[..1],

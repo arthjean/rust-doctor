@@ -24,12 +24,14 @@ pub(in crate::source_kernel) static DYNAMIC_SHELL: Detector = Detector {
     definition: &SOURCE_DYNAMIC_SHELL,
     node: SyntaxKind::METHOD_CALL_EXPR,
     inspect: dynamic_shell,
+    crates: &[],
 };
 
 pub(in crate::source_kernel) static TAINTED_PROGRAM: Detector = Detector {
     definition: &SOURCE_DYNAMIC_SHELL,
     node: SyntaxKind::CALL_EXPR,
     inspect: tainted_program,
+    crates: &[],
 };
 
 static COMMAND: Item = Item {
@@ -64,6 +66,7 @@ const POWERSHELL_FLAGS: &[&str] = &["-Command", "-c"];
 pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants {
     rule: SOURCE_DYNAMIC_SHELL.id,
     positive: super::Case {
+        attributes: "",
         asynchronous: false,
         import: "std::process::Command",
         parameters: "$user: &str",
@@ -72,6 +75,7 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
         chain: ".arg(\"-c\").arg(format!(\"echo {$user}\"))",
     },
     negative: super::Case {
+        attributes: "",
         asynchronous: false,
         import: "std::process::Command",
         parameters: "$user: &str",

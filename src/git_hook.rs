@@ -90,6 +90,7 @@ fn query(workspace: &Path, operation: &[&str]) -> Option<String> {
             failure: REFUSED,
             overflow: OUTPUT_TOO_LARGE,
         },
+        None,
     )
     .ok()?;
     let answer = String::from_utf8(answer).ok()?;

@@ -21,7 +21,12 @@ pub(super) enum CatalogError {
     InvalidProducer,
     InvalidTier,
     TierOutsideCategoryWindow,
+    TitleTooLong,
+    InvalidGate,
 }
+
+/// The most words a title may hold: a headline, not a sentence.
+const TITLE_WORDS: usize = 8;
 
 /// Severity window each category admits, from its worst admissible tier to its
 /// mildest. The category bounds how bad the defect can be: a maintainability
@@ -65,8 +70,22 @@ fn inventory(catalog: &[&RuleDefinition]) -> Result<(), CatalogError> {
 /// category, produced by the pass its identifier claims, and graded inside the
 /// window its category admits.
 fn admissible(definition: &RuleDefinition) -> Result<(), CatalogError> {
-    if definition.id.is_empty() || definition.category.is_empty() || definition.help.is_empty() {
+    if definition.id.is_empty()
+        || definition.category.is_empty()
+        || definition.help.is_empty()
+        || definition.title.trim().is_empty()
+        || definition.not_a_defect_when.trim().is_empty()
+    {
         return Err(CatalogError::EmptyMetadata);
+    }
+    if definition.title.split_whitespace().count() > TITLE_WORDS {
+        return Err(CatalogError::TitleTooLong);
+    }
+    if definition.requires.iter().any(|gate| {
+        gate.krate.is_empty()
+            || cargo_metadata::semver::VersionReq::parse(gate.versions).is_err()
+    }) {
+        return Err(CatalogError::InvalidGate);
     }
     if CATEGORIES.binary_search(&definition.category).is_err() {
         return Err(CatalogError::UnknownCategory);

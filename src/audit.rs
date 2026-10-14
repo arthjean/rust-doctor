@@ -304,12 +304,14 @@ impl Audit {
     pub(crate) fn build_from_inventory(
         inventory: SourceFileInventory,
         members: Vec<(String, SourceFileInventory)>,
+        unlinted: &BTreeSet<String>,
         status: Status,
         stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
     ) -> Self {
         let mut audit = Self::build_with_inventory(inventory, status, stage_reasons, diagnostics);
-        audit.packages = packages::score(members, status, &audit.stage_reasons, diagnostics);
+        audit.packages =
+            packages::score(members, unlinted, status, &audit.stage_reasons, diagnostics);
         audit
     }
 

@@ -28,7 +28,8 @@ scope's `base_ref`, `staged` and `untracked_unreported`, v19 the policy's
 `ignore` and `overrides`, the audit's `packages`, the report's `suppressions`,
 and the scan's `ignored` and `excluded_generated`, v20 the scan's
 `advisory_db`, v21 the scope `mode` `contextual` and the discovery error
-`ambiguous-workspace`. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
+`ambiguous-workspace`, v22 `timings`, a package's `unlinted`, the delta's
+`rule_count_matches` and the codes `interrupted` and `line-map-unavailable`, v23 the `not_evaluated` reasons `crate-absent` and `crate-version-unsupported`, which leave the score its authority. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
 reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
@@ -134,8 +135,11 @@ dimension the module used to pay for and never reach: an optional constructor,
 a `drawn` flag threaded back through two modules, and a second single-line
 renderer whose bar truncated where the shared `bar_fill` rounds up. The two
 questions the geometry answers are now separate: `right_column_width` is total,
-`bar_width` is the one that says whether the block fits, and only the
-interactive report, which really does draw at forty columns, reads the second.
+`bar_width` is the one that says whether the block fits. `MIN_WIDTH` is 40:
+the width is the live terminal size, then `COLUMNS`, then 80, and a narrower
+pane clamps at 40 rather than at 80, which left every split pane wrapping
+twice. A branding row too narrow for its URL drops the URL instead of cutting
+it, since a cut link opens nothing.
 
 One frame builder. A frame is the four rows composed under one `Palette`, and
 the palette is the only thing separating the counting frames from the scrolling
@@ -144,7 +148,11 @@ same loop, two of them identical but for a bolted-in `index == 1`, and the
 frozen frame was computed once in each of the two paths that show it.
 
 One view, not two booleans. `GroupView` says whether the report is drawing the
-worst group with its first location or every group with every location. It used
+worst group with its first location or every group with every location.
+Without `--verbose`, `render/summary.rs` frames the worst scored group and
+gives every other one a row, severity, title, occurrences, rule id and first
+site, up to twenty and an overflow line: the default view used to show the
+worst group alone, so a commit blocked by three rules named one. It used
 to be `top: bool, all_locations: bool`, four combinations for the two that
 exist, and a call site read `(.., true, false)`; the limit that pair encoded was
 applied through a `Box<dyn Iterator>` allocated to choose between `iter()` and
@@ -189,6 +197,22 @@ to it: they carry an `impl App` each because one block holding both reached 535
 lines, over the five hundred `oversized_unit` reports an impl at, and
 `the_interactive_report_holds_the_size_bound_the_report_reports_for` is what
 keeps every file of the module under the bound it prints.
+
+A handoff that cannot be delivered is never lost: when no clipboard command
+takes the prompt, or the agent cannot be found or started, the reason goes to
+stderr and the prompt, the payload `PromptBuilder` already sanitized and
+bounded, prints on stdout between two `---- Agent prompt ----` rulers. An agent
+that launched and then exited non-zero is not a failure: the process keeps the
+scan's exit code.
+
+The exit status is one table, `EXIT_STATUS` in `main.rs`, printed by
+`--help` and by the skill alike: 0 when the gate passes, 1 when it fails or
+the scan is incomplete, 2 for a run that could not judge, 130 on a signal.
+`--warning-exit-code <3..=125>` gives a passing run that still carries a
+warning its own code, `InspectReport::exit_code_with_warning`, so CI can tell
+"clean" from "warned" without parsing JSON; the action passes it through on
+pull requests only. A site in test code is labeled "(tests, not scored)"
+in both reports, and an unscored report says why in place of the score.
 
 Two things the two reports share rather than each transposing. `score_block` is
 the score block's model: the faces, the label a score carries, how a value

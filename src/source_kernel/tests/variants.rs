@@ -60,7 +60,20 @@ const NUMERIC_PARAMETER: &str = "numeric-parameter";
 const ADVISORY: [&str; 2] = ["inside-macro", "crate-relative-import"];
 
 /// The crates the cases import from, each under its own name.
-const CRATES: [&str; 7] = ["diesel", "futures", "reqwest", "rusqlite", "sea_orm", "sqlx", "tokio"];
+const CRATES: [&str; 12] = [
+    "actix_cors",
+    "cookie",
+    "diesel",
+    "futures",
+    "http",
+    "jsonwebtoken",
+    "reqwest",
+    "rusqlite",
+    "sea_orm",
+    "sqlx",
+    "tokio",
+    "tower_http",
+];
 
 /// One case under one rewrite, as the text of a whole unit.
 fn render(case: &Case, rewrite: &str) -> String {
@@ -93,6 +106,11 @@ fn render(case: &Case, rewrite: &str) -> String {
         statements
     };
     let asynchronous = if case.asynchronous { "async " } else { "" };
+    let attributes = if case.attributes.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", case.attributes)
+    };
     let parameters = if rewrite == NUMERIC_PARAMETER {
         numeric(case.parameters)
     } else {
@@ -101,10 +119,10 @@ fn render(case: &Case, rewrite: &str) -> String {
     let function = if rewrite == "through-helper" {
         let arguments = names(&parameters);
         format!(
-            "{import}\nfn helper({parameters}) {{\n{body}\n}}\n{asynchronous}fn case({parameters}) {{\nhelper({arguments});\n}}\n"
+            "{import}\nfn helper({parameters}) {{\n{body}\n}}\n{attributes}{asynchronous}fn case({parameters}) {{\nhelper({arguments});\n}}\n"
         )
     } else {
-        format!("{import}\n{asynchronous}fn case({parameters}) {{\n{body}\n}}\n")
+        format!("{import}\n{attributes}{asynchronous}fn case({parameters}) {{\n{body}\n}}\n")
     };
     let unit = if rewrite == "inline-module" {
         format!("mod inner {{\n{function}}}\n")
@@ -467,6 +485,7 @@ fn every_rewrite_renders_a_unit_that_parses() {
 
 fn copy(case: &Case) -> Case {
     Case {
+        attributes: case.attributes,
         asynchronous: case.asynchronous,
         import: case.import,
         parameters: case.parameters,

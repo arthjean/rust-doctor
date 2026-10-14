@@ -81,7 +81,7 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout.last(), Some(&b'\n'));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 21);
+    assert_eq!(report["schema_version"], 23);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
     // A changed scope needs no `--base` since the repository answers for its
@@ -593,6 +593,14 @@ mod tty {
         let payload = fs::read(capture.join("payload")).unwrap();
         assert!(payload.len() <= 12 * 1024);
         assert!(String::from_utf8_lossy(&payload).contains("Validate with:"));
+        // The fixture carries no `.agents/skills`, so the prompt opens on the
+        // line that installs it.
+        assert!(
+            String::from_utf8_lossy(&payload)
+                .starts_with("The rust-doctor skill is not installed for this agent: run `rust-doctor skill install --agent codex` first.\n"),
+            "{}",
+            String::from_utf8_lossy(&payload)
+        );
         assert_eq!(fs::read_to_string(capture.join("tty")).unwrap(), "yyy");
         assert_eq!(
             PathBuf::from(fs::read_to_string(capture.join("cwd")).unwrap().trim()),
@@ -663,6 +671,72 @@ mod tty {
         assert_eq!(status.code(), Some(0), "{output}");
         assert!(output.contains("┌─────┐"), "{output}");
     }
+
+    /// A `PATH` that holds the toolchain and git and nothing else: no agent
+    /// and no clipboard command, as over SSH. Each tool is linked under its
+    /// own name, which is what a rustup proxy dispatches on.
+    fn toolchain_only_path(root: &Path) -> std::ffi::OsString {
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let inherited = env::var_os("PATH").unwrap_or_default();
+        for tool in ["cargo", "rustc", "cargo-clippy", "clippy-driver", "rustup", "git"] {
+            if let Some(found) = env::split_paths(&inherited)
+                .map(|directory| directory.join(tool))
+                .find(|candidate| candidate.is_file())
+            {
+                std::os::unix::fs::symlink(found, bin.join(tool)).unwrap();
+            }
+        }
+        bin.into_os_string()
+    }
+
+    /// Copying the prompt with no clipboard command prints it between two
+    /// rulers on stdout, and the process keeps the scan's exit code.
+    #[test]
+    fn a_prompt_no_clipboard_takes_is_printed_and_the_scan_exit_code_holds() {
+        let root = temporary_root("no-clipboard");
+        let path = toolchain_only_path(&root);
+        let scan = binary()
+            .arg(kernel("todo"))
+            .args(["--scope", "full", "--yes"])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full"]).env("PATH", &path);
+        let mut process = PtyProcess::spawn_with_redirected_stderr(command);
+        process.wait_for("Hand off to an agent");
+        process.send(b"\x1b[B\r");
+        process.wait_for("Choose how to continue");
+        process.send(b"\r");
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), scan.status.code(), "{output}");
+        assert_eq!(output.matches(PROMPT_RULER).count(), 2, "{output}");
+        let printed = output.split(PROMPT_RULER).nth(1).unwrap_or_default();
+        assert!(printed.contains("Validate with: rust-doctor"), "{output}");
+
+        // An agent found on `PATH` that cannot start prints the same prompt.
+        let agents = root.join("agents");
+        fs::create_dir_all(&agents).unwrap();
+        fs::write(agents.join("codex"), "#!/nonexistent/interpreter\n").unwrap();
+        fs::set_permissions(agents.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
+        let with_agent =
+            env::join_paths(std::iter::once(agents).chain(env::split_paths(&path))).unwrap();
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full"]).env("PATH", with_agent);
+        let mut process = PtyProcess::spawn_with_redirected_stderr(command);
+        process.wait_for("Hand off to an agent");
+        process.send(b"\x1b[B\r");
+        process.wait_for("Choose how to continue");
+        process.send(b"\r");
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), scan.status.code(), "{output}");
+        assert_eq!(output.matches(PROMPT_RULER).count(), 2, "{output}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    const PROMPT_RULER: &str = "---- Agent prompt ----";
 
     #[test]
     fn codex_inherits_one_payload_its_cwd_and_the_terminal() {
