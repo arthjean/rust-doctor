@@ -476,9 +476,11 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     );
     assert_eq!(missing.0.status.code(), Some(2));
     assert_private(&missing.0, &fixture);
+    // The ref, then whether the clone is shallow, which would make a missing
+    // base a fetch that stopped short.
     assert_eq!(
         missing.1,
-        BTreeMap::from([("git-rev-parse".to_owned(), 1), ("metadata".to_owned(), 1),])
+        BTreeMap::from([("git-rev-parse".to_owned(), 2), ("metadata".to_owned(), 1),])
     );
     let missing_report: Value = serde_json::from_slice(&missing.0.stdout).unwrap();
     assert_eq!(missing_report["errors"][0]["code"], "base-unavailable");

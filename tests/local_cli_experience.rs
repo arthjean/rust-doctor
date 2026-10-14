@@ -204,11 +204,22 @@ mod tty {
 
     static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
 
-    /// The variables `src/main.rs` reads as "nobody can drive a menu here".
-    const NON_INTERACTIVE_MARKERS: [&str; 12] = [
+    /// The variables `src/terminal_profile.rs` reads as "nobody can drive a
+    /// menu here".
+    const NON_INTERACTIVE_MARKERS: [&str; 26] = [
         "CLAUDECODE",
         "CODEX_SANDBOX",
         "CURSOR_AGENT",
+        "CLAUDE_CODE",
+        "CODEX_CI",
+        "OPENCODE",
+        "GOOSE_TERMINAL",
+        "AMP_THREAD_ID",
+        "CLINE_ACTIVE",
+        "AUGMENT_AGENT",
+        "TRAE_AI_SHELL_ID",
+        "AGENT_SESSION_ID",
+        "AGENT_THREAD_ID",
         "GIT_DIR",
         "GIT_INDEX_FILE",
         "GITHUB_ACTIONS",
@@ -218,6 +229,10 @@ mod tty {
         "TF_BUILD",
         "JENKINS_URL",
         "TEAMCITY_VERSION",
+        "CODEBUILD_BUILD_ID",
+        "BITBUCKET_BUILD_NUMBER",
+        "TRAVIS",
+        "DRONE",
     ];
 
     struct PtyProcess {
@@ -518,6 +533,26 @@ mod tty {
             "{output}"
         );
         assert!(!output.contains("↑/↓ move"), "{output}");
+    }
+
+    /// `--yes` is a script's run: under a PTY it prints the final report once,
+    /// with no count-up frame and no line rewritten above it.
+    #[test]
+    fn yes_under_a_terminal_prints_no_animation_frames() {
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full", "--yes"]);
+        let (status, output) = PtyProcess::spawn_with_redirected_stderr(command).wait();
+        assert_eq!(status.code(), Some(0), "{output}");
+        assert!(output.contains("Scope: full codebase"), "{output}");
+        let bytes = output.as_bytes();
+        let cursor_up = bytes.windows(2).enumerate().any(|(index, pair)| {
+            pair == b"\x1b[" && {
+                let rest = &bytes[index + 2..];
+                let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+                rest.get(digits) == Some(&b'A')
+            }
+        });
+        assert!(!cursor_up, "a --yes run moved the cursor up: {output:?}");
     }
 
     /// An agent may hold a PTY, so two terminals are not a reader who can

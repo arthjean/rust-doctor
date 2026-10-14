@@ -165,11 +165,14 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor report markdown report.json --limit 20` | A saved `--json` report as Markdown, without scanning |
 
 Every installer prints what it writes, takes `--dry-run`, and never writes over
-a file it did not create or through a symlink. The end-of-turn hook runs
-`rust-doctor hook run claude`, which rescans with
+a file it did not create or through a symlink. `hook install --update` rewrites
+a hook rust-doctor wrote that an older release left behind. The pre-commit hook
+lets a commit through, saying so, when `rust-doctor` is not on `PATH`. The
+end-of-turn hook runs `rust-doctor hook run claude`, which rescans with
 `--scope lines --base HEAD --include-untracked --blocking warning`, exits 2
 with up to ten findings when the turn introduced one, and never blocks when the
-scan itself fails.
+scan itself fails. The Cursor hook stays silent on a turn whose `status` is not
+`completed` or whose `loop_count` is already 1.
 
 A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
 in `audit.score.reasons`, and keeps the findings collected before the limit.
@@ -181,9 +184,14 @@ Use `--json` for anything you parse. `--verbose` is for a human reading a
 terminal, and a run with neither flag on a terminal opens an interactive report
 that an agent cannot drive, unless one of the variables of
 `NON_INTERACTIVE_MARKERS` is set to a non-empty value: the agent markers
-`CLAUDECODE`, `CODEX_SANDBOX` and `CURSOR_AGENT`, the git hook markers
-`GIT_DIR` and `GIT_INDEX_FILE`, and the CI markers `GITHUB_ACTIONS`,
-`GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL` and
-`TEAMCITY_VERSION`. `CI` keeps it closed too, unless it is `false`, `0` or
-empty. Pass `--yes` to be sure. If the binary is not on `PATH`, prefix with
+`CLAUDECODE`, `CLAUDE_CODE`, `CODEX_SANDBOX`, `CODEX_CI`, `CURSOR_AGENT`,
+`OPENCODE`, `GOOSE_TERMINAL`, `AMP_THREAD_ID`, `CLINE_ACTIVE`,
+`AUGMENT_AGENT`, `TRAE_AI_SHELL_ID`, `AGENT_SESSION_ID` and
+`AGENT_THREAD_ID`, the git hook markers `GIT_DIR` and `GIT_INDEX_FILE`, and
+the CI markers `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`,
+`TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `CODEBUILD_BUILD_ID`,
+`BITBUCKET_BUILD_NUMBER`, `TRAVIS` and `DRONE`. `CI` keeps it closed too,
+unless it is `false`, `0` or empty. Any of them, or `--yes`, also stops the
+score's count-up and the rewritten progress line, so a transcript holds the
+final output only. Pass `--yes` to be sure. If the binary is not on `PATH`, prefix with
 `npx rust-doctor@latest`.

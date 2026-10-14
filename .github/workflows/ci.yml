@@ -39,6 +39,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -64,6 +66,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Verify documentation budgets
         run: bash scripts/verify-doc-budgets.sh
@@ -89,6 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           # tests/git_scope_oracle.rs and tests/baseline_oracle.rs build their
           # own repositories in scratch directories and set their own git
           # identity, so no global git config is needed. Full history is still
@@ -130,6 +135,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -167,6 +174,8 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -186,6 +195,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v1
         with:
@@ -207,6 +218,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       # Clippy is required, not optional: the smoke drives a full scan of this
       # repository, and without the component the scan fails, the report loses

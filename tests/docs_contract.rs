@@ -428,3 +428,41 @@ fn the_workflows_the_map_counts_all_pin_the_toolchain_it_names() {
         }
     }
 }
+
+/// Every checkout in this repository's workflows leaves no token in
+/// `.git/config`: the steps after it build and run code, and a compromised
+/// dependency or build script would otherwise find the token there.
+#[test]
+fn every_checkout_drops_its_persisted_credentials() {
+    let directory = repo().join(".github/workflows");
+    let mut checkouts = 0;
+    for entry in fs::read_dir(&directory).expect("the workflow directory should be readable") {
+        let path = entry.expect("a workflow entry should be readable").path();
+        if !path.extension().is_some_and(|extension| extension == "yml") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).expect("a workflow should be readable");
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("- uses: actions/checkout@") {
+                continue;
+            }
+            checkouts += 1;
+            let indent = line.len() - line.trim_start().len() + 2;
+            let step: Vec<&str> = lines[index + 1..]
+                .iter()
+                .take_while(|next| {
+                    next.trim().is_empty() || next.len() - next.trim_start().len() >= indent
+                })
+                .copied()
+                .collect();
+            assert!(
+                step.iter().any(|next| next.trim() == "persist-credentials: false"),
+                "{}:{} checks out without `persist-credentials: false`",
+                path.display(),
+                index + 1
+            );
+        }
+    }
+    assert!(checkouts > 0, "no checkout step was found");
+}

@@ -168,6 +168,75 @@ fn ci_install_without_a_branch_names_the_flag_and_writes_nothing() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A Tauri-shaped repository: the Cargo workspace sits in `src-tauri/`, and
+/// GitHub reads workflows only at the repository's top. Pointed at either
+/// directory, the install writes at the top and scans the workspace.
+#[test]
+fn ci_install_writes_at_the_git_root_and_scans_the_nested_workspace() {
+    let root = repository("nested");
+    fs::create_dir_all(root.join("src-tauri/src")).unwrap();
+    fs::write(
+        root.join("src-tauri/Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src-tauri/src/lib.rs"), "").unwrap();
+    for pointed in [root.clone(), root.join("src-tauri")] {
+        let written = binary()
+            .args(["ci", "install"])
+            .arg(&pointed)
+            .env("CARGO_TARGET_DIR", support::scan_target(&pointed))
+            .output()
+            .unwrap();
+        assert!(written.status.success(), "{}", text(&written.stderr));
+        assert_eq!(text(&written.stdout), "Wrote .github/workflows/rust-doctor.yml\n");
+        let workflow = fs::read_to_string(root.join(".github/workflows/rust-doctor.yml")).unwrap();
+        assert!(workflow.contains("rust-doctor src-tauri --yes --json"), "{workflow}");
+        assert!(workflow.contains("          workspaces: src-tauri\n"), "{workflow}");
+        assert!(!root.join("src-tauri/.github").exists());
+        fs::remove_dir_all(root.join(".github")).unwrap();
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Outside a repository there is nowhere GitHub would read a workflow, and a
+/// workflow that already runs rust-doctor under another name is the install.
+#[test]
+fn ci_install_refuses_outside_a_repository_and_beside_an_existing_install() {
+    let outside = std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "rust-doctor-ci-outside-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&outside).unwrap();
+    let inside = Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(&outside)
+        .output()
+        .unwrap();
+    assert!(!inside.status.success(), "the temporary directory is inside a repository");
+    let refused = install(&outside, &["--branch", "main"]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(text(&refused.stderr).contains("not inside a git repository"), "{}", text(&refused.stderr));
+    assert!(!outside.join(".github").exists());
+    fs::remove_dir_all(outside).unwrap();
+
+    let root = repository("existing");
+    fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    let ci = "jobs:\n  scan:\n    steps:\n      - uses: arthjean/rust-doctor@v0\n";
+    fs::write(root.join(".github/workflows/ci.yaml"), ci).unwrap();
+    for arguments in [&[][..], &["--update"]] {
+        let existing = install(&root, arguments);
+        assert_eq!(existing.status.code(), Some(1), "{arguments:?}");
+        assert!(
+            text(&existing.stderr).contains(".github/workflows/ci.yaml already runs rust-doctor"),
+            "{}",
+            text(&existing.stderr)
+        );
+        assert!(!root.join(".github/workflows/rust-doctor.yml").exists());
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn render(path: &Path, arguments: &[&str]) -> Output {
     binary()
         .args(["report", "markdown"])
@@ -177,14 +246,24 @@ fn render(path: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
+/// The baseline report carries execution errors beside its findings; the
+/// scope failure is a real baseline scan of a depth-1 clone, which failed
+/// before it collected anything and must say so rather than "No finding."
 #[test]
 fn a_saved_report_renders_to_the_golden_markdown() {
-    let rendered = render(&fixture("baseline.json"), &[]);
-    assert!(rendered.status.success(), "{}", text(&rendered.stderr));
-    assert_eq!(
-        text(&rendered.stdout),
-        fs::read_to_string(fixture("baseline.golden")).unwrap()
-    );
+    for name in ["baseline", "scope-failure"] {
+        let rendered = render(&fixture(&format!("{name}.json")), &[]);
+        assert!(rendered.status.success(), "{name}: {}", text(&rendered.stderr));
+        assert_eq!(
+            text(&rendered.stdout),
+            fs::read_to_string(fixture(&format!("{name}.golden"))).unwrap(),
+            "{name}"
+        );
+    }
+    let failed = text(&render(&fixture("scope-failure.json"), &[]).stdout);
+    assert!(failed.contains("- scope shallow-clone: "), "{failed}");
+    assert!(failed.contains("`fetch-depth: 0`"), "{failed}");
+    assert!(failed.ends_with("\nNo finding was collected.\n"), "{failed}");
     let limited = text(&render(&fixture("baseline.json"), &["--limit", "1"]).stdout);
     assert!(limited.contains("Showing 1 of 3 introduced findings."), "{limited}");
     assert_eq!(limited.matches("](https://rust-doctor.com/rules/").count(), 1);

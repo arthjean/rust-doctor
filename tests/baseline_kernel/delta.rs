@@ -251,7 +251,9 @@ fn error_evaluation() -> Value {
                 code: "base-unavailable",
                 status: "failed",
                 exit_code: 2,
-                processes: process_counts(&[("git-rev-parse", 1), ("metadata", 1)]),
+                // The ref, then whether the clone is shallow, which would make
+                // a missing base a fetch that stopped short.
+                processes: process_counts(&[("git-rev-parse", 2), ("metadata", 1)]),
             },
             None,
         ),

@@ -8,8 +8,10 @@ branding:
 # Every input reaches the shell through `env`, never through `${{ }}` inside a
 # run block: a branch name or an argument is text the caller may not control,
 # and interpolating it into a script is a command injection. rust-doctor
-# itself reaches no network; the npm install, the artifact upload and the pull
-# request comment are the runner's, the last with the workflow's own token.
+# itself reaches no network; the npm install, the base fetch, the artifact
+# upload and the pull request comment are the runner's, the last with the
+# workflow's own token. Every action used here is pinned to a commit, with the
+# ref it was read from beside it.
 
 inputs:
   version:
@@ -25,7 +27,7 @@ inputs:
     required: false
     default: ""
   base:
-    description: The ref a files, lines or baseline scope compares against. Empty takes the pull request's base, or the default branch the repository answers for.
+    description: "The ref a files, lines or baseline scope compares against. Empty takes the pull request's base, or the default branch the repository answers for. These scopes need the base's history: check out with `fetch-depth: 0`. On a pull request from a shallow checkout, the Action fetches the base itself when the token allows it."
     required: false
     default: ""
   blocking:
@@ -42,6 +44,14 @@ inputs:
     default: ""
   comment:
     description: "On a pull request, post the summary as one sticky comment, edited on each push. Needs `pull-requests: write`; a pull request from a fork gets a read-only token, and a warning instead."
+    required: false
+    default: "true"
+  comment-on-clean:
+    description: "Post the comment on a clean pull request too: a complete scan with no introduced finding in baseline scope, or no finding otherwise. With `false`, a clean pull request gets no new comment, and an existing one is still updated."
+    required: false
+    default: "true"
+  cache:
+    description: "Restore and save Cargo's build with Swatinem/rust-cache, saving it even when the gate fails the job, so the retry is warm."
     required: false
     default: "true"
 
@@ -65,10 +75,18 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@master
+    - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
       with:
         toolchain: ${{ inputs.toolchain }}
         components: clippy
+
+    # The post-job save is skipped when a failed gate fails the job, unless
+    # rust-cache is told to save on failure.
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      if: inputs.cache == 'true'
+      with:
+        workspaces: ${{ inputs.working-directory }}
+        cache-on-failure: true
 
     - name: Install rust-doctor
       if: inputs.version != 'preinstalled'
@@ -78,7 +96,8 @@ runs:
       run: npm install -g "rust-doctor@$VERSION"
 
     # The scan's exit code is kept rather than raised here, so the summary,
-    # the artifact and the outputs exist for a failed scan too.
+    # the artifact and the outputs exist for a failed scan too. GitHub runs
+    # `shell: bash` with `-e`, so a status is only ever read through `||`.
     - name: Scan
       id: scan
       shell: bash
@@ -102,6 +121,14 @@ runs:
         if [ -z "$base" ] && [ "$scope" != full ] && [ -n "${PULL_REQUEST_BASE:-}" ]; then
           base="origin/$PULL_REQUEST_BASE"
         fi
+        # A depth-1 checkout holds neither the base nor any ancestor. Fetch
+        # them once, best effort: when it fails, the scan says `shallow-clone`
+        # and names the remedy.
+        if [ "$scope" != full ] && [ -n "${PULL_REQUEST_BASE:-}" ] \
+          && [ "$(git -C "$WORKSPACE" rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+          git -C "$WORKSPACE" fetch --no-tags --unshallow origin \
+            "+refs/heads/$PULL_REQUEST_BASE:refs/remotes/origin/$PULL_REQUEST_BASE" || true
+        fi
         arguments=("$WORKSPACE" --yes --json --scope "$scope")
         if [ -n "$base" ]; then arguments+=(--base "$base"); fi
         if [ -n "$BLOCKING" ]; then arguments+=(--blocking "$BLOCKING"); fi
@@ -109,11 +136,14 @@ runs:
           read -r -a extra <<< "$ARGS"
           arguments+=("${extra[@]}")
         fi
-        rust-doctor "${arguments[@]}" > "$report"
-        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+        status=0
+        rust-doctor "${arguments[@]}" > "$report" || status=$?
+        echo "exit-code=$status" >> "$GITHUB_OUTPUT"
 
-    # Rendered once, for the job summary and the pull request comment.
+    # Rendered once, for the job summary and the pull request comment, on
+    # every event. `clean` is a boolean jq computes, never text of the report.
     - name: Summarize
+      id: summarize
       if: always()
       shell: bash
       env:
@@ -127,10 +157,13 @@ runs:
           : > "$summary"
           echo "rust-doctor wrote no report that could be rendered." >> "$GITHUB_STEP_SUMMARY"
         fi
+        clean=$(jq -r '.status == "complete" and (if .scope.mode == "baseline" then .delta.summary.introduced == 0 else (.diagnostics | length) == 0 end)' "$REPORT" 2>/dev/null) || clean=false
+        if [ "$clean" != true ]; then clean=false; fi
+        echo "clean=$clean" >> "$GITHUB_OUTPUT"
 
     - name: Upload the report
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: rust-doctor-report
         path: ${{ steps.scan.outputs.report }}
@@ -144,6 +177,8 @@ runs:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
         PULL_REQUEST: ${{ github.event.pull_request.number }}
+        CLEAN: ${{ steps.summarize.outputs.clean }}
+        COMMENT_ON_CLEAN: ${{ inputs.comment-on-clean }}
       run: |
         set -euo pipefail
         summary="$RUNNER_TEMP/rust-doctor/summary.md"
@@ -157,6 +192,10 @@ runs:
           exit 0
         fi
         comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
+        if [ -z "$comment" ] && [ "${CLEAN:-false}" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
+          echo "::notice::The pull request is clean and comment-on-clean is false, so no comment was posted."
+          exit 0
+        fi
         if [ -n "$comment" ]; then
           gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
         else
@@ -179,9 +218,19 @@ runs:
           "fixed=\(.delta.summary.fixed | numbers // "")"
         ' "$REPORT" >> "$GITHUB_OUTPUT" || echo "authoritative=false" >> "$GITHUB_OUTPUT"
 
+    # Only a pull request fails on the gate (1): a push or any other event is a
+    # health snapshot that reports without turning the branch red. A scan that
+    # could not run (2) fails on every event.
     - name: Exit with the scan's code
       if: always()
       shell: bash
       env:
         EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
-      run: exit "${EXIT_CODE:-2}"
+        EVENT_NAME: ${{ github.event_name }}
+      run: |
+        code="${EXIT_CODE:-2}"
+        if [ "$code" = 1 ] && [ "${EVENT_NAME:-}" != pull_request ]; then
+          echo "::notice::The gate failed, and only a pull request fails on it: this ${EVENT_NAME:-run} reports without failing."
+          code=0
+        fi
+        exit "$code"

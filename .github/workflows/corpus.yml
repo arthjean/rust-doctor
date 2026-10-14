@@ -96,6 +96,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       # Before the toolchain, and before a single clone. This job replays a
       # pinned corpus out of a cache; what it costs when the cache is not there

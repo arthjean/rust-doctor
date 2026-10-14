@@ -7,6 +7,7 @@ mod progress_line;
 mod report_command;
 mod scope_argument;
 mod skill;
+mod terminal_profile;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
 mod test_scratch;
@@ -16,7 +17,7 @@ mod workspace_write;
 use std::env;
 use std::ffi::OsStr;
 use std::fmt;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -27,6 +28,7 @@ use clap::builder::TypedValueParser;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use progress_line::ProgressLine;
+use terminal_profile::TerminalProfile;
 use scope_argument::{ScopeArgument, ScopeSelection, validate_scope};
 use handoff::{
     HandoffError, RescanCommand, RescanScope, available_agents, build_prompt, copy_to_clipboard,
@@ -125,66 +127,11 @@ enum CliCommand {
     #[command(about = "Install the agent skill")]
     Skill(SkillArgs),
     #[command(about = "Install or run the hooks that rescan a commit or an agent's turn")]
-    Hook(HookArgs),
+    Hook(hook::HookArgs),
     #[command(about = "Write the GitHub Actions workflow that scans every pull request")]
     Ci(ci::CiArgs),
     #[command(about = "Render a report a scan already saved, without scanning")]
     Report(report_command::ReportArgs),
-}
-
-/// The hooks that turn a rescan into a habit. Only `install` writes, and only
-/// what it prints.
-#[derive(Debug, Clone, Args)]
-struct HookArgs {
-    #[command(subcommand)]
-    command: HookCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-enum HookCommand {
-    #[command(about = "Install a git pre-commit hook or an agent's end-of-turn hook")]
-    Install {
-        #[command(subcommand)]
-        target: HookTarget,
-    },
-    #[command(about = "Run an agent's end-of-turn hook: rescan the lines the turn changed")]
-    Run {
-        #[arg(value_enum)]
-        agent: hook::AgentHook,
-    },
-}
-
-#[derive(Debug, Clone, Subcommand)]
-enum HookTarget {
-    #[command(
-        about = "Write a pre-commit hook running `rust-doctor . --yes --staged --scope lines`"
-    )]
-    Git {
-        #[arg(default_value = ".", value_name = "PATH")]
-        path: PathBuf,
-        /// Print the target and the content, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    #[command(about = "Add a Stop hook to .claude/settings.local.json")]
-    Claude {
-        #[arg(default_value = ".", value_name = "PATH")]
-        path: PathBuf,
-        /// Write .claude/settings.json, the file the repository shares.
-        #[arg(long)]
-        shared: bool,
-        /// Print the entry, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    #[command(about = "Add a stop hook to .cursor/hooks.json")]
-    Cursor {
-        #[arg(default_value = ".", value_name = "PATH")]
-        path: PathBuf,
-        /// Print the entry, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
 
 /// The skill an agent reads to drive the tool, written into the workspace.
@@ -358,7 +305,7 @@ fn main() -> ExitCode {
         return run_skill(arguments);
     }
     if let Some(CliCommand::Hook(arguments)) = &cli.command {
-        return run_hook(arguments);
+        return hook::run(arguments);
     }
     if let Some(CliCommand::Ci(arguments)) = &cli.command {
         return ci::run(arguments);
@@ -415,23 +362,6 @@ fn run_skill(arguments: &SkillArgs) -> ExitCode {
     }
 }
 
-fn run_hook(arguments: &HookArgs) -> ExitCode {
-    match &arguments.command {
-        HookCommand::Run { agent } => hook::run_agent_hook(*agent),
-        HookCommand::Install { target } => match target {
-            HookTarget::Git { path, dry_run } => hook::install_git(path, *dry_run),
-            HookTarget::Claude {
-                path,
-                shared,
-                dry_run,
-            } => hook::install_agent(hook::AgentHook::Claude, path, *shared, *dry_run),
-            HookTarget::Cursor { path, dry_run } => {
-                hook::install_agent(hook::AgentHook::Cursor, path, false, *dry_run)
-            }
-        },
-    }
-}
-
 fn run_rules(arguments: &RulesArgs) -> ExitCode {
     let RulesCommand::List { json } = arguments.command;
     let catalog = rust_doctor::catalog();
@@ -469,22 +399,10 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         Ok(selection) => selection,
         Err((kind, message)) => return clap_error(kind, message),
     };
-    let stdin_is_terminal = io::stdin().is_terminal();
-    let stdout_is_terminal = io::stdout().is_terminal();
-    let term = env::var_os("TERM");
-    let interactive = interactions_allowed(
-        arguments.json,
-        arguments.yes,
-        stdin_is_terminal,
-        stdout_is_terminal,
-        |name| env::var_os(name),
-        term.as_deref() == Some(OsStr::new("dumb")),
-    );
+    let profile = TerminalProfile::detect(arguments.json, arguments.yes);
     // The phases replace the static line this used to print. A JSON reader
     // gets none of them, only where discovery found the workspace.
-    let progress = ProgressLine::new(
-        io::stderr().is_terminal() && term.as_deref() != Some(OsStr::new("dumb")),
-    );
+    let progress = ProgressLine::new(profile.rewrite_progress);
     // The scope is what the invocation asked for, nothing else. A run that
     // names no scope scans the whole workspace rather than opening a menu:
     // narrowing to what changed is what `--scope files` and `--scope baseline`
@@ -508,22 +426,11 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     let elapsed = started.elapsed();
     let scan_exit = report.exit_code();
     let presentation = ReportPresentation::derive_terminal(&report);
-    let color = terminal_color_enabled(
-        stdout_is_terminal,
-        env::var_os("NO_COLOR").as_deref(),
-        term.as_deref(),
-    );
-    let animate = terminal_animation_enabled(
-        stdout_is_terminal,
-        env::var_os("NO_COLOR").as_deref(),
-        term.as_deref(),
-        env::var_os("CI").as_deref(),
-    );
     // `--verbose` means print everything, so it keeps the linear report; a
     // failed scan does too, because its errors are the only thing worth
     // reading and the interactive report has no room to carry them.
     let interactive_report =
-        interactive && !arguments.json && !arguments.verbose && report.status != Status::Failed;
+        profile.interactive && !arguments.verbose && report.status != Status::Failed;
     let stdout = io::stdout();
     let render_result = if arguments.json {
         render_json(&report, stdout.lock())
@@ -538,13 +445,9 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
                 workspace_root: &workspace_root,
                 elapsed,
                 verbose: arguments.verbose,
-                width: terminal_width(
-                    stdout_is_terminal,
-                    term.as_deref(),
-                    env::var_os("COLUMNS").as_deref(),
-                ),
-                color,
-                animate,
+                width: profile.width,
+                color: profile.color,
+                animate: profile.animate,
             },
         )
     };
@@ -562,8 +465,8 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
             &presentation,
             &workspace_root,
             rescan_command,
-            color,
-            animate,
+            profile.color,
+            profile.animate,
         )
     {
         bounded_stderr(&error.to_string());
@@ -623,95 +526,6 @@ fn run_interactive_report(
 }
 
 
-/// The variables that say nobody can drive an interactive report, whatever the
-/// terminals look like: an agent's shell, a git hook, or a CI provider. An
-/// agent may run the tool under a PTY, so two terminals prove nothing about who
-/// reads them. `skills/rust-doctor/SKILL.md` names this list.
-const NON_INTERACTIVE_MARKERS: [&str; 12] = [
-    // Coding agents.
-    "CLAUDECODE",
-    "CODEX_SANDBOX",
-    "CURSOR_AGENT",
-    // Git hooks.
-    "GIT_DIR",
-    "GIT_INDEX_FILE",
-    // CI providers.
-    "GITHUB_ACTIONS",
-    "GITLAB_CI",
-    "BUILDKITE",
-    "CIRCLECI",
-    "TF_BUILD",
-    "JENKINS_URL",
-    "TEAMCITY_VERSION",
-];
-
-/// Whether the interactive report may open, reading the environment through
-/// `variable` so the decision is tested without mutating the process's own.
-///
-/// A marker set to the empty string counts as unset. `CI` is read by value
-/// rather than presence, since `CI=false` is how a developer says the shell is
-/// not one.
-fn interactions_allowed(
-    json: bool,
-    yes: bool,
-    stdin_is_terminal: bool,
-    stdout_is_terminal: bool,
-    variable: impl Fn(&str) -> Option<std::ffi::OsString>,
-    terminal_is_dumb: bool,
-) -> bool {
-    stdin_is_terminal
-        && stdout_is_terminal
-        && !json
-        && !yes
-        && !terminal_is_dumb
-        && variable("CI").as_deref().is_none_or(ci_is_off)
-        && NON_INTERACTIVE_MARKERS
-            .iter()
-            .all(|marker| variable(marker).as_deref().is_none_or(OsStr::is_empty))
-}
-
-/// `CI` left empty, or set to `false` or `0` in any case, is not a CI run.
-fn ci_is_off(value: &OsStr) -> bool {
-    value
-        .to_str()
-        .is_some_and(|value| value.is_empty() || value == "0" || value.eq_ignore_ascii_case("false"))
-}
-
-fn terminal_width(
-    stdout_is_terminal: bool,
-    term: Option<&OsStr>,
-    columns: Option<&OsStr>,
-) -> usize {
-    if !stdout_is_terminal || term == Some(OsStr::new("dumb")) {
-        return 80;
-    }
-    columns
-        .and_then(OsStr::to_str)
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|width| *width >= 80)
-        .unwrap_or(80)
-}
-
-fn terminal_color_enabled(
-    stdout_is_terminal: bool,
-    no_color: Option<&OsStr>,
-    term: Option<&OsStr>,
-) -> bool {
-    stdout_is_terminal && no_color.is_none() && term != Some(OsStr::new("dumb"))
-}
-
-/// Animating the score requires everything colour requires, plus a session
-/// outside CI: a runner captures the output, where intermediate frames would
-/// be nothing but noise.
-fn terminal_animation_enabled(
-    stdout_is_terminal: bool,
-    no_color: Option<&OsStr>,
-    term: Option<&OsStr>,
-    ci: Option<&OsStr>,
-) -> bool {
-    terminal_color_enabled(stdout_is_terminal, no_color, term) && ci.is_none()
-}
-
 fn bounded_stderr(message: &str) {
     let mut bounded: String = message
         .chars()
@@ -764,70 +578,6 @@ mod tests {
             .into_inspect_args();
         assert_eq!(alias.path, Path::new("."));
         assert_eq!(path.path, Path::new("./inspect"));
-    }
-
-    fn environment(
-        pairs: &'static [(&'static str, &'static str)],
-    ) -> impl Fn(&str) -> Option<std::ffi::OsString> {
-        move |name| {
-            pairs
-                .iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| std::ffi::OsString::from(value))
-        }
-    }
-
-    #[test]
-    fn interaction_gate_requires_both_terminals_and_no_quiet_mode() {
-        let clean = || environment(&[]);
-        assert!(interactions_allowed(false, false, true, true, clean(), false));
-        for gated in [
-            interactions_allowed(true, false, true, true, clean(), false),
-            interactions_allowed(false, true, true, true, clean(), false),
-            interactions_allowed(false, false, false, true, clean(), false),
-            interactions_allowed(false, false, true, false, clean(), false),
-            interactions_allowed(false, false, true, true, clean(), true),
-        ] {
-            assert!(!gated);
-        }
-    }
-
-    #[test]
-    fn every_agent_hook_and_ci_marker_closes_the_interactive_report() {
-        for marker in NON_INTERACTIVE_MARKERS {
-            let set = move |name: &str| (name == marker).then(|| "1".into());
-            assert!(
-                !interactions_allowed(false, false, true, true, set, false),
-                "{marker}=1 left the interactive report open"
-            );
-            // A variable set to the empty string counts as unset.
-            let empty = move |name: &str| (name == marker).then(std::ffi::OsString::new);
-            assert!(
-                interactions_allowed(false, false, true, true, empty, false),
-                "{marker}= closed the interactive report"
-            );
-        }
-    }
-
-    #[test]
-    fn ci_set_to_false_zero_or_nothing_is_not_ci() {
-        for off in ["false", "FALSE", "False", "0", ""] {
-            let ci = move |name: &str| (name == "CI").then(|| off.into());
-            assert!(interactions_allowed(false, false, true, true, ci, false), "CI={off:?}");
-        }
-        for on in ["1", "true", "yes", "off", "no"] {
-            let ci = move |name: &str| (name == "CI").then(|| on.into());
-            assert!(!interactions_allowed(false, false, true, true, ci, false), "CI={on:?}");
-        }
-    }
-
-    #[test]
-    fn the_skill_names_every_non_interactive_marker() {
-        let skill = include_str!("../skills/rust-doctor/SKILL.md");
-        assert!(skill.contains("NON_INTERACTIVE_MARKERS"));
-        for marker in NON_INTERACTIVE_MARKERS {
-            assert!(skill.contains(&format!("`{marker}`")), "SKILL.md omits `{marker}`");
-        }
     }
 
     fn selection(arguments: &[&str]) -> Result<Option<ScopeSelection>, (ErrorKind, &'static str)> {
@@ -905,34 +655,5 @@ mod tests {
         );
         assert!(command.as_str().contains("--blocking warning"));
         assert!(command.as_str().ends_with("--yes"));
-    }
-
-    #[test]
-    fn redirected_and_dumb_terminals_force_static_eighty_column_output() {
-        assert_eq!(terminal_width(false, None, Some(OsStr::new("140"))), 80);
-        assert_eq!(
-            terminal_width(true, Some(OsStr::new("dumb")), Some(OsStr::new("140"))),
-            80
-        );
-        assert_eq!(
-            terminal_width(true, Some(OsStr::new("xterm")), Some(OsStr::new("140"))),
-            140
-        );
-        assert_eq!(
-            terminal_width(true, Some(OsStr::new("xterm")), Some(OsStr::new("79"))),
-            80
-        );
-    }
-
-    #[test]
-    fn no_color_and_dumb_terminal_disable_ansi_without_mutating_environment() {
-        assert!(terminal_color_enabled(true, None, None));
-        assert!(!terminal_color_enabled(true, Some(OsStr::new("1")), None));
-        assert!(!terminal_color_enabled(
-            true,
-            None,
-            Some(OsStr::new("dumb"))
-        ));
-        assert!(!terminal_color_enabled(false, None, None));
     }
 }

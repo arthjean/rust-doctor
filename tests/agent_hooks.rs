@@ -149,7 +149,7 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     assert_eq!(installed.status.code(), Some(0), "{}", stderr(&installed));
     let hook = fs::read_to_string(root.join(".git/hooks/pre-commit")).unwrap();
     assert!(
-        hook.ends_with("exec rust-doctor . --yes --staged --scope lines\n"),
+        hook.contains("\n  exec rust-doctor . --yes --staged --scope lines\n"),
         "{hook}"
     );
 
@@ -235,7 +235,13 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     fs::remove_dir_all(&root).unwrap();
 
     // A hook manager: the snippet is printed and nothing is written.
-    for config in [".pre-commit-config.yaml", "lefthook.yml"] {
+    for config in [
+        ".pre-commit-config.yaml",
+        "lefthook.yml",
+        "lefthook.yaml",
+        ".lefthook.yml",
+        ".lefthook.yaml",
+    ] {
         let root = repository("git-manager");
         fs::write(root.join(config), "# managed\n").unwrap();
         let printed = install(&root, &["git"]);
@@ -353,6 +359,102 @@ fn a_settings_file_that_does_not_parse_is_left_alone() {
     fs::remove_dir_all(elsewhere).unwrap();
 }
 
+/// A contributor without the binary commits through the hook, told it did not
+/// judge the commit; `--update` refreshes an outdated hook rust-doctor wrote
+/// and never touches one it did not.
+#[test]
+fn the_git_hook_survives_a_missing_binary_and_refreshes_on_update() {
+    let root = repository("git-missing-binary");
+    assert_eq!(install(&root, &["git"]).status.code(), Some(0));
+    let hook = root.join(".git/hooks/pre-commit");
+    let syntax = Command::new("sh").arg("-n").arg(&hook).output().unwrap();
+    assert!(syntax.status.success(), "{}", stderr(&syntax));
+
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { todo!() }\n",
+    )
+    .unwrap();
+    git(&root, &["add", "src/lib.rs"]);
+    let unjudged = Command::new("git")
+        .args([
+            "-c",
+            "user.name=Rust Doctor",
+            "-c",
+            "user.email=rust-doctor@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "no binary",
+        ])
+        .current_dir(&root)
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    assert!(unjudged.status.success(), "{}", stderr(&unjudged));
+    assert!(
+        stderr(&unjudged).contains("rust-doctor is not on PATH: this commit was not judged."),
+        "{}",
+        stderr(&unjudged)
+    );
+
+    // The hook an earlier release wrote.
+    let previous = "#!/bin/sh\n# rust-doctor pre-commit hook: judges what this commit records.\nexec rust-doctor . --yes --staged\n";
+    fs::write(&hook, previous).unwrap();
+    let outdated = install(&root, &["git"]);
+    assert_eq!(outdated.status.code(), Some(1));
+    assert!(stdout(&outdated).contains("outdated"), "{}", stdout(&outdated));
+    assert!(stdout(&outdated).contains("--update"), "{}", stdout(&outdated));
+    assert_eq!(fs::read_to_string(&hook).unwrap(), previous);
+
+    let updated = install(&root, &["git", "--update"]);
+    assert_eq!(updated.status.code(), Some(0), "{}", stderr(&updated));
+    assert!(
+        stdout(&updated).contains(
+            "`rust-doctor . --yes --staged` becomes `rust-doctor . --yes --staged --scope lines`"
+        ),
+        "{}",
+        stdout(&updated)
+    );
+    assert!(fs::read_to_string(&hook).unwrap().contains("command -v rust-doctor"));
+    let again = install(&root, &["git", "--update"]);
+    assert!(stdout(&again).contains("already installed"));
+
+    fs::write(&hook, "#!/bin/sh\nmake lint\n").unwrap();
+    let foreign = install(&root, &["git", "--update"]);
+    assert_eq!(foreign.status.code(), Some(2));
+    assert_eq!(fs::read_to_string(&hook).unwrap(), "#!/bin/sh\nmake lint\n");
+    fs::remove_dir_all(root).unwrap();
+
+    // An agent entry an earlier release wrote is refreshed in place, keeping
+    // every key the user added.
+    let root = workspace("claude-update");
+    fs::create_dir_all(root.join(".claude")).unwrap();
+    let settings = root.join(".claude/settings.local.json");
+    fs::write(
+        &settings,
+        r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"rust-doctor hook run claude","timeout":300,"statusMessage":"scan"}]}]}}"#,
+    )
+    .unwrap();
+    let outdated = install(&root, &["claude"]);
+    assert_eq!(outdated.status.code(), Some(1));
+    assert!(stdout(&outdated).contains("outdated: pass --update"));
+    let updated = install(&root, &["claude", "--update"]);
+    assert_eq!(updated.status.code(), Some(0), "{}", stderr(&updated));
+    assert!(stdout(&updated).contains("\"timeout\":300"), "{}", stdout(&updated));
+    assert!(stdout(&updated).contains("\"timeout\":600"), "{}", stdout(&updated));
+    let merged: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
+    assert_eq!(
+        merged["hooks"]["Stop"],
+        json!([{"hooks": [{"type": "command", "command": "rust-doctor hook run claude", "timeout": 600, "statusMessage": "scan"}]}])
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn run_hook(agent: &str, root: &Path, input: &str) -> Output {
     let mut child = binary()
         .args(["hook", "run", agent])
@@ -458,6 +560,42 @@ fn the_stop_hook_never_traps_the_agent_on_a_failed_scan() {
         stderr(&output)
             .trim_end()
             .ends_with("not blocking this turn.")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A Cursor turn the user aborted, that errored, or that this hook already sent
+/// back once ends silently before any scan; input the hook cannot read scans.
+#[test]
+fn the_cursor_hook_skips_an_aborted_or_resubmitted_turn() {
+    let root = repository("cursor-guards");
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\npub fn pending() { todo!() }\n",
+    )
+    .unwrap();
+    for input in [
+        r#"{"status":"aborted","loop_count":0}"#,
+        r#"{"status":"error","loop_count":0}"#,
+        r#"{"status":"completed","loop_count":1}"#,
+    ] {
+        let skipped = run_hook("cursor", &root, input);
+        assert_eq!(skipped.status.code(), Some(0), "{input}: {}", stderr(&skipped));
+        assert!(skipped.stdout.is_empty(), "{input}: {}", stdout(&skipped));
+        assert!(
+            !support::scan_target(&root).exists(),
+            "{input} started a scan"
+        );
+    }
+
+    let malformed = run_hook("cursor", &root, "status=aborted");
+    assert_eq!(malformed.status.code(), Some(0), "{}", stderr(&malformed));
+    let followup: Value = serde_json::from_slice(&malformed.stdout).unwrap();
+    assert!(
+        followup["followup_message"]
+            .as_str()
+            .unwrap()
+            .contains("- clippy::todo src/lib.rs:2 ")
     );
     fs::remove_dir_all(root).unwrap();
 }

@@ -2,6 +2,11 @@
 
 **Score: 40/100 (Critical)**, not authoritative: stage-failed.
 
+**The scan reported 2 errors:**
+
+- execution build-finished-missing: Cargo did not emit build-finished
+- execution clippy-exit: Clippy exited with status 101. Cargo reported: error: failed to get \`local-git-dependency\` as a dependency of package \`policy-gate-product-loop v0.1.0 (./app)\` Caused by: failed to load source for dependency \`local-git-dependency\` Caused by: unable to update file:&#8203;//policy\_gate\_git\_dependency/?branch…
+
 **Against the base:** 3 introduced, 1 fixed.
 
 | Rule | Location | Severity | Message |

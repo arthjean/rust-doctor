@@ -1,0 +1,11 @@
+## rust-doctor
+
+**Score: none**, not authoritative.
+
+**The scan reported 1 error:**
+
+- scope shallow-clone: This clone is shallow: fetch with fetch-depth: 0, or pass --base to a fetched ref.
+
+The checkout lacks the history the comparison needs: set `fetch-depth: 0` on `actions/checkout`.
+
+No finding was collected.

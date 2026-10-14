@@ -3,7 +3,7 @@
 | Workflow | When | What it settles |
 |---|---|---|
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install |
-| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from the checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged, and posts the summary as one sticky pull request comment |
+| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself), and posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | manual, pull request touching the record, its harness or a producer | Reproduces the pinned measurement of `tests/corpus.json` from the restored clone cache, under the toolchain the artifact names, and writes the position proof that anchors every published site |
 
