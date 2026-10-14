@@ -49,7 +49,7 @@
     {
       "id": "EP-006",
       "title": "Rule families Clippy cannot see",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "stories_total": 6,
       "stories_done": 0
@@ -418,11 +418,11 @@
       "id": "US-028",
       "title": "Resolve local bindings in the source kernel",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -430,13 +430,13 @@
       "id": "US-029",
       "title": "Native detector: blocking call inside async code",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-028"
       ],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -444,13 +444,13 @@
       "id": "US-030",
       "title": "Native detector: SQL text built with format! or concatenation",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-028"
       ],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -458,13 +458,13 @@
       "id": "US-031",
       "title": "Offline advisory check against a local RustSec database",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-010"
       ],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -472,13 +472,13 @@
       "id": "US-032",
       "title": "Triage and admit the unsafe and FFI soundness lints",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-002"
       ],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -486,13 +486,13 @@
       "id": "US-033",
       "title": "Variant gate: every native detector keeps its verdict under rewrites",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-028"
       ],
-      "started_at": null,
+      "started_at": "2026-09-26",
       "completed_at": null,
       "reviewed_at": null
     }
