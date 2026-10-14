@@ -1,0 +1,12 @@
+# rule: rust_doctor::repo::hardcoded_credential
+# weakness: placeholder-credential
+# source: audit Z1a-N03, fixed by US-019
+# verdict: quiet
+
+[package]
+name = "seed-hardcoded-credential-bare-pem-header"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

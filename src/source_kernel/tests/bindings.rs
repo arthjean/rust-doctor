@@ -154,3 +154,25 @@ fn constant_arguments_keep_a_format_string_constant() {
         assert!(shell(body).is_empty(), "a constant read as dynamic:\n{body}");
     }
 }
+
+/// US-016: a written type is read where the value is not, and only a numeric
+/// primitive spelled by its own name clears the interpolation.
+#[test]
+fn a_parameter_or_let_typed_as_a_number_clears_the_interpolation() {
+    let typed = |parameters: &str, body: &str| {
+        analyze(&format!("fn run({parameters}) {{\n{body}\n}}"), &REGISTERED).0
+    };
+    let script = "std::process::Command::new(\"sh\").arg(\"-c\").arg(format!(\"sleep {secs}\"));";
+    assert!(typed("secs: u32", script).is_empty());
+    assert!(typed("mut secs: std::num::NonZeroU64", script).is_empty());
+    // A `let` reassigned later still holds its written type.
+    assert!(typed("raw: &str", &format!("let mut secs: i64 = 0;\nsecs = raw.len() as i64;\n{script}")).is_empty());
+    // A closure parameter of the same name binds nothing outside the closure.
+    assert_eq!(
+        typed("secs: &str", &format!("let _ = |secs: u8| secs;\n{script}")),
+        [SOURCE_DYNAMIC_SHELL.id]
+    );
+    for parameters in ["secs: &str", "secs: String", "secs: Seconds", "secs: (u32, u32)"] {
+        assert_eq!(typed(parameters, script), [SOURCE_DYNAMIC_SHELL.id], "{parameters}");
+    }
+}

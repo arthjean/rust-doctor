@@ -452,7 +452,7 @@ fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
     )
     .unwrap();
     std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
-    let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+    let key = format!("AKIA{}", "Q3VJ7RNYH2KXW4PZ");
     std::fs::write(
         root.join("src/lib.rs"),
         format!("pub fn fixture() -> &'static str {{\n    \"{key}\"\n}}\n"),

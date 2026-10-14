@@ -210,6 +210,9 @@ pub(super) struct Findings {
     /// one phase of the pass that reads the filesystem, so it is the one that
     /// has to say whether it got to the end.
     pub(super) stopped: bool,
+    /// Packages the orphan rule withheld every finding of, because their
+    /// module tree is not provably complete.
+    pub(super) orphan_abstentions: usize,
 }
 
 pub(super) fn findings(
@@ -223,12 +226,14 @@ pub(super) fn findings(
         return Findings {
             observations: Vec::new(),
             stopped: false,
+            orphan_abstentions: 0,
         };
     };
     let mut observations = Vec::new();
     let mut stopped = false;
+    let mut orphan_abstentions = 0;
     if active.on(&STRUCTURE_ORPHAN_MODULE_FILE) {
-        stopped = orphans(
+        (stopped, orphan_abstentions) = orphans(
             metadata,
             enumeration,
             uses,
@@ -245,6 +250,7 @@ pub(super) fn findings(
     Findings {
         observations,
         stopped,
+        orphan_abstentions,
     }
 }
 
@@ -258,7 +264,12 @@ pub(super) fn findings(
 /// workspace-relative path, which is unique, so no `mod` declaration of one
 /// package ever silences a file of another.
 ///
-/// Returns whether the walk stopped early.
+/// The finding tells the reader to delete a file, so a package whose module
+/// tree the walk cannot vouch for is withheld whole: a `mod` request the walk
+/// lost, or a macro whose tokens declare a module, `cfg_if!` among them. Each
+/// withheld package is counted, never reported.
+///
+/// Returns whether the walk stopped early, and how many packages it withheld.
 fn orphans(
     metadata: &Metadata,
     enumeration: &Enumeration,
@@ -266,16 +277,22 @@ fn orphans(
     workspace_root: &Path,
     deadline: &Deadline,
     observations: &mut Vec<(&'static RuleDefinition, String, Observation)>,
-) -> bool {
+) -> (bool, usize) {
     // Reached is reached, whether or not the scan reads the file: a unit left
     // out by `[ignore]` or `--package` is still compiled.
     let compiled: BTreeSet<&str> = enumeration
         .reached()
         .map(|unit| unit.relative_path())
         .collect();
+    let declared_in_macros: BTreeSet<&str> = enumeration
+        .reached()
+        .filter(|unit| declares_modules_in_a_macro(&unit.tree()))
+        .flat_map(|unit| unit.package_ids())
+        .collect();
 
     let mut budget = WALK_LIMIT;
     let mut stopped = false;
+    let mut abstentions = 0;
     for package in workspace_packages(metadata) {
         if !enumeration.selects(&package.name) {
             continue;
@@ -284,6 +301,12 @@ fn orphans(
             continue;
         };
         let package_directory = package_directory.as_std_path();
+        if !enumeration.module_tree_complete(&package.id.repr)
+            || declared_in_macros.contains(package.id.repr.as_str())
+        {
+            abstentions += 1;
+            continue;
+        }
 
         let mut candidates = BTreeSet::new();
         for root in module_roots(package, package_directory) {
@@ -294,7 +317,7 @@ fn orphans(
             // the deadline is read before every one of them and not only
             // between packages.
             if deadline.exceeded() {
-                return true;
+                return (true, abstentions);
             }
             let Some(relative) = workspace_relative(workspace_root, &candidate) else {
                 continue;
@@ -338,7 +361,23 @@ fn orphans(
             ));
         }
     }
-    stopped
+    (stopped, abstentions)
+}
+
+/// Does a macro call of this file carry the `mod` keyword in its tokens?
+/// `cfg_if! { if #[cfg(unix)] { mod imp; } }` declares a module the walk,
+/// which reads no macro, never follows.
+fn declares_modules_in_a_macro(tree: &ra_ap_syntax::SourceFile) -> bool {
+    tree.syntax()
+        .descendants()
+        .filter_map(ast::MacroCall::cast)
+        .filter_map(|call| call.token_tree())
+        .any(|tokens| {
+            tokens
+                .syntax()
+                .descendants_with_tokens()
+                .any(|element| element.kind() == ra_ap_syntax::SyntaxKind::MOD_KW)
+        })
 }
 
 /// Every feature name each workspace package declares, its optional

@@ -3,7 +3,7 @@
   "budgets": {
     "AGENTS.md": 1182,
     "docs/agent-skill.md": 304,
-    "docs/catalog-and-corpus.md": 1500,
+    "docs/catalog-and-corpus.md": 1700,
     "docs/ci-workflows.md": 716,
     "docs/doc-gates.md": 580,
     "docs/publishing.md": 821,
@@ -14,13 +14,14 @@
     "docs/subsystems/git-and-scope.md": 910,
     "docs/subsystems/policy.md": 657,
     "docs/subsystems/reporting.md": 2924,
-    "docs/subsystems/source-kernel.md": 800,
-    "docs/subsystems/structure.md": 328
+    "docs/subsystems/source-kernel.md": 924,
+    "docs/subsystems/structure.md": 401
   },
   "frozen": [
     "docs/agent-population-precision-2026-08.md",
     "docs/contextual-scope-2026-10.md",
     "docs/correctness-group-2026-09.md",
+    "docs/native-rules-remeasure-2026-10.md",
     "docs/parity-release-1-2026-10.md",
     "docs/parity-release-3-2026-10.md",
     "docs/resampling-containment-2026-08.md",

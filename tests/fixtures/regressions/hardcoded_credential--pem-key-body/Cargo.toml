@@ -1,0 +1,13 @@
+# rule: rust_doctor::repo::hardcoded_credential
+# weakness: placeholder-credential
+# source: US-019, a header with a key body under it
+# verdict: fires
+# split: @@
+
+[package]
+name = "seed-hardcoded-credential-pem-key-body"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

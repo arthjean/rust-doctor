@@ -1,0 +1,3 @@
+pub const KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQE@@FAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj
+-----END PRIVATE KEY-----";

@@ -12,9 +12,10 @@ use serde_json::Value;
 
 const DETECTORS: &str = include_str!("../src/source_kernel/detectors.rs");
 /// The detector families that live in modules of their own.
-const FAMILIES: [(&str, &str); 2] = [
+const FAMILIES: [(&str, &str); 3] = [
     ("blocking.rs", include_str!("../src/source_kernel/detectors/blocking.rs")),
     ("sql.rs", include_str!("../src/source_kernel/detectors/sql.rs")),
+    ("shell.rs", include_str!("../src/source_kernel/detectors/shell.rs")),
 ];
 const KERNEL: &str = include_str!("../src/source_kernel.rs");
 
@@ -135,7 +136,9 @@ fn no_detector_compares_a_written_qualified_path() {
                 .flat_map(move |(number, line)| {
                     string_literals(line)
                         .into_iter()
-                        .filter(|literal| literal.contains("::"))
+                        // The bare separator joins a resolved path for a
+                        // message and names no path of its own.
+                        .filter(|literal| literal.contains("::") && *literal != "::")
                         .map(move |literal| format!("{file}:{number}: {literal}"))
                 })
         })
@@ -147,7 +150,7 @@ fn no_detector_compares_a_written_qualified_path() {
     );
     // The detector is indeed the one describing its target, otherwise the test
     // above would pass on a file empty of any target.
-    assert!(DETECTORS.contains("segments: &[\"process\", \"Command\"]"));
+    assert!(FAMILIES[2].1.contains("segments: &[\"process\", \"Command\"]"));
     assert!(DETECTORS.contains("krate: \"reqwest\""));
     assert!(FAMILIES[0].1.contains("(&[\"thread\"], \"sleep\")"));
     assert!(FAMILIES[1].1.contains("(\"rusqlite\", \"Connection\""));

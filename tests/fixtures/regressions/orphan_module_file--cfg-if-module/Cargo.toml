@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::orphan_module_file
+# weakness: conditional-module
+# source: audit Z4-N03, fixed by US-020
+# verdict: quiet
+
+[package]
+name = "seed-orphan-module-file-cfg-if-module"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

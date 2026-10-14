@@ -123,6 +123,9 @@ pub(crate) struct StructureCounters {
     pub(crate) comparisons: usize,
     /// Bytes the pass holds for those functions at its peak.
     pub(crate) retained_bytes: usize,
+    /// Packages the orphan rule withheld, their module tree not provably
+    /// complete.
+    pub(crate) orphan_abstentions: usize,
 }
 
 /// One structural family, published as a single diagnostic.
@@ -481,15 +484,20 @@ fn analyze_within(
     // workspace description the walk never reads. A stopped pass leaves them
     // out: an orphan is an absence of reachability, and half a walk cannot tell
     // an unreached file from an unvisited one.
+    let mut orphan_abstentions = 0;
     if active.any_of(&manifest::RULES) && !stopped {
         let found = manifest::findings(metadata, enumeration, &active, &uses, &deadline);
         stopped |= found.stopped;
+        orphan_abstentions = found.orphan_abstentions;
         for (definition, path, observation) in found.observations {
             record(&mut families, definition.id, &path, observation);
         }
     }
 
-    let mut counters = StructureCounters::default();
+    let mut counters = StructureCounters {
+        orphan_abstentions,
+        ..StructureCounters::default()
+    };
     if active.any_of(&duplication::RULES) {
         let grouping = duplication::groups(functions, &active, &deadline);
         counters = StructureCounters {
@@ -497,6 +505,7 @@ fn analyze_within(
             shapes: grouping.shapes,
             comparisons: grouping.comparisons,
             retained_bytes: grouping.retained_bytes,
+            orphan_abstentions,
         };
         stopped |= grouping.stopped;
         for group in grouping.groups {

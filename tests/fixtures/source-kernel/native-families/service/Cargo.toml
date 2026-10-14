@@ -9,6 +9,7 @@ diesel = { path = "../diesel" }
 postgres = { path = "../postgres" }
 reqwest = { path = "../reqwest" }
 rusqlite = { path = "../rusqlite" }
+sea-orm = { path = "../sea-orm" }
 sqlx = { path = "../sqlx" }
 tokio = { path = "../tokio" }
 tokio-postgres = { path = "../tokio-postgres" }

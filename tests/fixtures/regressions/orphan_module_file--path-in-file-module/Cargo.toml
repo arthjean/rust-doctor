@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::orphan_module_file
+# weakness: path-attribute
+# source: US-020 corpus re-measure, ostendo src/markdown/parser_tests.rs and vibesql tests/common, adjudicated false positive
+# verdict: quiet
+
+[package]
+name = "seed-orphan-module-file-path-in-file-module"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

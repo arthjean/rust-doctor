@@ -50,6 +50,15 @@ since a pair whose two passes disagreed carries no reviewed site at all and the
 escalation queue would otherwise be the one part of the record nothing has ever
 located.
 
+Every pair judged on or after `adjudication.evidence_cutoff` is dated by
+`adjudicated_on`, and each of its passes cites in `evidence` the lines that
+decided it, quoted. `tests/corpus_evidence.rs` refuses, offline, a dated pass
+citing nothing or nothing that covers the site's line, and any new undated
+pair: the 239 judged before the cutoff are grandfathered by count, since a
+citation invented after the fact is worse than none. The gated replays compare
+each quote to the checkout byte for byte, and a quote the code does not hold
+turns its pair into an escalation.
+
 A run that names neither directory prints why it is skipping the reproduction
 instead of passing in silence, and a run that names one of the two fails: half a
 configuration is a reproduction that was attempted and cannot be trusted, not a
@@ -130,6 +139,15 @@ drift that shows up forty rules later.
 
 So a new rule needs a trigger record before it ships, and a corpus measurement
 when the corpus can produce one. Only the first is unconditional.
+
+A confirmed false positive or measured miss of a native rule becomes a
+hand-minimized seed under `tests/fixtures/regressions/<rule-tail>--<slug>/`,
+never corpus code, headed with its rule, a weakness from a closed list, its
+source and its verdict. `tests/regression_seeds.rs` replays every seed on
+`cargo test`, a single file in process, a crate through the binary with every
+Clippy rule off, and refuses a malformed header naming the seed. A false
+positive not yet fixed is declared to fire with a known-false-positive reason,
+so the fix has to flip the header.
 
 ## The candidate queue
 

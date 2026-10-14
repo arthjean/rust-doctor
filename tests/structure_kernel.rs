@@ -985,6 +985,27 @@ fn a_file_another_package_compiles_is_not_an_orphan() {
     );
 }
 
+/// US-020: the orphan rule tells the reader to delete a file, so it holds
+/// only where the module tree is provably whole. A module chosen per platform
+/// by `cfg_attr(.., path = ..)` is compiled, with or without a default file,
+/// and a package whose modules a macro declares, `cfg_if!` among them, is
+/// withheld whole. A file nothing declares, in a package whose tree is
+/// complete, is still reported.
+#[test]
+fn conditional_module_layouts_are_reached_and_a_stray_file_is_still_an_orphan() {
+    let report = published(InspectRequest::new(fixture("orphan-conditional")));
+    let findings = rule_findings(&report, ORPHAN);
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding["path"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["fallback/src/stray.rs"],
+        "{findings:#?}"
+    );
+    assert!(report["errors"].as_array().is_some_and(Vec::is_empty), "{report:#?}");
+}
+
 /// US-015: the feature inventory, end to end.
 ///
 /// This is the trigger `tests/rule_evidence.json` names for the rule. The

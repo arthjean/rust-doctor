@@ -655,7 +655,7 @@ pub(crate) static SOURCE_BLOCKING_IN_ASYNC: RuleDefinition = RuleDefinition {
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
-    help: "Use the async equivalent (tokio::fs, tokio::time::sleep, tokio::process, reqwest's async client) or move the call into tokio::task::spawn_blocking; the rule reads the call where it is written and does not follow calls into synchronous helpers.",
+    help: "Use the async equivalent (tokio::fs, tokio::time::sleep, tokio::process, reqwest's async client) or move the call into tokio::task::spawn_blocking; the rule also follows a call into a synchronous helper of the same file, four helpers deep, and reports it at the call made from async code.",
     diff_scope: DiffScope::Item,
 };
 pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
@@ -673,7 +673,7 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P0,
-    help: "Avoid the shell and pass values as separate Command arguments; otherwise apply shell-specific escaping at the trust boundary.",
+    help: "Avoid the shell and pass values as separate Command arguments to a fixed program; otherwise apply shell-specific escaping at the trust boundary.",
     diff_scope: DiffScope::Item,
 };
 pub(crate) static SOURCE_SQL_FROM_FORMAT: RuleDefinition = RuleDefinition {
@@ -682,7 +682,7 @@ pub(crate) static SOURCE_SQL_FROM_FORMAT: RuleDefinition = RuleDefinition {
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P1,
-    help: "Keep the SQL text constant and bind the value as a parameter: .bind() or query! with sqlx, .bind::<T, _>() with diesel, the params argument with rusqlite and postgres.",
+    help: "Keep the SQL text constant and bind the value as a parameter: .bind() or query! with sqlx, push_bind() on a sqlx QueryBuilder, .bind::<T, _>() with diesel, the params argument with rusqlite and postgres.",
     diff_scope: DiffScope::Item,
 };
 pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {

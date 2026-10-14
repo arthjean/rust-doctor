@@ -1,0 +1,16 @@
+# rule: rust_doctor::cargo::unused_dependency
+# weakness: library-name
+# source: EP-003 corpus re-measure, vibesql md-5 and prettytable-rs, imported as md5 and prettytable
+# verdict: fires
+# known-false-positive: the rule looks for the package name in the sources, never the library name its manifest declares
+
+[package]
+name = "seed-unused-dependency-library-renamed"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+md-5 = { path = "md-5" }
+
+[workspace]

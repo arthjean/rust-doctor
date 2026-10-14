@@ -2,9 +2,9 @@
 
 `src/source_kernel.rs` is the types and the detector registry. `walk.rs` is the
 workspace walk that fills them, `aliases.rs` the per-unit import map,
-`detectors.rs` the provenance helpers and the TLS and shell detectors,
-`detectors/blocking.rs` and `detectors/sql.rs` the two families Clippy cannot
-express, `bindings.rs` what a local name holds, and `references.rs` the crate
+`detectors.rs` the provenance helpers and the TLS detector,
+`detectors/blocking.rs`, `detectors/sql.rs` and `detectors/shell.rs` the
+families Clippy cannot express, `bindings.rs` what a local name holds, and `references.rs` the crate
 names the dependency rules judge a manifest against. `src/source_text.rs` sits outside the
 module on purpose: span arithmetic and the two syntax-text helpers are read by
 `repo_hygiene` and `cargo_health`, which parse no Rust at all and have no
@@ -50,7 +50,14 @@ nearest preceding binding of that name whose block encloses the site, followed
 eight bindings deep. A binding reassigned later, bound by a pattern, a
 `let`-else, or shadowed on one branch answers indeterminate, and every detector
 abstains on indeterminate. Each detector used to accept only the value written
-inline, so storing a builder in a `let` silenced it. The resolver indexes a
+inline, so storing a builder in a `let` silenced it. A parameter or `let` typed
+as a numeric primitive is its own answer, so `LIMIT {limit}` with `limit: i64`
+interpolates nothing injectable. A glob import masks a name rather than
+erasing its provenance: a crate-rooted path still resolves under
+`use futures::prelude::*;` when every glob in scope starts with an external
+crate, and abstains under `use crate::prelude::*;`. The blocking rule follows a
+call into a synchronous function of the same file, four helpers deep, and names
+the helper and the call it reached; a name two items could answer abstains. The resolver indexes a
 function body once and keeps that index while the walk stays in the body:
 rescanning the body per question cost 5 to 8 percent of the whole pass, and
 `src/source_kernel/tests/benchmark.rs` holds the pass to 10 percent over its cost before
@@ -58,10 +65,13 @@ resolution existed.
 
 One table of rewrites per rule. Every detector's rule declares a canonical
 positive and negative beside it, and `src/source_kernel/tests/variants.rs` renders both under
-eight rewrites that keep the verdict: renamed bindings, an aliased import, the
-fully qualified path, a nested block, an inline module, an extracted receiver,
-reformatting. A positive that goes silent fails unless the table names the
-rewrite as a known miss with its reason, and a rule without a table fails. A
+twelve rewrites that keep the verdict, from renamed bindings to the fully
+qualified path under a glob and the call moved into a helper, and reports two
+more it may legitimately not chase without failing. Beside them, `semantic`
+holds whole units of the defect's real forms, each declaring whether it fires;
+a silent case carries its carve-out reason, and one that fires anyway is a
+stale carve-out and fails. `seed_harness::run_detectors` runs the same registry
+on one unit for the regression seeds of `docs/catalog-and-corpus.md`. A
 detector written against the one form its author had in mind is what this
 replaced.
 

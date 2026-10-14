@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::orphan_module_file
+# weakness: conditional-module
+# source: US-020, a module request the walk cannot follow
+# verdict: quiet
+
+[package]
+name = "seed-orphan-module-file-lost-module"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

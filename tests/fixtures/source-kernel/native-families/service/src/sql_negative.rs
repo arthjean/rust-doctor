@@ -49,3 +49,16 @@ pub async fn pattern_bound_client(name: &str) -> Result<Vec<()>, tokio_postgres:
     let (client, _connection) = tokio_postgres::connect("host=localhost").await?;
     client.query(&format!("SELECT * FROM users WHERE name = '{name}'")).await
 }
+
+pub fn numeric_page(limit: i64) -> sqlx::Query {
+    sqlx::query(&format!("SELECT * FROM users LIMIT {limit}"))
+}
+
+pub fn cast_page(count: usize) -> sqlx::Query {
+    sqlx::query(&format!("SELECT * FROM users LIMIT {}", count as i64))
+}
+
+pub fn builder_push_bind(name: &str) {
+    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT * FROM users WHERE name = ");
+    query.push_bind(name);
+}

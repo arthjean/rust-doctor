@@ -5,14 +5,6 @@ pub async fn async_equivalents() -> std::io::Result<Vec<u8>> {
     tokio::fs::read("Cargo.toml").await
 }
 
-fn synchronous_helper() -> std::io::Result<Vec<u8>> {
-    std::fs::read("Cargo.toml")
-}
-
-pub async fn calls_a_synchronous_helper() -> std::io::Result<Vec<u8>> {
-    synchronous_helper()
-}
-
 pub fn synchronous() {
     std::thread::sleep(Duration::from_millis(1));
 }
@@ -26,13 +18,6 @@ pub async fn in_a_thread() {
     let _ = std::thread::spawn(|| std::fs::read("Cargo.toml")).join();
 }
 
-pub async fn nested_synchronous_function() {
-    fn inner() {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    inner();
-}
-
 pub async fn async_process() -> std::io::Result<()> {
     tokio::process::Command::new("true").output().await
 }
@@ -43,4 +28,30 @@ pub async fn async_http() -> Result<(), ()> {
 
 pub async fn unlisted() -> std::io::Result<std::fs::Metadata> {
     std::fs::metadata("Cargo.toml")
+}
+
+pub mod prelude {
+    pub fn noop() {}
+}
+
+/// A glob of the crate's own modules may bind `std`, so the rule abstains.
+pub async fn under_the_crates_own_prelude_glob() {
+    use crate::blocking_negative::prelude::*;
+    noop();
+    std::thread::sleep(Duration::from_millis(1));
+}
+
+#[cfg(unix)]
+fn platform_read() -> std::io::Result<Vec<u8>> {
+    std::fs::read("Cargo.toml")
+}
+
+#[cfg(not(unix))]
+fn platform_read() -> std::io::Result<Vec<u8>> {
+    std::fs::read("Cargo.toml")
+}
+
+/// Two `fn` items of the name: the helper is ambiguous and not followed.
+pub async fn calls_an_ambiguous_helper() -> std::io::Result<Vec<u8>> {
+    platform_read()
 }

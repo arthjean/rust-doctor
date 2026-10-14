@@ -43,7 +43,19 @@ use super::{Adjudication, Population, SiteContext, Verdict};
 /// through. Required for the same reason `lambdas` is: `precision` publishes
 /// the raw counts and the raw share, and the number the report actually ranks
 /// by is neither of the two until the smoothing is named.
-pub(crate) const SCHEMA_VERSION: u64 = 7;
+///
+/// 8 adds `evidence_cutoff`, required, the date from which a pair is dated by
+/// `adjudicated_on` and every one of its passes cites the lines that decided
+/// it in `evidence`. The website reads this file's snapshot, so the bump is a
+/// step of the release checklist.
+pub(crate) const SCHEMA_VERSION: u64 = 8;
+
+/// The pairs adjudicated before `evidence_cutoff`, which carry neither a date
+/// nor a citation. They are grandfathered by count rather than re-judged:
+/// inventing the citation a pass never made is worse evidence than none, and a
+/// count that can only fall is what keeps a new undated pair out. 239 at the
+/// cutoff, less the orphan pair whose site US-020 fixed out of the population.
+pub(crate) const UNDATED_PAIRS: usize = 238;
 
 /// How the two passes of a pair were kept apart.
 ///
@@ -65,6 +77,10 @@ pub(crate) enum Independence {
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Pass {
+    /// The lines this verdict was decided on, each quoted as the file holds
+    /// them at the pinned revision. Required on every pass of a dated pair.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) evidence: Vec<Citation>,
     /// Which judge produced this verdict.
     ///
     /// `unrecorded` is the truthful value for the passes of the 2026-08-11 run,
@@ -77,10 +93,30 @@ pub(crate) struct Pass {
     pub(crate) verdict: Verdict,
 }
 
+/// Lines of a file of the judged repository, workspace-relative, and the text
+/// they hold, byte for byte, without the final line break.
+///
+/// The quote is what makes a citation checkable at all: a line range alone
+/// cannot tell a pass that read the code from one that named a plausible span.
+/// Offline the suite checks that the citations cover the site; the cache-gated
+/// replay checks each quote against the pinned revision.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Citation {
+    pub(crate) end_line: u64,
+    pub(crate) path: String,
+    pub(crate) quote: String,
+    pub(crate) start_line: u64,
+}
+
 /// A site judged twice, with both verdicts and both justifications.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AdjudicatedPair {
+    /// The day the second pass was recorded. Absent only on the pairs that
+    /// predate `evidence_cutoff`, which `UNDATED_PAIRS` counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) adjudicated_on: Option<String>,
     pub(crate) context: SiteContext,
     /// The structural family this pair judged, spelled as `ReviewedSite` spells
     /// it and asserted equal to it wherever both exist.
@@ -223,7 +259,18 @@ pub(crate) fn backing(agreement: &Agreement) -> BTreeMap<SiteIdentity<'_>, &Adju
 /// produced and dropped, and a disagreeing pair with something in `reviewed` is
 /// an escalation an agent settled.
 pub(crate) fn agreement_defects(adjudication: &Adjudication) -> Vec<String> {
+    agreement_defects_under(adjudication, &BTreeSet::new())
+}
+
+/// `agreement_defects`, with the pairs a failed citation demoted counted as
+/// disagreeing: a verdict whose quoted evidence is not in the code it judged
+/// is no verdict, and the site it backs is held as an escalation.
+pub(crate) fn agreement_defects_under(
+    adjudication: &Adjudication,
+    demoted: &BTreeSet<SiteIdentity<'_>>,
+) -> Vec<String> {
     let agreement = &adjudication.agreement;
+    let verdict = |pair: &AdjudicatedPair| pair.verdict().filter(|_| !demoted.contains(&pair.identity()));
     let mut defects = Vec::new();
 
     let mut seen: BTreeSet<SiteIdentity<'_>> = BTreeSet::new();
@@ -268,7 +315,7 @@ pub(crate) fn agreement_defects(adjudication: &Adjudication) -> Vec<String> {
         .collect();
 
     for pair in &agreement.pairs {
-        match (pair.verdict(), published.get(&pair.identity())) {
+        match (verdict(pair), published.get(&pair.identity())) {
             (Some(verdict), Some(site)) if verdict != *site => defects.push(format!(
                 "agreeing pair judged {verdict:?} while the reviewed site publishes {site:?}: {}",
                 pair.label()
@@ -286,7 +333,7 @@ pub(crate) fn agreement_defects(adjudication: &Adjudication) -> Vec<String> {
         }
     }
 
-    let open = escalations_open(agreement);
+    let open = agreement.pairs.iter().filter(|pair| verdict(pair).is_none()).count() as u64;
     if open != agreement.escalations_open {
         defects.push(format!(
             "escalations_open published {} against {open} disagreeing pairs",
@@ -431,6 +478,99 @@ pub(crate) fn protocol_defects(adjudication: &Adjudication) -> Vec<String> {
     }
 
     defects
+}
+
+/// Closed defects of the cited evidence, offline: what the record states
+/// about its citations without the code they cite.
+///
+/// A dated pair cites on every pass, and some citation of each pass sits on the
+/// site's path and covers its line, since a verdict that never quotes the
+/// flagged line judged something else. An undated pair predates the cutoff,
+/// and there can be no more of them than `UNDATED_PAIRS`.
+pub(crate) fn citation_defects(adjudication: &Adjudication) -> Vec<String> {
+    let cutoff = adjudication.evidence_cutoff.as_str();
+    let mut defects = Vec::new();
+    if !is_iso_date(cutoff) {
+        defects.push(format!("evidence_cutoff is not a date: {cutoff}"));
+    }
+    let pairs = &adjudication.agreement.pairs;
+    let undated = pairs.iter().filter(|pair| pair.adjudicated_on.is_none()).count();
+    if undated > UNDATED_PAIRS {
+        defects.push(format!(
+            "{undated} pairs carry no adjudicated_on, over the {UNDATED_PAIRS} that predate {cutoff}"
+        ));
+    }
+    for pair in pairs {
+        let label = pair.label();
+        if let Some(date) = &pair.adjudicated_on
+            && (!is_iso_date(date) || date.as_str() < cutoff)
+        {
+            defects.push(format!("adjudicated_on {date} is not a date on or after {cutoff}: {label}"));
+        }
+        for pass in &pair.passes {
+            if pair.adjudicated_on.is_some() && pass.evidence.is_empty() {
+                defects.push(format!("pass of {} cites no evidence: {label}", pass.judge));
+                continue;
+            }
+            for citation in &pass.evidence {
+                if citation.start_line == 0
+                    || citation.end_line < citation.start_line
+                    || citation.quote.is_empty()
+                {
+                    defects.push(format!(
+                        "citation {}:{}-{} is empty or reversed: {label}",
+                        citation.path, citation.start_line, citation.end_line
+                    ));
+                }
+            }
+            let covers = pass.evidence.iter().any(|citation| {
+                citation.path == pair.path && (citation.start_line..=citation.end_line).contains(&pair.line)
+            });
+            if !pass.evidence.is_empty() && !covers {
+                defects.push(format!(
+                    "no citation of the pass of {} covers the site line: {label}",
+                    pass.judge
+                ));
+            }
+        }
+    }
+    defects
+}
+
+/// The citations whose quote is not what the cited lines hold, each naming
+/// its pair, read through `lines`, which answers a repository and a path with
+/// the file at the pinned revision. A file `lines` cannot read fails the
+/// citation as surely as a wrong quote.
+pub(crate) fn quote_failures<'a>(
+    pairs: impl IntoIterator<Item = &'a AdjudicatedPair>,
+    mut lines: impl FnMut(&str, &str) -> Option<String>,
+) -> BTreeMap<SiteIdentity<'a>, String> {
+    let mut failures = BTreeMap::new();
+    for pair in pairs {
+        for pass in &pair.passes {
+            for citation in &pass.evidence {
+                let held = lines(&pair.repository, &citation.path).and_then(|text| {
+                    let start = usize::try_from(citation.start_line).ok()?.checked_sub(1)?;
+                    let count = usize::try_from(citation.end_line.checked_sub(citation.start_line)? + 1).ok()?;
+                    let cited: Vec<&str> = text.lines().skip(start).take(count).collect();
+                    (cited.len() == count).then(|| cited.join("\n"))
+                });
+                if held.as_deref() != Some(citation.quote.as_str()) {
+                    failures.entry(pair.identity()).or_insert_with(|| {
+                        format!(
+                            "the quote of {}:{}-{} by {} is not what those lines hold: {}",
+                            citation.path,
+                            citation.start_line,
+                            citation.end_line,
+                            pass.judge,
+                            pair.label()
+                        )
+                    });
+                }
+            }
+        }
+    }
+    failures
 }
 
 /// Read by the position proof as well, which dates the run that confirmed the

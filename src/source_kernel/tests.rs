@@ -6,6 +6,7 @@ use ra_ap_syntax::{Edition, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 mod benchmark;
 mod bindings;
 mod gate;
+mod helpers;
 mod measurement;
 mod registry;
 mod variants;
@@ -923,7 +924,7 @@ fn an_empty_detection_range_emits_nothing() {
         &mut candidates,
         &SILENT_RULE,
         &Detection {
-            message: "unreachable",
+            message: "unreachable".into(),
             range: TextRange::empty(0.into()),
         },
         &SourceFile::parse("fn main() {}", Edition::Edition2024).syntax_node(),

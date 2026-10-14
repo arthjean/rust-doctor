@@ -10,18 +10,21 @@
 //! resolved through the alias map, then through the dependency aliases of the
 //! manifest.
 
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, LiteralKind};
+use ra_ap_syntax::ast::{self, HasArgList, HasAttrs, HasName, LiteralKind};
 use ra_ap_syntax::{AstNode, Edition, SyntaxKind, SyntaxNode, TextRange};
 
 use super::aliases::{AliasMap, Provenance};
 use super::bindings::{self, Binding, Resolver};
 use super::{literal_string, unanimous};
-use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS, SOURCE_DYNAMIC_SHELL};
+use crate::policy::{RuleDefinition, SOURCE_DISABLED_TLS};
 use crate::source_text::{compact, intersects_errors};
 
 mod blocking;
+mod shell;
 mod sql;
 
 /// Dependency aliases of a unit: identifier written in the code to canonical
@@ -37,7 +40,7 @@ const BINDING_DEPTH: usize = 8;
 
 /// Longest method chain a detector unwinds to reach the call that built its
 /// receiver.
-const CHAIN_DEPTH: usize = 64;
+pub(super) const CHAIN_DEPTH: usize = 64;
 
 /// Item targeted by a detector, described by segments rather than by a written
 /// path: that is what lets the imported form and the fully qualified form be
@@ -54,7 +57,7 @@ pub(super) struct Detector {
 }
 
 pub(super) struct Detection {
-    pub(super) message: &'static str,
+    pub(super) message: Cow<'static, str>,
     pub(super) range: TextRange,
 }
 
@@ -68,6 +71,10 @@ pub(super) struct Context<'a> {
     /// Does the unit hold test material? Decided by the kernel from Cargo's
     /// target kind first, never by a detector reading a path.
     pub(super) test_code: bool,
+    /// The last path `item_path` resolved, and its answer. Every detector of a
+    /// call node resolves the same callee one after the other, so one slot
+    /// turns three resolutions of it into one.
+    pub(super) resolved: RefCell<Option<(TextRange, Option<Vec<String>>)>>,
 }
 
 impl Context<'_> {
@@ -94,13 +101,37 @@ impl Context<'_> {
     /// through the imports in scope and the crate through the manifest's
     /// dependency names. Generic arguments name no item and are left out; a
     /// relative keyword, a type anchor or an undecidable import abstain.
+    ///
+    /// A head only globs could have bound is read as the crate it spells when
+    /// two things prove it: the head is a crate name, of the sysroot or of the
+    /// manifest, and every glob in the way imports from an external crate.
+    /// `use futures::prelude::*;` does not rebind `std`; a glob of the crate's
+    /// own modules could, and nothing outside them says it does not.
     pub(super) fn item_path(&self, path: &ast::Path) -> Option<Vec<String>> {
+        let range = path.syntax().text_range();
+        if let Some((cached, answer)) = self.resolved.borrow().as_ref()
+            && *cached == range
+        {
+            return answer.clone();
+        }
+        let answer = self.resolve(path);
+        *self.resolved.borrow_mut() = Some((range, answer.clone()));
+        answer
+    }
+
+    fn resolve(&self, path: &ast::Path) -> Option<Vec<String>> {
         let written = item_segments(path)?;
         let (first, tail) = written.split_first()?;
         let resolved: Vec<String> = match self.aliases.provenance(path.syntax(), first) {
             Provenance::Item(item) => item.iter().chain(tail).cloned().collect(),
             Provenance::Unbound => written.clone(),
-            Provenance::Indeterminate => return None,
+            Provenance::GlobMasked(heads)
+                if self.external_crate(first)
+                    && heads.iter().all(|head| head.is_some_and(|head| self.external_crate(head))) =>
+            {
+                written.clone()
+            }
+            Provenance::GlobMasked(_) | Provenance::Indeterminate => return None,
         };
         let (root, rest) = resolved.split_first()?;
         let krate = if SYSROOT.contains(&root.as_str()) {
@@ -109,6 +140,79 @@ impl Context<'_> {
             self.crates.get(root)?.clone()
         };
         Some(std::iter::once(krate).chain(rest.iter().cloned()).collect())
+    }
+
+    /// The one `fn` item a call path names in this file, when nothing else
+    /// can: a single plain segment no import and no local binding binds,
+    /// matched against the `fn` items of the nearest enclosing block or module
+    /// that declares one of that name, or `Self::f` against the enclosing
+    /// `impl`. An item shadows a glob of its own scope and of every scope
+    /// around it, but a glob of a nearer scope may bind the name first, and
+    /// abstains. Two items of the name abstain, which is what a `cfg` pair
+    /// looks like from here.
+    pub(super) fn local_function(&self, path: &ast::Path) -> Option<ast::Fn> {
+        let segment = path.segment()?;
+        if segment.syntax().children().count() != 1 {
+            return None;
+        }
+        let ast::PathSegmentKind::Name(name) = segment.kind()? else {
+            return None;
+        };
+        let name = name.text().to_string();
+        if let Some(qualifier) = path.qualifier() {
+            return names_self(&qualifier)
+                .then(|| self.impl_function(path.syntax(), &name))
+                .flatten();
+        }
+        if !matches!(
+            self.aliases.provenance(path.syntax(), &name),
+            Provenance::Unbound | Provenance::GlobMasked(_)
+        ) || self.bindings.bound_locally(path.syntax(), &name)
+        {
+            return None;
+        }
+        for scope in path.syntax().ancestors() {
+            let Some(items) = item_scope(&scope) else {
+                continue;
+            };
+            let mut found = items
+                .children()
+                .filter_map(ast::Fn::cast)
+                .filter(|function| function.name().is_some_and(|declared| declared.text() == name));
+            match (found.next(), found.next()) {
+                (Some(function), None) => return Some(function),
+                (Some(_), Some(_)) => return None,
+                (None, _) => {}
+            }
+            if self.aliases.globbed(&scope) || !ast::BlockExpr::can_cast(scope.kind()) {
+                return None;
+            }
+        }
+        None
+    }
+
+    /// The one method `name` of the `impl` enclosing `site`: what `Self::f`
+    /// and `self.f()` call there.
+    pub(super) fn impl_function(&self, site: &SyntaxNode, name: &str) -> Option<ast::Fn> {
+        let block = site.ancestors().find_map(ast::Impl::cast)?;
+        let mut found = block
+            .assoc_item_list()?
+            .assoc_items()
+            .filter_map(|item| match item {
+                ast::AssocItem::Fn(function) => Some(function),
+                _ => None,
+            })
+            .filter(|function| function.name().is_some_and(|declared| declared.text() == name));
+        match (found.next(), found.next()) {
+            (Some(function), None) => Some(function),
+            _ => None,
+        }
+    }
+
+    /// Is `name` a crate this unit can reach without a `use`: the sysroot's or
+    /// a dependency's, under the name the manifest gives it?
+    fn external_crate(&self, name: &str) -> bool {
+        SYSROOT.contains(&name) || self.crates.contains_key(name)
     }
 
     /// What `expression` holds once local bindings and `const` items are
@@ -126,7 +230,7 @@ impl Context<'_> {
             match self.bindings.binding(self.aliases, expression.syntax(), &name) {
                 Binding::Value(value) => expression = value,
                 Binding::Unbound => return Some(expression),
-                Binding::Indeterminate => return None,
+                Binding::Typed(_) | Binding::Indeterminate => return None,
             }
         }
         None
@@ -181,35 +285,130 @@ impl Context<'_> {
         }
     }
 
-    /// `constant` for a name a format string captures, `{user}`, read where
+    /// Can `expression` carry text an attacker chose into the string it is
+    /// interpolated in? Not when it is constant, and not when it is a number:
+    /// a binding whose written type is a primitive, or a cast to one. `site` is
+    /// where the names of those types are resolved, which is the macro call
+    /// for an argument reparsed out of its token tree.
+    pub(super) fn injectable(&self, expression: &ast::Expr, site: &SyntaxNode) -> bool {
+        !self.constant(expression) && !self.numeric(expression, site)
+    }
+
+    /// `injectable` for a name a format string captures, `{user}`, read where
     /// the macro sits.
-    fn constant_capture(&self, site: &SyntaxNode, name: &str) -> bool {
+    fn injectable_capture(&self, site: &SyntaxNode, name: &str) -> bool {
         match self.bindings.binding(self.aliases, site, name) {
-            Binding::Value(value) => self.constant(&value),
-            Binding::Unbound => screaming(name),
-            Binding::Indeterminate => false,
+            Binding::Value(value) => {
+                self.injectable(&value, site)
+                    && !let_type(&value).is_some_and(|written| self.numeric_type(&written, site))
+            }
+            Binding::Typed(written) => !self.numeric_type(&written, site),
+            Binding::Unbound => !screaming(name),
+            Binding::Indeterminate => true,
         }
     }
 
+    /// Is `expression` a number, by syntax alone: a cast to a numeric
+    /// primitive, or a binding whose written type is one, followed through
+    /// the `let`s it was stored in.
+    fn numeric(&self, expression: &ast::Expr, site: &SyntaxNode) -> bool {
+        let mut expression = strip_wrappers(expression.clone());
+        for _ in 0..BINDING_DEPTH {
+            if let ast::Expr::CastExpr(cast) = &expression {
+                return cast.ty().is_some_and(|written| self.numeric_type(&written, site));
+            }
+            let Some(name) = bindings::identifier(&expression) else {
+                return false;
+            };
+            match self.bindings.binding(self.aliases, expression.syntax(), &name) {
+                Binding::Value(value) => {
+                    if let Some(declared) = let_type(&value) {
+                        return self.numeric_type(&declared, site);
+                    }
+                    expression = strip_wrappers(value);
+                }
+                Binding::Typed(written) => return self.numeric_type(&written, site),
+                Binding::Unbound | Binding::Indeterminate => return false,
+            }
+        }
+        false
+    }
+
+    /// Is this written type a number? A primitive spelled by its own name,
+    /// which no item in scope shadows, or `std::num`'s `NonZero` types. An
+    /// alias, `type Id = i64;`, or any other path is not proof, and is not
+    /// followed.
+    fn numeric_type(&self, written: &ast::Type, site: &SyntaxNode) -> bool {
+        match written {
+            ast::Type::RefType(reference) => reference
+                .ty()
+                .is_some_and(|inner| self.numeric_type(&inner, site)),
+            ast::Type::ParenType(paren) => paren.ty().is_some_and(|inner| self.numeric_type(&inner, site)),
+            ast::Type::PathType(path) => {
+                let Some(path) = path.path() else {
+                    return false;
+                };
+                if let Some(segments) = plain_segments(&path)
+                    && let [name] = segments.as_slice()
+                    && NUMERIC_PRIMITIVES.contains(&name.as_str())
+                {
+                    return self.aliases.provenance(site, name) == Provenance::Unbound;
+                }
+                self.item_path(&path).is_some_and(|resolved| {
+                    matches!(
+                        resolved.as_slice(),
+                        [krate, module, kind]
+                            if matches!(krate.as_str(), "core" | "std")
+                                && module == "num"
+                                && kind.starts_with("NonZero")
+                    )
+                })
+            }
+            _ => false,
+        }
+    }
 }
 
-static TLS_CLIENTS: [Item; 2] = [
-    Item {
-        krate: "reqwest",
-        segments: &["Client"],
-    },
-    Item {
-        krate: "reqwest",
-        segments: &["blocking", "Client"],
-    },
+/// The primitives whose `Display` cannot spell anything but a value of the
+/// type: a number, a boolean or a single character.
+const NUMERIC_PRIMITIVES: [&str; 16] = [
+    "bool", "char", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64",
+    "u128", "usize",
 ];
 
-static COMMAND: Item = Item {
-    krate: "std",
-    segments: &["process", "Command"],
-};
-
-const SHELLS: [&str; 4] = ["bash", "dash", "sh", "zsh"];
+/// The constructors of a reqwest client builder, each with the associated
+/// function that returns one: `Client::builder()` and `ClientBuilder::new()`
+/// hand back the same builder.
+static TLS_BUILDERS: [(Item, &str); 4] = [
+    (
+        Item {
+            krate: "reqwest",
+            segments: &["Client"],
+        },
+        "builder",
+    ),
+    (
+        Item {
+            krate: "reqwest",
+            segments: &["blocking", "Client"],
+        },
+        "builder",
+    ),
+    (
+        Item {
+            krate: "reqwest",
+            segments: &["ClientBuilder"],
+        },
+        "new",
+    ),
+    (
+        Item {
+            krate: "reqwest",
+            segments: &["blocking", "ClientBuilder"],
+        },
+        "new",
+    ),
+];
 
 static DISABLED_TLS: Detector = Detector {
     definition: &SOURCE_DISABLED_TLS,
@@ -217,15 +416,9 @@ static DISABLED_TLS: Detector = Detector {
     inspect: disabled_tls,
 };
 
-static DYNAMIC_SHELL: Detector = Detector {
-    definition: &SOURCE_DYNAMIC_SHELL,
-    node: SyntaxKind::METHOD_CALL_EXPR,
-    inspect: dynamic_shell,
-};
-
 /// The canonical cases of one native rule, which the variant gate in
 /// `tests/variants.rs` rewrites into the forms real code takes and holds to
-/// the same verdict.
+/// the same verdict, and the semantic cases it runs as written.
 ///
 /// A case is written as parts rather than as a file, so each rewrite has
 /// something to act on: `import` is the item the call reaches, written into
@@ -238,9 +431,29 @@ pub(super) struct Variants {
     pub(super) rule: &'static str,
     pub(super) positive: Case,
     pub(super) negative: Case,
-    /// Rewrites under which the positive is known to go silent, each with the
-    /// one-line reason. The gate refuses an entry that no longer misses.
+    /// Does the positive fire because a parameter's value reaches the sink as
+    /// text? Then the `numeric-parameter` rewrite, which types every parameter
+    /// `i64`, has to leave it silent: a number cannot carry an injection.
+    pub(super) interpolates_parameters: bool,
+    /// Rewrites under which the rule is known to miss the verdict the rewrite
+    /// expects, each with the one-line reason naming the story that closes
+    /// it. The gate refuses an entry that no longer misses.
     pub(super) known_misses: &'static [(&'static str, &'static str)],
+    /// The real forms of the defect and of its look-alikes, each a whole unit.
+    pub(super) semantic: &'static [Semantic],
+}
+
+/// One form of the defect, or of something that only looks like it, written
+/// as the whole unit a user would write. `fires: false` carries the reason the
+/// rule stays silent in `carve_out`: either why the form is not the defect, or
+/// the story that will make the rule see it. A carved case that fires is a
+/// stale carve-out, and the gate refuses it.
+#[cfg(test)]
+pub(super) struct Semantic {
+    pub(super) description: &'static str,
+    pub(super) source: &'static str,
+    pub(super) fires: bool,
+    pub(super) carve_out: &'static str,
 }
 
 #[cfg(test)]
@@ -257,7 +470,7 @@ pub(super) struct Case {
 pub(super) static VARIANTS: [&Variants; 4] = [
     &blocking::VARIANTS,
     &TLS_VARIANTS,
-    &SHELL_VARIANTS,
+    &shell::VARIANTS,
     &sql::VARIANTS,
 ];
 
@@ -280,36 +493,36 @@ static TLS_VARIANTS: Variants = Variants {
         receiver: "{Item}::builder()",
         chain: ".danger_accept_invalid_certs($insecure)",
     },
+    interpolates_parameters: false,
     known_misses: &[],
+    semantic: &[
+        Semantic {
+            description: "the builder taken from ClientBuilder::new()",
+            source: "fn client() { let _ = reqwest::ClientBuilder::new().danger_accept_invalid_certs(true).build(); }",
+            fires: true,
+            carve_out: "",
+        },
+        Semantic {
+            description: "the blocking client's builder disabling hostname checks",
+            source: "use reqwest::blocking::Client;\nfn client() { let _ = Client::builder().danger_accept_invalid_hostnames(true).build(); }",
+            fires: true,
+            carve_out: "",
+        },
+        Semantic {
+            description: "verification disabled in a test module",
+            source: "#[cfg(test)]\nmod tests { fn client() { let _ = reqwest::Client::builder().danger_accept_invalid_certs(true); } }",
+            fires: false,
+            carve_out: "verification is disabled on purpose against a self-signed test server",
+        },
+    ],
 };
 
-#[cfg(test)]
-static SHELL_VARIANTS: Variants = Variants {
-    rule: SOURCE_DYNAMIC_SHELL.id,
-    positive: Case {
-        asynchronous: false,
-        import: "std::process::Command",
-        parameters: "$user: &str",
-        setup: "",
-        receiver: "{Item}::new(\"sh\")",
-        chain: ".arg(\"-c\").arg(format!(\"echo {$user}\"))",
-    },
-    negative: Case {
-        asynchronous: false,
-        import: "std::process::Command",
-        parameters: "$user: &str",
-        setup: "",
-        receiver: "{Item}::new(\"sh\")",
-        chain: ".arg(\"-c\").arg(\"echo literal\").arg($user)",
-    },
-    known_misses: &[],
-};
-
-pub(super) static DETECTORS: [&Detector; 6] = [
+pub(super) static DETECTORS: [&Detector; 7] = [
     &blocking::BLOCKING_CALL,
     &blocking::BLOCKING_METHOD,
     &DISABLED_TLS,
-    &DYNAMIC_SHELL,
+    &shell::DYNAMIC_SHELL,
+    &shell::TAINTED_PROGRAM,
     &sql::SQL_CALL,
     &sql::SQL_METHOD,
 ];
@@ -318,7 +531,7 @@ pub(super) static DETECTORS: [&Detector; 6] = [
 ///
 /// The rule stays out of test code: verification is routinely turned off on
 /// purpose against a local server with a self-signed certificate, and that is
-/// the dominant reading of the pattern there. `dynamic_shell` below carries no
+/// the dominant reading of the pattern there. `shell::dynamic_shell` carries no
 /// such exemption on purpose, because an interpolated shell command is a
 /// finding wherever it is written, and a test harness is a place it runs.
 fn disabled_tls(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
@@ -344,9 +557,9 @@ fn disabled_tls(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
         return None;
     }
     let callee = builder.expr()?;
-    if !TLS_CLIENTS
+    if !TLS_BUILDERS
         .iter()
-        .any(|client| context.calls(&callee, client, "builder"))
+        .any(|(builder, constructor)| context.calls(&callee, builder, constructor))
     {
         return None;
     }
@@ -356,51 +569,9 @@ fn disabled_tls(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
         return None;
     }
     Some(Detection {
-        message,
+        message: message.into(),
         range: argument.syntax().text_range(),
     })
-}
-
-fn dynamic_shell(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
-    let call = ast::MethodCallExpr::cast(node.clone())?;
-    if call.name_ref()?.text() != "arg" {
-        return None;
-    }
-    let payload = only_argument(call.arg_list()?)?;
-    if !dynamic_text(context, &payload)
-        || shell_invocation(context, call.receiver()?).is_none()
-        || intersects_errors(call.syntax().text_range(), context.error_ranges)
-    {
-        return None;
-    }
-    Some(Detection {
-        message: "A dynamic value is interpolated into a shell command string.",
-        range: payload.syntax().text_range(),
-    })
-}
-
-/// Is `receiver`, read through the bindings it was stored in, a
-/// `Command::new(<shell>).arg("-c")`? `None` when it is not, or cannot be told.
-fn shell_invocation(context: &Context<'_>, receiver: ast::Expr) -> Option<()> {
-    let ast::Expr::MethodCallExpr(shell_arg) = context.value(strip_wrappers(receiver))? else {
-        return None;
-    };
-    if shell_arg.name_ref()?.text() != "arg"
-        || only_argument(shell_arg.arg_list()?)
-            .and_then(literal_string)
-            .as_deref()
-            != Some("-c")
-    {
-        return None;
-    }
-    let ast::Expr::CallExpr(command) = context.value(strip_wrappers(shell_arg.receiver()?))? else {
-        return None;
-    };
-    if !context.calls(&command.expr()?, &COMMAND, "new") {
-        return None;
-    }
-    let shell = only_argument(command.arg_list()?).and_then(literal_string)?;
-    SHELLS.contains(&shell.as_str()).then_some(())
 }
 
 pub(super) fn only_argument(arguments: ast::ArgList) -> Option<ast::Expr> {
@@ -508,7 +679,7 @@ fn screaming(name: &str) -> bool {
 }
 
 /// Is this text assembled from a runtime value? A `format!` interpolating a
-/// value that is not constant, or a `+` concatenation with such an operand,
+/// value that is `injectable`, or a `+` concatenation with such an operand,
 /// read through the bindings the expression was stored in.
 pub(super) fn dynamic_text(context: &Context<'_>, expression: &ast::Expr) -> bool {
     let Some(expression) = context.value(strip_wrappers(expression.clone())) else {
@@ -516,8 +687,9 @@ pub(super) fn dynamic_text(context: &Context<'_>, expression: &ast::Expr) -> boo
     };
     match strip_wrappers(expression) {
         ast::Expr::BinExpr(binary) => {
+            let site = binary.syntax().clone();
             binary.op_kind() == Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add))
-                && !context.constant(&ast::Expr::BinExpr(binary))
+                && context.injectable(&ast::Expr::BinExpr(binary), &site)
         }
         ast::Expr::MacroExpr(macro_expression) => macro_expression
             .macro_call()
@@ -536,7 +708,28 @@ fn format_macro_dynamic(context: &Context<'_>, call: &ast::MacroCall) -> bool {
     let Some(arguments) = format_arguments(call, context.edition) else {
         return false;
     };
-    let mut arguments = arguments.args();
+    formats_dynamic(context, call, arguments.args())
+}
+
+/// The binding a `write!` or `writeln!` call writes dynamic text into:
+/// `write!(sql, "... {user}")` names `sql`.
+pub(super) fn written_dynamic(context: &Context<'_>, call: &ast::MacroCall) -> Option<String> {
+    let path = compact(call.path()?.syntax());
+    if path != "write" && path != "writeln" {
+        return None;
+    }
+    let mut arguments = format_arguments(call, context.edition)?.args();
+    let destination = bindings::identifier(&strip_wrappers(arguments.next()?))?;
+    formats_dynamic(context, call, arguments).then_some(destination)
+}
+
+/// Do these format arguments, the format string first, interpolate a value
+/// that is `injectable`?
+fn formats_dynamic(
+    context: &Context<'_>,
+    call: &ast::MacroCall,
+    mut arguments: impl Iterator<Item = ast::Expr>,
+) -> bool {
     let Some(format_text) = arguments.next().and_then(literal_string) else {
         return false;
     };
@@ -550,8 +743,8 @@ fn format_macro_dynamic(context: &Context<'_>, call: &ast::MacroCall) -> bool {
     // sits, and only the shape of the argument is read from the reparse.
     let site = call.syntax();
     let constant = |argument: &ast::Expr| match bindings::identifier(&strip_wrappers(argument.clone())) {
-        Some(name) => context.constant_capture(site, &name),
-        None => context.constant(argument),
+        Some(name) => !context.injectable_capture(site, &name),
+        None => !context.injectable(argument, site),
     };
     let mut positional = Vec::new();
     let mut named = BTreeMap::new();
@@ -576,7 +769,7 @@ fn format_macro_dynamic(context: &Context<'_>, call: &ast::MacroCall) -> bool {
             !named
                 .get(field)
                 .copied()
-                .unwrap_or_else(|| context.constant_capture(site, field))
+                .unwrap_or_else(|| !context.injectable_capture(site, field))
         }
     })
 }
@@ -700,4 +893,31 @@ pub(super) fn shared_crate_aliases<'a>(
         });
     }
     shared.unwrap_or_default()
+}
+
+/// The type written on the `let` that `value` initializes: `i64` for the
+/// `q.limit` of `let limit: i64 = q.limit;`.
+fn let_type(value: &ast::Expr) -> Option<ast::Type> {
+    value.syntax().parent().and_then(ast::LetStmt::cast)?.ty()
+}
+
+/// Is this qualifier `Self` and nothing else, so that `Self::f` names a
+/// method of the enclosing `impl`?
+fn names_self(qualifier: &ast::Path) -> bool {
+    qualifier.qualifier().is_none()
+        && qualifier
+            .segment()
+            .is_some_and(|segment| segment.kind() == Some(ast::PathSegmentKind::SelfTypeKw))
+}
+
+/// The node whose children are the items `scope` declares, when `scope` is a
+/// block, a file or an inline module.
+fn item_scope(scope: &SyntaxNode) -> Option<SyntaxNode> {
+    if let Some(block) = ast::BlockExpr::cast(scope.clone()) {
+        block.stmt_list().map(|list| list.syntax().clone())
+    } else if ast::SourceFile::can_cast(scope.kind()) {
+        Some(scope.clone())
+    } else {
+        ast::Module::cast(scope.clone())?.item_list().map(|list| list.syntax().clone())
+    }
 }

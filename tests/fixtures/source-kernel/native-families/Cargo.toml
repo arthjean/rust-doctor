@@ -1,4 +1,4 @@
 [workspace]
 members = ["service"]
-exclude = ["diesel", "postgres", "reqwest", "rusqlite", "sqlx", "tokio", "tokio-postgres"]
+exclude = ["diesel", "postgres", "reqwest", "rusqlite", "sea-orm", "sqlx", "tokio", "tokio-postgres"]
 resolver = "3"

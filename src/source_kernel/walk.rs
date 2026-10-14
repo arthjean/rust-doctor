@@ -43,6 +43,10 @@ use super::{
 struct Refusals {
     errors: Vec<SourceError>,
     every_file_was_read: bool,
+    /// Packages one of whose `mod` requests, or a file one of them named, was
+    /// lost: their module tree is a floor, and no file of theirs is provably
+    /// unreached.
+    incomplete: BTreeSet<String>,
 }
 
 impl Default for Refusals {
@@ -50,11 +54,17 @@ impl Default for Refusals {
         Self {
             errors: Vec::new(),
             every_file_was_read: true,
+            incomplete: BTreeSet::new(),
         }
     }
 }
 
 impl Refusals {
+    /// The traversal `work` lost part of its package's module tree.
+    fn lost_tree(&mut self, work: &WorkItem) {
+        self.incomplete.insert(work.reachability.package_id.clone());
+    }
+
     /// A file the walk will not read. The counts become a floor.
     fn lost(&mut self, error: SourceError) {
         self.errors.push(error);
@@ -120,12 +130,14 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
     while let Some(work) = queue.pop_first() {
         if work.depth > limits.module_depth {
             refusals.lost_to_limit(Limit::ModuleDepth, limits.module_depth);
+            refusals.lost_tree(&work);
             continue;
         }
         let canonical = match confine(&workspace_root, &work.lexical_path) {
             Ok(canonical) => canonical,
             Err(error) => {
                 refusals.lost(error);
+                refusals.lost_tree(&work);
                 continue;
             }
         };
@@ -141,6 +153,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
             Entry::Vacant(entry) => {
                 if occupancy >= limits.units {
                     refusals.lost_to_limit(Limit::SourceUnits, limits.units);
+                    refusals.lost_tree(&work);
                     break;
                 }
                 let loaded = load_unit(
@@ -152,8 +165,14 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
                 );
                 match loaded {
                     Loaded::Unit(unit) => entry.insert(unit),
-                    Loaded::Skipped => continue,
-                    Loaded::BudgetExhausted => break,
+                    Loaded::Skipped => {
+                        refusals.lost_tree(&work);
+                        continue;
+                    }
+                    Loaded::BudgetExhausted => {
+                        refusals.lost_tree(&work);
+                        break;
+                    }
                 }
             }
         };
@@ -167,6 +186,10 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         }
         queue.extend(module_requests(unit, &work, &workspace_root, &mut refusals));
     }
+    // A walk that stopped early never reached what is still queued.
+    for work in &queue {
+        refusals.lost_tree(work);
+    }
 
     Enumeration {
         units,
@@ -177,6 +200,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         complete: refusals.every_file_was_read,
         excluded: BTreeSet::new(),
         selected: None,
+        incomplete_trees: refusals.incomplete,
     }
 }
 
@@ -193,6 +217,7 @@ fn source_roots(metadata: &Metadata, refusals: &mut Refusals) -> BTreeSet<WorkIt
                     package.name, package.edition
                 ),
             });
+            refusals.incomplete.insert(package.id.repr.clone());
             continue;
         };
         for (target_index, target) in package.targets.iter().enumerate() {
@@ -360,6 +385,15 @@ fn load_unit(
     })
 }
 
+/// The files `unit`'s out-of-line `mod` declarations name, for the walk to
+/// visit next. A request that cannot be followed is lost, and so is the
+/// completeness of the declaring package's module tree.
+///
+/// A `path` a `cfg_attr(..)` would set is followed too, whatever its
+/// predicate, the way a `#[cfg(windows)] mod` is: Cargo compiles that file on
+/// the configuration it names. Its default file may then legitimately not
+/// exist, since the `cfg_attr`s can cover every configuration, so it is
+/// unresolved only when no alternative exists either.
 fn module_requests(
     unit: &SourceUnit,
     work: &WorkItem,
@@ -369,9 +403,11 @@ fn module_requests(
     let tree = unit.tree();
     let mut requests = Vec::new();
     for module in tree.syntax().descendants().filter_map(ast::Module::cast) {
-        if module.item_list().is_some()
-            || intersects_errors(module.syntax().text_range(), &unit.error_ranges)
-        {
+        if module.item_list().is_some() {
+            continue;
+        }
+        if intersects_errors(module.syntax().text_range(), &unit.error_ranges) {
+            refusals.lost_tree(work);
             continue;
         }
         let Some(name) = module.name().map(|name| name.text().to_string()) else {
@@ -386,30 +422,43 @@ fn module_requests(
         };
 
         let base = inline_module_directory(&work.module_directory, &module);
+        // A `path` on a declaration outside every inline `mod` block is
+        // relative to the directory of the file holding it, even when that file
+        // is `src/a/b.rs` and its plain declarations resolve under `src/a/b/`
+        // (the Reference, "The path attribute"). Inside an inline block it
+        // starts from the same directory a plain declaration does.
+        let attributed = if base == work.module_directory {
+            work.lexical_path.parent().map_or_else(|| base.clone(), Path::to_path_buf)
+        } else {
+            base.clone()
+        };
+        let alternatives = confined(
+            conditional_paths(&module).into_iter().map(|path| attributed.join(path)).collect(),
+            workspace_root,
+            work,
+            refusals,
+        );
+        let mut alternatives: Vec<PathBuf> = alternatives.into_iter().filter(|path| path_exists(path)).collect();
         let candidates = match path_attribute(&module) {
             PathAttribute::Absent => vec![
                 base.join(format!("{name}.rs")),
                 base.join(&name).join("mod.rs"),
             ],
-            PathAttribute::Literal(path) => vec![base.join(path)],
+            PathAttribute::Literal(path) => vec![attributed.join(path)],
             PathAttribute::Invalid => {
                 refusals.lost(unresolved("has no supported literal path"));
+                refusals.lost_tree(work);
                 continue;
             }
         };
-        let (confined, escaping): (Vec<PathBuf>, Vec<PathBuf>) = candidates
-            .into_iter()
-            .partition(|path| lexically_within_workspace(workspace_root, path));
-        for path in &escaping {
-            refusals.lost(outside_workspace(workspace_root, path));
-        }
-        if confined.is_empty() {
-            continue;
-        }
-
-        let mut existing = confined.into_iter().filter(|path| path_exists(path));
-        let path = match (existing.next(), existing.next()) {
-            (Some(path), None) => path,
+        let declared = candidates.len();
+        let candidates = confined(candidates, workspace_root, work, refusals);
+        // An escaping path was already refused as such, and saying it was also
+        // not found would report one declaration twice.
+        let escaped = candidates.len() < declared;
+        let mut existing = candidates.into_iter().filter(|path| path_exists(path));
+        match (existing.next(), existing.next()) {
+            (Some(path), None) => alternatives.push(path),
             (Some(_), Some(_)) => {
                 refusals.lost(SourceError {
                     code: "module-ambiguous",
@@ -418,30 +467,57 @@ fn module_requests(
                         unit.relative_path()
                     ),
                 });
+                refusals.lost_tree(work);
                 continue;
             }
-            (None, _) => {
-                refusals.lost(unresolved("could not be resolved"));
+            (None, _) if alternatives.is_empty() => {
+                if !escaped {
+                    refusals.lost(unresolved("could not be resolved"));
+                }
+                refusals.lost_tree(work);
                 continue;
             }
-        };
+            (None, _) => {}
+        }
 
-        let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
-        // The gate travels with the file the declaration resolved to, never
-        // with the lexical spelling, and a gated file gates everything it
-        // declares in turn: the whole subtree of a `#[cfg(test)] mod tests;` is
-        // compiled only under `cfg(test)`, not just its root file.
-        let mut reachability = work.reachability.clone();
-        reachability.test_gated |= is_test_gate(&module);
-        requests.push(WorkItem {
-            lexical_path: path,
-            edition: work.edition,
-            module_directory: module_directory_for_file(&resolved),
-            reachability,
-            depth: work.depth + 1,
-        });
+        for path in alternatives {
+            let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
+            // The gate travels with the file the declaration resolved to,
+            // never with the lexical spelling, and a gated file gates
+            // everything it declares in turn: the whole subtree of a
+            // `#[cfg(test)] mod tests;` is compiled only under `cfg(test)`,
+            // not just its root file.
+            let mut reachability = work.reachability.clone();
+            reachability.test_gated |= is_test_gate(&module);
+            requests.push(WorkItem {
+                lexical_path: path,
+                edition: work.edition,
+                module_directory: module_directory_for_file(&resolved),
+                reachability,
+                depth: work.depth + 1,
+            });
+        }
     }
     requests
+}
+
+/// The paths of `candidates` that stay inside the workspace, lexically. Each
+/// one that escapes is refused, and costs its package the completeness of its
+/// module tree.
+fn confined(
+    candidates: Vec<PathBuf>,
+    workspace_root: &Path,
+    work: &WorkItem,
+    refusals: &mut Refusals,
+) -> Vec<PathBuf> {
+    let (confined, escaping): (Vec<PathBuf>, Vec<PathBuf>) = candidates
+        .into_iter()
+        .partition(|path| lexically_within_workspace(workspace_root, path));
+    for path in &escaping {
+        refusals.lost(outside_workspace(workspace_root, path));
+        refusals.lost_tree(work);
+    }
+    confined
 }
 
 /// Directory a `mod` declaration resolves against, once the inline `mod` blocks
@@ -484,6 +560,25 @@ fn path_attribute(module: &ast::Module) -> PathAttribute {
         (Some(Some(path)), None) => PathAttribute::Literal(path),
         _ => PathAttribute::Invalid,
     }
+}
+
+/// Every literal `path` a `cfg_attr(..)` on this declaration would set, at any
+/// nesting of `cfg_attr` the parser types, whatever its predicate.
+fn conditional_paths(module: &ast::Module) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut pending: Vec<ast::Meta> = module.attrs().filter_map(|attribute| attribute.meta()).collect();
+    while let Some(meta) = pending.pop() {
+        match meta {
+            ast::Meta::CfgAttrMeta(conditional) => pending.extend(conditional.metas()),
+            ast::Meta::KeyValueMeta(key_value)
+                if key_value.path().is_some_and(|path| path.syntax().text() == "path") =>
+            {
+                paths.extend(key_value.expr().and_then(literal_string));
+            }
+            _ => {}
+        }
+    }
+    paths
 }
 
 /// Nesting of `all(...)` the gate reader descends before it stops answering.

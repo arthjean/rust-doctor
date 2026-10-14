@@ -160,7 +160,7 @@ pub(super) fn normalize_source_candidate(
         line_end: candidate.span.line_end,
         column_end: candidate.span.column_end,
     });
-    let message = sanitize_text(candidate.message, Some(workspace_root), home);
+    let message = sanitize_text(&candidate.message, Some(workspace_root), home);
     let id = fingerprint(
         source,
         code.as_deref(),

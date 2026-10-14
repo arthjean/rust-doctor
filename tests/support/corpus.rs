@@ -456,6 +456,11 @@ pub(crate) struct Adjudication {
     pub(crate) adjudicated_after_cutoff: Vec<ProtocolScope>,
     pub(crate) agreement: Agreement,
     pub(crate) criterion: String,
+    /// Date from which every adjudicated pair is dated and every one of its
+    /// passes cites the lines that decided it. Distinct from
+    /// `protocol_cutoff`, which dates the double pass itself: the pairs judged
+    /// between the two carry two verdicts and no citation.
+    pub(crate) evidence_cutoff: String,
     /// Digest anchoring every published site to a run that located it.
     ///
     /// Sits here rather than beside `harness`, which is evidence about the scan,

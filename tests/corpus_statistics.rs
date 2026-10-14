@@ -243,6 +243,7 @@ fn an_unknown_separation_value_fails_deserialization() {
 
 fn pass(judge: &str, verdict: Verdict) -> Pass {
     Pass {
+        evidence: Vec::new(),
         judge: judge.to_owned(),
         justification: "probe".to_owned(),
         verdict,
@@ -251,6 +252,7 @@ fn pass(judge: &str, verdict: Verdict) -> Pass {
 
 fn pair(line: u64, rule: &str, first: Verdict, second: Verdict) -> AdjudicatedPair {
     AdjudicatedPair {
+        adjudicated_on: None,
         context: SiteContext::Production,
         family: None,
         independence: Independence::SeparateContext,
@@ -982,13 +984,16 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
     assert!(rule.reviewed < PROTOCOL_TARGET);
     assert_eq!(plan.target, rule.reviewed);
     assert_eq!(plan.target, target_floor(plan.observed));
-    assert_eq!(rule.false_positives, Some(1));
-    assert_eq!(rule.false_positive_rate_basis_points, Some(833));
+    // One false positive in twelve until US-020 fixed the walk behind it: none
+    // in the eleven sites the census still holds, and eleven cannot place a
+    // rate of zero under the threshold either.
+    assert_eq!(rule.false_positives, Some(0));
+    assert_eq!(rule.false_positive_rate_basis_points, Some(0));
     assert_eq!(rule.separation, Some(Separation::Indecisive));
     let low = rule.interval_low_basis_points.unwrap();
     let high = rule.interval_high_basis_points.unwrap();
     assert!(low <= THRESHOLD_BASIS_POINTS && THRESHOLD_BASIS_POINTS <= high);
-    assert_eq!((low, high), wilson_95(1, rule.reviewed));
+    assert_eq!((low, high), wilson_95(0, rule.reviewed));
 
     // The other three rates of the same draw separate, which is what says the
     // indecision is this rule's population and not the target the protocol

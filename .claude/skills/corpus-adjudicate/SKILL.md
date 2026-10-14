@@ -216,17 +216,34 @@ passes concluded:
 
 ```json
 {
+  "adjudicated_on": "2026-10-14",
   "context": "production",
   "independence": "separate_context",
   "line": 67,
   "passes": [
     {
-      "judge": "claude-opus-5",
+      "evidence": [
+        {
+          "end_line": 68,
+          "path": "src/buf/buf_impl.rs",
+          "quote": "        let byte = self.chunk()[0];\n        self.advance(1);",
+          "start_line": 67
+        }
+      ],
+      "judge": "claude-opus-5-5",
       "justification": "What in the code decided the first pass.",
       "verdict": "false_positive"
     },
     {
-      "judge": "claude-opus-5",
+      "evidence": [
+        {
+          "end_line": 67,
+          "path": "src/buf/buf_impl.rs",
+          "quote": "        let byte = self.chunk()[0];",
+          "start_line": 67
+        }
+      ],
+      "judge": "claude-opus-5-5",
       "justification": "What in the code decided the second pass.",
       "verdict": "false_positive"
     }
@@ -237,6 +254,24 @@ passes concluded:
   "rule": "clippy::indexing_slicing"
 }
 ```
+
+`adjudicated_on` is the day the pair was recorded, on or after
+`adjudication.evidence_cutoff`, and every pass of a dated pair lists in
+`evidence` the lines that decided it: `path` relative to the repository,
+`start_line` and `end_line` inclusive, and `quote`, those lines copied byte for
+byte from the pinned revision and joined by line breaks. Offline, some citation
+of each pass must sit on the site's path and cover its line. The cache-gated
+replay compares every quote to the checkout, and a pass whose quote the code
+does not hold turns its pair into an escalation. Only the pairs that predate
+the cutoff stay undated, and the suite refuses a new one.
+
+A `false_positive` verdict on a `rust_doctor::*` rule names, in both
+justifications, the regression seed that pins it under
+`tests/fixtures/regressions/<rule-tail>--<slug>/`, written by hand as
+`tests/regression_seeds.rs` describes, and declared to fire with a
+known-false-positive reason until the rule is fixed. When the site cannot be
+reduced to a seed without the corpus code itself, the justification says why
+instead. A seed is never corpus code.
 
 `judge` names the model that produced that pass, and `unrecorded` is reserved
 for the passes of the 2026-08-11 run whose identity was never captured: a pass

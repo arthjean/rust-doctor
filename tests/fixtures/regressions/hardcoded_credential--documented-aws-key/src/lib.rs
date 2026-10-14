@@ -1,0 +1,1 @@
+pub const KEY_ID: &str = "AKIAIOSFODNN7EXAMPLE";

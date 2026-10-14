@@ -1,0 +1,12 @@
+# rule: rust_doctor::repo::hardcoded_credential
+# weakness: placeholder-credential
+# source: US-019, a template slot for the password
+# verdict: quiet
+
+[package]
+name = "seed-hardcoded-credential-placeholder-database-password"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

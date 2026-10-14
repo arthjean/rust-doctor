@@ -24,7 +24,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use support::corpus::agreement::{AdjudicatedPair, Independence, Pass, ProtocolScope};
+use support::corpus::agreement::{AdjudicatedPair, Citation, Independence, Pass, ProtocolScope};
 use support::corpus::coefficients::{Coefficient, ContingencyTable};
 use support::corpus::sampling::{SamplingPlan, stride};
 use support::corpus::{Population, Provenance, ReviewedSite, SiteContext, Verdict, artifact};
@@ -56,9 +56,25 @@ fn skill_text() -> String {
 /// `sampling_plan` holds nothing today, so a path into it resolves against a
 /// row built from the struct itself rather than against a shape written here:
 /// renaming the field renames the exemplar, which is what makes the absence of
-/// data cost the contract nothing.
+/// data cost the contract nothing. The pairs predating `evidence_cutoff` carry
+/// no date and no citation, so a dated, cited pair is appended the same way.
 fn record() -> Value {
-    let mut document = serde_json::to_value(artifact()).unwrap();
+    let published = artifact();
+    let mut cited = published.adjudication.agreement.pairs[0].clone();
+    cited.adjudicated_on = Some(published.adjudication.evidence_cutoff.clone());
+    for pass in &mut cited.passes {
+        pass.evidence = vec![Citation {
+            end_line: cited.line,
+            path: cited.path.clone(),
+            quote: "probe".to_owned(),
+            start_line: cited.line,
+        }];
+    }
+    let mut document = serde_json::to_value(published).unwrap();
+    document["adjudication"]["agreement"]["pairs"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(cited).unwrap());
     let exemplar = SamplingPlan {
         carried_over: vec![4],
         indices: stride(9, 3),

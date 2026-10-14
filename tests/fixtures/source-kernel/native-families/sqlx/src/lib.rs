@@ -31,3 +31,25 @@ macro_rules! query {
         $crate::Query
     }};
 }
+
+pub struct Postgres;
+
+pub struct QueryBuilder<DB> {
+    database: std::marker::PhantomData<DB>,
+}
+
+impl<DB> QueryBuilder<DB> {
+    pub fn new(_sql: impl Into<String>) -> Self {
+        Self {
+            database: std::marker::PhantomData,
+        }
+    }
+
+    pub fn push(&mut self, _sql: impl std::fmt::Display) -> &mut Self {
+        self
+    }
+
+    pub fn push_bind<T>(&mut self, _value: T) -> &mut Self {
+        self
+    }
+}

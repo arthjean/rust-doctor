@@ -8,7 +8,9 @@
 //! its initializer, the answer is `Indeterminate` and the detector abstains.
 //! That covers a binding reassigned after it was made, one bound by a pattern
 //! other than a plain name, one taken from a parameter, and one shadowed by a
-//! second binding between it and the use, in a branch or anywhere else.
+//! second binding between it and the use, in a branch or anywhere else. A
+//! parameter, or a `let`, whose type is written still says that much: the
+//! answer is then `Typed`, which no reassignment can change.
 //! Closures, loops and method calls taking `&mut self` are not followed: a
 //! builder mutated through a method is still the builder it was initialized to.
 
@@ -25,6 +27,9 @@ use super::aliases::{AliasMap, Provenance};
 pub(super) enum Binding {
     /// A `let` binding or a `const` item, initialized to this expression.
     Value(ast::Expr),
+    /// A plain-name parameter, or a `let` whose value cannot be read, with the
+    /// type written on it.
+    Typed(ast::Type),
     /// Bound, but not to something the detectors can read: a parameter, a
     /// pattern, a reassignment, a shadowing between the binding and the use,
     /// two `const` items of one name, or a glob that may bind it.
@@ -47,18 +52,28 @@ pub(super) struct Resolver {
 impl Resolver {
     /// Binding of `name` where `site` sits.
     pub(super) fn binding(&self, aliases: &AliasMap, site: &SyntaxNode, name: &str) -> Binding {
-        if let Some(body) = site.ancestors().find_map(ast::Fn::cast) {
-            let mut cache = self.body.borrow_mut();
-            if cache.as_ref().is_none_or(|index| index.body != body) {
-                *cache = Some(BodyIndex::build(body));
-            }
-            if let Some(index) = cache.as_ref()
-                && let Some(pattern) = index.nearest(site, name)
-            {
-                return index.let_value(pattern, site, name);
-            }
+        self.local(site, |index| {
+            index
+                .nearest(site, name)
+                .map(|pattern| index.let_value(pattern, site, name))
+        })
+        .unwrap_or_else(|| constant(aliases, site, name))
+    }
+
+    /// Does a pattern of the enclosing function, a `let`, a parameter or a
+    /// closure parameter, bind `name` before `site`?
+    pub(super) fn bound_locally(&self, site: &SyntaxNode, name: &str) -> bool {
+        self.local(site, |index| index.nearest(site, name).map(|_| ())).is_some()
+    }
+
+    /// `answer` asked of the index of the function body `site` sits in.
+    fn local<T>(&self, site: &SyntaxNode, answer: impl FnOnce(&BodyIndex) -> Option<T>) -> Option<T> {
+        let body = site.ancestors().find_map(ast::Fn::cast)?;
+        let mut cache = self.body.borrow_mut();
+        if cache.as_ref().is_none_or(|index| index.body != body) {
+            *cache = Some(BodyIndex::build(body));
         }
-        constant(aliases, site, name)
+        cache.as_ref().and_then(answer)
     }
 }
 
@@ -128,28 +143,56 @@ impl BodyIndex {
     /// the only thing the name can hold at `site`: a plain name, in a block
     /// enclosing the use, never assigned again. `insecure &= check` counts as
     /// an assignment, since it leaves a flag nobody can read off its `let`.
+    /// When the value cannot be read but the binding's type is written, on a
+    /// parameter or on the `let`, the type is the answer.
     fn let_value(&self, pattern: &ast::IdentPat, site: &SyntaxNode, name: &str) -> Binding {
         let plain = pattern.ref_token().is_none() && pattern.pat().is_none();
-        let Some(statement) = pattern.syntax().parent().and_then(ast::LetStmt::cast) else {
-            return Binding::Indeterminate;
+        let typed = || {
+            plain
+                .then(|| declared_type(pattern, site))
+                .flatten()
+                .map_or(Binding::Indeterminate, Binding::Typed)
         };
-        let Some(initializer) = statement.initializer() else {
-            return Binding::Indeterminate;
+        let Some(statement) = pattern.syntax().parent().and_then(ast::LetStmt::cast) else {
+            return typed();
         };
         let encloses = statement
             .syntax()
             .parent()
             .is_some_and(|block| block.text_range().contains_range(site.text_range()));
+        if !encloses {
+            return Binding::Indeterminate;
+        }
+        let Some(initializer) = statement.initializer() else {
+            return typed();
+        };
         let after = statement.syntax().text_range().end();
         let reassigned = self
             .assignments
             .get(name)
             .is_some_and(|starts| starts.iter().any(|start| *start >= after));
-        if !plain || statement.let_else().is_some() || !encloses || reassigned {
-            return Binding::Indeterminate;
+        if !plain || statement.let_else().is_some() || reassigned {
+            return typed();
         }
         Binding::Value(initializer)
     }
+}
+
+/// The type written on the parameter or the `let` that `pattern` is the whole
+/// pattern of, when the function, closure or block it binds in encloses
+/// `site`.
+fn declared_type(pattern: &ast::IdentPat, site: &SyntaxNode) -> Option<ast::Type> {
+    let parent = pattern.syntax().parent()?;
+    if let Some(statement) = ast::LetStmt::cast(parent.clone()) {
+        return statement.ty();
+    }
+    let parameter = ast::Param::cast(parent)?;
+    let owner = parameter.syntax().parent()?.parent()?;
+    owner
+        .text_range()
+        .contains_range(site.text_range())
+        .then(|| parameter.ty())
+        .flatten()
 }
 
 /// A `const` item named `name`, in the nearest block or module scope around
@@ -160,7 +203,8 @@ fn constant(aliases: &AliasMap, site: &SyntaxNode, name: &str) -> Binding {
     match aliases.provenance(site, name) {
         Provenance::Unbound => {}
         Provenance::Item(_) => return Binding::Unbound,
-        Provenance::Indeterminate => return Binding::Indeterminate,
+        // A glob may bring in a `const` of this name.
+        Provenance::GlobMasked(_) | Provenance::Indeterminate => return Binding::Indeterminate,
     }
     for scope in site.ancestors() {
         let items = if let Some(block) = ast::BlockExpr::cast(scope.clone()) {

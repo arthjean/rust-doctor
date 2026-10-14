@@ -614,7 +614,7 @@ fn complete_analysis_side(
         source: Some(crate::source_kernel::SourceScan {
             candidates: vec![crate::source_kernel::Candidate {
                 definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
-                message,
+                message: message.into(),
                 package: Some("example".to_owned()),
                 target: Some("example".to_owned()),
                 context: None,
@@ -877,7 +877,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
     let source = source_kernel::SourceScan {
         candidates: vec![source_kernel::Candidate {
             definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
-            message: "A dynamic value is interpolated into a shell command string.",
+            message: "A dynamic value is interpolated into a shell command string.".into(),
             package: Some("example".to_owned()),
             target: None,
             context: None,

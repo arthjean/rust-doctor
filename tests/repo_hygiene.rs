@@ -92,7 +92,7 @@ fn diagnostics_of<'a>(report: &'a Value, code: &str) -> Vec<&'a Value> {
 /// A deliberately fake AWS access key id: the documented example value from
 /// the AWS credentials guide, which has never been a live credential.
 fn fake_aws_key() -> String {
-    format!("AKIA{}", "IOSFODNN7EXAMPLE")
+    format!("AKIA{}", "Q3VJ7RNYH2KXW4PZ")
 }
 
 /// US-012: tracked files whose names mark them as secret-bearing are each
@@ -327,7 +327,7 @@ fn a_credential_in_test_material_carries_the_context_marker_and_does_not_weigh()
     let token = format!("xoxb-{}", "1234567890ab");
     fs::write(
         root.join("tests/support_data.rs"),
-        format!("pub const FAKE: &str = \"{token}\";\n"),
+        format!("pub const TOKEN: &str = \"{token}\";\n"),
     )
     .unwrap();
     commit_all(&root);
@@ -414,4 +414,65 @@ fn a_detected_credential_is_absent_from_every_rendered_surface() {
     let rendered = String::from_utf8_lossy(&markdown.stdout);
     assert!(rendered.contains("hardcoded_credential"), "{rendered}");
     assert!(!rendered.contains(&key) && !rendered.contains(&token), "{rendered}");
+}
+
+/// US-019: a P1 credential finding means a key was committed. A parser's PEM
+/// header, AWS's documented key and a template's database URL stay silent; a
+/// key body under a header and a deployed database password are reported, and
+/// neither value reaches the rendered report.
+#[test]
+fn only_a_committed_key_or_deployed_password_is_a_credential() {
+    let root = workspace("repo-hygiene-credential-shapes");
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    let header = format!("-----BEGIN {}-----", "PRIVATE KEY");
+    let footer = format!("-----END {}-----", "PRIVATE KEY");
+    let documented = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "pub const HEADER: &str = \"{header}\";\n\
+             pub const FOOTER: &str = \"{footer}\";\n\
+             pub const DOCUMENTED: &str = \"{documented}\";\n\
+             pub const LOCAL: &str = \"postgres://user:pass@localhost/db\";\n"
+        ),
+    )
+    .unwrap();
+    commit_all(&root);
+    assert!(diagnostics_of(&report(&root), CREDENTIAL).is_empty());
+
+    let body = format!("MII{}", "Ev".repeat(30));
+    let password = "Xk29fj3lQ";
+    fs::write(
+        root.join("src/keys.rs"),
+        format!(
+            "pub const KEY: &str = \"{header}\n\\\n{body}\n\\\n{footer}\";\n\
+             pub const URL: &str = \"postgres://app:{password}@db.internal.example.net/prod\";\n"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rs"), "pub mod keys;\n").unwrap();
+    commit_all(&root);
+    let report = report(&root);
+    let mut observed: Vec<(u64, String)> = diagnostics_of(&report, CREDENTIAL)
+        .iter()
+        .map(|finding| {
+            (
+                finding["span"]["line_start"].as_u64().unwrap(),
+                finding["message"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    observed.sort();
+    assert_eq!(observed.len(), 2, "{report}");
+    assert_eq!(observed[0].0, 1);
+    assert!(observed[0].1.contains("private key block"), "{observed:?}");
+    // The key's literal spans lines 1 to 5, its body on line 3.
+    assert_eq!(observed[1].0, 6);
+    assert!(observed[1].1.contains("database URL password"), "{observed:?}");
+
+    let path = root.to_str().unwrap();
+    let linear = rust_doctor(&root, &[path, "--yes", "--verbose"]);
+    let stdout = String::from_utf8_lossy(&linear.stdout);
+    assert!(stdout.contains(CREDENTIAL), "{stdout}");
+    assert!(!stdout.contains(&body) && !stdout.contains(password), "{stdout}");
 }

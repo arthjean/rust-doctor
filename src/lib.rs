@@ -57,6 +57,13 @@ pub use policy::{
 /// there is a second place to keep in step with the rule.
 pub use cargo_health::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
+
+/// The native source detectors run in process on one unit, for the regression
+/// seeds `tests/regression_seeds.rs` replays. Not a stable interface.
+#[doc(hidden)]
+pub mod seed_harness {
+    pub use crate::source_kernel::harness::{CaseUnit, Detected, run_detectors};
+}
 pub use report::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
     GateStatus, InspectReport,

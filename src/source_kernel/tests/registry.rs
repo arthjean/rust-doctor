@@ -31,11 +31,14 @@ fn expected_solicitations(source: &str, detectors: &[&Detector], rule: &str) -> 
         .sum()
 }
 
-/// The registered detector of a rule that has exactly one.
-fn only(rule: &str) -> &'static Detector {
-    let mut found = REGISTERED.iter().copied().filter(|detector| detector.definition.id == rule);
+/// The registered detector of a rule on one node kind, when it has exactly one.
+fn only(rule: &str, kind: SyntaxKind) -> &'static Detector {
+    let mut found = REGISTERED
+        .iter()
+        .copied()
+        .filter(|detector| detector.definition.id == rule && detector.node == kind);
     let detector = found.next().expect("the rule registers a detector");
-    assert!(found.next().is_none(), "{rule} registers more than one detector");
+    assert!(found.next().is_none(), "{rule} registers more than one detector on {kind:?}");
     detector
 }
 
@@ -50,7 +53,10 @@ fn run(user: &str) {
     let _ = http_client::Client::builder().danger_accept_invalid_certs(true);
 }";
     let all = nodes(source, None);
-    let (tls, shell) = (only(SOURCE_DISABLED_TLS.id), only(SOURCE_DYNAMIC_SHELL.id));
+    let (tls, shell) = (
+        only(SOURCE_DISABLED_TLS.id, SyntaxKind::METHOD_CALL_EXPR),
+        only(SOURCE_DYNAMIC_SHELL.id, SyntaxKind::METHOD_CALL_EXPR),
+    );
 
     let (expected, counters) = analyze(source, &REGISTERED);
     assert_eq!(expected, [SOURCE_DISABLED_TLS.id, SOURCE_DYNAMIC_SHELL.id]);

@@ -109,14 +109,14 @@
         },
         {
           "ac1_basis_points": 10000,
-          "agreed": 12,
-          "kappa_basis_points": 10000,
-          "kappa_status": "defined",
-          "pairs": 12,
+          "agreed": 11,
+          "kappa_basis_points": null,
+          "kappa_status": "undefined_no_variance",
+          "pairs": 11,
           "population": "agent",
           "rule": "rust_doctor::structure::orphan_module_file",
           "table": {
-            "both_false_positive": 1,
+            "both_false_positive": 0,
             "both_true_positive": 11,
             "first_only_false_positive": 0,
             "second_only_false_positive": 0
@@ -3327,28 +3327,6 @@
         },
         {
           "context": "production",
-          "family": "105a578768a20a494d59f34416af6dc696d66c291923f4afd145ea8878cfafa8",
-          "independence": "separate_context",
-          "line": 1,
-          "passes": [
-            {
-              "judge": "claude-opus-5",
-              "justification": "src/markdown/parser.rs:843 carries `#[cfg(test)] #[path = \"parser_tests.rs\"] mod tests;`, so the file is reached by an explicit path attribute rather than by the directory convention the detector walks. It is compiled under `cargo test` as `markdown::parser::tests`, which is exactly the reachability the rule claims is absent.",
-              "verdict": "false_positive"
-            },
-            {
-              "judge": "claude-opus-5",
-              "justification": "src/markdown/parser.rs:842-844 carries `#[cfg(test)] #[path = \"parser_tests.rs\"] mod tests;`, so a module declaration does reach the file through a path attribute; parser.rs itself is reached by `pub mod parser;` in markdown/mod.rs and `mod markdown;` in main.rs. The file is a normal `use super::*` test module with 40-odd `#[test]` functions, compiled on every `cargo test`. The detector missed the `#[path]` redirection, not an unreachable file.",
-              "verdict": "false_positive"
-            }
-          ],
-          "path": "src/markdown/parser_tests.rs",
-          "population": "agent",
-          "repository": "ostendo",
-          "rule": "rust_doctor::structure::orphan_module_file"
-        },
-        {
-          "context": "production",
           "family": "d19b83dda6a74bcb612d54a5198b65381044bd55754bf55b896b5673a6a4ad14",
           "independence": "separate_context",
           "line": 1,
@@ -5396,10 +5374,11 @@
       ]
     },
     "criterion": "A finding is a true positive when the flagged site should actually be changed, judged at the pinned revision under the published scope of the rule; it is a false positive when the flagged construct is correct as written, when its safety is established by the surrounding code, or when the context makes the flagged behaviour the intended one. Confirming that the rule's pattern is present is a separate, mechanical check: it proves the span is not corrupted, never that the site is a defect. For structural findings the value question is stated separately. A duplication family is a true positive when its members repeat a nontrivial shared scaffold that one definition, parameter or macro could serve without changing behavior; it is a false positive when the shared body is a short delegation whose entire difference lives in the erased names, when the members mirror each other by design, as benchmark or test comparison pairs and replays under a different harness do, or when separate trait impls the language forces apart leave nothing to factor. A complexity or size hotspot is a true positive when decomposition is feasible and would plausibly be accepted, a false positive when the measured branch count or length is the clearest available form or is forced by a trait contract. An unreasoned allow or an unreferenced feature is a false positive when the surrounding code or manifest already documents the intent the detector could not read.",
+    "evidence_cutoff": "2026-10-14",
     "position_proof": {
-      "date": "2026-09-26",
-      "digest": "961355f7c38460fd58817d61b96260fd4af9094eff048fe848f269448bfc843a",
-      "sites": 706,
+      "date": "2026-10-14",
+      "digest": "7705514b2cf291b562bd98a3853a861be05473f403789737c6b0db8f6b12ef2b",
+      "sites": 704,
       "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
     },
     "protocol_cutoff": "2026-08-21",
@@ -7003,7 +6982,7 @@
       {
         "context": "production",
         "justification": "calibration-storage sits in the dependencies of hal_meters but its only reference is an integration test, so moving it to dev-dependencies would work.",
-        "line": 0,
+        "line": 12,
         "path": "crates/hal_meters/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -7014,7 +6993,7 @@
       {
         "context": "production",
         "justification": "tauri_specta is used only inside a test that exports bindings, but src-tauri is the application binary package with no library consumer, so the section distinction costs nothing.",
-        "line": 0,
+        "line": 25,
         "path": "src-tauri/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -7058,7 +7037,7 @@
       {
         "context": "production",
         "justification": "hal appears only on the declaration line of calibration-core's manifest with no reference anywhere in the package, and a local path crate has no linking or macro excuse.",
-        "line": 0,
+        "line": 11,
         "path": "crates/calibration-core/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -7069,7 +7048,7 @@
       {
         "context": "production",
         "justification": "uuid appears only in calibration-engine's manifest; no source in the package mentions it at all.",
-        "line": 0,
+        "line": 17,
         "path": "crates/calibration-engine/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -7080,7 +7059,7 @@
       {
         "context": "production",
         "justification": "thiserror appears only in hal-displays' manifest; no use or derive site references it in the package.",
-        "line": 0,
+        "line": 16,
         "path": "crates/hal-displays/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -7091,7 +7070,7 @@
       {
         "context": "production",
         "justification": "hal_meters declares serde with derive but no source contains serde, Serialize or Deserialize; chrono's serde feature pulls its own and does not need this declaration.",
-        "line": 0,
+        "line": 16,
         "path": "crates/hal_meters/Cargo.toml",
         "population": "agent",
         "provenance": "agent",
@@ -9681,18 +9660,6 @@
       },
       {
         "context": "production",
-        "family": "105a578768a20a494d59f34416af6dc696d66c291923f4afd145ea8878cfafa8",
-        "justification": "src/markdown/parser.rs reaches the file with a #[path = \"parser_tests.rs\"] attribute, a route the detector cannot see.",
-        "line": 1,
-        "path": "src/markdown/parser_tests.rs",
-        "population": "agent",
-        "provenance": "agent",
-        "repository": "ostendo",
-        "rule": "rust_doctor::structure::orphan_module_file",
-        "verdict": "false_positive"
-      },
-      {
-        "context": "production",
         "family": "d19b83dda6a74bcb612d54a5198b65381044bd55754bf55b896b5673a6a4ad14",
         "justification": "index_optimization/mod.rs declares only mod spatial, and the only mod order_by in the crate is in select/window/mod.rs, so this file is dead.",
         "line": 1,
@@ -10982,13 +10949,12 @@
           7,
           8,
           9,
-          10,
-          11
+          10
         ],
-        "observed": 12,
+        "observed": 11,
         "population": "agent",
         "rule": "rust_doctor::structure::orphan_module_file",
-        "target": 12
+        "target": 11
       },
       {
         "carried_over": [
@@ -11343,18 +11309,16 @@
         "status": "complete"
       },
       {
-        "authoritative": false,
+        "authoritative": true,
         "commit": "0284e33b45a69921fac85fcb95c7a1bf8759f936",
-        "distinct": 88,
-        "exit_code": 1,
-        "findings_digest": "bde7017f48f9f57f8611725e3af5883d58eea6eb716e94f45d1f5cce93e4f61e",
+        "distinct": 96,
+        "exit_code": 0,
+        "findings_digest": "c587d1875964ae6e0b731dfe5ff5cd849e5b41a343b1b485c3129d69b38010eb",
         "name": "ostendo",
-        "occurrences": 149,
+        "occurrences": 163,
         "outcome": "processed",
         "production_lines": 16184,
-        "reasons": [
-          "stage-failed"
-        ],
+        "reasons": [],
         "rules": [
           {
             "distinct": 4,
@@ -11363,8 +11327,18 @@
           },
           {
             "distinct": 1,
+            "id": "rust_doctor::cargo::test_only_dependency",
+            "occurrences": 1
+          },
+          {
+            "distinct": 1,
             "id": "rust_doctor::cargo::unchecked_release_overflow",
             "occurrences": 1
+          },
+          {
+            "distinct": 5,
+            "id": "rust_doctor::cargo::unused_dependency",
+            "occurrences": 5
           },
           {
             "distinct": 32,
@@ -11372,19 +11346,19 @@
             "occurrences": 32
           },
           {
-            "distinct": 16,
+            "distinct": 17,
             "id": "rust_doctor::structure::duplicate_function_body",
-            "occurrences": 39
+            "occurrences": 41
           },
           {
-            "distinct": 15,
+            "distinct": 17,
             "id": "rust_doctor::structure::near_duplicate_function_body",
-            "occurrences": 43
+            "occurrences": 50
           },
           {
-            "distinct": 2,
+            "distinct": 1,
             "id": "rust_doctor::structure::orphan_module_file",
-            "occurrences": 2
+            "occurrences": 1
           },
           {
             "distinct": 16,
@@ -11413,9 +11387,9 @@
               "worst_tier": "P3"
             },
             {
-              "density_micro": 1220897,
+              "density_micro": 1159108,
               "name": "maintainability",
-              "score": 67,
+              "score": 68,
               "worst_tier": "P3"
             },
             {
@@ -11425,25 +11399,25 @@
               "worst_tier": null
             },
             {
-              "density_micro": 5333600,
+              "density_micro": 17333600,
               "name": "dependencies",
-              "score": 41,
+              "score": 6,
               "worst_tier": "P2"
             }
           ],
           "label": "Great",
           "model": "core-v4",
-          "value": 84,
+          "value": 79,
           "worst_tier": "P2"
         },
-        "status": "incomplete"
+        "status": "complete"
       },
       {
         "authoritative": true,
         "commit": "2be33f74d64a536ceca06deaacae11d71309474f",
         "distinct": 75,
         "exit_code": 0,
-        "findings_digest": "e0ec04d578584026fd59b77e5164083272b1eef317bd75f99636fa7db823bc12",
+        "findings_digest": "dbb7d5f1785efb95af4f3706f264d6e4d24de1fd35284075e6f60f4bb6a3f2ed",
         "name": "artifexprocal",
         "occurrences": 156,
         "outcome": "processed",
@@ -11711,18 +11685,16 @@
         "status": "complete"
       },
       {
-        "authoritative": false,
+        "authoritative": true,
         "commit": "4d9b33d9ab5a379425db3807d7e66c000b3a4bc6",
-        "distinct": 3656,
-        "exit_code": 1,
-        "findings_digest": "deb88aa148eb0e9d0310d1bef062db4daf7aaaf9abad4b9957822bca522d141b",
+        "distinct": 3663,
+        "exit_code": 0,
+        "findings_digest": "b4a26b60a2f36ebc6e1c0a950248046fe154e2eae88195e216c6acf8bb3fb839",
         "name": "vibesql",
-        "occurrences": 9990,
+        "occurrences": 9997,
         "outcome": "processed",
         "production_lines": 413822,
-        "reasons": [
-          "stage-failed"
-        ],
+        "reasons": [],
         "rules": [
           {
             "distinct": 19,
@@ -11733,6 +11705,11 @@
             "distinct": 1,
             "id": "rust_doctor::cargo::unchecked_release_overflow",
             "occurrences": 1
+          },
+          {
+            "distinct": 7,
+            "id": "rust_doctor::cargo::unused_dependency",
+            "occurrences": 7
           },
           {
             "distinct": 3,
@@ -11818,9 +11795,9 @@
               "worst_tier": null
             },
             {
-              "density_micro": 25334600,
+              "density_micro": 39334600,
               "name": "dependencies",
-              "score": 1,
+              "score": 0,
               "worst_tier": "P2"
             }
           ],
@@ -11829,16 +11806,16 @@
           "value": 58,
           "worst_tier": "P1"
         },
-        "status": "incomplete"
+        "status": "complete"
       },
       {
         "authoritative": true,
         "commit": "ff10443c652324c38d8af390e7af29d8e6560c14",
-        "distinct": 57,
+        "distinct": 62,
         "exit_code": 0,
-        "findings_digest": "2a4e73049682337f1725883c6424ec204d6664034ca3e94316ccb04d0d9def21",
+        "findings_digest": "f727c9a1e5197de1be9bad4fe72cbd6d46be38dacfd21116a27b43b517b4de30",
         "name": "syncvibe",
-        "occurrences": 103,
+        "occurrences": 108,
         "outcome": "processed",
         "production_lines": 13170,
         "reasons": [],
@@ -11852,6 +11829,11 @@
             "distinct": 1,
             "id": "rust_doctor::cargo::unchecked_release_overflow",
             "occurrences": 1
+          },
+          {
+            "distinct": 5,
+            "id": "rust_doctor::source::blocking_call_in_async",
+            "occurrences": 5
           },
           {
             "distinct": 16,
@@ -11894,7 +11876,7 @@
               "worst_tier": null
             },
             {
-              "density_micro": 751860,
+              "density_micro": 1511162,
               "name": "reliability",
               "score": 75,
               "worst_tier": "P2"
@@ -13782,7 +13764,7 @@
         "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
-        "findings": 3,
+        "findings": 4,
         "id": "rust_doctor::cargo::test_only_dependency",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -13862,7 +13844,7 @@
         "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
-        "findings": 5,
+        "findings": 17,
         "id": "rust_doctor::cargo::unused_dependency",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -13942,7 +13924,7 @@
         "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
-        "findings": 3,
+        "findings": 8,
         "id": "rust_doctor::source::blocking_call_in_async",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -14040,7 +14022,7 @@
         "doubly_judged": 46,
         "false_positive_rate_basis_points": 2391,
         "false_positives": 11,
-        "findings": 1476,
+        "findings": 1477,
         "id": "rust_doctor::structure::duplicate_function_body",
         "interval_high_basis_points": 3794,
         "interval_low_basis_points": 1391,
@@ -14060,7 +14042,7 @@
         "doubly_judged": 43,
         "false_positive_rate_basis_points": 4418,
         "false_positives": 19,
-        "findings": 1120,
+        "findings": 1122,
         "id": "rust_doctor::structure::near_duplicate_function_body",
         "interval_high_basis_points": 5889,
         "interval_low_basis_points": 3043,
@@ -14077,20 +14059,20 @@
         "true_positives": 24
       },
       {
-        "doubly_judged": 12,
-        "false_positive_rate_basis_points": 833,
-        "false_positives": 1,
-        "findings": 16,
+        "doubly_judged": 11,
+        "false_positive_rate_basis_points": 0,
+        "false_positives": 0,
+        "findings": 15,
         "id": "rust_doctor::structure::orphan_module_file",
-        "interval_high_basis_points": 3539,
-        "interval_low_basis_points": 149,
+        "interval_high_basis_points": 2588,
+        "interval_low_basis_points": 0,
         "judges": [
           "claude-opus-5"
         ],
         "provenance": [
           "agent"
         ],
-        "reviewed": 12,
+        "reviewed": 11,
         "separation": "indecisive",
         "status": "measured",
         "tier": "P3",
@@ -14504,16 +14486,16 @@
     "selection_criterion": "A repository qualifies when at least half of the commit messages reachable from its pinned revision contain its recorded marker, an exact substring such as 'Co-Authored-By: Claude' or 'Generated with [Claude Code]' that coding agents append to the commits they author. The criterion reads the git history alone, never code style, README claims or popularity, and marked_commits and total_commits are recounted mechanically from git log at the pinned revision when the corpus is replayed. The population is scanned with every Clippy rule off, because its build scripts and proc-macros are untrusted: the native detectors parse source text and compile nothing.",
     "structural_density": {
       "agent": {
-        "findings": 5296,
+        "findings": 5298,
         "lines": 988872,
-        "per_thousand_lines_milli": 5355
+        "per_thousand_lines_milli": 5357
       },
       "healthy": {
         "findings": 433,
         "lines": 122044,
         "per_thousand_lines_milli": 3547
       },
-      "ratio_milli": 1509,
+      "ratio_milli": 1510,
       "refutes_density_assumption": false
     }
   },
@@ -15465,7 +15447,7 @@
     ],
     "verdict": "passed"
   },
-  "generated_at": "2026-09-25",
+  "generated_at": "2026-10-14",
   "harness": {
     "artifacts_directory_env": "RUST_DOCTOR_CORPUS_ARTIFACTS",
     "cache_directory_env": "RUST_DOCTOR_CORPUS_DIR",
@@ -18923,7 +18905,7 @@
       "true_positives": 0
     }
   ],
-  "schema_version": 7,
+  "schema_version": 8,
   "score_distribution": {
     "agent": {
       "bands": [
@@ -18940,7 +18922,7 @@
       "collapsed_into_one_band": false,
       "collapsed_into_one_value": false,
       "maximum": 89,
-      "median_centi": 8300,
+      "median_centi": 8100,
       "minimum": 58,
       "spread": 31,
       "values": [
@@ -18952,7 +18934,7 @@
         {
           "label": "Great",
           "name": "ostendo",
-          "value": 84
+          "value": 79
         },
         {
           "label": "Great",
@@ -19059,7 +19041,7 @@
     },
     "maximum": 100,
     "minimum": 58,
-    "separation_centi": 600,
+    "separation_centi": 800,
     "spread": 42
   },
   "smoothing": {

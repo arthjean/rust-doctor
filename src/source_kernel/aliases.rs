@@ -2,12 +2,15 @@
 //!
 //! It answers a single question: at this point of the file, which item does
 //! this identifier designate? The answer is closed. When the provenance is not
-//! decidable, be it local shadowing, a glob import, a relative path keyword or
-//! a saturated map, the map says so and the detector abstains. Re-exports,
+//! decidable, be it local shadowing, a relative path keyword or a saturated
+//! map, the map says so and the detector abstains. A glob import is the one
+//! half-answer: the name may come from it, and the map names the globs that
+//! could have bound it, so a caller holding positive proof of the name's
+//! origin can still decide. Re-exports,
 //! trait methods and `Self` stay out of reach: they would require a complete
 //! semantic resolution, explicitly out of scope.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SourceFile, SyntaxKind, SyntaxNode, TextRange};
@@ -22,12 +25,17 @@ use crate::source_text::intersects_errors;
 pub(super) const BINDING_LIMIT: usize = 1_024;
 
 /// Provenance of an identifier at a given point of the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Provenance<'a> {
     /// The identifier is bound by a visible `use` and designates this item.
     Item(&'a [String]),
-    /// The identifier is bound locally, comes from a glob, or the map is
-    /// saturated: the provenance is not decidable.
+    /// No explicit binding is visible, but globs are: the identifier may come
+    /// from any of them. Each entry is the first segment of a glob's path, or
+    /// `None` for a glob through `crate`, `self` or `super`, whose contents
+    /// nothing outside the crate's own modules can bound.
+    GlobMasked(Vec<Option<&'a str>>),
+    /// The identifier is bound locally, or the map is saturated: the
+    /// provenance is not decidable.
     Indeterminate,
     /// No visible binding carries this identifier.
     Unbound,
@@ -66,7 +74,9 @@ enum Segment {
 #[derive(Debug, Default)]
 pub(super) struct AliasMap {
     scopes: BTreeMap<ScopeKey, BTreeMap<String, Binding>>,
-    globs: BTreeSet<ScopeKey>,
+    /// The globs of each scope, by the first segment of the path they import
+    /// from, `None` when that path is relative.
+    globs: BTreeMap<ScopeKey, Vec<Option<String>>>,
     bindings: usize,
     saturated: bool,
 }
@@ -105,8 +115,14 @@ impl AliasMap {
         if self.saturated || shadowed_by_generic_parameter(node, name) {
             return Provenance::Indeterminate;
         }
+        let mut masking = Vec::new();
         for scope in visible_scopes(node) {
             if let Some(binding) = self.scopes.get(&scope).and_then(|scope| scope.get(name)) {
+                // A glob of a nearer scope may bind the name before this
+                // explicit binding does, and nothing says whether it does.
+                if !masking.is_empty() {
+                    return Provenance::Indeterminate;
+                }
                 return match binding {
                     Binding::Item(path) => Provenance::Item(path),
                     Binding::Opaque => Provenance::Indeterminate,
@@ -115,11 +131,21 @@ impl AliasMap {
             // A glob of the current scope may bind the name without the map
             // knowing which one: it masks the enclosing scopes rather than
             // letting them answer in its place.
-            if self.globs.contains(&scope) {
-                return Provenance::Indeterminate;
+            if let Some(globs) = self.globs.get(&scope) {
+                masking.extend(globs.iter().map(Option::as_deref));
             }
         }
-        Provenance::Unbound
+        if masking.is_empty() {
+            Provenance::Unbound
+        } else {
+            Provenance::GlobMasked(masking)
+        }
+    }
+
+    /// Does a glob import into the scope `node` opens? `node` is a block, a
+    /// module or the file.
+    pub(super) fn globbed(&self, node: &SyntaxNode) -> bool {
+        self.saturated || self.globs.contains_key(&key(node))
     }
 
     pub(super) const fn saturated(&self) -> bool {
@@ -146,7 +172,8 @@ impl AliasMap {
         };
 
         if tree.star_token().is_some() {
-            self.insert_glob(scope, limit);
+            let head = resolved.and_then(|path| path.first().cloned());
+            self.insert_glob(scope, head, limit);
             return;
         }
         if let Some(list) = tree.use_tree_list() {
@@ -180,9 +207,9 @@ impl AliasMap {
         }
     }
 
-    fn insert_glob(&mut self, scope: ScopeKey, limit: usize) {
+    fn insert_glob(&mut self, scope: ScopeKey, head: Option<String>, limit: usize) {
         if self.reserve(limit) {
-            self.globs.insert(scope);
+            self.globs.entry(scope).or_default().push(head);
         }
     }
 
@@ -329,6 +356,10 @@ mod tests {
             .expect("the probe expects one method call");
         match map.provenance(call.syntax(), name) {
             Provenance::Item(path) => path.to_vec(),
+            Provenance::GlobMasked(heads) => heads
+                .iter()
+                .map(|head| format!("<glob {}>", head.unwrap_or("relative")))
+                .collect(),
             Provenance::Indeterminate => vec!["<indeterminate>".to_owned()],
             Provenance::Unbound => vec!["<unbound>".to_owned()],
         }
@@ -386,14 +417,21 @@ mod tests {
                 "use std::process::*; fn main() { Command::new(\"sh\").arg(\"-c\"); }",
                 "Command",
             ),
-            indeterminate()
+            vec!["<glob std>".to_owned()]
         );
         assert_eq!(
             provenance(
                 "use std::process::*; fn main() { Command::new(\"sh\").arg(\"-c\"); }",
                 "Absent",
             ),
-            indeterminate()
+            vec!["<glob std>".to_owned()]
+        );
+        assert_eq!(
+            provenance(
+                "use crate::prelude::*; use super::*; fn main() { Command::new(\"sh\").arg(\"-c\"); }",
+                "Command",
+            ),
+            vec!["<glob relative>".to_owned(), "<glob relative>".to_owned()]
         );
         assert_eq!(
             provenance(
@@ -412,6 +450,24 @@ mod tests {
         assert_eq!(
             provenance(
                 "use super::Command; fn main() { Command::new(\"sh\").arg(\"-c\"); }",
+                "Command",
+            ),
+            indeterminate()
+        );
+    }
+
+    #[test]
+    fn an_explicit_import_wins_over_a_glob_of_its_own_scope_and_loses_to_a_nearer_one() {
+        assert_eq!(
+            provenance(
+                "use futures::prelude::*; use std::process::Command; fn main() { Command::new(\"sh\").arg(\"-c\"); }",
+                "Command",
+            ),
+            item(&["std", "process", "Command"])
+        );
+        assert_eq!(
+            provenance(
+                "use std::process::Command; fn main() { use futures::prelude::*; Command::new(\"sh\").arg(\"-c\"); }",
                 "Command",
             ),
             indeterminate()

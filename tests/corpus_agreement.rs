@@ -31,6 +31,7 @@ use support::corpus::{
 
 const RULE: &str = "clippy::probe";
 const CUTOFF: &str = "2026-08-21";
+const EVIDENCE_CUTOFF: &str = "2026-10-14";
 const COMPLEX_FUNCTION: &str = "rust_doctor::structure::complex_function";
 
 /// The three sites the two passes of 2026-08-11 disagreed on.
@@ -109,6 +110,7 @@ fn site(line: u64, verdict: Verdict) -> ReviewedSite {
 
 fn pass(judge: &str, verdict: Verdict) -> Pass {
     Pass {
+        evidence: Vec::new(),
         judge: judge.to_owned(),
         justification: "what the surrounding code established".to_owned(),
         verdict,
@@ -117,6 +119,7 @@ fn pass(judge: &str, verdict: Verdict) -> Pass {
 
 fn pair(line: u64, first: Pass, second: Pass) -> AdjudicatedPair {
     AdjudicatedPair {
+        adjudicated_on: None,
         context: SiteContext::Production,
         family: None,
         independence: Independence::SeparateContext,
@@ -154,6 +157,7 @@ fn adjudication(reviewed: Vec<ReviewedSite>, pairs: Vec<AdjudicatedPair>) -> Adj
         adjudicated_after_cutoff: Vec::new(),
         agreement,
         criterion: "probe".to_owned(),
+        evidence_cutoff: EVIDENCE_CUTOFF.to_owned(),
         // A synthetic record is anchored to no run at all: what the proof is
         // worth is asserted in `corpus_position.rs`, against the shipped one.
         position_proof: PositionProof {
@@ -231,7 +235,7 @@ fn defect_naming(defects: &[String], needle: &str) -> String {
 #[test]
 fn the_artifact_declares_the_schema_version_the_harness_reads() {
     assert_eq!(artifact().schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 7);
+    assert_eq!(SCHEMA_VERSION, 8);
 }
 
 /// Exactly two passes, enforced by the shape.
@@ -665,10 +669,12 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    assert_eq!(counts.get(&Provenance::Agent), Some(&369));
+    // 369 until US-020 fixed the walk behind the one false positive of the
+    // orphan census, whose site the rule no longer produces.
+    assert_eq!(counts.get(&Provenance::Agent), Some(&368));
     assert_eq!(counts.get(&Provenance::Unrecorded), Some(&98));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 467);
+    assert_eq!(artifact.adjudication.reviewed.len(), 466);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite

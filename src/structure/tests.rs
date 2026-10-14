@@ -72,6 +72,40 @@ fn an_empty_enumeration_produces_neither_finding_nor_error() {
     assert_eq!(scan, StructureScan::default());
 }
 
+/// US-020: a package whose module tree the walk lost part of, or whose
+/// modules a macro declares, is withheld from the orphan rule and counted,
+/// never reported as an error of the pass.
+#[test]
+fn an_incomplete_module_tree_withholds_its_package_and_counts_it() {
+    let orphans = |relative: &str| {
+        let metadata = metadata(relative);
+        let scan = analyze(
+            &metadata,
+            &enumerate(&metadata),
+            &PolicyPlan::default(),
+            &StructureSettings::default(),
+            None,
+        );
+        let paths: Vec<String> = scan
+            .findings
+            .iter()
+            .filter(|finding| finding.definition.id == crate::policy::STRUCTURE_ORPHAN_MODULE_FILE.id)
+            .map(|finding| finding.path.clone())
+            .collect();
+        (paths, scan.counters.orphan_abstentions, scan.errors)
+    };
+
+    let (paths, abstentions, errors) = orphans("structure/orphan-lost-module");
+    assert!(paths.is_empty(), "{paths:?}");
+    assert_eq!(abstentions, 1);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let (paths, abstentions, errors) = orphans("structure/orphan-conditional");
+    assert_eq!(paths, ["fallback/src/stray.rs"]);
+    assert_eq!(abstentions, 1, "only the package declaring a module in a macro");
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
 /// A unit the parser could not read is skipped and named, and the pass
 /// completes over every other unit of the same workspace.
 #[test]

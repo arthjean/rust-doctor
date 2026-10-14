@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
 
-use support::corpus::agreement::Agreement;
+use support::corpus::agreement::{Agreement, agreement_defects_under, quote_failures};
 use support::corpus::position::{PositionProof, attest, published_sites};
 use support::corpus::reproduction;
 use support::corpus::{
@@ -920,6 +920,7 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
         adjudicated_after_cutoff: Vec::new(),
         agreement: Agreement::default(),
         criterion: "probe".to_owned(),
+        evidence_cutoff: "2026-10-14".to_owned(),
         // A synthetic record is anchored to no run: `corpus_position.rs` is
         // what asserts the proof against the shipped record.
         position_proof: PositionProof {
@@ -1656,6 +1657,7 @@ fn the_agent_population_reproduces_from_the_local_cache() {
         }
         confirmed += 1;
     }
+    assert_quotes_hold(&published, Population::Agent, &artifacts);
     attest(&root, &published, Population::Agent, confirmed);
 
     // The selection evidence recounts from the pinned history alone.
@@ -1833,5 +1835,34 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     // Only a run that has just located every site of both populations rewrites
     // the digest the always-on test compares against. The other population
     // attests from its own replay; whichever finishes second writes the proof.
+    assert_quotes_hold(&published, Population::Healthy, &artifacts);
     attest(&artifacts, &published, Population::Healthy, confirmed);
+}
+
+/// Every quote a pass of `population` cites is what the replayed checkout holds
+/// at those lines, byte for byte, and a pair with a quote that is not backs no
+/// verdict: it is counted as disagreeing, so the site it publishes is refused.
+fn assert_quotes_hold(published: &CorpusArtifact, population: Population, artifacts: &Path) {
+    let work = artifacts.join("work");
+    let pairs = published
+        .adjudication
+        .agreement
+        .pairs
+        .iter()
+        .filter(|pair| pair.population == population);
+    let failures = quote_failures(pairs, |repository, path| {
+        let relative = Path::new(path);
+        relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+            .then(|| fs::read_to_string(work.join(repository).join(relative)).ok())
+            .flatten()
+    });
+    let demoted = failures.keys().copied().collect();
+    let defects: Vec<String> = failures
+        .values()
+        .cloned()
+        .chain(agreement_defects_under(&published.adjudication, &demoted))
+        .collect();
+    assert!(defects.is_empty(), "{}", defects.join("\n"));
 }

@@ -29,6 +29,13 @@ fact: reading the clock afterwards cannot tell a pass that stopped from a pass
 that merely finished late, and calling a complete report partial drops the
 score's authoritative flag for nothing.
 
+An orphan needs a complete module tree. The walk follows every
+`#[cfg_attr(.., path = "..")]` alternative, so a platform layout reaches each
+of its files, and records a package whose tree lost a `mod` it could not
+resolve. `orphans` withholds such a package, and one that declares modules
+inside a macro such as `cfg_if!`, counting each in `orphan_abstentions`: a file
+the walk could not reach is not proven dead.
+
 `the_structure_holds_the_size_bound_it_reports_for` keeps every file of the
 module under the 1000 lines `oversized_unit` reports, tests included. That is
 why the suppression rules, the benchmark and the two largest test modules have

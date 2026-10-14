@@ -25,6 +25,10 @@ use crate::report::DiagnosticContext;
 use crate::source_text::SourceSpan;
 use crate::workspace_path;
 
+mod credentials;
+
+pub(crate) use credentials::{credential_ranges, opens_private_key};
+
 /// The stage every git call of this pass reports at, and the one `report.rs`
 /// stamps a `RepoError` with.
 const STAGE: &str = "repo";
@@ -250,49 +254,6 @@ fn path_context(path: &str) -> Option<DiagnosticContext> {
     })
 }
 
-/// One high-confidence credential shape: a fixed prefix, a minimum tail of
-/// admissible characters, and a published name. Entropy alone never triggers,
-/// which is the documented lesson of the tools that tried.
-struct CredentialPattern {
-    name: &'static str,
-    prefix: &'static str,
-    minimum_tail: usize,
-    tail: fn(u8) -> bool,
-}
-
-const CREDENTIAL_PATTERNS: [CredentialPattern; 5] = [
-    CredentialPattern {
-        name: "AWS access key id",
-        prefix: "AKIA",
-        minimum_tail: 16,
-        tail: |byte| byte.is_ascii_uppercase() || byte.is_ascii_digit(),
-    },
-    CredentialPattern {
-        name: "GitHub personal access token",
-        prefix: "ghp_",
-        minimum_tail: 36,
-        tail: |byte| byte.is_ascii_alphanumeric(),
-    },
-    CredentialPattern {
-        name: "GitHub fine-grained token",
-        prefix: "github_pat_",
-        minimum_tail: 22,
-        tail: |byte| byte.is_ascii_alphanumeric() || byte == b'_',
-    },
-    CredentialPattern {
-        name: "secret API key",
-        prefix: "sk-",
-        minimum_tail: 20,
-        tail: |byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'),
-    },
-    CredentialPattern {
-        name: "Slack bot token",
-        prefix: "xoxb-",
-        minimum_tail: 10,
-        tail: |byte| byte.is_ascii_alphanumeric() || byte == b'-',
-    },
-];
-
 fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
     // The enumeration validated the path, so the join cannot leave the
     // workspace; a symlink still could, so only regular files are read.
@@ -313,8 +274,10 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
         return;
     };
     let context = path_context(path);
-    for (index, line) in source.lines().enumerate() {
-        let Some((name, range)) = credential_match(line) else {
+    let lines: Vec<&str> = source.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let following = lines.get(index + 1..).unwrap_or_default();
+        let Some((name, range)) = credentials::first_credential(line, following) else {
             continue;
         };
         let line_number = index + 1;
@@ -334,91 +297,6 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
             context,
         });
     }
-}
-
-/// First credential match of a line: the pattern name and the byte range of
-/// the matched token. A prefix inside a longer identifier is not a match.
-fn credential_match(line: &str) -> Option<(&'static str, (usize, usize))> {
-    if let Some(range) = private_key_block(line) {
-        return Some(("private key block", range));
-    }
-    CREDENTIAL_PATTERNS.iter().find_map(|pattern| {
-        pattern_ranges(line, pattern)
-            .next()
-            .map(|range| (pattern.name, range))
-    })
-}
-
-/// Every credential the rule would match on a line, as sorted, disjoint byte
-/// ranges.
-///
-/// The rule reports the first match of a line, but a code frame prints the
-/// whole line and the lines around it, so whatever renders source text masks
-/// every match rather than the one a finding names.
-pub(crate) fn credential_ranges(line: &str) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = private_key_block(line)
-        .into_iter()
-        .chain(
-            CREDENTIAL_PATTERNS
-                .iter()
-                .flat_map(|pattern| pattern_ranges(line, pattern)),
-        )
-        .collect();
-    ranges.sort_unstable();
-    let mut disjoint: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
-    for (start, end) in ranges {
-        match disjoint.last_mut() {
-            Some(last) if start < last.1 => last.1 = last.1.max(end),
-            _ => disjoint.push((start, end)),
-        }
-    }
-    disjoint
-}
-
-/// The byte ranges of one pattern on a line, left to right.
-fn pattern_ranges<'a>(
-    line: &'a str,
-    pattern: &'a CredentialPattern,
-) -> impl Iterator<Item = (usize, usize)> + 'a {
-    let bytes = line.as_bytes();
-    let mut from = 0;
-    std::iter::from_fn(move || {
-        while let Some(offset) = line.get(from..)?.find(pattern.prefix) {
-            let start = from + offset;
-            let boundary = start == 0
-                || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
-            let tail_start = start + pattern.prefix.len();
-            let tail_length = bytes[tail_start..]
-                .iter()
-                .take_while(|byte| (pattern.tail)(**byte))
-                .count();
-            from = tail_start;
-            if boundary && tail_length >= pattern.minimum_tail {
-                from = tail_start + tail_length;
-                return Some((start, from));
-            }
-        }
-        None
-    })
-}
-
-/// Whether a line opens a PEM private key, whose body lines follow it.
-pub(crate) fn opens_private_key(line: &str) -> bool {
-    private_key_block(line).is_some()
-}
-
-fn private_key_block(line: &str) -> Option<(usize, usize)> {
-    let start = line.find("-----BEGIN ")?;
-    let label_start = start + "-----BEGIN ".len();
-    let suffix = "PRIVATE KEY-----";
-    let suffix_start = line[label_start..].find(suffix)? + label_start;
-    // A real PEM label is uppercase words: `RSA`, `OPENSSH`, or nothing at
-    // all. Anything else is prose about key blocks, not a key block, which is
-    // what keeps this rule off documentation that spells the pattern out.
-    line[label_start..suffix_start]
-        .bytes()
-        .all(|byte| byte.is_ascii_uppercase() || byte == b' ')
-        .then_some((start, suffix_start + suffix.len()))
 }
 
 /// The directory Cargo builds into, workspace-relative: `target` unless the
@@ -662,60 +540,6 @@ mod tests {
         assert_eq!(path_context("examples/demo.rs"), Some(DiagnosticContext::Example));
         assert_eq!(path_context("benches/throughput.rs"), Some(DiagnosticContext::Benchmark));
         assert_eq!(path_context("src/main.rs"), None);
-    }
-
-    #[test]
-    fn credential_matching_requires_the_boundary_and_the_minimum_tail() {
-        // Every key-shaped value is assembled at runtime so that this source
-        // file never carries one the scan itself would report.
-        let aws = format!("AKIA{}", "IOSFODNN7EXAMPLE");
-        let (name, range) = credential_match(&format!("let key = \"{aws}\";")).unwrap();
-        assert_eq!(name, "AWS access key id");
-        assert_eq!(range, (11, 11 + aws.len()));
-
-        let github = format!("ghp_{}", "a".repeat(36));
-        assert_eq!(
-            credential_match(&github).map(|(name, _)| name),
-            Some("GitHub personal access token")
-        );
-        let fine_grained = format!("github_pat_{}", "b".repeat(22));
-        assert_eq!(
-            credential_match(&fine_grained).map(|(name, _)| name),
-            Some("GitHub fine-grained token")
-        );
-        let openai = format!("sk-{}", "c".repeat(20));
-        assert_eq!(
-            credential_match(&openai).map(|(name, _)| name),
-            Some("secret API key")
-        );
-        let slack = format!("xoxb-{}", "1".repeat(10));
-        assert_eq!(
-            credential_match(&slack).map(|(name, _)| name),
-            Some("Slack bot token")
-        );
-        let pem_header = format!("-----BEGIN {}-----", "RSA PRIVATE KEY");
-        assert_eq!(
-            credential_match(&pem_header).map(|(name, _)| name),
-            Some("private key block")
-        );
-        let bare_header = format!("-----BEGIN {}-----", "PRIVATE KEY");
-        assert_eq!(
-            credential_match(&bare_header).map(|(name, _)| name),
-            Some("private key block")
-        );
-        // Documentation spelling the pattern out, wildcard included, is prose:
-        // a real PEM label carries only uppercase words.
-        let documented = format!("`-----BEGIN {} KEY-----`", "* PRIVATE");
-        assert!(credential_match(&documented).is_none());
-
-        // Boundary: the prefix inside a longer identifier is not a token.
-        assert!(credential_match(&format!("S{aws}")).is_none());
-        assert!(credential_match(&format!("risk-{}", "c".repeat(20))).is_none());
-        // Minimum tail: a short suffix is prose, not a key.
-        assert!(credential_match("sk-learn").is_none());
-        assert!(credential_match("AKIA123").is_none());
-        // Entropy alone never triggers.
-        assert!(credential_match("9f8e7d6c5b4a39281706f5e4d3c2b1a0").is_none());
     }
 
     #[test]

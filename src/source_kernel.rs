@@ -12,6 +12,7 @@
 //! them agree on. `unanimous` is that answer, and it is the reason a finding in
 //! shared code names no package rather than an arbitrary one.
 
+use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -26,6 +27,7 @@ use crate::source_text::{SourceSpan, line_starts, source_span};
 mod aliases;
 mod bindings;
 mod detectors;
+pub(crate) mod harness;
 pub(crate) mod references;
 #[cfg(test)]
 mod tests;
@@ -90,7 +92,7 @@ impl Limit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
     pub(crate) definition: &'static RuleDefinition,
-    pub(crate) message: &'static str,
+    pub(crate) message: Cow<'static, str>,
     pub(crate) package: Option<String>,
     pub(crate) target: Option<String>,
     /// Non-production context of the finding: the unit's, when every target
@@ -111,7 +113,7 @@ impl Candidate {
             code: self.definition.id,
             path: self.path.clone(),
             span: self.span,
-            message: self.message,
+            message: self.message.clone(),
         }
     }
 }
@@ -121,7 +123,7 @@ struct CandidateKey {
     code: &'static str,
     path: String,
     span: SourceSpan,
-    message: &'static str,
+    message: Cow<'static, str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -338,6 +340,9 @@ pub(crate) struct Enumeration {
     excluded: BTreeSet<Identity>,
     /// The members `--package` selected, `None` when every member is scanned.
     selected: Option<BTreeSet<String>>,
+    /// Packages, by id, whose module tree the walk lost part of: a `mod`
+    /// request it could not follow, or a file it could not read.
+    incomplete_trees: BTreeSet<String>,
 }
 
 impl Enumeration {
@@ -386,6 +391,13 @@ impl Enumeration {
         self.selected
             .as_ref()
             .is_none_or(|selected| selected.contains(package))
+    }
+
+    /// Did the walk follow every `mod` declaration of this package, by id,
+    /// to a file it read? Only then is a file of the package that no
+    /// declaration reached provably unreached.
+    pub(crate) fn module_tree_complete(&self, package_id: &str) -> bool {
+        !self.incomplete_trees.contains(package_id)
     }
 
     pub(crate) const fn contexts(&self) -> &TargetContexts {
@@ -617,6 +629,7 @@ fn analyze_unit(
         error_ranges: &unit.error_ranges,
         edition: unit.edition,
         test_code: unit.is_test_code(&enumeration.contexts),
+        resolved: std::cell::RefCell::default(),
     };
     let emitter = Emitter {
         package: unit.package(),
@@ -666,7 +679,7 @@ impl Emitter<'_> {
         }
         let candidate = Candidate {
             definition,
-            message: detection.message,
+            message: detection.message.clone(),
             package: self.package.clone(),
             target: self.target.clone(),
             context: self.context.or_else(|| {

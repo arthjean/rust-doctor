@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::orphan_module_file
+# weakness: conditional-module
+# source: US-020, a stray file in a complete module tree
+# verdict: fires
+
+[package]
+name = "seed-orphan-module-file-undeclared-file"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
