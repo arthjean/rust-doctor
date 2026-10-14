@@ -49,9 +49,9 @@ Rust Doctor reviews every pull request and reports only the issues your change i
 rust-doctor ci install --comment
 ```
 
-This writes `.github/workflows/rust-doctor.yml`, pinned to the version that wrote it and to the toolchain it was validated on, and never overwrites a file it did not write (`--update` rewrites its own). Pull requests fail only on what they introduce, at the level `--blocking` sets; pushes to your default branch report without failing. `--comment` also posts the result as one sticky comment per pull request, edited on each push; a pull request from a fork gets a read-only token, and a warning instead.
+This writes `.github/workflows/rust-doctor.yml` at the top of your git repository, scanning the Cargo workspace below it when there is one (`src-tauri/`, `backend/`), pinned to the version that wrote it and to the toolchain it was validated on, and never overwrites a file it did not write (`--update` rewrites its own). Pull requests fail only on what they introduce, at the level `--blocking` sets; pushes to your default branch report without failing. `--comment` also posts the result as one sticky comment per pull request, edited on each push; a pull request from a fork gets a read-only token, and a warning instead.
 
-To compose your own workflow, use the Action: `uses: arthjean/rust-doctor@v0`, with the outputs `score`, `authoritative`, `introduced`, `fixed` and `exit-code`, and the same sticky comment unless you pass `comment: false`.
+To compose your own workflow, use the Action: `uses: arthjean/rust-doctor@v0`, with the outputs `score`, `authoritative`, `introduced`, `fixed` and `exit-code`, and the same sticky comment unless you pass `comment: false` (`comment-on-clean: false` skips it on a clean pull request). It fails only a pull request on its findings: a push reports without failing. Check out with `fetch-depth: 0`, since a pull request scan needs the base's history; from a shallow checkout the Action fetches the base itself when the token allows it.
 
 The binary still never reaches the network: the comment is posted by the workflow's own GitHub token.
 

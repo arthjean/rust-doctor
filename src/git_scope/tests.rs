@@ -203,9 +203,9 @@ fn failures_stop_before_later_calls_and_never_transport_hostile_output() {
         })
         .unwrap_err();
         assert_eq!((error.stage, error.code), ("scope", expected));
-        // A merge base that failed asks once more, whether the clone is
-        // shallow; nothing else runs after a failure.
-        let probes = usize::from(expected == "merge-base-unavailable");
+        // A base or a merge base that failed asks once more, whether the
+        // clone is shallow; nothing else runs after a failure.
+        let probes = usize::from(failing_call < 2);
         assert_eq!(*calls.borrow(), failing_call + 1 + probes);
         assert!(!error.message.contains("credential=secret"));
     }
@@ -472,6 +472,32 @@ fn a_merge_base_missing_from_a_shallow_clone_says_so() {
                     Ok(format!("{shallow}\n").into_bytes())
                 }
                 "rev-parse" => Ok(format!("{BASE}\n").into_bytes()),
+                _ => Err(()),
+            }),
+        )
+        .unwrap_err();
+        assert_eq!((error.stage, error.code), ("scope", expected));
+        if expected == "shallow-clone" {
+            assert!(error.message.contains("fetch-depth: 0"), "{}", error.message);
+        }
+    }
+}
+
+/// A base a depth-1 checkout never fetched is the same missing fetch as a
+/// missing merge base, and gets the same remedy.
+#[test]
+fn a_base_missing_from_a_shallow_clone_says_so() {
+    for (shallow, expected) in [("true", "shallow-clone"), ("false", "base-unavailable")] {
+        let calls = RefCell::new(Vec::new());
+        let error = resolve_with(
+            &changed(ChangeMode::Baseline, Some("origin/main"), ChangeOptions::default())
+                .validate()
+                .unwrap(),
+            Path::new("/workspace"),
+            scripted(&calls, |operation| match operation[0].as_str() {
+                "rev-parse" if operation[1] == "--is-shallow-repository" => {
+                    Ok(format!("{shallow}\n").into_bytes())
+                }
                 _ => Err(()),
             }),
         )

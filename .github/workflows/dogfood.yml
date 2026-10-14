@@ -39,11 +39,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # The default depth-1 checkout, on purpose: the path a user's first
+      # workflow takes. On a pull request the Action fetches the base and its
+      # history itself before the baseline scan; a push scans in full scope,
+      # which needs none.
       - uses: actions/checkout@v5
         with:
-          # Baseline scope resolves a comparison ref and checks it out into a
-          # temporary worktree, so the shallow default clone is not enough.
-          fetch-depth: 0
           # The pull request's build scripts run in this job: leave no token
           # in .git/config for them to find.
           persist-credentials: false
@@ -54,10 +55,14 @@ jobs:
           toolchain: "1.97.1"
           components: clippy
 
+      # Saved even when the gate fails the job, so the retry is warm. This
+      # step caches the scanner's build and the scan's both, so the Action's
+      # own cache is turned off below.
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: dogfood
+          cache-on-failure: true
 
       - name: Build the scanner under review
         run: |
@@ -74,3 +79,4 @@ jobs:
         uses: ./
         with:
           version: preinstalled
+          cache: "false"

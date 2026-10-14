@@ -698,14 +698,17 @@ fn untracked_matching(
     ))?)
 }
 
-/// A merge base that could not be found in a shallow clone is a fetch that
-/// stopped short, and the reader is told which one.
+/// A base commit or a merge base that could not be found in a shallow clone is
+/// a fetch that stopped short, and the reader is told which one: a depth-1
+/// pull request checkout holds neither the base branch nor any ancestor.
 fn diagnose_merge_base(
     error: InternalError,
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> InternalError {
-    if error.code == MERGE_BASE_UNAVAILABLE.code() && base::is_shallow(workspace_root, run) {
+    let fetch_stopped_short =
+        error.code == MERGE_BASE_UNAVAILABLE.code() || error.code == BASE_UNAVAILABLE.code();
+    if fetch_stopped_short && base::is_shallow(workspace_root, run) {
         return base::shallow_clone();
     }
     error

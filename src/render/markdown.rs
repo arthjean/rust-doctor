@@ -101,9 +101,11 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
     if !found.is_some_and(|found| readable.contains(&found)) {
         return Err(MarkdownError::SchemaMismatch { found });
     }
+    // A scan that failed before scoring publishes a null score, and is the
+    // report a reader most needs rendered.
     let score = report
         .pointer("/audit/score")
-        .filter(|score| score.is_object())
+        .filter(|score| score.is_object() || score.is_null())
         .ok_or(MarkdownError::NotAReport)?;
     let diagnostics = report
         .get("diagnostics")
@@ -126,6 +128,8 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
             let _ = writeln!(out, ", not authoritative: {}.", reasons.join(", "));
         }
     }
+
+    render_errors(&mut out, report);
 
     let baseline = report.pointer("/scope/mode").and_then(Value::as_str) == Some("baseline");
     let delta = report.get("delta").filter(|delta| delta.is_object());
@@ -164,8 +168,44 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
         }
         (false, _) => diagnostics.iter().collect(),
     };
-    render_table(&mut out, findings, limit, baseline);
+    let collected = report.get("status").and_then(Value::as_str) != Some("failed");
+    render_table(&mut out, findings, limit, baseline, collected);
     Ok(out)
+}
+
+/// The error codes a checkout without the base's history produces, each of
+/// which `fetch-depth: 0` cures.
+const SHALLOW_CODES: [&str; 3] = ["shallow-clone", "base-unavailable", "merge-base-unavailable"];
+
+/// Every error the report carries, so a scan that stopped says where and why
+/// instead of reading as a clean one.
+fn render_errors(out: &mut String, report: &Value) {
+    let errors: &[Value] = report
+        .get("errors")
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice);
+    if errors.is_empty() {
+        return;
+    }
+    let plural = if errors.len() == 1 { "" } else { "s" };
+    let _ = writeln!(out, "\n**The scan reported {} error{plural}:**\n", errors.len());
+    for error in errors {
+        let _ = writeln!(
+            out,
+            "- {} {}: {}",
+            escape(&field(error, "stage")),
+            escape(&field(error, "code")),
+            escape(&bounded(&field(error, "message")))
+        );
+    }
+    if errors
+        .iter()
+        .any(|error| SHALLOW_CODES.contains(&borrowed(error, "code")))
+    {
+        out.push_str(
+            "\nThe checkout lacks the history the comparison needs: set `fetch-depth: 0` on `actions/checkout`.\n",
+        );
+    }
 }
 
 fn score_text(score: &Value) -> String {
@@ -179,9 +219,19 @@ fn score_text(score: &Value) -> String {
     }
 }
 
-fn render_table(out: &mut String, mut findings: Vec<&Value>, limit: usize, introduced: bool) {
+fn render_table(
+    out: &mut String,
+    mut findings: Vec<&Value>,
+    limit: usize,
+    introduced: bool,
+    collected: bool,
+) {
     let noun = if introduced { "introduced finding" } else { "finding" };
     let total = findings.len();
+    if total == 0 && !collected {
+        out.push_str("\nNo finding was collected.\n");
+        return;
+    }
     if total == 0 {
         let _ = writeln!(out, "\nNo {noun}.");
         return;

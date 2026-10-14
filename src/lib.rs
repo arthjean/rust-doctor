@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod audit;
 mod baseline;
@@ -71,6 +71,15 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
         Ok(session) => session.inspect(),
         Err(report) => *report,
     }
+}
+
+/// The root of the Cargo workspace a scan of `path` would judge, found the
+/// way a scan finds it, or `None` when none resolves. `ci install` places the
+/// workflow's scan from it.
+pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
+    scan_target::resolve(path, Path::new("cargo"))
+        .ok()
+        .map(|target| target.workspace_root().to_path_buf())
 }
 
 #[derive(Debug)]

@@ -50,6 +50,7 @@ pub(crate) struct Execution {
     outputs: String,
     stdout: String,
     gh: String,
+    git: String,
 }
 
 /// Runs `block` under bash with every external tool stubbed, and answers with
@@ -65,7 +66,9 @@ pub(crate) fn execute(block: &str, environment: &[(&str, &str)]) -> Vec<Vec<Stri
 /// answers `JQ_1` then `JQ_2`; `gh` logs its arguments and, under
 /// `GH_REFUSES`, refuses every write as a fork's read-only token would.
 /// `NO_REPORT` leaves the report and its rendered summary out, and
-/// `EMPTY_REPORT` leaves both empty.
+/// `EMPTY_REPORT` leaves both empty. `git` logs its arguments, answers
+/// `SHALLOW` (default `false`) to `--is-shallow-repository`, and fails a
+/// fetch under `FETCH_FAILS`.
 pub(crate) fn run_stubbed(block: &str, environment: &[(&str, &str)]) -> Execution {
     let root = scratch("ci-tests", "execute");
     let log = root.join("argv");
@@ -82,7 +85,13 @@ rust-doctor() {
   if [ "${1:-}" = report ]; then echo '## rust-doctor'; return 0; fi
   return "${SCAN_STATUS:-0}"
 }
-git() { :; }
+git() {
+  echo "$*" >> "$GH_LOG.git"
+  case " $* " in
+    *" --is-shallow-repository "*) echo "${SHALLOW:-false}" ;;
+    *" fetch "*) [ -z "${FETCH_FAILS:-}" ] ;;
+  esac
+}
 npm() { :; }
 gh() {
   echo "$*" >> "$GH_LOG"
@@ -106,9 +115,11 @@ jq() {
         String::from_utf8_lossy(&syntax.stderr)
     );
     // The stubs and the block reach bash as data, and the script it runs is a
-    // constant: the command line is never assembled from text.
+    // constant: the command line is never assembled from text. The options
+    // are the ones GitHub gives `shell: bash`, so a command that fails
+    // unguarded ends the step here as it does on a runner.
     let output = Command::new("bash")
-        .args(["-c", "eval \"$STUBS\"\neval \"$BLOCK\""])
+        .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", "eval \"$STUBS\"\neval \"$BLOCK\""])
         .env("STUBS", prelude)
         .env("BLOCK", block)
         .current_dir(&root)
@@ -123,6 +134,7 @@ jq() {
     let argv = fs::read_to_string(&log).unwrap_or_default();
     let outputs = fs::read_to_string(root.join("output")).unwrap_or_default();
     let gh = fs::read_to_string(root.join("gh")).unwrap_or_default();
+    let git = fs::read_to_string(root.join("gh.git")).unwrap_or_default();
     fs::remove_dir_all(root).unwrap();
     let invocations = argv
         .lines()
@@ -139,6 +151,7 @@ jq() {
         outputs,
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         gh,
+        git,
     }
 }
 
@@ -151,6 +164,7 @@ pub(crate) fn assert_parses(invocations: &[Vec<String>]) {
 
 fn workflow_options(blocking: Option<BlockingLevel>) -> WorkflowOptions {
     WorkflowOptions {
+        workspace: ".".to_owned(),
         blocking,
         branch: "trunk".to_owned(),
         toolchain: VALIDATED_TOOLCHAIN.to_owned(),
@@ -432,5 +446,175 @@ fn the_comment_is_edited_in_place_and_never_fails_the_job() {
         assert_eq!(skipped.status, Some(0), "{absent}");
         assert!(skipped.gh.is_empty(), "nothing is posted without a summary: {}", skipped.gh);
         assert!(skipped.stdout.contains("::notice::"), "{}", skipped.stdout);
+    }
+}
+
+/// The scan step of the Action, found by the command it runs.
+fn action_scan() -> String {
+    run_blocks(ACTION)
+        .into_iter()
+        .find(|block| block.contains("rust-doctor \"${arguments[@]}\""))
+        .unwrap()
+}
+
+const SCAN_INPUTS: [(&str, &str); 5] = [
+    ("SCOPE", ""),
+    ("BASE", ""),
+    ("BLOCKING", ""),
+    ("ARGS", ""),
+    ("WORKSPACE", "."),
+];
+
+/// A gate failure (1) fails only a pull request; a scan that could not run
+/// (2) fails every event; in the Action and in the generated workflow alike.
+#[test]
+fn only_a_pull_request_fails_on_the_gate() {
+    let exit = run_blocks(ACTION).pop().unwrap();
+    for (code, event, expected) in [
+        ("1", "push", 0),
+        ("1", "pull_request", 1),
+        ("2", "push", 2),
+        ("2", "pull_request", 2),
+        ("0", "push", 0),
+    ] {
+        let execution = run_stubbed(&exit, &[("EXIT_CODE", code), ("EVENT_NAME", event)]);
+        assert_eq!(execution.status, Some(expected), "action: {code} on {event}");
+    }
+    let workflow = scan_workflow(&workflow_options(None));
+    let scan = run_blocks(&workflow).pop().unwrap();
+    for (code, event, base, expected) in [
+        ("1", "push", "", 0),
+        ("1", "pull_request", "main", 1),
+        ("2", "push", "", 2),
+        ("2", "pull_request", "main", 2),
+    ] {
+        let environment = [("SCAN_STATUS", code), ("EVENT_NAME", event), ("BASE_REF", base)];
+        let execution = run_stubbed(&scan, &environment);
+        assert_eq!(execution.status, Some(expected), "workflow: {code} on {event}");
+    }
+    // The summary of a push is rendered all the same: no event guards it.
+    let summarize = ACTION.split("- name: Summarize").nth(1).unwrap();
+    let header = summarize.split("run: |").next().unwrap();
+    assert!(header.contains("if: always()") && !header.contains("event_name"), "{header}");
+}
+
+/// A pull request scanned from a depth-1 checkout fetches its base once, and a
+/// fetch that fails never fails the step. A full clone, or a full scope,
+/// fetches nothing.
+#[test]
+fn a_shallow_pull_request_checkout_fetches_its_base_once() {
+    let scan = action_scan();
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut environment = SCAN_INPUTS.to_vec();
+        environment.push(("PULL_REQUEST_BASE", "main"));
+        environment.extend_from_slice(extra);
+        run_stubbed(&scan, &environment)
+    };
+    let fetch = "-C . fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main\n";
+
+    let shallow = with(&[("SHALLOW", "true")]);
+    assert_eq!(shallow.status, Some(0));
+    assert_eq!(shallow.git.matches(" fetch ").count(), 1, "{}", shallow.git);
+    assert!(shallow.git.ends_with(fetch), "{}", shallow.git);
+
+    let refused = with(&[("SHALLOW", "true"), ("FETCH_FAILS", "1")]);
+    assert_eq!(refused.status, Some(0), "a failed fetch never fails the step");
+    assert!(refused.git.contains(" fetch "), "{}", refused.git);
+    assert!(refused.outputs.contains("exit-code=0"), "{}", refused.outputs);
+
+    let full_clone = with(&[("SHALLOW", "false")]);
+    assert!(!full_clone.git.contains(" fetch "), "{}", full_clone.git);
+
+    let full_scope = with(&[("SHALLOW", "true"), ("SCOPE", "full")]);
+    assert!(full_scope.git.is_empty(), "{}", full_scope.git);
+}
+
+/// With `comment-on-clean: false`, a clean pull request gets no new comment,
+/// one already posted is still edited, and a pull request with findings is
+/// commented as before.
+#[test]
+fn a_clean_pull_request_stays_quiet_when_asked() {
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut environment = vec![("REPOSITORY", "o/r"), ("PULL_REQUEST", "7")];
+        environment.extend_from_slice(extra);
+        run_stubbed(COMMENT_SCRIPT, &environment)
+    };
+    let quiet = with(&[("CLEAN", "true"), ("COMMENT_ON_CLEAN", "false"), ("JQ_1", "")]);
+    assert_eq!(quiet.status, Some(0));
+    assert!(!quiet.gh.contains("-X"), "{}", quiet.gh);
+    assert!(quiet.stdout.contains("comment-on-clean is false"), "{}", quiet.stdout);
+
+    let updated = with(&[("CLEAN", "true"), ("COMMENT_ON_CLEAN", "false"), ("JQ_1", "9")]);
+    assert!(updated.gh.contains("-X PATCH repos/o/r/issues/comments/9"), "{}", updated.gh);
+
+    for extra in [
+        &[("CLEAN", "false"), ("COMMENT_ON_CLEAN", "false"), ("JQ_1", "")][..],
+        &[("CLEAN", "true"), ("COMMENT_ON_CLEAN", "true"), ("JQ_1", "")][..],
+    ] {
+        let posted = with(extra);
+        assert!(posted.gh.contains("-X POST repos/o/r/issues/7/comments"), "{extra:?}: {}", posted.gh);
+    }
+    assert_eq!(input_default("comment-on-clean").as_deref(), Some("true"));
+    assert_eq!(input_default("cache").as_deref(), Some("true"));
+    assert!(ACTION.contains("CLEAN: ${{ steps.summarize.outputs.clean }}"));
+}
+
+/// Every action the shipped YAML uses is pinned to a full commit, with the
+/// ref it was read from beside it, and every rust-cache step saves on
+/// failure.
+#[test]
+fn every_shipped_action_is_pinned_to_a_commit() {
+    let workflow = scan_workflow(&WorkflowOptions {
+        comment: true,
+        ..workflow_options(None)
+    });
+    for (name, yaml) in [("action.yml", ACTION), ("the generated workflow", workflow.as_str())] {
+        let uses: Vec<&str> = yaml
+            .lines()
+            .filter_map(|line| line.trim_start().trim_start_matches("- ").strip_prefix("uses: "))
+            .filter(|target| !target.starts_with("./"))
+            .collect();
+        assert!(uses.len() >= 3, "{name}: {uses:?}");
+        for target in uses {
+            let pinned = target.split_once('@').is_some_and(|(_, reference)| {
+                reference.get(..40).is_some_and(|sha| {
+                    sha.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                }) && reference.get(40..).is_some_and(|rest| rest.starts_with(" # ") && rest.len() > 3)
+            });
+            assert!(pinned, "{name}: `{target}` is not pinned to a 40-hex SHA and a `# <ref>` comment");
+        }
+        let caches = yaml.matches("Swatinem/rust-cache@").count();
+        assert_eq!(caches, 1, "{name}");
+        assert!(yaml.contains("cache-on-failure: true"), "{name}");
+    }
+}
+
+/// A workspace below the repository's top is the path the workflow scans and
+/// the one rust-cache keys its target on.
+#[test]
+fn a_nested_workspace_is_scanned_and_cached_by_its_path() {
+    let workflow = scan_workflow(&WorkflowOptions {
+        workspace: "src-tauri".to_owned(),
+        ..workflow_options(None)
+    });
+    assert!(workflow.contains("cache-on-failure: true\n          workspaces: src-tauri\n"), "{workflow}");
+    let scan = run_blocks(&workflow).pop().unwrap();
+    let invocations = execute(&scan, &[("BASE_REF", "main")]);
+    assert_parses(&invocations);
+    assert_eq!(invocations[0].get(1).map(String::as_str), Some("src-tauri"));
+    assert!(!scan_workflow(&workflow_options(None)).contains("workspaces:"));
+    for (path, accepted) in [
+        (".", true),
+        ("src-tauri", true),
+        ("crates/app_1.x", true),
+        ("..", false),
+        ("a/../b", false),
+        ("-x", false),
+        ("a b", false),
+        ("a'b", false),
+        ("/abs", false),
+        ("", false),
+    ] {
+        assert_eq!(is_workspace_path(path), accepted, "{path:?}");
     }
 }

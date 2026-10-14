@@ -11,6 +11,11 @@
 //! on a pull request from a fork, so a fork gets a warning instead of a
 //! comment. The binary reaches no network: the comment is posted by `gh` with
 //! the workflow's own token.
+//!
+//! GitHub reads workflows only at the top of the repository, so the file goes
+//! under the git toplevel, and a Cargo workspace below it (`src-tauri/`,
+//! `backend/`) is the path the workflow scans and caches. Every action it
+//! uses is pinned to a commit, with the ref it was read from beside it.
 
 use std::fmt;
 use std::fs;
@@ -48,7 +53,8 @@ pub struct CiArgs {
 enum CiCommand {
     #[command(about = "Write .github/workflows/rust-doctor.yml, never over a file rust-doctor did not write")]
     Install {
-        /// The repository root the workflow is written under and scans.
+        /// The workspace the workflow scans. It is written under the top of
+        /// the git repository holding it.
         #[arg(default_value = ".", value_name = "PATH")]
         path: PathBuf,
         /// The level a pull request fails at. Without it, the workspace's
@@ -79,6 +85,8 @@ enum CiCommand {
 /// What a workflow is rendered from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowOptions {
+    /// The Cargo workspace, relative to the repository's top, `.` at it.
+    pub workspace: String,
     pub blocking: Option<BlockingLevel>,
     pub branch: String,
     pub toolchain: String,
@@ -87,6 +95,9 @@ pub struct WorkflowOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CiError {
+    NotARepository,
+    InvalidWorkspace,
+    Installed(String),
     BranchUndetected,
     InvalidBranch,
     InvalidToolchain,
@@ -101,7 +112,7 @@ impl CiError {
     /// could, which was nothing.
     const fn exit_code(&self) -> u8 {
         match self {
-            Self::AlreadyPresent(_) | Self::NotOurs(_) => 1,
+            Self::AlreadyPresent(_) | Self::NotOurs(_) | Self::Installed(_) => 1,
             _ => FAILED,
         }
     }
@@ -110,6 +121,18 @@ impl CiError {
 impl fmt::Display for CiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotARepository => write!(
+                formatter,
+                "the path is not inside a git repository, and GitHub reads workflows from one"
+            ),
+            Self::InvalidWorkspace => write!(
+                formatter,
+                "the workspace's path from the repository's top is not one a workflow can carry"
+            ),
+            Self::Installed(path) => write!(
+                formatter,
+                "{path} already runs rust-doctor, so nothing was written"
+            ),
             Self::BranchUndetected => write!(
                 formatter,
                 "no default branch found: pass --branch <NAME>"
@@ -153,9 +176,14 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
         update,
         dry_run,
     } = &arguments.command;
-    let planned = options(path, *blocking, branch.clone(), toolchain.clone(), *comment)
-        .and_then(|options| plan(path, &options, *update));
-    let planned = match planned {
+    let planned = placement(path).and_then(|(toplevel, workspace)| {
+        let options = WorkflowOptions {
+            workspace,
+            ..options(&toplevel, *blocking, branch.clone(), toolchain.clone(), *comment)?
+        };
+        Ok((plan(&toplevel, &options, *update)?, toplevel))
+    });
+    let (planned, toplevel) = match planned {
         Ok(planned) => planned,
         Err(error) => {
             eprintln!("rust-doctor: the workflow was not installed, {error}.");
@@ -168,7 +196,7 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    match write(path, &planned) {
+    match write(&toplevel, &planned) {
         Ok(()) => {
             for file in &planned {
                 let verb = if file.replaces { "Rewrote" } else { "Wrote" };
@@ -183,8 +211,9 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
     }
 }
 
-/// Whether the interactive report offers to add the workflow: a repository
-/// that does not carry it yet.
+/// Whether the interactive report offers to add the workflow: a workspace at
+/// the top of its repository that does not carry it yet. A workspace nested
+/// in a repository is left to `ci install`, which the reader points at it.
 pub fn can_install(root: &Path) -> bool {
     root.join(".git").exists() && !root.join(WORKFLOW_PATH).exists()
 }
@@ -192,10 +221,44 @@ pub fn can_install(root: &Path) -> bool {
 /// The interactive report's entry: the scan workflow with every default
 /// `ci install` has, answering with the path it wrote.
 pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
-    let options = options(root, None, None, VALIDATED_TOOLCHAIN.to_owned(), false)?;
-    let planned = plan(root, &options, false)?;
-    write(root, &planned)?;
+    let (toplevel, workspace) = placement(root)?;
+    let options = WorkflowOptions {
+        workspace,
+        ..options(&toplevel, None, None, VALIDATED_TOOLCHAIN.to_owned(), false)?
+    };
+    let planned = plan(&toplevel, &options, false)?;
+    write(&toplevel, &planned)?;
     Ok(PathBuf::from(WORKFLOW_PATH))
+}
+
+/// The top of the repository the workflow goes under, and the Cargo
+/// workspace it scans, relative to that top: the one a scan of `path` would
+/// judge, or `path` itself when none resolves.
+fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
+    let toplevel = rust_doctor::git_hook::toplevel(path).ok_or(CiError::NotARepository)?;
+    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let workspace = rust_doctor::cargo_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
+    let relative = canonical(&workspace)
+        .strip_prefix(canonical(&toplevel))
+        .map_err(|_| CiError::InvalidWorkspace)?
+        .to_string_lossy()
+        .into_owned();
+    let relative = if relative.is_empty() { ".".to_owned() } else { relative };
+    if !is_workspace_path(&relative) {
+        return Err(CiError::InvalidWorkspace);
+    }
+    Ok((toplevel, relative))
+}
+
+/// A relative path a YAML scalar and a shell word both carry as written:
+/// `[A-Za-z0-9._/-]`, no leading dash, no `..` segment.
+fn is_workspace_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with(['-', '/'])
+        && path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._/-".contains(&byte))
+        && !path.split('/').any(|segment| segment == "..")
 }
 
 fn options(
@@ -219,6 +282,7 @@ fn options(
         return Err(CiError::InvalidToolchain);
     }
     Ok(WorkflowOptions {
+        workspace: ".".to_owned(),
         blocking,
         branch,
         toolchain,
@@ -250,6 +314,9 @@ fn plan(root: &Path, options: &WorkflowOptions, update: bool) -> Result<Vec<Plan
             }
             let target = root.join(path);
             if target.symlink_metadata().is_err() {
+                if let Some(existing) = existing_install(root) {
+                    return Err(CiError::Installed(existing));
+                }
                 return Ok(Planned {
                     path,
                     content,
@@ -271,6 +338,25 @@ fn plan(root: &Path, options: &WorkflowOptions, update: bool) -> Result<Vec<Plan
             })
         })
         .collect()
+}
+
+/// A workflow already under `.github/workflows/` that runs rust-doctor,
+/// through the Action or a file this command wrote under another name.
+fn existing_install(root: &Path) -> Option<String> {
+    let mut names: Vec<String> = fs::read_dir(root.join(".github/workflows"))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".yml") || name.ends_with(".yaml"))
+        .collect();
+    names.sort();
+    names.into_iter().find_map(|name| {
+        let path = format!(".github/workflows/{name}");
+        fs::read_to_string(root.join(&path))
+            .ok()
+            .filter(|text| text.contains("arthjean/rust-doctor@") || text.contains(MARKER))
+            .map(|_| path)
+    })
 }
 
 /// A new file is created only if absent. A rewrite goes through a sibling
@@ -309,6 +395,11 @@ pub fn scan_workflow(options: &WorkflowOptions) -> String {
         .blocking
         .map(|level| format!(" --blocking {}", level.as_str()))
         .unwrap_or_default();
+    let cache_workspace = if options.workspace == "." {
+        String::new()
+    } else {
+        format!("\n          workspaces: {}", options.workspace)
+    };
     let (permission, step) = if options.comment {
         ("\n  pull-requests: write", COMMENT_STEP.replace("{SCRIPT}", &indented(COMMENT_SCRIPT, 10)))
     } else {
@@ -322,6 +413,8 @@ pub fn scan_workflow(options: &WorkflowOptions) -> String {
         .replace("{TOOLCHAIN}", &options.toolchain)
         .replace("{VERSION}", env!("CARGO_PKG_VERSION"))
         .replace("{BLOCKING}", &blocking)
+        .replace("{CACHE_WORKSPACE}", &cache_workspace)
+        .replace("{WORKSPACE}", &options.workspace)
 }
 
 fn indented(script: &str, depth: usize) -> String {
@@ -358,17 +451,21 @@ jobs:
       # Baseline scope checks the base out into a temporary worktree, so the
       # shallow default clone is not enough. No token is left behind for the
       # code under review to find.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: '{TOOLCHAIN}'
           components: clippy
 
-      - uses: Swatinem/rust-cache@v2
+      # A failed gate keeps the build its retry needs: rust-cache saves only
+      # on success unless told otherwise.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true{CACHE_WORKSPACE}
 
       # The version is pinned to the one that wrote this file: a gate whose
       # rule set moves on its own fails builds for reasons nobody chose.
@@ -378,6 +475,7 @@ jobs:
       - name: Inspect the workspace
         env:
           BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           report="$RUNNER_TEMP/rust-doctor/report.json"
@@ -389,18 +487,24 @@ jobs:
           fi
 
           set +e
-          rust-doctor . --yes --json "${scan_arguments[@]}" > "$report"
+          rust-doctor {WORKSPACE} --yes --json "${scan_arguments[@]}" > "$report"
           scan_status=$?
           set -e
 
           summary="$RUNNER_TEMP/rust-doctor/summary.md"
           rust-doctor report markdown "$report" > "$summary" || true
           cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          # Only a pull request fails on the gate. A push reports the
+          # branch's health without turning it red, and a scan that could
+          # not run (2) fails on every event.
+          if [ "$scan_status" -eq 1 ] && [ "${EVENT_NAME:-}" != pull_request ]; then
+            scan_status=0
+          fi
           exit "$scan_status"
 
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rust-doctor-report
           path: ${{ runner.temp }}/rust-doctor/report.json
@@ -423,7 +527,9 @@ const COMMENT_STEP: &str = r#"
 
 /// Posts the summary the scan step rendered as the pull request's one
 /// `<!-- rust-doctor -->` comment, editing the bot's earlier one. `action.yml`
-/// runs the same script, and a test holds the two to it. Nothing here fails
+/// runs the same script, and a test holds the two to it. Under the Action's
+/// `comment-on-clean: false`, a clean pull request gets no new comment, while
+/// one already posted is still edited so it never reports a stale result. Nothing here fails
 /// the job: the scan's exit code is the verdict, and a fork's read-only token
 /// is expected.
 const COMMENT_SCRIPT: &str = r#"set -euo pipefail
@@ -438,6 +544,10 @@ if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/commen
   exit 0
 fi
 comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
+if [ -z "$comment" ] && [ "${CLEAN:-false}" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
+  echo "::notice::The pull request is clean and comment-on-clean is false, so no comment was posted."
+  exit 0
+fi
 if [ -n "$comment" ]; then
   gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
 else

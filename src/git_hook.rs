@@ -37,13 +37,19 @@ pub struct HookLocation {
 /// Answers where a pre-commit hook for `workspace` belongs, or `None` when the
 /// workspace is not inside a git working tree.
 pub fn locate(workspace: &Path) -> Option<HookLocation> {
-    let toplevel = PathBuf::from(query(workspace, &["rev-parse", "--show-toplevel"])?);
+    let toplevel = toplevel(workspace)?;
     let setup = if query(workspace, &["config", "--get", "core.hooksPath"]).is_some() {
         HookSetup::HooksPath(hooks_directory(workspace)?)
     } else if toplevel.join(".cargo-husky/hooks").is_dir() {
         HookSetup::CargoHusky(toplevel.join(".cargo-husky/hooks"))
-    } else if let Some(manager) = [".pre-commit-config.yaml", "lefthook.yml"]
-        .into_iter()
+    } else if let Some(manager) = [
+        ".pre-commit-config.yaml",
+        "lefthook.yml",
+        "lefthook.yaml",
+        ".lefthook.yml",
+        ".lefthook.yaml",
+    ]
+    .into_iter()
         .find(|config| toplevel.join(config).is_file())
     {
         HookSetup::Manager(manager)
@@ -51,6 +57,12 @@ pub fn locate(workspace: &Path) -> Option<HookLocation> {
         HookSetup::Default(hooks_directory(workspace)?)
     };
     Some(HookLocation { toplevel, setup })
+}
+
+/// The top of the working tree `workspace` sits in, or `None` outside one.
+/// `ci install` writes its workflow there, where GitHub reads it.
+pub fn toplevel(workspace: &Path) -> Option<PathBuf> {
+    query(workspace, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
 }
 
 /// The directory git reads hooks from: `core.hooksPath` resolved the way git
