@@ -33,15 +33,15 @@
     {
       "id": "EP-004",
       "title": "Overlapped passes, a cached base side, and a delta that survives refactors",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 8,
-      "stories_done": 0
+      "stories_done": 8
     },
     {
       "id": "EP-005",
       "title": "A report a human and an agent can act on",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "stories_total": 8,
       "stories_done": 0
@@ -49,7 +49,7 @@
     {
       "id": "EP-006",
       "title": "The rules Rust services need",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "stories_total": 8,
       "stories_done": 0
@@ -326,115 +326,115 @@
       "id": "US-022",
       "title": "Time each phase and gate a whole-binary benchmark",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-023",
       "title": "Overlap Clippy with the native passes and the probes",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-022"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-024",
       "title": "Cache the baseline side's findings keyed by its tree",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-022"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-025",
       "title": "Bound every child by the run deadline and name what it left unlinted",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-026",
       "title": "Kill Cargo's process group and clean snapshots on SIGINT and SIGTERM",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-027",
       "title": "Strip lint levels from every rustflags source Cargo reads",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-028",
       "title": "Validate assumption: which delta pairing removes refactor noise without hiding new findings",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-029",
       "title": "Pair the delta through Git renames and hunk correspondence",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-028"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-14",
+      "reviewed_at": "2026-10-14"
     },
     {
       "id": "US-030",
       "title": "Measure the live terminal width and list every scored rule by default",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -442,11 +442,11 @@
       "id": "US-031",
       "title": "Label non-production sites and say why a report is empty or unscored",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -454,11 +454,11 @@
       "id": "US-032",
       "title": "Print the handoff prompt when the clipboard or the agent fails",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -466,11 +466,11 @@
       "id": "US-033",
       "title": "Explain a rule and a site without a rerun: `rules explain` and `why`",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -478,13 +478,13 @@
       "id": "US-034",
       "title": "Add an opt-in exit code for passing runs that carry warnings",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "S",
       "blocked_by": [
         "US-013"
       ],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -492,11 +492,11 @@
       "id": "US-035",
       "title": "Tell an agent when its skill is missing or stale",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -504,13 +504,13 @@
       "id": "US-036",
       "title": "`setup`: detect installed agents and install the loop in one command",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-007"
       ],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -518,11 +518,11 @@
       "id": "US-037",
       "title": "Smoke-test the packed launcher through npm, the path users take",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-10-14",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -530,7 +530,7 @@
       "id": "US-038",
       "title": "Gate crate rules on each member's resolved dependency version",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
@@ -542,7 +542,7 @@
       "id": "US-039",
       "title": "tokio rules: `block_in_place` on a current-thread runtime, `block_on` inside async",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
@@ -556,7 +556,7 @@
       "id": "US-040",
       "title": "Report reqwest bodies read without an HTTP status check",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
@@ -570,7 +570,7 @@
       "id": "US-041",
       "title": "Report secret-named environment variables that fall back to a literal",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
@@ -582,7 +582,7 @@
       "id": "US-042",
       "title": "Web hardening rules: permissive CORS, insecure auth cookies, disabled JWT validation",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "L",
       "blocked_by": [
@@ -596,7 +596,7 @@
       "id": "US-043",
       "title": "Report a binary's ignored `Cargo.lock` and a tracked Cargo credentials file",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
@@ -608,7 +608,7 @@
       "id": "US-044",
       "title": "Report CI steps that compile the workspace with secrets in scope",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P2",
       "size": "M",
       "blocked_by": [],
@@ -620,7 +620,7 @@
       "id": "US-045",
       "title": "Publish a title and a not-a-defect check with every rule",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],

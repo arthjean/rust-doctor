@@ -891,15 +891,15 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 **React Doctor reference:** `packages/core/src/compute-diagnostic-delta.ts:138` (base lines mapped through the hunk map), `3baee0f56` (re-rank after each consumption), `packages/core/src/compute-diagnostic-delta.ts:94` (paths mapped through Git renames before grouping), `packages/core/tests/compute-diagnostic-delta.test.ts:117`, `packages/react-doctor/src/cli/utils/resolve-scan-exit-code.ts:18` (one surface decides blocking in every mode).
 
 **Acceptance Criteria:**
-- [ ] One bounded `git diff --no-ext-diff --find-renames -z --name-status <base>` (with `--cached` when staged) maps base paths to current paths before any pass, and the move pass (`src/delta.rs:437`) pairs across files only along a rename
+- [ ] One bounded `git diff --no-ext-diff --find-renames -z --name-status <base>` (with `--cached` when staged) maps base paths to current paths before any pass, so a renamed file pairs on the same-path passes. The move pass (`src/delta.rs:437`) keeps pairing across files on evidence, which Arthur chose on 2026-10-14 over pairing along renames only: it is what keeps a module extraction without a Git rename from reading as introductions (23 of them on the US-028 sample).
 - [ ] One bounded `git diff --unified=0 --find-renames <base>` builds a line map. Among candidates of equal key, the current finding nearest the mapped base line is paired, replacing first-in, first-out (`src/delta.rs:519`).
-- [ ] The policy US-028 selected pairs leftovers. If it is (b), a current finding inside a modified hunk pairs with an unpaired base finding of the same rule inside that hunk's old range.
+- [ ] The policy US-028 measured and Arthur selected, (d), pairs leftovers: after evidence pairing, the unpaired findings of one (renamed path, rule) pair by count, each base finding taking the unpaired current finding nearest its mapped line, so the line map decides which finding is reported and never how many.
 - [ ] Given a variable renamed inside `cfg.get("k").unwrap()`, when scanned with `--scope baseline`, then nothing is introduced or fixed
-- [ ] Given a fix of `todo!()` in `a.rs` and an addition in `b.rs` with no rename, when scanned, then one is introduced and one fixed; given `git mv a.rs b.rs`, then zero and zero, with `cross_file_matches` 1
+- [ ] Given a fix of `todo!()` in `a.rs` and an identical addition in `b.rs` with no rename, when scanned, then zero and zero with `cross_file_matches` 1, the accepted blind spot; given `git mv a.rs b.rs`, then zero and zero, with `cross_file_matches` 1
 - [ ] Given an identical finding inserted above an old one, when scanned, then the inserted one is the one reported introduced
 - [ ] Given a diff over 1 MiB, or a git call that fails or hits the deadline, when the maps are built, then pairing falls back to line distance with a notice and the delta still completes
 - [ ] The baseline gate uses `DiagnosticContext::weighs`, as the full gate does (`src/report/assembly.rs:702` and `:726`). A `println!` added to `build.rs` is listed in `delta.introduced` and does not block under `--blocking warning`.
-- [ ] `DeltaSummary` publishes the count of pairings made by hunk correspondence, under `SCHEMA_VERSION` 22, and `docs/subsystems/delta.md` records the change of decision and the accepted blind spot (a swap inside one hunk)
+- [ ] `DeltaSummary` publishes the count of pairings made by count within a (renamed path, rule) group, under `SCHEMA_VERSION` 22, and `docs/subsystems/delta.md` records the change of decision and the accepted blind spot (a fix and an addition of one rule in one file offset each other)
 
 ---
 
@@ -1060,6 +1060,8 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 - [ ] The leg runs `<scratch>/bin/rust-doctor --version` and a `--json` scan, with the bun leg's assertions: no registry access in stderr, the native binary resolved inside the prefix
 - [ ] Given npm refuses the local override offline, when the leg runs, then it fails with npm's message, and the story records the finding and the workaround chosen
 - [ ] The leg never reaches the network, and the packed CI job declares the npm it uses
+
+**Finding (2026-10-14, npm 10.9.8):** npm applies `overrides` only from a root project, never to a global install, and `--offline` cannot resolve the wrapper's exact-version optional dependencies from a registry: it skips them as optional, silently, exit 0. **Workaround chosen:** the leg passes the native tarball and the wrapper tarball to one `npm install -g`, so the native lands as a sibling global package under `<prefix>/lib/node_modules/@rustdoctor/`, which the launcher's `createRequire` resolves, the same layout a registry install produces. The leg asserts that resolution stays inside the prefix.
 
 ---
 
@@ -1375,7 +1377,7 @@ Framed as questions for engineering input:
 
 - **Do the untagged parity releases ship first?** `Cargo.toml` is still at 0.7.0 although parity Releases 1 and 2 are DONE and EP-006 is IN_REVIEW. Arthur to decide before US-001 starts whether 0.8.0 to 0.10.0 are tagged separately or folded into 0.11.0. The release table and the schema numbers of this PRD depend on it.
 - **Should EP-006 of the parity PRD be certified before or after EP-003 here?** Recommended: run EP-003 first and certify EP-006 against the amended criteria (US-016 of this PRD replaces parity US-029's "does not follow calls" criterion). Arthur to confirm before `/review-epic` on parity EP-006.
-- **If US-028 finds neither (b) nor (c) clearly better, which delta semantics ship?** Arthur to decide after reading `delta-pairing-2026-10.md` under `docs/`. US-029 waits on the answer.
+- **Resolved 2026-10-14: (d) ships.** Arthur chose (d) after reading the record; US-029's criteria were amended to it. **Which delta semantics ship? US-028's rule did not adopt (b).** On 125 commit pairs (b) removes 22 of the 29 false introductions (c) removes, 75.9 percent against the 80 required. (c) also adds 23 false introductions on module extractions without a Git rename; a fourth policy (d), evidence pairing then (c)'s count on the leftovers alone, removes all 29 and adds none. Neither hid a true introduction on this sample. Recommended: (d), with US-029's nearest-line ranking deciding which member of a group pairs, and its blind spot (a same-rule swap anywhere in one file) documented in place of (b)'s (a swap inside one hunk). Arthur to decide after reading `delta-pairing-2026-10.md` under `docs/`. US-029 waits on the answer.
 - **Who writes and reviews the 133 title and check sentences of US-045?** Recommended: generated from `tests/rule_evidence.json` and the help text, then reviewed by Arthur in one pass. To be decided before Release 3.
 - **Should the Action's commit status (react-doctor `action.yml:697`) come with US-008?** It needs `statuses: write`. Recommended: no, deferred to the distribution PRD. Arthur to confirm.
 - **Is the Windows signal path worth `SetConsoleCtrlHandler` through `windows-sys`, which is already locked?** Recommended: defer until the Windows test leg is green (disposition item 116).
