@@ -73,13 +73,13 @@ fn every_row_of_the_default_view_fits_every_width_down_to_the_floor() {
     assert_eq!(narrow, rendered(&groups(4), MIN_WIDTH, false, false));
 }
 
-/// At the floor, and below it, the animated block still rewinds exactly one
-/// block per frame: a row wider than the pane would scroll the block away
-/// from the cursor-up the animation relies on.
+/// At every width, the floor and below it included, the animated block still
+/// rewinds exactly one block per frame: a row wider than the pane would
+/// scroll the block away from the cursor-up the animation relies on.
 #[test]
-fn the_animated_block_rewinds_one_block_per_frame_at_the_floor() {
+fn the_animated_block_rewinds_one_block_per_frame_at_every_width() {
     let report = groups(4);
-    for width in [30, MIN_WIDTH] {
+    for width in [30, MIN_WIDTH, 60, 80, 100, 140] {
         let mut output = Vec::new();
         render_terminal_with_options(
             &report,
@@ -102,7 +102,7 @@ fn the_animated_block_rewinds_one_block_per_frame_at_the_floor() {
             "{width}"
         );
         for row in output.split(&rewind).flat_map(str::lines).filter(|row| !is_link_row(row)) {
-            assert!(display_width(&sanitize(row)) <= MIN_WIDTH, "{width}: {row:?}");
+            assert!(display_width(&sanitize(row)) <= width.max(MIN_WIDTH), "{width}: {row:?}");
         }
     }
 }
