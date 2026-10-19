@@ -59,14 +59,48 @@ fn anchors_and_reusable_workflow_calls_abstain() {
     let reusable = "env:\n  TOKEN: ${{ secrets.T }}\njobs:\n  call:\n    uses: org/repo/.github/workflows/build.yml@v1\n  test:\n    steps:\n      - run: cargo build\n";
     let findings = compiling_steps_with_secrets(reusable);
     assert_eq!(findings.len(), 1, "only the job that runs its own steps is judged");
+    let anchored_step = "jobs:\n  test:\n    steps:\n      - env:\n          T: ${{ secrets.T }}\n        run: echo\n      - &build\n        run: cargo build\n";
+    assert!(compiling_steps_with_secrets(anchored_step).is_empty());
+    let aliased_step = "jobs:\n  test:\n    env:\n      T: ${{ secrets.T }}\n    steps:\n      - *build\n      - run: cargo build\n";
+    assert!(compiling_steps_with_secrets(aliased_step).is_empty());
+}
+
+/// A `\` continuation is read with its command: `--no-verify` written on the
+/// next line exempts the publish, and the span stays on the line it starts on.
+#[test]
+fn a_continued_command_is_read_whole_and_a_comment_is_not_a_command() {
+    let continued = RELEASE.replace("cargo publish --locked", "cargo publish \\\n            --locked --no-verify");
+    assert!(compiling_steps_with_secrets(&continued).is_empty(), "{continued}");
+    let built = RELEASE.replace("cargo publish --locked", "cargo build \\\n            --release");
+    let findings = compiling_steps_with_secrets(&built);
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!((findings[0].line, findings[0].end - findings[0].column), (19, "cargo build \\".len()));
+    let commented = RELEASE.replace("cargo publish --locked", "# cargo build runs in the verify job");
+    assert!(compiling_steps_with_secrets(&commented).is_empty());
 }
 
 #[test]
 fn only_compiling_subcommands_count() {
-    for line in ["cargo build --release", "cd crate && cargo test", "~/.cargo/bin/cargo doc", "cargo +1.97.1 check"] {
+    for line in [
+        "cargo build --release",
+        "cd crate && cargo test",
+        "~/.cargo/bin/cargo doc",
+        "cargo +1.97.1 check",
+        "cargo fmt --check && cargo build",
+        "\"cargo build --release\"",
+        "cargo --locked -q test",
+        "cargo publish --no-verify; cargo build",
+    ] {
         assert!(compiling_command(line).is_some(), "{line}");
     }
-    for line in ["cargo fmt --check", "cargo publish --no-verify", "echo done", "cargo-deny check"] {
+    for line in [
+        "cargo fmt --check",
+        "cargo publish --no-verify",
+        "echo done",
+        "cargo-deny check",
+        "# cargo build",
+        "echo ok # then cargo build",
+    ] {
         assert!(compiling_command(line).is_none(), "{line}");
     }
 }
@@ -90,4 +124,8 @@ fn a_credentials_file_counts_only_with_a_registry_token() {
     assert!(!holds_registry_token("[registry]\ntoken = \"\"\n"));
     assert!(!holds_registry_token(""));
     assert!(!holds_registry_token("[net]\ntoken = \"abc\"\n"));
+    assert!(holds_registry_token("registry.token = \"abc\"\n"));
+    assert!(holds_registry_token("[registries]\ninternal = { token = \"abc\" }\n"));
+    assert!(holds_registry_token("[registry] # crates.io\ntoken = \"abc\"\n"));
+    assert!(!holds_registry_token("[registry]\ntoken = \"\" # fill in\n"));
 }

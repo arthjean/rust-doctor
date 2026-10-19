@@ -96,6 +96,11 @@ fn entries(source: &str) -> Option<Vec<Entry<'_>>> {
             }
             None => (false, indent, trimmed),
         };
+        // `- &build` or `- *build` anchors or aliases a whole list item, and
+        // carries no key of its own for the check below to see.
+        if anchored(text) {
+            return None;
+        }
         let Some((key, value)) = split_key(text) else {
             continue;
         };
@@ -150,16 +155,25 @@ fn secret_variable(key: &str, value: &str) -> bool {
 }
 
 #[derive(Default)]
-struct Step<'a> {
+struct Step {
     secret: Option<String>,
-    runs: Vec<(usize, usize, &'a str)>,
+    runs: Vec<Run>,
+}
+
+/// One shell command line of a step's `run`, its `\` continuations joined.
+/// The span covers the physical line it starts on.
+struct Run {
+    line: usize,
+    column: usize,
+    width: usize,
+    command: String,
 }
 
 #[derive(Default)]
-struct Job<'a> {
+struct Job {
     secret: Option<String>,
     reusable: bool,
-    steps: Vec<Step<'a>>,
+    steps: Vec<Step>,
 }
 
 pub(super) fn compiling_steps_with_secrets(source: &str) -> Vec<BuildWithSecret> {
@@ -181,14 +195,14 @@ pub(super) fn compiling_steps_with_secrets(source: &str) -> Vec<BuildWithSecret>
 
 /// What the walk learned: the workflow's secret, and each job's.
 #[derive(Default)]
-struct Walk<'a> {
+struct Walk {
     workflow_secret: Option<String>,
-    jobs: Vec<Job<'a>>,
+    jobs: Vec<Job>,
 }
 
-impl<'a> Walk<'a> {
+impl Walk {
     /// One entry, at the path of keys above it.
-    fn record(&mut self, source: &str, path: &[&str], entry: &Entry<'a>) {
+    fn record(&mut self, source: &str, path: &[&str], entry: &Entry<'_>) {
         let secret = |key: &str| secret_variable(key, entry.value).then(|| key.to_owned());
         match path {
             [] if entry.key == "env" => remember(&mut self.workflow_secret, secret("env")),
@@ -218,7 +232,7 @@ impl<'a> Walk<'a> {
     }
 
     /// A key of a step: a list item opens the next step.
-    fn record_step(&mut self, source: &str, entry: &Entry<'a>) {
+    fn record_step(&mut self, source: &str, entry: &Entry<'_>) {
         let Some(job) = self.jobs.last_mut() else {
             return;
         };
@@ -235,12 +249,39 @@ impl<'a> Walk<'a> {
             return;
         }
         if entry.block.is_empty() {
-            step.runs.push((entry.line, value_column(source, entry), entry.value));
+            step.runs.push(Run {
+                line: entry.line,
+                column: value_column(source, entry),
+                width: entry.value.chars().count(),
+                command: entry.value.to_owned(),
+            });
         }
+        // A line ending in `\` continues on the next, so a flag written below
+        // its command, `--no-verify` most often, is read with it.
+        let mut continued: Option<Run> = None;
         for (line, text) in &entry.block {
             let trimmed = text.trim_start();
-            step.runs.push((*line, text.len() - trimmed.len() + 1, trimmed));
+            let mut run = match continued.take() {
+                Some(mut run) => {
+                    run.command.push(' ');
+                    run.command.push_str(trimmed);
+                    run
+                }
+                None => Run {
+                    line: *line,
+                    column: text.len() - trimmed.len() + 1,
+                    width: trimmed.chars().count(),
+                    command: trimmed.to_owned(),
+                },
+            };
+            if run.command.ends_with('\\') {
+                run.command.pop();
+                continued = Some(run);
+            } else {
+                step.runs.push(run);
+            }
         }
+        step.runs.extend(continued);
     }
 
     /// Every compiling command of a step with a secret in scope, the
@@ -258,14 +299,14 @@ impl<'a> Walk<'a> {
                 else {
                     continue;
                 };
-                findings.extend(step.runs.iter().filter_map(|(line, column, text)| {
+                findings.extend(step.runs.iter().filter_map(|run| {
                     Some(BuildWithSecret {
-                        subcommand: compiling_command(text)?,
+                        subcommand: compiling_command(&run.command)?,
                         scope,
                         variable: variable.clone(),
-                        line: *line,
-                        column: *column,
-                        end: column + text.chars().count(),
+                        line: run.line,
+                        column: run.column,
+                        end: run.column + run.width,
                     })
                 }));
             }
@@ -290,48 +331,48 @@ fn value_column(source: &str, entry: &Entry<'_>) -> usize {
         .map_or(entry.column + 1, |offset| offset + 1)
 }
 
-/// The compiling cargo subcommand a shell line runs, if any.
+/// The first compiling cargo subcommand a shell line runs, if any. Every
+/// command of the line is read, `cargo fmt --check && cargo build` included,
+/// up to a `#` comment; quotes are dropped, and so are the toolchain and the
+/// global flags written before the subcommand.
 pub(super) fn compiling_command(line: &str) -> Option<String> {
-    let spaced: String = line
-        .chars()
-        .map(|character| if matches!(character, ';' | '&' | '|' | '(' | ')') { ' ' } else { character })
-        .collect();
-    let tokens: Vec<&str> = spaced.split_whitespace().collect();
-    let start = tokens.iter().position(|token| *token == "cargo" || token.ends_with("/cargo"))?;
-    let subcommand = tokens.get(start + 1..)?.iter().find(|token| !token.starts_with('+'))?;
-    if !COMPILING.contains(subcommand) {
-        return None;
-    }
-    if *subcommand == "publish" && tokens.contains(&"--no-verify") {
-        return None;
-    }
-    Some((*subcommand).to_owned())
+    let comment = line
+        .char_indices()
+        .find(|(at, character)| {
+            *character == '#' && line.get(..*at).is_some_and(|head| head.is_empty() || head.ends_with(char::is_whitespace))
+        })
+        .map_or(line.len(), |(at, _)| at);
+    line.get(..comment)?.split([';', '&', '|', '(', ')']).find_map(|command| {
+        let tokens: Vec<&str> = command
+            .split(|character: char| character.is_whitespace() || matches!(character, '"' | '\'' | '`'))
+            .filter(|token| !token.is_empty())
+            .collect();
+        let start = tokens.iter().position(|token| *token == "cargo" || token.ends_with("/cargo"))?;
+        let subcommand = *tokens.get(start + 1..)?.iter().find(|token| !token.starts_with(['+', '-']))?;
+        (COMPILING.contains(&subcommand) && !(subcommand == "publish" && tokens.contains(&"--no-verify")))
+            .then(|| subcommand.to_owned())
+    })
 }
 
 /// Does a tracked Cargo credentials file hold a registry token? Only a
-/// non-empty `token = "..."` under `[registry]` or a `[registries.*]` table
-/// counts, so an empty template stays silent.
+/// non-empty `token` string of `registry` or of a `registries.*` table counts,
+/// however the TOML spells it, so an empty template stays silent. A file that
+/// is not TOML is one Cargo refuses too, and abstains.
 pub(super) fn holds_registry_token(source: &str) -> bool {
-    let mut in_registry = false;
-    for line in source.lines().map(str::trim) {
-        if let Some(header) = line.strip_prefix('[') {
-            let table = header.trim_end_matches(']').trim();
-            in_registry = table == "registry" || table.starts_with("registries.");
-            continue;
-        }
-        if !in_registry {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=')
-            && key.trim() == "token"
-        {
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return true;
-            }
-        }
-    }
-    false
+    let Ok(credentials) = toml::from_str::<toml::Table>(source) else {
+        return false;
+    };
+    let holds_token = |table: &toml::Value| {
+        table
+            .get("token")
+            .and_then(toml::Value::as_str)
+            .is_some_and(|token| !token.is_empty())
+    };
+    credentials.get("registry").is_some_and(holds_token)
+        || credentials
+            .get("registries")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|registries| registries.values().any(holds_token))
 }
 
 /// Is this path a Cargo credentials file?

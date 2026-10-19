@@ -509,6 +509,37 @@ mod tests {
         assert!(scan.errors.is_empty());
     }
 
+    /// US-043: a binary's ignored lockfile is reported on git's own answer
+    /// alone. An undetermined ignore status, or no git at all, abstains.
+    #[test]
+    fn an_ignored_lockfile_abstains_without_an_answer_from_git() {
+        let workspace = std::env::temp_dir().join(format!("rust-doctor-ignored-lockfile-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        fs::create_dir_all(workspace.join(".git")).expect("the workspace should be writable");
+        fs::write(workspace.join(LOCKFILE), "version = 4\n").expect("the lockfile should write");
+        let reported = |scan: RepoScan| {
+            scan.findings
+                .iter()
+                .filter(|finding| finding.definition.id == REPO_IGNORED_LOCKFILE.id)
+                .count()
+        };
+        let answered = |probe: IgnoreProbe| {
+            inspect_with(&workspace, &plan(), true, |_| Ok(ls_files_output(&["Cargo.toml"])), |_| probe)
+        };
+        assert_eq!(reported(answered(IgnoreProbe::Ignored)), 1);
+        assert_eq!(reported(answered(IgnoreProbe::NotIgnored)), 0);
+        assert_eq!(reported(answered(IgnoreProbe::Unavailable)), 0);
+        let outside_git = inspect_with(
+            &workspace,
+            &plan(),
+            true,
+            |call| Err(call.failure.error(call.stage)),
+            |_| IgnoreProbe::Ignored,
+        );
+        assert_eq!(reported(outside_git), 0);
+        fs::remove_dir_all(&workspace).expect("the scratch tree should be removable");
+    }
+
     #[test]
     fn an_absent_git_degrades_to_a_recorded_error() {
         let scan = inspect_with(
