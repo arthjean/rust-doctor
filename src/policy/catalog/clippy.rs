@@ -23,7 +23,7 @@ pub(crate) static CLIPPY_AWAIT_HOLDING_LOCK: RuleDefinition = RuleDefinition {
     help: "Drop the guard before the await point, or use a lock designed to be held across await.",
     diff_scope: DiffScope::Item,
     title: "Mutex guard held across an await point",
-    not_a_defect_when: "The guard is ended with an explicit drop(guard) before the await, a pattern the lint can still report because it reasons on scopes rather than on drops.",
+    not_a_defect_when: "No other task can lock the mutex while the future is suspended, such as a mutex created inside the future and never shared, so holding the guard across the await cannot deadlock.",
     requires: &[],
 };
 pub(crate) static CLIPPY_AWAIT_HOLDING_REFCELL_REF: RuleDefinition = RuleDefinition {
@@ -35,7 +35,7 @@ pub(crate) static CLIPPY_AWAIT_HOLDING_REFCELL_REF: RuleDefinition = RuleDefinit
     help: "Copy the borrowed value and drop the borrow before the await point.",
     diff_scope: DiffScope::Item,
     title: "RefCell borrow held across an await point",
-    not_a_defect_when: "The Ref or RefMut is ended with an explicit drop before the await, a pattern the lint can still report because it reasons on scopes rather than on drops.",
+    not_a_defect_when: "No other task can borrow the RefCell while the future is suspended, such as a cell created inside the future and never shared, so the borrow cannot conflict across the await.",
     requires: &[],
 };
 pub(crate) static CLIPPY_CROSSPOINTER_TRANSMUTE: RuleDefinition = RuleDefinition {
@@ -167,7 +167,7 @@ pub(crate) static CLIPPY_MISSING_TRANSMUTE_ANNOTATIONS: RuleDefinition = RuleDef
     help: "Name both types, as in transmute::<From, To>(value), so a change elsewhere cannot silently change what is reinterpreted.",
     diff_scope: DiffScope::Line,
     title: "Transmute without explicit source and target types",
-    not_a_defect_when: "Both types are already pinned locally, the input by an annotated binding and the output by an annotated let, so neither can change silently elsewhere.",
+    not_a_defect_when: "The transmute is passed straight to a function whose parameter type is fixed by a stable signature, and its input is a typed parameter one line above, so both types stay in plain sight.",
     requires: &[],
 };
 pub(crate) static CLIPPY_MUT_MUTEX_LOCK: RuleDefinition = RuleDefinition {

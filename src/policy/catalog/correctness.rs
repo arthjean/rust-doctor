@@ -186,7 +186,7 @@ pub(crate) static CLIPPY_IF_LET_MUTEX: RuleDefinition = RuleDefinition {
     help: "Bind the first lock's result before the if let, so no guard is still held when the else branch locks again.",
     diff_scope: DiffScope::Line,
     title: "Mutex locked again inside its own if let",
-    not_a_defect_when: "The crate is on edition 2024 and the second lock is only in the else branch, where the scrutinee's guard has already been dropped, so the lock cannot deadlock.",
+    not_a_defect_when: "There is effectively no such case: the lint only runs before edition 2024, where the scrutinee's guard lives through both branches, so a second lock in either one deadlocks.",
     requires: &[],
 };
 pub(crate) static CLIPPY_IFS_SAME_COND: RuleDefinition = RuleDefinition {
@@ -318,7 +318,7 @@ pub(crate) static CLIPPY_ITER_SKIP_ZERO: RuleDefinition = RuleDefinition {
     help: "Remove skip(0), or skip the number of elements you actually meant to.",
     diff_scope: DiffScope::Line,
     title: "skip(0) that skips nothing",
-    not_a_defect_when: "The call is emitted by a macro or code generator that writes skip(n) uniformly and n happens to be zero for this instance, where it is a harmless no-op.",
+    not_a_defect_when: "There is effectively no such case: the lint only reports a literal skip(0) written by hand, outside any macro, so the call can be deleted or given the count that was meant.",
     requires: &[],
 };
 pub(crate) static CLIPPY_ITERATOR_STEP_BY_ZERO: RuleDefinition = RuleDefinition {
@@ -666,7 +666,7 @@ pub(crate) static CLIPPY_UNIT_CMP: RuleDefinition = RuleDefinition {
     help: "Compare the values the expressions produce, not unit, which always compares equal.",
     diff_scope: DiffScope::Line,
     title: "Comparing two unit values",
-    not_a_defect_when: "The comparison sits in generic or macro-generated test code where the compared type is () only for this instantiation and a real value in others.",
+    not_a_defect_when: "The comparison is a test assertion such as assert_eq!(handler(), ()) written to pin that a call returns unit, where it checks nothing at runtime but documents the signature.",
     requires: &[],
 };
 pub(crate) static CLIPPY_UNIT_HASH: RuleDefinition = RuleDefinition {
@@ -678,7 +678,7 @@ pub(crate) static CLIPPY_UNIT_HASH: RuleDefinition = RuleDefinition {
     help: "Hash the value you meant: hashing unit adds nothing to the hasher.",
     diff_scope: DiffScope::Line,
     title: "Hashing a unit value",
-    not_a_defect_when: "The hash call is generated for a generic or macro-produced type that is () in this instance, where hashing nothing is the correct result.",
+    not_a_defect_when: "There is effectively no such case: hashing () feeds nothing to the hasher, so the call either meant to hash another value or can be deleted.",
     requires: &[],
 };
 pub(crate) static CLIPPY_UNIT_RETURN_EXPECTING_ORD: RuleDefinition = RuleDefinition {
@@ -725,8 +725,8 @@ pub(crate) static CLIPPY_USELESS_ATTRIBUTE: RuleDefinition = RuleDefinition {
     tier: RuleTier::P1,
     help: "Move the attribute to the item it should govern, or make it an inner #! attribute if it was meant for the module.",
     diff_scope: DiffScope::Line,
-    title: "Ineffective lint attribute on an extern crate item",
-    not_a_defect_when: "The attribute allows a lint that genuinely fires on that item itself, such as unused_extern_crates or deprecated, so it is placed correctly.",
+    title: "Ineffective lint attribute on an import item",
+    not_a_defect_when: "There is effectively no such case: the lints that apply to a use or extern crate item itself, such as unused_imports or deprecated, are exempt, so the attribute does nothing where it stands.",
     requires: &[],
 };
 pub(crate) static CLIPPY_VEC_RESIZE_TO_ZERO: RuleDefinition = RuleDefinition {
@@ -774,6 +774,6 @@ pub(crate) static CLIPPY_ZST_OFFSET: RuleDefinition = RuleDefinition {
     help: "Remove pointer arithmetic on a zero-sized type, which never moves the pointer.",
     diff_scope: DiffScope::Line,
     title: "Pointer offset on a zero-sized type",
-    not_a_defect_when: "The pointer arithmetic is in generic code instantiated with a zero-sized type here and with sized types elsewhere, where moving by zero is the correct no-op.",
+    not_a_defect_when: "There is effectively no such case: offsetting a pointer to a zero-sized type never moves it, so the arithmetic is either dead or meant for a pointer to another type.",
     requires: &[],
 };
