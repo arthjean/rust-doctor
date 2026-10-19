@@ -135,3 +135,20 @@ fn a_line_with_no_finding_says_whether_it_is_ignored_generated_or_clean() {
     let site = explain_site(&report(), "src/lib.rs:40".parse().unwrap(), &root, &none);
     assert_eq!(site.text(&root), "Nothing is reported at src/lib.rs:40.\n");
 }
+
+/// A saved report is any file the reader names: an escape sequence or a
+/// control character in one of its strings never reaches the terminal.
+#[test]
+fn a_saved_report_cannot_write_an_escape_sequence_to_the_terminal() {
+    let root = scratch("explain", "why-escapes");
+    let mut report = report();
+    let diagnostic = &mut report["diagnostics"][0];
+    diagnostic["message"] = "\u{1b}]0;owned\u{7}left\u{1b}[2J".into();
+    diagnostic["help"] = "finish\u{1b}[1A it".into();
+    diagnostic["severity"] = "warning\u{9b}31m".into();
+    report["policy"]["rules"][0]["source"] = "default\r".into();
+    let site = explain_site(&report, "src/lib.rs:2".parse().unwrap(), &root, &BTreeSet::new());
+    let text = site.text(&root);
+    assert!(!text.chars().any(|character| character.is_control() && character != '\n'), "{text:?}");
+    assert!(text.contains("left") && text.contains("Help: finish it"), "{text}");
+}

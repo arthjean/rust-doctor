@@ -18,6 +18,7 @@ use serde_json::Value;
 use crate::generated::has_generator_header;
 use crate::path_glob::PathGlob;
 use crate::presentation::{GroupLocation, code_frame, rule_url};
+use crate::terminal_text::{sanitize, sanitize_multiline};
 use crate::DiagnosticSpan;
 
 /// How far above a finding a directive can sit and still be the one meant
@@ -165,16 +166,22 @@ fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+/// A string field of the report, through the gate every renderer draws
+/// workspace text through: a saved report is any file the reader names, so
+/// nothing it holds may reach the terminal as an escape sequence.
+fn field(value: &Value, key: &str) -> Option<String> {
+    text(value, key).map(sanitize)
+}
+
 /// A directive counts as near when it sits within reach above the finding's
 /// own span, or above the line asked about when a related location covers it.
 fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<WhyHit> {
-    let rule_id = text(diagnostic, "code")?.to_owned();
-    let path = text(diagnostic, "path")?.to_owned();
+    let rule_id = field(diagnostic, "code")?;
+    let path = field(diagnostic, "path")?;
     let span = span_of(diagnostic)?;
     let level_source = array(report, "/policy/rules")
         .find(|rule| text(rule, "id") == Some(rule_id.as_str()))
-        .and_then(|rule| text(rule, "source"))
-        .map(str::to_owned);
+        .and_then(|rule| field(rule, "source"));
     let anchors = [
         (path.as_str(), span.line_start, span.line_end),
         (location.path.as_str(), location.line, location.line),
@@ -187,13 +194,13 @@ fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<Why
                 *path == at && line + DIRECTIVE_REACH >= *start && line <= *end
             });
             near.then(|| WhySuppression {
-                path: at.to_owned(),
+                path: sanitize(at),
                 line,
                 rules: array(directive, "rules")
                     .filter_map(Value::as_str)
-                    .map(str::to_owned)
+                    .map(sanitize)
                     .collect(),
-                status: text(directive, "status").unwrap_or_default().to_owned(),
+                status: field(directive, "status").unwrap_or_default(),
             })
         })
         .collect();
@@ -201,10 +208,10 @@ fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<Why
         .iter()
         .any(|directive| directive.rules.contains(&rule_id));
     Some(WhyHit {
-        severity: text(diagnostic, "severity").unwrap_or_default().to_owned(),
+        severity: field(diagnostic, "severity").unwrap_or_default(),
         level_source,
-        message: text(diagnostic, "message").unwrap_or_default().to_owned(),
-        help: text(diagnostic, "help").map(str::to_owned),
+        message: text(diagnostic, "message").map(sanitize_multiline).unwrap_or_default(),
+        help: text(diagnostic, "help").map(sanitize_multiline),
         url: rule_url(&rule_id),
         directive: (!named).then(|| directive_for(&rule_id, &path)),
         rule_id,
@@ -239,16 +246,17 @@ impl SiteExplanation {
     /// under `workspace_root` and masked like every frame the reports draw.
     pub fn text(&self, workspace_root: &Path) -> String {
         let location = &self.location;
+        let path = sanitize(&location.path);
         let mut out = String::new();
         match self.absence {
             Some(Absence::Ignored) => {
-                let _ = writeln!(out, "{} is ignored by rust-doctor.toml: nothing there is reported.", location.path);
+                let _ = writeln!(out, "{path} is ignored by rust-doctor.toml: nothing there is reported.");
             }
             Some(Absence::GeneratedOrVendored) => {
-                let _ = writeln!(out, "{} is declared generated or vendored: nothing there is graded.", location.path);
+                let _ = writeln!(out, "{path} is declared generated or vendored: nothing there is graded.");
             }
             Some(Absence::NothingReported) => {
-                let _ = writeln!(out, "Nothing is reported at {}:{}.", location.path, location.line);
+                let _ = writeln!(out, "Nothing is reported at {path}:{}.", location.line);
             }
             None => {}
         }
