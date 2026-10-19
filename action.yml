@@ -73,7 +73,7 @@ outputs:
     description: Findings the change fixed, in baseline scope. Empty otherwise.
     value: ${{ steps.outputs.outputs.fixed }}
   exit-code:
-    description: The scan's exit code, 0 passed, 1 gate failed or incomplete, 2 failed.
+    description: The scan's exit code, 0 passed, 1 gate failed or incomplete, 2 failed, or the `warning-exit-code` when one is set and a warning would have blocked.
     value: ${{ steps.scan.outputs.exit-code }}
 
 runs:
