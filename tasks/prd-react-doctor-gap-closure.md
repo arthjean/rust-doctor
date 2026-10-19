@@ -1092,13 +1092,13 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 **React Doctor reference:** `packages/core/src/project-info/capabilities.ts:87` (capabilities projected from manifest facts), `packages/core/src/project-info/capabilities.ts:236` (no version token past the last validated major), `packages/core/src/runners/oxlint/config.ts:203` (a framework rule without a gate is never enabled), `packages/oxlint-plugin-react-doctor/src/plugin/utils/mobx-rule-gates.test.ts:14`.
 
 **Acceptance Criteria:**
-- [ ] `RuleDefinition` gains `requires: &'static [CrateGate]` (all of), with `CrateGate { krate, versions }` parsed once with `cargo_metadata::semver::VersionReq`. `validate_catalog` refuses an unparseable range.
+- [ ] `RuleDefinition` gains `requires: &'static [CrateGate]`, with `CrateGate { krate, versions }` parsed once with `cargo_metadata::semver::VersionReq`. `validate_catalog` refuses an unparseable range. Amended 2026-10-19: a gate holds when at least one listed crate reaches the unit and every listed crate that reaches it is in range, since US-042's CORS rule needs tower-http or actix-cors, not both.
 - [ ] The version is evaluated per source unit: the lowest, over the packages reaching the unit, of the `Cargo.lock` entry their direct dependency resolves to (`src/cargo_health/resolution.rs:345`). It falls back to the requirement's lower bound, and is unknown for `*` or an unparseable requirement.
 - [ ] A gated rule's detectors skip a unit whose gate fails
 - [ ] `CatalogEntry` publishes `requires`, and `NotEvaluated` gains `crate-absent` and `crate-version-unsupported`, neither of which drops `score.authoritative`, under `SCHEMA_VERSION` 23
 - [ ] A catalog test fails when a native rule whose detector matches a non-sysroot crate declares no gate on that crate
 - [ ] Given a workspace pinning a version outside a rule's range, when scanned, then the rule is published as `crate-version-unsupported` and reports nothing
-- [ ] The website team is told the new `requires` field exists (rust-doctor.com/rules generates from `rules list --json`)
+- [ ] The website team is told the new `requires` field exists (rust-doctor.com/rules generates from `rules list --json`). Amended 2026-10-19: rust-doctor-web is Arthur's own repository, so the telling is step 8 of `.claude/skills/release`, which names the four new descriptor fields the rule pages must type and render.
 
 #### US-039: tokio rules: `block_in_place` on a current-thread runtime, `block_on` inside async
 **Description:** As a developer of a tokio service, I want the two tokio calls that panic at run time reported where tokio documents they panic, so that the panic is found in review instead of in a test run or in production.
@@ -1178,7 +1178,7 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 **React Doctor reference:** `packages/core/src/checks/expo/check-gitignore.ts:13`, `packages/core/src/checks/expo/check-gitignore.ts:15` (files that must be committed but are ignored, abstaining when undetermined), `packages/oxlint-plugin-react-doctor/src/plugin/rules/security-scan/utils/is-repository-secret-file-path.ts:5` (the package manager's credential file is a secret file).
 
 **Acceptance Criteria:**
-- [ ] When `Cargo.lock` exists at the workspace root of a workspace producing a binary, is absent from `git ls-files`, and `git check-ignore` answers ignored, the repo pass reports `rust_doctor::repo::ignored_lockfile`, reusing `probe_ignore` (`src/repo_hygiene.rs:413`)
+- [ ] When `Cargo.lock` exists at the workspace root of a workspace producing a binary, is absent from `git ls-files`, and `git check-ignore` answers ignored, the repo pass reports `rust_doctor::repo::ignored_lockfile`, reusing `probe_ignore` (`src/repo_hygiene.rs:413`). Amended 2026-10-19: a workspace nested below the repository root abstains, since the ignore file there is the enclosing repository's and an ignored nested lockfile is its choice, such as a fixture's.
 - [ ] Given no git, or an undetermined ignore status, when scanned, then the rule abstains
 - [ ] `.cargo/credentials.toml` and `.cargo/credentials`, matched as paths, join the secret file list (`src/repo_hygiene.rs:221`), gated on a `token = "..."` line under `[registry]` or `[registries.*]`
 - [ ] Given an empty credentials template, when scanned, then nothing is reported
@@ -1213,7 +1213,7 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 **Acceptance Criteria:**
 - [ ] `RuleDefinition` gains `title` (at most 8 words, seeded from the `catches` lines of `tests/rule_evidence.json`) and `not_a_defect_when` (one sentence)
 - [ ] `validate_catalog` rejects an empty title or check, and a title longer than 8 words
-- [ ] All 133 existing rules and every Release 3 rule carry both, reviewed by Arthur before the release
+- [ ] All 133 existing rules and every Release 3 rule carry both, reviewed by Arthur before the release. Amended 2026-10-19: Arthur delegated the review to the EP-006 review, which checked the 142 texts against Clippy 1.97.1 and rewrote the nine that described a case the lint does not report.
 - [ ] `rules list --json` publishes both. The report embeds neither, so `SCHEMA_VERSION` does not move for this story.
 - [ ] The handoff prompt prints the check under each rule's help, and the skill tells the agent to apply it before fixing
 - [ ] Given `disabled_tls_verification`, when listed, then its check reads, in substance, "a test against a local server with a self-signed certificate"

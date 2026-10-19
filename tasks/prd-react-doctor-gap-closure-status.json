@@ -3,7 +3,7 @@
     "file": "tasks/prd-react-doctor-gap-closure.md",
     "title": "react-doctor Gap Closure: a Loop That Never Misfires, a Delta That Survives Refactors, and the Rules Rust Services Need",
     "created_at": "2026-10-13",
-    "status": "READY"
+    "status": "DONE"
   },
   "epics": [
     {
@@ -49,10 +49,10 @@
     {
       "id": "EP-006",
       "title": "The rules Rust services need",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 8,
-      "stories_done": 0
+      "stories_done": 8
     }
   ],
   "stories": [
@@ -530,103 +530,103 @@
       "id": "US-038",
       "title": "Gate crate rules on each member's resolved dependency version",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-039",
       "title": "tokio rules: `block_in_place` on a current-thread runtime, `block_on` inside async",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-038"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-040",
       "title": "Report reqwest bodies read without an HTTP status check",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-038"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-041",
       "title": "Report secret-named environment variables that fall back to a literal",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-042",
       "title": "Web hardening rules: permissive CORS, insecure auth cookies, disabled JWT validation",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "L",
       "blocked_by": [
         "US-038"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-043",
       "title": "Report a binary's ignored `Cargo.lock` and a tracked Cargo credentials file",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-044",
       "title": "Report CI steps that compile the workspace with secrets in scope",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-045",
       "title": "Publish a title and a not-a-defect check with every rule",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-14",
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     }
   ]
 }
