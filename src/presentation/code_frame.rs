@@ -154,11 +154,11 @@ fn read_code_frame(
     }
 
     let start = window_start(location);
-    let (window, key_open) = match read_window(file, start, SCAN_MAX_BYTES) {
+    let (window, carry) = match read_window(file, start, SCAN_MAX_BYTES) {
         Ok(read) => read,
         Err(reason) => return Err(fail(reason)),
     };
-    frame_from_window(location, start, &window, key_open)
+    frame_from_window(location, start, &window, carry)
         .ok_or_else(|| fail(CodeFrameUnavailableReason::Unavailable))
 }
 
@@ -188,19 +188,20 @@ fn window_start(location: &GroupLocation) -> usize {
 /// the one branch answering what happens when it runs out mid-line is reachable
 /// from a test without an eight megabyte fixture.
 ///
-/// It also answers whether a PEM private key is open where the window starts:
-/// a header above the window leaves the body lines inside it unmatchable by
-/// any credential pattern, and only the lines walked past can say so.
+/// It also answers what the lines above the window leave open where it
+/// starts: a PEM private key whose body lines no credential pattern matches
+/// on their own, or a fallback call whose literal opens the first line. Only
+/// the lines walked past can say so.
 fn read_window(
     file: File,
     start: usize,
     budget: u64,
-) -> Result<(Vec<String>, bool), CodeFrameUnavailableReason> {
+) -> Result<(Vec<String>, Carry), CodeFrameUnavailableReason> {
     let last = start.saturating_add(FRAME_MAX_LINES).saturating_sub(1);
     let mut reader = BufReader::new(file.take(budget));
     let mut window = Vec::with_capacity(FRAME_MAX_LINES);
     let mut raw = Vec::new();
-    let mut key_open = false;
+    let mut carry = Carry::default();
     for number in 1..=last {
         raw.clear();
         let read = reader
@@ -216,12 +217,14 @@ fn read_window(
             break;
         }
         if number < start {
-            track_private_key(&String::from_utf8_lossy(&raw), &mut key_open);
+            let line = String::from_utf8_lossy(&raw);
+            track_private_key(&line, &mut carry.key_body);
+            fallback_literals(&line, &mut carry.fallback);
             continue;
         }
         window.push(retain_line(&raw)?);
     }
-    Ok((window, key_open))
+    Ok((window, carry))
 }
 
 /// One kept line, stripped of its terminator, bounded and decoded.
@@ -265,17 +268,17 @@ fn frame_from_window(
     location: &GroupLocation,
     start: usize,
     window: &[String],
-    key_open: bool,
+    carry: Carry,
 ) -> Option<CodeFrame> {
     let primary = location.span.line_start.max(1);
     if primary.saturating_sub(start) >= window.len() {
         return None;
     }
     let mut lines = Vec::with_capacity(window.len());
-    let mut in_key_body = key_open;
+    let mut carry = carry;
     for (offset, source) in window.iter().enumerate() {
         let number = start.saturating_add(offset);
-        let redacted = redact_line(source, &mut in_key_body);
+        let redacted = redact_line(source, &mut carry);
         let sanitized = sanitize_line(&redacted.text);
         let is_primary = number == primary;
         let marker = is_primary.then(|| marker_for(&redacted.span(&location.span), &sanitized));
@@ -377,13 +380,25 @@ impl RedactedLine {
     }
 }
 
-/// Masks the credentials of one line. A line inside a PEM private key, which
-/// a header in or above this frame opened, is masked whole: its body is the
-/// key, and no pattern of the rule matches a base64 line on its own.
-fn redact_line(source: &str, in_key_body: &mut bool) -> RedactedLine {
-    if *in_key_body {
+/// What a line leaves open for the lines below it, which none of them shows
+/// on its own.
+#[derive(Debug, Default, Clone, Copy)]
+struct Carry {
+    /// A PEM private key header opened a body that has not ended.
+    key_body: bool,
+    /// A fallback call ended the line before its literal argument.
+    fallback: bool,
+}
+
+/// Masks the credentials of one line: what the credential patterns match, and
+/// every fallback literal `secret_env_fallback` could report. A line inside a
+/// PEM private key, which a header in or above this frame opened, is masked
+/// whole: its body is the key, and no pattern of the rule matches a base64
+/// line on its own.
+fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
+    if carry.key_body {
         if source.contains("-----END ") {
-            *in_key_body = false;
+            carry.key_body = false;
         } else {
             let width = source.chars().count();
             return RedactedLine {
@@ -396,11 +411,20 @@ fn redact_line(source: &str, in_key_body: &mut bool) -> RedactedLine {
             };
         }
     }
-    track_private_key(source, in_key_body);
+    track_private_key(source, &mut carry.key_body);
+    let mut ranges = crate::repo_hygiene::credential_ranges(source);
+    ranges.extend(fallback_literals(source, &mut carry.fallback));
+    ranges.sort_unstable();
     let mut text = String::with_capacity(source.len());
     let mut edits = Vec::new();
     let mut copied = 0usize;
-    for (start, end) in crate::repo_hygiene::credential_ranges(source) {
+    for (start, end) in ranges {
+        // Two ranges overlap only when a fallback literal holds a credential
+        // pattern, and the first already masked both.
+        let start = start.max(copied);
+        if end <= start {
+            continue;
+        }
         let (Some(before), Some(value)) = (source.get(copied..start), source.get(start..end))
         else {
             continue;
@@ -429,6 +453,93 @@ fn track_private_key(line: &str, open: &mut bool) {
     if crate::repo_hygiene::opens_private_key(line) {
         *open = true;
     }
+}
+
+/// The methods whose literal argument `secret_env_fallback` reads as the
+/// fallback of a secret.
+const FALLBACK_CALLS: [&str; 2] = ["unwrap_or(", "unwrap_or_else("];
+
+/// The literals a line passes as an `unwrap_or` or `unwrap_or_else` fallback,
+/// as byte ranges of their text, when they are as long as the rule requires.
+///
+/// The rule reports the call, and the literal beside it is the secret, which
+/// no credential pattern knows the shape of. Whether the variable is named
+/// like a secret takes the whole expression to tell, so the frame masks every
+/// fallback literal of that length rather than miss one. A call ending its
+/// line before the literal leaves `open` set, and the literal opening the next
+/// line is its argument.
+fn fallback_literals(line: &str, open: &mut bool) -> Vec<(usize, usize)> {
+    let mut arguments: Vec<usize> = Vec::new();
+    if std::mem::take(open) {
+        arguments.push(0);
+    }
+    for call in FALLBACK_CALLS {
+        arguments.extend(line.match_indices(call).map(|(at, call)| at.saturating_add(call.len())));
+    }
+    let mut ranges = Vec::new();
+    for argument in arguments {
+        let at = skip_fallback_head(line, argument);
+        if line.get(at..).is_none_or(str::is_empty) {
+            *open = true;
+        } else if let Some((start, end)) = string_literal(line, at)
+            && line.get(start..end).is_some_and(|text| text.chars().count() >= REDACTED_MIN_CHARS)
+        {
+            ranges.push((start, end));
+        }
+    }
+    ranges
+}
+
+/// Where the value of a fallback argument starts: past blanks, a closure head
+/// (`move`, `|_|`, `||`), an opening brace and a `String::from(`.
+fn skip_fallback_head(line: &str, mut at: usize) -> usize {
+    loop {
+        let Some(rest) = line.get(at..) else {
+            return at;
+        };
+        let trimmed = rest.trim_start();
+        at = at.saturating_add(rest.len().saturating_sub(trimmed.len()));
+        let skipped = if let Some(closure) = trimmed.strip_prefix('|') {
+            closure.find('|').map(|close| close.saturating_add(2))
+        } else if trimmed.starts_with("move ") {
+            Some("move ".len())
+        } else if trimmed.starts_with('{') {
+            Some(1)
+        } else {
+            ["String::from(", "OsString::from("]
+                .into_iter()
+                .find(|conversion| trimmed.starts_with(conversion))
+                .map(str::len)
+        };
+        match skipped {
+            Some(length) => at = at.saturating_add(length),
+            None => return at,
+        }
+    }
+}
+
+/// The text of the string literal opening at `at`, plain or raw. A literal
+/// the line does not close runs to its end.
+fn string_literal(line: &str, at: usize) -> Option<(usize, usize)> {
+    let rest = line.get(at..)?;
+    let hashes = rest.strip_prefix('r').map_or(0, |raw| raw.len().saturating_sub(raw.trim_start_matches('#').len()));
+    let prefix = if rest.starts_with('r') { 1usize.saturating_add(hashes) } else { 0 };
+    rest.get(prefix..)?.starts_with('"').then_some(())?;
+    let start = at.saturating_add(prefix).saturating_add(1);
+    let body = line.get(start..)?;
+    let length = if prefix == 0 {
+        let mut escaped = false;
+        body.char_indices()
+            .find(|(_, character)| {
+                let closes = *character == '"' && !escaped;
+                escaped = *character == '\\' && !escaped;
+                closes
+            })
+            .map(|(offset, _)| offset)
+    } else {
+        body.find(&format!("\"{}", "#".repeat(hashes)))
+    };
+    Some((start, start.saturating_add(length.unwrap_or(body.len()))))
 }
 
 fn masked(value: &str) -> String {

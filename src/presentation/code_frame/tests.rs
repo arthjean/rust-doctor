@@ -467,8 +467,8 @@ fn every_credential_of_a_frame_is_masked_and_the_caret_covers_the_mask() {
 fn a_short_value_and_a_private_key_body_print_no_character_of_the_key() {
     assert_eq!(masked("sk-1234"), REDACTED);
     assert_eq!(masked("sk-12345"), format!("sk-1{REDACTED}"));
-    let mut in_body = false;
-    assert_eq!(redact_line("x", &mut in_body).text, "x");
+    let mut carry = Carry::default();
+    assert_eq!(redact_line("x", &mut carry).text, "x");
     let edit = ColumnEdit {
         start: 2,
         end: 9,
@@ -519,4 +519,43 @@ fn a_window_opening_inside_a_private_key_body_masks_it() {
     assert_eq!(rendered[0], REDACTED, "{rendered:?}");
     assert!(rendered.iter().all(|text| !text.contains(body)), "{rendered:?}");
     assert_eq!(rendered[1], "-----END PRIVATE KEY-----\";");
+}
+
+/// FR-01: the literal a secret environment variable falls back to is the
+/// secret `secret_env_fallback` matched, and no frame prints it, on the call's
+/// line or on the line below a call that wrapped.
+#[test]
+fn a_secret_fallback_literal_is_masked_on_its_line_and_after_a_wrap() {
+    let root = scratch("presentation-tests", "fallback-redaction");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let inline = "q7Fz-inline-signing-value";
+    let wrapped = "Zp9w-wrapped-signing-value";
+    let closure = "Hk2m-closure-signing-value";
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "fn a() -> String {{ std::env::var(\"JWT_SECRET\").unwrap_or(\"{inline}\".into()) }}\n\
+             fn b() -> String {{ std::env::var(\"API_TOKEN\").unwrap_or_else(|_| String::from(\"{closure}\")) }}\n\
+             fn c() -> String {{\n    std::env::var(\"SIGNING_KEY\").unwrap_or(\n        \"{wrapped}\".to_owned(),\n    )\n}}\n"
+        ),
+    )
+    .unwrap();
+    let column_start = "fn a() -> String { std::env::var(\"JWT_SECRET\").".len() + 1;
+    for line in [1, 3] {
+        let frame = code_frame(&root, &at("src/lib.rs", line, column_start, column_start + 9)).unwrap();
+        let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+        for secret in [inline, wrapped, closure] {
+            assert!(rendered.iter().all(|text| !text.contains(secret)), "{rendered:?}");
+        }
+        assert!(rendered.iter().any(|text| text.contains("\"JWT_SECRET\"")), "{rendered:?}");
+    }
+    let mut carry = Carry::default();
+    assert_eq!(
+        redact_line("let port = var(\"PORT\").unwrap_or(\"8080\");", &mut carry).text,
+        "let port = var(\"PORT\").unwrap_or(\"8080\");"
+    );
+    assert_eq!(
+        redact_line("x.unwrap_or_else(|| r#\"raw-signing-value\"#)", &mut carry).text,
+        format!("x.unwrap_or_else(|| r#\"raw-{REDACTED}\"#)")
+    );
 }
