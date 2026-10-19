@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "A report a human and an agent can act on",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 8,
-      "stories_done": 0
+      "stories_done": 8
     },
     {
       "id": "EP-006",
@@ -428,103 +428,103 @@
       "id": "US-030",
       "title": "Measure the live terminal width and list every scored rule by default",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-013"
       ],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-031",
       "title": "Label non-production sites and say why a report is empty or unscored",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-032",
       "title": "Print the handoff prompt when the clipboard or the agent fails",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-033",
       "title": "Explain a rule and a site without a rerun: `rules explain` and `why`",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-034",
       "title": "Add an opt-in exit code for passing runs that carry warnings",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [
         "US-013"
       ],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-035",
       "title": "Tell an agent when its skill is missing or stale",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-036",
       "title": "`setup`: detect installed agents and install the loop in one command",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-007"
       ],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-037",
       "title": "Smoke-test the packed launcher through npm, the path users take",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-10-14",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-19",
+      "reviewed_at": "2026-10-19"
     },
     {
       "id": "US-038",
