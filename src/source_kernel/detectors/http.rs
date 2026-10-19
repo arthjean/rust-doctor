@@ -6,7 +6,8 @@
 //! was stored in, down to a reqwest constructor: `reqwest::get`, or a client
 //! from `Client::new` or `Client::builder` whose request was sent. A link that
 //! checks the status, `error_for_status` or `error_for_status_ref`, silences
-//! it. A response stored in a `let` silences it when the body reads `status`,
+//! it, and so does one handing that check to a combinator,
+//! `and_then(|r| r.error_for_status())`. A response stored in a `let` silences it when the body reads `status`,
 //! `is_success` or `error_for_status` on that binding before the body, or
 //! hands the binding to another function, which may check it. A client whose
 //! origin the file does not show, a parameter or a field, abstains.
@@ -106,6 +107,12 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
             fires: false,
             carve_out: "a test asserts on the payload it reads, whatever the status",
         },
+        super::Semantic {
+            description: "a status check passed to a combinator",
+            source: "fn reads(url: &str) -> reqwest::Result<String> { reqwest::blocking::get(url).and_then(|response| response.error_for_status())?.text() }",
+            fires: false,
+            carve_out: "the closure checks the status before the body is read",
+        },
     ],
 };
 
@@ -147,11 +154,15 @@ fn response_root(context: &Context<'_>, receiver: ast::Expr, read: &SyntaxNode) 
     None
 }
 
-/// `None` for a link that checks the status, else whether it sends the
-/// request.
+/// `None` for a link that checks the status, itself or through a combinator
+/// it is handed to, else whether it sends the request.
 fn unchecked_link(link: &ast::MethodCallExpr) -> Option<bool> {
     let name = link.name_ref()?;
-    (!STATUS_CHECKS.contains(&name.text().as_str())).then(|| name.text() == "send")
+    let checks = |name: &ast::NameRef| STATUS_CHECKS.contains(&name.text().as_str());
+    let checked_inside = link
+        .arg_list()
+        .is_some_and(|arguments| arguments.syntax().descendants().filter_map(ast::NameRef::cast).any(|name| checks(&name)));
+    (!checks(&name) && !checked_inside).then(|| name.text() == "send")
 }
 
 /// Does this call start a chain that yields a reqwest response: `get`, or a
