@@ -72,17 +72,57 @@ fn reasons(report: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// Neither the fixture's absolute path nor the home directory appears
-/// anywhere in the published document.
-fn assert_no_absolute_path(output: &Output, root: &Path) {
-    let wire = String::from_utf8_lossy(&output.stdout);
-    assert!(!wire.contains(&*root.to_string_lossy()), "{wire}");
-    if let Some(home) = std::env::var_os("HOME") {
-        assert!(
-            !wire.contains(&*Path::new(&home).to_string_lossy()),
-            "{wire}"
-        );
+/// Every string of a JSON document, keys included.
+fn strings_of(value: &Value) -> Vec<&str> {
+    match value {
+        Value::String(text) => vec![text.as_str()],
+        Value::Array(items) => items.iter().flat_map(strings_of).collect(),
+        Value::Object(fields) => fields
+            .iter()
+            .flat_map(|(key, value)| std::iter::once(key.as_str()).chain(strings_of(value)))
+            .collect(),
+        _ => Vec::new(),
     }
+}
+
+/// The places a report could disclose: `roots`, the home directory, and the
+/// `RUSTUP_HOME` and `CARGO_HOME` the run resolves, each as written and as
+/// the file system resolves it.
+fn machine_paths(roots: &[&Path], rustup_home: Option<&Path>) -> Vec<String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let resolved = |variable: &str, default: &str| {
+        std::env::var_os(variable)
+            .map(PathBuf::from)
+            .or_else(|| home.as_ref().map(|home| home.join(default)))
+    };
+    let rustup = rustup_home.map(Path::to_path_buf).or_else(|| resolved("RUSTUP_HOME", ".rustup"));
+    let cargo = resolved("CARGO_HOME", ".cargo");
+    roots
+        .iter()
+        .map(|root| root.to_path_buf())
+        .chain([home, rustup, cargo].into_iter().flatten())
+        .flat_map(|path| [Some(path.clone()), path.canonicalize().ok()])
+        .flatten()
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path.len() > 1)
+        .collect()
+}
+
+/// EP-001 US-004: no string of the published document holds any of
+/// `machine_paths`.
+fn assert_publishes_no_machine_path(report: &Value, roots: &[&Path], rustup_home: Option<&Path>) {
+    let paths = machine_paths(roots, rustup_home);
+    for text in strings_of(report) {
+        for path in &paths {
+            assert!(!text.contains(path.as_str()), "{path} in {text}");
+        }
+    }
+}
+
+/// Neither the fixture's absolute path nor any home appears anywhere in the
+/// published document.
+fn assert_no_absolute_path(output: &Output, root: &Path) {
+    assert_publishes_no_machine_path(&json(output), &[root], None);
 }
 
 /// The report a fixture's scan publishes and the message of its `stage`/`code`
@@ -570,4 +610,101 @@ fn two_concurrent_baseline_runs_on_one_workspace_both_complete() {
             .join("rust-doctor/baseline")
             .is_dir()
     );
+}
+
+static NEXT_DISCLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A one-crate workspace under a fresh temporary root, with `manifest_tail`
+/// appended to its manifest.
+fn disclosure_workspace(manifest_head: &str) -> (PathBuf, PathBuf) {
+    let root = support::temporary_target("scan-failures-disclosure", &NEXT_DISCLOSURE);
+    let _ = std::fs::remove_dir_all(&root);
+    let workspace = root.join("workspace");
+    std::fs::create_dir_all(workspace.join("src")).unwrap();
+    std::fs::write(
+        workspace.join("Cargo.toml"),
+        format!("{manifest_head}[package]\nname = \"disclosure\"\nversion = \"0.1.0\"\nedition = \"2024\"\n"),
+    )
+    .unwrap();
+    std::fs::write(workspace.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+    (root, workspace)
+}
+
+/// EP-001 US-004: Cargo names the manifest of a member outside the workspace
+/// by its absolute path. The report names it by its directory and file name,
+/// under `<external>`, in the JSON and in the linear report alike.
+#[test]
+fn a_member_outside_the_workspace_is_named_without_its_absolute_path() {
+    let (root, workspace) = disclosure_workspace("[workspace]\nmembers = [\"../gone\"]\n\n");
+    let output = run(&workspace, &["--json"]);
+    assert_eq!(output.status.code(), Some(2));
+    let report = json(&output);
+    assert_publishes_no_machine_path(&report, &[&root], None);
+    let message = error(&report, "metadata", "cargo-metadata")["message"].as_str().unwrap();
+    assert!(message.contains("<external>/gone/Cargo.toml"), "{message}");
+
+    let linear = run(&workspace, &[]);
+    let text = String::from_utf8_lossy(&linear.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("gone/Cargo.toml"), "{text}");
+    for path in machine_paths(&[&root], None) {
+        assert!(!text.contains(&path), "{path} in {text}");
+    }
+}
+
+/// EP-001 US-004: rustup names a toolchain by its path under `RUSTUP_HOME`.
+/// With that home outside the home directory, which `<home>` used to be the
+/// only cover for, the error names it `$RUSTUP_HOME`.
+#[test]
+fn a_toolchain_error_under_a_rustup_home_outside_home_names_no_absolute_path() {
+    let (root, workspace) = disclosure_workspace("");
+    let rustup_home = root.join("rustup-home");
+    std::fs::create_dir_all(&rustup_home).unwrap();
+    std::fs::write(
+        workspace.join("rust-toolchain.toml"),
+        format!("[toolchain]\npath = \"{}\"\n", rustup_home.join("toolchains/missing").display()),
+    )
+    .unwrap();
+    let output = command(&workspace, &["--json"])
+        .env("RUSTUP_HOME", &rustup_home)
+        .env("RUSTUP_AUTO_INSTALL", "0")
+        // `cargo test` exports the toolchain it runs, which would outrank the
+        // file this workspace names its toolchain in.
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .output()
+        .unwrap();
+    let report = json(&output);
+    assert_eq!(report["status"], "failed", "{report:#}");
+    assert_publishes_no_machine_path(&report, &[&root], Some(&rustup_home));
+    assert!(
+        strings_of(&report).iter().any(|text| text.contains("$RUSTUP_HOME/toolchains/missing")),
+        "{report:#}"
+    );
+}
+
+/// EP-001 US-001 and US-004: what Cargo prints when a build script fails ends
+/// the `clippy-exit` error, so a key the script echoed is masked there and a
+/// path outside the workspace it names keeps only its last two components.
+/// The script assembles both at run time, so no source file holds either.
+#[test]
+fn a_failed_build_script_echoes_neither_a_key_nor_an_absolute_path() {
+    let (root, workspace) = disclosure_workspace("");
+    std::fs::write(
+        workspace.join("build.rs"),
+        "fn main() {\n    \
+         let body = \"a1\".repeat(18);\n    \
+         eprintln!(\"using token {}{body}\", \"ghp_\");\n    \
+         eprintln!(\"missing {}\", [\"\", \"srv\", \"rust-doctor-probe\", \"lib\", \"libfoo.so\"].join(\"/\"));\n    \
+         std::process::exit(1);\n}\n",
+    )
+    .unwrap();
+    let output = run(&workspace, &["--json"]);
+    let report = json(&output);
+    let message = error(&report, "execution", "clippy-exit")["message"].as_str().unwrap();
+    let body = "a1".repeat(18);
+    assert!(message.contains("ghp_<redacted>"), "{message}");
+    assert!(message.contains("<external>/lib/libfoo.so"), "{message}");
+    for text in strings_of(&report) {
+        assert!(!text.contains(&body) && !text.contains("/srv/rust-doctor-probe"), "{text}");
+    }
+    assert_publishes_no_machine_path(&report, &[&root], None);
 }

@@ -491,6 +491,100 @@ mod tests {
         assert!(!rendered.contains(&key), "{rendered}");
     }
 
+    /// EP-001 US-001: a Clippy fix that would carry a key is withheld before
+    /// any surface reads it, so neither the viewer's detail lines, the handoff
+    /// prompt nor the issue context a reader copies prints it.
+    #[test]
+    fn a_suggestion_carrying_a_credential_reaches_no_viewer_or_handoff_surface() {
+        let root = crate::test_scratch::scratch("tui-viewer", "suggested-credential");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"suggested-credential\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
+        let body = format!("{}-{}", "1234567890", "abcdefABCDEF");
+        let token = format!("xoxb-{body}");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "fn takes(value: &str) -> usize {{\n    value.len()\n}}\n\n\
+                 pub fn send() -> usize {{\n    takes(&\"{token}\".to_string())\n}}\n"
+            ),
+        )
+        .unwrap();
+        for arguments in [
+            &["init", "--quiet"][..],
+            &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A"],
+            &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--quiet", "-m", "base"],
+        ] {
+            let status = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_INDEX_FILE")
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        }
+
+        let report = rust_doctor::inspect(rust_doctor::InspectRequest::new(&root));
+        let presentation = rust_doctor::presentation::ReportPresentation::derive(&report);
+        let rows = crate::tui::model::build_rows(&presentation);
+        assert!(
+            rows.iter().any(|row| row.rule_id == "clippy::unnecessary_to_owned"),
+            "{:?}",
+            report.errors
+        );
+        let entries = build_entries(&rows);
+        let read = BTreeSet::new();
+        let layout = resolve_layout(160, 48, entries.len());
+        let mut surfaces = Vec::new();
+        for selected_entry in 0..entries.len() {
+            let state = ViewerState {
+                rows: &rows,
+                entries: &entries,
+                header: Vec::new(),
+                selected_entry,
+                visible_start: 0,
+                read: &read,
+                workspace_root: &root,
+                copy_feedback: None,
+                exit_hint: "esc back · q to quit",
+            };
+            surfaces.push(visible(&viewer(&state, layout)).join("\n"));
+        }
+        let rescan = crate::handoff::RescanCommand::for_inspection(false, None, &[], &[], &[], None)
+            .unwrap();
+        surfaces.push(
+            crate::handoff::build_prompt(&report, &presentation, &rescan)
+                .unwrap()
+                .as_str()
+                .to_owned(),
+        );
+        for row in &rows {
+            let issue = crate::handoff::IssuePrompt {
+                project_name: "suggested-credential",
+                rule_id: &row.rule_id,
+                title: &row.title,
+                category: row.category.as_str(),
+                is_error: row.is_error(),
+                site_count: row.site_count,
+                message: &row.message,
+                help: row.help.as_deref(),
+                rule_url: &row.rule_url,
+                sites: &row.sites,
+            };
+            surfaces.push(crate::handoff::build_issue_prompt(&issue).unwrap().as_str().to_owned());
+        }
+        for surface in &surfaces {
+            assert!(!surface.contains(&body), "{surface}");
+        }
+        assert!(surfaces.iter().any(|surface| surface.contains("unnecessary_to_owned")));
+        assert!(surfaces.iter().all(|surface| !surface.contains("Replace with")));
+    }
+
     fn sample_row(rule_id: &str, severity: Severity, site_count: usize) -> Row {
         Row {
             rule_id: rule_id.to_owned(),

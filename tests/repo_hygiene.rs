@@ -418,6 +418,64 @@ fn a_detected_credential_is_absent_from_every_rendered_surface() {
     assert!(!rendered.contains(&key) && !rendered.contains(&token), "{rendered}");
 }
 
+/// Every string of a JSON document, keys included, so an assertion on what a
+/// report never says reads all of it.
+fn strings_of(value: &Value) -> Vec<String> {
+    match value {
+        Value::String(text) => vec![text.clone()],
+        Value::Array(items) => items.iter().flat_map(strings_of).collect(),
+        Value::Object(fields) => fields
+            .iter()
+            .flat_map(|(key, value)| std::iter::once(key.clone()).chain(strings_of(value)))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// EP-001 US-001: Clippy's `unnecessary_to_owned` fix for a Slack bot token
+/// passed through `.to_string()` is the token itself. It is withheld from the
+/// JSON and from the linear report, the finding stays, and the same fix over
+/// a literal no pattern matches is published as Clippy wrote it.
+#[test]
+fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
+    let root = workspace("repo-hygiene-suggestion");
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    let body = format!("{}-{}", "1234567890", "abcdefABCDEF");
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "fn takes(value: &str) -> usize {{\n    value.len()\n}}\n\n\
+             pub fn send() -> usize {{\n    takes(&\"xoxb-{body}\".to_string())\n}}\n\n\
+             pub fn plain() -> usize {{\n    takes(&\"plain words\".to_string())\n}}\n"
+        ),
+    )
+    .unwrap();
+    commit_all(&root);
+    let path = root.to_str().unwrap();
+
+    let json = rust_doctor(&root, &[path, "--yes", "--json"]);
+    let report: Value = serde_json::from_slice(&json.stdout).unwrap();
+    let fixes: Vec<&Value> = diagnostics_of(&report, "clippy::unnecessary_to_owned")
+        .into_iter()
+        .map(|diagnostic| &diagnostic["suggestion"])
+        .collect();
+    assert_eq!(fixes.len(), 2, "{report:#}");
+    assert!(fixes[0].is_null(), "{report:#}");
+    assert_eq!(fixes[1]["replacement"], "\"plain words\"");
+    assert_eq!(diagnostics_of(&report, CREDENTIAL).len(), 1);
+    for text in strings_of(&report) {
+        assert!(!text.contains(&body), "{text}");
+    }
+
+    let linear = rust_doctor(&root, &[path, "--yes", "--verbose"]);
+    let stdout = String::from_utf8_lossy(&linear.stdout);
+    let stderr = String::from_utf8_lossy(&linear.stderr);
+    assert!(stdout.contains("unnecessary_to_owned"), "{stdout}");
+    assert_eq!(stdout.matches("Replace with:").count(), 1, "{stdout}");
+    assert!(stdout.contains("Replace with: \"plain words\""), "{stdout}");
+    assert!(!stdout.contains(&body) && !stderr.contains(&body), "{stdout}{stderr}");
+}
+
 /// US-019: a P1 credential finding means a key was committed. A parser's PEM
 /// header, AWS's documented key and a template's database URL stay silent; a
 /// key body under a header and a deployed database password are reported, and

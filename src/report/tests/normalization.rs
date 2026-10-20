@@ -26,6 +26,7 @@ fn normalizes_text_paths_severity_and_deduplicates() {
     let home = HomePaths {
         lexical: Some("/home/person".to_owned()),
         canonical: None,
+        toolchain: Vec::new(),
     };
     let messages = vec![
         compiler_message(
@@ -224,6 +225,7 @@ fn multiple_primary_spans_use_the_documented_canonical_order() {
         is_primary: true,
         suggested_replacement: None,
         suggestion_applicability: None,
+        text: Vec::new(),
     });
     let workspace = fixture("clean").canonicalize().unwrap();
     let diagnostics = normalize_diagnostics(
@@ -502,6 +504,7 @@ fn sanitizes_workspace_and_both_home_forms_from_errors() {
     let home = HomePaths {
         lexical: Some("/linked/home".to_owned()),
         canonical: Some("/real/home".to_owned()),
+        toolchain: Vec::new(),
     };
     let sanitized = sanitize_text(
         "\u{1b}[31m/work/project failed in /linked/home and /real/home \r\n",
@@ -510,6 +513,61 @@ fn sanitizes_workspace_and_both_home_forms_from_errors() {
     );
 
     assert_eq!(sanitized, ". failed in <home> and <home>\n");
+}
+
+/// EP-001 US-004: what Cargo and rustup print under `RUSTUP_HOME` and
+/// `CARGO_HOME` is named by the variable, and any other absolute path keeps
+/// its last directory and file name under `<external>`.
+#[test]
+fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
+    let home = HomePaths {
+        lexical: Some("/home/someone".to_owned()),
+        canonical: None,
+        toolchain: vec![
+            ("$RUSTUP_HOME", "/opt/rustup".to_owned()),
+            ("$CARGO_HOME", "/home/someone/.cargo".to_owned()),
+        ],
+    };
+    assert_eq!(
+        sanitize_text(
+            "invalid toolchain: the path '/opt/rustup/toolchains/x' has no bin/ directory",
+            None,
+            &home
+        ),
+        "invalid toolchain: the path '$RUSTUP_HOME/toolchains/x' has no bin/ directory"
+    );
+    assert_eq!(
+        sanitize_text("failed to read `/home/someone/.cargo/registry/a.toml`", None, &home),
+        "failed to read `$CARGO_HOME/registry/a.toml`"
+    );
+    assert_eq!(
+        sanitize_text(
+            "failed to read `/srv/build/gone/Cargo.toml` (from C:\\Users\\x\\gone\\lib.rs:3)",
+            Some(Path::new("/work/project")),
+            &home
+        ),
+        "failed to read `<external>/gone/Cargo.toml` (from <external>/gone/lib.rs:3)"
+    );
+    // Cargo's stderr reaches here with its home already spelled `~`.
+    assert_eq!(
+        sanitize_text("failed to read `~/dev/scratch/gone/Cargo.toml`", None, &home),
+        "failed to read `<external>/gone/Cargo.toml`"
+    );
+}
+
+/// EP-001 US-004: relative paths, URLs, the replacements already made and
+/// arithmetic in a message are not paths to rewrite.
+#[test]
+fn relative_paths_urls_and_operators_are_left_unchanged() {
+    let home = HomePaths::default();
+    for text in [
+        "see src/lib.rs:3 and ./Cargo.toml and ../gone/Cargo.toml",
+        "read https://doc.rust-lang.org/cargo/reference/manifest.html",
+        "<home>/project and $RUSTUP_HOME/toolchains and <external>/gone/Cargo.toml",
+        "use `x /= 2` or `a / b`, not `//` or `/tmp`",
+    ] {
+        assert_eq!(sanitize_text(text, None, &home), text);
+    }
 }
 
 #[test]
@@ -624,6 +682,7 @@ fn child(path: &str, replacement: &str, applicability: &str) -> CapturedDiagnost
             is_primary: true,
             suggested_replacement: Some(replacement.to_owned()),
             suggestion_applicability: Some(applicability.to_owned()),
+            text: Vec::new(),
         }],
         children: Vec::new(),
     }

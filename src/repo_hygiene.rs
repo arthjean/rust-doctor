@@ -30,7 +30,10 @@ use crate::workspace_path;
 mod credentials;
 mod workflows;
 
-pub(crate) use credentials::{credential_ranges, opens_private_key};
+pub(crate) use credentials::{
+    REDACTED, REDACTED_MIN_CHARS, carries_credential, credential_ranges, mask_credentials, masked,
+    opens_private_key,
+};
 
 /// The stage every git call of this pass reports at, and the one `report.rs`
 /// stamps a `RepoError` with.

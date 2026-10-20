@@ -114,3 +114,19 @@ fn a_database_url_password_is_reported_only_where_it_reaches_a_deployment() {
     // Masking hides every password, a placeholder's included.
     assert_eq!(credential_ranges("postgres://user:pass@localhost/db"), vec![(16, 20)]);
 }
+
+/// EP-001 US-001: diagnostic text is masked as a code frame masks a line,
+/// every line of it, and text with no credential comes back unchanged.
+#[test]
+fn diagnostic_text_is_masked_line_by_line_and_plain_text_is_untouched() {
+    let token = format!("xoxb-{}", "1234567890-abcdefABCDEF");
+    let text = format!("unnecessary use of `to_string` on \"{token}\"\nsecond line");
+    assert_eq!(
+        mask_credentials(&text),
+        "unnecessary use of `to_string` on \"xoxb<redacted>\"\nsecond line"
+    );
+    assert!(carries_credential(&text));
+    let plain = "unnecessary use of `to_string`\n  on \"plain words\"";
+    assert_eq!(mask_credentials(plain), plain);
+    assert!(!carries_credential(plain));
+}

@@ -88,7 +88,13 @@ declared on the line below, matched to the finding's own key by identity.
 
 The toolchain's replacement travels with the finding. `select_suggestion` reads
 the `children` of a compiler message, keeps the best rated replacement on the
-finding's own file and refuses a rating it does not know. Every finding used to
+finding's own file and refuses a rating it does not know. One that writes or
+replaces a credential the repository pass matches is withheld whole: masked, a
+machine-applicable fix would write `<redacted>` into source. Messages and help
+are masked at normalization. `sanitize_text` names paths under `RUSTUP_HOME`
+and `CARGO_HOME` by their variable and keeps only the last directory and file
+name of any other absolute path, under `<external>`; a replacement skips that
+rewrite, since its path literals are the code's. Every finding used to
 carry the one sentence the catalog wrote for its rule, so a reader was told to
 use `get` at a site where Clippy had already written the exact expression. One
 finding is published at `Info` on purpose, shown and never charged: a print

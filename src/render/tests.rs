@@ -785,3 +785,77 @@ fn an_unscored_group_is_folded_onto_one_line() {
 }
 
 mod summary;
+
+/// EP-001 US-001: a Clippy fix replacing a credential literal is withheld at
+/// normalization, so the verbose report prints no `Replace with:` for it at
+/// any width and the Markdown a CI job posts never carries the key, while the
+/// same fix over a plain literal is published unchanged.
+#[test]
+fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
+    let root = crate::test_scratch::scratch("render-tests", "suggested-credential");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"suggested-credential\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    let body = format!("{}-{}", "1234567890", "abcdefABCDEF");
+    std::fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "fn takes(value: &str) -> usize {{\n    value.len()\n}}\n\n\
+             pub fn send() -> usize {{\n    takes(&\"xoxb-{body}\".to_string())\n}}\n\n\
+             pub fn plain() -> usize {{\n    takes(&\"plain words\".to_string())\n}}\n"
+        ),
+    )
+    .unwrap();
+    for arguments in [
+        &["init", "--quiet"][..],
+        &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A"],
+        &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--quiet", "-m", "base"],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {arguments:?}");
+    }
+
+    let report = crate::inspect(crate::InspectRequest::new(&root));
+    let fixes: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("clippy::unnecessary_to_owned"))
+        .map(|diagnostic| diagnostic.suggestion.as_ref().map(|fix| fix.replacement.clone()))
+        .collect();
+    assert_eq!(fixes, [None, Some("\"plain words\"".to_owned())], "{:?}", report.errors);
+
+    for width in [40, 80, 140] {
+        let mut output = Vec::new();
+        render_terminal_with_options(
+            &report,
+            &mut output,
+            TerminalOptions {
+                workspace_root: &root,
+                elapsed: Duration::from_millis(1250),
+                verbose: true,
+                width,
+                color: false,
+                animate: false,
+            },
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(!output.contains(&body), "{output}");
+        assert_eq!(output.matches("Replace with:").count(), 1, "{output}");
+        assert!(output.contains("plain words"), "{output}");
+    }
+    let saved = serde_json::to_value(&report).unwrap();
+    let markdown = markdown::render_markdown(&saved, 100).unwrap();
+    assert!(markdown.contains("unnecessary_to_owned"), "{markdown}");
+    assert!(!markdown.contains(&body), "{markdown}");
+}

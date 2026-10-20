@@ -127,6 +127,54 @@ pub(crate) fn credential_ranges(line: &str) -> Vec<(usize, usize)> {
     disjoint
 }
 
+/// What the report keeps of a credential: its first four characters, which
+/// name the kind of key as react-doctor keeps the type prefix visible, and
+/// never more. A value too short to spare four characters loses all of them.
+pub(crate) const REDACTED: &str = "<redacted>";
+const REDACTED_PREFIX_CHARS: usize = 4;
+pub(crate) const REDACTED_MIN_CHARS: usize = 8;
+
+pub(crate) fn masked(value: &str) -> String {
+    let kept: String = if value.chars().count() >= REDACTED_MIN_CHARS {
+        value.chars().take(REDACTED_PREFIX_CHARS).collect()
+    } else {
+        String::new()
+    };
+    kept + REDACTED
+}
+
+/// Whether any line of `text` holds a credential the masking would hide.
+pub(crate) fn carries_credential(text: &str) -> bool {
+    text.lines().any(|line| !credential_ranges(line).is_empty())
+}
+
+/// `text` with every credential of every line masked as a code frame masks
+/// it. Diagnostic text runs through this once, at normalization, so every
+/// renderer reads it already masked.
+pub(crate) fn mask_credentials(text: &str) -> String {
+    if !carries_credential(text) {
+        return text.to_owned();
+    }
+    let mut masked_text = String::with_capacity(text.len());
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            masked_text.push('\n');
+        }
+        let mut copied = 0;
+        for (start, end) in credential_ranges(line) {
+            let (Some(before), Some(value)) = (line.get(copied..start), line.get(start..end))
+            else {
+                continue;
+            };
+            masked_text.push_str(before);
+            masked_text.push_str(&masked(value));
+            copied = end;
+        }
+        masked_text.push_str(line.get(copied..).unwrap_or_default());
+    }
+    masked_text
+}
+
 /// The byte ranges of one pattern on a line, left to right.
 fn pattern_ranges<'a>(
     line: &'a str,

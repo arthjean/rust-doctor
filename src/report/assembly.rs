@@ -757,7 +757,7 @@ fn report_errors(
         // Killed at the deadline, the pass has no exit of its own to report:
         // its `deadline-exceeded` error already says what ended it.
         if !scan.deadline_exceeded {
-            push_exit_errors(&mut errors, scan);
+            push_exit_errors(&mut errors, scan, workspace_root, home);
         }
         if scan.malformed_messages > 0 {
             errors.push(ReportError {
@@ -786,12 +786,19 @@ fn report_errors(
 /// What the Clippy pass's own exit says went wrong. The exit error ends with
 /// what Cargo wrote on stderr, which is the only place its cause is: a
 /// lockfile it could not parse, a crate that did not compile, a lock it waited
-/// on.
-fn push_exit_errors(errors: &mut Vec<ReportError>, scan: &ScanExecution) {
+/// on. That text is a build script's or a linker's, so it is sanitized like
+/// any other message: a key a build script echoed is masked, and a path
+/// outside the workspace keeps only its last two components.
+fn push_exit_errors(
+    errors: &mut Vec<ReportError>,
+    scan: &ScanExecution,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
+) {
     let cause = scan
         .cargo_cause
         .as_deref()
-        .map(|cause| format!(". Cargo reported: {cause}"))
+        .map(|cause| format!(". Cargo reported: {}", sanitize_text(cause, workspace_root, home)))
         .unwrap_or_default();
     match scan.exit_code {
         Some(code) if code != 0 || scan.exit_success != Some(true) => {

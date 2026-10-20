@@ -42,9 +42,9 @@ const PROGRESS_VERBS: [&str; 12] = [
 ];
 
 /// The last lines of `stderr` that fit the published bound, on one line, with
-/// the workspace root, the target directory, `CARGO_HOME` and `HOME` replaced
-/// by `.`, `$CARGO_TARGET_DIR`, `$CARGO_HOME` and `~`. `None` when Cargo said
-/// nothing but progress.
+/// the workspace root, the target directory, `CARGO_HOME`, `RUSTUP_HOME` and
+/// `HOME` replaced by `.`, `$CARGO_TARGET_DIR`, `$CARGO_HOME`, `$RUSTUP_HOME`
+/// and `~`. `None` when Cargo said nothing but progress.
 ///
 /// The target directory is named apart from the root because it need not sit
 /// under it: a `CARGO_TARGET_DIR` elsewhere, or the base side of a baseline,
@@ -58,6 +58,9 @@ pub(crate) fn excerpt(
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| home.as_ref().map(|home| home.join(".cargo")));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|home| home.join(".rustup")));
     let text = String::from_utf8_lossy(stderr);
     let text = scrub(
         &text,
@@ -65,6 +68,7 @@ pub(crate) fn excerpt(
             (Some(workspace_root.to_path_buf()), "."),
             (target_directory.map(Path::to_path_buf), "$CARGO_TARGET_DIR"),
             (cargo_home, "$CARGO_HOME"),
+            (rustup_home, "$RUSTUP_HOME"),
             (home, "~"),
         ],
     );

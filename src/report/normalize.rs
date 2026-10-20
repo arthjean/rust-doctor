@@ -14,7 +14,7 @@ use std::path::Path;
 use cargo_metadata::Metadata;
 use serde_json::Value;
 
-use super::sanitize::{HomePaths, normalize_text, sanitize_text};
+use super::sanitize::{HomePaths, normalize_text, sanitize_replacement, sanitize_text};
 use super::{
     Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan,
     RelatedLocation, Severity, Suggestion, UnscoredReason,
@@ -22,6 +22,7 @@ use super::{
 use crate::cargo_health;
 use crate::execution::{CapturedDiagnostic, CapturedMessage, CapturedSpan, CompilerMessageData};
 use crate::policy::{self, PolicyPlan, RuleLevel};
+use crate::repo_hygiene;
 use crate::source_kernel;
 use crate::structure;
 use crate::workspace_path;
@@ -324,7 +325,10 @@ pub(super) fn merge_diagnostic(diagnostics: &mut BTreeMap<String, Diagnostic>, d
             merge_optional_context(&mut existing.context, diagnostic.context);
         }
         None => {
-            diagnostics.insert(diagnostic.id.clone(), diagnostic);
+            // The message was masked where `sanitize_text` read it; the help
+            // is catalog text, masked here so no field escapes the rule.
+            let help = diagnostic.help.as_deref().map(repo_hygiene::mask_credentials);
+            diagnostics.insert(diagnostic.id.clone(), Diagnostic { help, ..diagnostic });
         }
     }
 }
@@ -457,13 +461,24 @@ fn select_suggestion(
             if !on_the_site || replacement.len() > SUGGESTION_MAX_BYTES {
                 continue;
             }
+            // A fix that writes or replaces a credential is withheld whole:
+            // masked, a machine-applicable fix would write `<redacted>` into
+            // the source, and kept, it would republish the key.
+            if repo_hygiene::carries_credential(replacement)
+                || span
+                    .text
+                    .iter()
+                    .any(|line| repo_hygiene::carries_credential(&line.highlighted()))
+            {
+                continue;
+            }
             if best.is_none_or(|(kept, _)| applicability < kept) {
                 best = Some((applicability, replacement));
             }
         }
     }
     best.map(|(applicability, replacement)| Suggestion {
-        replacement: sanitize_text(replacement, Some(workspace_root), home),
+        replacement: sanitize_replacement(replacement, Some(workspace_root), home),
         applicability,
     })
 }

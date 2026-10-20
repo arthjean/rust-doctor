@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::GroupLocation;
 use crate::DiagnosticSpan;
+use crate::repo_hygiene::{REDACTED, REDACTED_MIN_CHARS, masked};
 use crate::terminal_text::{escape_end, opens_escape};
 use crate::workspace_path;
 
@@ -320,13 +321,6 @@ fn marker_for(span: &DiagnosticSpan, sanitized: &SanitizedLine) -> CodeFrameMark
     }
 }
 
-/// What a frame keeps of a credential: its first four characters, which name
-/// the kind of key as react-doctor keeps the type prefix visible, and never
-/// more. A value too short to spare four characters loses all of them.
-const REDACTED: &str = "<redacted>";
-const REDACTED_PREFIX_CHARS: usize = 4;
-const REDACTED_MIN_CHARS: usize = 8;
-
 /// A source line with every credential the repository pass matches replaced.
 ///
 /// The frame is the one place rust-doctor reads source text for display, so
@@ -540,15 +534,6 @@ fn string_literal(line: &str, at: usize) -> Option<(usize, usize)> {
         body.find(&format!("\"{}", "#".repeat(hashes)))
     };
     Some((start, start.saturating_add(length.unwrap_or(body.len()))))
-}
-
-fn masked(value: &str) -> String {
-    let kept: String = if value.chars().count() >= REDACTED_MIN_CHARS {
-        value.chars().take(REDACTED_PREFIX_CHARS).collect()
-    } else {
-        String::new()
-    };
-    kept + REDACTED
 }
 
 struct SanitizedLine {

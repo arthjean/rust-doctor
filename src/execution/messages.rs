@@ -131,6 +131,32 @@ pub(crate) struct CapturedSpan {
     /// rustc's own `Applicability` spelling for the replacement above.
     #[serde(default)]
     pub(crate) suggestion_applicability: Option<String>,
+    /// The source lines the span covers, with the highlighted columns: what
+    /// a replacement would write over.
+    #[serde(default)]
+    pub(crate) text: Vec<CapturedSpanLine>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CapturedSpanLine {
+    pub(crate) text: String,
+    /// One-based character columns, the end exclusive.
+    pub(crate) highlight_start: usize,
+    pub(crate) highlight_end: usize,
+}
+
+impl CapturedSpanLine {
+    /// The highlighted characters, or the whole line when the columns do not
+    /// fit it: a caller asking what a span covers is better served by too much
+    /// text than by none.
+    pub(crate) fn highlighted(&self) -> String {
+        let start = self.highlight_start.saturating_sub(1);
+        let length = self.highlight_end.saturating_sub(self.highlight_start);
+        if length == 0 || start.saturating_add(length) > self.text.chars().count() {
+            return self.text.clone();
+        }
+        self.text.chars().skip(start).take(length).collect()
+    }
 }
 
 #[derive(Debug, Default)]

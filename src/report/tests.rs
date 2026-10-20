@@ -100,6 +100,7 @@ fn compiler_message(
                 is_primary: true,
                 suggested_replacement: None,
                 suggestion_applicability: None,
+                text: Vec::new(),
             }],
             children: Vec::new(),
         },
@@ -146,6 +147,7 @@ fn clone_compiler_message(message: &CapturedMessage) -> CapturedMessage {
                         is_primary: span.is_primary,
                         suggested_replacement: span.suggested_replacement.clone(),
                         suggestion_applicability: span.suggestion_applicability.clone(),
+                        text: Vec::new(),
                     })
                     .collect(),
                 children: Vec::new(),
