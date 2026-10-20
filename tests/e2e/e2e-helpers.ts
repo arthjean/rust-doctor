@@ -106,10 +106,10 @@ export const CARGO_HOME = process.env.CARGO_HOME ?? join(REAL_HOME, ".cargo");
 // installed on the machine is never on a test's PATH.
 const TOOLCHAIN_TOOLS = ["cargo", "rustc", "rustdoc", "cargo-clippy", "clippy-driver", "rustup"];
 const SYSTEM_TOOLS = [
-  "git", "cc", "gcc", "c++", "ld", "as", "sh", "bash", "env", "cat", "cp", "mv", "rm", "mkdir",
+  "git", "cc", "gcc", "c++", "ld", "as", "ar", "ranlib", "sh", "bash", "env", "cat", "cp", "mv", "rm", "mkdir",
   "ls", "ln", "chmod", "touch", "sleep", "printf", "echo", "head", "tail", "grep", "sed", "tr",
   "wc", "dirname", "basename", "mktemp", "readlink", "realpath", "uname", "id", "test", "true",
-  "false", "sort", "cut", "tee", "xargs", "find", "diff", "kill", "ps", "stat", "od", "stty", "tput",
+  "false", "sort", "cut", "tee", "xargs", "find", "diff", "kill", "ps", "stat", "od", "stty", "tput", "expr", "make",
 ];
 const SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin";
 

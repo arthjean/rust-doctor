@@ -6,6 +6,7 @@
 | `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself), and posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | manual, pull request touching the record, its harness or a producer | Reproduces the pinned measurement of `tests/corpus.json` from the restored clone cache, under the toolchain the artifact names, and writes the position proof that anchors every published site |
+| `e2e-corpus.yml` | weekly, manual, pull request on `corpus.yml`'s paths | The 18 pinned subjects scanned offline through the CLI and the installed launcher, from that cache restored read-only: each matches its record, a rerun is identical, the copy is untouched |
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not
@@ -34,9 +35,9 @@ weighted shards: `ci-shards.ts` splits the files by `ci-shard-weights.json` and
 fails on a file without a weight, and `ci-run-files.sh` runs each file in its
 own bun process and tmux server, retries a failure once and annotates a pass on
 retry, since Bun's `--retry` would count it as a plain pass. Each shard
-installs tmux, the pinned toolchain with Clippy and the bun that
-`tests/e2e/package.json` pins, enables unprivileged user namespaces for the
-offline proofs, and caches its scan targets under a key holding the lockfile,
+installs tmux, strace, node, the pinned toolchain with Clippy and the bun
+`tests/e2e/package.json` pins, fetches the locked crates the offline scans
+compile, enables unprivileged user namespaces for the offline proofs, and caches its scan targets under a key holding the lockfile,
 the toolchain and its file names. The job named `e2e` passes only when every
 shard did, so branch protection names one check.
 

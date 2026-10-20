@@ -407,5 +407,41 @@
     "severity": "low",
     "status": "open",
     "defect": "Missing git fails every scan, cosmetic error text"
+  },
+  {
+    "id": "failures/BUG-16",
+    "severity": "low",
+    "status": "open",
+    "defect": "The path scrubber replaces a prefix with no separator boundary, so a sibling path whose name only starts with the workspace root or target directory is rewritten into it"
+  },
+  {
+    "id": "real/B4",
+    "severity": "low",
+    "status": "open",
+    "defect": "The orphan-module walk ignores `.gitignore`, so a gitignored `.rs` file beside the module tree is reported as `orphan_module_file`"
+  },
+  {
+    "id": "real/B7",
+    "severity": "low",
+    "status": "open",
+    "defect": "A SIGTERM through the npm launcher ends with status 143, not the 130 the binary documents"
+  },
+  {
+    "id": "real/B8",
+    "severity": "low",
+    "status": "open",
+    "defect": "A comment list that is not JSON fails the Action's comment step (exit 5) instead of downgrading to a warning"
+  },
+  {
+    "id": "real/B9",
+    "severity": "low",
+    "status": "open",
+    "defect": "An empty report leaves the Action's `authoritative` output empty instead of `false`"
+  },
+  {
+    "id": "tui/BUG-14",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher"
   }
 ]

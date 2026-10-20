@@ -25,6 +25,11 @@ another binary, and a missing one fails every file with the build instruction.
 `rust-doctor-e2e` under the system temporary directory. The interactive-report
 files need tmux: without it they skip with one stated reason, and
 `E2E_REQUIRE_TMUX=1` turns that skip into a failure, which is what CI sets.
+The network-namespace scenarios (`netns.ts`) skip the same way where
+`unshare -rn` is refused, and `E2E_REQUIRE_NETNS=1` makes that a failure.
+`corpus-replay.test.ts` and `real-subject.test.ts` run only when
+`RUST_DOCTOR_E2E_CORPUS_DIR` names the corpus clone cache, which
+`e2e-corpus.yml` restores weekly; elsewhere they skip.
 `bun run typecheck` checks the suite under strict TypeScript.
 
 ## What every test holds to
@@ -57,10 +62,11 @@ see terminal streams.
 
 ## The self-scan rule
 
-A test that scans this repository asserts contracts, never this repository's
-score, label, counts or specific findings, as [testing.md](testing.md) requires
-of the Rust suite: the self-scan is a gate, and evidence that a rule fires
-belongs on a fixture.
+A test that scans this repository scans a clone of HEAD made by
+`self-clone.ts`, never the working tree, and asserts contracts, never this
+repository's score, label, counts or specific findings, as
+[testing.md](testing.md) requires of the Rust suite: the self-scan is a gate,
+and evidence that a rule fires belongs on a fixture.
 
 ## Known defects
 

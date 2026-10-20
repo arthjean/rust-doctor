@@ -1,0 +1,158 @@
+name: E2E corpus
+
+# The end-to-end tier of the pinned corpus: the 18 subjects of
+# tests/corpus.json scanned through the shipped CLI and the installed npm
+# launcher, offline, each compared with its record (tests/e2e/corpus-replay.test.ts
+# and tests/e2e/real-subject.test.ts). corpus.yml reproduces the measurement in
+# process and owns the clone cache; this job only reads that cache, so the two
+# workflows never race on one key.
+#
+# Weekly, unlike corpus.yml: what this run adds is the real binary on real
+# code (a rerun that must equal the first scan, a copy that must stay
+# byte-identical, the launcher that must forward without judging), and a
+# regression there surfaces within a week. It also runs on a pull request
+# touching the paths corpus.yml filters, where the record can move.
+#
+# TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
+# the ten it scans with Clippy run `cargo clippy`, which executes their build
+# scripts and procedural macros. That is acceptable here only because the
+# runner is disposable and every revision is pinned. Do not port these steps
+# to a developer machine, and do not add a repository to the manifest without
+# the review the corpus protocol requires.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tests/corpus.json
+      - tests/corpus_precision.rs
+      - tests/support/corpus.rs
+      - tests/support/corpus/**
+      - src/audit.rs
+      - src/audit/**
+      - src/cargo_health.rs
+      - src/cargo_health/**
+      - src/execution.rs
+      - src/execution/**
+      - src/repo_hygiene.rs
+      - src/source_kernel.rs
+      - src/source_kernel/**
+      - src/source_text.rs
+      - src/structure.rs
+      - src/structure/**
+      - tests/e2e/corpus-*
+      - tests/e2e/real-subject.test.ts
+      - .github/workflows/e2e-corpus.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  replay:
+    name: Replay the corpus end to end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Restore only, never save: corpus.yml seeds and saves this cache. The
+      # prefix restore is what a pull request editing the record lands on; a
+      # subject whose pinned commit the restored cache lacks fails its test
+      # naming the subject and the commit.
+      - name: Restore the clone cache
+        id: clones
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          key: corpus-clones-${{ hashFiles('tests/corpus.json') }}
+          restore-keys: corpus-clones-
+
+      # No cache at all would mean cloning eighteen third-party repositories,
+      # which this job never does. Name the key that was missed and stop.
+      - name: Require the clone cache
+        if: steps.clones.outputs.cache-matched-key == ''
+        run: |
+          echo "No clone cache matched ${{ steps.clones.outputs.cache-primary-key }},"
+          echo "and nothing matched the prefix corpus-clones- either."
+          echo "Seed it with a manual run of corpus.yml on the base branch, then re-run this job:"
+          echo "  gh workflow run corpus.yml"
+          exit 1
+
+      - name: Resolve the corpus paths
+        run: |
+          {
+            echo "RUST_DOCTOR_E2E_CORPUS_DIR=$RUNNER_TEMP/corpus-cache"
+            echo "RUST_DOCTOR_E2E_ROOT=$RUNNER_TEMP/rust-doctor-e2e"
+            echo "RUST_DOCTOR_E2E_BIN=$GITHUB_WORKSPACE/target/release/rust-doctor"
+          } >> "$GITHUB_ENV"
+          test "$RUNNER_TEMP/corpus-cache" = "${{ runner.temp }}/corpus-cache"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # The toolchain the record was measured under: tests/corpus.json
+          # names it, and the replay pins it for every scan.
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: e2e-corpus
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # The suite runs offline, so every dependency a subject resolves has to
+      # be in Cargo's registry first. Each subject is fetched in a throwaway
+      # copy materialized the way the test materializes its own: a fetch in
+      # the copy to be scanned would write Cargo.lock into it and move a
+      # lockless subject's result off its record.
+      - name: Warm the registry
+        run: |
+          jq -r '
+            (.manifest.repositories + .agent_population.repositories)[]
+            | [.name, .commit] | @tsv
+          ' tests/corpus.json | while IFS=$'\t' read -r name commit; do
+            copy="$RUNNER_TEMP/fetch/$name"
+            mkdir -p "$copy"
+            GIT_INDEX_FILE="$RUNNER_TEMP/fetch/$name.index" git -C "$RUST_DOCTOR_E2E_CORPUS_DIR/$name" read-tree "$commit"
+            GIT_INDEX_FILE="$RUNNER_TEMP/fetch/$name.index" git -C "$RUST_DOCTOR_E2E_CORPUS_DIR/$name" checkout-index --all --force --prefix="$copy/"
+            if [ -f "$copy/Cargo.toml" ]; then
+              cargo fetch --manifest-path "$copy/Cargo.toml"
+            fi
+          done
+          rm -rf "$RUNNER_TEMP/fetch"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: tests/e2e/package.json
+
+      # The launcher subjects install the packed tarballs with npm, offline.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+
+      - name: Install the suite
+        working-directory: tests/e2e
+        run: bun install --frozen-lockfile
+
+      - name: Replay
+        working-directory: tests/e2e
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: bun test ./corpus-replay.test.ts ./real-subject.test.ts

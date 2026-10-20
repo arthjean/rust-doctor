@@ -7,13 +7,46 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "./e2e-helpers";
 
-type Claim = { catalog: string; sections: RegExp; files: string[] };
+type Claim = { catalog: string; sections: RegExp; files: string[]; rows?: (markdown: string, sections: RegExp) => string[] };
 
 const CLAIMS: Claim[] = [
   {
     catalog: "failures.md",
     sections: /^## (EX|AR|OW|OC):/,
     files: ["exit-codes.test.ts", "output-streams.test.ts"],
+  },
+  {
+    catalog: "failures.md",
+    sections: /^## (SG|TC|WS|AD|EN|PV|NW|FS|PG):/,
+    files: [
+      "signals-and-deadlines.test.ts", "toolchain-preflight.test.ts", "workspace-shapes.test.ts",
+      "advisory-database.test.ts", "terminal-profile.test.ts", "privacy-redaction.test.ts",
+      "offline-and-side-effects.test.ts", "poisoned-repository.test.ts",
+    ],
+  },
+  {
+    catalog: "tui.md",
+    sections: /^### 3\.\d+ /,
+    files: [
+      "tui-gating.test.ts", "tui-startup.test.ts", "tui-keybindings.test.ts", "tui-exit-codes.test.ts",
+      "tui-issues-viewer.test.ts", "tui-layout.test.ts", "tui-resize.test.ts", "tui-terminal-hygiene.test.ts",
+      "tui-clipboard.test.ts", "tui-ci-workflow.test.ts", "tui-handoff.test.ts", "tui-interrupt-recovery.test.ts",
+      "tui-performance.test.ts",
+    ],
+  },
+  {
+    catalog: "real-codebases.md",
+    sections: /^## 2\. /,
+    rows: invariantRows,
+    files: [
+      "self-scan.test.ts", "self-scan-parity.test.ts", "self-scan-isolation.test.ts", "scopes-real.test.ts",
+      "deadline-and-interrupt.test.ts", "rules-catalog.test.ts",
+    ],
+  },
+  {
+    catalog: "scopes.md",
+    sections: /^### R\. /,
+    files: ["scopes-real.test.ts"],
   },
   {
     catalog: "scopes.md",
@@ -49,6 +82,19 @@ export function catalogRows(markdown: string, sections: RegExp): string[] {
   return rows;
 }
 
+// The self-scan invariants are a numbered list, not a table: item `n` of a
+// claimed section is row `INV-0n`.
+export function invariantRows(markdown: string, sections: RegExp): string[] {
+  const rows: string[] = [];
+  let claimed = false;
+  for (const line of markdown.split("\n")) {
+    if (line.startsWith("#")) claimed = sections.test(line);
+    const item = claimed ? line.match(/^(\d+)\. /) : null;
+    if (item) rows.push(`INV-${item[1]!.padStart(2, "0")}`);
+  }
+  return rows;
+}
+
 function escape(id: string): string {
   return id.replace(/[-]/g, "\\-");
 }
@@ -73,8 +119,8 @@ export function coverageViolations(rows: string[], sources: string[]): string[] 
 }
 
 describe("catalog coverage", () => {
-  test.each(CLAIMS.map((claim) => [claim.catalog, claim] as const))("%s: every claimed row is automated once", (catalog, claim) => {
-    const rows = catalogRows(readFileSync(join(REPO_ROOT, "tasks/e2e-catalog", catalog), "utf8"), claim.sections);
+  test.each(CLAIMS.map((claim) => [`${claim.catalog} ${claim.sections.source}`, claim] as const))("%s: every claimed row is automated once", (_name, claim) => {
+    const rows = (claim.rows ?? catalogRows)(readFileSync(join(REPO_ROOT, "tasks/e2e-catalog", claim.catalog), "utf8"), claim.sections);
     expect(rows.length).toBeGreaterThan(0);
     const sources = claim.files.map((file) => readFileSync(join(import.meta.dir, file), "utf8"));
     expect(coverageViolations(rows, sources)).toEqual([]);
@@ -91,5 +137,6 @@ describe("catalog coverage", () => {
     ].join("\n");
     expect(["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"].map((id) => occurrences(source, id))).toEqual([1, 1, 1, 0, 0, 0, 0, 0]);
     expect(catalogRows("### A. args\n| ID | x |\n| A01 | y |\n### R. real\n| R01 | z |\n", /^### A\. /)).toEqual(["A01"]);
+    expect(invariantRows("## 2. Self\n1. Exit 0\n12. Offline\n## 3. Next\n4. Not claimed\n", /^## 2\. /)).toEqual(["INV-01", "INV-12"]);
   });
 });

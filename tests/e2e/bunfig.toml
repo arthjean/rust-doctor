@@ -1,6 +1,2 @@
-# Every test spawns the real binary, and a cold scan of a fixture compiles it
-# first, so Bun's five-second default would fail on a slow runner rather than
-# on a defect. A test that needs longer names its own timeout.
 [test]
-timeout = 60000
 preload = ["./preload.ts"]

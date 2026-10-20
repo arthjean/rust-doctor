@@ -785,7 +785,9 @@ const temporary = mkdtempSync(join(tmpdir(), "rust-doctor-packed-smoke-"));
 let packed;
 try {
   const before = await repositoryState();
-  packed = packLocal();
+  // CI hands the proof the release artifact every other job judges, so it
+  // packs those bytes rather than building a second binary.
+  packed = packLocal({ binaryPath: process.env.RUST_DOCTOR_BINARY || undefined });
   const installed = installPacked(temporary, packed);
   const npm = installWithNpm(temporary, packed);
   const cli = proveCli(installed);

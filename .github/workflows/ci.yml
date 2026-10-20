@@ -206,20 +206,32 @@ jobs:
         working-directory: npm/rust-doctor
         run: bun test tests
 
-  # The packed proof builds the release binary, assembles the wrapper and the
-  # linux-x64 native package, installs the pair into a scratch prefix and drives
-  # the resulting `rust-doctor` end to end. It is the only check that exercises
-  # what an `npx rust-doctor` user actually receives, which is why it runs on
-  # every push rather than only at release time. pack-local.mjs refuses any
-  # platform other than linux-x64, so this job is deliberately single-platform.
+  # The packed proof assembles the wrapper and the linux-x64 native package
+  # around the release binary of `build-release`, installs the pair into a
+  # scratch prefix and drives the resulting `rust-doctor` end to end. It is the
+  # only check that exercises what an `npx rust-doctor` user actually receives,
+  # which is why it runs on every push rather than only at release time.
+  # pack-local.mjs refuses any platform other than linux-x64, so this job is
+  # deliberately single-platform.
   packed:
     name: Packed launcher smoke
+    needs: build-release
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # Outside the checkout, so the proof's before-and-after state of the
+      # repository never sees it.
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-doctor-release
+          path: ${{ runner.temp }}/rust-doctor-release
+
+      - name: Make the binary executable
+        run: chmod +x "$RUNNER_TEMP/rust-doctor-release/rust-doctor"
 
       # Clippy is required, not optional: the smoke drives a full scan of this
       # repository, and without the component the scan fails, the report loses
@@ -247,10 +259,12 @@ jobs:
 
       - name: Packed launcher smoke
         working-directory: npm/rust-doctor
+        env:
+          RUST_DOCTOR_BINARY: ${{ runner.temp }}/rust-doctor-release/rust-doctor
         run: bun run smoke:packed
 
   # The end-to-end suite of tests/e2e drives the release binary the way a user
-  # does. One job builds it, so the three shards below judge the same bytes
+  # does. One job builds it, so the five shards below judge the same bytes
   # and none of them pays for a second release build.
   build-release:
     name: Release build
@@ -292,14 +306,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3, 4]
+    # The namespace scenarios fail rather than skip here, and the timing
+    # budgets of tui-performance.test.ts take the allowance the Rust benchmark
+    # takes on a shared two-core runner.
     env:
       RUST_DOCTOR_E2E_BIN: ${{ github.workspace }}/target/release/rust-doctor
       E2E_REQUIRE_TMUX: "1"
+      E2E_REQUIRE_NETNS: "1"
+      RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     steps:
+      # Full history: the self-scan files compare a clone of HEAD against the
+      # v0.7.0 tag.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
@@ -309,8 +331,9 @@ jobs:
       - name: Make the binary executable
         run: chmod +x target/release/rust-doctor
 
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      # strace is the socket-level proof of offline-and-side-effects.test.ts.
+      - name: Install tmux and strace
+        run: sudo apt-get update && sudo apt-get install -y tmux strace
 
       # Hosted Ubuntu 24.04 refuses unprivileged user namespaces, which the
       # network-namespace scenarios use to prove the scan offline
@@ -324,9 +347,21 @@ jobs:
           toolchain: "1.97.1"
           components: clippy
 
+      # Every scan in the suite runs with CARGO_NET_OFFLINE=true, so the
+      # crates of this repository, which the self-scan files compile, are
+      # fetched here, before the suite, by the runner and not by a test.
+      - name: Fetch this repository's dependencies
+        run: cargo fetch --locked
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: tests/e2e/package.json
+
+      # The launcher files install the packed tarballs with npm, offline, and
+      # run the launcher under node, as `npm install -g` users do.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
 
       - name: Install the suite
         working-directory: tests/e2e
@@ -336,7 +371,7 @@ jobs:
         id: plan
         working-directory: tests/e2e
         run: |
-          files="$(bun ci-shards.ts --shard-count 3 --shard-index ${{ matrix.shard }})"
+          files="$(bun ci-shards.ts --shard-count 5 --shard-index ${{ matrix.shard }})"
           {
             echo "files<<EOF"
             echo "$files"

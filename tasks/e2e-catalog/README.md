@@ -57,3 +57,9 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | scopes/BUG-L | low | A `--max-duration` deadline that cuts the base side of a baseline reports only `baseline-scan-incomplete`, never `deadline-exceeded` | `test.failing` |
 | subcommands/F7 to F9, F11 to F19 | low | Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes | `test.failing` |
 | failures/BUG-08, failures/BUG-10 to BUG-12 | low | Missing git fails every scan, cosmetic error text | `test.failing` |
+| failures/BUG-16 | low | The path scrubber replaces a prefix with no separator boundary, so a sibling path whose name only starts with the workspace root or target directory is rewritten into it | `test.failing` |
+| real/B4 | low | The orphan-module walk ignores `.gitignore`, so a gitignored `.rs` file beside the module tree is reported as `orphan_module_file` | `test.failing` |
+| real/B7 | low | A SIGTERM through the npm launcher ends with status 143, not the 130 the binary documents | `test.failing` |
+| real/B8 | low | A comment list that is not JSON fails the Action's comment step (exit 5) instead of downgrading to a warning | `test.failing` |
+| real/B9 | low | An empty report leaves the Action's `authoritative` output empty instead of `false` | `test.failing` |
+| tui/BUG-14 | low to medium | An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher | `test.failing` |

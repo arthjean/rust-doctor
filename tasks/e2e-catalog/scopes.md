@@ -335,19 +335,19 @@ Workaround to document for agents: `--base "$(git rev-parse HEAD~1)"`.
 
 | ID | Setup | Args | Expected | Ver. | Time cold / warm |
 |---|---|---|---|---|---|
-| R01 | rd on main | (full) | exit 0, 1 `hardcoded_credential` at `tasks/prd-react-doctor-gap-closure.md` | yes | 5.46 / 0.45 |
-| R02 | `switch -c e2e-noop` | `--scope files` | `ref:"origin/main"`, `f:[]` | yes | 0.47 w |
+| R01 | rd on main | (full) | exit 0, `status: complete`, gate passed, `scope.mode: full`. Corrected 2026-10-20: US-012 rewrote the credential example, so the report holds no `hardcoded_credential`; the test asserts the contract, never a finding of this repository | yes | 5.46 / 0.45 |
+| R02 | `switch -c e2e-noop` | `--scope files` | `ref:"origin/main"`, `f:[]`, no diagnostic. The test pins the clone's `origin/main` to the cloned commit, so the detected base is the same whatever branch the working copy is on | yes | 0.47 w |
 | R02b | R02 | `--scope lines` | `f:[]` | yes | 0.46 w |
-| R03 | R02 | `--scope baseline` | today `D[1,173,0,0,0]`, introduced = the credential above (BUG-A); expected `D[0,174,0,0,0]` | yes | 6.51 (10.88 fully cold) / 0.49 (cache hit) |
-| R03c | R02 | `RUST_DOCTOR_NO_CACHE=1 --scope baseline` | same delta, base side rescanned | yes | 3.17 (warm target) |
-| R04 | commit a `todo!()` fn in `src/git.rs` | `--scope files` | `f:["src/git.rs"]`, todo=1, dead_code=1 | yes | 1.12 / 0.43 |
+| R03 | R02 | `--scope baseline` | `introduced: 0`, `fixed: 0`, `pre_existing` equal to the full scan's `summary.total`, `base_ref: origin/main`. Corrected 2026-10-20: BUG-A is fixed (US-002) and the counts drift with every commit, so the test compares them with the full scan instead of writing them | yes | 6.51 (10.88 fully cold) / 0.49 (cache hit) |
+| R03c | R02 | `RUST_DOCTOR_NO_CACHE=1 --scope baseline --verbose` | same `Delta:` line as the cached run, `Base side cache: disabled` | yes | 3.17 (warm target) |
+| R04 | commit a `todo!()` fn in `src/git.rs` | `--scope files` | `f:["src/git.rs"]`, the seeded function carries exactly `clippy::todo` and `dead_code`, every diagnostic in `src/git.rs` | yes | 1.12 / 0.43 |
 | R04b | R04 | `--scope lines` | same two findings | yes | 0.44 w |
 | R04c | R04 | `--scope contextual` | same | yes | 0.44 w |
-| R04d | R04 | `--scope baseline` | `D[3,173,0,0,0]` (todo, dead_code, credential BUG-A) | yes | 0.45 (cache hit) |
-| R04e | R04 | `--scope baseline --base v0.7.0` | exit 0, `D[74,102,3,10,3]`, `E[delta/line-map-unavailable]` | yes | 2.01 |
-| R04f | R04 | `--scope files --base v0.7.0` | 475 files selected | yes | 0.44 |
-| R05 | rd, staged edit | `--scope lines --staged` | exit 0 | yes | 5.39 / 2.64 |
-| R05b | rd, staged edit | `--scope baseline --staged` | exit 0 | yes | 11.19 / 3.06 |
+| R04d | R04 | `--scope baseline` | `introduced: 2` (the seeded `todo` and `dead_code`), `fixed: 0`. Corrected 2026-10-20: BUG-A is fixed (US-002), so the credential is no longer introduced | yes | 0.45 (cache hit) |
+| R04e | R04 | `--scope baseline --base v0.7.0` | exit 0, `comparison_base` = the tag's commit, the seeded `todo` among the introduced, any error at stage `delta` (`line-map-unavailable` when a file moved too much). Corrected 2026-10-20: the counts move with every commit since the tag; needs a full-history checkout | yes | 2.01 |
+| R04f | R04 | `--scope files --base v0.7.0` | `scope.files` equals `git diff --name-only --diff-filter=d v0.7.0 HEAD`, `src/git.rs` among them. Corrected 2026-10-20: the count (475 then) grows with every commit | yes | 0.44 |
+| R05 | rd, staged edit (a `pub fn` with `todo!()` in `src/progress.rs`) | `--scope lines --staged` | exit 0, `scope.staged: true`, the staged `clippy::todo` reported at its line | yes | 5.39 / 2.64 |
+| R05b | R05 | `--scope baseline --staged` | exit 0, `scope.staged: true`, the staged `clippy::todo` the only introduced finding | yes | 11.19 / 3.06 |
 
 Target directory cost on rd: 180 MB (files), 229 MB (staged), 359 MB (baseline), 409 MB (baseline staged). A staged run never gets fully warm (2.6 s) because the snapshot moves every run and the workspace crate rebuilds.
 
