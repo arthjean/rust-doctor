@@ -69,7 +69,8 @@ describe("the sealed environment", () => {
       const run = await runCommand(["env"], { sandbox: box });
       const names = run.stdout.trim().split("\n").map((line) => line.slice(0, line.indexOf("=")));
       expect(names.sort()).toEqual([
-        "CARGO_HOME", "CARGO_NET_OFFLINE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "HOME",
+        "CARGO_HOME", "CARGO_NET_OFFLINE", "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_KEY_1", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_VALUE_1", "HOME",
         "LC_ALL", "PATH", "RUSTUP_HOME", "TERM", "TMPDIR",
       ]);
       expect(run.stdout).toContain(`HOME=${box.home}\n`);

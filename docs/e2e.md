@@ -37,8 +37,8 @@ The network-namespace scenarios (`netns.ts`) skip the same way where
 Every spawn goes through `e2e-helpers.ts`. The environment is built from an
 allowlist, never inherited: a private HOME and TMPDIR, the machine's
 `RUSTUP_HOME` and `CARGO_HOME`, `LC_ALL=C`, a pinned `TERM`, no system or
-global git configuration, and `CARGO_NET_OFFLINE=true`, so no test reaches the
-network. The agent markers and `CI` are absent unless a test sets one, and
+global git configuration, git's background maintenance off, and
+`CARGO_NET_OFFLINE=true`, so no test reaches the network. The agent markers and `CI` are absent unless a test sets one, and
 their list is read from `src/terminal_profile.rs`, so a marker added there is
 scrubbed the same day. PATH holds links to the toolchain and the core
 utilities and nothing else; `fakes.ts` puts recording stand-ins for agents,

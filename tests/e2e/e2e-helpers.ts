@@ -160,6 +160,13 @@ export function hermeticEnv(box: Sandbox, overrides: EnvOverrides = {}): Record<
     TERM: "dumb",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
+    // No background maintenance after a commit: it rewrites .git while a test
+    // fingerprints the tree. The binary drops these for its own git calls.
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: "maintenance.auto",
+    GIT_CONFIG_VALUE_0: "false",
+    GIT_CONFIG_KEY_1: "gc.auto",
+    GIT_CONFIG_VALUE_1: "0",
     CARGO_NET_OFFLINE: "true",
     ...overrides,
   };
