@@ -215,8 +215,11 @@ export class TmuxSession {
   }
 
   status(): PaneStatus {
-    const [dead, status] = this.tmux(["display", "-p", "-t", "main", "#{pane_dead} #{pane_dead_status}"]).trim().split(" ");
-    return { dead: dead === "1", status: dead === "1" && status !== "" ? Number(status) : null };
+    const [dead, status, signal] = this.tmux(["display", "-p", "-t", "main", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}"]).trim().split(":");
+    // tmux 3.4 marks the pane dead a moment before it records how the program
+    // ended: until a status or a signal is there, the pane has not settled.
+    if (dead !== "1" || (!status && !signal)) return { dead: false, status: null };
+    return { dead: true, status: status ? Number(status) : null };
   }
 
   async waitForExit(timeoutMs = 15_000): Promise<number | null> {
