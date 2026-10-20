@@ -176,7 +176,11 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
         update,
         dry_run,
     } = &arguments.command;
-    let planned = placement(path).and_then(|(toplevel, workspace)| {
+    let path = match crate::path_argument::resolve("PATH", path) {
+        Ok(path) => path,
+        Err(code) => return ExitCode::from(code),
+    };
+    let planned = placement(&path).and_then(|(toplevel, workspace)| {
         let options = WorkflowOptions {
             workspace,
             ..options(&toplevel, *blocking, branch.clone(), toolchain.clone(), *comment)?

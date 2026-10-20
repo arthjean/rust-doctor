@@ -8,10 +8,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -249,4 +252,84 @@ setInterval(() => {}, 1000);
       "win32-x64",
     ]);
   });
+});
+
+// EP-002 US-010: the built binary behind the real launcher. A terminal's
+// Ctrl-C reaches the whole foreground process group: the launcher forwards it
+// and the binary receives it from the terminal too, twice within a few
+// milliseconds. The binary has to read that as one delivery and still publish
+// its report. `RUST_DOCTOR_BINARY` names the binary, else the newest of
+// `target/release` and `target/debug`; the launcher job builds neither, so
+// there the test says it was skipped rather than passing on nothing.
+const repositoryRoot = join(packageRoot, "../..");
+const builtBinary = [
+  process.env.RUST_DOCTOR_BINARY,
+  join(repositoryRoot, "target/release/rust-doctor"),
+  join(repositoryRoot, "target/debug/rust-doctor"),
+]
+  .filter((path) => path && existsSync(path))
+  .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0];
+const unixWithBinary = process.platform !== "win32" && builtBinary !== undefined;
+
+function git(cwd, ...arguments_) {
+  const result = spawnSync("git", arguments_, { cwd, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${arguments_.join(" ")}: ${result.stderr}`);
+}
+
+describe.skipIf(!unixWithBinary)("built binary behind the launcher", () => {
+  for (const scope of [[], ["--scope", "baseline", "--base", "HEAD"]]) {
+    const name = scope.length === 0 ? "full" : "baseline";
+    test(`a group SIGINT during Clippy ends a ${name} scan with its interrupted report`, async () => {
+      const fixture_ = fixture(`group-sigint-${name}`);
+      const bin = join(fixture_.native, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(
+        join(fixture_.native, "package.json"),
+        `${JSON.stringify({ name: "@rustdoctor/linux-x64", version: wrapperVersion, os: ["linux"], cpu: ["x64"] })}\n`,
+      );
+      symlinkSync(builtBinary, join(bin, "rust-doctor"));
+      const workspace = join(fixture_.root, "workspace");
+      cpSync(join(repositoryRoot, "tests/fixtures/scan-failures/sleeping-build"), workspace, { recursive: true });
+      git(workspace, "init", "-q");
+      git(workspace, "add", "-A");
+      git(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base");
+      const temporary = join(fixture_.root, "tmp");
+      mkdirSync(temporary);
+      const ready = join(fixture_.root, "sleeper.pid");
+      const child = spawn("node", [fixture_.command, workspace, "--yes", "--json", "--advisory-db", "/dev/null", ...scope], {
+        cwd: fixture_.root,
+        detached: true,
+        env: {
+          ...process.env,
+          CARGO_NET_OFFLINE: "true",
+          CARGO_TARGET_DIR: join(fixture_.root, "target"),
+          RUST_DOCTOR_SLEEPER_PID: ready,
+          TMPDIR: temporary,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      const closed = new Promise((resolve) => {
+        child.once("close", (code, signal) => resolve({ code, signal }));
+      });
+      const deadline = Date.now() + 120000;
+      while (!existsSync(ready)) {
+        if (Date.now() >= deadline) throw new Error("the build script never ran");
+        await Bun.sleep(50);
+      }
+      process.kill(-child.pid, "SIGINT");
+      const outcome = await closed;
+      // What a shell reports: the code, or 128 plus the signal the launcher
+      // re-raised on itself after the binary exited.
+      const status = outcome.code ?? 128 + constants.signals[outcome.signal];
+      expect(status).toBe(130);
+      const report = JSON.parse(stdout);
+      expect(report.status).toBe("failed");
+      expect(report.errors.map((error) => error.code)).toEqual(["interrupted"]);
+      expect(report.audit.score).toBeNull();
+      expect(readdirSync(temporary).filter((entry) => entry.startsWith("rust-doctor-baseline-"))).toEqual([]);
+    }, 180000);
+  }
 });

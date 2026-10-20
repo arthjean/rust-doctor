@@ -818,3 +818,57 @@ fn a_conventional_path_names_the_target_it_belongs_to() {
     assert_eq!(context("tests_util/src/lib.rs"), None);
     assert_eq!(context("src/latest.rs"), None);
 }
+
+/// EP-002 US-009: a run a signal stopped publishes no score, even over a
+/// workspace the walk had measured, and still serializes.
+#[test]
+fn an_interrupted_report_publishes_no_score() {
+    let report = report_with_diagnostics(Vec::new());
+    assert!(report.audit.score.is_some(), "the input has a score to withhold");
+    let interrupted = super::super::interrupted_failure(report);
+    assert_eq!(interrupted.status, Status::Failed);
+    assert_eq!(interrupted.audit.score, None);
+    let mut bytes = Vec::new();
+    crate::render::render_json(&interrupted, &mut bytes).unwrap();
+    let wire: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(wire["audit"]["score"], Value::Null);
+    assert_eq!(wire["errors"][0]["code"], "interrupted");
+}
+
+/// EP-002 US-009: a workspace whose every member went unlinted carries no
+/// score; one linted member among them keeps today's numeric score.
+#[test]
+fn a_workspace_with_no_linted_member_publishes_no_score() {
+    use std::collections::BTreeSet;
+
+    use crate::audit::{Audit, SourceFileInventory};
+
+    let inventory = SourceFileInventory {
+        files: 2,
+        production_lines: 200,
+        complete: true,
+    };
+    let half = SourceFileInventory {
+        files: 1,
+        production_lines: 100,
+        complete: true,
+    };
+    let members = || vec![("a".to_owned(), half), ("b".to_owned(), half)];
+    let build = |unlinted: &[&str]| {
+        Audit::build_from_inventory(
+            inventory,
+            members(),
+            &unlinted.iter().map(|name| (*name).to_owned()).collect::<BTreeSet<_>>(),
+            Status::Incomplete,
+            BTreeSet::new(),
+            &[],
+        )
+    };
+    let none_linted = build(&["a", "b"]);
+    assert_eq!(none_linted.score, None);
+    assert!(none_linted.is_valid());
+    let one_linted = build(&["a"]);
+    assert!(one_linted.score.is_some());
+    assert_eq!(one_linted.packages[0].score, None);
+    assert!(one_linted.packages[1].score.is_some());
+}

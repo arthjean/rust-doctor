@@ -4,7 +4,7 @@
 use std::io::Write;
 
 use crate::InspectReport;
-use crate::git_scope::ResolvedScope;
+use crate::git_scope::{ResolvedScope, ScopeMode};
 
 use super::{RenderError, Style, TerminalOptions, line, short_revision};
 
@@ -15,7 +15,13 @@ pub(super) fn render_scope<W: Write>(
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
     let Some(scope) = report.scope.as_ref() else {
-        return line(writer, "Scope: full codebase", options, Style::Heading);
+        // A narrower scope that failed to resolve is named as asked, never as
+        // the whole codebase the scan did not judge either.
+        let description = match options.requested_scope {
+            Some(mode) if mode != ScopeMode::Full => format!("Scope: {} (not resolved)", mode.as_str()),
+            _ => "Scope: full codebase".to_owned(),
+        };
+        return line(writer, &description, options, Style::Heading);
     };
     let judged = if scope.staged() { "staged" } else { "changed" };
     // The ref is named beside the commit it resolved to, so a detected default

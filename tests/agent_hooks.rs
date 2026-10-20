@@ -599,3 +599,26 @@ fn the_cursor_hook_skips_an_aborted_or_resubmitted_turn() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+/// EP-002 US-007: every hook installer resolves a relative PATH once, so
+/// `crates/x` from the repository's root writes what `<root>/crates/x` writes.
+#[test]
+fn a_relative_path_installs_every_hook_where_its_absolute_form_does() {
+    let root = repository("relative-path");
+    fs::create_dir_all(root.join("crates/x")).unwrap();
+    for agent in ["git", "claude", "cursor"] {
+        let run = |target: &Path| {
+            binary()
+                .args(["hook", "install", agent, "--dry-run"])
+                .arg(target)
+                .current_dir(&root)
+                .output()
+                .unwrap()
+        };
+        let relative = run(Path::new("crates/x"));
+        let absolute = run(&root.join("crates/x"));
+        assert_eq!(relative.status.code(), Some(0), "{agent}: {}", stderr(&relative));
+        assert_eq!(relative.stdout, absolute.stdout, "{agent}");
+        assert_eq!(relative.stderr, absolute.stderr, "{agent}");
+    }
+}

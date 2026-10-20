@@ -380,3 +380,32 @@ fn a_ten_thousand_diagnostic_report_renders_inside_its_budget() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+/// EP-002 US-008: `why --report` refuses a document `report markdown`
+/// refuses for its schema, with the same line and the same exit code, rather
+/// than explaining a site from a report it cannot read.
+#[test]
+fn why_refuses_a_saved_report_of_another_schema_as_report_markdown_does() {
+    let root = workspace("why-schema");
+    let mut other_schema: Value =
+        serde_json::from_str(&fs::read_to_string(fixture("baseline.json")).unwrap()).unwrap();
+    other_schema["schema_version"] = json!(17);
+    let mut unversioned = other_schema.clone();
+    unversioned.as_object_mut().unwrap().remove("schema_version");
+    for (name, document) in [("other-schema.json", other_schema), ("unversioned.json", unversioned)] {
+        let path = root.join(name);
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let markdown = render(&path, &[]);
+        let why = binary()
+            .args(["why", "src/lib.rs:1", "--report"])
+            .arg(&path)
+            .env("PATH", "")
+            .output()
+            .unwrap();
+        assert_eq!(why.status.code(), Some(2), "{name}");
+        assert!(why.stdout.is_empty(), "{name}: {}", text(&why.stdout));
+        assert_eq!(text(&why.stderr), text(&markdown.stderr), "{name}");
+        assert!(text(&why.stderr).contains("schema_version"), "{name}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}

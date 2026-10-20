@@ -10,7 +10,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use rust_doctor::ScoreReason;
 use serde_json::Value;
 
 mod support;
@@ -128,8 +127,10 @@ fn the_linear_report_prints_compiler_notes_last_under_their_heading() {
 }
 
 /// US-004 AC-4 and US-005 AC-3: an uncatalogued error is the compilation
-/// failing, not a note. The stage error stays in `errors[]`, and the score says
-/// `stage-failed`, in the report and in the linear output.
+/// failing, not a note. The stage error stays in `errors[]`. Since EP-002
+/// US-009 of the e2e hardening PRD, the one member that did not compile
+/// leaves nothing linted, so no score stands to carry a reason: the errors
+/// say why, and the linear output says the scan could not score.
 #[test]
 fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
     let root = fixture("compile-error");
@@ -145,20 +146,20 @@ fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
             .any(|error| error["stage"] == "execution" && error["code"] == "build-failed"),
         "{errors:?}"
     );
-    let score = &report["audit"]["score"];
-    assert_eq!(score["authoritative"], false);
-    // The one member did not compile, so EP-002 US-009 names it as well.
-    assert_eq!(
-        score["reasons"],
-        serde_json::json!(["stage-failed", "packages-unlinted"])
+    assert!(
+        errors
+            .iter()
+            .any(|error| error["stage"] == "clippy" && error["code"] == "packages-unlinted"),
+        "{errors:?}"
     );
+    assert_eq!(report["audit"]["score"], serde_json::Value::Null);
 
     let output = run(&root, &REPO_RULE_OFF);
     let stdout = String::from_utf8(output.stdout).unwrap();
     // The terminal wraps the line to its width, so the words are compared.
     let words = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        words.contains(ScoreReason::StageFailed.explanation()),
+        words.contains("Score unavailable: the scan could not score, since no package was linted."),
         "{stdout}"
     );
     assert!(!stdout.contains("Score is partial because"), "{stdout}");

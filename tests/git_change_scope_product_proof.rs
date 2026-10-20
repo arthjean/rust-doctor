@@ -755,3 +755,34 @@ fn a_conflicted_index_still_fails_the_staged_scan() {
     assert_eq!(code, Some(2));
     assert_eq!(report["errors"][0]["code"], "index-conflicted", "{report:#}");
 }
+
+/// EP-002 US-008: a scope that never resolved is named as asked above the
+/// failure, never as the whole codebase, and the JSON keeps `scope: null`.
+#[test]
+fn a_scope_that_failed_to_resolve_is_named_as_asked() {
+    let root = staged_repository();
+    let scan = |json: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
+        command
+            .arg(&root)
+            .args(["--yes", "--scope", "files", "--base", "HEAD~1"])
+            .env("CARGO_TARGET_DIR", support::scan_target(&root))
+            .env("CARGO_NET_OFFLINE", "true")
+            .env_remove("GIT_INDEX_FILE");
+        if json {
+            command.arg("--json");
+        }
+        command.output().unwrap()
+    };
+    let linear = scan(false);
+    assert_eq!(linear.status.code(), Some(2));
+    let text = String::from_utf8(linear.stdout).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("Scope: files (not resolved)"), "{text}");
+    assert!(lines.next().is_some_and(|line| line.starts_with("Scan failed:")), "{text}");
+    assert!(!text.contains("full codebase"), "{text}");
+
+    let report: Value = serde_json::from_slice(&scan(true).stdout).unwrap();
+    assert_eq!(report["scope"], Value::Null);
+    assert_eq!(report["status"], "failed");
+}

@@ -43,6 +43,7 @@ fn options(width: usize, color: bool) -> TerminalOptions<'static> {
         width,
         color,
         animate: false,
+        requested_scope: None,
     }
 }
 

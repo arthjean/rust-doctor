@@ -1,9 +1,10 @@
 //! What `rules explain` and `why` answer: what a rule does and how this
 //! workspace sets it, and why a line is reported.
 //!
-//! Explaining a rule reads the catalog and, given a workspace, its
-//! `rust-doctor.toml`, and nothing else: no `cargo metadata`, no process. The
-//! site half lives in `why.rs`.
+//! Explaining a rule reads the catalog and, given a path, the
+//! `rust-doctor.toml` of the workspace root a scan of that path would judge,
+//! which `cargo metadata` names as it does for the scan. The site half lives
+//! in `why.rs`.
 
 use std::fmt::{self, Write as _};
 use std::path::Path;
@@ -140,7 +141,12 @@ pub fn explain_rule(query: &str, workspace: Option<&Path>) -> Result<RuleExplana
     })
 }
 
-fn effective_level(rule: &CatalogEntry, root: &Path) -> Result<EffectiveLevel, ExplainError> {
+fn effective_level(rule: &CatalogEntry, path: &Path) -> Result<EffectiveLevel, ExplainError> {
+    // The configuration a scan of `path` reads: its workspace root's, found
+    // the way a scan finds it. A member's own file, which scans ignore, used
+    // to answer here. Without Cargo, or outside a workspace, `path` is taken
+    // as the root it was given as.
+    let root = crate::cargo_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
     let configuration = load_path(&root.join(CONFIG_FILE_NAME))
         .map_err(|error| ExplainError::Configuration(error.message))?;
     let input = PolicyInput::default();

@@ -170,6 +170,7 @@ fn presentation_pipeline(report: &mut InspectReport) {
             width: 100,
             color: false,
             animate: false,
+            requested_scope: None,
         },
     )
     .expect("static rendering should succeed");

@@ -312,7 +312,22 @@ impl Audit {
         let mut audit = Self::build_with_inventory(inventory, status, stage_reasons, diagnostics);
         audit.packages =
             packages::score(members, unlinted, status, &audit.stage_reasons, diagnostics);
+        audit.withhold_when_nothing_was_linted();
         audit
+    }
+
+    /// No score when every member went unlinted: a hundred over a workspace
+    /// Clippy never linted is a judgment nothing made.
+    fn withhold_when_nothing_was_linted(&mut self) {
+        if !self.packages.is_empty() && self.packages.iter().all(|package| package.unlinted) {
+            self.score = None;
+        }
+    }
+
+    /// No score at all, for a run whose findings no longer judge anything: one
+    /// a signal stopped.
+    pub(crate) fn withhold(&mut self) {
+        self.score = None;
     }
 
     fn build_with_inventory(
@@ -370,6 +385,10 @@ impl Audit {
         );
         rebuilt.packages =
             packages::rescore(&self.packages, status, &self.stage_reasons, diagnostics);
+        rebuilt.withhold_when_nothing_was_linted();
+        if self.score.is_none() {
+            rebuilt.score = None;
+        }
         rebuilt
     }
 
@@ -380,9 +399,11 @@ impl Audit {
             previous = Some(category.name);
             ordered && category.is_valid()
         });
+        // A scorable workspace may still carry no score, when nothing was
+        // linted or a signal stopped the run; a score over nothing never is.
         categories_are_valid
-            && is_scorable_workspace(self.source_files, self.production_lines)
-                == self.score.is_some()
+            && (self.score.is_none()
+                || is_scorable_workspace(self.source_files, self.production_lines))
             && self.score.as_ref().is_none_or(AuditScore::is_valid)
             && self.packages.iter().all(PackageAudit::is_valid)
     }

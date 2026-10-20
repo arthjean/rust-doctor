@@ -13,6 +13,7 @@ use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure, GitView};
 
 mod staged;
+mod sweep;
 
 pub(crate) use staged::{StagedIndex, locate_index, materialize_index};
 
@@ -395,7 +396,9 @@ fn repository_root(workspace_root: &Path) -> Result<PathBuf, InternalError> {
 }
 
 fn create_temp_root(repository_root: &Path) -> Result<TempRoot, InternalError> {
-    create_temp_root_in(repository_root, &env::temp_dir())
+    let temporary = env::temp_dir();
+    sweep::dead_snapshots(&temporary);
+    create_temp_root_in(repository_root, &temporary)
 }
 
 fn create_temp_root_in(
@@ -414,7 +417,8 @@ fn create_temp_root_in(
     for _ in 0..TEMP_ATTEMPTS {
         let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let root = temporary.join(format!(
-            "rust-doctor-baseline-{}-{sequence}",
+            "{}{}-{sequence}",
+            sweep::PREFIX,
             std::process::id()
         ));
         match create_private_directory(&root) {

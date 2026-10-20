@@ -91,17 +91,24 @@ pub(crate) struct WriteArgs {
 pub fn run(arguments: &HookArgs) -> ExitCode {
     match &arguments.command {
         HookCommand::Run { agent } => agent::run(*agent),
-        HookCommand::Install { target } => match target {
-            HookTarget::Git { path, write } => ExitCode::from(install_git(path, *write)),
-            HookTarget::Claude {
-                path,
-                shared,
-                write,
-            } => ExitCode::from(agent::install(AgentHook::Claude, path, *shared, *write)),
-            HookTarget::Cursor { path, write } => {
-                ExitCode::from(agent::install(AgentHook::Cursor, path, false, *write))
-            }
-        },
+        HookCommand::Install { target } => {
+            let (HookTarget::Git { path, .. }
+            | HookTarget::Claude { path, .. }
+            | HookTarget::Cursor { path, .. }) = target;
+            let path = match crate::path_argument::resolve("PATH", path) {
+                Ok(path) => path,
+                Err(code) => return ExitCode::from(code),
+            };
+            ExitCode::from(match target {
+                HookTarget::Git { write, .. } => install_git(&path, *write),
+                HookTarget::Claude { shared, write, .. } => {
+                    agent::install(AgentHook::Claude, &path, *shared, *write)
+                }
+                HookTarget::Cursor { write, .. } => {
+                    agent::install(AgentHook::Cursor, &path, false, *write)
+                }
+            })
+        }
     }
 }
 

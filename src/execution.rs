@@ -53,6 +53,7 @@ mod clippy;
 mod exclusions;
 pub(crate) mod interrupt;
 mod lint_list;
+mod lockfile;
 mod members;
 mod messages;
 mod process;
@@ -69,6 +70,8 @@ pub(crate) use side_cache::{SideCache, members as side_cache_members};
 pub(crate) use clippy::ClippyExecution;
 pub(crate) use exclusions::ScanExclusions;
 pub(crate) use process::{RunDeadline, run as run_bounded, spawn as spawn_bounded};
+#[cfg(unix)]
+pub(crate) use process::{effective_user, is_running};
 #[cfg(test)]
 pub(crate) use clippy::arguments_for_rules as clippy_arguments_for_rules;
 pub(crate) use messages::{

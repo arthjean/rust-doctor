@@ -409,7 +409,9 @@ fn a_shifted_structural_finding_is_pre_existing_against_its_baseline() {
 ///
 /// The crate is built here rather than committed as a fixture: a file that
 /// fails to parse also fails to compile, so a committed one would turn every
-/// scan of the surrounding directory incomplete.
+/// scan of the surrounding directory incomplete. A second member compiles,
+/// so the workspace keeps a score for the error to qualify: one with every
+/// member unlinted publishes none (EP-002 US-009).
 #[test]
 fn an_unparseable_unit_is_reported_under_the_structure_stage() {
     let root = scratch("parse-error");
@@ -424,10 +426,19 @@ fn an_unparseable_unit_is_reported_under_the_structure_stage() {
             "edition = \"2024\"\n",
             "publish = false\n\n",
             "[lib]\n",
-            "path = \"src/lib.rs\"\n",
+            "path = \"src/lib.rs\"\n\n",
+            "[workspace]\n",
+            "members = [\"readable\"]\n",
         ),
     )
     .unwrap();
+    fs::create_dir_all(project.join("readable/src")).unwrap();
+    fs::write(
+        project.join("readable/Cargo.toml"),
+        "[package]\nname = \"structure-readable\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n",
+    )
+    .unwrap();
+    fs::write(project.join("readable/src/lib.rs"), "pub fn value() -> u8 {\n    1\n}\n").unwrap();
     fs::write(
         project.join("src/lib.rs"),
         "pub mod broken;\n\n#[allow(dead_code)]\npub struct Readable {\n    unread: u8,\n}\n",

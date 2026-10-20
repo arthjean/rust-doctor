@@ -146,6 +146,7 @@ fn rendered(report: &InspectReport, width: usize, color: bool, verbose: bool) ->
             width,
             color,
             animate: false,
+            requested_scope: None,
         },
     )
     .unwrap();
@@ -846,6 +847,7 @@ fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
                 width,
                 color: false,
                 animate: false,
+                requested_scope: None,
             },
         )
         .unwrap();

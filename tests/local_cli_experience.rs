@@ -137,10 +137,12 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     assert!(clean.contains("100 / 100 Great"));
     assert!(!clean.contains("Hand off to an agent"));
 
+    // EP-002 US-009: the one member did not compile, so no number is shown.
     let partial = run(&["--yes"], &project("compile-error"));
     assert_eq!(partial.status.code(), Some(1));
     let partial = String::from_utf8(partial.stdout).unwrap();
-    assert!(partial.contains("Core partial"));
+    assert!(partial.contains("Score unavailable: the scan could not score, since no package was linted."));
+    assert!(!partial.contains("/ 100"));
     assert!(!partial.contains("Share:"));
     assert!(!partial.contains("projected"));
 
@@ -491,6 +493,37 @@ mod tty {
             !output.contains("All 3 occurrences across 3 findings"),
             "the linear report belongs to the non-interactive runs: {output}"
         );
+    }
+
+    /// EP-002 US-010: a signal that ends the process while the interactive
+    /// report waits on a key, the terminal raw for the read, gives the
+    /// terminal back: its mode restored and the cursor shown again.
+    #[test]
+    fn a_signal_during_the_interactive_report_gives_the_terminal_back() {
+        let mut command = binary();
+        command.arg(kernel("todo")).args(["--scope", "full"]);
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("Hand off to an agent");
+        // The key reader turns the terminal raw for each read it starts.
+        thread::sleep(Duration::from_millis(200));
+        // SAFETY: an all-zero `termios` is a valid value for `tcgetattr` to
+        // fill, and the descriptor is the PTY master this test owns.
+        let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::tcgetattr(process.terminal.as_raw_fd(), &raw mut mode) }, 0);
+        assert_eq!(mode.c_lflag & libc::ICANON, 0, "the report is not reading a key");
+        let pid = i32::try_from(process.child.id()).unwrap();
+        // SAFETY: `kill` takes plain integers and the pid is this test's child.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let terminal = process.terminal.try_clone().unwrap();
+        let (status, output) = process.wait();
+        assert_eq!(status.code(), Some(130), "{output}");
+        let hidden = output.rfind("\u{1b}[?25l").expect("the report hid the cursor");
+        assert!(output[hidden..].contains("\u{1b}[?25h"), "the cursor stayed hidden");
+        // SAFETY: as above, on a clone of the same master.
+        let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::tcgetattr(terminal.as_raw_fd(), &raw mut mode) }, 0);
+        assert_ne!(mode.c_lflag & libc::ICANON, 0, "the terminal was left raw");
+        assert_ne!(mode.c_lflag & libc::ECHO, 0, "the terminal was left without echo");
     }
 
     /// The review is one `esc` deep: leaving it comes back to the landing with

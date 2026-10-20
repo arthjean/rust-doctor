@@ -91,6 +91,7 @@ fn the_animated_block_rewinds_one_block_per_frame_at_every_width() {
                 width,
                 color: true,
                 animate: true,
+                requested_scope: None,
             },
         )
         .unwrap();

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::Args;
 use rust_doctor::explain::{WhyLocation, declared_generated, explain_site};
-use rust_doctor::render::markdown::read_saved_report;
+use rust_doctor::render::markdown::{check_schema, read_saved_report};
 use rust_doctor::{InspectRequest, inspect};
 use serde_json::Value;
 
@@ -38,7 +38,7 @@ pub fn run(arguments: &WhyArgs) -> ExitCode {
     };
     let file = PathBuf::from(&location.path);
     let (report, root, declared) = match &arguments.report {
-        Some(saved) => match read_saved_report(saved) {
+        Some(saved) => match read_saved_report(saved).and_then(|report| check_schema(&report).map(|()| report)) {
             Ok(report) => (report, saved_root(&file), BTreeSet::new()),
             Err(error) => {
                 eprintln!("rust-doctor: {}: {error}.", saved.display());
@@ -94,11 +94,13 @@ fn scan_owner(file: &Path) -> Result<(Value, PathBuf), String> {
     Ok((report, root))
 }
 
+fn manifest(directory: &Path) -> Option<toml::Table> {
+    std::fs::read_to_string(directory.join("Cargo.toml")).ok()?.parse().ok()
+}
+
 /// The `[package] name` of the manifest in `directory`, when it declares one.
 fn package_name(directory: &Path) -> Option<String> {
-    let manifest = std::fs::read_to_string(directory.join("Cargo.toml")).ok()?;
-    let manifest: toml::Table = manifest.parse().ok()?;
-    manifest
+    manifest(directory)?
         .get("package")?
         .get("name")?
         .as_str()
@@ -106,22 +108,25 @@ fn package_name(directory: &Path) -> Option<String> {
 }
 
 /// The root a saved report's paths are relative to, found without a
-/// process: the nearest directory above the file holding `Cargo.lock`, else
-/// the nearest holding a manifest, else the current directory.
+/// process: the nearest directory above the file whose manifest declares a
+/// `[workspace]`, else the nearest holding a manifest, else the current
+/// directory. It used to look for `Cargo.lock` first, which a library
+/// commits nowhere and a scan no longer leaves behind, and found the
+/// lockfile of whatever repository held the workspace.
 fn saved_root(file: &Path) -> PathBuf {
     let Ok(absolute) = file.canonicalize() else {
         return PathBuf::from(".");
     };
-    let nearest = |marker: &str| {
+    let manifests = || {
         absolute
             .ancestors()
             .skip(1)
-            .find(|directory| directory.join(marker).is_file())
-            .map(Path::to_path_buf)
+            .filter(|directory| directory.join("Cargo.toml").is_file())
     };
-    nearest("Cargo.lock")
-        .or_else(|| nearest("Cargo.toml"))
-        .unwrap_or_else(|| PathBuf::from("."))
+    manifests()
+        .find(|directory| manifest(directory).is_some_and(|manifest| manifest.contains_key("workspace")))
+        .or_else(|| manifests().next())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
 /// `file` relative to `root` with `/` separators, as a report spells it.

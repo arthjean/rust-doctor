@@ -84,7 +84,10 @@ scanned member's production lines and the findings attributed to it, with the
 workspace's reasons, and a narrower scope rebuilds them the way it rebuilds the
 workspace. A finding no member claims, a repository finding or one in a file two
 members reach, weighs on the workspace score alone. The block is absent rather
-than empty on a report that failed before the workspace answered.
+than empty on a report that failed before the workspace answered. A member
+Clippy never linted has no score, and a workspace none of whose members was
+linted has none either: a hundred over code nothing linted read as clean. A run
+a signal stopped publishes no score at all.
 
 `the_audit_holds_the_size_bound_it_scores_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. This was one

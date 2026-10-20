@@ -93,15 +93,24 @@ pub fn read_saved_report(path: &Path) -> Result<Value, MarkdownError> {
     })
 }
 
+/// Refuses a saved report this binary cannot read: no `schema_version`, or
+/// one outside the versions it renders. `report markdown` and `why --report`
+/// refuse with the same sentence.
+pub fn check_schema(report: &Value) -> Result<(), MarkdownError> {
+    let found = report.get("schema_version").and_then(Value::as_u64);
+    let readable = u64::from(READABLE_FROM)..=u64::from(SCHEMA_VERSION);
+    if found.is_some_and(|found| readable.contains(&found)) {
+        Ok(())
+    } else {
+        Err(MarkdownError::SchemaMismatch { found })
+    }
+}
+
 /// The report as Markdown: score, label and authority with its reasons, the
 /// baseline counts when the scan compared against one, and a table of up to
 /// `limit` findings, the introduced ones in baseline scope.
 pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownError> {
-    let found = report.get("schema_version").and_then(Value::as_u64);
-    let readable = u64::from(READABLE_FROM)..=u64::from(SCHEMA_VERSION);
-    if !found.is_some_and(|found| readable.contains(&found)) {
-        return Err(MarkdownError::SchemaMismatch { found });
-    }
+    check_schema(report)?;
     // A scan that failed before scoring publishes a null score, and is the
     // report a reader most needs rendered.
     let score = report

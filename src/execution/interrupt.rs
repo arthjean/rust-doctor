@@ -1,4 +1,4 @@
-//! SIGINT and SIGTERM, for a binary that scans.
+//! SIGINT, SIGTERM and SIGHUP, for a binary that scans.
 //!
 //! Ctrl-C used to leave Cargo, rustc and every build script running, and the
 //! baseline snapshot on disk: a bounded child leads a process group of its
@@ -10,10 +10,16 @@
 //! deadline ends one, the run publishes a failed report with code
 //! `interrupted`, the snapshots are removed by their normal `Drop`, and the
 //! binary exits 130. A second signal kills the registered groups from the
-//! handler itself and exits at once.
+//! handler itself and exits at once, unless it arrived within
+//! [`DUPLICATE_WINDOW_MS`] of the first: a terminal's Ctrl-C through the npm
+//! launcher reaches this process twice, from the terminal and from the
+//! launcher's forward, and took the immediate exit with nothing on stdout.
+//! SIGHUP, a closed terminal tab, ends the scan as SIGTERM does.
 //!
 //! Outside a scan nothing is waiting to be cleaned up, so a signal exits 130
-//! straight away. On Windows nothing is installed and behavior is unchanged.
+//! straight away, after giving back a terminal the interactive report holds
+//! ([`TerminalGuard`]). On Windows nothing is installed and behavior is
+//! unchanged.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -23,6 +29,11 @@ pub(crate) const MESSAGE: &str = "The scan was interrupted by a signal.";
 
 /// The exit status of a run a handled signal interrupted.
 pub(crate) const EXIT_STATUS: u8 = 130;
+
+/// A second signal this soon after the first is the same delivery, not a
+/// person asking twice: pressing Ctrl-C again takes longer than this.
+#[cfg(unix)]
+pub(crate) const DUPLICATE_WINDOW_MS: i64 = 500;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -58,10 +69,25 @@ impl Drop for ScanGuard {
 }
 
 #[cfg(unix)]
+pub use unix::TerminalGuard;
+#[cfg(unix)]
 pub(crate) use unix::{install, register, unregister};
 
 #[cfg(not(unix))]
 pub(crate) fn install() {}
+
+/// Gives the terminal back if a signal ends the process while this lives.
+/// Elsewhere than Unix nothing is handled, so there is nothing to give back.
+#[cfg(not(unix))]
+#[derive(Debug)]
+pub struct TerminalGuard(());
+
+#[cfg(not(unix))]
+impl TerminalGuard {
+    pub(crate) fn take() -> Self {
+        Self(())
+    }
+}
 
 #[cfg(not(unix))]
 pub(crate) fn register(_group: u32) {}
@@ -71,11 +97,74 @@ pub(crate) fn unregister(_group: u32) {}
 
 #[cfg(unix)]
 mod unix {
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
     use std::thread;
 
-    use super::{ACTIVE, EXIT_STATUS, INSTALLED, REQUESTED};
+    use super::{ACTIVE, DUPLICATE_WINDOW_MS, EXIT_STATUS, INSTALLED, REQUESTED};
     use crate::execution::process::kill_tree;
+
+    /// When the first signal arrived, in monotonic milliseconds, `0` before.
+    static FIRST_AT: AtomicI64 = AtomicI64::new(0);
+    /// The terminal mode the interactive report found, kept so a signal can
+    /// put it back: the key reader leaves the terminal raw between keys only
+    /// for as long as a read lasts, and a process killed during one leaves
+    /// it raw and the cursor hidden.
+    static TERMINAL: OnceLock<libc::termios> = OnceLock::new();
+    static TERMINAL_HELD: AtomicBool = AtomicBool::new(false);
+
+    /// The terminal the interactive report holds, given back by a signal that
+    /// ends the process before the report does.
+    #[derive(Debug)]
+    pub struct TerminalGuard(());
+
+    impl TerminalGuard {
+        pub(crate) fn take() -> Self {
+            if TERMINAL.get().is_none() {
+                // SAFETY: an all-zero `termios` is a valid value for
+                // `tcgetattr` to overwrite, and stdin is a live descriptor.
+                let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+                // SAFETY: `mode` is a live local of the type the call fills.
+                if unsafe { libc::tcgetattr(libc::STDIN_FILENO, &raw mut mode) } == 0 {
+                    let _ = TERMINAL.set(mode);
+                }
+            }
+            TERMINAL_HELD.store(true, Ordering::SeqCst);
+            Self(())
+        }
+    }
+
+    impl Drop for TerminalGuard {
+        fn drop(&mut self) {
+            TERMINAL_HELD.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// Restores the saved mode and shows the cursor, when the interactive
+    /// report holds the terminal. `tcsetattr` and `write` are
+    /// async-signal-safe, so the handler calls this too.
+    fn give_terminal_back() {
+        if !TERMINAL_HELD.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(mode) = TERMINAL.get() {
+            // SAFETY: the mode was read from this descriptor by `tcgetattr`.
+            unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, mode) };
+        }
+        let show = b"\x1b[?25h";
+        // SAFETY: `write` reads the live static buffer it is given.
+        unsafe { libc::write(libc::STDOUT_FILENO, show.as_ptr().cast(), show.len()) };
+    }
+
+    /// Monotonic milliseconds, `1` at the least so `0` keeps meaning unset.
+    /// `clock_gettime` is async-signal-safe.
+    fn now_ms() -> i64 {
+        // SAFETY: an all-zero `timespec` is valid for `clock_gettime` to fill.
+        let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+        // SAFETY: `now` is a live local of the type the call writes.
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut now) };
+        (now.tv_sec * 1_000 + now.tv_nsec / 1_000_000).max(1)
+    }
 
     /// The write end of the self-pipe, `-1` until installed.
     static PIPE: AtomicI32 = AtomicI32::new(-1);
@@ -121,11 +210,19 @@ mod unix {
         }
     }
 
-    /// Only touches atomics and calls `kill`, `write` and `_exit`, all of
-    /// them async-signal-safe.
+    /// Only touches atomics and calls `clock_gettime`, `kill`, `tcsetattr`,
+    /// `write` and `_exit`, all of them async-signal-safe.
     extern "C" fn on_signal(_signal: libc::c_int) {
+        let now = now_ms();
+        let _ = FIRST_AT.compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst);
         if REQUESTED.swap(true, Ordering::SeqCst) {
+            // The same Ctrl-C, delivered once by the terminal and once by a
+            // launcher forwarding it: the first is already ending the scan.
+            if now.saturating_sub(FIRST_AT.load(Ordering::SeqCst)) < DUPLICATE_WINDOW_MS {
+                return;
+            }
             kill_registered();
+            give_terminal_back();
             // SAFETY: `_exit` is async-signal-safe and ends the process
             // without running anything else.
             unsafe { libc::_exit(i32::from(EXIT_STATUS)) }
@@ -175,6 +272,7 @@ mod unix {
             libc::sigemptyset(&raw mut action.sa_mask);
             libc::sigaction(libc::SIGINT, &raw const action, std::ptr::null_mut());
             libc::sigaction(libc::SIGTERM, &raw const action, std::ptr::null_mut());
+            libc::sigaction(libc::SIGHUP, &raw const action, std::ptr::null_mut());
         }
         INSTALLED.store(true, Ordering::SeqCst);
     }
@@ -195,6 +293,7 @@ mod unix {
             }
             kill_registered();
             if ACTIVE.load(Ordering::SeqCst) == 0 {
+                give_terminal_back();
                 std::process::exit(i32::from(EXIT_STATUS));
             }
         }

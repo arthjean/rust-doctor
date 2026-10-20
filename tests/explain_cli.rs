@@ -43,8 +43,8 @@ fn workspace() -> PathBuf {
     root
 }
 
-/// Every run below starts with an empty `PATH`: an answer that needed Cargo,
-/// git or any other process would fail.
+/// Every run below starts with an empty `PATH`: given the workspace root
+/// itself, an answer needs neither Cargo, git nor any other process.
 #[test]
 fn rules_explain_resolves_a_suffix_and_reads_the_workspace_without_a_process() {
     let root = workspace();
@@ -156,4 +156,40 @@ fn why_says_why_a_line_has_nothing_and_refuses_a_non_positive_line() {
         assert_eq!(output.status.code(), Some(2), "{refused}");
         assert!(output.stdout.is_empty(), "{refused}");
     }
+}
+
+/// EP-002 US-008: a member's PATH explains with the configuration a scan of
+/// it reads, the workspace root's. The member's own `rust-doctor.toml`, which
+/// scans ignore, is not read.
+#[test]
+fn rules_explain_on_a_member_reads_the_workspace_roots_configuration() {
+    let root = workspace();
+    fs::write(root.join("a/rust-doctor.toml"), "[rules]\n\"clippy::todo\" = \"off\"\n").unwrap();
+    let output = support::rust_doctor()
+        .args(["rules", "explain", "todo", "--json"])
+        .arg(root.join("a"))
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let explained: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(explained["effective"]["level"], "error", "{explained}");
+    assert_eq!(explained["effective"]["source"], "config-rule", "{explained}");
+
+    let scan = support::rust_doctor()
+        .arg(root.join("a"))
+        .args(["--json", "--yes"])
+        .args(support::NO_ADVISORY_DB)
+        .env("CARGO_TARGET_DIR", support::scan_target(&root))
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .unwrap();
+    let scanned: Value = serde_json::from_slice(&scan.stdout).unwrap();
+    let rule = scanned["policy"]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["id"] == "clippy::todo")
+        .unwrap();
+    assert_eq!(rule["level"], explained["effective"]["level"], "{rule}");
 }

@@ -86,6 +86,18 @@ cannot be stripped from the command line, so the command ends with
 (observed 2026-10-14, pinned by
 `a_target_table_or_cargo_build_rustflags_cannot_deny_warnings`).
 
+A scan leaves `Cargo.lock` as it found it. `cargo clippy` writes the lockfile
+it resolved, so a lockless binary crate scored 94 with `missing_lockfile` and
+99 on the next scan, which read the file the first one wrote.
+`execution/lockfile.rs` keeps the lockfile's bytes before Clippy starts and,
+whatever ended the pass, removes one that did not exist and writes back one
+Cargo changed; one Cargo left alone is not written, so its modification time
+survives. `--locked` refuses a missing lockfile and `--offline` resolves
+differently, which is why the file is restored rather than protected. A
+removal that fails is one stderr line naming the file, never a report field.
+The race is accepted: a lockfile another process creates during the scan is
+removed with it.
+
 `--max-duration` arms `execution/process.rs`'s watchdog, and every child the
 run starts goes through it: the version probes, `cargo metadata`, every git
 call, the snapshot and Clippy. A child still running at the deadline is killed
@@ -94,11 +106,21 @@ it never linted, their score is withheld rather than computed on nothing, and
 the message names the lock Cargo's stderr shows it waited on, the build
 directory's or the package cache's, and never one it did not. On Unix a bounded child leads its own process group, killed through
 `libc::kill`. `libc` is a normal dependency for that and for
-`execution/interrupt.rs`: a first SIGINT or SIGTERM kills every registered
-group and the run ends with one failed report, exit 130 and no snapshot left
-behind; a second exits at once. A terminal's Ctrl-C no longer reaches a child
-in its own group, which is why the handler kills them. On Windows `taskkill /T`
-kills the tree it can see, no signal is handled, and nothing tests either.
+`execution/interrupt.rs`: a first SIGINT, SIGTERM or SIGHUP kills every
+registered group and the run ends with one failed report, no score, exit 130
+and no snapshot left behind. SIGHUP is a closed terminal tab, and was the one
+signal that left Cargo compiling. A second signal within 500 ms of the first
+is the same delivery: a terminal's Ctrl-C through the npm launcher arrives
+once from the terminal and once from the launcher's forward, and took the
+immediate exit with nothing on stdout. A second signal after that exits at
+once. A terminal's Ctrl-C no longer reaches a child in its own group, which is
+why the handler kills them. While the interactive report holds the terminal,
+a signal restores the mode it found and shows the cursor before the process
+exits. SIGKILL runs nothing, so the first snapshot a baseline or staged scan
+creates sweeps the `rust-doctor-baseline-<pid>-<n>` directories this user owns
+whose process is gone, never a live one's, and one it cannot remove stays. On
+Windows `taskkill /T` kills the tree it can see, no signal is handled, and
+nothing tests either.
 
 The run overlaps what does not depend on itself. The three version probes and
 the lint list run concurrently. The dependency pack and the repository pass

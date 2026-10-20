@@ -111,7 +111,12 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
         OsString::from("core.fsmonitor=false"),
         OsString::from("--no-pager"),
         OsString::from("-C"),
-        workspace_root.as_os_str().to_owned(),
+        // Absolute, since `git_command` also runs git in `workspace_root`: a
+        // relative `-C` was resolved a second time from there, and
+        // `crates/x` named `crates/x/crates/x`.
+        std::path::absolute(workspace_root)
+            .unwrap_or_else(|_| workspace_root.to_path_buf())
+            .into_os_string(),
     ]
     .into_iter()
     .chain(operation.into_iter().map(Into::into))

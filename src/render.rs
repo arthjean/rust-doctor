@@ -9,7 +9,7 @@ use crate::presentation::{
     COMPILER_NOTES_HEADING, DiagnosticGroup, GroupDiagnostic, ReportPresentation, code_frame,
 };
 use crate::terminal_text::{sanitize, truncate, wrap};
-use crate::{GateStatus, InspectReport, Status};
+use crate::{GateStatus, InspectReport, ScopeMode, Status};
 
 pub mod markdown;
 mod narrowing;
@@ -82,6 +82,8 @@ pub struct TerminalOptions<'a> {
     /// Allows the score block to animate. Reserved for a real interactive
     /// terminal: any captured output must stay deterministic.
     pub animate: bool,
+    /// The scope the invocation asked for, named when it never resolved.
+    pub requested_scope: Option<ScopeMode>,
 }
 
 impl<'a> TerminalOptions<'a> {
@@ -93,6 +95,7 @@ impl<'a> TerminalOptions<'a> {
             width: DEFAULT_WIDTH,
             color: false,
             animate: false,
+            requested_scope: None,
         }
     }
 

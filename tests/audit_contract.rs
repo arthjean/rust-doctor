@@ -64,15 +64,11 @@ fn incomplete_and_unscorable_reports_keep_existing_outcome_without_a_share() {
     assert_eq!(report.status, Status::Incomplete);
     assert_eq!(report.exit_code(), 1);
     assert_eq!(report.audit.source_files, 1);
-    let score = report
-        .audit
-        .score
-        .as_ref()
-        .expect("partial score should exist");
-    assert!(!score.authoritative);
-    assert_eq!(score.projected_after_top_three, None);
-    assert!(score.projected_rule_ids.is_empty());
-    assert_eq!(report.audit.share_url(), Err(ShareError::NonAuthoritative));
+    // EP-002 US-009: the one member did not compile, so nothing was linted
+    // and nothing is scored, where a partial score used to stand.
+    assert!(report.audit.packages.iter().all(|package| package.unlinted));
+    assert_eq!(report.audit.score, None);
+    assert_eq!(report.audit.share_url(), Err(ShareError::ScoreUnavailable));
     assert!(!report.errors.is_empty());
 }
 

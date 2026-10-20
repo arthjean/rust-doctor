@@ -77,6 +77,18 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
     }
 }
 
+/// EP-002 US-007: git runs in the workspace and is told `-C` of it, so a
+/// relative workspace reaches `-C` absolute rather than resolved twice.
+#[test]
+fn a_relative_workspace_reaches_git_once() {
+    let arguments = git_arguments(Path::new("crates/x"), ["status"]);
+    let command = git_command(Path::new("git"), Path::new("crates/x"), &arguments);
+    assert_eq!(command.get_current_dir(), Some(Path::new("crates/x")));
+    let directory = Path::new(&arguments[6]);
+    assert!(directory.is_absolute(), "{}", directory.display());
+    assert_eq!(directory, std::env::current_dir().unwrap().join("crates/x"));
+}
+
 /// The operation is written in whatever string type the call site holds.
 #[test]
 fn arguments_accept_a_literal_and_an_owned_operation_alike() {

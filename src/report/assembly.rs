@@ -247,10 +247,12 @@ pub(crate) fn interrupted_failure(report: InspectReport) -> InspectReport {
         .iter()
         .any(|error| error.code == interrupt::CODE && error.stage == "clippy");
     let stage = if clippy { "clippy" } else { "execution" };
-    baseline_report_failure(
+    let mut report = baseline_report_failure(
         report,
         InternalError::new(stage, interrupt::CODE, interrupt::MESSAGE),
-    )
+    );
+    report.audit.withhold();
+    report
 }
 
 fn force_baseline_gate(mut report: InspectReport) -> InspectReport {

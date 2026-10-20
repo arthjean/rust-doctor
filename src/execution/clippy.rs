@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use cargo_metadata::Metadata;
 
+use super::lockfile::LockfileGuard;
 use super::members::Members;
 use super::messages::{self, ScanExecution};
 use super::rustflags::RustflagsOverride;
@@ -176,6 +177,8 @@ pub(super) fn run(
     // it compiled what the workspace depends on, what comes after lints it.
     let spawned = Instant::now();
     let mut first_member = None;
+    // Dropped when this function returns, however the pass ended.
+    let _lockfile = LockfileGuard::capture(workspace_root);
     let finished = process::run(command, context.options.deadline, |stdout| {
         messages::collect_observed(std::io::BufReader::new(stdout), &mut |message| {
             members.observe(message, &mut linted, context.options.progress.as_ref());
@@ -220,10 +223,12 @@ pub(super) fn run(
         }
     };
     let succeeded = exit_success == Some(true) && stream.build_finished == Some(true);
-    // Only a build Cargo ran and reported failed, or one the deadline cut
-    // short, has members to name. One that never started, over a lockfile it
-    // could not parse, linted nothing, and its exit error already quotes why.
-    let unlinted = if finished.expired || stream.build_finished == Some(false) {
+    // A build Cargo did not report finished linted nothing it did not name:
+    // one that failed, one the deadline or a signal cut short, and one Cargo
+    // refused before building, over a lockfile it could not parse or a
+    // `rust-version` above the toolchain. The last used to name no member and
+    // publish a hundred over a workspace nothing had linted.
+    let unlinted = if finished.expired || stream.build_finished != Some(true) {
         members.unlinted(&stream.messages)
     } else {
         Vec::new()

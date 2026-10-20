@@ -120,7 +120,7 @@ pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
         .map(|target| target.workspace_root().to_path_buf())
 }
 
-/// Installs SIGINT and SIGTERM handlers for a binary that scans. Every child
+/// Installs SIGINT, SIGTERM and SIGHUP handlers for a binary that scans. Every child
 /// a scan starts then leads a process group the handlers kill, the scan
 /// publishes a failed report with code `interrupted`, and [`interrupted`]
 /// answers true so the binary can exit 130. A second signal exits at once,
@@ -138,6 +138,15 @@ pub fn interrupted() -> bool {
 
 /// The exit status of a run a handled signal stopped.
 pub const INTERRUPTED_EXIT_STATUS: u8 = execution::interrupt::EXIT_STATUS;
+
+pub use execution::interrupt::TerminalGuard;
+
+/// Marks the terminal as held by an interactive screen: a signal the handlers
+/// of [`handle_interrupts`] catch while the value lives restores the terminal
+/// mode found here, and shows the cursor, before the process exits.
+pub fn hold_terminal() -> TerminalGuard {
+    TerminalGuard::take()
+}
 
 #[derive(Debug)]
 pub struct InspectionSession {

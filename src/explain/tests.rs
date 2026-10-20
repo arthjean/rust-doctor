@@ -33,11 +33,26 @@ fn an_explanation_carries_the_catalog_and_the_corpus_measurement() {
     }
 }
 
-/// The effective level comes from `rust-doctor.toml` alone, with every
-/// `[[overrides]]` table that sets the rule or its category.
+/// A one-package Cargo workspace of its own, so a scan's discovery stops at
+/// it rather than at the repository holding the scratch directory.
+fn package(name: &str) -> std::path::PathBuf {
+    let root = scratch("explain", name);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\n\n[package]\nname = \"explained\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/lib.rs"), "").unwrap();
+    root
+}
+
+/// The effective level comes from the workspace root's `rust-doctor.toml`
+/// alone, with every `[[overrides]]` table that sets the rule or its
+/// category.
 #[test]
 fn a_workspace_names_the_effective_level_its_source_and_its_overrides() {
-    let root = scratch("explain", "effective-level");
+    let root = package("effective-level");
     std::fs::write(
         root.join("rust-doctor.toml"),
         "[rules]\n\"clippy::todo\" = \"error\"\n\n[[overrides]]\npaths = [\"tests/**\"]\nrules = { \"clippy::todo\" = \"off\" }\n\n[[overrides]]\npaths = [\"benches/**\"]\nrules = { \"clippy::dbg_macro\" = \"off\" }\n",
@@ -51,7 +66,7 @@ fn a_workspace_names_the_effective_level_its_source_and_its_overrides() {
     assert!(text.contains("Effective level: error (config-rule)"), "{text}");
     assert!(text.contains("Override: off under tests/**"), "{text}");
 
-    let bare = scratch("explain", "default-level");
+    let bare = package("default-level");
     let explained = explain_rule("todo", Some(&bare)).unwrap();
     assert_eq!(explained.effective.unwrap().source, RuleLevelSource::Default);
 }

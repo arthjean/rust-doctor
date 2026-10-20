@@ -57,7 +57,10 @@ pub fn detected_agents(workspace_root: &Path) -> Vec<Agent> {
 }
 
 pub fn run(arguments: &SetupArgs) -> ExitCode {
-    let root = &arguments.path;
+    let root = &match crate::path_argument::resolve("PATH", &arguments.path) {
+        Ok(root) => root,
+        Err(code) => return ExitCode::from(code),
+    };
     let agents = detected_agents(root);
     if agents.is_empty() {
         eprintln!("rust-doctor: no agent detected, so nothing was set up. Probed {PROBED}.");

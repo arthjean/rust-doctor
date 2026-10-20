@@ -65,7 +65,9 @@ and `?` only, and a pattern that could be read two ways is refused as
 `correctness.rs` and `native.rs`, so no file of the catalog passes the size
 bound. `src/explain.rs` resolves a rule by id, suffix or near spelling, and
 reads a site back through the configuration and the suppression directives;
-`rules explain` and `why` are its two commands.
+`rules explain` and `why` are its two commands. Both read the configuration a
+scan reads, the workspace root's, found through the scan's discovery: a
+member's own `rust-doctor.toml`, which scans ignore, once answered for it.
 
 `the_policy_holds_the_size_bound_the_catalog_publishes_for` keeps every file of
 the module under the 1000 lines `oversized_unit` reports, tests included. That

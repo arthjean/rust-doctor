@@ -194,13 +194,13 @@ scan itself fails. The Cursor hook stays silent on a turn whose `status` is not
 | `1` | the gate failed, or the scan is incomplete |
 | `2` | the scan failed, ran past --max-duration, or the arguments are invalid |
 | `3-125` | --warning-exit-code: the gate passed with a finding --blocking warning would block |
-| `130` | a SIGINT or SIGTERM stopped the scan |
+| `130` | a SIGINT, SIGTERM or SIGHUP stopped the scan |
 
 The precedence is 2, 1, the warning code, then 0.
 A run cut by `--max-duration` exits 2 with `deadline-exceeded` in `errors` and
-in `audit.score.reasons`, and keeps the findings collected before the limit. An interrupted run (Ctrl-C
-or SIGTERM) exits 130 with `interrupted` in `errors`, leaving no process
-behind.
+in `audit.score.reasons`, and keeps the findings collected before the limit. An interrupted run (Ctrl-C,
+SIGTERM or SIGHUP) exits 130 with `interrupted` in `errors` and a null
+`audit.score`, leaving no process behind.
 When the score is partial, `audit.score.reasons` says why. Without a local
 RustSec database the two advisory rules publish `not_evaluated` and the score
 stays authoritative; the scan never downloads one.

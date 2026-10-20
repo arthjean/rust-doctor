@@ -199,7 +199,10 @@ pub fn incomplete_message(report: &InspectReport) -> Option<String> {
 
 /// Why a report carries no score, as both reports print it.
 pub fn no_score_message(report: &InspectReport) -> &'static str {
-    if report.audit.source_files > 0 && report.audit.production_lines == 0 {
+    let packages = &report.audit.packages;
+    if !packages.is_empty() && packages.iter().all(|package| package.unlinted) {
+        "Score unavailable: the scan could not score, since no package was linted."
+    } else if report.audit.source_files > 0 && report.audit.production_lines == 0 {
         "Score unavailable: only tests, benches, examples or build scripts were found."
     } else {
         "Score unavailable: no Rust files were analyzed."

@@ -3,6 +3,7 @@
 mod ci;
 mod handoff;
 mod hook;
+mod path_argument;
 mod progress_line;
 mod report_command;
 mod rules_command;
@@ -51,7 +52,7 @@ const EXIT_STATUS: &str = "Exit status:
   1       the gate failed, or the scan is incomplete
   2       the scan failed, ran past --max-duration, or the arguments are invalid
   3-125   --warning-exit-code: the gate passed with a finding --blocking warning would block
-  130     a SIGINT or SIGTERM stopped the scan
+  130     a SIGINT, SIGTERM or SIGHUP stopped the scan
 The precedence is 2, 1, the warning code, then 0.";
 
 #[derive(Debug)]
@@ -235,7 +236,9 @@ struct InspectArgs {
     /// Scan and score this workspace member only. Repeat it to select several.
     #[arg(long, value_name = "NAME")]
     package: Vec<String>,
-    /// RustSec database to read, else the one cargo audit or cargo deny left; never fetched.
+    /// RustSec database to read, else the one cargo audit or cargo deny left;
+    /// never fetched. A path that does not exist is refused; /dev/null turns
+    /// the advisory check off.
     #[arg(long, value_name = "PATH")]
     advisory_db: Option<PathBuf>,
     /// Publish the milliseconds of each phase as `timings` in --json.
@@ -343,10 +346,31 @@ fn run_skill(arguments: &SkillArgs) -> ExitCode {
         update: *update,
         dry_run: *dry_run,
     };
-    ExitCode::from(skill::install_and_print(path, *agent, options))
+    match path_argument::resolve("PATH", path) {
+        Ok(path) => ExitCode::from(skill::install_and_print(&path, *agent, options)),
+        Err(code) => ExitCode::from(code),
+    }
 }
 
-fn run_inspect(arguments: InspectArgs) -> ExitCode {
+/// The scan's paths, checked before anything runs.
+fn resolve_inspect_paths(arguments: &mut InspectArgs) -> Result<(), ExitCode> {
+    // A mistyped database used to switch the advisory check off without a
+    // word. `/dev/null` reads as empty, and stays the way to turn it off.
+    if let Some(database) = &arguments.advisory_db {
+        path_argument::readable("--advisory-db", database).map_err(ExitCode::from)?;
+    }
+    // Resolved before discovery and any git call. A PATH that does not exist
+    // still reaches discovery, whose failed report says so as JSON too.
+    if let Ok(absolute) = std::path::absolute(&arguments.path) {
+        arguments.path = absolute;
+    }
+    Ok(())
+}
+
+fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
+    if let Err(code) = resolve_inspect_paths(&mut arguments) {
+        return code;
+    }
     let selection = match validate_scope(&arguments) {
         Ok(selection) => selection,
         Err((kind, message)) => return clap_error(kind, message),
@@ -415,6 +439,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
                 width: profile.width,
                 color: profile.color,
                 animate: profile.animate,
+                requested_scope: selection.as_ref().map(|selection| selection.mode),
             },
         )
     };
@@ -428,11 +453,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         eprintln!("{notice}");
     }
     if let Err(error) = render_result {
-        if error.is_broken_pipe() {
-            return ExitCode::from(scan_exit);
-        }
-        bounded_stderr(&format!("Failed to write report: {error}"));
-        return ExitCode::from(2);
+        return unwritten_report(&error, scan_exit);
     }
 
     if interactive_report
@@ -457,6 +478,17 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         return ExitCode::from(2);
     }
     ExitCode::from(scan_exit)
+}
+
+/// The exit status of a run whose report could not be written. A closed
+/// pipe, or the terminal a SIGHUP took away, leaves the report nowhere to go:
+/// the status still says what ended the scan.
+fn unwritten_report(error: &rust_doctor::render::RenderError, scan_exit: u8) -> ExitCode {
+    if error.is_broken_pipe() || rust_doctor::interrupted() {
+        return ExitCode::from(scan_exit);
+    }
+    bounded_stderr(&format!("Failed to write report: {error}"));
+    ExitCode::from(2)
 }
 
 /// Draws the interactive report and carries out whatever the reader chose on

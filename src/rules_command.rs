@@ -5,8 +5,8 @@
 //! binary was compiled with, so it answers the same thing everywhere and needs
 //! no workspace. It exists so that what publishes the rule list, the website
 //! included, reads it from the tool instead of restating it. `rules explain`
-//! reads the workspace's `rust-doctor.toml` when given one, and starts no
-//! process.
+//! reads the `rust-doctor.toml` a scan of its PATH reads, at the workspace
+//! root `cargo metadata` names, and starts no other process.
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -47,14 +47,20 @@ enum RulesCommand {
 pub fn run(arguments: &RulesArgs) -> ExitCode {
     let written = match &arguments.command {
         RulesCommand::List { json } => list(*json),
-        RulesCommand::Explain { rule, path, json } => match explain_rule(rule, path.as_deref()) {
+        RulesCommand::Explain { rule, path, json } => {
+            let path = match path.as_deref().map(|path| crate::path_argument::resolve("PATH", path)) {
+                Some(Err(code)) => return ExitCode::from(code),
+                resolved => resolved.and_then(Result::ok),
+            };
+            match explain_rule(rule, path.as_deref()) {
             Ok(explained) if *json => json_line(&explained),
             Ok(explained) => io::stdout().lock().write_all(explained.text().as_bytes()),
             Err(error) => {
                 eprintln!("rust-doctor: {error}");
                 return ExitCode::from(2);
             }
-        },
+            }
+        }
     };
     // A closed pipe is how `| head` ends, not a failure to report.
     match written {

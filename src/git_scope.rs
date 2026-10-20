@@ -225,6 +225,19 @@ pub enum ScopeMode {
     Baseline,
 }
 
+impl ScopeMode {
+    /// The name `--scope` takes and the JSON publishes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Files => "files",
+            Self::Lines => "lines",
+            Self::Contextual => "contextual",
+            Self::Baseline => "baseline",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionScope {

@@ -217,6 +217,27 @@ pub(super) fn kill_tree(pid: u32) {
     }
 }
 
+/// Whether `pid` names a running process. One this user may not signal is
+/// running all the same, and a pid that does not fit is never judged gone.
+#[cfg(unix)]
+pub(crate) fn is_running(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: signal 0 checks that the process exists and delivers nothing.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+/// The user this process acts as.
+#[cfg(unix)]
+pub(crate) fn effective_user() -> u32 {
+    // SAFETY: `geteuid` reads the effective user id and cannot fail.
+    unsafe { libc::geteuid() }
+}
+
 #[cfg(windows)]
 pub(super) fn kill_tree(pid: u32) {
     let _ = Command::new("taskkill")

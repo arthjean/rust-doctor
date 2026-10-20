@@ -216,3 +216,71 @@ fn a_stale_database_is_read_and_its_age_is_stated() {
     assert!(days > 2_400, "{notice}");
     fs::remove_dir_all(root).unwrap();
 }
+
+/// EP-002 US-006: a database path that names nothing is refused before any
+/// scan, with one line naming the flag and the path as typed, and nothing on
+/// stdout even under `--json`.
+#[test]
+fn a_missing_database_path_is_refused_before_any_scan() {
+    let root = scratch("mistyped");
+    let before = fs::read_dir(root.join("project")).unwrap().count();
+    let output = scan(&root, &["--json", "--advisory-db", "advisory-dbb"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stdout));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "rust-doctor: --advisory-db: advisory-dbb does not exist.\n"
+    );
+    assert!(!root.join("target").exists(), "the scan started");
+    assert_eq!(fs::read_dir(root.join("project")).unwrap().count(), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// EP-002 US-006: a database the scan could not read is refused the same way.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_database_path_is_refused_before_any_scan() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // SAFETY: `geteuid` reads the effective user id and cannot fail.
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let root = scratch("unreadable");
+    let locked = root.join("locked-db");
+    copy_tree(&database(), &locked);
+    let file = root.join("locked-file");
+    fs::write(&file, "").unwrap();
+    for path in [&locked, &file] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+        let output = scan(&root, &["--json", "--advisory-db", path.to_str().unwrap()]);
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(stderr.lines().count(), 1, "{stderr}");
+        assert!(stderr.starts_with(&format!("rust-doctor: --advisory-db: {} cannot be read", path.display())), "{stderr}");
+    }
+    assert!(!root.join("target").exists(), "the scan started");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// EP-002 US-006: `/dev/null` stays the documented way to switch the check
+/// off, and the help says so.
+#[test]
+fn dev_null_turns_the_advisory_check_off_as_the_help_says() {
+    let root = scratch("dev-null");
+    let output = scan(&root, &["--json", "--advisory-db", "/dev/null"]);
+    assert_eq!(output.status.code(), Some(0));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for id in [VULNERABLE, UNMAINTAINED] {
+        assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
+    }
+    let help = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help.contains("/dev/null turns the advisory check off"), "{help}");
+    fs::remove_dir_all(root).unwrap();
+}
