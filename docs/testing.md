@@ -102,5 +102,6 @@
 - Shared helpers live in `tests/support/` and are pulled in with `mod support;`.
   Fixtures live under `tests/fixtures/<domain>/`, where frozen JSON oracles are
   compared field by field.
+- The end-to-end suite under `tests/e2e/` keeps its own rules: [e2e.md](e2e.md).
 - No test touches the network.
 

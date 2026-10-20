@@ -51,11 +51,12 @@ and no user data.
 | Packed launcher smoke | `cd npm/rust-doctor && bun run smoke:packed` |
 | Documentation budgets | `bash scripts/verify-doc-budgets.sh` |
 | Documentation references | `bash scripts/verify-doc-refs.sh` |
+| End-to-end suite, after a release build | `cd tests/e2e && bun install --frozen-lockfile && bun test` |
 
-Use `bun` under `npm/rust-doctor/`, never `npm` or `pnpm`. Run the lint and
-test commands before calling a change complete: `.github/workflows/ci.yml`
-replays them on every push and pull request, so a change that skips them fails
-in the open instead of locally.
+Use `bun` under `npm/rust-doctor/` and `tests/e2e/`, never `npm` or `pnpm`.
+Run the lint and test commands before calling a change complete:
+`.github/workflows/ci.yml` replays them on every push and pull request, so a
+change that skips them fails in the open instead of locally.
 
 ## Running the tool on this repository
 
@@ -125,6 +126,8 @@ what enforce that, one per module, each naming its own, and two of them cover
   [docs/testing.md](docs/testing.md)
 - The self-scan is a gate, never a frozen defect: evidence that a rule fires
   belongs on a fixture. [docs/testing.md](docs/testing.md)
+- `tests/e2e/` drives the release binary in sealed copies, and every open
+  defect of the ledger is a `test.failing` row. [docs/e2e.md](docs/e2e.md)
 
 ## Delivery
 

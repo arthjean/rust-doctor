@@ -248,3 +248,129 @@ jobs:
       - name: Packed launcher smoke
         working-directory: npm/rust-doctor
         run: bun run smoke:packed
+
+  # The end-to-end suite of tests/e2e drives the release binary the way a user
+  # does. One job builds it, so the three shards below judge the same bytes
+  # and none of them pays for a second release build.
+  build-release:
+    name: Release build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: release
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-doctor-release
+          path: target/release/rust-doctor
+          if-no-files-found: error
+          retention-days: 3
+
+  # tests/e2e/ci-shards.ts splits the files by the weights in
+  # ci-shard-weights.json, refusing a file that has none, and ci-run-files.sh
+  # runs each file in its own bun process and tmux server, retrying a failure
+  # once and annotating a pass on retry so a flaky file stays visible.
+  e2e-shard:
+    name: E2E (shard ${{ matrix.shard }})
+    needs: build-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    env:
+      RUST_DOCTOR_E2E_BIN: ${{ github.workspace }}/target/release/rust-doctor
+      E2E_REQUIRE_TMUX: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-doctor-release
+          path: target/release
+
+      - name: Make the binary executable
+        run: chmod +x target/release/rust-doctor
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      # Hosted Ubuntu 24.04 refuses unprivileged user namespaces, which the
+      # network-namespace scenarios use to prove the scan offline
+      # (actions/runner-images#10443).
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # Clippy is required: every scan in the suite runs it.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: tests/e2e/package.json
+
+      - name: Install the suite
+        working-directory: tests/e2e
+        run: bun install --frozen-lockfile
+
+      - name: Plan the shard
+        id: plan
+        working-directory: tests/e2e
+        run: |
+          files="$(bun ci-shards.ts --shard-count 3 --shard-index ${{ matrix.shard }})"
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+            echo "key=$(printf '%s\n' "$files" | sha256sum | cut -c1-16)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Each file keeps its named scan targets under its own directory, so the
+      # key holds the shard's file names beside the lockfile and the toolchain.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rust-doctor-e2e/targets
+          key: e2e-targets-1.97.1-${{ hashFiles('Cargo.lock') }}-${{ steps.plan.outputs.key }}
+
+      - name: Typecheck
+        working-directory: tests/e2e
+        run: bun run typecheck
+
+      - name: Run the shard
+        working-directory: tests/e2e
+        env:
+          RUST_DOCTOR_E2E_ROOT: ${{ runner.temp }}/rust-doctor-e2e
+          FILES: ${{ steps.plan.outputs.files }}
+        run: |
+          mapfile -t files <<< "$FILES"
+          bash ci-run-files.sh "${files[@]}"
+
+  # The one check branch protection names: it passes only when every shard did.
+  e2e:
+    name: e2e
+    needs: e2e-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard
+        run: test "${{ needs.e2e-shard.result }}" = success

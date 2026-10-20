@@ -2,7 +2,7 @@
 
 | Workflow | When | What it settles |
 |---|---|---|
-| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install |
+| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
 | `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself), and posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | manual, pull request touching the record, its harness or a producer | Reproduces the pinned measurement of `tests/corpus.json` from the restored clone cache, under the toolchain the artifact names, and writes the position proof that anchors every published site |
@@ -26,6 +26,19 @@ request touching none of them never starts it, decided by the path filter
 rather than a step that has already booted a runner, and a pull request that
 matches no clone cache fails naming the key it missed rather than fetching
 eighteen third-party repositories to answer a question about a diff.
+
+The end-to-end suite of `tests/e2e/` ([docs/e2e.md](e2e.md)) takes two jobs
+and a gate. `build-release` compiles the binary once with `--locked` and
+uploads it, so every shard judges the same bytes. `e2e-shard` downloads it into
+weighted shards: `ci-shards.ts` splits the files by `ci-shard-weights.json` and
+fails on a file without a weight, and `ci-run-files.sh` runs each file in its
+own bun process and tmux server, retries a failure once and annotates a pass on
+retry, since Bun's `--retry` would count it as a plain pass. Each shard
+installs tmux, the pinned toolchain with Clippy and the bun that
+`tests/e2e/package.json` pins, enables unprivileged user namespaces for the
+offline proofs, and caches its scan targets under a key holding the lockfile,
+the toolchain and its file names. The job named `e2e` passes only when every
+shard did, so branch protection names one check.
 
 The structural benchmark and the presentation latency test assert a wall
 clock, and their bounds were measured on a development machine. A slower

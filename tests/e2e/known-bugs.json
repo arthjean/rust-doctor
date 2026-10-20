@@ -1,0 +1,405 @@
+[
+  {
+    "id": "failures/BUG-01",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-001",
+    "defect": "A Clippy suggestion republishes a credential the code frame masks"
+  },
+  {
+    "id": "scopes/BUG-A",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-002",
+    "defect": "Baseline scope reports every repository-pass finding as introduced, never as fixed"
+  },
+  {
+    "id": "scopes/BUG-D",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-003",
+    "defect": "`--staged` scans run no repository pass, so the pre-commit hook passes staged secrets"
+  },
+  {
+    "id": "subcommands/F3",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-003",
+    "defect": "`--staged` reads `rust-doctor.toml` from the working tree, not the index"
+  },
+  {
+    "id": "subcommands/F10",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-003",
+    "defect": "Staged scans draw code frames from the working tree"
+  },
+  {
+    "id": "failures/BUG-02",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-004",
+    "defect": "Absolute paths outside the workspace and HOME pass through Cargo and rustup text"
+  },
+  {
+    "id": "failures/BUG-03",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-005",
+    "defect": "A scan writes `Cargo.lock` into a workspace that had none; two scans disagree"
+  },
+  {
+    "id": "real/B3",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-005",
+    "defect": "A scan writes `Cargo.lock` into a workspace that had none; two scans disagree"
+  },
+  {
+    "id": "failures/BUG-07",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-006",
+    "defect": "`--advisory-db` on a missing path silently disables the check"
+  },
+  {
+    "id": "subcommands/F1",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-007",
+    "defect": "A relative PATH breaks every installer that asks git where the repository is"
+  },
+  {
+    "id": "subcommands/F5",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-007",
+    "defect": "No installer or explainer checks that PATH exists"
+  },
+  {
+    "id": "subcommands/F4",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-008",
+    "defect": "`rules explain RULE PATH` reads `PATH/rust-doctor.toml` literally"
+  },
+  {
+    "id": "subcommands/F6",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-008",
+    "defect": "`why --report` performs no schema check"
+  },
+  {
+    "id": "scopes/BUG-B",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-008",
+    "defect": "A scope that fails to resolve is printed as `Scope: full codebase`"
+  },
+  {
+    "id": "failures/BUG-05",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-009",
+    "defect": "A package Cargo refused before `build-finished` scores 100 \"Great\""
+  },
+  {
+    "id": "failures/BUG-06",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-009",
+    "defect": "An interrupted report carries score 100 \"Great\""
+  },
+  {
+    "id": "failures/BUG-04",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-010",
+    "defect": "SIGHUP is unhandled: children keep running, a snapshot is left behind"
+  },
+  {
+    "id": "real/B2",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-010",
+    "defect": "Ctrl-C through the npm launcher delivers SIGINT twice and loses the report"
+  },
+  {
+    "id": "scopes/K4",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-010",
+    "defect": "A snapshot left by a killed run is never swept"
+  },
+  {
+    "id": "tui/BUG-06",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-010",
+    "defect": "An external signal while the report waits leaves the cursor hidden and the tty raw"
+  },
+  {
+    "id": "subcommands/F2",
+    "severity": "high (product)",
+    "status": "fixed",
+    "fixed_by": "US-011",
+    "defect": "The pre-commit hook blocks nothing by default"
+  },
+  {
+    "id": "real/D2",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-012",
+    "defect": "`hardcoded_credential` help omits database URLs; the PRD example caps the self-scan at 65"
+  },
+  {
+    "id": "real/D3",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-012",
+    "defect": "`hardcoded_credential` help omits database URLs; the PRD example caps the self-scan at 65"
+  },
+  {
+    "id": "failures/BUG-09",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-013",
+    "defect": "Cargo and git filters can reach the network although the README says \"no network\""
+  },
+  {
+    "id": "real/B3a",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-013",
+    "defect": "Cargo and git filters can reach the network although the README says \"no network\""
+  },
+  {
+    "id": "real/D1",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "Drifted documents: \"temporary worktree\" (three places, one shipped in users' workflows), rule counts, corpus wording, stale performance baseline, installer sentence in SKILL.md"
+  },
+  {
+    "id": "real/D4",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "Drifted documents: \"temporary worktree\" (three places, one shipped in users' workflows), rule counts, corpus wording, stale performance baseline, installer sentence in SKILL.md"
+  },
+  {
+    "id": "real/D5",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "Drifted documents: \"temporary worktree\" (three places, one shipped in users' workflows), rule counts, corpus wording, stale performance baseline, installer sentence in SKILL.md"
+  },
+  {
+    "id": "real/D6",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "Drifted documents: \"temporary worktree\" (three places, one shipped in users' workflows), rule counts, corpus wording, stale performance baseline, installer sentence in SKILL.md"
+  },
+  {
+    "id": "subcommands/F20",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "Drifted documents: \"temporary worktree\" (three places, one shipped in users' workflows), rule counts, corpus wording, stale performance baseline, installer sentence in SKILL.md"
+  },
+  {
+    "id": "tui/BUG-11",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-014",
+    "defect": "An empty `NO_COLOR` disables color, against no-color.org"
+  },
+  {
+    "id": "tui/BUG-01",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-02",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-03",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-04",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-05",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-07",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-08",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-09",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-10",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-12",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "tui/BUG-13",
+    "severity": "low to medium",
+    "status": "open",
+    "defect": "Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation)"
+  },
+  {
+    "id": "scopes/BUG-C",
+    "severity": "low",
+    "status": "open",
+    "defect": "Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped"
+  },
+  {
+    "id": "scopes/BUG-E",
+    "severity": "low",
+    "status": "open",
+    "defect": "Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped"
+  },
+  {
+    "id": "scopes/BUG-F",
+    "severity": "low",
+    "status": "open",
+    "defect": "Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped"
+  },
+  {
+    "id": "scopes/BUG-G",
+    "severity": "low",
+    "status": "open",
+    "defect": "Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped"
+  },
+  {
+    "id": "subcommands/F7",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F8",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F9",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F11",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F12",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F13",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F14",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F15",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F16",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F17",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F18",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "subcommands/F19",
+    "severity": "low",
+    "status": "open",
+    "defect": "Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes"
+  },
+  {
+    "id": "failures/BUG-08",
+    "severity": "low",
+    "status": "open",
+    "defect": "Missing git fails every scan, cosmetic error text"
+  },
+  {
+    "id": "failures/BUG-10",
+    "severity": "low",
+    "status": "open",
+    "defect": "Missing git fails every scan, cosmetic error text"
+  },
+  {
+    "id": "failures/BUG-11",
+    "severity": "low",
+    "status": "open",
+    "defect": "Missing git fails every scan, cosmetic error text"
+  },
+  {
+    "id": "failures/BUG-12",
+    "severity": "low",
+    "status": "open",
+    "defect": "Missing git fails every scan, cosmetic error text"
+  }
+]

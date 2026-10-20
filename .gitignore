@@ -20,6 +20,7 @@
 /tests/fixtures/structure/*/target/
 /npm/rust-doctor/node_modules/
 /npm/rust-doctor/*.tgz
+/tests/e2e/node_modules/
 /.claude/.paneflow-hook-leases
 /.claude/settings.local.json
 /tests/fixtures/suppression/*/target/

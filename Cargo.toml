@@ -18,13 +18,15 @@ categories = ["development-tools", "command-line-utilities"]
 # than what is published. `skills/` stays: `src/skill.rs` embeds it with
 # `include_str!`, so a tarball without it does not compile.
 # `tests/docs_contract.rs` goes with them: it reads the documents under
-# `docs/`, which a tarball does not carry.
+# `docs/`, which a tarball does not carry. `tests/e2e/` is a bun package that
+# drives the released binary, not a test Cargo runs.
 exclude = [
     "npm/",
     "tasks/",
     "docs/",
     "scripts/",
     "tests/docs_contract.rs",
+    "tests/e2e/",
     ".claude/",
     ".github/",
     "action.yml",
