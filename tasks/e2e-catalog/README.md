@@ -54,5 +54,6 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | tui/BUG-11 | low | An empty `NO_COLOR` disables color, against no-color.org | US-014 |
 | tui/BUG-01 to tui/BUG-05, tui/BUG-07 to tui/BUG-10, tui/BUG-12, tui/BUG-13 | low to medium | Interactive report defects (header width, status bar counts, hidden copy feedback, keys during the count-up, Ctrl-C during the count-up, no scrolling, no repaint on resize, lost category header, impossible CI entry offered, escape parsing, no in-frame confirmation) | `test.failing` |
 | scopes/BUG-C, scopes/BUG-E, scopes/BUG-F, scopes/BUG-G | low | Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped | `test.failing` |
+| scopes/BUG-L | low | A `--max-duration` deadline that cuts the base side of a baseline reports only `baseline-scan-incomplete`, never `deadline-exceeded` | `test.failing` |
 | subcommands/F7 to F9, F11 to F19 | low | Installer output order and exit codes, escape bytes echoed, frames, overrides, `why` gaps, `--update` dropping lines, settings reformatting, oversized Stop payload, staging leftovers, rule suffixes | `test.failing` |
 | failures/BUG-08, failures/BUG-10 to BUG-12 | low | Missing git fails every scan, cosmetic error text | `test.failing` |

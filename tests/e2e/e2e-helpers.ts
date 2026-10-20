@@ -358,28 +358,30 @@ export function normalizeReport<T>(report: T): T {
 // A hash of every path, file body and link target under `dir`, with the
 // modification time and size of `.git/index`: a scan that refreshed the index
 // changes it even when the bytes do not. It never spawns git, since `git
-// status` would refresh the index itself.
+// status` would refresh the index itself. Names are walked as bytes, so a
+// path that is not UTF-8 is hashed rather than lost.
 export function treeFingerprint(dir: string): string {
   const hash = createHash("sha256");
-  const walk = (current: string) => {
-    for (const name of readdirSync(current).sort()) {
-      const path = join(current, name);
-      const rel = relative(dir, path);
-      if (rel === "target") continue;
+  const walk = (current: Buffer, rel: Buffer) => {
+    for (const name of readdirSync(current, { encoding: "buffer" }).sort(Buffer.compare)) {
+      const path = Buffer.concat([current, Buffer.from("/"), name]);
+      const relPath = rel.length === 0 ? name : Buffer.concat([rel, Buffer.from("/"), name]);
+      const relText = relPath.toString("latin1");
+      if (relText === "target") continue;
       const stat = lstatSync(path);
       if (stat.isSymbolicLink()) {
-        hash.update(`L ${rel} ${readlinkSync(path)}\n`);
+        hash.update(Buffer.concat([Buffer.from("L "), relPath, Buffer.from(" "), readlinkSync(path, { encoding: "buffer" }), Buffer.from("\n")]));
       } else if (stat.isDirectory()) {
-        hash.update(`D ${rel}\n`);
-        walk(path);
+        hash.update(Buffer.concat([Buffer.from("D "), relPath, Buffer.from("\n")]));
+        walk(path, relPath);
       } else {
-        hash.update(`F ${rel} ${stat.mode.toString(8)}\n`);
+        hash.update(Buffer.concat([Buffer.from("F "), relPath, Buffer.from(` ${stat.mode.toString(8)}\n`)]));
         hash.update(readFileSync(path));
-        if (rel === join(".git", "index")) hash.update(`M ${stat.mtimeMs} ${stat.size}\n`);
+        if (relText === ".git/index") hash.update(`M ${stat.mtimeMs} ${stat.size}\n`);
       }
     }
   };
-  walk(dir);
+  walk(Buffer.from(dir), Buffer.alloc(0));
   return hash.digest("hex");
 }
 

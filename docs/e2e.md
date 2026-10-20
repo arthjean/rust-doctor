@@ -6,7 +6,9 @@ is the interactive report, on git histories built for the test. The Rust
 integration tests stay the regression home of every fix; this suite is the
 layer that sees what only the real binary, a real terminal or a real git
 history shows. Its scenarios come from the catalogs of `tasks/e2e-catalog/`,
-and a test names the catalog row it automates.
+and a test names the catalog row it automates: its title, or its `test.each`
+row, starts with the row ID. `catalog-coverage.test.ts` fails when a row of a
+section it claims is automated zero times or twice.
 
 ## Running it
 

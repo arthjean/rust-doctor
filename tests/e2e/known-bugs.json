@@ -307,6 +307,12 @@
     "defect": "Index stat refresh by porcelain `git diff`, submodules refused by baseline, `..` symlinks refused, edits through a symlinked module dropped"
   },
   {
+    "id": "scopes/BUG-L",
+    "severity": "low",
+    "status": "open",
+    "defect": "A `--max-duration` deadline that cuts the base side of a baseline reports only `baseline-scan-incomplete`, never `deadline-exceeded`"
+  },
+  {
     "id": "subcommands/F7",
     "severity": "low",
     "status": "open",
