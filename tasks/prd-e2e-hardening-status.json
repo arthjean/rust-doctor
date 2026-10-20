@@ -1,0 +1,522 @@
+{
+  "prd": {
+    "file": "tasks/prd-e2e-hardening.md",
+    "title": "E2E Hardening: Close What the Real Binary Revealed, Then Prove the Whole Surface End to End",
+    "created_at": "2026-10-20",
+    "status": "IN_PROGRESS"
+  },
+  "epics": [
+    {
+      "id": "EP-001",
+      "title": "Nothing the scan sees leaks, and every commit-time rule sees the commit",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 4,
+      "stories_done": 4
+    },
+    {
+      "id": "EP-002",
+      "title": "The scan leaves the workspace as it found it, and says what happened",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 6,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-003",
+      "title": "Hooks that enforce, and promises that hold",
+      "status": "TODO",
+      "priority": "P1",
+      "stories_total": 4,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-004",
+      "title": "A hermetic end-to-end harness that runs the real binary",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 5,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-005",
+      "title": "End-to-end coverage of every scan argument, scope and subcommand",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 7,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-006",
+      "title": "End-to-end coverage of failure, the terminal and real codebases",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 8,
+      "stories_done": 0
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Withhold suggestions that carry a detected credential, and mask credentials in diagnostic text",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": "2026-10-20",
+      "completed_at": "2026-10-20",
+      "reviewed_at": "2026-10-20"
+    },
+    {
+      "id": "US-002",
+      "title": "Give the repository pass a git view of the baseline base side",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": "2026-10-20",
+      "completed_at": "2026-10-20",
+      "reviewed_at": "2026-10-20"
+    },
+    {
+      "id": "US-003",
+      "title": "Run the repository pass on the staged index, and read the staged configuration",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-002"
+      ],
+      "started_at": "2026-10-20",
+      "completed_at": "2026-10-20",
+      "reviewed_at": "2026-10-20"
+    },
+    {
+      "id": "US-004",
+      "title": "Scrub absolute paths that Cargo and rustup print",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": "2026-10-20",
+      "completed_at": "2026-10-20",
+      "reviewed_at": "2026-10-20"
+    },
+    {
+      "id": "US-005",
+      "title": "Remove the Cargo.lock a scan created",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-006",
+      "title": "Refuse a missing `--advisory-db` path, and keep `/dev/null` as the off switch",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-007",
+      "title": "Resolve every PATH argument before git sees it, and refuse one that does not exist",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-008",
+      "title": "Make `rules explain`, `why` and the scope line tell the truth about their inputs",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-007"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-009",
+      "title": "Publish no score for what was never linted or was interrupted",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-010",
+      "title": "End cleanly on SIGHUP and on duplicate signals, sweep dead snapshots, restore the terminal",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-011",
+      "title": "Make the pre-commit hook block on warnings, and let a failed scan through",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-003",
+        "US-007"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-012",
+      "title": "Rewrite the gap-closure PRD's credential example, and name database URLs in the rule's help",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-002"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-013",
+      "title": "Narrow the network promise to what holds, document `CARGO_NET_OFFLINE`, and keep git filters off the network",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-014",
+      "title": "Correct drifted documents, and honor an empty `NO_COLOR`",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-015",
+      "title": "Scaffold `tests/e2e` with hermetic spawn helpers, proven on the CLI surface",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-016",
+      "title": "Build the git scenario builder",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-017",
+      "title": "Port the tmux driver, add a pseudo-terminal helper and a fake tool PATH",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-018",
+      "title": "Run the suite in CI: one release build, weighted shards, one visible retry",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-015",
+        "US-017"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-019",
+      "title": "Document the suite and its known-defect workflow",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-020",
+      "title": "Exit codes, argument validation and output contracts",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-021",
+      "title": "Scope arguments, base resolution and working-tree states",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-016"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-022",
+      "title": "Staged scans, baseline delta, workspace placement and repository integrity",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-016"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-023",
+      "title": "`rules`, `report markdown` and `why`",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-024",
+      "title": "Git and agent hooks, installed and run",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-016",
+        "US-017"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-025",
+      "title": "`skill install`, `setup` and `ci install`",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-016",
+        "US-017"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-026",
+      "title": "`rust-doctor.toml` and chained workflows",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-016"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-027",
+      "title": "Signals, deadlines, toolchains, workspace shapes and advisory databases",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-016",
+        "US-018"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-028",
+      "title": "Terminal profile, privacy, offline proof and poisoned repositories",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-017",
+        "US-018"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-029",
+      "title": "Interactive report: gating, startup, keybindings and exit codes",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-017"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-030",
+      "title": "Interactive report: issue viewer, layout, resize and terminal hygiene",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-029"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-031",
+      "title": "Interactive report: clipboard, CI workflow screens, handoff, interrupts and performance",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-029"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-032",
+      "title": "This repository as a real codebase: the nineteen invariants",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-016",
+        "US-018"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-033",
+      "title": "The npm launcher and the GitHub Action, end to end",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-017",
+        "US-018"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-034",
+      "title": "Real external codebases on a schedule",
+      "epic": "EP-006",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "M",
+      "blocked_by": [
+        "US-018"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    }
+  ]
+}
