@@ -83,7 +83,10 @@ several fail as `ambiguous-workspace`. A Tauri root used to be a dead end.
 `GIT_INDEX_FILE` a hook hands over, refuses a conflicted or locked one, and
 checks it out into a private tree the way a baseline snapshot is written; every
 producer reads that tree instead of the working tree, building under
-`rust-doctor/staged`.
+`rust-doctor/staged`. Neither tree holds a `.git`, so the repository pass sees
+each through a `GitView`: the repository's `.git`, the snapshot's index, the
+snapshot as work tree. A staged scan also reads `rust-doctor.toml` and draws
+its code frames from its tree.
 
 The repository pass reads what git tracks and nothing else. Besides the
 secret files, now including a `.cargo/credentials(.toml)` that holds a

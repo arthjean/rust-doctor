@@ -29,7 +29,7 @@ fn execute(path: &Path) -> ExecutionResult {
 }
 
 fn execute_with(path: &Path, programs: &Programs) -> ExecutionResult {
-    let prepared = match prepare_with(path, programs, None) {
+    let prepared = match prepare_with(path, programs, None, true) {
         Ok(prepared) => prepared,
         Err(result) => return *result,
     };

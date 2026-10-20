@@ -69,7 +69,7 @@ impl App<'_> {
                         layout.list_height,
                     ),
                     read: &self.read,
-                    workspace_root: self.session.workspace_root,
+                    workspace_root: self.session.frame_root,
                     copy_feedback: self.copy_feedback,
                     exit_hint: EXIT_HINT,
                 };

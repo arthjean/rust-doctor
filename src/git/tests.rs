@@ -244,14 +244,16 @@ fn a_status_call_answers_its_code_and_discards_both_streams() {
         "exit 1\n",
     ));
     let arguments = git_arguments(&workspace, ["check-ignore", "--quiet"]);
-    assert_eq!(run_git_status(&script, &workspace, &arguments, None), Some(1));
+    assert_eq!(run_git_status(&script, &workspace, &arguments, None, None), Some(1));
 
     assert_eq!(
         run_git_status(
             Path::new("/definitely/missing/rust-doctor-git"),
             &workspace,
-            &arguments
-        , None),
+            &arguments,
+            None,
+            None
+        ),
         None
     );
 }
@@ -289,7 +291,7 @@ fn a_git_still_running_at_the_deadline_is_killed_at_its_stage() {
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert_eq!((error.stage, error.code), ("repo", "deadline-exceeded"));
     assert_eq!(
-        run_git_status(&sleeping, &workspace, &[], Some(deadline)),
+        run_git_status(&sleeping, &workspace, &[], None, Some(deadline)),
         None
     );
 }

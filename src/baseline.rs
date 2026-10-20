@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::execution::RunDeadline;
 use crate::internal_error::InternalError;
-use crate::git::{self, GitCall, GitFailure};
+use crate::git::{self, GitCall, GitFailure, GitView};
 
 mod staged;
 
@@ -95,12 +95,20 @@ pub(crate) struct Snapshot {
     tree: PathBuf,
     target: PathBuf,
     workspace: PathBuf,
+    /// How git sees the tree, for the one pass that asks git what it tracks.
+    /// Its index lives under `root` or is the repository's own, so it lasts
+    /// as long as the snapshot.
+    view: GitView,
     cleanup_pending: bool,
 }
 
 impl Snapshot {
     pub(crate) fn workspace(&self) -> &Path {
         &self.workspace
+    }
+
+    pub(crate) fn view(&self) -> &GitView {
+        &self.view
     }
 
     pub(crate) fn target(&self) -> &Path {
@@ -189,6 +197,11 @@ pub(crate) fn materialize(
     let target = root.join("target");
     let workspace = tree.join(workspace_relative);
     let snapshot = Snapshot {
+        view: GitView {
+            git_dir: repository_root.join(".git"),
+            index: root.join("index"),
+            work_tree: tree.clone(),
+        },
         root,
         tree,
         target,
@@ -216,7 +229,7 @@ fn materialize_inventory(
 ) -> Result<(), InternalError> {
     fs::create_dir(&snapshot.tree).map_err(|_| temp_unavailable())?;
     fs::create_dir(&snapshot.target).map_err(|_| temp_unavailable())?;
-    let index = snapshot.root.join("index");
+    let index = &snapshot.view.index;
 
     git::run_git_with_index(
         Path::new("git"),
@@ -228,7 +241,7 @@ fn materialize_inventory(
             failure: MATERIALIZATION_FAILURE,
             overflow: MATERIALIZATION_FAILURE,
         },
-        &index,
+        index,
         deadline,
     )?;
 
@@ -253,7 +266,7 @@ fn materialize_inventory(
             failure: MATERIALIZATION_FAILURE,
             overflow: MATERIALIZATION_FAILURE,
         },
-        &index,
+        index,
         deadline,
     )?;
 
@@ -621,6 +634,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let mut snapshot = Snapshot {
+            view: GitView {
+                git_dir: root.join(".git"),
+                index: root.join("index"),
+                work_tree: root.join("tree"),
+            },
             tree: root.join("tree"),
             target: root.join("target"),
             workspace: root.join("tree"),

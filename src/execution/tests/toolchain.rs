@@ -183,7 +183,7 @@ fn registry_repository() -> PathBuf {
 /// Every registry dependency the base side compiled, and whether Cargo found
 /// it fresh.
 fn baseline_registry_freshness(repository: &Path) -> Vec<bool> {
-    let prepared = prepare(repository, &RunOptions::default()).unwrap();
+    let prepared = prepare(repository, &RunOptions::default(), true).unwrap();
     let target =
         crate::baseline::persistent_target(prepared.target_directory(), "baseline").unwrap();
     assert!(target.ends_with("rust-doctor/baseline"));
@@ -197,6 +197,7 @@ fn baseline_registry_freshness(repository: &Path) -> Vec<bool> {
         Some(crate::execution::Side {
             workspace: snapshot.workspace(),
             target_dir: &target,
+            view: snapshot.view(),
         }),
         None,
         &plan,
@@ -268,7 +269,7 @@ fn a_deadline_spent_waiting_on_the_build_lock_names_the_lock() {
         ..Programs::default()
     };
     let path = fixture("clean");
-    let prepared = prepare_with(&path, &programs, None).unwrap();
+    let prepared = prepare_with(&path, &programs, None, true).unwrap();
     let options = RunOptions {
         deadline: Some(RunDeadline::starting_now(std::time::Duration::from_secs(3))),
         ..RunOptions::default()
@@ -315,7 +316,7 @@ fn a_clippy_that_cannot_start_returns_early_with_its_stage_error() {
         ..Programs::default()
     };
     let path = fixture("clean");
-    let prepared = prepare_with(&path, &Programs::default(), None).unwrap();
+    let prepared = prepare_with(&path, &Programs::default(), None, true).unwrap();
     let result = execute_into(
         prepared,
         &programs,

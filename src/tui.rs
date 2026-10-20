@@ -72,6 +72,8 @@ pub struct Session<'a> {
     pub report: &'a InspectReport,
     pub presentation: &'a ReportPresentation,
     pub workspace_root: &'a Path,
+    /// Where code frames read source, the staged tree after `--staged`.
+    pub frame_root: &'a Path,
     pub agents: &'a [AvailableAgent],
     pub color: bool,
     pub animate: bool,

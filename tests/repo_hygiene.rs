@@ -476,6 +476,40 @@ fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
     assert!(!stdout.contains(&body) && !stderr.contains(&body), "{stdout}{stderr}");
 }
 
+/// EP-001 US-003: the pre-commit hook's scan, `--staged --scope lines`, sees
+/// what the commit records. A key staged in a new file and a `.env` forced
+/// past the ignore file are both reported, and a working tree that no longer
+/// holds the key decides nothing.
+#[test]
+fn a_staged_key_and_a_force_added_env_are_reported_by_the_staged_scan() {
+    let root = workspace("repo-hygiene-staged");
+    fs::write(root.join(".gitignore"), "/target\n.env\n").unwrap();
+    commit_all(&root);
+    fs::write(
+        root.join("src/leak.rs"),
+        format!("pub const KEY: &str = \"{}\";\n", fake_aws_key()),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rs"), "mod leak;\npub fn fixture() -> u32 {\n    2\n}\n").unwrap();
+    fs::write(root.join(".env"), "TOKEN=1\n").unwrap();
+    git(&root, &["add", "src"]);
+    git(&root, &["add", "--force", ".env"]);
+    // The working tree no longer holds the key; the index still does.
+    fs::write(root.join("src/leak.rs"), "pub const KEY: &str = \"\";\n").unwrap();
+
+    let output = rust_doctor(
+        &root,
+        &[root.to_str().unwrap(), "--yes", "--json", "--staged", "--scope", "lines"],
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let credential = diagnostics_of(&report, CREDENTIAL);
+    assert_eq!(credential.len(), 1, "{report:#}");
+    assert_eq!(credential[0]["path"], "src/leak.rs");
+    let secret_file = diagnostics_of(&report, SECRET_FILE);
+    assert_eq!(secret_file.len(), 1, "{report:#}");
+    assert_eq!(secret_file[0]["path"], ".env");
+}
+
 /// US-019: a P1 credential finding means a key was committed. A parser's PEM
 /// header, AWS's documented key and a template's database URL stay silent; a
 /// key body under a header and a deployed database password are reported, and

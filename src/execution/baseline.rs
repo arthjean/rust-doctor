@@ -13,6 +13,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::bounded_read::collect_bounded;
+use crate::git::GitView;
 use crate::internal_error::InternalError;
 use crate::policy::PolicyPlan;
 use crate::scan_target;
@@ -73,6 +74,8 @@ impl BaselineExecution {
 pub(crate) struct Side<'a> {
     pub(crate) workspace: &'a Path,
     pub(crate) target_dir: &'a Path,
+    /// How git sees `workspace`, a snapshot with no `.git` of its own.
+    pub(crate) view: &'a GitView,
 }
 
 /// What a comparison settles before either side runs: the toolchain both are
@@ -187,7 +190,13 @@ pub(crate) fn execute(
             let Ok(target) = target else {
                 return Err(Box::new(prepared.fail(crate::baseline::scan_incomplete())));
             };
-            let baseline = context.run(target, toolchain.clone(), lints.clone(), Some(base.target_dir));
+            let baseline = context.run(
+                target,
+                toolchain.clone(),
+                lints.clone(),
+                Some(base.target_dir),
+                Some(base.view),
+            );
             if !baseline.is_complete() {
                 let mut current = prepared.fail(crate::baseline::scan_incomplete());
                 current.toolchain = Some(toolchain);
@@ -201,7 +210,7 @@ pub(crate) fn execute(
         }
     };
     let current = match staged {
-        None => context.run(prepared.target, toolchain, lints, None),
+        None => context.run(prepared.target, toolchain, lints, None, None),
         Some(staged) => match scan_target::resolve_isolated(
             staged.workspace,
             &programs.cargo,
@@ -209,7 +218,9 @@ pub(crate) fn execute(
             environment.rustup_toolchain.as_deref(),
             options.deadline,
         ) {
-            Ok(target) => context.run(target, toolchain, lints, Some(staged.target_dir)),
+            Ok(target) => {
+                context.run(target, toolchain, lints, Some(staged.target_dir), Some(staged.view))
+            }
             Err(failure) => return Err(Box::new(prepared.fail(failure.error))),
         },
     };

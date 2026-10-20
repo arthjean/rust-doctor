@@ -10,7 +10,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::git::{self, GitCall, GitFailure};
+use crate::git::{self, GitCall, GitFailure, GitView};
 use crate::execution::RunDeadline;
 use crate::internal_error::InternalError;
 
@@ -171,9 +171,18 @@ pub(crate) fn materialize_index(
     let workspace_relative = workspace_root
         .strip_prefix(&repository_root)
         .map_err(|_| failed())?;
+    let materialization_failed = GitFailure::new(
+        "staged-materialization-failed",
+        "The staged tree could not be written.",
+    );
     let root = create_temp_root(&repository_root)?.into_path();
     let tree = root.join("tree");
     let snapshot = Snapshot {
+        view: GitView {
+            git_dir: repository_root.join(".git"),
+            index: index.path.clone(),
+            work_tree: tree.clone(),
+        },
         target: root.join("target"),
         workspace: tree.join(workspace_relative),
         tree,
@@ -201,14 +210,8 @@ pub(crate) fn materialize_index(
                 ),
                 stdout_limit: COMMAND_OUTPUT_LIMIT,
                 stage: INDEX_STAGE,
-                failure: GitFailure::new(
-                    "staged-materialization-failed",
-                    "The staged tree could not be written.",
-                ),
-                overflow: GitFailure::new(
-                    "staged-materialization-failed",
-                    "The staged tree could not be written.",
-                ),
+                failure: materialization_failed,
+                overflow: materialization_failed,
             },
             &index.path,
             deadline,

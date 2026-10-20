@@ -368,13 +368,23 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
     let rescan_command = arguments.rescan_command(selection.as_ref());
 
     let started = Instant::now();
-    let (report, workspace_root) = match session {
+    let (report, workspace_root, frames) = match session {
         Ok(session) => {
             let workspace_root = session.workspace_root().to_path_buf();
-            (session.inspect(), workspace_root)
+            // A JSON report draws no frame, so the staged tree goes with the
+            // scan and a tree left behind fails the document itself.
+            if arguments.json {
+                (session.inspect(), workspace_root, None)
+            } else {
+                let (report, frames) = session.inspect_with_frames();
+                (report, workspace_root, Some(frames))
+            }
         }
-        Err(report) => (*report, PathBuf::from(".")),
+        Err(report) => (*report, PathBuf::from("."), None),
     };
+    let frame_root = frames
+        .as_ref()
+        .map_or_else(|| workspace_root.clone(), |frames| frames.root().to_path_buf());
     progress.clear();
     let elapsed = started.elapsed();
     let scan_exit = if rust_doctor::interrupted() {
@@ -399,7 +409,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
             &presentation,
             stdout.lock(),
             TerminalOptions {
-                workspace_root: &workspace_root,
+                workspace_root: &frame_root,
                 elapsed,
                 verbose: arguments.verbose,
                 width: profile.width,
@@ -429,7 +439,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
         && let Err(error) = run_interactive_report(
             &report,
             &presentation,
-            &workspace_root,
+            (&workspace_root, &frame_root),
             rescan_command,
             profile.color,
             profile.animate,
@@ -440,6 +450,12 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     }
+    // The staged tree the frames were drawn from goes once nothing draws from
+    // it, and a tree left behind fails the run.
+    if let Some(Err(error)) = frames.map(rust_doctor::FrameSource::close) {
+        bounded_stderr(&error);
+        return ExitCode::from(2);
+    }
     ExitCode::from(scan_exit)
 }
 
@@ -449,7 +465,7 @@ fn run_inspect(arguments: InspectArgs) -> ExitCode {
 fn run_interactive_report(
     report: &InspectReport,
     presentation: &ReportPresentation,
-    workspace_root: &Path,
+    (workspace_root, frame_root): (&Path, &Path),
     rescan_command: Result<RescanCommand, HandoffError>,
     color: bool,
     animate: bool,
@@ -459,6 +475,7 @@ fn run_interactive_report(
         report,
         presentation,
         workspace_root,
+        frame_root,
         agents: &agents,
         color,
         animate,

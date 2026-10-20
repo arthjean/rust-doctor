@@ -37,6 +37,7 @@ use crate::bounded_read::collect_bounded;
 use crate::cargo_health::{self, CargoHealthScan};
 use crate::configuration::{self, WorkspaceConfiguration};
 use crate::generated;
+use crate::git::GitView;
 use crate::internal_error::InternalError;
 use crate::policy::{PolicyPlan, Producer};
 use crate::progress::{Progress, ProgressSink};
@@ -314,12 +315,16 @@ impl CommandEnvironment {
     }
 }
 
+/// `read_configuration` is false for a scan that reads `rust-doctor.toml`
+/// from somewhere else than the working tree, and the default stands in until
+/// it does.
 pub(crate) fn prepare(
     path: &Path,
     options: &RunOptions,
+    read_configuration: bool,
 ) -> Result<PreparedInspection, Box<ExecutionResult>> {
     timed(options.timings.as_ref(), Phase::Metadata, || {
-        prepare_with(path, &Programs::default(), options.deadline)
+        prepare_with(path, &Programs::default(), options.deadline, read_configuration)
     })
 }
 
@@ -327,6 +332,7 @@ fn prepare_with(
     path: &Path,
     programs: &Programs,
     deadline: Option<RunDeadline>,
+    read_configuration: bool,
 ) -> Result<PreparedInspection, Box<ExecutionResult>> {
     let target = match scan_target::resolve(path, &programs.cargo, deadline) {
         Ok(target) => target,
@@ -338,7 +344,12 @@ fn prepare_with(
             )));
         }
     };
-    let configuration = match configuration::load(&target) {
+    let loaded = if read_configuration {
+        configuration::load(&target)
+    } else {
+        Ok(WorkspaceConfiguration::default())
+    };
+    let configuration = match loaded {
         Ok(configuration) => configuration,
         Err(error) => {
             return Err(Box::new(ExecutionResult::failed(
@@ -372,11 +383,15 @@ pub(crate) fn execute(
 /// workspace's own relative layout.
 pub(crate) fn execute_staged(
     prepared: PreparedInspection,
-    staged_workspace: &Path,
-    target_dir: &Path,
+    staged: Side<'_>,
     plan: &PolicyPlan,
     options: &RunOptions,
 ) -> ExecutionResult {
+    let Side {
+        workspace: staged_workspace,
+        target_dir,
+        view,
+    } = staged;
     let programs = Programs::default();
     let environment = CommandEnvironment::default();
     let target = timed(options.timings.as_ref(), Phase::Metadata, || {
@@ -409,7 +424,7 @@ pub(crate) fn execute_staged(
         options,
         declared: &declared,
     };
-    context.run(target, toolchain, lints, Some(target_dir))
+    context.run(target, toolchain, lints, Some(target_dir), Some(view))
 }
 
 /// The same scan, told where Cargo may keep its artifacts.
@@ -443,17 +458,20 @@ fn execute_into(
         options,
         declared: &declared,
     };
-    context.run(prepared.target, toolchain, lints, target_dir)
+    context.run(prepared.target, toolchain, lints, target_dir, None)
 }
 
 impl ExecutionContext<'_> {
     /// Runs every producer the plan leaves on against one resolved target.
+    /// `view` is how git sees the target when it is a snapshot rather than
+    /// the working tree.
     fn run(
         &self,
         target: ResolvedScanTarget,
         toolchain: Toolchain,
         lints: Option<KnownLints>,
         target_dir: Option<&Path>,
+        view: Option<&GitView>,
     ) -> ExecutionResult {
         let ResolvedScanTarget {
             manifest_path,
@@ -463,7 +481,7 @@ impl ExecutionContext<'_> {
         // The manifest-level passes read files nothing else writes before
         // Clippy, so they run on a thread of their own beside the walk.
         let ((mut cargo_health, repo), (enumeration, exclusions)) = thread::scope(|scope| {
-            let manifests = scope.spawn(|| self.manifest_passes(&metadata));
+            let manifests = scope.spawn(|| self.manifest_passes(&metadata, view));
             let walked = self.walk(&metadata);
             let manifests = manifests
                 .join()
@@ -535,6 +553,7 @@ impl ExecutionContext<'_> {
     fn manifest_passes(
         &self,
         metadata: &Metadata,
+        view: Option<&GitView>,
     ) -> (Option<CargoHealthScan>, Option<RepoScan>) {
         let timings = self.options.timings.as_ref();
         // The dependency pack reads the resolved graph from disk, so it
@@ -560,6 +579,7 @@ impl ExecutionContext<'_> {
             timed(timings, Phase::Repo, || {
                 repo_hygiene::inspect(
                     metadata.workspace_root.as_std_path(),
+                    view,
                     self.plan,
                     cargo_health::workspace_produces_a_binary(metadata),
                     self.options.deadline,

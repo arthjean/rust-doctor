@@ -35,7 +35,9 @@ use crate::structure::StructureSettings;
 /// Base sides kept per target directory: a few branches, each a few edits
 /// apart from where it started.
 const ENTRY_LIMIT: usize = 20;
-const FILE_VERSION: u32 = 1;
+/// Version 2: a base side scanned before the repository pass had a git view
+/// of its snapshot holds no repository finding, and is never read back.
+const FILE_VERSION: u32 = 2;
 /// The largest cache file read back; past it the cache is a miss.
 const FILE_BYTES_LIMIT: u64 = 256 * 1024 * 1024;
 const ENVIRONMENT_PREFIXES: [&str; 5] = ["CARGO", "RUST", "CC", "CFLAGS", "CXX"];

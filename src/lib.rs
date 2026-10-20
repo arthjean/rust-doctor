@@ -143,9 +143,36 @@ pub const INTERRUPTED_EXIT_STATUS: u8 = execution::interrupt::EXIT_STATUS;
 pub struct InspectionSession {
     prepared: execution::PreparedInspection,
     plan: policy::PolicyPlan,
+    /// What the plan was compiled from, kept to compile it again from the
+    /// configuration a `--staged` scan reads out of the index.
+    policy: policy::PolicyInput,
     scope: git_scope::ValidatedScope,
     options: execution::RunOptions,
     _scan: execution::interrupt::ScanGuard,
+}
+
+/// Where a report's code frames read source: the workspace, or, after a
+/// `--staged` scan, the tree the index was written into, which stays on disk
+/// until [`FrameSource::close`] or the drop of this value removes it.
+#[derive(Debug)]
+pub struct FrameSource {
+    root: PathBuf,
+    staged: Option<baseline::Snapshot>,
+}
+
+impl FrameSource {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Removes the staged tree, answering why it could not be.
+    pub fn close(self) -> Result<(), String> {
+        self.close_internal().map_err(|error| error.message)
+    }
+
+    fn close_internal(self) -> Result<(), internal_error::InternalError> {
+        self.staged.map_or(Ok(()), baseline::Snapshot::cleanup)
+    }
 }
 
 /// The report a handled signal leaves: one failed report naming the
@@ -199,7 +226,9 @@ impl InspectionSession {
                 )));
             }
         };
-        let prepared = match execution::prepare(&request.path, &options) {
+        // A staged scan reads its configuration from the index, once it is
+        // written out, and never from the working tree.
+        let prepared = match execution::prepare(&request.path, &options, !scope.staged()) {
             Ok(prepared) => prepared,
             Err(result) => {
                 return Err(Box::new(report::preparation_failure(
@@ -227,6 +256,7 @@ impl InspectionSession {
         Ok(Self {
             prepared,
             plan,
+            policy: policy.clone(),
             scope,
             options,
             _scan: scan,
@@ -238,10 +268,26 @@ impl InspectionSession {
     }
 
     pub fn inspect(self) -> InspectReport {
+        let (report, frames) = self.inspect_with_frames();
+        match frames.close_internal() {
+            Ok(()) => report,
+            Err(error) => settle(report::baseline_report_failure(report, error)),
+        }
+    }
+
+    /// The report, and where its code frames read source. A `--staged` scan
+    /// judged the index, so its frames are drawn from the tree the index was
+    /// written into rather than from a working tree that may say otherwise.
+    pub fn inspect_with_frames(self) -> (InspectReport, FrameSource) {
         let timings = self.options.timings.clone();
-        let mut report = settle(inspect_prepared(self));
+        let workspace_root = self.workspace_root().to_path_buf();
+        let (report, staged) = inspect_prepared(self);
+        let mut report = settle(report);
         report.timings = timings.map(|timings| timings.finish());
-        report
+        let root = staged
+            .as_ref()
+            .map_or(workspace_root, |snapshot| snapshot.workspace().to_path_buf());
+        (report, FrameSource { root, staged })
     }
 }
 
@@ -253,10 +299,12 @@ fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> Inspec
     }
 }
 
-fn inspect_prepared(session: InspectionSession) -> InspectReport {
+/// The report, and the staged tree it judged, left on disk for its frames.
+fn inspect_prepared(session: InspectionSession) -> (InspectReport, Option<baseline::Snapshot>) {
     let InspectionSession {
-        prepared,
-        plan,
+        mut prepared,
+        mut plan,
+        policy,
         scope: requested,
         options,
         _scan,
@@ -268,7 +316,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         match baseline::locate_index(prepared.workspace_root(), options.deadline) {
             Ok(index) => Some(index),
             Err(error) => {
-                return report::preparation_failure(prepared.fail(error), plan.blocking());
+                return (report::preparation_failure(prepared.fail(error), plan.blocking()), None);
             }
         }
     } else {
@@ -282,7 +330,7 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
     ) {
         Ok(scope) => scope,
         Err(error) => {
-            return report::preparation_failure(prepared.fail(error), plan.blocking());
+            return (report::preparation_failure(prepared.fail(error), plan.blocking()), None);
         }
     };
     let staged = match index.as_ref().map(|index| {
@@ -295,12 +343,38 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
             Some((snapshot, target))
         }
         Some(Err(error)) => {
-            return report::from_execution_scoped(prepared.fail(error), &plan, scope);
+            return (report::from_execution_scoped(prepared.fail(error), &plan, scope), None);
         }
     };
+    // The commit records the configuration the index holds, so that is the
+    // one a staged scan obeys: an unstaged edit or an untracked file decides
+    // nothing about it.
+    if let Some(path) = staged
+        .as_ref()
+        .map(|(snapshot, _)| snapshot.workspace().join(configuration::CONFIG_FILE_NAME))
+    {
+        let validated = match policy.validate() {
+            Ok(validated) => validated,
+            Err(error) => {
+                let report = report::policy_failure(error, policy.failure_blocking());
+                return (report, staged.map(|(snapshot, _)| snapshot));
+            }
+        };
+        match configuration::load_path(&path) {
+            Ok(configuration) => {
+                plan = policy::PolicyPlan::compile_with_configuration(&validated, &configuration);
+                prepared.configuration = configuration;
+            }
+            Err(error) => {
+                let report = report::preparation_failure(prepared.fail(error), plan.blocking());
+                return (report, staged.map(|(snapshot, _)| snapshot));
+            }
+        }
+    }
     let staged_side = staged.as_ref().map(|(snapshot, target)| execution::Side {
         workspace: snapshot.workspace(),
         target_dir: target,
+        view: snapshot.view(),
     });
     let report = if let git_scope::ResolvedScope::Baseline { comparison_base } = scope.kind() {
         let comparison_base = comparison_base.clone();
@@ -308,21 +382,12 @@ fn inspect_prepared(session: InspectionSession) -> InspectReport {
         inspect_baseline(prepared, &comparison_base, (staged_side, index), &plan, &options, scope)
     } else {
         let execution = match staged_side {
-            Some(side) => execution::execute_staged(
-                prepared,
-                side.workspace,
-                side.target_dir,
-                &plan,
-                &options,
-            ),
+            Some(side) => execution::execute_staged(prepared, side, &plan, &options),
             None => execution::execute(prepared, &plan, &options),
         };
         report::from_execution_scoped(execution, &plan, scope)
     };
-    match staged.map(|(snapshot, _)| snapshot.cleanup()) {
-        None | Some(Ok(())) => report,
-        Some(Err(error)) => report::baseline_report_failure(report, error),
-    }
+    (report, staged.map(|(snapshot, _)| snapshot))
 }
 
 /// A `--scope baseline` comparison: the base side read from the side cache
@@ -365,6 +430,7 @@ fn inspect_baseline(
         execution::Side {
             workspace: snapshot.workspace(),
             target_dir,
+            view: snapshot.view(),
         }
     });
     let execution = execution::execute_baseline(prepared, setup, base, staged, plan, options);

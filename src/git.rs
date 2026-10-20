@@ -19,7 +19,7 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 
@@ -118,6 +118,49 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
     .collect()
 }
 
+/// A snapshot seen through git: the repository's own git directory, the index
+/// the snapshot was checked out from, and the snapshot as work tree.
+///
+/// A snapshot has no `.git` of its own, so a pass that asks git what it tracks
+/// found nothing there: the repository pass judged the working tree and never
+/// the commit or the index a baseline or a staged scan names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GitView {
+    /// The repository's `.git`, a directory or the file a linked work tree
+    /// or a submodule holds: git resolves the second as it resolves the first.
+    pub(crate) git_dir: PathBuf,
+    pub(crate) index: PathBuf,
+    pub(crate) work_tree: PathBuf,
+}
+
+impl GitView {
+    /// Where `path`, inside the snapshot, sits in the repository's working
+    /// tree: what a fact about the machine rather than the commit is read
+    /// from, such as whether a build has written an ignored lockfile.
+    pub(crate) fn working_path(&self, path: &Path) -> Option<PathBuf> {
+        let relative = path.strip_prefix(&self.work_tree).ok()?;
+        Some(self.git_dir.parent()?.join(relative))
+    }
+}
+
+/// [`git_arguments`], run through `view` when there is one.
+pub(crate) fn view_arguments<T: Into<OsString>, const N: usize>(
+    workspace_root: &Path,
+    view: Option<&GitView>,
+    operation: [T; N],
+) -> Vec<OsString> {
+    let Some(view) = view else {
+        return git_arguments(workspace_root, operation);
+    };
+    let mut git_dir = OsString::from("--git-dir=");
+    git_dir.push(&view.git_dir);
+    let mut work_tree = OsString::from("--work-tree=");
+    work_tree.push(&view.work_tree);
+    let mut arguments = git_arguments(workspace_root, [git_dir, work_tree]);
+    arguments.extend(operation.into_iter().map(Into::into));
+    arguments
+}
+
 /// Runs a call and answers its bounded stdout.
 ///
 /// Stderr is read and discarded rather than returned: it is where git writes
@@ -166,9 +209,13 @@ pub(crate) fn run_git_status(
     git: &Path,
     workspace_root: &Path,
     arguments: &[OsString],
+    index: Option<&Path>,
     deadline: Option<RunDeadline>,
 ) -> Option<i32> {
     let mut command = git_command(git, workspace_root, arguments);
+    if let Some(index) = index {
+        command.env("GIT_INDEX_FILE", index);
+    }
     command.stdout(Stdio::null()).stderr(Stdio::null());
     let (status, expired) = spawn_bounded(command, deadline).ok()?.wait();
     status.ok().filter(|_| !expired).and_then(|status| status.code())

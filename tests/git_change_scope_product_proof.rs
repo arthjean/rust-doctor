@@ -610,3 +610,148 @@ fn files_projection_keeps_workspace_execution_failure_observable() {
     assert!(!report.errors.is_empty());
     assert_eq!(report.exit_code(), 1);
 }
+
+static NEXT_STAGED: AtomicUsize = AtomicUsize::new(0);
+
+/// A committed library a test then stages changes into.
+fn staged_repository() -> PathBuf {
+    let root = support::temporary_target("staged-configuration", &NEXT_STAGED);
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"staged-configuration\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(root.join(".gitignore"), "/target\n").unwrap();
+    fs::write(root.join("src/lib.rs"), "pub fn done() -> u8 {\n    1\n}\n").unwrap();
+    configure_repository(&root);
+    git(&root, &["add", "."]);
+    commit(&root, "base", "2000-01-01T00:00:00Z");
+    root
+}
+
+fn staged_scan(root: &Path, arguments: &[&str]) -> (Option<i32>, Value, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg(root)
+        .args(["--yes", "--staged", "--scope", "lines"])
+        .args(arguments)
+        .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .env("CARGO_NET_OFFLINE", "true")
+        .env_remove("RUSTFLAGS")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let report = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+    (output.status.code(), report, stdout)
+}
+
+/// EP-001 US-003: a staged scan judges what the commit records. Its gate obeys
+/// the `rust-doctor.toml` the index holds, never an unstaged edit of it nor an
+/// untracked one, and its code frames show the staged lines, not the working
+/// tree's.
+#[test]
+fn a_staged_scan_obeys_the_staged_configuration_and_frames_the_staged_lines() {
+    let root = staged_repository();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn done() -> u8 {\n    1\n}\n\npub fn later() -> u8 {\n    todo!()\n}\n",
+    )
+    .unwrap();
+    fs::write(root.join("rust-doctor.toml"), "blocking = \"warning\"\n").unwrap();
+    git(&root, &["add", "src/lib.rs", "rust-doctor.toml"]);
+    fs::write(root.join("rust-doctor.toml"), "blocking = \"none\"\n").unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "// an unstaged line\npub fn done() -> u8 {\n    1\n}\n\npub fn later() -> u8 {\n    unimplemented!()\n}\n",
+    )
+    .unwrap();
+
+    let (code, report, _) = staged_scan(&root, &["--json"]);
+    assert_eq!(report["gate"]["blocking"], "warning", "{report:#}");
+    assert_eq!(report["gate"]["status"], "failed", "{report:#}");
+    assert_eq!(code, Some(1));
+    let todo: Vec<&Value> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "clippy::todo")
+        .collect();
+    assert_eq!(todo.len(), 1, "{report:#}");
+    assert_eq!(todo[0]["span"]["line_start"], 6);
+
+    let (_, _, verbose) = staged_scan(&root, &["--verbose"]);
+    assert!(verbose.contains("6 |     todo!()"), "{verbose}");
+    assert!(!verbose.contains("unimplemented") && !verbose.contains("an unstaged line"), "{verbose}");
+
+    // Untracked, the file is not part of the commit, and not read: an
+    // unparsable one changes nothing.
+    git(&root, &["rm", "--cached", "--quiet", "-f", "rust-doctor.toml"]);
+    fs::write(root.join("rust-doctor.toml"), "this is = = not toml\n").unwrap();
+    let (code, report, _) = staged_scan(&root, &["--json"]);
+    assert!(report["errors"].as_array().unwrap().is_empty(), "{report:#}");
+    assert_eq!(report["gate"]["blocking"], "error", "{report:#}");
+    assert_eq!(code, Some(0));
+}
+
+/// EP-001 US-003: a staged `--json` scan whose tree cannot be removed fails
+/// the published document, as it did before the linear report began drawing
+/// its frames from that tree.
+#[test]
+fn a_staged_tree_left_behind_fails_the_json_report() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = staged_repository();
+    fs::write(root.join("src/lib.rs"), "pub fn done() -> u8 {\n    2\n}\n").unwrap();
+    git(&root, &["add", "src/lib.rs"]);
+    let temporary = root.with_file_name(format!(
+        "{}-tmp",
+        root.file_name().unwrap().to_string_lossy()
+    ));
+    fs::create_dir_all(&temporary).unwrap();
+    let processes = support::ProcessHarness::install_with_git(&temporary);
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg(&root)
+        .args(["--yes", "--json", "--staged", "--scope", "files"])
+        .env("PATH", processes.command_path())
+        .env("RUST_DOCTOR_PROCESS_LOG", processes.log_path())
+        .env("RUST_DOCTOR_REAL_CARGO", support::resolve_program("cargo"))
+        .env("RUST_DOCTOR_REAL_GIT", support::resolve_program("git"))
+        .env("RUST_DOCTOR_REAL_RUSTC", support::resolve_program("rustc"))
+        .env("RUST_DOCTOR_REAL_RUSTUP", support::resolve_program("rustup"))
+        .env("RUST_DOCTOR_GIT_FAULT", "cleanup-failure")
+        .env("RUST_DOCTOR_CLEANUP_PARENT", &temporary)
+        .env("TMPDIR", &temporary)
+        .env("CARGO_TARGET_DIR", support::scan_target(&root))
+        .env("CARGO_NET_OFFLINE", "true")
+        .env_remove("RUSTFLAGS")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700)).unwrap();
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(2), "{report:#}");
+    assert_eq!(report["status"], "failed", "{report:#}");
+    assert_eq!(report["errors"][0]["code"], "baseline-cleanup-failed", "{report:#}");
+    fs::remove_dir_all(&temporary).unwrap();
+}
+
+/// EP-001 US-003: a conflicted index still fails the staged scan with
+/// `index-conflicted`, before any snapshot is written.
+#[test]
+fn a_conflicted_index_still_fails_the_staged_scan() {
+    let root = staged_repository();
+    git(&root, &["checkout", "--quiet", "-b", "other"]);
+    fs::write(root.join("src/lib.rs"), "pub fn done() -> u8 {\n    2\n}\n").unwrap();
+    git(&root, &["commit", "--quiet", "-am", "other"]);
+    git(&root, &["checkout", "--quiet", "main"]);
+    fs::write(root.join("src/lib.rs"), "pub fn done() -> u8 {\n    3\n}\n").unwrap();
+    git(&root, &["commit", "--quiet", "-am", "main"]);
+    let merge = Command::new("git").args(["merge", "--quiet", "other"]).current_dir(&root).output().unwrap();
+    assert!(!merge.status.success());
+
+    let (code, report, _) = staged_scan(&root, &["--json"]);
+    assert_eq!(code, Some(2));
+    assert_eq!(report["errors"][0]["code"], "index-conflicted", "{report:#}");
+}

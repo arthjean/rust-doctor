@@ -255,9 +255,13 @@ fn a_file_declared_generated_or_headed_as_one_grades_nothing() {
     let baseline = json(&root, &["--scope", "baseline", "--base", "HEAD"]);
     assert_eq!(baseline["status"], "complete", "{}", baseline["errors"]);
     // The three kept `todo!` are on both sides, and no declared file's finding
-    // was dropped from one side only.
+    // was dropped from one side only. The fixture has no `.gitignore`, so the
+    // unignored build directory is the fourth, and it pairs too: the
+    // repository pass judges the base side through a git view of its
+    // snapshot, so a commit that changed nothing introduces nothing.
     assert_eq!(baseline["delta"]["summary"]["fixed"], 0);
-    assert_eq!(baseline["delta"]["summary"]["pre_existing"], 3);
+    assert_eq!(baseline["delta"]["summary"]["pre_existing"], 4);
+    assert_eq!(baseline["delta"]["summary"]["introduced"], 0);
 
     // Outside git only the header answers, and no error says git is missing.
     let outside = workspace("generated");

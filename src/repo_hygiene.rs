@@ -16,7 +16,10 @@ use serde::Deserialize;
 
 use crate::internal_error::InternalError;
 use crate::execution::RunDeadline;
-use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_status};
+use crate::git::{
+    GitCall, GitFailure, GitView, run_git, run_git_status, run_git_with_index,
+    view_arguments,
+};
 use crate::policy::{
     ActiveRules, Producer,
     PolicyPlan, REPO_HARDCODED_CREDENTIAL, REPO_IGNORED_LOCKFILE, REPO_SECRET_IN_BUILD_STEP,
@@ -94,30 +97,61 @@ const LOCKFILE: &str = "Cargo.lock";
 
 /// `binary` says whether a workspace member produces a binary, the only kind
 /// of workspace whose lockfile has to be committed.
+///
+/// `view` is how git sees a snapshot, the base side of a baseline or the tree
+/// a staged scan wrote: every git call then runs with the snapshot's index and
+/// the snapshot as work tree, and the files read are the snapshot's, so the
+/// pass judges the commit or the index the scan names.
 pub(crate) fn inspect(
     workspace_root: &Path,
+    view: Option<&GitView>,
     plan: &PolicyPlan,
     binary: bool,
     deadline: Option<RunDeadline>,
 ) -> RepoScan {
+    // A lockfile git ignores is in no commit, so a snapshot never holds one:
+    // whether a build wrote it is read from the working tree on both sides,
+    // and only whether git ignores it is asked of the commit.
+    let lockfile_present = match view {
+        None => workspace_root.join(".git").exists() && workspace_root.join(LOCKFILE).is_file(),
+        Some(view) => {
+            workspace_root == view.work_tree
+                && view
+                    .working_path(workspace_root)
+                    .is_some_and(|working| working.join(LOCKFILE).is_file())
+        }
+    };
     inspect_with(
         workspace_root,
+        view,
         plan,
-        binary,
-        |call| run_git(Path::new("git"), workspace_root, call, deadline),
+        (binary, lockfile_present),
+        |call| match view {
+            // Git reads a missing index as an empty one, which would list
+            // nothing and answer for a snapshot that was never read.
+            Some(view) if !view.index.is_file() => Err(call.failure.error(call.stage)),
+            Some(view) => {
+                run_git_with_index(Path::new("git"), workspace_root, call, &view.index, deadline)
+            }
+            None => run_git(Path::new("git"), workspace_root, call, deadline),
+        },
         // A directory is asked with its trailing slash first, a file never:
         // `Cargo.lock/` matches a directory-only pattern the file escapes.
         |path| match path.strip_suffix('/') {
-            Some(directory) => probe_ignore(workspace_root, directory, deadline),
-            None => ask_git_check_ignore(workspace_root, path, deadline),
+            Some(directory) => probe_ignore(workspace_root, view, directory, deadline),
+            None => ask_git_check_ignore(workspace_root, view, path, deadline),
         },
     )
 }
 
+/// `(binary, lockfile_present)`: whether a member produces a binary, and
+/// whether the workspace is the root of the work tree git answers about and
+/// a lockfile sits there.
 fn inspect_with(
     workspace_root: &Path,
+    view: Option<&GitView>,
     plan: &PolicyPlan,
-    binary: bool,
+    (binary, lockfile_present): (bool, bool),
     mut run: impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
     mut probe: impl FnMut(&str) -> IgnoreProbe,
 ) -> RepoScan {
@@ -127,7 +161,7 @@ fn inspect_with(
         return scan;
     }
 
-    let output = match enumerate_tracked(workspace_root, &mut run) {
+    let output = match enumerate_tracked(workspace_root, view, &mut run) {
         Ok(output) => output,
         Err(error) => {
             scan.errors.extend(error);
@@ -148,7 +182,7 @@ fn inspect_with(
     }
 
     if active.on(&REPO_IGNORED_LOCKFILE) && binary {
-        scan.findings.extend(ignored_lockfile(workspace_root, &paths, &mut probe));
+        scan.findings.extend(ignored_lockfile(lockfile_present, &paths, &mut probe));
     }
 
     if active.on(&REPO_UNIGNORED_BUILD_OUTPUT)
@@ -201,13 +235,17 @@ fn inspect_tracked(workspace_root: &Path, path: &str, active: &ActiveRules, scan
 ///
 /// An absent workspace repository is a fact the criteria accept in silence,
 /// which is why the error is an `Option`: a broken git invocation degrades the
-/// same way, because the two exits are indistinguishable from here.
+/// same way, because the two exits are indistinguishable from here. Through a
+/// view no failure is silent: the snapshot was written from a repository, so a
+/// git that cannot list it read nothing, and an empty side would report every
+/// repository finding of the other as introduced or fixed.
 fn enumerate_tracked(
     workspace_root: &Path,
+    view: Option<&GitView>,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
 ) -> Result<Vec<u8>, Option<RepoError>> {
     run(&GitCall {
-        arguments: git_arguments(workspace_root, ["ls-files", "-z"]),
+        arguments: view_arguments(workspace_root, view, ["ls-files", "-z"]),
         stdout_limit: MAX_OUTPUT_BYTES,
         stage: STAGE,
         failure: GitFailure::new(
@@ -220,7 +258,11 @@ fn enumerate_tracked(
         ),
     })
     .map_err(|error| match error.code {
-        "repo-not-a-repository" => None,
+        "repo-not-a-repository" if view.is_none() => None,
+        "repo-not-a-repository" => Some(RepoError {
+            code: "repo-snapshot-unreadable",
+            message: "Repository hygiene could not read the snapshot through git.",
+        }),
         "git-unavailable" => Some(RepoError {
             code: "git-unavailable",
             message: "Repository hygiene skipped: git was not available.",
@@ -335,12 +377,11 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
 /// and an ignored nested lockfile is its choice, a fixture or an example whose
 /// lockfile a test run generates.
 fn ignored_lockfile(
-    workspace_root: &Path,
+    lockfile_present: bool,
     tracked: &[String],
     probe: &mut impl FnMut(&str) -> IgnoreProbe,
 ) -> Option<RepoFinding> {
-    (workspace_root.join(".git").exists()
-        && workspace_root.join(LOCKFILE).is_file()
+    (lockfile_present
         && !tracked.iter().any(|path| path == LOCKFILE)
         && probe(LOCKFILE) == IgnoreProbe::Ignored)
         .then(|| RepoFinding {
@@ -397,6 +438,7 @@ fn build_directory(workspace_root: &Path) -> Option<String> {
 
 fn probe_ignore(
     workspace_root: &Path,
+    view: Option<&GitView>,
     directory: &str,
     deadline: Option<RunDeadline>,
 ) -> IgnoreProbe {
@@ -411,19 +453,21 @@ fn probe_ignore(
     // that workspace is exactly one where the build path is unignored and its
     // link shows up as untracked. Abstaining there would hide the rule's own
     // case from the user most exposed to it.
-    match ask_git_check_ignore(workspace_root, &format!("{directory}/"), deadline) {
-        IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, directory, deadline),
+    match ask_git_check_ignore(workspace_root, view, &format!("{directory}/"), deadline) {
+        IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, view, directory, deadline),
         answered => answered,
     }
 }
 
 fn ask_git_check_ignore(
     workspace_root: &Path,
+    view: Option<&GitView>,
     path: &str,
     deadline: Option<RunDeadline>,
 ) -> IgnoreProbe {
-    let arguments = git_arguments(workspace_root, ["check-ignore", "--quiet", "--", path]);
-    match run_git_status(Path::new("git"), workspace_root, &arguments, deadline) {
+    let arguments = view_arguments(workspace_root, view, ["check-ignore", "--quiet", "--", path]);
+    let index = view.map(|view| view.index.as_path());
+    match run_git_status(Path::new("git"), workspace_root, &arguments, index, deadline) {
         Some(0) => IgnoreProbe::Ignored,
         Some(1) => IgnoreProbe::NotIgnored,
         _ => IgnoreProbe::Unavailable,
@@ -487,14 +531,14 @@ mod tests {
         fs::write(workspace.join(".gitignore"), "/target/\n").expect("gitignore should write");
         symlink(&elsewhere, workspace.join("target")).expect("the symlink should be created");
         assert_eq!(
-            probe_ignore(&workspace, "target", None),
+            probe_ignore(&workspace, None, "target", None),
             IgnoreProbe::NotIgnored,
             "a directory-only pattern does not cover the link that stands in for it"
         );
 
         // The same workspace, with the spelling that does cover a link.
         fs::write(workspace.join(".gitignore"), "/target\n").expect("gitignore should write");
-        assert_eq!(probe_ignore(&workspace, "target", None), IgnoreProbe::Ignored);
+        assert_eq!(probe_ignore(&workspace, None, "target", None), IgnoreProbe::Ignored);
 
         fs::remove_dir_all(&scratch).expect("the scratch tree should be removable");
     }
@@ -503,8 +547,9 @@ mod tests {
     fn a_workspace_outside_git_yields_no_finding_and_no_error() {
         let scan = inspect_with(
             Path::new("."),
+            None,
             &plan(),
-            false,
+            (false, false),
             |call| Err(call.failure.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
@@ -527,15 +572,16 @@ mod tests {
                 .count()
         };
         let answered = |probe: IgnoreProbe| {
-            inspect_with(&workspace, &plan(), true, |_| Ok(ls_files_output(&["Cargo.toml"])), |_| probe)
+            inspect_with(&workspace, None, &plan(), (true, true), |_| Ok(ls_files_output(&["Cargo.toml"])), |_| probe)
         };
         assert_eq!(reported(answered(IgnoreProbe::Ignored)), 1);
         assert_eq!(reported(answered(IgnoreProbe::NotIgnored)), 0);
         assert_eq!(reported(answered(IgnoreProbe::Unavailable)), 0);
         let outside_git = inspect_with(
             &workspace,
+            None,
             &plan(),
-            true,
+            (true, true),
             |call| Err(call.failure.error(call.stage)),
             |_| IgnoreProbe::Ignored,
         );
@@ -547,8 +593,9 @@ mod tests {
     fn an_absent_git_degrades_to_a_recorded_error() {
         let scan = inspect_with(
             Path::new("."),
+            None,
             &plan(),
-            false,
+            (false, false),
             |_| {
                 Err(InternalError::new(
                     "scope",
@@ -568,8 +615,9 @@ mod tests {
     fn an_oversized_enumeration_is_a_bounded_error_not_a_hang() {
         let scan = inspect_with(
             Path::new("."),
+            None,
             &plan(),
-            false,
+            (false, false),
             |call| Err(call.overflow.error(call.stage)),
             |_| IgnoreProbe::Unavailable,
         );
@@ -585,8 +633,9 @@ mod tests {
         let borrowed: Vec<&str> = paths.iter().map(String::as_str).collect();
         let scan = inspect_with(
             Path::new("/nonexistent/rust-doctor-repo-hygiene"),
+            None,
             &plan(),
-            false,
+            (false, false),
             |_| Ok(ls_files_output(&borrowed)),
             |_| IgnoreProbe::Unavailable,
         );

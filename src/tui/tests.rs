@@ -433,6 +433,7 @@ fn session<'a>(
         report,
         presentation,
         workspace_root,
+        frame_root: workspace_root,
         agents: &[],
         color: false,
         animate: false,

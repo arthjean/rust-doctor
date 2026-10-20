@@ -496,6 +496,8 @@ impl ProcessHarness {
                     "  merge-base-ambiguous:merge-base) printf '%040d\\n%040d\\n' 1 2; exit 0 ;;\n",
                     "  baseline-limit:ls-tree) printf '100644 blob 1111111111111111111111111111111111111111 67108865\\tlarge.rs\\0'; exit 0 ;;\n",
                     "  baseline-gitlink:ls-tree) printf '160000 commit 1111111111111111111111111111111111111111 -\\tprivate-gitlink\\0'; exit 0 ;;\n",
+                    "  snapshot-index-unreadable:*)\n",
+                    "    case \"$*\" in *--work-tree=*) printf 'not an index' > \"$GIT_INDEX_FILE\" ;; esac ;;\n",
                     "  cleanup-failure:checkout-index)\n",
                     "    \"$RUST_DOCTOR_REAL_GIT\" \"$@\" || exit $?\n",
                     "    chmod 0500 \"$RUST_DOCTOR_CLEANUP_PARENT\" || exit $?\n",
