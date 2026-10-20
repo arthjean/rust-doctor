@@ -15,9 +15,8 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn workspace() -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kernel-contract/todo");
     let root = support::fresh_workspace("agent-skill-notice", &COUNTER);
-    for file in ["Cargo.toml", "Cargo.lock"] {
-        fs::copy(fixture.join(file), root.join(file)).unwrap();
-    }
+    // The fixture's lockfile is gitignored, so a fresh checkout has none.
+    fs::copy(fixture.join("Cargo.toml"), root.join("Cargo.toml")).unwrap();
     support::copy_tree(&fixture.join("src"), &root.join("src"));
     root
 }
