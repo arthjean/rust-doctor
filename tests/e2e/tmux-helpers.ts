@@ -115,11 +115,13 @@ export class TmuxSession {
       "start-server", ";",
       "set", "-g", "escape-time", "0", ";",
       "set", "-g", "status", "off", ";",
-      "set", "-g", "window-size", "manual", ";",
       "set", "-g", "remain-on-exit", "on", ";",
       "set", "-g", "default-terminal", "xterm-256color", ";",
       "new-session", "-d", "-s", "main",
       "-x", String(options.width ?? 80), "-y", String(options.height ?? 24), pane, ";",
+      // After the session: tmux 3.4, the one ubuntu-24.04 ships, kills a
+      // server that sets `window-size` before it holds a session.
+      "set", "-g", "window-size", "manual", ";",
       "pipe-pane", "-t", "main", "-o", `cat >> ${shellQuote(logPath)}`, ";",
       "wait-for", "-S", gate,
     ]);
