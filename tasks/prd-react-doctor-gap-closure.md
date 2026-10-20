@@ -694,7 +694,7 @@ For stories that change terminal output (US-001, US-013, US-030 to US-033):
 - [ ] A match is vetoed when the matched token, or the 40 bytes before it, contains `example`, `sample`, `dummy`, `fake` or `placeholder`, or when a `...` truncation follows it
 - [ ] A database URL with an embedded password (`postgres`, `postgresql`, `mysql`, `mongodb`, `mongodb+srv`, `redis`) becomes a credential pattern, vetoed when the password is a placeholder (`pass`, `changeme`, `${VAR}`, `<...>`, `{{...}}`) or the host is dotless or `localhost`
 - [ ] Given a bare header, AWS's documented `AKIAIOSFODNN7EXAMPLE`, or `postgres://user:pass@localhost/db`, when scanned, then nothing is reported; the tests at `src/repo_hygiene.rs:627` and `:657` move to the new verdicts
-- [ ] Given a real-shaped key body under a header, or `postgres://app:Xk29fj3lQ@db.internal.example.net/prod`, when scanned, then the finding is reported and masked by US-001
+- [ ] Given a real-shaped key body under a header, or a `postgres` URL carrying a real-shaped password on a dotted host (the seed `tests/fixtures/regressions/hardcoded_credential--deployed-database-password/` splits it so this document holds none), when scanned, then the finding is reported and masked by US-001
 - [ ] Each pattern's verdicts are measured on the corpus and recorded
 
 #### US-020: Withhold orphan findings where the module walk lost declarations

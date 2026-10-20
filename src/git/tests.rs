@@ -65,6 +65,10 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
         Some(&Some(OsStr::new("1")))
     );
     assert_eq!(
+        environment.get(OsStr::new("GIT_LFS_SKIP_SMUDGE")),
+        Some(&Some(OsStr::new("1")))
+    );
+    assert_eq!(
         environment.get(OsStr::new("GIT_OPTIONAL_LOCKS")),
         Some(&Some(OsStr::new("0")))
     );
@@ -84,7 +88,7 @@ fn a_relative_workspace_reaches_git_once() {
     let arguments = git_arguments(Path::new("crates/x"), ["status"]);
     let command = git_command(Path::new("git"), Path::new("crates/x"), &arguments);
     assert_eq!(command.get_current_dir(), Some(Path::new("crates/x")));
-    let directory = Path::new(&arguments[6]);
+    let directory = Path::new(&arguments[14]);
     assert!(directory.is_absolute(), "{}", directory.display());
     assert_eq!(directory, std::env::current_dir().unwrap().join("crates/x"));
 }
@@ -98,8 +102,8 @@ fn arguments_accept_a_literal_and_an_owned_operation_alike() {
         [OsString::from("diff"), OsString::from("--name-only")],
     );
     assert_eq!(literal, owned);
-    assert_eq!(literal[6], OsStr::new("/workspace"));
-    assert_eq!(literal[7], OsStr::new("diff"));
+    assert_eq!(literal[14], OsStr::new("/workspace"));
+    assert_eq!(literal[15], OsStr::new("diff"));
 }
 
 #[test]

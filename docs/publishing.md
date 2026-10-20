@@ -76,3 +76,10 @@ the crate from the repository around it: the Node launcher, the PRDs, the agent
 tooling and `.github/` stay out, `skills/` stays in because `src/skill.rs`
 embeds it with `include_str!` and a tarball without it does not compile.
 
+The network promise has copies no test here reads. The README, the skill and the
+scan's long help say that rust-doctor opens no connection, that Cargo downloads
+missing dependencies as `cargo build` does, and that `CARGO_NET_OFFLINE=true`
+forbids it. The site restates it in its docs index, its privacy page and the
+tagline of its root layout, so the site update of a release aligns those three
+pages with the README.
+

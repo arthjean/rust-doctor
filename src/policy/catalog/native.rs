@@ -171,7 +171,7 @@ pub(crate) static REPO_HARDCODED_CREDENTIAL: RuleDefinition = RuleDefinition {
     producer: Producer::Repo,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P1,
-    help: "Remove the credential from the source and rotate it; the closed list judged here is AKIA, ghp_, github_pat_, sk-, xoxb- and BEGIN PRIVATE KEY blocks, and the matched value is never republished by the report.",
+    help: "Remove the credential from the source and rotate it; the closed list judged here is AKIA, ghp_, github_pat_, sk-, xoxb-, BEGIN PRIVATE KEY blocks and the password of a postgres, mysql, mongodb or redis database URL, and the matched value is never republished by the report.",
     diff_scope: DiffScope::Line,
     title: "Credential-shaped literal in tracked source",
     not_a_defect_when: "The literal is a documented fake that grants access to nothing, such as a vendor's published example key or a throwaway key generated solely for a test fixture.",

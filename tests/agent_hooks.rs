@@ -41,6 +41,10 @@ fn git(root: &Path, arguments: &[&str]) -> Output {
 /// The environment a commit runs its hook under: the binary on `PATH`, and a
 /// Cargo target of the test's own.
 fn commit(root: &Path, message: &str) -> Output {
+    commit_with(root, &["-m", message])
+}
+
+fn commit_with(root: &Path, arguments: &[&str]) -> Output {
     let binary_directory = Path::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .parent()
         .unwrap();
@@ -59,9 +63,8 @@ fn commit(root: &Path, message: &str) -> Output {
             "commit.gpgsign=false",
             "commit",
             "--quiet",
-            "-m",
-            message,
         ])
+        .args(arguments)
         .current_dir(root)
         .env("PATH", path)
         .env("CARGO_TARGET_DIR", support::scan_target(root))
@@ -72,7 +75,8 @@ fn commit(root: &Path, message: &str) -> Output {
         .unwrap()
 }
 
-/// A one-crate repository whose gate blocks on a warning, committed clean.
+/// A one-crate repository with no configuration, committed clean: the gate is
+/// the one each hook passes on its command line.
 fn repository(name: &str) -> PathBuf {
     let root = support::temporary_target(&format!("agent-hooks-{name}"), &NEXT_WORKSPACE);
     fs::create_dir_all(root.join("src")).unwrap();
@@ -82,7 +86,6 @@ fn repository(name: &str) -> PathBuf {
     )
     .unwrap();
     fs::write(root.join(".gitignore"), "/target\n").unwrap();
-    fs::write(root.join("rust-doctor.toml"), "blocking = \"warning\"\n").unwrap();
     fs::write(root.join("src/lib.rs"), "pub fn value() -> u8 { 1 }\n").unwrap();
     git(&root, &["init", "--quiet", "--initial-branch=master"]);
     git(&root, &["add", "."]);
@@ -135,8 +138,11 @@ fn install(root: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// The pre-commit hook judges what the commit records: a staged defect is
-/// refused even once the working tree fixed it, and a clean commit passes.
+/// The pre-commit hook judges what the commit records, blocking on a warning
+/// with no configuration: a staged defect is refused even once the working
+/// tree fixed it, `--no-verify` skips the hook, a change beside a finding the
+/// file already held passes, and a scan that cannot run lets the commit
+/// through, saying so.
 #[test]
 fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     let root = repository("git-commit");
@@ -149,7 +155,7 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     assert_eq!(installed.status.code(), Some(0), "{}", stderr(&installed));
     let hook = fs::read_to_string(root.join(".git/hooks/pre-commit")).unwrap();
     assert!(
-        hook.contains("\n  exec rust-doctor . --yes --staged --scope lines\n"),
+        hook.contains("\nrust-doctor . --yes --staged --scope lines --blocking warning\n"),
         "{hook}"
     );
 
@@ -172,13 +178,51 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
         stderr(&refused)
     );
 
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { todo!() }\n",
+    )
+    .unwrap();
     git(&root, &["add", "src/lib.rs"]);
-    let accepted = commit(&root, "clean");
+    let skipped = commit_with(&root, &["--no-verify", "-m", "skip the hook"]);
+    assert!(skipped.status.success(), "{}", stderr(&skipped));
+
+    // The file now holds a finding; a commit that adds none beside it passes.
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { todo!() }\n\npub fn other() -> u8 { 3 }\n",
+    )
+    .unwrap();
+    git(&root, &["add", "src/lib.rs"]);
+    let accepted = commit(&root, "clean beside a finding");
     assert!(
         accepted.status.success(),
         "{}{}",
         stdout(&accepted),
         stderr(&accepted)
+    );
+
+    // A configuration the scan cannot read fails it (exit 2): not judged.
+    fs::write(root.join("rust-doctor.toml"), "blocking = 7\n").unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { todo!() }\n\npub fn other() -> u8 { todo!() }\n",
+    )
+    .unwrap();
+    git(&root, &["add", "rust-doctor.toml", "src/lib.rs"]);
+    let unjudged = commit(&root, "unscannable");
+    assert!(unjudged.status.success(), "{}", stderr(&unjudged));
+    assert!(
+        stderr(&unjudged).contains("Invalid rust-doctor.toml"),
+        "{}",
+        stderr(&unjudged)
+    );
+    assert!(
+        stderr(&unjudged)
+            .trim_end()
+            .ends_with("rust-doctor could not scan: this commit was not judged."),
+        "{}",
+        stderr(&unjudged)
     );
 
     let again = install(&root, &["git"]);
@@ -200,7 +244,9 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     fs::write(root.join(".git/hooks/pre-commit"), "#!/bin/sh\nmake lint\n").unwrap();
     let foreign = install(&root, &["git"]);
     assert_eq!(foreign.status.code(), Some(1));
-    assert!(stdout(&foreign).contains("rust-doctor . --yes --staged --scope lines"));
+    assert!(stdout(&foreign).contains(
+        "rust-doctor . --yes --staged --scope lines --blocking warning"
+    ));
     assert_eq!(
         fs::read_to_string(root.join(".git/hooks/pre-commit")).unwrap(),
         "#!/bin/sh\nmake lint\n"
@@ -415,7 +461,7 @@ fn the_git_hook_survives_a_missing_binary_and_refreshes_on_update() {
     assert_eq!(updated.status.code(), Some(0), "{}", stderr(&updated));
     assert!(
         stdout(&updated).contains(
-            "`rust-doctor . --yes --staged` becomes `rust-doctor . --yes --staged --scope lines`"
+            "`rust-doctor . --yes --staged` becomes `rust-doctor . --yes --staged --scope lines --blocking warning`"
         ),
         "{}",
         stdout(&updated)

@@ -452,7 +452,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # Baseline scope checks the base out into a temporary worktree, so the
+      # Baseline scope checks the base out into a temporary snapshot, so the
       # shallow default clone is not enough. No token is left behind for the
       # code under review to find.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

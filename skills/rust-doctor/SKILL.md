@@ -6,9 +6,11 @@ description: Use when Rust code just changed and must not regress, when the user
 # rust-doctor
 
 `rust-doctor` scans a Cargo workspace with 142 curated rules and scores it out of
-100. It runs locally, reaches no network and uploads nothing. The scan runs
-`cargo clippy` inside the workspace, which executes its build scripts and
-procedural macros, so scan trusted local paths only.
+100. It runs locally, opens no network connection and uploads nothing; Cargo
+downloads missing dependencies as `cargo build` does, and
+`CARGO_NET_OFFLINE=true` forbids it. The scan runs `cargo clippy` inside the
+workspace, which executes its build scripts and procedural macros, so scan
+trusted local paths only.
 
 ## The ceiling decides what to fix first
 
@@ -170,7 +172,7 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor . --json --advisory-db <PATH>` | Judge `Cargo.lock` against a RustSec database you name instead of the one `cargo audit` left |
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
 | `rust-doctor . --json --timings` | Publish how long each phase took, in milliseconds, under `timings` |
-| `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines` |
+| `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines --blocking warning` |
 | `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
 | `rust-doctor hook install cursor` | A Cursor `stop` hook that asks for a follow-up on findings |
 | `rust-doctor skill install --agent all --update` | Refresh this skill for Claude Code, Codex and Cursor after an upgrade |
@@ -178,10 +180,14 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor ci install --comment` | A GitHub Actions workflow judging each pull request in baseline scope, plus its sticky comment |
 | `rust-doctor report markdown report.json --limit 20` | A saved `--json` report as Markdown, without scanning |
 
-Every installer prints what it writes, takes `--dry-run`, and never writes over
-a file it did not create or through a symlink. `hook install --update` rewrites
+Every installer prints what it writes, takes `--dry-run`, and never writes
+through a symlink. The skill, the git hook and the CI workflow never write over
+a file rust-doctor did not create; the agent-hook installers merge their one
+entry into an existing settings file and keep every other key. `hook install --update` rewrites
 a hook rust-doctor wrote that an older release left behind. The pre-commit hook
-lets a commit through, saying so, when `rust-doctor` is not on `PATH`. The
+refuses a commit that adds a warning, and lets one through, saying so, when
+`rust-doctor` is not on `PATH` or the scan itself fails (exit 2), and git's
+no-verify option skips it. The
 end-of-turn hook runs `rust-doctor hook run claude`, which rescans with
 `--scope lines --base HEAD --include-untracked --blocking warning`, exits 2
 with up to ten findings when the turn introduced one, and never blocks when the

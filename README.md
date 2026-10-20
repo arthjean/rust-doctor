@@ -9,7 +9,7 @@ Rust Doctor scans your Cargo workspace with 142 curated rules and finds issues a
 
 Works on any Cargo workspace - a single binary crate, a library, a virtual workspace with dozens of members, you name it.
 
-Everything runs locally: no network, no upload, no telemetry. Inspect trusted local workspaces only, since Cargo runs the build scripts and procedural macros of whatever it compiles. [Limits →](https://rust-doctor.com/docs/limitations)
+Everything runs locally: rust-doctor opens no network connection, uploads nothing and sends no telemetry. Cargo downloads missing dependencies as `cargo build` does, and `CARGO_NET_OFFLINE=true` forbids it. Inspect trusted local workspaces only, since Cargo runs the build scripts and procedural macros of whatever it compiles. [Limits →](https://rust-doctor.com/docs/limitations)
 
 [Website →](https://rust-doctor.com/docs)
 
@@ -31,7 +31,9 @@ Once you have an audit, set up the loop so your coding agent fixes what it found
 npx rust-doctor@latest setup
 ```
 
-This detects Claude Code, Codex and Cursor from their commands on `PATH` and their project directories, then writes the skill for each, the git pre-commit hook, and the end-of-turn hook of Claude Code or Cursor, from the binary rather than the network. It prints the plan and checks every file before writing any (`--dry-run` stops there), and never writes over a file it did not create. `skill install` installs the skill alone.
+This detects Claude Code, Codex and Cursor from their commands on `PATH` and their project directories, then writes the skill for each, the git pre-commit hook, and the end-of-turn hook of Claude Code or Cursor, from the binary rather than the network. It prints the plan and checks every file before writing any (`--dry-run` stops there), never writes over a file it did not create, and merges the end-of-turn hook into an existing agent settings file, keeping every other key. `skill install` installs the skill alone.
+
+The pre-commit hook scans what the commit records, in `--scope lines`, and refuses a commit that adds a warning, the level the end-of-turn hook blocks on too. `git commit --no-verify` skips it, and a scan that cannot run lets the commit through, saying it was not judged.
 
 For a one-off handoff instead, the report sends the findings straight to an agent, with the rules, their spans, and the scan scope already written into the prompt.
 
@@ -53,7 +55,7 @@ This writes `.github/workflows/rust-doctor.yml` at the top of your git repositor
 
 To compose your own workflow, use the Action: `uses: arthjean/rust-doctor@v0`, with the outputs `score`, `authoritative`, `introduced`, `fixed` and `exit-code`, and the same sticky comment unless you pass `comment: false` (`comment-on-clean: false` skips it on a clean pull request). It fails only a pull request on its findings: a push reports without failing. Check out with `fetch-depth: 0`, since a pull request scan needs the base's history; from a shallow checkout the Action fetches the base itself when the token allows it.
 
-The binary still never reaches the network: the comment is posted by the workflow's own GitHub token.
+The binary still opens no network connection: the comment is posted by the workflow's own GitHub token.
 
 [CI docs →](https://rust-doctor.com/docs/ci-cd)
 
@@ -70,7 +72,7 @@ rust-doctor --category performance=error
 
 ## Privacy
 
-The CLI reports nothing to anyone. No network call, no upload, no telemetry, no crash reporting, and nothing to opt out of. The binary carries no HTTP client and no analytics dependency.
+The CLI reports nothing to anyone. No network connection of its own, no upload, no telemetry, no crash reporting, and nothing to opt out of. The binary carries no HTTP client and no analytics dependency.
 
 A `--json` report stays inside your workspace and carries only:
 

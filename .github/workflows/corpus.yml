@@ -8,7 +8,9 @@ name: Corpus
 # recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in the
 # artifact's `toolchain` block). Nothing in the corpus floats: repositories are
 # pinned by commit and the toolchain is pinned here, so a scheduled run can only
-# ever repeat the same answer at the cost of compiling eighteen repositories.
+# ever repeat the same answer at the cost of compiling the ten healthy
+# repositories. The eight agent ones are scanned with every Clippy rule off,
+# so nothing of theirs is compiled.
 #
 # A pull request that edits the record is the one case where the answer can have
 # changed without anyone running this by hand, and it is the case where a site
@@ -17,8 +19,8 @@ name: Corpus
 # the two are the same gate, seen from the two sides.
 #
 # TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
-# scanning runs `cargo clippy`, which executes their build scripts and
-# procedural macros. That is acceptable here only because the runner is
+# the ten it scans with Clippy run `cargo clippy`, which executes their build
+# scripts and procedural macros. That is acceptable here only because the runner is
 # disposable and every revision is pinned. Do not port these steps to a
 # developer machine, and do not add a repository to the manifest without the
 # review the corpus protocol requires.
@@ -73,8 +75,8 @@ on:
 
 concurrency:
   # Per branch rather than per workflow, now that a pull request can start this
-  # job: one queue for every open branch would serialize three-hour runs behind
-  # each other. A new push to a pull request supersedes the run it obsoletes,
+  # job: one queue for every open branch would serialize full corpus replays
+  # behind each other. A new push to a pull request supersedes the run it obsoletes,
   # and a manual run is never cancelled, since nothing is coming to replace it.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

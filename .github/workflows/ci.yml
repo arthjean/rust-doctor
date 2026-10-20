@@ -30,7 +30,7 @@ env:
 
 jobs:
   # The toolchain is pinned, not `stable`. Clippy's diagnostics ARE the product
-  # here: 37 of the 62 catalogued rules are Clippy lints, and tests/corpus.json
+  # here: most catalogued rules are Clippy lints, and tests/corpus.json
   # records the exact clippy version its measurement was taken under. A floating
   # `stable` would silently move the catalog's meaning every six weeks.
   clippy:
@@ -98,7 +98,7 @@ jobs:
           # own repositories in scratch directories and set their own git
           # identity, so no global git config is needed. Full history is still
           # required: the baseline scope materializes a comparison ref in a
-          # temporary worktree.
+          # temporary snapshot.
           fetch-depth: 0
 
       # Several integration tests spawn `cargo clippy` against fixture

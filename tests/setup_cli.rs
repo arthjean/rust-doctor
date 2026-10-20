@@ -101,8 +101,25 @@ fn a_fake_codex_on_path_gets_its_skill_and_the_git_hook_and_nothing_else() {
         Some("setup never adds a CI workflow: run `rust-doctor ci install` for GitHub Actions.")
     );
 
-    // A second run refreshes in place rather than refusing.
-    assert!(setup(&root, &path, &[]).status.success());
+    // Codex has no end-of-turn hook, so the pre-commit hook is its gate, and
+    // it blocks on a warning as the Stop hook does.
+    let hook = root.join(".git/hooks/pre-commit");
+    assert!(
+        fs::read_to_string(&hook)
+            .unwrap()
+            .contains("\nrust-doctor . --yes --staged --scope lines --blocking warning\n")
+    );
+
+    // A second run refreshes in place rather than refusing, rewriting the hook
+    // an earlier release wrote.
+    fs::write(
+        &hook,
+        "#!/bin/sh\n# rust-doctor pre-commit hook: judges what this commit records.\nif command -v rust-doctor >/dev/null 2>&1; then\n  exec rust-doctor . --yes --staged --scope lines\nfi\n",
+    )
+    .unwrap();
+    let refreshed = setup(&root, &path, &[]);
+    assert!(refreshed.status.success(), "{}", String::from_utf8_lossy(&refreshed.stderr));
+    assert!(fs::read_to_string(&hook).unwrap().contains("--blocking warning"));
 }
 
 #[test]

@@ -466,3 +466,31 @@ fn every_checkout_drops_its_persisted_credentials() {
     }
     assert!(checkouts > 0, "no checkout step was found");
 }
+
+/// EP-003 US-013: the network promise says what holds wherever it is read.
+/// rust-doctor opens no connection, but Cargo downloads a missing dependency,
+/// so "no network" was false on a fresh clone.
+#[test]
+fn the_network_promise_names_cargo_s_downloads_and_how_to_forbid_them() {
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    for (name, text) in [
+        ("README.md", read("README.md")),
+        ("skills/rust-doctor/SKILL.md", read("skills/rust-doctor/SKILL.md")),
+        ("--help", String::from_utf8(help.stdout).unwrap()),
+    ] {
+        let text = flat(&text);
+        for promise in [
+            "opens no network connection",
+            "Cargo downloads missing dependencies as `cargo build` does",
+            "CARGO_NET_OFFLINE=true",
+        ] {
+            assert!(text.contains(promise), "{name} does not say {promise:?}");
+        }
+        for broken in ["no network,", "reaches no network"] {
+            assert!(!text.contains(broken), "{name} still says {broken:?}");
+        }
+    }
+}

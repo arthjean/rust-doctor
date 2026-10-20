@@ -99,6 +99,10 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
     assert!(workflow.contains("persist-credentials: false"));
     assert!(workflow.contains("permissions:\n  contents: read\n"));
     assert!(workflow.contains("--scope full --blocking none"));
+    // The base is checked out into a snapshot under the temporary directory,
+    // never a git worktree.
+    assert!(workflow.contains("checks the base out into a temporary snapshot"));
+    assert!(!workflow.contains("worktree"), "{workflow}");
     assert!(!root.join(".github/workflows/rust-doctor-comment.yml").exists());
 
     // An existing workflow is left alone without --update.

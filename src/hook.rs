@@ -48,7 +48,7 @@ enum HookCommand {
 #[derive(Debug, Clone, Subcommand)]
 enum HookTarget {
     #[command(
-        about = "Write a pre-commit hook running `rust-doctor . --yes --staged --scope lines`"
+        about = "Write a pre-commit hook running `rust-doctor . --yes --staged --scope lines --blocking warning`"
     )]
     Git {
         #[arg(default_value = ".", value_name = "PATH")]
@@ -121,11 +121,12 @@ const MARKER: &str = "# rust-doctor pre-commit hook";
 const FAILED: u8 = 2;
 
 /// The command a pre-commit hook runs, with the workspace spelled relative to
-/// the top of the working tree, where git starts it. No `--blocking` is passed,
-/// so the workspace's configured level decides.
+/// the top of the working tree, where git starts it. It blocks on a warning,
+/// as the end-of-turn hook does: every catalogued rule defaults to `warn`, so
+/// the default `error` level would let every finding through.
 fn pre_commit_command(workspace: &str) -> String {
     format!(
-        "rust-doctor {} --yes --staged --scope lines",
+        "rust-doctor {} --yes --staged --scope lines --blocking warning",
         shell_word(workspace)
     )
 }
@@ -143,19 +144,25 @@ fn shell_word(word: &str) -> String {
 
 /// The script a pre-commit hook runs. A contributor without the binary still
 /// commits, told on stderr that the commit was not judged: a hook directory a
-/// repository shares must not block the people who never chose the tool.
-/// With the binary, the scan's exit code is the hook's.
+/// repository shares must not block the people who never chose the tool. A
+/// scan that fails (exit 2) lets the commit through the same way, since a
+/// broken toolchain judges nothing. Every other exit code is the hook's.
 fn hook_script(command: &str) -> String {
     format!(
-        "#!/bin/sh\n{MARKER}: judges what this commit records.\n# Written by `rust-doctor hook install git`; remove this file to uninstall.\nif command -v rust-doctor >/dev/null 2>&1; then\n  exec {command}\nfi\necho \"rust-doctor is not on PATH: this commit was not judged.\" >&2\nexit 0\n"
+        "#!/bin/sh\n{MARKER}: judges what this commit records.\n# Written by `rust-doctor hook install git`; remove this file to uninstall.\nif ! command -v rust-doctor >/dev/null 2>&1; then\n  echo \"rust-doctor is not on PATH: this commit was not judged.\" >&2\n  exit 0\nfi\n{command}\nstatus=$?\nif [ \"$status\" -eq 2 ]; then\n  echo \"rust-doctor could not scan: this commit was not judged.\" >&2\n  exit 0\nfi\nexit \"$status\"\n"
     )
 }
 
-/// The command a hook script runs, read back from its `exec` line.
+/// The command a hook script runs: its `rust-doctor` line, or the `exec` line
+/// an earlier release wrote.
 fn script_command(script: &str) -> &str {
     script
         .lines()
-        .find_map(|line| line.trim_start().strip_prefix("exec "))
+        .map(str::trim_start)
+        .find_map(|line| {
+            let command = line.strip_prefix("exec ").unwrap_or(line);
+            command.starts_with("rust-doctor ").then_some(command)
+        })
         .unwrap_or("(none)")
 }
 
@@ -289,22 +296,17 @@ mod tests {
 
     #[test]
     fn the_hook_runs_a_staged_lines_scan_of_the_workspace() {
-        assert_eq!(
-            pre_commit_command("."),
-            "rust-doctor . --yes --staged --scope lines"
-        );
+        let command = "rust-doctor . --yes --staged --scope lines --blocking warning";
+        assert_eq!(pre_commit_command("."), command);
         assert_eq!(
             pre_commit_command("crates/my app"),
-            "rust-doctor 'crates/my app' --yes --staged --scope lines"
+            "rust-doctor 'crates/my app' --yes --staged --scope lines --blocking warning"
         );
         let script = hook_script(&pre_commit_command("."));
         assert!(script.starts_with("#!/bin/sh\n"));
         assert!(script.contains(MARKER));
-        assert!(script.contains("\n  exec rust-doctor . --yes --staged --scope lines\nfi\n"));
-        assert_eq!(
-            script_command(&script),
-            "rust-doctor . --yes --staged --scope lines"
-        );
+        assert!(script.contains(&format!("\nfi\n{command}\nstatus=$?\n")));
+        assert_eq!(script_command(&script), command);
         assert_eq!(
             script_command(&format!("#!/bin/sh\n{MARKER}\nexec rust-doctor .\n")),
             "rust-doctor ."

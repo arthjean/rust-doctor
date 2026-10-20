@@ -5,7 +5,7 @@ name: Rust Doctor
 # release. A rule that regresses shows up on the pull request that caused it.
 #
 # On a pull request the scan runs in baseline mode, which is the mode the tool
-# exists for in CI: it materializes the comparison ref in a temporary worktree,
+# exists for in CI: it materializes the comparison ref in a temporary snapshot,
 # scans both sides, and reports only what the change introduced. The existing
 # backlog is not the contributor's problem.
 

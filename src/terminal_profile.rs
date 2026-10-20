@@ -103,7 +103,9 @@ impl TerminalProfile {
     /// The profile, reading the environment through `variable` so every
     /// decision is tested without touching the process's own.
     ///
-    /// A marker set to the empty string counts as unset. `CI` is read by value
+    /// A marker set to the empty string counts as unset, and so does an empty
+    /// `NO_COLOR`: no-color.org turns color off only for a non-empty value,
+    /// whatever it is, `0` included. `CI` is read by value
     /// rather than presence, since `CI=false` is how a developer says the shell
     /// is not one.
     pub(crate) fn resolve(
@@ -118,7 +120,9 @@ impl TerminalProfile {
                 .iter()
                 .any(|marker| variable(marker).as_deref().is_some_and(|value| !value.is_empty()));
         let interactive = streams.stdin && streams.stdout && !json && !yes && !dumb && !unattended;
-        let color = streams.stdout && variable("NO_COLOR").is_none() && !dumb;
+        let color = streams.stdout
+            && variable("NO_COLOR").is_none_or(|value| value.is_empty())
+            && !dumb;
         let width = if !streams.stdout || dumb {
             DEFAULT_WIDTH
         } else {
@@ -183,7 +187,7 @@ mod tests {
     #[test]
     fn each_marker_flag_and_stream_decides_what_the_run_shows() {
         let redirected_stderr = Streams { stderr: false, ..TERMINALS };
-        let cases: [Case; 9] = [
+        let cases: [Case; 11] = [
             ("a reader at a terminal", false, TERMINALS, &[], [true, true, true, true]),
             ("a git hook", false, TERMINALS, &[("GIT_DIR", ".git")], [false, true, false, false]),
             ("an agent", false, TERMINALS, &[("CLAUDECODE", "1")], [false, true, false, false]),
@@ -192,6 +196,8 @@ mod tests {
             ("--yes", true, TERMINALS, &[], [false, true, false, true]),
             ("TERM=dumb", false, TERMINALS, &[("TERM", "dumb")], [false, false, false, false]),
             ("NO_COLOR", false, TERMINALS, &[("NO_COLOR", "1")], [true, false, false, true]),
+            ("NO_COLOR=0", false, TERMINALS, &[("NO_COLOR", "0")], [true, false, false, true]),
+            ("NO_COLOR=", false, TERMINALS, &[("NO_COLOR", "")], [true, true, true, true]),
             ("a redirected stderr", false, redirected_stderr, &[], [true, true, true, false]),
         ];
         for (name, yes, streams, pairs, expected) in cases {

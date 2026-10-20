@@ -47,6 +47,8 @@ use rust_doctor::{
 
 const TRUST_WARNING: &str = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";
 
+const NETWORK_NOTE: &str = "rust-doctor opens no network connection. Cargo downloads missing dependencies as `cargo build` does; set CARGO_NET_OFFLINE=true to forbid it.";
+
 const EXIT_STATUS: &str = "Exit status:
   0       the scan completed and the gate passed
   1       the gate failed, or the scan is incomplete
@@ -100,7 +102,7 @@ where
 #[command(name = "rust-doctor", version, after_help = EXIT_STATUS)]
 #[command(about = "Inspect a trusted local Rust workspace with Cargo and Clippy")]
 #[command(long_about = format!(
-    "Inspect a trusted local Rust workspace with Cargo and Clippy.\n\n{TRUST_WARNING}\n\nRun `rust-doctor ./inspect` to inspect a directory literally named `inspect`."
+    "Inspect a trusted local Rust workspace with Cargo and Clippy.\n\n{TRUST_WARNING}\n\n{NETWORK_NOTE}\n\nRun `rust-doctor ./inspect` to inspect a directory literally named `inspect`."
 ))]
 struct Cli {
     #[command(flatten)]
@@ -133,7 +135,7 @@ impl Cli {
 enum CliCommand {
     #[command(about = "Inspect a trusted local Cargo workspace")]
     #[command(long_about = format!(
-        "Inspect a trusted local Cargo workspace.\n\n{TRUST_WARNING}\n\nUse `rust-doctor ./inspect` when the path itself is named `inspect`."
+        "Inspect a trusted local Cargo workspace.\n\n{TRUST_WARNING}\n\n{NETWORK_NOTE}\n\nUse `rust-doctor ./inspect` when the path itself is named `inspect`."
     ), after_help = EXIT_STATUS)]
     Inspect(InspectArgs),
     #[command(about = "Print the rule catalog, or explain one rule")]
@@ -212,7 +214,10 @@ struct InspectArgs {
     /// introduced against a scan of the base.
     #[arg(long, value_enum)]
     scope: Option<ScopeArgument>,
-    /// The ref a files, lines or baseline scope compares against. Without it,
+    /// The ref a files, lines or baseline scope compares against: a branch,
+    /// tag or remote-tracking name (`main`, `origin/main`, `v1.2.0`) or a full
+    /// commit id. A revision expression such as `HEAD~1` is refused; name a
+    /// relative commit with `--base "$(git rev-parse HEAD~1)"`. Without it,
     /// the default branch the repository answers for (`origin/HEAD`, then
     /// `origin/main`, `origin/master`, `main`, `master`), or `HEAD` when that
     /// branch is checked out or the scan is `--staged`.

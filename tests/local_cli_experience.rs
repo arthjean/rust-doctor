@@ -588,6 +588,29 @@ mod tty {
         assert!(!cursor_up, "a --yes run moved the cursor up: {output:?}");
     }
 
+    /// no-color.org turns color off only for a non-empty `NO_COLOR`: an empty
+    /// one leaves the report colored, and `0` uncolors it like any value.
+    #[test]
+    fn an_empty_no_color_keeps_color_and_any_value_removes_it() {
+        let colored = |output: &str| {
+            output.split("\x1b[").skip(1).any(|rest| {
+                let parameters = rest
+                    .bytes()
+                    .take_while(|byte| byte.is_ascii_digit() || *byte == b';')
+                    .count();
+                parameters > 0 && rest.as_bytes().get(parameters) == Some(&b'm')
+            })
+        };
+        for (value, expected) in [("", true), ("0", false), ("1", false)] {
+            let mut command = binary();
+            command.arg(kernel("todo")).args(["--scope", "full", "--yes"]);
+            let (status, output) =
+                PtyProcess::spawn_with_variable(command, ("NO_COLOR", value)).wait();
+            assert_eq!(status.code(), Some(0), "NO_COLOR={value:?}: {output}");
+            assert_eq!(colored(&output), expected, "NO_COLOR={value:?}: {output:?}");
+        }
+    }
+
     /// An agent may hold a PTY, so two terminals are not a reader who can
     /// drive a menu: under `CLAUDECODE=1` the same run prints the linear report
     /// and exits on its own, where the run above waits for `q`.

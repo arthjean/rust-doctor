@@ -2,66 +2,163 @@
   "host": {
     "cores": 16,
     "cpu_model": "AMD Ryzen 7 7800X3D 8-Core Processor",
-    "toolchain": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+    "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
   },
   "samples": 5,
   "subjects": {
-    "rust-doctor": {
+    "anyhow": {
       "cohorts": {
         "cold": {
           "cargo_health": {
             "mad": 1,
-            "median": 62
+            "median": 4
           },
           "clippy_dependencies": {
-            "mad": 7,
-            "median": 4387
+            "mad": 2,
+            "median": 472
           },
           "clippy_linting": {
-            "mad": 2,
-            "median": 410
+            "mad": 0,
+            "median": 12
           },
           "lint_list": {
-            "mad": 0,
-            "median": 14
+            "mad": 1,
+            "median": 16
           },
           "metadata": {
-            "mad": 0,
-            "median": 11
+            "mad": 1,
+            "median": 14
           },
           "probes": {
-            "mad": 0,
-            "median": 18
+            "mad": 3,
+            "median": 27
           },
           "repo": {
             "mad": 0,
-            "median": 0
+            "median": 2
           },
           "source_kernel": {
-            "mad": 0,
-            "median": 61
+            "mad": 1,
+            "median": 3
           },
           "structure": {
-            "mad": 1,
-            "median": 224
+            "mad": 2,
+            "median": 10
           },
           "total": {
-            "mad": 4,
-            "median": 5001
+            "mad": 5,
+            "median": 543
           },
           "walk": {
-            "mad": 0,
-            "median": 164
+            "mad": 1,
+            "median": 12
           }
         },
         "warm": {
           "cargo_health": {
             "mad": 1,
-            "median": 43
+            "median": 5
           },
           "clippy_dependencies": {
+            "mad": 4,
+            "median": 181
+          },
+          "clippy_linting": {
+            "mad": 2,
+            "median": 8
+          },
+          "lint_list": {
+            "mad": 0,
+            "median": 22
+          },
+          "metadata": {
+            "mad": 2,
+            "median": 15
+          },
+          "probes": {
+            "mad": 9,
+            "median": 36
+          },
+          "repo": {
             "mad": 1,
-            "median": 54
+            "median": 3
+          },
+          "source_kernel": {
+            "mad": 2,
+            "median": 6
+          },
+          "structure": {
+            "mad": 3,
+            "median": 15
+          },
+          "total": {
+            "mad": 16,
+            "median": 262
+          },
+          "walk": {
+            "mad": 3,
+            "median": 16
+          }
+        }
+      },
+      "commit": "1dbe1862aae650423e3361fbd20b7d17c5109cc3"
+    },
+    "async-channel": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 0
+          },
+          "clippy_dependencies": {
+            "mad": 62,
+            "median": 615
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 14
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 18
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 14
+          },
+          "probes": {
+            "mad": 0,
+            "median": 21
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 1
+          },
+          "structure": {
+            "mad": 0,
+            "median": 3
+          },
+          "total": {
+            "mad": 66,
+            "median": 676
+          },
+          "walk": {
+            "mad": 0,
+            "median": 3
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 0
+          },
+          "clippy_dependencies": {
+            "mad": 5,
+            "median": 202
           },
           "clippy_linting": {
             "mad": 0,
@@ -69,39 +166,912 @@
           },
           "lint_list": {
             "mad": 1,
-            "median": 14
+            "median": 16
           },
           "metadata": {
             "mad": 0,
-            "median": 11
+            "median": 12
           },
           "probes": {
-            "mad": 0,
-            "median": 18
+            "mad": 2,
+            "median": 21
           },
           "repo": {
             "mad": 0,
-            "median": 0
+            "median": 2
           },
           "source_kernel": {
-            "mad": 1,
-            "median": 60
+            "mad": 0,
+            "median": 1
           },
           "structure": {
-            "mad": 1,
-            "median": 168
+            "mad": 0,
+            "median": 3
           },
           "total": {
-            "mad": 1,
-            "median": 372
+            "mad": 3,
+            "median": 247
           },
           "walk": {
-            "mad": 1,
-            "median": 164
+            "mad": 0,
+            "median": 3
           }
         }
       },
-      "commit": "1f5d913fed2db8b5e81369a0268c0de6b9f904cf"
+      "commit": "35a63c456aaa1906015f5a825e7e35505a749afa"
+    },
+    "bytes": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 4
+          },
+          "clippy_dependencies": {
+            "mad": 11,
+            "median": 510
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 10
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 15
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 12
+          },
+          "probes": {
+            "mad": 1,
+            "median": 19
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 6
+          },
+          "structure": {
+            "mad": 0,
+            "median": 16
+          },
+          "total": {
+            "mad": 13,
+            "median": 577
+          },
+          "walk": {
+            "mad": 0,
+            "median": 15
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 4
+          },
+          "clippy_dependencies": {
+            "mad": 7,
+            "median": 171
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 6
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 18
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 15
+          },
+          "probes": {
+            "mad": 1,
+            "median": 24
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 2,
+            "median": 8
+          },
+          "structure": {
+            "mad": 1,
+            "median": 18
+          },
+          "total": {
+            "mad": 16,
+            "median": 245
+          },
+          "walk": {
+            "mad": 1,
+            "median": 17
+          }
+        }
+      },
+      "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d"
+    },
+    "fd": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 3
+          },
+          "clippy_dependencies": {
+            "mad": 684,
+            "median": 23688
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 9
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 19
+          },
+          "metadata": {
+            "mad": 2,
+            "median": 18
+          },
+          "probes": {
+            "mad": 3,
+            "median": 25
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 1,
+            "median": 5
+          },
+          "structure": {
+            "mad": 3,
+            "median": 14
+          },
+          "total": {
+            "mad": 684,
+            "median": 23763
+          },
+          "walk": {
+            "mad": 2,
+            "median": 15
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 4,
+            "median": 11
+          },
+          "clippy_dependencies": {
+            "mad": 5,
+            "median": 163
+          },
+          "clippy_linting": {
+            "mad": 3,
+            "median": 11
+          },
+          "lint_list": {
+            "mad": 8,
+            "median": 56
+          },
+          "metadata": {
+            "mad": 3,
+            "median": 38
+          },
+          "probes": {
+            "mad": 11,
+            "median": 70
+          },
+          "repo": {
+            "mad": 1,
+            "median": 9
+          },
+          "source_kernel": {
+            "mad": 3,
+            "median": 17
+          },
+          "structure": {
+            "mad": 2,
+            "median": 25
+          },
+          "total": {
+            "mad": 35,
+            "median": 332
+          },
+          "walk": {
+            "mad": 7,
+            "median": 36
+          }
+        }
+      },
+      "commit": "7027d45303b412be6fa9c09d689cc6276748fb38"
+    },
+    "hexyl": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 4
+          },
+          "clippy_dependencies": {
+            "mad": 149,
+            "median": 6342
+          },
+          "clippy_linting": {
+            "mad": 183,
+            "median": 440
+          },
+          "lint_list": {
+            "mad": 8,
+            "median": 60
+          },
+          "metadata": {
+            "mad": 4,
+            "median": 42
+          },
+          "probes": {
+            "mad": 12,
+            "median": 80
+          },
+          "repo": {
+            "mad": 3,
+            "median": 10
+          },
+          "source_kernel": {
+            "mad": 2,
+            "median": 4
+          },
+          "structure": {
+            "mad": 1,
+            "median": 11
+          },
+          "total": {
+            "mad": 132,
+            "median": 7028
+          },
+          "walk": {
+            "mad": 1,
+            "median": 13
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 1
+          },
+          "clippy_dependencies": {
+            "mad": 1,
+            "median": 49
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 5
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 16
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 12
+          },
+          "probes": {
+            "mad": 2,
+            "median": 23
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 1
+          },
+          "structure": {
+            "mad": 0,
+            "median": 5
+          },
+          "total": {
+            "mad": 2,
+            "median": 100
+          },
+          "walk": {
+            "mad": 1,
+            "median": 5
+          }
+        }
+      },
+      "commit": "abc20a380c8c2d9d76c1976222725d3211cef809"
+    },
+    "log": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 3
+          },
+          "clippy_dependencies": {
+            "mad": 3,
+            "median": 278
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 9
+          },
+          "lint_list": {
+            "mad": 0,
+            "median": 16
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 14
+          },
+          "probes": {
+            "mad": 2,
+            "median": 23
+          },
+          "repo": {
+            "mad": 1,
+            "median": 3
+          },
+          "source_kernel": {
+            "mad": 1,
+            "median": 3
+          },
+          "structure": {
+            "mad": 1,
+            "median": 10
+          },
+          "total": {
+            "mad": 8,
+            "median": 344
+          },
+          "walk": {
+            "mad": 1,
+            "median": 9
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 2
+          },
+          "clippy_dependencies": {
+            "mad": 4,
+            "median": 171
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 4
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 17
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 13
+          },
+          "probes": {
+            "mad": 1,
+            "median": 24
+          },
+          "repo": {
+            "mad": 0,
+            "median": 4
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 2
+          },
+          "structure": {
+            "mad": 1,
+            "median": 9
+          },
+          "total": {
+            "mad": 1,
+            "median": 228
+          },
+          "walk": {
+            "mad": 1,
+            "median": 10
+          }
+        }
+      },
+      "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4"
+    },
+    "ripgrep": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 4,
+            "median": 27
+          },
+          "clippy_dependencies": {
+            "mad": 137,
+            "median": 672
+          },
+          "clippy_linting": {
+            "mad": 6,
+            "median": 3123
+          },
+          "lint_list": {
+            "mad": 4,
+            "median": 21
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 17
+          },
+          "probes": {
+            "mad": 2,
+            "median": 24
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 5,
+            "median": 48
+          },
+          "structure": {
+            "mad": 14,
+            "median": 107
+          },
+          "total": {
+            "mad": 147,
+            "median": 3953
+          },
+          "walk": {
+            "mad": 7,
+            "median": 83
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 25
+          },
+          "clippy_dependencies": {
+            "mad": 4,
+            "median": 54
+          },
+          "clippy_linting": {
+            "mad": 2,
+            "median": 15
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 18
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 15
+          },
+          "probes": {
+            "mad": 1,
+            "median": 24
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 2,
+            "median": 42
+          },
+          "structure": {
+            "mad": 4,
+            "median": 91
+          },
+          "total": {
+            "mad": 1,
+            "median": 234
+          },
+          "walk": {
+            "mad": 2,
+            "median": 77
+          }
+        }
+      },
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f"
+    },
+    "rust-doctor": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 13,
+            "median": 88
+          },
+          "clippy_dependencies": {
+            "mad": 1273,
+            "median": 8632
+          },
+          "clippy_linting": {
+            "mad": 155,
+            "median": 828
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 21
+          },
+          "metadata": {
+            "mad": 10,
+            "median": 24
+          },
+          "probes": {
+            "mad": 3,
+            "median": 29
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 8,
+            "median": 95
+          },
+          "structure": {
+            "mad": 5,
+            "median": 388
+          },
+          "total": {
+            "mad": 1456,
+            "median": 9883
+          },
+          "walk": {
+            "mad": 53,
+            "median": 309
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 4,
+            "median": 66
+          },
+          "clippy_dependencies": {
+            "mad": 11,
+            "median": 80
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 9
+          },
+          "lint_list": {
+            "mad": 2,
+            "median": 18
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 13
+          },
+          "probes": {
+            "mad": 1,
+            "median": 28
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 3,
+            "median": 97
+          },
+          "structure": {
+            "mad": 19,
+            "median": 272
+          },
+          "total": {
+            "mad": 14,
+            "median": 558
+          },
+          "walk": {
+            "mad": 4,
+            "median": 232
+          }
+        }
+      },
+      "commit": "307760ea0aa596d025466439060492d3639a1dd3"
+    },
+    "serde_json": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 1,
+            "median": 9
+          },
+          "clippy_dependencies": {
+            "mad": 29,
+            "median": 1568
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 11
+          },
+          "lint_list": {
+            "mad": 0,
+            "median": 17
+          },
+          "metadata": {
+            "mad": 1,
+            "median": 12
+          },
+          "probes": {
+            "mad": 0,
+            "median": 22
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 14
+          },
+          "structure": {
+            "mad": 1,
+            "median": 37
+          },
+          "total": {
+            "mad": 40,
+            "median": 1667
+          },
+          "walk": {
+            "mad": 0,
+            "median": 34
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 3,
+            "median": 18
+          },
+          "clippy_dependencies": {
+            "mad": 5,
+            "median": 308
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 25
+          },
+          "lint_list": {
+            "mad": 14,
+            "median": 52
+          },
+          "metadata": {
+            "mad": 9,
+            "median": 36
+          },
+          "probes": {
+            "mad": 6,
+            "median": 74
+          },
+          "repo": {
+            "mad": 2,
+            "median": 8
+          },
+          "source_kernel": {
+            "mad": 12,
+            "median": 35
+          },
+          "structure": {
+            "mad": 12,
+            "median": 91
+          },
+          "total": {
+            "mad": 24,
+            "median": 560
+          },
+          "walk": {
+            "mad": 6,
+            "median": 98
+          }
+        }
+      },
+      "commit": "efa66e3a1d61459ab2d325f92ebe3acbd6ca18b1"
+    },
+    "smol": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 1
+          },
+          "clippy_dependencies": {
+            "mad": 1121,
+            "median": 4310
+          },
+          "clippy_linting": {
+            "mad": 6,
+            "median": 52
+          },
+          "lint_list": {
+            "mad": 4,
+            "median": 24
+          },
+          "metadata": {
+            "mad": 4,
+            "median": 17
+          },
+          "probes": {
+            "mad": 6,
+            "median": 36
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 3
+          },
+          "structure": {
+            "mad": 0,
+            "median": 5
+          },
+          "total": {
+            "mad": 1121,
+            "median": 4412
+          },
+          "walk": {
+            "mad": 1,
+            "median": 5
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 0
+          },
+          "clippy_dependencies": {
+            "mad": 8,
+            "median": 371
+          },
+          "clippy_linting": {
+            "mad": 1,
+            "median": 24
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 16
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 12
+          },
+          "probes": {
+            "mad": 0,
+            "median": 20
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 2
+          },
+          "structure": {
+            "mad": 0,
+            "median": 4
+          },
+          "total": {
+            "mad": 15,
+            "median": 443
+          },
+          "walk": {
+            "mad": 0,
+            "median": 4
+          }
+        }
+      },
+      "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd"
+    },
+    "thiserror": {
+      "cohorts": {
+        "cold": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 2
+          },
+          "clippy_dependencies": {
+            "mad": 46,
+            "median": 1331
+          },
+          "clippy_linting": {
+            "mad": 7,
+            "median": 580
+          },
+          "lint_list": {
+            "mad": 2,
+            "median": 18
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 13
+          },
+          "probes": {
+            "mad": 2,
+            "median": 23
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 0,
+            "median": 3
+          },
+          "structure": {
+            "mad": 1,
+            "median": 11
+          },
+          "total": {
+            "mad": 50,
+            "median": 1962
+          },
+          "walk": {
+            "mad": 1,
+            "median": 10
+          }
+        },
+        "warm": {
+          "cargo_health": {
+            "mad": 0,
+            "median": 2
+          },
+          "clippy_dependencies": {
+            "mad": 1,
+            "median": 170
+          },
+          "clippy_linting": {
+            "mad": 0,
+            "median": 5
+          },
+          "lint_list": {
+            "mad": 1,
+            "median": 16
+          },
+          "metadata": {
+            "mad": 0,
+            "median": 12
+          },
+          "probes": {
+            "mad": 1,
+            "median": 21
+          },
+          "repo": {
+            "mad": 0,
+            "median": 2
+          },
+          "source_kernel": {
+            "mad": 1,
+            "median": 4
+          },
+          "structure": {
+            "mad": 0,
+            "median": 10
+          },
+          "total": {
+            "mad": 3,
+            "median": 226
+          },
+          "walk": {
+            "mad": 0,
+            "median": 10
+          }
+        }
+      },
+      "commit": "e13a7854338e446f184725fc8b9c9e86a0a537d2"
     }
   },
   "warmups": 1

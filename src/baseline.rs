@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::io;
 #[cfg(unix)]
@@ -246,22 +245,11 @@ fn materialize_inventory(
         deadline,
     )?;
 
-    let mut prefix = OsString::from("--prefix=");
-    prefix.push(snapshot.tree.as_os_str());
-    prefix.push(std::path::MAIN_SEPARATOR_STR);
     git::run_git_with_index(
         Path::new("git"),
         workspace_root,
         &GitCall {
-            arguments: git::git_arguments(
-                workspace_root,
-                [
-                    OsString::from("checkout-index"),
-                    OsString::from("--all"),
-                    OsString::from("--force"),
-                    prefix,
-                ],
-            ),
+            arguments: git::checkout_index_arguments(workspace_root, &snapshot.tree),
             stdout_limit: COMMAND_OUTPUT_LIMIT,
             stage: STAGE,
             failure: MATERIALIZATION_FAILURE,

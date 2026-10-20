@@ -6,6 +6,9 @@ mod support;
 #[path = "baseline_kernel/repository_view.rs"]
 mod repository_view;
 
+#[path = "baseline_kernel/network.rs"]
+mod network;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;

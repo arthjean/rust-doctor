@@ -6,7 +6,6 @@
 //! root, so the two share the checks on what that tree may hold.
 
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -192,22 +191,11 @@ pub(crate) fn materialize_index(
     let written = (|| {
         fs::create_dir(&snapshot.tree).map_err(|_| temp_unavailable())?;
         fs::create_dir(&snapshot.target).map_err(|_| temp_unavailable())?;
-        let mut prefix = OsString::from("--prefix=");
-        prefix.push(snapshot.tree.as_os_str());
-        prefix.push(std::path::MAIN_SEPARATOR_STR);
         git::run_git_with_index(
             Path::new("git"),
             workspace_root,
             &GitCall {
-                arguments: git::git_arguments(
-                    workspace_root,
-                    [
-                        OsString::from("checkout-index"),
-                        OsString::from("--all"),
-                        OsString::from("--force"),
-                        prefix,
-                    ],
-                ),
+                arguments: git::checkout_index_arguments(workspace_root, &snapshot.tree),
                 stdout_limit: COMMAND_OUTPUT_LIMIT,
                 stage: INDEX_STAGE,
                 failure: materialization_failed,

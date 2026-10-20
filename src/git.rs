@@ -97,6 +97,13 @@ const UNAVAILABLE: GitFailure = GitFailure::new("git-unavailable", "Git could no
 /// Prefixes an operation with the configuration every call of this crate runs
 /// under.
 ///
+/// Git LFS's filter is switched off on every call. Checking a snapshot out
+/// would smudge each pointer file into a download, and comparing the working
+/// tree runs the clean filter, which writes under `.git/lfs`: the scan neither
+/// reaches the network nor writes into the repository. A snapshot holds the
+/// pointer files the commit records. `GIT_LFS_SKIP_SMUDGE`, which
+/// `git_command` sets, covers an LFS that still runs.
+///
 /// The operation is written in whatever string type the call site already
 /// holds, so a fixed spelling stays a literal and only a computed argument
 /// pays for an `OsString`.
@@ -109,6 +116,14 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
         OsString::from("color.ui=false"),
         OsString::from("-c"),
         OsString::from("core.fsmonitor=false"),
+        OsString::from("-c"),
+        OsString::from("filter.lfs.process="),
+        OsString::from("-c"),
+        OsString::from("filter.lfs.smudge="),
+        OsString::from("-c"),
+        OsString::from("filter.lfs.clean="),
+        OsString::from("-c"),
+        OsString::from("filter.lfs.required=false"),
         OsString::from("--no-pager"),
         OsString::from("-C"),
         // Absolute, since `git_command` also runs git in `workspace_root`: a
@@ -121,6 +136,22 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
     .into_iter()
     .chain(operation.into_iter().map(Into::into))
     .collect()
+}
+
+/// `checkout-index` of every index entry under `prefix`, a snapshot's tree.
+pub(crate) fn checkout_index_arguments(workspace_root: &Path, prefix: &Path) -> Vec<OsString> {
+    let mut destination = OsString::from("--prefix=");
+    destination.push(prefix.as_os_str());
+    destination.push(std::path::MAIN_SEPARATOR_STR);
+    git_arguments(
+        workspace_root,
+        [
+            OsString::from("checkout-index"),
+            OsString::from("--all"),
+            OsString::from("--force"),
+            destination,
+        ],
+    )
 }
 
 /// A snapshot seen through git: the repository's own git directory, the index
@@ -300,6 +331,7 @@ fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Com
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_LFS_SKIP_SMUDGE", "1")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("LC_ALL", "C");
     for variable in GIT_ENVIRONMENT_OVERRIDES {
