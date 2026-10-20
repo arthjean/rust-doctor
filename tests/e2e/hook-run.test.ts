@@ -116,7 +116,10 @@ describe("hook run claude", () => {
   test("HR-07 from / without CLAUDE_PROJECT_DIR the hook cannot scan and lets the turn end", async () => {
     const repo = await changed("hr-07");
     const run = await hook("claude", repo, { cwd: "/", env: { CLAUDE_PROJECT_DIR: undefined } });
-    expect(outcome(run)).toEqual({ exitCode: 0, stdout: "", stderr: unscanned("discovery: ambiguous-workspace") });
+    // What discovery finds under `/` is the machine's: several workspaces
+    // here, none on a hosted runner. Either way the turn ends unscanned.
+    expect([unscanned("discovery: ambiguous-workspace"), unscanned("discovery: no-manifest")]).toContain(run.stderr);
+    expect(outcome(run)).toEqual({ exitCode: 0, stdout: "", stderr: run.stderr });
   });
 
   test.each([

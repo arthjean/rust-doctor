@@ -251,7 +251,7 @@ Cursor payload: `{"status":"completed","loop_count":0,"conversation_id":"c","gen
 | HR-04 | same, `CLAUDE_PROJECT_DIR` unset, cwd repo | run | scans `.`, exit 2 | none | yes |
 | HR-05 | same, `CLAUDE_PROJECT_DIR=""` | run | scans `.`, exit 2 | none | yes |
 | HR-06 | cwd `/`, `CLAUDE_PROJECT_DIR=repo` | run | scans the project dir, exit 2 | none | yes |
-| HR-07 | cwd `/`, no `CLAUDE_PROJECT_DIR` | run | stderr `rust-doctor could not scan (discovery: ambiguous-workspace); not blocking this turn.`, exit 0 | none | yes |
+| HR-07 | cwd `/`, no `CLAUDE_PROJECT_DIR` | run | stderr `rust-doctor could not scan (discovery: ambiguous-workspace); not blocking this turn.`, exit 0. Corrected 2026-10-20: the reason is the machine's (`no-manifest` on a hosted runner, whose `/` holds no workspace), so the row accepts either | none | yes |
 | HR-08 | HR-02 state | stdin `not json` | scans, exit 2 | AH (cursor) | yes |
 | HR-09 | HR-02 state | empty stdin | scans, exit 2 | none | yes |
 | HR-10 | HR-02 state | `{"stop_hook_active":"true"}` (string) | not a guard: scans, exit 2 | unit | yes |
