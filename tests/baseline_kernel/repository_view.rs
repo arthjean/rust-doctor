@@ -81,6 +81,8 @@ fn repository_findings(diagnostics: &Value) -> BTreeSet<(String, String, Option<
 
 #[test]
 fn a_branch_with_no_change_introduces_no_repository_finding() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     let (code, report) = scan(
         &repository,
@@ -108,6 +110,8 @@ fn a_branch_with_no_change_introduces_no_repository_finding() {
 
 #[test]
 fn a_removed_key_is_fixed_and_an_added_one_introduced() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     write(repository.join("src/key.rs"), "pub const KEY: &str = \"\";\n");
     let (code, report) = scan(&repository, &target, &["--scope", "baseline", "--base", "HEAD"]);
@@ -142,6 +146,8 @@ fn a_removed_key_is_fixed_and_an_added_one_introduced() {
 /// and only a build writes it.
 #[test]
 fn the_base_side_finds_what_a_checkout_of_the_base_commit_finds() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     write(repository.join(".gitignore"), "Cargo.lock\n");
     write(repository.join(".env"), "TOKEN=1\n");
@@ -183,6 +189,8 @@ fn the_base_side_finds_what_a_checkout_of_the_base_commit_finds() {
 
 #[test]
 fn an_unreadable_snapshot_index_fails_the_comparison_instead_of_blaming_the_branch() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     let processes = support::ProcessHarness::install_with_git(repository.parent().unwrap());
     let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))

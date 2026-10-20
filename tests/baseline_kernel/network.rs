@@ -50,6 +50,8 @@ fn lfs_repository() -> (PathBuf, PathBuf) {
 
 #[test]
 fn a_snapshot_never_runs_the_lfs_filter() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, root) = lfs_repository();
     let tools = root.join("tools");
     let calls = root.join("git-lfs.calls");
@@ -103,6 +105,8 @@ fn a_snapshot_never_runs_the_lfs_filter() {
 /// needs: the scan ends incomplete, quoting Cargo, instead of waiting on it.
 #[test]
 fn an_offline_scan_of_an_uncached_dependency_ends_incomplete_on_cargo_s_error() {
+    // A baseline scan here creates a snapshot the locked tests would count.
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let root = support::temporary_target("baseline-network-offline", &NEXT_REPOSITORY);
     let _ = fs::remove_dir_all(&root);
     let workspace = root.join("workspace");
