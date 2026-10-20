@@ -82,6 +82,24 @@ export function openReport(
 
 export type PaneStatus = { dead: boolean; status: number | null };
 
+// How a zombie ended, from field 52 of /proc/<pid>/stat (Linux 3.5 and
+// later), in waitpid's encoding: an exit status, or null for a signal. Null
+// when the process still runs, is gone, or the field is unreadable.
+export function zombieExit(pid: number): { status: number | null } | null {
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  } catch {
+    return null;
+  }
+  // Field 2, the command, may hold spaces: the fields after it start at 3.
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(" ");
+  if (fields[0] !== "Z") return null;
+  const raw = Number(fields[52 - 3]);
+  if (!Number.isInteger(raw)) return null;
+  return { status: (raw & 0x7f) === 0 ? (raw >> 8) & 0xff : null };
+}
+
 export class TmuxSession {
   private killed = false;
 
@@ -215,11 +233,15 @@ export class TmuxSession {
   }
 
   status(): PaneStatus {
-    const [dead, status, signal] = this.tmux(["display", "-p", "-t", "main", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}"]).trim().split(":");
+    const [dead, status, signal, pid] = this.tmux(["display", "-p", "-t", "main", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}:#{pane_pid}"]).trim().split(":");
+    if (dead !== "1") return { dead: false, status: null };
+    if (status) return { dead: true, status: Number(status) };
+    if (signal) return { dead: true, status: null };
     // tmux 3.4 marks the pane dead a moment before it records how the program
-    // ended: until a status or a signal is there, the pane has not settled.
-    if (dead !== "1" || (!status && !signal)) return { dead: false, status: null };
-    return { dead: true, status: status ? Number(status) : null };
+    // ended, and sometimes never reaps it at all: a program that exited is then
+    // a zombie whose status the kernel still holds.
+    const ended = zombieExit(Number(pid));
+    return ended ? { dead: true, status: ended.status } : { dead: false, status: null };
   }
 
   async waitForExit(timeoutMs = 15_000): Promise<number | null> {
@@ -229,7 +251,8 @@ export class TmuxSession {
       if (status.dead) return status.status;
       await Bun.sleep(25);
     }
-    throw new Error(`the program in tmux ${this.socket} did not exit within ${timeoutMs} ms; last pane:\n${this.capturePane()}`);
+    const raw = this.tmux(["display", "-p", "-t", "main", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}:#{pane_pid}"]).trim();
+    throw new Error(`the program in tmux ${this.socket} did not exit within ${timeoutMs} ms (pane ${raw}); last pane:\n${this.capturePane()}`);
   }
 
   // The pid of the program in the pane, for a test that signals it.

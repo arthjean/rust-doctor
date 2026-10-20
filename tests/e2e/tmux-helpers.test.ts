@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runCommand, sandbox, toolchainBin } from "./e2e-helpers";
-import { requireTmux, TmuxSession } from "./tmux-helpers";
+import { requireTmux, TmuxSession, zombieExit } from "./tmux-helpers";
 
 let session: TmuxSession | undefined;
 
@@ -128,5 +128,34 @@ describe("TUI file gate", () => {
     const run = await gate({ E2E_REQUIRE_TMUX: "1" });
     expect(run.exitCode).not.toBe(0);
     expect(run.stdout + run.stderr).toContain("tmux is not installed and E2E_REQUIRE_TMUX=1 requires it");
+  });
+});
+
+// A child that ended under a parent that never waits stays a zombie: the
+// subshell exits, and the `sh` that started it has become a `sleep`.
+async function zombie(script: string): Promise<{ pid: number; parent: ReturnType<typeof Bun.spawn> }> {
+  const parent = Bun.spawn(["sh", "-c", `${script} & echo $!; exec sleep 5`], { stdout: "pipe" });
+  const reader = parent.stdout.getReader();
+  const { value } = await reader.read();
+  reader.releaseLock();
+  const pid = Number(new TextDecoder().decode(value).trim());
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline && !readFileSync(`/proc/${pid}/stat`, "utf8").includes(") Z ")) await Bun.sleep(10);
+  return { pid, parent };
+}
+
+describe.skipIf(process.platform !== "linux")("zombie exit status", () => {
+  test("an exit status and a signal are read back from a zombie, a live or gone process gives nothing", async () => {
+    const exited = await zombie("(exit 7)");
+    const signaled = await zombie(`sh -c 'kill -TERM $$'`);
+    try {
+      expect(zombieExit(exited.pid)).toEqual({ status: 7 });
+      expect(zombieExit(signaled.pid)).toEqual({ status: null });
+      expect(zombieExit(process.pid)).toBeNull();
+      expect(zombieExit(2 ** 22 + 1)).toBeNull();
+    } finally {
+      exited.parent.kill("SIGKILL");
+      signaled.parent.kill("SIGKILL");
+    }
   });
 });
