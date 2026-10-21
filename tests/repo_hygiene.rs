@@ -183,11 +183,13 @@ fn an_untracked_env_stays_out_of_the_report() {
     assert!(diagnostics_of(&report, CREDENTIAL).is_empty(), "{report}");
 }
 
-/// US-011: a workspace outside version control is an observed fact, not an
-/// error. The pass returns nothing, records nothing, and the scan stays
-/// complete and authoritative.
+/// US-011: a workspace outside version control is not an error, and not a
+/// free pass either. Nothing is tracked and nothing is ignored, so the files
+/// it holds are what it ships: the `.env` beside the crate is reported, the
+/// scan stays complete and authoritative, and only the rule asking git what it
+/// ignores stays silent.
 #[test]
-fn a_workspace_outside_git_produces_no_finding_and_stays_authoritative() {
+fn a_workspace_outside_git_is_judged_on_the_files_it_holds() {
     let root = std::env::temp_dir().join(format!(
         "rust-doctor-repo-hygiene-nongit-{}",
         std::process::id()
@@ -215,7 +217,11 @@ fn a_workspace_outside_git_produces_no_finding_and_stays_authoritative() {
     fs::write(root.join(".env"), "EXAMPLE_ONLY=untracked\n").unwrap();
 
     let report = report(&root);
-    for code in [SECRET_FILE, CREDENTIAL, BUILD_OUTPUT] {
+    let secret = diagnostics_of(&report, SECRET_FILE);
+    assert_eq!(secret.len(), 1, "{report}");
+    assert_eq!(secret[0]["path"], ".env", "{report}");
+    assert!(secret[0]["message"].as_str().unwrap().contains("the workspace holds .env"), "{report}");
+    for code in [CREDENTIAL, BUILD_OUTPUT] {
         assert!(diagnostics_of(&report, code).is_empty(), "{code}: {report}");
     }
     assert!(

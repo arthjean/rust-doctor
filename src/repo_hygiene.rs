@@ -1,13 +1,15 @@
 //! Repository hygiene: the pass that opens the repository, not only its Rust
 //! files.
 //!
-//! Enumeration goes through `git ls-files`, never a filesystem walker, because
-//! the question asked is literally "is this file tracked", and because git
-//! excludes `target/` and every ignored path by construction. A workspace
-//! outside a git repository is an observed fact, not an error: the pass
-//! returns nothing and the scan stays authoritative. Only git being absent, or
-//! an enumeration too large to trust, degrades the report with a bounded error
-//! at stage `repo`.
+//! In a repository, enumeration goes through `git ls-files`, because the
+//! question asked is literally "is this file tracked", and because git
+//! excludes `target/` and every ignored path by construction. Outside one,
+//! nothing is tracked and nothing is ignored, so the files the workspace holds
+//! are what it would ship: the pass walks them, skipping build directories, and
+//! judges them by the same rules, leaving silent the two that ask git what it
+//! ignores. It used to read nothing there, and the same code scored 88 as a
+//! tarball and 65 as a clone. Git being absent, or an enumeration too large to
+//! trust, degrades the report with a bounded error at stage `repo`.
 
 use std::fs;
 use std::path::Path;
@@ -161,15 +163,20 @@ fn inspect_with(
         return scan;
     }
 
-    let output = match enumerate_tracked(workspace_root, view, &mut run) {
-        Ok(output) => output,
-        Err(error) => {
-            scan.errors.extend(error);
+    let (paths, truncated, in_repository) = match enumerate_tracked(workspace_root, view, &mut run) {
+        Ok(output) => {
+            let (paths, truncated) = tracked_paths(&output);
+            (paths, truncated, true)
+        }
+        Err(None) => {
+            let (paths, truncated) = present_paths(workspace_root);
+            (paths, truncated, false)
+        }
+        Err(Some(error)) => {
+            scan.errors.push(error);
             return scan;
         }
     };
-
-    let (paths, truncated) = tracked_paths(&output);
     if truncated {
         scan.errors.push(RepoError {
             code: "repo-enumeration-truncated",
@@ -178,7 +185,12 @@ fn inspect_with(
     }
 
     for path in &paths {
-        inspect_tracked(workspace_root, path, &active, &mut scan);
+        inspect_tracked(workspace_root, path, in_repository, &active, &mut scan);
+    }
+    // What git ignores has no answer outside a repository, and nothing there
+    // can be committed by mistake.
+    if !in_repository {
+        return scan;
     }
 
     if active.on(&REPO_IGNORED_LOCKFILE) && binary {
@@ -202,9 +214,15 @@ fn inspect_with(
     scan
 }
 
-/// The rules that judge one tracked path: its name, its text, and whether it
-/// is a workflow GitHub runs.
-fn inspect_tracked(workspace_root: &Path, path: &str, active: &ActiveRules, scan: &mut RepoScan) {
+/// The rules that judge one tracked path, or one present path outside a
+/// repository: its name, its text, and whether it is a workflow GitHub runs.
+fn inspect_tracked(
+    workspace_root: &Path,
+    path: &str,
+    in_repository: bool,
+    active: &ActiveRules,
+    scan: &mut RepoScan,
+) {
     if active.on(&REPO_TRACKED_SECRET_FILE)
         && !is_test_material(path)
         && (is_secret_file_name(file_name(path))
@@ -215,12 +233,17 @@ fn inspect_tracked(workspace_root: &Path, path: &str, active: &ActiveRules, scan
     {
         scan.findings.push(RepoFinding {
             definition: &REPO_TRACKED_SECRET_FILE,
-            message: format!(
-                "the repository tracks {published}, whose name marks it as secret-bearing"
-            ),
+            message: if in_repository {
+                format!("the repository tracks {published}, whose name marks it as secret-bearing")
+            } else {
+                format!("the workspace holds {published}, whose name marks it as secret-bearing")
+            },
             path: published,
             span: None,
-            context: None,
+            // As `scan_credentials` marks a credential: a certificate under
+            // `examples/` is the demonstration, and charging it a P1 capped
+            // the corpus's smol at 65 over a public certificate.
+            context: path_context(path),
         });
     }
     if active.on(&REPO_HARDCODED_CREDENTIAL) {
@@ -295,6 +318,50 @@ fn tracked_paths(output: &[u8]) -> (Vec<String>, bool) {
             paths.push(path.to_owned());
         }
     }
+    (paths, false)
+}
+
+/// Every regular file under `root`, workspace-relative, for a workspace git
+/// does not hold: sorted, symlinks not followed, build directories skipped,
+/// under the same bound and the same path rules as git's answer. A build
+/// directory is the configured one at the root, or any directory carrying
+/// the `CACHEDIR.TAG` Cargo writes into each target directory.
+fn present_paths(root: &Path) -> (Vec<String>, bool) {
+    let build = build_directory(root).unwrap_or_else(|| "target".to_owned());
+    let mut paths = Vec::new();
+    let mut pending = vec![String::new()];
+    while let Some(directory) = pending.pop() {
+        let absolute = root.join(&directory);
+        if absolute.join("CACHEDIR.TAG").is_file() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&absolute) else {
+            continue;
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect();
+        names.sort_unstable();
+        for name in names {
+            let relative = if directory.is_empty() { name } else { format!("{directory}/{name}") };
+            if relative == ".git" || relative == build {
+                continue;
+            }
+            let Ok(metadata) = fs::symlink_metadata(root.join(&relative)) else {
+                continue;
+            };
+            if metadata.is_dir() {
+                pending.push(relative);
+            } else if metadata.is_file() && workspace_path::normalize_changed(&relative).is_some() {
+                if paths.len() == MAX_TRACKED_PATHS {
+                    return (paths, true);
+                }
+                paths.push(relative);
+            }
+        }
+    }
+    paths.sort_unstable();
     (paths, false)
 }
 
@@ -543,18 +610,63 @@ mod tests {
         fs::remove_dir_all(&scratch).expect("the scratch tree should be removable");
     }
 
+    /// Outside git the pass judges what the workspace holds, so the same code
+    /// scores the same as a clone and as a bare tree: a secret file, a token a
+    /// build step can read, nothing under a build directory, and no answer to
+    /// what git ignores.
     #[test]
-    fn a_workspace_outside_git_yields_no_finding_and_no_error() {
+    fn a_workspace_outside_git_is_judged_on_the_files_it_holds() {
+        let workspace = std::env::temp_dir().join(format!("rust-doctor-outside-git-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&workspace);
+        for (path, contents) in [
+            (".env", "API=1\n"),
+            (".github/workflows/release.yml", "on: push\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - env:\n          CARGO_REGISTRY_TOKEN: ${{ secrets.TOKEN }}\n        run: cargo publish\n"),
+            ("src/lib.rs", "pub fn shipped() {}\n"),
+            ("target/CACHEDIR.TAG", "Signature: 8a477f597d28d172789f06886806bc55\n"),
+            ("target/debug/leftover.pem", "not scanned\n"),
+            ("nested/build/CACHEDIR.TAG", "Signature: 8a477f597d28d172789f06886806bc55\n"),
+            ("nested/build/server.key", "not scanned\n"),
+        ] {
+            let file = workspace.join(path);
+            fs::create_dir_all(file.parent().expect("a fixture path has a parent")).expect("the workspace should be writable");
+            fs::write(file, contents).expect("the fixture should write");
+        }
         let scan = inspect_with(
-            Path::new("."),
+            &workspace,
+            None,
+            &plan(),
+            (true, true),
+            |call| Err(call.failure.error(call.stage)),
+            |_| IgnoreProbe::NotIgnored,
+        );
+        let found: Vec<(&str, &str)> = scan
+            .findings
+            .iter()
+            .map(|finding| (finding.definition.id, finding.path.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("rust_doctor::repo::tracked_secret_file", ".env"),
+                ("rust_doctor::repo::secret_in_build_step", ".github/workflows/release.yml"),
+            ],
+            "{:?}",
+            scan.findings
+        );
+        assert!(scan.findings[0].message.contains("the workspace holds .env"));
+        assert!(scan.errors.is_empty());
+
+        let git_missing = inspect_with(
+            &workspace,
             None,
             &plan(),
             (false, false),
-            |call| Err(call.failure.error(call.stage)),
+            |_| Err(InternalError::new("scope", "git-unavailable", "Git could not be started.")),
             |_| IgnoreProbe::Unavailable,
         );
-        assert!(scan.findings.is_empty());
-        assert!(scan.errors.is_empty());
+        assert!(git_missing.findings.is_empty(), "an absent git is an error, not a bare tree");
+        assert_eq!(git_missing.errors.len(), 1);
+        fs::remove_dir_all(&workspace).expect("the scratch tree should be removable");
     }
 
     /// US-043: a binary's ignored lockfile is reported on git's own answer
@@ -647,6 +759,30 @@ mod tests {
         assert_eq!(
             scan.findings[0].definition.id,
             "rust_doctor::repo::tracked_secret_file"
+        );
+    }
+
+    #[test]
+    fn a_secret_file_outside_shipped_code_carries_its_context() {
+        let scan = inspect_with(
+            Path::new("/nonexistent/rust-doctor-repo-hygiene"),
+            None,
+            &plan(),
+            (false, false),
+            |_| Ok(ls_files_output(&["examples/certificate.pem", "deploy/server.key"])),
+            |_| IgnoreProbe::Unavailable,
+        );
+        let contexts: Vec<_> = scan
+            .findings
+            .iter()
+            .map(|finding| (finding.path.as_str(), finding.context))
+            .collect();
+        assert_eq!(
+            contexts,
+            [
+                ("examples/certificate.pem", Some(DiagnosticContext::Example)),
+                ("deploy/server.key", None),
+            ]
         );
     }
 

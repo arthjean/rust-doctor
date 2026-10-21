@@ -473,11 +473,15 @@ describe("outside git", () => {
     await failsWith(await plain(), ["--scope", "baseline", "--base", "main"], "scope/base-unavailable");
   });
 
-  test("C14e a full scan outside git reports no repository finding", async () => {
+  // Outside git the repository rules judge the files present, so the mini
+  // template's credential is reported as it is in every committed scenario:
+  // the same code scores the same with or without a repository around it.
+  test("C14e a full scan outside git judges the files the workspace holds", async () => {
     const repo = await plain();
     const { run, report } = await scan(repo.path, [], { sandbox: repo.sandbox });
     expect(run.exitCode).toBe(0);
-    expect(report.diagnostics.filter((diagnostic) => diagnostic.code.startsWith("rust_doctor::repo::"))).toEqual([]);
+    const repository = report.diagnostics.filter((diagnostic) => diagnostic.code.startsWith("rust_doctor::repo::"));
+    expect(repository.map((diagnostic) => [diagnostic.code, diagnostic.path])).toEqual([["rust_doctor::repo::hardcoded_credential", "src/creds.rs"]]);
   });
 });
 

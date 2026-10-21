@@ -14,7 +14,7 @@ its producer: `clippy::*` (104 curated lints, `Producer::Clippy`),
 the manifests and `.cargo/config.toml`), `rust_doctor::structure::*` (9,
 `Structure`, stage `structure`) and `rust_doctor::repo::*` (5, `Repo`, stage
 `repo`, the only pass that reads outside the Cargo model, enumerating through
-`git ls-files`). `validate_catalog` refuses any other prefix, and a pass that
+`git ls-files`, else a walk outside git). `validate_catalog` refuses any other prefix, and a pass that
 fails degrades to a complete report carrying a `ReportError` at its stage with
 the authoritative flag dropped.
 
