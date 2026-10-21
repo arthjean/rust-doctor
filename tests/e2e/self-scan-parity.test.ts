@@ -36,7 +36,10 @@ describe("this repository: human, Markdown and JSON parity", () => {
     }
     const score = scan.audit.score!;
     expect(out).toContain(`${score.value} / 100 ${score.label}`);
-    expect(out.includes("Capped at")).toBe(score.applied_ceiling !== null);
+    // A ceiling the dimensions already score under is named, never as the value.
+    const ceiling = score.applied_ceiling;
+    expect(out.includes("Capped at")).toBe(ceiling !== null && score.value >= ceiling);
+    expect(out.includes("caps the score at")).toBe(ceiling !== null && score.value < ceiling);
     const share = out.match(/https:\/\/rust-doctor\.com\/share\?\S+/);
     expect(share).not.toBeNull();
     const params = new URL(share![0]).searchParams;

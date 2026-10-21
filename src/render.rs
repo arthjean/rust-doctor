@@ -766,6 +766,19 @@ fn capping_rule_ids(report: &InspectReport, tier: crate::RuleTier) -> Vec<String
     ids
 }
 
+/// The ceiling holds the score only when the dimensions alone would have
+/// scored above it. Under it, "Capped at 65" above a 54 named the wrong cause:
+/// the dimensions are what hold the score there, and the ceiling is still owed.
+fn ceiling_sentence(value: u8, ceiling: u8, tier: &str, blocking: &str) -> String {
+    if value < ceiling {
+        format!(
+            "A {tier} finding caps the score at {ceiling}/100, and the dimensions already hold it lower: {blocking}"
+        )
+    } else {
+        format!("Capped at {ceiling}/100 by a {tier} finding: {blocking}")
+    }
+}
+
 fn render_score<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -780,17 +793,9 @@ fn render_score<W: Write>(
         );
     };
     if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
-        let blocking = capping_rule_ids(report, tier);
-        line(
-            writer,
-            &format!(
-                "Capped at {ceiling}/100 by a {} finding: {}",
-                tier.as_str(),
-                blocking.join(", ")
-            ),
-            options,
-            Style::Warning,
-        )?;
+        let blocking = capping_rule_ids(report, tier).join(", ");
+        let sentence = ceiling_sentence(score.value, ceiling, tier.as_str(), &blocking);
+        line(writer, &sentence, options, Style::Warning)?;
     }
     score_header::render(writer, score, options, score_header::Cadence::DEFAULT)?;
     for reason in &score.reasons {

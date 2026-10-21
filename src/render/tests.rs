@@ -318,6 +318,13 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
             "Capped at 40/100 by a P0 finding: rust_doctor::source::dynamic_shell_command"
         )
     );
+
+    // Under its ceiling the score is held by its dimensions, and the line says
+    // so rather than naming the ceiling as the value it never reached.
+    assert_eq!(
+        super::ceiling_sentence(54, 65, "P1", "rust_doctor::repo::hardcoded_credential"),
+        "A P1 finding caps the score at 65/100, and the dimensions already hold it lower: rust_doctor::repo::hardcoded_credential"
+    );
 }
 
 /// A failed scan publishes what it attempted and what failed, and nothing it
