@@ -55,7 +55,11 @@ const CREDENTIAL_PATTERNS: [CredentialPattern; 5] = [
 ];
 
 /// Words that mark a value as an illustration rather than a secret.
-const PLACEHOLDER_WORDS: [&str; 5] = ["dummy", "example", "fake", "placeholder", "sample"];
+///
+/// `bogus` came from the corpus: vibesql's token-precedence script passes
+/// `sk-ant-oat01-deliberately-bogus` to prove the environment wins, and it held
+/// the score four points lower as a hardcoded credential.
+const PLACEHOLDER_WORDS: [&str; 6] = ["bogus", "dummy", "example", "fake", "placeholder", "sample"];
 
 /// Bytes before a match that are read for a placeholder word: enough for
 /// `let example_key = "` or `// sample:` and no more of the line.

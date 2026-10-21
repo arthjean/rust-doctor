@@ -72,6 +72,9 @@ fn placeholders_and_truncations_veto_a_match() {
     let aws = aws_key();
     assert!(first(&format!("// sample: {aws}")).is_none());
     assert!(first(&format!("let dummy_key = \"{aws}\";")).is_none());
+    // The word can sit inside the value itself.
+    let deliberate = format!("sk-ant-oat01-{}", "deliberately-bogus");
+    assert!(first(&format!("TOKEN=\"{deliberate}\"")).is_none());
     assert!(first(&format!("let key = \"{aws}...\";")).is_none());
     assert!(first(&format!("let key = \"{aws}\u{2026}\";")).is_none());
     // A word further than the window before the match is another sentence.
