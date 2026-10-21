@@ -123,6 +123,13 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
         1
     );
     assert_eq!(built.get_current_dir(), Some(workspace.as_path()));
+    // The occurrence count follows incremental compilation, so the command
+    // pins it rather than inheriting it.
+    assert!(
+        built
+            .get_envs()
+            .any(|(key, value)| key == "CARGO_INCREMENTAL" && value == Some(OsStr::new("0")))
+    );
 }
 
 /// `Disabled` is a complete outcome and `NotRun` is not: a policy that switches

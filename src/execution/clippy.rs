@@ -74,6 +74,18 @@ const SILENCE_UNCATALOGUED: [&str; 2] = ["-A", "clippy::all"];
 /// flag wins and the warning stays a warning.
 const WARNINGS_STAY_WARNINGS: [&str; 2] = ["-W", "warnings"];
 
+/// Pins incremental compilation off whatever the caller's environment says.
+///
+/// Observed on 1.97.1: a site a macro expands six times is reported six times
+/// with incremental compilation on and once with it off, so the same scan
+/// counted 6 occurrences on a developer machine and 1 under
+/// `Swatinem/rust-cache`, which exports `CARGO_INCREMENTAL=0`. Measured on the
+/// corpus's `bytes` on 2026-10-21: 41 `indexing_slicing` occurrences against
+/// 31, the same 29 sites. The variable
+/// overrides the profile's `incremental` key, so the count no longer depends on
+/// where the scan runs, and a scan writes no incremental cache it never reads.
+const INCREMENTAL: (&str, &str) = ("CARGO_INCREMENTAL", "0");
+
 /// Appended when the installed Clippy's lint list could not be read, so a
 /// catalogued lint it does not know is allowed instead of failing the build.
 const TOLERATE_UNKNOWN: [&str; 2] = ["-A", "unknown_lints"];
@@ -320,7 +332,10 @@ fn command(
     environment: &CommandEnvironment,
 ) -> Command {
     let mut command = Command::new(cargo);
-    command.args(arguments).current_dir(workspace_root);
+    command
+        .args(arguments)
+        .current_dir(workspace_root)
+        .env(INCREMENTAL.0, INCREMENTAL.1);
     if let Some(target_dir) = target_dir {
         command.env("CARGO_TARGET_DIR", target_dir);
     }
