@@ -360,6 +360,18 @@ mod tty {
             }
         }
 
+        /// Waits without leaving the output unread. On macOS, the key reader's
+        /// `tcsetattr(TCSADRAIN)` blocks until the master has read every byte
+        /// the report wrote, so a bare sleep holds the report out of its read
+        /// and the next key lands in the same read as the one before it.
+        fn settle(&mut self, duration: Duration) {
+            let deadline = Instant::now() + duration;
+            while Instant::now() < deadline {
+                self.read_available();
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+
         fn send(&mut self, input: &[u8]) {
             self.terminal.write_all(input).unwrap();
             self.terminal.flush().unwrap();
@@ -505,7 +517,7 @@ mod tty {
         let mut process = PtyProcess::spawn(command);
         process.wait_for("Hand off to an agent");
         // The key reader turns the terminal raw for each read it starts.
-        thread::sleep(Duration::from_millis(200));
+        process.settle(Duration::from_millis(200));
         // SAFETY: an all-zero `termios` is a valid value for `tcgetattr` to
         // fill, and the descriptor is the PTY master this test owns.
         let mut mode: libc::termios = unsafe { std::mem::zeroed() };
@@ -543,7 +555,7 @@ mod tty {
         process.send(b"\x1b");
         // A lone Esc is only an Esc once nothing follows it inside the window
         // the key reader gives an escape sequence, so the next key waits.
-        thread::sleep(Duration::from_millis(250));
+        process.settle(Duration::from_millis(250));
         process.send(b"\r");
         process.wait_for("Choose how to continue");
         process.send(b"q");
