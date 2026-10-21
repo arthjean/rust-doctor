@@ -417,12 +417,13 @@ impl Enumeration {
     /// units: the counts outlive the trees they were taken from, and nothing
     /// else here does.
     pub(crate) fn into_measurement(mut self) -> SourceMeasurement {
-        let production_lines = self.production_lines();
+        let (production_files, production_lines) = self.production_source();
         let packages = self.package_measurements();
         self.errors.sort();
         self.errors.dedup();
         SourceMeasurement {
             files_read: self.counters.files_read,
+            production_files,
             production_lines,
             complete: self.complete,
             errors: self.errors,
@@ -430,8 +431,8 @@ impl Enumeration {
         }
     }
 
-    /// Files and production lines per workspace member, counted the way
-    /// `production_lines` counts the workspace. A file two members reach
+    /// Production files and lines per workspace member, counted the way
+    /// `production_source` counts the workspace. A file two members reach
     /// belongs to neither: it weighs on the workspace score alone, as a
     /// finding with no package attribution does.
     fn package_measurements(&self) -> BTreeMap<String, PackageMeasurement> {
@@ -450,8 +451,8 @@ impl Enumeration {
         for (lines, is_production, package) in per_path.into_values() {
             if let Some(package) = package {
                 let measured = packages.entry(package).or_default();
-                measured.files += 1;
                 if is_production {
+                    measured.files += 1;
                     measured.production_lines += lines;
                 }
             }
@@ -459,7 +460,7 @@ impl Enumeration {
         packages
     }
 
-    /// Lines of production source the walk enumerated.
+    /// Files and lines of production source the walk enumerated.
     ///
     /// One file counts once however many units reached it: the same path parsed
     /// under two editions is two units over one text. A path is production when
@@ -468,7 +469,7 @@ impl Enumeration {
     ///
     /// A line is what `str::lines` calls one, blanks and comments included, so
     /// a file whose last line carries no terminator still contributes it once.
-    fn production_lines(&self) -> usize {
+    fn production_source(&self) -> (usize, usize) {
         let mut per_path: BTreeMap<&Path, (usize, bool)> = BTreeMap::new();
         for (identity, unit) in self.scanned() {
             let counted = per_path
@@ -479,8 +480,7 @@ impl Enumeration {
         per_path
             .values()
             .filter(|(_, is_production)| *is_production)
-            .map(|(lines, _)| lines)
-            .sum()
+            .fold((0, 0), |(files, total), (lines, _)| (files + 1, total + lines))
     }
 }
 
@@ -495,6 +495,12 @@ impl Enumeration {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct SourceMeasurement {
     pub(crate) files_read: usize,
+    /// Files holding a unit no target reaches as test material: the files
+    /// `production_lines` is counted over, and what `source_files` publishes
+    /// when Clippy produced no dep-info. `files_read` also counts the test
+    /// files the detectors read, so publishing it put a workspace's tests in
+    /// its file count whenever Clippy was off.
+    pub(crate) production_files: usize,
     /// Lines of every unit no target reaches as test material. The score
     /// divides by this, so it counts the population the score charges on.
     pub(crate) production_lines: usize,

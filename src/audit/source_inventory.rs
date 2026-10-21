@@ -31,14 +31,24 @@ pub(super) fn collect(
 ) -> SourceFileInventory {
     let compiler = scan.map(|scan| compiler_inventory(metadata, &scan.messages));
     let walked = measurement.map(|measurement| SourceFileInventory {
-        files: measurement.files_read,
+        files: measurement.production_files,
         production_lines: measurement.production_lines,
         complete: measurement.complete,
     });
 
-    let files = compiler
-        .or(walked)
-        .unwrap_or_else(|| target_root_inventory(metadata));
+    // An incomplete compiler count is a floor, the target roots of a build
+    // that produced no artifact, and so is the walk's: the larger floor is
+    // published. The roots alone put 56 files beside members the walk had
+    // measured at 518 on a workspace Cargo refused to build.
+    let files = match (compiler, walked) {
+        (Some(compiler), Some(walked)) if !compiler.complete => SourceFileInventory {
+            files: compiler.files.max(walked.files),
+            ..compiler
+        },
+        (compiler, walked) => compiler
+            .or(walked)
+            .unwrap_or_else(|| target_root_inventory(metadata)),
+    };
     SourceFileInventory {
         files: files.files,
         production_lines: walked.map_or(0, |walked| walked.production_lines),

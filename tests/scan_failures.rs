@@ -935,6 +935,8 @@ fn a_package_cargo_refused_before_building_publishes_no_score() {
         "[package]\nname = \"lockless\"\nversion = \"0.1.0\"\nedition = \"2024\"\nrust-version = \"1.999\"\npublish = false\n",
     )
     .unwrap();
+    std::fs::write(root.join("src/main.rs"), "mod extra;\nfn main() {\n    extra::run();\n}\n").unwrap();
+    std::fs::write(root.join("src/extra.rs"), "pub fn run() {}\n").unwrap();
     let output = run(&root, &["--json", "--advisory-db", "/dev/null"]);
     let report = json(&output);
     assert_eq!(report["audit"]["score"], Value::Null, "{}", report["audit"]);
@@ -942,6 +944,10 @@ fn a_package_cargo_refused_before_building_publishes_no_score() {
     assert_eq!(package["name"], "lockless");
     assert_eq!(package["unlinted"], true);
     assert_eq!(package["score"], Value::Null);
+    // With no artifact the target roots are a floor of one file; the walk read
+    // both, and the workspace publishes what its only member does.
+    assert_eq!(report["audit"]["source_files"], 2, "{}", report["audit"]);
+    assert_eq!(package["source_files"], 2, "{}", report["audit"]);
     assert_eq!(
         error(&report, "clippy", "packages-unlinted")["message"],
         "Not linted because it did not compile: lockless"
