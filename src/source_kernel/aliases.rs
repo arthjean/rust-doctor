@@ -544,19 +544,28 @@ mod tests {
         source
     }
 
-    /// The 95th percentile of twenty constructions of one unit.
-    fn p95_of_building(source: &str) -> std::time::Duration {
-        let parse = SourceFile::parse(source, Edition::Edition2024);
-        assert!(parse.errors().is_empty());
-        let mut samples = Vec::new();
-        for _ in 0..20 {
+    /// The fastest of twenty constructions of each unit, the two interleaved.
+    ///
+    /// Load on the machine only ever adds time, so the fastest run is the one
+    /// closest to the construction's own cost, and alternating the units makes
+    /// a burst of load land on both rather than on whichever was being timed.
+    fn fastest_builds(small: &str, large: &str) -> (std::time::Duration, std::time::Duration) {
+        let small = SourceFile::parse(small, Edition::Edition2024);
+        let large = SourceFile::parse(large, Edition::Edition2024);
+        assert!(small.errors().is_empty() && large.errors().is_empty());
+        let build = |parse: &ra_ap_syntax::Parse<SourceFile>| {
             let started = std::time::Instant::now();
             let map = AliasMap::build(&parse.tree(), &[], BINDING_LIMIT);
-            samples.push(started.elapsed());
+            let elapsed = started.elapsed();
             assert!(!map.saturated());
+            elapsed
+        };
+        let mut fastest = (std::time::Duration::MAX, std::time::Duration::MAX);
+        for _ in 0..20 {
+            fastest.0 = fastest.0.min(build(&small));
+            fastest.1 = fastest.1.min(build(&large));
         }
-        samples.sort_unstable();
-        samples[18]
+        fastest
     }
 
     /// NFR: the construction is linear in the size of the unit, which is what
@@ -568,6 +577,11 @@ mod tests {
     /// something else at the time, which measured the load and not the
     /// construction. Linear costs ten times more for ten times the lines; the
     /// bound leaves the small unit its fixed cost and the timer its noise.
+    ///
+    /// Load can only inflate the ratio, so the measurement gets five attempts
+    /// and one inside the bound is enough: a p95 of a single attempt went red
+    /// on a macOS runner at 16 ms against 0.8 ms, while a quadratic
+    /// construction lands near a hundred times and fails every attempt.
     #[test]
     fn building_a_unit_costs_linearly_in_its_size() {
         let small = unit_of(20);
@@ -575,11 +589,12 @@ mod tests {
         assert_eq!(small.lines().count(), 100);
         assert_eq!(large.lines().count(), 1_000);
 
-        let small_p95 = p95_of_building(&small);
-        let large_p95 = p95_of_building(&large);
+        let attempts: Vec<_> = (0..5)
+            .map(|_| fastest_builds(&small, &large))
+            .collect();
         assert!(
-            large_p95 <= small_p95 * 20,
-            "one thousand lines took {large_p95:?} against {small_p95:?} for one hundred"
+            attempts.iter().any(|(small, large)| *large <= *small * 20),
+            "one thousand lines against one hundred, in every attempt: {attempts:?}"
         );
     }
 
