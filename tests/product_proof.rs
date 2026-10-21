@@ -398,7 +398,20 @@ fn repository_json_has_exact_top_level_contract_without_absolute_private_paths()
         .map(String::as_str)
         .collect();
 
-    assert_eq!(output.status.code(), Some(0));
+    let blocking: Vec<_> = report["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .filter(|diagnostic| diagnostic["severity"] == "error")
+        .collect();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "status {}, gate {}, errors {}, error diagnostics {blocking:?}",
+        report["status"],
+        report["gate"],
+        report["errors"]
+    );
     assert_eq!(
         keys,
         [
