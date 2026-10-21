@@ -28,8 +28,8 @@ files need tmux: without it they skip with one stated reason, and
 The network-namespace scenarios (`netns.ts`) skip the same way where
 `unshare -rn` is refused, and `E2E_REQUIRE_NETNS=1` makes that a failure.
 `corpus-replay.test.ts` and `real-subject.test.ts` run only when
-`RUST_DOCTOR_E2E_CORPUS_DIR` names the corpus clone cache, which
-`e2e-corpus.yml` restores weekly; elsewhere they skip.
+`RUST_DOCTOR_E2E_CORPUS_DIR` names the corpus clone cache, which the
+`replay` job of `corpus.yml` restores; elsewhere they skip.
 `bun run typecheck` checks the suite under strict TypeScript.
 
 ## What every test holds to

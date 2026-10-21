@@ -5,8 +5,7 @@
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
 | `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself), and posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
-| `corpus.yml` | manual, pull request touching the record, its harness or a producer | Reproduces the pinned measurement of `tests/corpus.json` from the restored clone cache, under the toolchain the artifact names, and writes the position proof that anchors every published site |
-| `e2e-corpus.yml` | weekly, manual, pull request on `corpus.yml`'s paths | The 18 pinned subjects scanned offline through the CLI and the installed launcher, from that cache restored read-only: each matches its record, a rerun is identical, the copy is untouched |
+| `corpus.yml` | weekly, manual, pull request touching the record, its harness, a producer or the score | One job fills the clone cache with every pinned revision and its history; then, in parallel, one reproduces the measurement of `tests/corpus.json` in process and writes the position proof that anchors every published site, and one scans the 18 subjects offline through the CLI and the installed launcher: each matches its record, a rerun is identical, the copy is untouched |
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not
@@ -15,9 +14,12 @@ rather than `cargo test`: the launcher declares a `win32-x64` package, so the
 build must keep working, but 14 of the 273 unit tests fail there as measured on
 2026-08-12, on path separators, edition resolution and the hotspot self-scan.
 That is a port to do, and a job that stays red forever teaches everyone to
-ignore a red job. And `corpus.yml` is manual rather than nightly, since every
-input it consumes is pinned, so a schedule would recompute the same answer at
-the cost of compiling eighteen repositories. It also runs on a pull request
+ignore a red job. And `corpus.yml` is weekly rather than nightly, since every
+input it consumes is pinned, so a nightly run would recompute the same answer
+at the cost of compiling eighteen repositories; the weekly run is what keeps
+its clone cache from being evicted. The cache has one producer, the `clones`
+job, and its two consumers restore the exact key it saved in the same run,
+which a separate replay workflow could not. It also runs on a pull request
 editing the record, the harness under `tests/support/corpus`, or one of the
 five producers: the three things that move it, and where a site enters the
 record with no run behind it. Every rule has an always-on test rescanning a

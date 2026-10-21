@@ -1710,7 +1710,7 @@ fn the_agent_population_reproduces_from_the_local_cache() {
             fs::remove_dir_all(&work).unwrap();
         }
         fs::create_dir_all(&work).unwrap();
-        support::corpus::materialise(&cache.join(&entry.name), &entry.commit, &artifacts, &work);
+        support::corpus::materialise(&cache.join(&entry.name), &entry.commit, &work);
         healthy_lines += rust_line_count(&work);
     }
     assert_eq!(healthy_lines, population.structural_density.healthy.lines);

@@ -171,7 +171,7 @@ fn subjects(output: &Path) -> Vec<Subject> {
             let workspace = output.join("work").join(&name);
             let _ = fs::remove_dir_all(&workspace);
             fs::create_dir_all(&workspace).unwrap();
-            support::corpus::materialise(&source, &commit, output, &workspace);
+            support::corpus::materialise(&source, &commit, &workspace);
             Subject {
                 name,
                 commit,

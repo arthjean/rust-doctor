@@ -1,58 +1,47 @@
 name: Corpus
 
-# The analogue of React Doctor's delta-audit.yml: replay the pinned corpus and
-# check that the published measurement still reproduces.
+# The pinned corpus, measured twice from one clone cache: `measure` replays the
+# record in process (tests/corpus_precision.rs) and writes the position proof,
+# `replay` scans the same eighteen subjects through the shipped CLI and the
+# installed npm launcher, offline (tests/e2e/corpus-replay.test.ts and
+# tests/e2e/real-subject.test.ts). Both judge tests/corpus.json, which was
+# recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in
+# the artifact's `toolchain` block).
 #
-# By hand, and on a pull request that can move the measurement. Deliberately not
-# nightly: the test asserts strict equality against tests/corpus.json, which was
-# recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in the
-# artifact's `toolchain` block). Nothing in the corpus floats: repositories are
-# pinned by commit and the toolchain is pinned here, so a scheduled run can only
-# ever repeat the same answer at the cost of compiling the ten healthy
-# repositories. The eight agent ones are scanned with every Clippy rule off,
-# so nothing of theirs is compiled.
+# One workflow and three jobs because the cache is one producer and two
+# consumers. When the replay lived in its own workflow it could only restore a
+# cache this one saved, so a cache GitHub evicted after seven idle days, or one
+# saved under a pull request's ref, left the weekly replay red on a missing key
+# it had no way to refill. `clones` is the only job that fetches, and the two
+# consumers start once it has saved the exact key they restore.
 #
-# A pull request that edits the record is the one case where the answer can have
-# changed without anyone running this by hand, and it is the case where a site
-# can be added to the file with no run behind it. The position proof is what
-# refuses that offline, and this trigger is what lets a pull request rewrite it:
-# the two are the same gate, seen from the two sides.
+# Weekly as well as on demand: the record cannot move on its own, but the
+# shipped binary scanning real code can (a rerun that must equal the first
+# scan, a copy that must stay byte-identical, the launcher that must forward
+# without judging), and the run keeps the cache warm. A pull request runs it
+# when it touches what moves the measurement: the record, the harness that
+# recomputes the numbers from it, the code that decides what fires, and the
+# score that every observation carries.
 #
 # TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
-# the ten it scans with Clippy run `cargo clippy`, which executes their build
-# scripts and procedural macros. That is acceptable here only because the runner is
-# disposable and every revision is pinned. Do not port these steps to a
-# developer machine, and do not add a repository to the manifest without the
-# review the corpus protocol requires.
+# the ten healthy ones are scanned with Clippy, which executes their build
+# scripts and procedural macros. That is acceptable here only because the
+# runner is disposable and every revision is pinned. Do not port these steps
+# to a developer machine, and do not add a repository to the manifest without
+# the review the corpus protocol requires. The eight agent repositories are
+# scanned with every Clippy rule off, so nothing of theirs is compiled.
 
 on:
+  schedule:
+    - cron: "17 4 * * 1"
   workflow_dispatch:
-  # Three things move the published measurement: the record, the harness that
-  # recomputes the numbers from it, and the code that decides what fires. A
-  # pull request touching none of these paths never starts this job: the filter
-  # is what decides, not a condition inside a job that has already booted a
-  # runner and cloned eighteen repositories to find out it had nothing to do.
-  #
-  # tests/support/corpus/ is here for the same reason tests/support/corpus.rs
-  # is: the harness is what recomputes the published numbers from the record,
-  # so a change to either can move the measurement without touching the record.
-  #
-  # The five producers are here because they are the only place a rule can
-  # quietly stop finding what it used to find. Every catalogued rule already
-  # has an always-on test that rescans a fixture and asserts it fires there, so
-  # a detector that dies outright fails `cargo test`. What no fixture catches is
-  # a detector narrowed until it still matches the one shape the fixture holds
-  # and no longer matches real code: the oracle stays green while the corpus
-  # counts collapse. The strict equality that
-  # `the_published_observations_reproduce_the_pinned_corpus_run` asserts against
-  # tests/corpus.json is the only check that measures behavior on third-party
-  # code, and until this filter named the producers it never ran on the pull
-  # requests able to break it.
-  #
-  # src/audit/ is here because an observation carries the score the scan
-  # published, so the algorithm behind it moves the record as surely as a
-  # detector does. src/policy/catalog.rs is not: editing the catalog without
-  # regenerating the record already fails
+  # A pull request touching none of these paths never starts the workflow: the
+  # filter decides, not a step that has already booted a runner. The five
+  # producers are here because a detector narrowed until it still matches its
+  # fixture and no longer matches real code keeps every always-on test green
+  # while the corpus counts collapse; the strict equality against the record
+  # is the only check that sees it. src/policy/catalog.rs is not: editing the
+  # catalog without regenerating the record already fails
   # `the_published_catalog_matches_the_shipped_policy` on every run.
   pull_request:
     paths:
@@ -67,17 +56,20 @@ on:
       - src/execution.rs
       - src/execution/**
       - src/repo_hygiene.rs
+      - src/repo_hygiene/**
       - src/source_kernel.rs
       - src/source_kernel/**
       - src/source_text.rs
       - src/structure.rs
       - src/structure/**
+      - tests/e2e/corpus-*
+      - tests/e2e/real-subject.test.ts
+      - .github/workflows/corpus.yml
 
 concurrency:
-  # Per branch rather than per workflow, now that a pull request can start this
-  # job: one queue for every open branch would serialize full corpus replays
-  # behind each other. A new push to a pull request supersedes the run it obsoletes,
-  # and a manual run is never cancelled, since nothing is coming to replace it.
+  # Per branch: one queue for every open branch would serialize full corpus
+  # replays behind each other. A new push to a pull request supersedes the run
+  # it obsoletes; a manual or scheduled run is never canceled.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -92,73 +84,104 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  clones:
+    name: Hold every pinned revision with its history
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      key: ${{ steps.clones.outputs.cache-primary-key }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Restore and save are separate steps because the case to tell apart is
+      # an exact match from a prefix match from nothing at all, which only the
+      # restore action publishes. The key moves with the record, and `v2`
+      # retired the depth-1 caches: the agent population's selection evidence
+      # recounts each repository's commits, which a shallow clone answers with
+      # one.
+      - name: Restore the clone cache
+        id: clones
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          key: corpus-clones-v2-${{ hashFiles('tests/corpus.json') }}
+          restore-keys: corpus-clones-v2-
+
+      # A pull request that matched no cache at all would clone eighteen
+      # third-party repositories to answer a question about a diff. A manual or
+      # scheduled run on the base branch is what seeds the cache.
+      - name: Require the clone cache on a pull request
+        if: github.event_name == 'pull_request' && steps.clones.outputs.cache-matched-key == ''
+        run: |
+          echo "No clone cache matched ${{ steps.clones.outputs.cache-primary-key }},"
+          echo "and nothing matched the prefix corpus-clones-v2- either."
+          echo "Seed it with a manual run on the base branch, then re-run this job:"
+          echo "  gh workflow run corpus.yml"
+          exit 1
+
+      # Full history of the exact revision per repository, across both
+      # populations. The harnesses clone each subject out of this cache and
+      # check the pinned commit out, so a subject is scanned as a clone of it
+      # is, `.git` included; a restored repository is kept only when it is at
+      # the revision and complete.
+      - name: Materialize both populations
+        run: |
+          cache="$RUNNER_TEMP/corpus-cache"
+          mkdir -p "$cache"
+          jq -r '
+            (.manifest.repositories + .agent_population.repositories)[]
+            | [.name, .url, .commit] | @tsv
+          ' tests/corpus.json | while IFS=$'\t' read -r name url commit; do
+            repository="$cache/$name"
+            if [ "$(git -C "$repository" rev-parse HEAD 2>/dev/null || true)" = "$commit" ] \
+              && [ "$(git -C "$repository" rev-parse --is-shallow-repository)" = false ]; then
+              continue
+            fi
+            rm -rf "$repository"
+            git init --quiet "$repository"
+            git -C "$repository" remote add origin "$url"
+            git -C "$repository" fetch --quiet origin "$commit"
+            git -C "$repository" checkout --quiet --detach FETCH_HEAD
+          done
+
+      - name: Save the clone cache
+        if: steps.clones.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          key: ${{ steps.clones.outputs.cache-primary-key }}
+
   measure:
     name: Reproduce the pinned measurement
-    runs-on: ubuntu-latest
+    needs: clones
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      # Before the toolchain, and before a single clone. This job replays a
-      # pinned corpus out of a cache; what it costs when the cache is not there
-      # is eighteen third-party repositories fetched over the network, so the
-      # first thing it does is find out.
-      #
-      # Restore and save are separate steps because the main action publishes
-      # only `cache-hit`, an exact match, and the case that has to be told apart
-      # here is an exact match from a prefix match from nothing at all. That is
-      # `cache-matched-key`, which only the restore action publishes.
-      #
-      # `runner.temp` is spelled literally rather than read from the environment
-      # the next step writes, since a `with:` block is evaluated before any step
-      # of this job has run. The two spellings are asserted equal below.
       - name: Restore the clone cache
-        id: clones
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/corpus-cache
-          # Keyed on the record itself: a new pinned revision changes the file,
-          # which moves the key. The prefix is what a pull request editing the
-          # record lands on, which is every pull request this trigger fires for:
-          # the newest cache of an earlier record is restored, and the
-          # materialization below tops up the repositories whose revision moved.
-          # One shallow fetch, not eighteen.
-          key: corpus-clones-${{ hashFiles('tests/corpus.json') }}
-          restore-keys: corpus-clones-
-
-      # A pull request that matched no cache at all would clone eighteen
-      # third-party repositories to answer a question about a diff, and would do
-      # it silently. Name the key that was missed and stop. A manual run on the
-      # base branch is what seeds the cache, and it is the run allowed to pay
-      # that cost.
-      - name: Require the clone cache on a pull request
-        if: github.event_name == 'pull_request' && steps.clones.outputs.cache-matched-key == ''
-        run: |
-          echo "No clone cache matched ${{ steps.clones.outputs.cache-primary-key }},"
-          echo "and nothing matched the prefix corpus-clones- either."
-          echo "Seed it with a manual run on the base branch, then re-run this job:"
-          echo "  gh workflow run corpus.yml"
-          exit 1
+          key: ${{ needs.clones.outputs.key }}
+          fail-on-cache-miss: true
 
       # Both paths must sit outside the repository: the reproduction test
       # refuses to run otherwise, because a corpus checkout inside the working
-      # tree would be scanned as if it were part of this crate. The runner temp
-      # directory is the clean way to say that. `$GITHUB_WORKSPACE/../x` would
-      # not do, since the test compares path prefixes lexically and such a path
-      # still starts with the workspace. This is a step rather than a workflow
-      # `env:` block because the `runner` context does not exist there.
+      # tree would be scanned as if it were part of this crate. The test
+      # compares path prefixes lexically, so `$GITHUB_WORKSPACE/../x` would not
+      # do. The `runner` context does not exist in a workflow `env:` block.
       - name: Resolve the corpus paths
         run: |
           {
             echo "RUST_DOCTOR_CORPUS_DIR=$RUNNER_TEMP/corpus-cache"
             echo "RUST_DOCTOR_CORPUS_ARTIFACTS=$RUNNER_TEMP/corpus-artifacts"
           } >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/corpus-cache" "$RUNNER_TEMP/corpus-artifacts"
-          # The cache was restored into the literal spelling of this path one
-          # step earlier. If the two ever disagree, the restore lands somewhere
-          # nothing reads and the job silently re-clones the whole corpus.
+          mkdir -p "$RUNNER_TEMP/corpus-artifacts"
           test "$RUNNER_TEMP/corpus-cache" = "${{ runner.temp }}/corpus-cache"
 
       - uses: dtolnay/rust-toolchain@master
@@ -173,47 +196,14 @@ jobs:
           prefix-key: "v1-rust"
           key: corpus
 
-      # One shallow fetch of the exact revision per repository, across both
-      # populations: `manifest.repositories` is the healthy public code,
-      # `agent_population.repositories` is the code the tool exists for. The
-      # harness identifies a cached repository by `git rev-parse HEAD`, so the
-      # detached checkout below is what it looks for.
-      - name: Materialize both populations
-        run: |
-          mkdir -p "$RUST_DOCTOR_CORPUS_DIR"
-          jq -r '
-            (.manifest.repositories + .agent_population.repositories)[]
-            | [.name, .url, .commit] | @tsv
-          ' tests/corpus.json | while IFS=$'\t' read -r name url commit; do
-            repository="$RUST_DOCTOR_CORPUS_DIR/$name"
-            if [ "$(git -C "$repository" rev-parse HEAD 2>/dev/null || true)" = "$commit" ]; then
-              continue
-            fi
-            rm -rf "$repository"
-            git init --quiet "$repository"
-            git -C "$repository" remote add origin "$url"
-            git -C "$repository" fetch --quiet --depth 1 origin "$commit"
-            git -C "$repository" checkout --quiet --detach FETCH_HEAD
-          done
-
-      # Save what the materialization topped up, under the key of the record
-      # this run replayed. A pull request that pins a new revision leaves the
-      # next one a cache that already holds it, which is what keeps the prefix
-      # restore one fetch behind rather than eighteen.
-      - name: Save the clone cache
-        if: steps.clones.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/corpus-cache
-          key: ${{ steps.clones.outputs.cache-primary-key }}
-
       - name: Reproduce
         run: cargo test --locked --test corpus_precision
 
       # The reproduction writes the position proof once it has located every
-      # published site of both populations. That file is what anchors the record
-      # offline, and a pull request that adds a site is expected to copy it into
-      # tests/corpus.json: keep it whether the job passed or not.
+      # published site of both populations, and the replayed observations when
+      # they differ from the published ones: the first is what a pull request
+      # adding a site copies into the record, the second is the whole diagnosis
+      # when this job goes red. Keep both whatever happens.
       - name: Upload the position proof
         if: always()
         uses: actions/upload-artifact@v4
@@ -223,14 +213,91 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # The reproduction test writes the replayed observations next to the
-      # artifacts when they differ from the published ones. That file is the
-      # whole diagnosis when this job goes red, so keep it whatever happens.
       - name: Upload the replayed measurement
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: corpus-measurement
-          path: ${{ env.RUST_DOCTOR_CORPUS_ARTIFACTS }}/observations.json
+          path: |
+            ${{ env.RUST_DOCTOR_CORPUS_ARTIFACTS }}/observations.json
+            ${{ env.RUST_DOCTOR_CORPUS_ARTIFACTS }}/agent-replay/agent-observations.json
           if-no-files-found: ignore
           retention-days: 14
+
+  replay:
+    name: Replay the corpus end to end
+    needs: clones
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Restore the clone cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/corpus-cache
+          key: ${{ needs.clones.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Resolve the corpus paths
+        run: |
+          {
+            echo "RUST_DOCTOR_E2E_CORPUS_DIR=$RUNNER_TEMP/corpus-cache"
+            echo "RUST_DOCTOR_E2E_ROOT=$RUNNER_TEMP/rust-doctor-e2e"
+            echo "RUST_DOCTOR_E2E_BIN=$GITHUB_WORKSPACE/target/release/rust-doctor"
+          } >> "$GITHUB_ENV"
+          test "$RUNNER_TEMP/corpus-cache" = "${{ runner.temp }}/corpus-cache"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: e2e-corpus
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # The suite runs offline, so every dependency a subject resolves has to
+      # be in Cargo's registry first. Each subject is fetched in a throwaway
+      # copy: a fetch in the copy to be scanned would write Cargo.lock into it
+      # and move a lockless subject's result off its record.
+      - name: Warm the registry
+        run: |
+          jq -r '
+            (.manifest.repositories + .agent_population.repositories)[]
+            | [.name, .commit] | @tsv
+          ' tests/corpus.json | while IFS=$'\t' read -r name commit; do
+            copy="$RUNNER_TEMP/fetch/$name"
+            mkdir -p "$copy"
+            GIT_INDEX_FILE="$RUNNER_TEMP/fetch/$name.index" git -C "$RUST_DOCTOR_E2E_CORPUS_DIR/$name" read-tree "$commit"
+            GIT_INDEX_FILE="$RUNNER_TEMP/fetch/$name.index" git -C "$RUST_DOCTOR_E2E_CORPUS_DIR/$name" checkout-index --all --force --prefix="$copy/"
+            if [ -f "$copy/Cargo.toml" ]; then
+              cargo fetch --manifest-path "$copy/Cargo.toml"
+            fi
+          done
+          rm -rf "$RUNNER_TEMP/fetch"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: tests/e2e/package.json
+
+      # The launcher subjects install the packed tarballs with npm, offline.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+
+      - name: Install the suite
+        working-directory: tests/e2e
+        run: bun install --frozen-lockfile
+
+      - name: Replay
+        working-directory: tests/e2e
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: bun test ./corpus-replay.test.ts ./real-subject.test.ts

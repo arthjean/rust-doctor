@@ -1,8 +1,10 @@
 // The pinned corpus of `tests/corpus.json`, scanned end to end through the
 // shipped CLI. A subject is materialized from the clone cache into a scratch
-// copy, through `read-tree` into a private index and `checkout-index`, as the
-// Rust harness does (`materialise` in tests/support/corpus.rs): the cache is
-// never scanned in place and never written, index included. The files that
+// clone checked out at its pinned commit, as the Rust harness does
+// (`materialise` in tests/support/corpus.rs): the repository pass enumerates
+// through git, so a bare tree would score a subject as no clone of it scores.
+// `--shared` borrows the cache's objects, so the cache is never scanned in
+// place and never written. The files that
 // use it run only where RUST_DOCTOR_E2E_CORPUS_DIR names that cache, which
 // the corpus job restores; anywhere else they skip with one stated reason.
 import { existsSync, readFileSync } from "node:fs";
@@ -126,19 +128,18 @@ export async function materialize(entry: Subject): Promise<Materialized> {
     throw new Error(`corpus subject ${entry.name} is missing from the clone cache at ${CORPUS_DIR}`);
   }
   const box = sandbox(`corpus-${entry.name}`);
-  const index = join(box.dir, "index");
   const path = join(scratchDir(`${entry.name}-work`), entry.name);
   const git = async (args: string[]) => {
-    const run = await runCommand(["git", "-C", repository, ...args], { sandbox: box, env: { GIT_INDEX_FILE: index } });
+    const run = await runCommand(["git", ...args], { sandbox: box });
     if (run.exitCode !== 0) {
       throw new Error(`corpus subject ${entry.name}: git ${args.join(" ")} failed (exit ${run.exitCode}): ${run.stderr.trim()}`);
     }
   };
-  await git(["cat-file", "-e", `${entry.commit}^{commit}`]).catch(() => {
+  await git(["-C", repository, "cat-file", "-e", `${entry.commit}^{commit}`]).catch(() => {
     throw new Error(`corpus subject ${entry.name}: the clone cache at ${CORPUS_DIR} lacks the pinned commit ${entry.commit}`);
   });
-  await git(["read-tree", entry.commit]);
-  await git(["checkout-index", "--all", "--force", `--prefix=${path}/`]);
+  await git(["clone", "--quiet", "--shared", "--no-checkout", repository, path]);
+  await git(["-C", path, "checkout", "--quiet", "--detach", entry.commit]);
   return { path, sandbox: box };
 }
 

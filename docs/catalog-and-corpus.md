@@ -39,8 +39,9 @@ RUST_DOCTOR_CORPUS_ARTIFACTS=<scratch outside this repository> \
 cargo test --test corpus_precision
 ```
 
-Both paths must sit outside this repository. The reproduction tests print why
-they are skipping when neither variable is set, and
+Each subject is scanned as a clone at its pinned commit, `.git` included: the
+repository pass enumerates through git, and a bare tree published mdr at 88
+where its clones score 65. Both paths must sit outside this repository, and
 `no_corpus_repository_is_committed_in_this_repository` fails if corpus code is
 ever committed here.
 
@@ -186,7 +187,5 @@ off the queue into rejections and a shortlist, `.claude/skills/rule-admit` takes
 one retained rule through fixtures, catalog, counters, corpus and evidence
 record, and `.claude/skills/corpus-adjudicate` deepens the adjudicated sample of
 one rule past the five sites admission requires, which is the only way a rate
-becomes precise enough to place a rule against the 5 % threshold. Growing the
-catalog goes through the first two, trusting what it publishes goes through the
-third, so the steps stay the same from one batch to the next.
+becomes precise enough to place a rule against the 5 % threshold.
 

@@ -11302,7 +11302,7 @@
             }
           ],
           "label": "Great",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 82,
           "worst_tier": "P2"
         },
@@ -11406,7 +11406,7 @@
             }
           ],
           "label": "Great",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 79,
           "worst_tier": "P2"
         },
@@ -11498,15 +11498,15 @@
               "worst_tier": null
             },
             {
-              "density_micro": 18000000,
+              "density_micro": 1636364,
               "name": "dependencies",
-              "score": 5,
+              "score": 75,
               "worst_tier": "P2"
             }
           ],
           "label": "Great",
-          "model": "core-v4",
-          "value": 79,
+          "model": "core-v5",
+          "value": 90,
           "worst_tier": "P2"
         },
         "status": "complete"
@@ -11514,11 +11514,11 @@
       {
         "authoritative": true,
         "commit": "26e92506e9e6113f233b65ff1ea1894d9efb11ea",
-        "distinct": 36,
+        "distinct": 37,
         "exit_code": 0,
-        "findings_digest": "de07826a76d10c253da936ec7eeda0d5fa397c448898359bbd9a68b498221f27",
+        "findings_digest": "2114608938cb9267214511cd650294d91d76b049cda4ec397e5619cd9c5f19ca",
         "name": "mdr",
-        "occurrences": 62,
+        "occurrences": 63,
         "outcome": "processed",
         "production_lines": 5031,
         "reasons": [],
@@ -11531,6 +11531,11 @@
           {
             "distinct": 1,
             "id": "rust_doctor::cargo::unchecked_release_overflow",
+            "occurrences": 1
+          },
+          {
+            "distinct": 1,
+            "id": "rust_doctor::repo::secret_in_build_step",
             "occurrences": 1
           },
           {
@@ -11555,13 +11560,13 @@
           }
         ],
         "score": {
-          "applied_ceiling": null,
+          "applied_ceiling": 65,
           "dimensions": [
             {
-              "density_micro": 0,
+              "density_micro": 4000000,
               "name": "security",
-              "score": 100,
-              "worst_tier": null
+              "score": 37,
+              "worst_tier": "P1"
             },
             {
               "density_micro": 600000,
@@ -11588,10 +11593,10 @@
               "worst_tier": "P2"
             }
           ],
-          "label": "Great",
-          "model": "core-v4",
-          "value": 88,
-          "worst_tier": "P2"
+          "label": "Needs work",
+          "model": "core-v5",
+          "value": 65,
+          "worst_tier": "P1"
         },
         "status": "complete"
       },
@@ -11678,7 +11683,7 @@
             }
           ],
           "label": "Great",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 89,
           "worst_tier": "P2"
         },
@@ -11795,14 +11800,14 @@
               "worst_tier": null
             },
             {
-              "density_micro": 39334600,
+              "density_micro": 26267933,
               "name": "dependencies",
-              "score": 0,
+              "score": 1,
               "worst_tier": "P2"
             }
           ],
           "label": "Needs work",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 58,
           "worst_tier": "P1"
         },
@@ -11901,7 +11906,7 @@
             }
           ],
           "label": "Great",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 80,
           "worst_tier": "P2"
         },
@@ -11990,7 +11995,7 @@
             }
           ],
           "label": "Great",
-          "model": "core-v4",
+          "model": "core-v5",
           "value": 88,
           "worst_tier": "P2"
         },
@@ -13908,7 +13913,7 @@
         "doubly_judged": 0,
         "false_positive_rate_basis_points": null,
         "false_positives": null,
-        "findings": 0,
+        "findings": 1,
         "id": "rust_doctor::repo::secret_in_build_step",
         "interval_high_basis_points": null,
         "interval_low_basis_points": null,
@@ -13916,7 +13921,7 @@
         "provenance": [],
         "reviewed": 0,
         "separation": null,
-        "status": "unobserved",
+        "status": "incomplete",
         "tier": "P1",
         "true_positives": null
       },
@@ -15939,7 +15944,7 @@
           }
         ],
         "label": "Needs work",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 73,
         "worst_tier": "P2"
       },
@@ -16023,7 +16028,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 97,
         "worst_tier": "P3"
       },
@@ -16034,9 +16039,9 @@
       "commit": "76c0fbb54ed4336caf9d2311658a2f4a5627c21d",
       "distinct": 143,
       "exit_code": 0,
-      "findings_digest": "961fb58e7f58b63db3bed351a7a6deab15d81240c86e9bb08f0c7310b669a7d1",
+      "findings_digest": "d29e84816f14a27a282a5ca5f1e3ebc703daed4d3eb402655381bf22009e94e5",
       "name": "bytes",
-      "occurrences": 248,
+      "occurrences": 238,
       "outcome": "processed",
       "production_lines": 9881,
       "reasons": [],
@@ -16049,7 +16054,7 @@
         {
           "distinct": 29,
           "id": "clippy::indexing_slicing",
-          "occurrences": 41
+          "occurrences": 31
         },
         {
           "distinct": 1,
@@ -16137,7 +16142,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 82,
         "worst_tier": "P2"
       },
@@ -16261,7 +16266,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 87,
         "worst_tier": "P2"
       },
@@ -16370,7 +16375,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 93,
         "worst_tier": "P3"
       },
@@ -16474,7 +16479,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 90,
         "worst_tier": "P2"
       },
@@ -16618,7 +16623,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 90,
         "worst_tier": "P2"
       },
@@ -16742,7 +16747,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 88,
         "worst_tier": "P2"
       },
@@ -16751,11 +16756,11 @@
     {
       "authoritative": true,
       "commit": "a1e642196803fc5dff56f1e04e867bfc024966bd",
-      "distinct": 2,
+      "distinct": 3,
       "exit_code": 0,
-      "findings_digest": "dcf4fcd7b41198677df74137a5afbaa2abc63365d7e39495bdb995f768108635",
+      "findings_digest": "aa6a5eff5de4bf182245c12a19051f73a2bc13d1c7980f28f669451fec971e13",
       "name": "smol",
-      "occurrences": 4,
+      "occurrences": 5,
       "outcome": "processed",
       "production_lines": 129,
       "reasons": [],
@@ -16763,6 +16768,11 @@
         {
           "distinct": 1,
           "id": "clippy::expect_used",
+          "occurrences": 1
+        },
+        {
+          "distinct": 1,
+          "id": "rust_doctor::repo::tracked_secret_file",
           "occurrences": 1
         },
         {
@@ -16806,7 +16816,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 100,
         "worst_tier": "P3"
       },
@@ -16920,7 +16930,7 @@
           }
         ],
         "label": "Great",
-        "model": "core-v4",
+        "model": "core-v5",
         "value": 85,
         "worst_tier": "P2"
       },
@@ -18892,7 +18902,7 @@
       "doubly_judged": 0,
       "false_positive_rate_basis_points": null,
       "false_positives": null,
-      "findings": 0,
+      "findings": 1,
       "id": "rust_doctor::repo::tracked_secret_file",
       "interval_high_basis_points": null,
       "interval_low_basis_points": null,
@@ -18900,7 +18910,7 @@
       "provenance": [],
       "reviewed": 0,
       "separation": null,
-      "status": "unobserved",
+      "status": "incomplete",
       "tier": "P1",
       "true_positives": null
     },
@@ -19262,20 +19272,20 @@
       "bands": [
         {
           "label": "Great",
-          "repositories": 7
+          "repositories": 6
         },
         {
           "label": "Needs work",
-          "repositories": 1
+          "repositories": 2
         }
       ],
-      "ceilings_applied": 1,
+      "ceilings_applied": 2,
       "collapsed_into_one_band": false,
       "collapsed_into_one_value": false,
-      "maximum": 89,
+      "maximum": 90,
       "median_centi": 8100,
       "minimum": 58,
-      "spread": 31,
+      "spread": 32,
       "values": [
         {
           "label": "Great",
@@ -19290,12 +19300,12 @@
         {
           "label": "Great",
           "name": "artifexprocal",
-          "value": 79
+          "value": 90
         },
         {
-          "label": "Great",
+          "label": "Needs work",
           "name": "mdr",
-          "value": 88
+          "value": 65
         },
         {
           "label": "Great",

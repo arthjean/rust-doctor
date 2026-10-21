@@ -3,7 +3,7 @@
 // record, a second scan of the same copy publishes the same report once
 // `timings` is removed, and the copy is byte-identical afterwards (US-005: a
 // lockless subject's first scan used to write the `Cargo.lock` its second one
-// read). Runs in the corpus job only (`.github/workflows/e2e-corpus.yml`).
+// read). Runs in the `replay` job of `.github/workflows/corpus.yml` only.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { runDoctor, scratchDir, treeFingerprint } from "./e2e-helpers";

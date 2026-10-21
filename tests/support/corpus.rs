@@ -914,7 +914,7 @@ pub(crate) fn run(
         let work = fresh_directory(&paths.artifacts.join("work").join(&entry.name));
         let report_path = paths.artifacts.join("reports").join(format!("{}.json", entry.name));
         remove_if_present(&report_path);
-        materialise(&paths.cache.join(&entry.name), &entry.commit, paths.artifacts, &work);
+        materialise(&paths.cache.join(&entry.name), &entry.commit, &work);
 
         if !work.join("Cargo.toml").is_file() {
             run.skipped.push(entry.name.clone());
@@ -957,34 +957,28 @@ pub(crate) fn run(
     Ok(run)
 }
 
-/// Materialises the pinned revision into `work` through a temporary index kept
-/// under the artifacts: the cache stays read-only, index included.
-pub(crate) fn materialise(repository: &Path, commit: &str, artifacts: &Path, work: &Path) {
-    let index = fresh_directory(&artifacts.join("index")).join(
-        work.file_name()
-            .expect("a materialised repository should carry a name"),
-    );
-    let read_tree = Command::new("git")
-        .arg("-C")
+/// Materialises the pinned revision into `work` as a clone checked out at it,
+/// which is how anyone who scans the repository meets it. The repository pass
+/// enumerates through `git ls-files`, so a bare tree would record every subject
+/// as tracking nothing and publish a score no clone of it gets. `--shared`
+/// borrows the cache's objects rather than copying them: the cache stays
+/// read-only.
+pub(crate) fn materialise(repository: &Path, commit: &str, work: &Path) {
+    let clone = Command::new("git")
+        .args(["clone", "--quiet", "--shared", "--no-checkout"])
         .arg(repository)
-        .args(["read-tree", commit])
-        .env("GIT_INDEX_FILE", &index)
+        .arg(work)
         .output()
         .expect("git should start");
-    assert!(read_tree.status.success(), "read-tree should resolve the pinned revision");
+    assert!(clone.status.success(), "the cache should clone: {}", String::from_utf8_lossy(&clone.stderr));
 
-    let mut prefix = std::ffi::OsString::from("--prefix=");
-    prefix.push(work.as_os_str());
-    prefix.push(std::path::MAIN_SEPARATOR_STR);
     let checkout = Command::new("git")
         .arg("-C")
-        .arg(repository)
-        .args(["checkout-index", "--all", "--force"])
-        .arg(prefix)
-        .env("GIT_INDEX_FILE", &index)
+        .arg(work)
+        .args(["checkout", "--quiet", "--detach", commit])
         .output()
         .expect("git should start");
-    assert!(checkout.status.success(), "checkout-index should materialise the pinned revision");
+    assert!(checkout.status.success(), "the pinned revision should check out");
 }
 
 /// A fresh directory on every run: no partial state of an interrupted run can
@@ -1144,13 +1138,19 @@ fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f6
 /// rule, weighed by the rule's tier, discounted by the rate the corpus
 /// adjudicated the rule wrong, and divided by the denominator its producer
 /// chose, in identifier order: the same additions in the same sequence as
-/// `DimensionState`, so the float is the same float.
+/// `DimensionState`, so the float is the same float. Under core-v5 a rule its
+/// producer counts against the workspace charges what no member claims whole and
+/// what members claim averaged over the members the report lists.
 fn dimension_observations(report: &Value, production_lines: u64) -> Vec<DimensionObservation> {
     let shipped: BTreeMap<&str, RuleTier> =
         catalog().into_iter().map(|rule| (rule.id, rule.tier)).collect();
     let kilolines = (production_lines as f64 / 1000.0).max(2.0);
+    let members = report["audit"]["packages"]
+        .as_array()
+        .map_or(1, Vec::len)
+        .max(1) as f64;
 
-    let mut scored: BTreeMap<&str, (&'static str, u64, Option<RuleTier>)> = BTreeMap::new();
+    let mut scored: BTreeMap<&str, (&'static str, u64, Option<RuleTier>, u64)> = BTreeMap::new();
     for diagnostic in report["diagnostics"]
         .as_array()
         .map(Vec::as_slice)
@@ -1179,8 +1179,11 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         }
         let entry = scored
             .entry(rule)
-            .or_insert((dimension, 0, shipped.get(rule).copied()));
+            .or_insert((dimension, 0, shipped.get(rule).copied(), 0));
         entry.1 = entry.1.saturating_add(weight);
+        if !diagnostic["package"].is_null() {
+            entry.3 = entry.3.saturating_add(weight);
+        }
     }
 
     let published = &report["audit"]["score"]["dimensions"];
@@ -1189,13 +1192,21 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         .map(|name| {
             let mut density = 0.0;
             let mut worst: Option<RuleTier> = None;
-            for (rule, (dimension, numerator, tier)) in &scored {
+            for (rule, (dimension, numerator, tier, owned)) in &scored {
                 if *dimension != name {
                     continue;
                 }
-                let weighted = numerator.saturating_mul(tier_weight(*tier));
-                let charged = weighted as f64 * kept_basis_points(report, rule) as f64 / 10_000.0;
-                density += charged / divisor(rule, &shipped, kilolines);
+                let charge = |sites: u64| {
+                    let weighted = sites.saturating_mul(tier_weight(*tier));
+                    weighted as f64 * kept_basis_points(report, rule) as f64 / 10_000.0
+                };
+                let divisor = divisor(rule, &shipped, kilolines);
+                density += if divisor == 1.0 {
+                    let owned = (*owned).min(*numerator);
+                    charge(numerator - owned) + charge(owned) / members
+                } else {
+                    charge(*numerator) / divisor
+                };
                 worst = match (worst, *tier) {
                     (Some(current), Some(candidate)) => Some(current.min(candidate)),
                     (current, candidate) => current.or(candidate),
