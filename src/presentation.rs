@@ -211,7 +211,7 @@ pub fn no_score_message(report: &InspectReport) -> &'static str {
 
 impl ReportPresentation {
     pub fn derive(report: &InspectReport) -> Self {
-        Self::from_diagnostics(report.audit.production_lines, &report.diagnostics)
+        Self::from_diagnostics(report.audit.production_lines, report.audit.packages.len(), &report.diagnostics)
     }
 
     pub fn derive_terminal(report: &InspectReport) -> Self {
@@ -221,6 +221,7 @@ impl ReportPresentation {
         let introduced: BTreeSet<_> = delta.introduced.iter().map(String::as_str).collect();
         Self::from_diagnostics(
             report.audit.production_lines,
+            report.audit.packages.len(),
             report
                 .diagnostics
                 .iter()
@@ -237,6 +238,7 @@ impl ReportPresentation {
     /// same answer.
     fn from_diagnostics<'a>(
         production_lines: usize,
+        members: usize,
         diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
     ) -> Self {
         let diagnostics: Vec<_> = diagnostics.into_iter().collect();
@@ -248,7 +250,7 @@ impl ReportPresentation {
             .iter()
             .filter(|diagnostic| diagnostic.unscored.is_some())
             .count();
-        let groups = diagnostic_groups(production_lines, &diagnostics);
+        let groups = diagnostic_groups(production_lines, members, &diagnostics);
         let migration_advisories = migration_advisories(&groups);
         Self {
             groups,
@@ -260,8 +262,12 @@ impl ReportPresentation {
     }
 }
 
-fn diagnostic_groups(production_lines: usize, diagnostics: &[&Diagnostic]) -> Vec<DiagnosticGroup> {
-    let aggregation = aggregate_rules(production_lines, diagnostics.iter().copied());
+fn diagnostic_groups(
+    production_lines: usize,
+    members: usize,
+    diagnostics: &[&Diagnostic],
+) -> Vec<DiagnosticGroup> {
+    let aggregation = aggregate_rules(production_lines, members, diagnostics.iter().copied());
     // The three rules the score names first come first here too, in the order it names them:
     // the projection climbs the ceilings the published value takes, and a body ordered by the
     // static relief alone listed a `P3` rule above the `P1` finding holding the score at 65.
@@ -540,7 +546,7 @@ mod tests {
             .collect();
         // The three errors lead the warning, and among them the order is the projection's: what
         // repairing each is expected to be worth, climbed one rule at a time through the
-        // ceilings. Under core-v4 that is not the same as how loud each one is, and not the
+        // ceilings. Under core-v5 that is not the same as how loud each one is, and not the
         // same as the static relief either: security weighs four in the score, so the rule
         // holding most of its sites is worth the most to repair first, the lone site of
         // `security_error` is worth more on the dimension the first repair just opened than the

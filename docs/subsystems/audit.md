@@ -2,7 +2,7 @@
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
-and what a rule is charged. `src/audit/density.rs` is the core-v4 penalty
+and what a rule is charged. `src/audit/density.rs` is the core-v5 penalty
 itself, the severity and tier weights, the per-producer denominators, the
 kiloline floor and the exponential the density is read through.
 `src/audit/ranking.rs` is what to repair first: the projection, the rules it
@@ -79,23 +79,23 @@ inventory its completeness. The dep-info walk consumes its slice rather than
 indexing it, so where the cursor may land is bounded by the slice and not by
 arithmetic a reader has to replay.
 
-One model, per member too. `packages.rs` runs the same core-v4 build over each
+One model, per member too. `packages.rs` runs the same core-v5 build over each
 scanned member's production lines and the findings attributed to it, with the
 workspace's reasons, and a narrower scope rebuilds them the way it rebuilds the
 workspace. A finding no member claims, a repository finding or one in a file two
-members reach, weighs on the workspace score alone. The block is absent rather
+members reach, weighs on the workspace score alone. Core-v5 averages what
+members claim on a rule counted against the workspace instead of adding it up,
+so the workspace lands between its worst and best member: added up, paneflow's
+dependencies sat at 37 under members at 51 and above. The block is absent rather
 than empty on a report that failed before the workspace answered. A member
 Clippy never linted has no score, and a workspace none of whose members was
 linted has none either: a hundred over code nothing linted read as clean. A run
 a signal stopped publishes no score at all.
 
 `the_audit_holds_the_size_bound_it_scores_for` keeps every file of the module
-under the 1000 lines `oversized_unit` reports, tests included. This was one
-file of 1624 lines, one of the two that
-`the_self_scan_names_this_repository_s_own_hotspots` froze as oversized, and the
-only module of the crate near the bound with no such test: the block that
+under the 1000 lines `oversized_unit` reports, tests included: the block that
 computes the score has to pass the rule it scores. `density.rs` and
-`tests/scale.rs` came out of the same bound, since core-v4 carries a curve, a
+`tests/scale.rs` came out of the same bound, since core-v5 carries a curve, a
 lambda table and its own denominators, and the pair of them would have taken
 `src/audit.rs` back over the thousand lines it reports at; `ranking.rs` and
 `tests/ranking.rs` followed for the same reason.

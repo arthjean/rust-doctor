@@ -45,7 +45,9 @@ const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 pub(crate) struct Candidate {
     pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: String,
-    pub(crate) package: String,
+    /// The member the finding belongs to, `None` for a fact about a virtual
+    /// workspace that no member holds.
+    pub(crate) package: Option<String>,
     pub(crate) manifest_path: Option<String>,
     /// Position of the offending manifest key, when the pack re-read the
     /// manifest itself; the metadata-derived predicates carry none.
@@ -130,7 +132,7 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
                 scan.candidates.push(Candidate {
                     definition,
                     message,
-                    package: package.name.to_string(),
+                    package: Some(package.name.to_string()),
                     manifest_path: manifest_path.clone(),
                     span,
                     key: Some(key.to_owned()),
@@ -222,7 +224,7 @@ pub(crate) fn inspect_dependency_truth(
                 scan.candidates.push(Candidate {
                     definition,
                     message,
-                    package: package.name.to_string(),
+                    package: Some(package.name.to_string()),
                     manifest_path: judged.manifest_path.clone(),
                     span: keys.as_ref().and_then(|keys| keys.span(dependency)),
                     key: Some(
@@ -401,7 +403,7 @@ fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoH
             &lints,
             &source,
             plan,
-            package.name.as_ref(),
+            Some(package.name.as_ref()),
             manifest_path,
             scan,
         );
@@ -422,7 +424,7 @@ fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoH
                 &lints,
                 &source,
                 plan,
-                &resolution_owner(metadata),
+                resolution_owner(metadata).as_deref(),
                 Some("Cargo.toml".to_owned()),
                 scan,
             );
@@ -434,7 +436,7 @@ fn permissive_entries(
     lints: &LintsSection,
     source: &str,
     plan: &PolicyPlan,
-    package: &str,
+    package: Option<&str>,
     manifest_path: Option<String>,
     scan: &mut CargoHealthScan,
 ) {
@@ -456,7 +458,7 @@ fn permissive_entries(
         scan.candidates.push(Candidate {
             definition: &CARGO_PERMISSIVE_LINT_TABLE,
             message: format!("Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"."),
-            package: package.to_owned(),
+            package: package.map(str::to_owned),
             manifest_path: manifest_path.clone(),
             span: Some(byte_range_span(key.span(), &starts, source)),
             key: None,

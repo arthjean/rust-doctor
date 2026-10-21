@@ -112,6 +112,19 @@ fn a_virtual_workspace_manifest_carries_both_profile_findings() {
             .is_some_and(|message| message.contains("build paths")),
         "the finding does not state what ships in the binary: {finding}"
     );
+
+    // The fixture has one member, so the root manifest answers for it: both
+    // findings name that member, and its score is the workspace's. With two
+    // members or more they would name none and weigh as the members' mean.
+    let packages = report["audit"]["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 1, "{report}");
+    let member = &packages[0]["name"];
+    assert_eq!(&overflow[0]["package"], member, "{report}");
+    assert_eq!(&finding["package"], member, "{report}");
+    assert_eq!(
+        packages[0]["score"]["value"], report["audit"]["score"]["value"],
+        "{report}"
+    );
 }
 
 /// US-010: each flag of the closed list is reported under its canonical

@@ -108,7 +108,7 @@ fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
     in_tests.occurrences = 40;
     in_tests.context = Some(crate::report::DiagnosticContext::Tests);
 
-    let aggregation = aggregate_rules(100, [&in_tests]);
+    let aggregation = aggregate_rules(100, 1, [&in_tests]);
     let rule = aggregation
         .rules
         .first()
@@ -316,7 +316,7 @@ struct ShareCase {
 
 fn oracle() -> Oracle {
     serde_json::from_str(include_str!(
-        "../../tests/fixtures/local-cli-experience/audit-core-v4.json"
+        "../../tests/fixtures/local-cli-experience/audit-core-v5.json"
     ))
     .expect("audit oracle should be valid")
 }
@@ -495,7 +495,7 @@ fn versioned_oracle_covers_categories_labels_scores_and_rule_identity() {
             "{}",
             case.name
         );
-        let input = aggregate_rules(case.production_lines, &diagnostics);
+        let input = aggregate_rules(case.production_lines, 1, &diagnostics);
         let counted: Vec<_> = input
             .rules
             .into_iter()
@@ -575,7 +575,7 @@ fn the_share_url_carries_the_production_line_count() {
 
     assert_eq!(
         audit.share_url(),
-        Ok("https://rust-doctor.com/share?s=100&m=core-v4&f=3&l=420".to_owned())
+        Ok("https://rust-doctor.com/share?s=100&m=core-v5&f=3&l=420".to_owned())
     );
 }
 

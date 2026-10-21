@@ -39,6 +39,7 @@ fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
         tier: Some(RuleTier::P3),
         occurrences: 1,
         numerator: 1,
+        owned: 0,
         noise,
         contribution,
     }

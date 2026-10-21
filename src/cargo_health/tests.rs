@@ -325,7 +325,7 @@ fn every_declaration_kind_is_evaluated_and_nonmembers_are_excluded() {
         }));
     }
     assert!(candidates.iter().all(|candidate| {
-        candidate.package == "cargo-health-protocol"
+        candidate.package.as_deref() == Some("cargo-health-protocol")
             && candidate.manifest_path.as_deref() == Some("Cargo.toml")
     }));
 }
@@ -346,7 +346,7 @@ fn assert_positive_oracle(candidates: &[Candidate], positive: &[Value]) {
         assert_eq!(definition.category, expected["category"]);
         assert_eq!(definition.default_level, RuleLevel::Warn);
         assert_eq!(definition.help, expected["help"]);
-        assert_eq!(candidate.package, "cargo-health-precision");
+        assert_eq!(candidate.package.as_deref(), Some("cargo-health-precision"));
         assert_eq!(
             candidate.manifest_path.as_deref(),
             Some("member/Cargo.toml")
@@ -414,7 +414,7 @@ fn assert_the_negatives_are_the_shapes_they_claim(
     assert!(
         candidates
             .iter()
-            .all(|candidate| candidate.package != "cargo-health-external-path")
+            .all(|candidate| candidate.package.as_deref() != Some("cargo-health-external-path"))
     );
 }
 
@@ -432,7 +432,7 @@ fn assert_nothing_observable_leaks(candidates: &[Candidate], fixture: &Path) {
                 definition.default_level,
                 candidate.message,
                 definition.help,
-                candidate.package,
+                candidate.package.as_deref().unwrap_or_default(),
                 candidate.manifest_path.as_deref().unwrap_or_default()
             )
         })
@@ -577,7 +577,7 @@ fn git_oracle_rejects_duplicate_empty_and_future_queries_without_leaking_sources
             definition.category,
             candidate.message,
             definition.help,
-            candidate.package,
+            candidate.package.as_deref().unwrap_or_default(),
             candidate.manifest_path.as_deref().unwrap_or_default()
         );
         !observable.contains("git.invalid")
@@ -853,7 +853,7 @@ fn duplicate_major_versions_are_named_with_their_versions() {
         .iter()
         .find(|candidate| candidate.definition.id == CARGO_DUPLICATE_MAJOR_VERSIONS.id)
         .expect("the duplicate candidate should exist");
-    assert_eq!(candidate.package, "duplicate-resolution");
+    assert_eq!(candidate.package.as_deref(), Some("duplicate-resolution"));
     assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.lock"));
     assert_eq!(candidate.definition.category, "dependencies");
 
@@ -885,7 +885,7 @@ fn a_binary_without_a_lockfile_is_named() {
         ]
     );
     let candidate = &scan.candidates[0];
-    assert_eq!(candidate.package, "absent-resolution");
+    assert_eq!(candidate.package.as_deref(), Some("absent-resolution"));
     assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.toml"));
     assert!(candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS).is_empty());
 }
@@ -919,7 +919,7 @@ fn a_path_dependency_leaving_the_workspace_is_named_without_its_path() {
         ["Path dependency \"outside-crate\" resolves outside the workspace."]
     );
     let candidate = &scan.candidates[0];
-    assert_eq!(candidate.package, "outside-path");
+    assert_eq!(candidate.package.as_deref(), Some("outside-path"));
     assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.toml"));
     assert!(!candidate.message.contains(env!("CARGO_MANIFEST_DIR")));
     assert!(!candidate.message.contains(".."));

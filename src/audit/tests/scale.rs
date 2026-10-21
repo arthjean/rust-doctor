@@ -295,7 +295,7 @@ fn a_rule_weighs_one_severity_per_site() {
         ),
     ];
     let diagnostics = diagnostics_for(&rules);
-    let aggregation = aggregate_rules(10_000, &diagnostics);
+    let aggregation = aggregate_rules(10_000, 1, &diagnostics);
 
     for (code, _, severity, sites) in rules {
         let aggregate = aggregation
@@ -317,7 +317,7 @@ fn a_finding_of_unknown_severity_scores_nothing() {
     if let Some(unknown) = diagnostics.first_mut() {
         unknown.severity = Severity::Unknown;
     }
-    let aggregation = aggregate_rules(10_000, &diagnostics);
+    let aggregation = aggregate_rules(10_000, 1, &diagnostics);
     let scorable: Vec<_> = aggregation
         .rules
         .iter()

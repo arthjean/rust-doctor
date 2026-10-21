@@ -281,7 +281,7 @@ pub(super) fn inspect(
     database: Option<&AdvisoryDatabase>,
     packages: &[LockedPackage],
     lockfile: &str,
-    owner: &str,
+    owner: Option<&str>,
     active: &ActiveRules,
     scan: &mut CargoHealthScan,
 ) {
@@ -327,7 +327,7 @@ pub(super) fn inspect(
             scan.candidates.push(Candidate {
                 definition,
                 message,
-                package: owner.to_owned(),
+                package: owner.map(str::to_owned),
                 manifest_path: Some("Cargo.lock".to_owned()),
                 span: entry_span(lockfile, &package.name, &package.version),
                 key: None,

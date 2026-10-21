@@ -94,7 +94,7 @@ pub(super) fn inspect_resolution(
             Resolution::Packages(packages, text) => (packages.as_slice(), text.as_str()),
             Resolution::Absent | Resolution::Unusable(_) => (&[][..], ""),
         };
-        advisories::inspect(database, packages, text, &resolution_owner(metadata), active, scan);
+        advisories::inspect(database, packages, text, resolution_owner(metadata).as_deref(), active, scan);
     }
     match resolution {
         Resolution::Absent if missing_lockfile => {
@@ -109,7 +109,7 @@ pub(super) fn inspect_resolution(
                         "Package \"{}\" produces a binary but no {LOCKFILE} sits next to its workspace manifest.",
                         package.name
                     ),
-                    package: package.name.to_string(),
+                    package: Some(package.name.to_string()),
                     manifest_path: package
                         .manifest_path
                         .strip_prefix(&metadata.workspace_root)
@@ -144,23 +144,18 @@ pub(super) fn inspect_resolution(
     }
 }
 
-/// The resolved graph belongs to the workspace, not to a member. The diagnostic
-/// is therefore attached to the root package when it exists, otherwise to the
-/// first member by name order, which stays deterministic on a virtual
-/// workspace.
-pub(super) fn resolution_owner(metadata: &Metadata) -> String {
-    let root_manifest = metadata.workspace_root.join("Cargo.toml");
-    if let Some(root) = workspace_packages(metadata)
-        .find(|package| package.manifest_path == root_manifest)
-        .or_else(|| workspace_packages(metadata).min_by_key(|package| package.name.to_string()))
-    {
-        return root.name.to_string();
-    }
-    metadata
-        .workspace_root
-        .file_name()
-        .unwrap_or_default()
-        .to_owned()
+/// The resolved graph, the root manifest and the workspace's Cargo
+/// configuration belong to the workspace, not to a member. A finding about
+/// them is attached to the one package of a single-package workspace, which is
+/// that workspace, and to no member otherwise, so it weighs on the workspace
+/// score alone and whole. It used to go to the root package or the first member
+/// by name: paneflow's `paneflow-agent-config` carried thirteen duplicate
+/// majors arriving through `cocoa`, `gpui` and `clap`, and scored 77 on
+/// dependencies it never declared.
+pub(super) fn resolution_owner(metadata: &Metadata) -> Option<String> {
+    let mut members = workspace_packages(metadata);
+    let only = members.next()?;
+    members.next().is_none().then(|| only.name.to_string())
 }
 
 /// The version each workspace member's direct dependencies resolve to in

@@ -126,7 +126,7 @@ pub(super) fn normalize_cargo_health_candidate(
         category: Some(definition.category.to_owned()),
         message,
         help: Some(definition.help.to_owned()),
-        package: Some(normalize_text(&candidate.package)),
+        package: candidate.package.as_deref().map(normalize_text),
         target: None,
         path,
         span: candidate.span.map(|span| DiagnosticSpan {

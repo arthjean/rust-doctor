@@ -43,7 +43,7 @@ pub(crate) fn source_file_inventory(
     source_inventory::collect(metadata, scan, measurement)
 }
 
-pub const SCORE_MODEL: &str = "core-v4";
+pub const SCORE_MODEL: &str = "core-v5";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {
@@ -233,6 +233,12 @@ pub(crate) struct RuleAggregate {
     /// through `related` weighs one and not K, and the diagnostics outside production code are
     /// counted in `occurrences` and weigh nothing here.
     numerator: u64,
+    /// The share of `numerator` a workspace member claims. Only a rule counted against the
+    /// workspace reads it: a fact about one member's manifest is that member's, so the workspace
+    /// averages it over its members rather than adding it up, the way it divides code findings
+    /// by kilolines. Added up, three unused dependencies across two members held paneflow's
+    /// dependencies at 37 while neither member scored under 51.
+    owned: u64,
     /// Smoothed false-positive rate the pinned corpus adjudicated, in basis
     /// points, or `None` for a rule it never adjudicated.
     ///
@@ -271,6 +277,7 @@ struct PendingRule {
     tier: Option<RuleTier>,
     occurrences: usize,
     numerator: u64,
+    owned: u64,
     noise: Option<u16>,
 }
 
@@ -287,6 +294,7 @@ impl Audit {
                 production_lines,
                 complete: true,
             },
+            1,
             status,
             if status == Status::Failed {
                 BTreeSet::from([ScoreReason::StageFailed])
@@ -309,7 +317,8 @@ impl Audit {
         stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
     ) -> Self {
-        let mut audit = Self::build_with_inventory(inventory, status, stage_reasons, diagnostics);
+        let mut audit =
+            Self::build_with_inventory(inventory, members.len(), status, stage_reasons, diagnostics);
         audit.packages =
             packages::score(members, unlinted, status, &audit.stage_reasons, diagnostics);
         audit.withhold_when_nothing_was_linted();
@@ -330,8 +339,11 @@ impl Audit {
         self.score = None;
     }
 
+    /// `members` is how many workspace members the findings are spread over, what a fact one
+    /// member claims is averaged across; one for a member scored on its own.
     fn build_with_inventory(
         inventory: SourceFileInventory,
+        members: usize,
         status: Status,
         stage_reasons: BTreeSet<ScoreReason>,
         diagnostics: &[Diagnostic],
@@ -345,7 +357,7 @@ impl Audit {
         // `summary`. What the score sets aside is decided inside `aggregate_rules`, so the two
         // callers of it cannot disagree on the population.
         let categories = category_tallies(diagnostics);
-        let aggregation = aggregate_rules(production_lines, diagnostics.iter());
+        let aggregation = aggregate_rules(production_lines, members, diagnostics.iter());
         // A failed stage is what cut the scan short whenever one did, so it is the reason given,
         // and an incomplete scan is named only when nothing failed.
         let mut reasons = aggregation.voided.clone();
@@ -379,6 +391,7 @@ impl Audit {
                 production_lines: self.production_lines,
                 complete: self.inventory_is_complete,
             },
+            self.packages.len(),
             status,
             self.stage_reasons.clone(),
             diagnostics,
@@ -719,11 +732,28 @@ impl RuleAggregate {
     /// a discount that appears with the first adjudicated site can only lower
     /// a charge, never raise one.
     pub(super) fn charged(&self) -> f64 {
+        self.charge(self.numerator)
+    }
+
+    fn charge(&self, sites: u64) -> f64 {
         let kept = self
             .noise
             .map_or(BASIS_POINTS, |noise| BASIS_POINTS.saturating_sub(u64::from(noise)));
-        let weighted = self.numerator.saturating_mul(tier_weight(self.tier));
+        let weighted = sites.saturating_mul(tier_weight(self.tier));
         weighted as f64 * kept as f64 / BASIS_POINTS as f64
+    }
+
+    /// What this rule adds to its dimension's density: its charge over production kilolines
+    /// for a rule counted against the code, and for one counted against the workspace, what
+    /// the workspace itself carries whole plus what its members claim averaged over them.
+    fn density(&self, scale: Scale) -> f64 {
+        match self.scope {
+            DensityScope::PerKiloline => self.charged() / scale.divisor(self.scope),
+            DensityScope::Workspace => {
+                let owned = self.owned.min(self.numerator);
+                self.charge(self.numerator - owned) + self.charge(owned) / scale.members()
+            }
+        }
     }
 
     /// A non-scorable rule caps nothing: a tier cannot act without a retained
@@ -832,6 +862,7 @@ impl ScoredState {
 /// seven-hundred-kiloline one, and that is the whole reason this model exists.
 pub(crate) fn aggregate_rules<'a>(
     production_lines: usize,
+    members: usize,
     diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> RuleAggregation {
     let mut voided = BTreeSet::new();
@@ -863,6 +894,7 @@ pub(crate) fn aggregate_rules<'a>(
             tier: definition.map(|definition| definition.tier),
             occurrences: 0,
             numerator: 0,
+            owned: 0,
             noise: crate::policy::corpus_measurement(rule_id)
                 .map(CorpusMeasurement::noise_basis_points),
         });
@@ -877,6 +909,9 @@ pub(crate) fn aggregate_rules<'a>(
             // One diagnostic is one distinct site, whatever it counts in `occurrences`: a clone
             // family names its K members through `related` and is one place to go and look.
             rule.numerator = rule.numerator.saturating_add(weight);
+            if diagnostic.package.is_some() {
+                rule.owned = rule.owned.saturating_add(weight);
+            }
             if rule.dimension.is_some_and(|current| current != dimension) {
                 rule.mapping_conflict = true;
                 voided.insert(ScoreReason::CategoryMappingConflict);
@@ -890,7 +925,7 @@ pub(crate) fn aggregate_rules<'a>(
             rule.category = Some(category);
         }
     }
-    let scale = Scale::of(production_lines);
+    let scale = Scale::of(production_lines, members);
     let mut rules: Vec<RuleAggregate> = rules
         .into_values()
         .map(|rule| RuleAggregate {
@@ -904,6 +939,7 @@ pub(crate) fn aggregate_rules<'a>(
             tier: rule.tier,
             occurrences: rule.occurrences,
             numerator: rule.numerator,
+            owned: rule.owned,
             noise: rule.noise,
             contribution: 0,
         })

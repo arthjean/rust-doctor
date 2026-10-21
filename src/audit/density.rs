@@ -1,4 +1,4 @@
-//! The core-v4 penalty: how much of a workspace a dimension's findings cover, and what that
+//! The core-v5 penalty: how much of a workspace a dimension's findings cover, and what that
 //! coverage is worth out of a hundred.
 //!
 //! A dimension carries a density rather than a count: its distinct scored sites, weighted by
@@ -76,8 +76,10 @@ pub(super) enum DensityScope {
     /// One finding per site in the source the producer read: `clippy`, the source kernel and
     /// the structural pass. Divided by production kilolines.
     PerKiloline,
-    /// One finding about the workspace itself: `cargo-health` and the repository pass. Divided
-    /// by one, so a large workspace does not dilute a fact that is true of it once.
+    /// One finding about the workspace or one of its manifests: `cargo-health` and the
+    /// repository pass. A fact no member claims is divided by one, so a large workspace does not
+    /// dilute a fact that is true of it once; one a member claims is averaged over the members,
+    /// so a workspace answers for its members' manifests as their mean rather than their sum.
     Workspace,
 }
 
@@ -97,13 +99,22 @@ impl DensityScope {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Scale {
     kilolines: f64,
+    members: f64,
 }
 
 impl Scale {
-    pub(super) fn of(production_lines: usize) -> Self {
+    /// `members` is never read below one: a member scored on its own is its own workspace.
+    pub(super) fn of(production_lines: usize, members: usize) -> Self {
         Self {
             kilolines: (production_lines as f64 / LINES_PER_KILOLINE).max(KILOLINE_FLOOR),
+            members: members.max(1) as f64,
         }
+    }
+
+    /// What a finding a member claims is averaged over, on a rule counted against the
+    /// workspace.
+    pub(super) const fn members(self) -> f64 {
+        self.members
     }
 
     /// What a finding of this scope is divided by. Never zero, and never below one, so a
@@ -210,7 +221,7 @@ impl DimensionState {
                     worst_tier: None,
                 },
                 |state, rule| Self {
-                    density: state.density + rule.charged() / scale.divisor(rule.scope),
+                    density: state.density + rule.density(scale),
                     worst_tier: worse_tier(state.worst_tier, rule.scoring_tier()),
                 },
             )
@@ -358,12 +369,12 @@ mod tests {
     /// not by 0.12, so three findings are three findings rather than a catastrophe.
     #[test]
     fn a_small_workspace_is_divided_by_the_floor() {
-        let small = Scale::of(120);
+        let small = Scale::of(120, 1);
         assert_eq!(small.divisor(DensityScope::PerKiloline), KILOLINE_FLOOR);
         assert_eq!(small.divisor(DensityScope::Workspace), 1.0);
-        assert_eq!(Scale::of(0), small, "an empty workspace never divides by zero");
-        assert_eq!(Scale::of(2000), small, "the floor is exactly two kilolines");
-        assert!(Scale::of(20_000).divisor(DensityScope::PerKiloline) > small.divisor(DensityScope::PerKiloline));
+        assert_eq!(Scale::of(0, 1), small, "an empty workspace never divides by zero");
+        assert_eq!(Scale::of(2000, 1), small, "the floor is exactly two kilolines");
+        assert!(Scale::of(20_000, 1).divisor(DensityScope::PerKiloline) > small.divisor(DensityScope::PerKiloline));
     }
 
     /// The split is a total function of the catalog's own producer field.

@@ -28,7 +28,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
         .score
         .as_ref()
         .expect("clean score should exist");
-    assert_eq!(score.model, "core-v4");
+    assert_eq!(score.model, "core-v5");
     assert_eq!(score.value, 100);
     assert_eq!(score.label, ScoreLabel::Great);
     assert!(score.authoritative);
@@ -36,7 +36,7 @@ fn report_v9_exposes_one_canonical_audit_block() {
     assert!(score.projected_rule_ids.is_empty());
     assert_eq!(
         clean.audit.share_url().unwrap(),
-        "https://rust-doctor.com/share?s=100&m=core-v4&f=1&l=5"
+        "https://rust-doctor.com/share?s=100&m=core-v5&f=1&l=5"
     );
     let audit_keys: Vec<_> = value["audit"]
         .as_object()
@@ -274,7 +274,7 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.applied_ceiling, None);
     assert_eq!(score.value, 94);
     let share = report.audit.share_url().unwrap();
-    assert_eq!(share, "https://rust-doctor.com/share?s=94&m=core-v4&w=3&f=1&l=18");
+    assert_eq!(share, "https://rust-doctor.com/share?s=94&m=core-v5&w=3&f=1&l=18");
     // The payload names the model and counts what was measured, and its grammar
     // is what keeps everything else out: a query made of keys, digits and the
     // model name can carry no path, no environment variable and no user data,

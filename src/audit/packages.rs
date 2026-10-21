@@ -1,6 +1,6 @@
 //! One score per workspace member, beside the workspace's.
 //!
-//! A member's score is the core-v4 model run over that member's production
+//! A member's score is the core-v5 model run over that member's production
 //! lines and the findings attributed to it, nothing else: the formula is the
 //! workspace's, and so are the reasons the scan gives against it. A finding no
 //! member claims, a manifest-level or repository finding, or one in a file two
@@ -63,7 +63,7 @@ pub(super) fn score(
         .into_iter()
         .map(|(name, inventory)| {
             let own = owned.get(name.as_str()).map_or(&[][..], Vec::as_slice);
-            let audit = Audit::build_with_inventory(inventory, status, reasons.clone(), own);
+            let audit = Audit::build_with_inventory(inventory, 1, status, reasons.clone(), own);
             let unlinted = unlinted.contains(&name);
             PackageAudit {
                 name,
@@ -170,5 +170,60 @@ mod tests {
         assert_eq!(audit.totals().0.total, 2);
         assert!(audit.is_valid());
         assert_eq!(audit, audit.rebuild_for_scope(Status::Complete, &diagnostics));
+    }
+
+    fn unused_dependency(package: Option<&str>, index: usize) -> Diagnostic {
+        Diagnostic {
+            id: format!("unused-{package:?}-{index}"),
+            source: DiagnosticSource::RustDoctor,
+            code: Some("rust_doctor::cargo::unused_dependency".to_owned()),
+            category: Some("dependencies".to_owned()),
+            path: Some("Cargo.toml".to_owned()),
+            span: None,
+            ..todo(package)
+        }
+    }
+
+    /// core-v5: a manifest fact a member claims is averaged over the members,
+    /// so the workspace answers for them as their mean and lands between its
+    /// worst and its best member. Added up, two members with one and two
+    /// unused dependencies put the workspace under both of them. A fact no
+    /// member claims is still the workspace's whole.
+    #[test]
+    fn the_workspace_answers_for_its_members_manifests_as_their_mean() {
+        let inventory = SourceFileInventory {
+            files: 1,
+            production_lines: 5000,
+            complete: true,
+        };
+        let members = || vec![("alpha".to_owned(), inventory), ("beta".to_owned(), inventory)];
+        let claimed = [
+            unused_dependency(Some("alpha"), 0),
+            unused_dependency(Some("alpha"), 1),
+            unused_dependency(Some("beta"), 0),
+        ];
+        let build = |diagnostics: &[Diagnostic]| {
+            Audit::build_from_inventory(
+                inventory,
+                members(),
+                &BTreeSet::new(),
+                Status::Complete,
+                BTreeSet::new(),
+                diagnostics,
+            )
+        };
+        let dependencies = |score: Option<&AuditScore>| {
+            score.map(|score| score.dimensions.value_for(super::super::ScoreDimension::Dependencies))
+        };
+        let audit = build(&claimed);
+        let workspace = dependencies(audit.score.as_ref()).unwrap();
+        let alpha = dependencies(audit.packages[0].score.as_ref()).unwrap();
+        let beta = dependencies(audit.packages[1].score.as_ref()).unwrap();
+        assert!(alpha < beta, "{alpha} {beta}");
+        assert!((alpha..=beta).contains(&workspace), "{alpha} <= {workspace} <= {beta}");
+
+        let unclaimed = [unused_dependency(None, 0)];
+        let alone = Audit::build(1, 5000, Status::Complete, &unclaimed);
+        assert_eq!(dependencies(build(&unclaimed).score.as_ref()), dependencies(alone.score.as_ref()));
     }
 }
