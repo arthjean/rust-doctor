@@ -98,6 +98,7 @@ pub enum CiError {
     NotARepository,
     InvalidWorkspace,
     Installed(String),
+    Unconfined(rust_doctor::git_hook::Unconfined),
     BranchUndetected,
     InvalidBranch,
     InvalidToolchain,
@@ -133,6 +134,7 @@ impl fmt::Display for CiError {
                 formatter,
                 "{path} already runs rust-doctor, so nothing was written"
             ),
+            Self::Unconfined(refusal) => write!(formatter, "{refusal}"),
             Self::BranchUndetected => write!(
                 formatter,
                 "no default branch found: pass --branch <NAME>"
@@ -240,6 +242,9 @@ pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
 /// judge, or `path` itself when none resolves.
 fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
     let toplevel = rust_doctor::git_hook::toplevel(path).ok_or(CiError::NotARepository)?;
+    let toplevel = rust_doctor::git_hook::confine(path, &toplevel)
+        .map_err(CiError::Unconfined)?
+        .toplevel;
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let workspace = rust_doctor::manifest_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
     let relative = canonical(&workspace)

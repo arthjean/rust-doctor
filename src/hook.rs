@@ -173,11 +173,15 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         return FAILED;
     };
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let toplevel = canonical(&location.toplevel);
-    let relative = canonical(workspace)
-        .strip_prefix(&toplevel)
-        .map(|relative| relative.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let confined = match git_hook::confine(workspace, &location.toplevel) {
+        Ok(confined) => confined,
+        Err(refusal) => {
+            eprintln!("rust-doctor: refusing to install: {refusal}.");
+            return FAILED;
+        }
+    };
+    let relative = confined.workspace.to_string_lossy().into_owned();
+    let toplevel = confined.toplevel;
     let command = pre_commit_command(if relative.is_empty() { "." } else { &relative });
     let directory = match location.setup {
         HookSetup::Manager(config) => {

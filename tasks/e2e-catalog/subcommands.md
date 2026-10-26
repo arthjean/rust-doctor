@@ -200,6 +200,10 @@ Scenario count: 337 (CL 13, RL 33, WY 35, RM 22, HG 30, HA 32, HR 27, SK 28, SU 
 | HG-28 | repo with workspace `my app` | `hook install git "<abs>/my app" --dry-run` | `exec rust-doctor 'my app' --yes --staged --scope lines` | unit `the_hook_runs_a_staged_lines_scan_of_the_workspace` | yes |
 | HG-29 | `GIT_DIR`/`GIT_INDEX_FILE` pointing at another repo in env | install | hook lands in the workspace repo (git calls strip them) | none | no |
 | HG-30 | every refusal above | `treeHash` | unchanged | partial (AH) | yes |
+| HG-31 | `.git/config` whose relative `core.worktree` names a neighbor repository and `core.hooksPath` its `.git/hooks` | `hook install git`, `setup`, `ci install --branch main` | each exits non-zero; the neighbor's `treeFingerprint` unchanged; the hook refusal names the workspace and the neighbor | none | yes (security run-1, PRD US-008) |
+| HG-32 | clone of a repository tracking an embedded bare repository (`HEAD`, `config` with `core.worktree` at a neighbor, `objects/.keep`, `refs/heads/.keep`) | the same three, on the embedded directory | each exits non-zero; the neighbor's `treeFingerprint` unchanged | none | yes (security run-1, PRD US-008) |
+| HG-33 | `core.worktree` with surplus `..` segments, so git reports `/`, and an absolute `core.hooksPath` into a neighbor | the same three | each exits non-zero; the neighbor's `treeFingerprint` unchanged; the hook refusal names `/` and the workspace's own repository | none | yes (security run-1, PRD US-008) |
+| HG-34 | a linked worktree, and a submodule | `hook install git`, `ci install --branch main --dry-run` | installed as before the confinement check: hook exit 1 with the outside-working-tree message (hooks live in the common or the superproject's directory); ci exit 0 `Would write .github/workflows/rust-doctor.yml` | none | yes (PRD US-008) |
 
 ## 6. `hook install claude|cursor` (`hook-agent-install.test.ts`)
 

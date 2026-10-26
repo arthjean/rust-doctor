@@ -3,10 +3,12 @@
 // real `git commit` through the hook it writes. US-011 changed the hook body
 // (`--blocking warning`, a failed scan lets the commit through) and US-007
 // made relative and missing paths behave, so HG-02, HG-07, HG-22, HG-26 and
-// HG-27 assert that behavior rather than the catalog's 0.7.0 one.
+// HG-27 assert that behavior rather than the catalog's 0.7.0 one. HG-31 to
+// HG-34 hold every installer to the `.git` entry on disk when the tree's own
+// git configuration moves the toplevel git reports.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import {
   copyWorkspace,
   isEmptyDir,
@@ -16,7 +18,9 @@ import {
   sandbox,
   scratchDir,
   treeFingerprint,
+  type Sandbox,
 } from "./e2e-helpers";
+import { fakeEnv } from "./fakes";
 import { gitScenario, type Repo } from "./git-scenario";
 
 const clean = (name: string) => gitScenario(name).fixture("projects/clean").write({ ".gitignore": "/target\n" }).commit("base").build();
@@ -411,4 +415,91 @@ describe("a commit through the installed hook", () => {
     expect(forced.exitCode).toBe(0);
     expect(await repo.sha()).not.toBe(head);
   }, 150_000);
+});
+
+// Every installer that confines its writes to git's toplevel, run on a
+// workspace whose own git configuration moved that toplevel: each refuses,
+// and the neighbor the configuration names is left as it was.
+const INSTALLERS = [["hook", "install", "git"], ["setup"], ["ci", "install", "--branch", "main"]];
+
+async function refusedByEveryInstaller(workspace: string, box: Sandbox, neighbor: Repo): Promise<string[]> {
+  const before = treeFingerprint(neighbor.path);
+  const stderr: string[] = [];
+  for (const args of INSTALLERS) {
+    const run = await runDoctor([...args, workspace], { sandbox: box, env: fakeEnv(box, "agents") });
+    expect([args[0], run.exitCode === 0]).toEqual([args[0], false]);
+    expect([args[0], treeFingerprint(neighbor.path)]).toEqual([args[0], before]);
+    expect(existsSync(join(neighbor.path, ".git/hooks/pre-commit"))).toBe(false);
+    stderr.push(run.stderr);
+  }
+  return stderr;
+}
+
+describe("hook install git: confinement to the .git entry on disk", () => {
+  test("HG-31 a relative core.worktree naming a neighbor moves no installer's write", async () => {
+    const neighbor = await clean("hg-31-neighbor");
+    const repo = await clean("hg-31");
+    await repo.git(["config", "core.worktree", relative(join(repo.path, ".git"), neighbor.path)]);
+    await repo.git(["config", "core.hooksPath", ".git/hooks"]);
+    const refusal = `the workspace ${realpathSync(repo.path)} is not inside the repository ${realpathSync(neighbor.path)}.\n`;
+    const [hook, setup, ci] = await refusedByEveryInstaller(repo.path, repo.sandbox, neighbor);
+    expect(hook).toBe(`rust-doctor: refusing to install: ${refusal}`);
+    expect(setup).toEndWith(`rust-doctor: refusing to install: ${refusal}`);
+    expect(ci).toBe(`rust-doctor: the workflow was not installed, ${refusal}`);
+  });
+
+  test("HG-32 a tracked embedded bare repository moves no installer's write", async () => {
+    const neighbor = await clean("hg-32-neighbor");
+    const repo = await gitScenario("hg-32")
+      .fixture("projects/clean")
+      .write({
+        ".gitignore": "/target\n",
+        "embedded/HEAD": "ref: refs/heads/main\n",
+        "embedded/config": `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ${neighbor.path}\n\thooksPath = .git/hooks\n`,
+        "embedded/objects/.keep": "",
+        "embedded/refs/heads/.keep": "",
+      })
+      .commit("base")
+      .clone()
+      .build();
+    await refusedByEveryInstaller(join(repo.path, "embedded"), repo.sandbox, neighbor);
+  });
+
+  test("HG-33 a core.worktree with surplus .. segments moves no installer's write", async () => {
+    const neighbor = await clean("hg-33-neighbor");
+    const repo = await clean("hg-33");
+    const depth = realpathSync(repo.path).split("/").length + 4;
+    await repo.git(["config", "core.worktree", Array(depth).fill("..").join("/")]);
+    await repo.git(["config", "core.hooksPath", join(neighbor.path, ".git/hooks")]);
+    const refusal = `git reports the repository at /, but the nearest .git above the workspace is in ${realpathSync(repo.path)}.\n`;
+    const [hook, setup, ci] = await refusedByEveryInstaller(repo.path, repo.sandbox, neighbor);
+    expect(hook).toBe(`rust-doctor: refusing to install: ${refusal}`);
+    expect(setup).toEndWith(`rust-doctor: refusing to install: ${refusal}`);
+    expect(ci).toBe(`rust-doctor: the workflow was not installed, ${refusal}`);
+  });
+
+  test("HG-34 a linked worktree and a submodule install as before the check", async () => {
+    const library = await clean("hg-34-library");
+    const worktreeRepo = await gitScenario("hg-34").fixture("projects/clean").write({ ".gitignore": "/target\n" }).commit("base").worktree("wt", "feature").build();
+    const superproject = await gitScenario("hg-34-super")
+      .fixture("projects/clean")
+      .write({ ".gitignore": "/target\n" })
+      .commit("base")
+      .submodule("vendor/library", library)
+      .commit("submodule")
+      .build();
+    const cases: [string, Sandbox][] = [
+      [worktreeRepo.worktrees.wt!, worktreeRepo.sandbox],
+      [join(superproject.path, "vendor/library"), superproject.sandbox],
+    ];
+    for (const [workspace, box] of cases) {
+      const before = treeFingerprint(workspace);
+      const hook = await runDoctor(["hook", "install", "git", workspace], { sandbox: box });
+      expect([workspace, hook.exitCode, hook.stdout.startsWith(OUTSIDE), hook.stderr]).toEqual([workspace, 1, true, ""]);
+      const ci = await runDoctor(["ci", "install", "--branch", "main", "--dry-run", workspace], { sandbox: box });
+      expect([workspace, ci.exitCode, ci.stderr]).toEqual([workspace, 0, ""]);
+      expect(ci.stdout).toStartWith("Would write .github/workflows/rust-doctor.yml:\n");
+      expect(treeFingerprint(workspace)).toBe(before);
+    }
+  });
 });

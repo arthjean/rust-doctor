@@ -12,6 +12,9 @@ comparison. The others are `baseline.rs`, `repo_hygiene.rs` and `git_hook.rs`,
 which is why the layer lives
 beside them rather than inside the scope that used to own it: reading
 `git_scope::run_git` to list a tree said scope where none was involved.
+`git_hook::confine` holds the installers to the disk: git derives its toplevel
+from configuration a tree can carry, so they write only when the nearest `.git`
+above the workspace sits at that toplevel.
 
 Five rules hold the two together, and each of them replaced something that had
 a cost.
