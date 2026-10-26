@@ -7,29 +7,19 @@
 //! it fails: a delta computed against a partial baseline reports findings older
 //! than the branch as introduced by it.
 
-use std::env;
-use std::ffi::OsString;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-use crate::bounded_read::collect_bounded;
 use crate::git::GitView;
 use crate::internal_error::InternalError;
 use crate::policy::PolicyPlan;
 use crate::scan_target;
 
 use super::side_cache::{self, CacheOutcome, CachedSide, KeyInputs, Lookup, SideCache};
+use super::toolchain::{self, NameOnlyPin};
 use super::{
     CommandEnvironment, ExecutionContext, ExecutionResult, KnownLints, PreparedInspection,
     Programs, RunOptions, Toolchain,
 };
-
-/// What `rustup show active-toolchain` may print before the answer is refused.
-///
-/// It prints one short line. A call that floods the pipe is a call whose answer
-/// `accepted` would turn down anyway, and reading it under a bound is what
-/// keeps a hostile `rust-toolchain.toml` from choosing this process's memory.
-const RUSTUP_OUTPUT_LIMIT: usize = 4_096;
 
 #[derive(Debug)]
 pub(crate) struct BaselineExecution {
@@ -84,7 +74,7 @@ pub(crate) struct Side<'a> {
 #[derive(Debug)]
 pub(crate) struct BaselineSetup {
     environment: CommandEnvironment,
-    toolchain: Toolchain,
+    toolchain: Option<Toolchain>,
     lints: Option<KnownLints>,
     declared: std::collections::BTreeSet<String>,
     cache: Lookup,
@@ -121,7 +111,7 @@ pub(crate) fn setup(
             workspace_root,
             target_directory: prepared.target_directory(),
             comparison_base,
-            toolchain: &toolchain,
+            toolchain: toolchain.as_ref(),
             environment: &environment,
             lints: lints.as_ref(),
             plan,
@@ -199,7 +189,7 @@ pub(crate) fn execute(
             );
             if !baseline.is_complete() {
                 let mut current = prepared.fail(crate::baseline::scan_incomplete());
-                current.toolchain = Some(toolchain);
+                current.toolchain = toolchain;
                 return Err(Box::new(current));
             }
             let store = match cache {
@@ -232,96 +222,13 @@ pub(crate) fn execute(
     })
 }
 
-/// The toolchain both sides are pinned to, or the refusal to compare at all.
-///
-/// An inherited `RUSTUP_TOOLCHAIN` is authoritative and never falls back to
-/// rustup: it is what the caller already runs under, and silently scanning the
-/// baseline under a different one is exactly the drift this pin exists to stop.
+/// The toolchain both sides are pinned to, or the refusal to compare at all:
+/// a comparison runs both sides under one named toolchain or not at all.
 fn command_environment(workspace_root: &Path) -> Result<CommandEnvironment, InternalError> {
-    let inherited = env::var_os("RUSTUP_TOOLCHAIN");
-    let toolchain = match inherited.as_deref() {
-        // An inherited pin is taken whole. A value carrying a space is one
-        // rustup would not accept either, and trimming it to its first field
-        // would run both sides under a toolchain nobody named.
-        Some(inherited) => inherited.to_str().and_then(accepted),
-        None => {
-            let answer = active_toolchain(workspace_root);
-            answer
-                .as_deref()
-                .and_then(|answer| answer.split_whitespace().next())
-                .and_then(accepted)
-        }
-    };
-    toolchain
-        .map(|rustup_toolchain| CommandEnvironment {
+    match toolchain::name_only_pin(workspace_root) {
+        NameOnlyPin::Named(rustup_toolchain) => Ok(CommandEnvironment {
             rustup_toolchain: Some(rustup_toolchain),
-        })
-        .ok_or_else(crate::baseline::scan_incomplete)
-}
-
-/// Asks rustup which toolchain this workspace resolves to.
-///
-/// The answer is `<name> (<why>)`, so only its first field is a toolchain.
-fn active_toolchain(workspace_root: &Path) -> Option<String> {
-    let mut child = Command::new("rustup")
-        .args(["show", "active-toolchain"])
-        .current_dir(workspace_root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let stdout = child.stdout.take()?;
-    // Drained before the wait: a rustup that filled the pipe would never exit,
-    // and this process would wait on it forever.
-    let output = collect_bounded(stdout, RUSTUP_OUTPUT_LIMIT).ok()?;
-    if output.exceeded || !child.wait().ok()?.success() {
-        return None;
-    }
-    String::from_utf8(output.bytes).ok()
-}
-
-/// A toolchain name this crate will pass on to a child process.
-///
-/// Only ASCII alphanumerics and `-`, `_`, `.` are accepted, so every value that
-/// gets through is valid UTF-8 by construction. That is why both sources are
-/// read as text: preserving bytes no accepted value can contain used to buy a
-/// `#[cfg(unix)]` split over `OsStr` and nothing else.
-fn accepted(toolchain: &str) -> Option<OsString> {
-    (!toolchain.is_empty()
-        && toolchain.len() <= 255
-        && toolchain
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')))
-    .then(|| OsString::from(toolchain))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::accepted;
-
-    #[test]
-    fn only_a_bare_toolchain_name_is_passed_on_to_a_child() {
-        assert_eq!(
-            accepted("1.97.1-x86_64-unknown-linux-gnu"),
-            Some("1.97.1-x86_64-unknown-linux-gnu".into())
-        );
-        assert_eq!(accepted("stable"), Some("stable".into()));
-        assert_eq!(accepted(&"x".repeat(255)), Some("x".repeat(255).into()));
-
-        // A whole value is judged whole: nothing that carries a separator, a
-        // path, a shell character or a second field survives.
-        for refused in [
-            "",
-            "stable extra",
-            "sta ble; rm -rf /",
-            "../../etc",
-            "a/b",
-            "$(id)",
-            "nightly\n",
-        ] {
-            assert_eq!(accepted(refused), None, "{refused:?} was accepted");
-        }
-        assert_eq!(accepted(&"x".repeat(256)), None);
+        }),
+        NameOnlyPin::NoRustup | NameOnlyPin::Refused(_) => Err(crate::baseline::scan_incomplete()),
     }
 }

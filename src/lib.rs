@@ -115,7 +115,7 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
 /// way a scan finds it, or `None` when none resolves. `ci install` places the
 /// workflow's scan from it.
 pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
-    scan_target::resolve(path, Path::new("cargo"), None)
+    scan_target::resolve(path, Path::new("cargo"), false, None)
         .ok()
         .map(|target| target.workspace_root().to_path_buf())
 }
@@ -240,8 +240,14 @@ impl InspectionSession {
             }
         };
         // A staged scan reads its configuration from the index, once it is
-        // written out, and never from the working tree.
-        let prepared = match execution::prepare(&request.path, &options, !scope.staged()) {
+        // written out, and never from the working tree. Whether Cargo is
+        // pinned by name is settled by the request alone: the workspace's
+        // configuration is read once metadata names its root, and a request
+        // override outranks it, so a request that turns every Clippy rule off
+        // holds whatever that file says.
+        let name_only = validated.turns_off(policy::Producer::Clippy);
+        let prepared = match execution::prepare(&request.path, &options, !scope.staged(), name_only)
+        {
             Ok(prepared) => prepared,
             Err(result) => {
                 return Err(Box::new(report::preparation_failure(

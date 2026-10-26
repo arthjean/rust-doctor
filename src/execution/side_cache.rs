@@ -112,7 +112,8 @@ pub(crate) struct KeyInputs<'a> {
     pub(crate) workspace_root: &'a Path,
     pub(crate) target_directory: &'a Path,
     pub(crate) comparison_base: &'a str,
-    pub(crate) toolchain: &'a Toolchain,
+    /// `None` when the plan probed no version, hashed as three empty fields.
+    pub(crate) toolchain: Option<&'a Toolchain>,
     pub(crate) environment: &'a CommandEnvironment,
     pub(crate) lints: Option<&'a KnownLints>,
     pub(crate) plan: &'a PolicyPlan,
@@ -240,9 +241,12 @@ fn key(inputs: &KeyInputs<'_>) -> Option<String> {
     field(&[SCHEMA_VERSION]);
     field(tree.as_bytes());
     field(relative.as_os_str().as_encoded_bytes());
-    field(inputs.toolchain.cargo.as_bytes());
-    field(inputs.toolchain.rustc.as_bytes());
-    field(inputs.toolchain.clippy.as_bytes());
+    let versions = inputs.toolchain.map_or(["", "", ""], |toolchain| {
+        [&toolchain.cargo, &toolchain.rustc, &toolchain.clippy].map(String::as_str)
+    });
+    for version in versions {
+        field(version.as_bytes());
+    }
     field(
         inputs
             .environment

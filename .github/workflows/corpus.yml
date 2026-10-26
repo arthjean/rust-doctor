@@ -29,7 +29,8 @@ name: Corpus
 # runner is disposable and every revision is pinned. Do not port these steps
 # to a developer machine, and do not add a repository to the manifest without
 # the review the corpus protocol requires. The eight agent repositories are
-# scanned with every Clippy rule off, so nothing of theirs is compiled.
+# scanned with every Clippy rule off, and a Clippy-off scan starts no program
+# the scanned tree selects.
 
 on:
   schedule:

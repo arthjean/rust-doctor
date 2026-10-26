@@ -14632,7 +14632,7 @@
       "--rule",
       "clippy::zst_offset=off"
     ],
-    "selection_criterion": "A repository qualifies when at least half of the commit messages reachable from its pinned revision contain its recorded marker, an exact substring such as 'Co-Authored-By: Claude' or 'Generated with [Claude Code]' that coding agents append to the commits they author. The criterion reads the git history alone, never code style, README claims or popularity, and marked_commits and total_commits are recounted mechanically from git log at the pinned revision when the corpus is replayed. The population is scanned with every Clippy rule off, because its build scripts and proc-macros are untrusted: the native detectors parse source text and compile nothing.",
+    "selection_criterion": "A repository qualifies when at least half of the commit messages reachable from its pinned revision contain its recorded marker, an exact substring such as 'Co-Authored-By: Claude' or 'Generated with [Claude Code]' that coding agents append to the commits they author. The criterion reads the git history alone, never code style, README claims or popularity, and marked_commits and total_commits are recounted mechanically from git log at the pinned revision when the corpus is replayed. The population is scanned with every Clippy rule off, because its build scripts and proc-macros are untrusted: a Clippy-off scan starts no program the scanned tree selects.",
     "structural_density": {
       "agent": {
         "findings": 5298,
@@ -19418,6 +19418,6 @@
     "clippy_executes_corpus_build_code": true,
     "corpus_materialised_outside_repository": true,
     "native_detectors_compile_corpus_code": false,
-    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. The native detectors parse source text and never compile or execute corpus code, which the harness proves by replaying the corpus with every Clippy rule switched off."
+    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. With every Clippy rule switched off, a scan starts no program the scanned tree selects, which the harness proves by replaying a fixture that carries a clippy alias and a path toolchain, each leaving a marker if it runs."
   }
 }

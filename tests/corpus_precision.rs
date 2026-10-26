@@ -189,6 +189,7 @@ fn paths<'a>(cache: &'a Path, artifacts: &'a Path, binary: &'a Path) -> HarnessP
         artifacts,
         binary,
         cache,
+        unpinned: false,
     }
 }
 
@@ -359,6 +360,38 @@ fn the_harness_writes_only_inside_its_declared_artifacts_directory() {
     assert!(!cache.join("beta-bin/build-code-ran").exists());
 }
 
+/// Commits onto beta-bin every way its tree selected a program before a
+/// Clippy-off scan was confined: a `[alias] clippy` that builds and runs it,
+/// whose build script leaves `build-code-ran`, and a `rust-toolchain.toml`
+/// path toolchain whose `cargo` and `rustc` leave `path-cargo-ran` and
+/// `path-rustc-ran` in the tree they run in.
+#[cfg(target_os = "linux")]
+fn arm_beta(cache: &Path, mut manifest: Manifest) -> Manifest {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = cache.join("beta-bin");
+    write(&root.join(".cargo/config.toml"), "[alias]\nclippy = [\"run\", \"--quiet\", \"--\"]\n");
+    write(&root.join("rust-toolchain.toml"), "[toolchain]\npath = \"/proc/self/cwd/tc\"\n");
+    for tool in ["cargo", "rustc"] {
+        let program = root.join("tc/bin").join(tool);
+        write(&program, &format!("#!/bin/sh\ntouch \"$PWD/path-{tool}-ran\"\nexit 1\n"));
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    git(&root, &["add", "--all"]);
+    git(&root, &["commit", "--quiet", "--message=armed"]);
+    let output = Command::new("git").arg("-C").arg(&root).args(["rev-parse", "HEAD"]).output().unwrap();
+    let commit = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+    for entry in &mut manifest.repositories {
+        if entry.name == "beta-bin" {
+            entry.commit.clone_from(&commit);
+        }
+    }
+    manifest
+}
+
+/// Everywhere, the alias-free build script never runs; on Linux, where
+/// `/proc/self/cwd` lets a path toolchain land in the tree, beta-bin is also
+/// armed with the clippy alias and the path toolchain.
 #[test]
 fn native_detectors_never_compile_or_execute_corpus_build_code() {
     let (cache, artifacts, manifest) = synthetic_corpus("native-only");
@@ -368,19 +401,45 @@ fn native_detectors_never_compile_or_execute_corpus_build_code() {
     assert!(probe.processed.contains(&"beta-bin".to_owned()));
     assert!(artifacts.join("work/beta-bin/build-code-ran").is_file());
 
+    #[cfg(target_os = "linux")]
+    let manifest = arm_beta(&cache, manifest);
     let mut arguments: Vec<String> = SCAN_ARGUMENTS.iter().map(|value| (*value).to_owned()).collect();
     for rule in catalog.iter().filter(|rule| rule.id.starts_with("clippy::")) {
         arguments.push("--rule".to_owned());
         arguments.push(format!("{}=off", rule.id));
     }
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let native = run(&paths(&cache, &artifacts, &binary), &manifest, &arguments).unwrap();
+    let markers = ["build-code-ran", "path-cargo-ran", "path-rustc-ran"];
 
+    // Outside any rustup proxy the path toolchain is the one rustup would
+    // pick, so the scan refuses to start Cargo at all.
+    #[cfg(target_os = "linux")]
+    {
+        let unpinned = HarnessPaths {
+            unpinned: true,
+            ..paths(&cache, &artifacts, &binary)
+        };
+        let refused = run(&unpinned, &manifest, &arguments).unwrap();
+        assert!(refused.failed.contains(&"beta-bin".to_owned()));
+        for marker in markers {
+            assert!(!artifacts.join("work/beta-bin").join(marker).exists(), "{marker}");
+        }
+        assert_eq!(
+            report_of(&artifacts, "beta-bin")["errors"][0]["message"],
+            "the workspace selects its toolchain by path; set RUSTUP_TOOLCHAIN to a toolchain name to scan it without Clippy"
+        );
+    }
+
+    // Under the name `cargo test` exports, the scan completes and still
+    // starts nothing the tree selects.
+    let native = run(&paths(&cache, &artifacts, &binary), &manifest, &arguments).unwrap();
     assert!(native.processed.contains(&"beta-bin".to_owned()));
-    assert!(
-        !artifacts.join("work/beta-bin/build-code-ran").exists(),
-        "no corpus build script may run when only native detectors are active"
-    );
+    for marker in markers {
+        assert!(
+            !artifacts.join("work/beta-bin").join(marker).exists(),
+            "no program the corpus tree selects may run when only native detectors are active: {marker}"
+        );
+    }
     let report = report_of(&artifacts, "beta-bin");
     assert_eq!(report["status"], "complete");
     assert!(curated_findings(&report).iter().all(|finding| !finding.rule.starts_with("clippy::")));
@@ -1514,8 +1573,9 @@ fn the_agent_population_pins_at_least_five_repositories_with_mechanical_evidence
 }
 
 /// The agent population executes no untrusted build code: every Clippy rule is
-/// turned off, which the confinement proofs show keeps Cargo out entirely, and
-/// no observation may carry a Clippy finding.
+/// turned off, and a Clippy-off scan starts no program the scanned tree
+/// selects, which `native_detectors_never_compile_or_execute_corpus_build_code`
+/// proves on an armed fixture. No observation may carry a Clippy finding.
 #[test]
 fn the_agent_population_is_scanned_without_executing_untrusted_build_code() {
     let artifact = artifact();

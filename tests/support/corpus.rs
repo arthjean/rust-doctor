@@ -886,6 +886,10 @@ pub(crate) struct HarnessPaths<'a> {
     pub(crate) artifacts: &'a Path,
     pub(crate) binary: &'a Path,
     pub(crate) cache: &'a Path,
+    /// Removes the `RUSTUP_TOOLCHAIN` a rustup-proxied `cargo test` exports,
+    /// so a scan runs as a caller outside any proxy does: the only way a
+    /// `rust-toolchain.toml` path toolchain is reached at all.
+    pub(crate) unpinned: bool,
 }
 
 /// Replays the complete catalog on the corpus.
@@ -923,15 +927,18 @@ pub(crate) fn run(
         }
 
         let target = fresh_directory(&paths.artifacts.join("target").join(&entry.name));
-        let scan = Command::new(paths.binary)
-            .arg("inspect")
+        let mut scan = Command::new(paths.binary);
+        scan.arg("inspect")
             .arg(&work)
             .args(scan_arguments)
             .env("CARGO_TARGET_DIR", &target)
             // A wall-clock cutoff would make the observations of a large
             // repository depend on machine load; a measurement cannot.
-            .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600")
-            .output();
+            .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600");
+        if paths.unpinned {
+            scan.env_remove("RUSTUP_TOOLCHAIN");
+        }
+        let scan = scan.output();
 
         let Ok(output) = scan else {
             run.failed.push(entry.name.clone());

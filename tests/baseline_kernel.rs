@@ -718,7 +718,9 @@ fn disabled_clippy_producer_starts_no_scan_on_either_side() {
     let report = report(&output);
     assert_eq!(report["status"], "complete");
     assert!(report["scan"]["command"].is_null());
-    assert!(report["toolchain"]["clippy"].is_string());
+    // A plan with no Clippy rule probes no version (US-004): a probe would
+    // run a workspace `[alias] clippy` or a path toolchain.
+    assert!(report["toolchain"]["clippy"].is_null());
     assert_eq!(
         fixture
             .processes

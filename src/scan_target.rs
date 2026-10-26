@@ -5,7 +5,7 @@ use cargo_metadata::{Metadata, MetadataCommand};
 
 use crate::bounded_read::collect_bounded;
 use crate::cargo_stderr;
-use crate::execution::{RunDeadline, run_bounded};
+use crate::execution::{RunDeadline, run_bounded, toolchain};
 use crate::internal_error::InternalError;
 
 mod discovery;
@@ -33,13 +33,25 @@ pub(crate) struct ResolutionFailure {
 
 /// Finds the workspace `path` names and asks Cargo for its metadata, killed
 /// at `deadline` when one is set.
+///
+/// `name_only` is set by a scan that compiles nothing: Cargo then runs under
+/// a toolchain pinned by name, so a `rust-toolchain.toml` path toolchain the
+/// tree ships never runs, and a workspace that can only be read through one
+/// is refused. A scan that runs Clippy compiles the workspace by design, and
+/// asks Cargo as the workspace configures it.
 pub(crate) fn resolve(
     path: &Path,
     cargo: &Path,
+    name_only: bool,
     deadline: Option<RunDeadline>,
 ) -> Result<ResolvedScanTarget, ResolutionFailure> {
     resolve_with(path, |manifest_path, manifest_directory| {
-        load_metadata(manifest_path, manifest_directory, cargo, None, None, deadline)
+        let pin = if name_only {
+            toolchain::metadata_pin(manifest_directory)?
+        } else {
+            None
+        };
+        load_metadata(manifest_path, manifest_directory, cargo, None, pin.as_deref(), deadline)
     }, deadline)
 }
 
@@ -365,6 +377,7 @@ mod tests {
         let failure = resolve(
             &fixture(),
             Path::new("/definitely/missing/rust-doctor-cargo"),
+            false,
             None,
         )
         .unwrap_err();

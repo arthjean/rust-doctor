@@ -21,7 +21,8 @@ cargo test --test corpus_precision
 
 Clippy is switched off on this population. Its repositories are untrusted code,
 and running Clippy means compiling them, which means executing their build
-scripts and procedural macros. `the_agent_population_is_scanned_without_executing_untrusted_build_code`
+scripts and procedural macros. A Clippy-off scan starts no program the scanned
+tree selects. `the_agent_population_is_scanned_without_executing_untrusted_build_code`
 holds that line, and a test now also refuses any Clippy rule carrying a rate on
 this side.
 

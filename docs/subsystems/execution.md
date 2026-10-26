@@ -66,6 +66,20 @@ the failure quotes what the toolchain itself said. The message used to be
 the missing component nor the one command that installs it, and stderr, where
 cargo had already written both, was sent to `/dev/null`.
 
+A scan with no Clippy rule starts no program the scanned tree selects. It
+probes no version and publishes all three null, which reads "not probed":
+`cargo clippy --version` runs a workspace `[alias] clippy`, and every probe
+runs whatever a `rust-toolchain.toml` selects. Its `cargo metadata` runs under
+`RUSTUP_TOOLCHAIN` set to a name by `execution/toolchain.rs`, the inherited one
+or else the first field of `rustup show active-toolchain`; only ASCII
+alphanumerics, `-`, `_` and `.` pass, so a path toolchain is refused with exit
+2 rather than run, and without rustup no proxy reads the file and no pin is
+set. The working directory stays the manifest's, so `build.target-dir` keeps
+its meaning. `tests/toolchain_pin_assumptions.rs` checks, on the toolchain CI
+runs, that metadata starts nothing `.cargo/config.toml` names and that a name
+outranks a path toolchain. The request decides the pin, since `rust-doctor.toml`
+is read only once metadata names the root and a request override outranks it.
+
 The Clippy child answers for itself. Its stderr is drained under
 `src/cargo_stderr.rs`'s 65,536-byte bound on a thread of its own, and a failed
 pass ends its `clippy-exit` error with the scrubbed tail of it: workspace root,

@@ -489,6 +489,23 @@ impl<'a> ValidatedPolicy<'a> {
     }
 }
 
+impl ValidatedPolicy<'_> {
+    /// Whether the request alone turns every rule of `producer` off. A
+    /// request override outranks the workspace's configuration, so no
+    /// `rust-doctor.toml` can turn one of them back on.
+    pub(crate) fn turns_off(&self, producer: Producer) -> bool {
+        CATALOG
+            .iter()
+            .filter(|definition| definition.producer == producer)
+            .all(|definition| {
+                self.rules
+                    .get(definition.id)
+                    .or_else(|| self.categories.get(definition.category))
+                    .is_some_and(|level| !level.is_active())
+            })
+    }
+}
+
 /// One override list, accepted or refused. The rule list and the category list
 /// differ by how a selector is spelled, by what knows it and by which errors
 /// they carry, and by nothing else, so they go through one loop rather than

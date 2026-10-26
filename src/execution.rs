@@ -59,6 +59,7 @@ mod messages;
 mod process;
 mod rustflags;
 mod side_cache;
+pub(crate) mod toolchain;
 #[cfg(test)]
 mod tests;
 
@@ -202,7 +203,8 @@ impl<'a> ProducerError<'a> {
 /// They are resolved together or the run fails before any producer starts, so
 /// the result holds one `Option` over the three rather than three `Option`
 /// fields. A report naming a cargo and no rustc was a shape the type allowed
-/// and no code path could ever produce.
+/// and no code path could ever produce. `None` also means "not probed": a
+/// plan with no Clippy rule asks the toolchain nothing.
 #[derive(Debug, Clone)]
 pub(crate) struct Toolchain {
     pub(crate) cargo: String,
@@ -320,14 +322,16 @@ impl CommandEnvironment {
 
 /// `read_configuration` is false for a scan that reads `rust-doctor.toml`
 /// from somewhere else than the working tree, and the default stands in until
-/// it does.
+/// it does. `name_only` pins Cargo to a toolchain name, for a scan that
+/// compiles nothing.
 pub(crate) fn prepare(
     path: &Path,
     options: &RunOptions,
     read_configuration: bool,
+    name_only: bool,
 ) -> Result<PreparedInspection, Box<ExecutionResult>> {
     timed(options.timings.as_ref(), Phase::Metadata, || {
-        prepare_with(path, &Programs::default(), options.deadline, read_configuration)
+        prepare_with(path, &Programs::default(), options.deadline, read_configuration, name_only)
     })
 }
 
@@ -336,8 +340,9 @@ fn prepare_with(
     programs: &Programs,
     deadline: Option<RunDeadline>,
     read_configuration: bool,
+    name_only: bool,
 ) -> Result<PreparedInspection, Box<ExecutionResult>> {
-    let target = match scan_target::resolve(path, &programs.cargo, deadline) {
+    let target = match scan_target::resolve(path, &programs.cargo, name_only, deadline) {
         Ok(target) => target,
         Err(failure) => {
             return Err(Box::new(ExecutionResult::failed(
@@ -397,22 +402,32 @@ pub(crate) fn execute_staged(
     } = staged;
     let programs = Programs::default();
     let environment = CommandEnvironment::default();
-    let target = timed(options.timings.as_ref(), Phase::Metadata, || {
-        scan_target::resolve_isolated(
-            staged_workspace,
-            &programs.cargo,
-            target_dir,
-            None,
-            options.deadline,
-        )
+    let lint_list = plan.active_rules(Producer::Clippy).next().is_some();
+    // The index can carry a toolchain file of its own, so a scan that
+    // compiles nothing pins the snapshot's metadata by name too.
+    let pin = if lint_list {
+        Ok(None)
+    } else {
+        toolchain::metadata_pin(staged_workspace)
+    };
+    let target = pin.and_then(|pin| {
+        timed(options.timings.as_ref(), Phase::Metadata, || {
+            scan_target::resolve_isolated(
+                staged_workspace,
+                &programs.cargo,
+                target_dir,
+                pin.as_deref(),
+                options.deadline,
+            )
+            .map_err(|failure| failure.error)
+        })
     });
     let target = match target {
         Ok(target) => target,
-        Err(failure) => return prepared.fail(failure.error),
+        Err(error) => return prepared.fail(error),
     };
     // Probed where Clippy runs, so a toolchain that rustup picks by directory
     // is the one the report names.
-    let lint_list = plan.active_rules(Producer::Clippy).next().is_some();
     let probed = resolve_toolchain(&programs, staged_workspace, &environment, options, lint_list);
     let (toolchain, lints) = match probed {
         Ok(probed) => probed,
@@ -471,7 +486,7 @@ impl ExecutionContext<'_> {
     fn run(
         &self,
         target: ResolvedScanTarget,
-        toolchain: Toolchain,
+        toolchain: Option<Toolchain>,
         lints: Option<KnownLints>,
         target_dir: Option<&Path>,
         view: Option<&GitView>,
@@ -522,7 +537,7 @@ impl ExecutionContext<'_> {
             // return and its stage error are what a serial run published.
             Some(Err(error)) => {
                 return ExecutionResult {
-                    toolchain: Some(toolchain),
+                    toolchain,
                     cargo_health,
                     repo,
                     ..ExecutionResult::failed(Some(manifest_path), Some(metadata), error)
@@ -535,7 +550,7 @@ impl ExecutionContext<'_> {
         ExecutionResult {
             manifest_path: Some(manifest_path),
             metadata: Some(metadata),
-            toolchain: Some(toolchain),
+            toolchain,
             scan,
             source,
             source_measurement,
@@ -702,29 +717,32 @@ impl ExecutionContext<'_> {
 /// asked.
 pub(crate) type KnownLints = Result<BTreeSet<String>, InternalError>;
 
-/// The three versions, and the lint list when `lint_list` asks for it, probed
-/// concurrently: four short-lived processes cost the slowest of them.
+/// The three versions and the lint list, probed concurrently when
+/// `lint_list` says a Clippy rule is active: four short-lived processes cost
+/// the slowest of them.
+///
+/// A plan with no Clippy rule probes nothing and publishes the versions as
+/// null, which reads "not probed". `cargo clippy --version` runs whatever a
+/// workspace `[alias] clippy` names, and every probe runs the toolchain a
+/// `rust-toolchain.toml` selects, so probing would start a program the
+/// scanned tree chose in a scan that promises to compile nothing.
 fn resolve_toolchain(
     programs: &Programs,
     workspace_root: &Path,
     environment: &CommandEnvironment,
     options: &RunOptions,
     lint_list: bool,
-) -> Result<(Toolchain, Option<KnownLints>), InternalError> {
+) -> Result<(Option<Toolchain>, Option<KnownLints>), InternalError> {
+    if !lint_list {
+        return Ok((None, None));
+    }
     let timings = options.timings.as_ref();
     let deadline = options.deadline;
     timed(timings, Phase::Probes, || {
         thread::scope(|scope| {
-            let lints = lint_list.then(|| {
-                scope.spawn(move || {
-                    timed(timings, Phase::LintList, || {
-                        lint_list::probe(
-                            &programs.clippy_driver,
-                            workspace_root,
-                            environment,
-                            deadline,
-                        )
-                    })
+            let lints = scope.spawn(move || {
+                timed(timings, Phase::LintList, || {
+                    lint_list::probe(&programs.clippy_driver, workspace_root, environment, deadline)
                 })
             });
             let probe = move |program: &Path, arguments: &[&str], probe: Probe| {
@@ -737,7 +755,7 @@ fn resolve_toolchain(
             let cargo = probe(&programs.cargo, &["--version"], CARGO_PROBE);
             let rustc = rustc.join().unwrap_or(Err(None));
             let clippy = clippy.join().unwrap_or(Err(None));
-            let lints = lints.map(|lints| lints.join().unwrap_or_else(|_| Err(lint_list::unavailable())));
+            let lints = lints.join().unwrap_or_else(|_| Err(lint_list::unavailable()));
             // The first failure in the order a serial run met them.
             let failed = |probe: Probe| {
                 move |error: Option<InternalError>| {
@@ -749,7 +767,7 @@ fn resolve_toolchain(
                 rustc: rustc.map_err(failed(RUSTC_PROBE))?,
                 clippy: clippy.map_err(failed(CLIPPY_PROBE))?,
             };
-            Ok((toolchain, lints))
+            Ok((Some(toolchain), Some(lints)))
         })
     })
 }
