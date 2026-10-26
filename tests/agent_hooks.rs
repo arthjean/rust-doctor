@@ -280,6 +280,18 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     assert!(root.join(".cargo-husky/hooks/pre-commit").is_file());
     fs::remove_dir_all(&root).unwrap();
 
+    // A committed `.cargo-husky/hooks` link out of the tree takes no write.
+    let root = repository("git-husky-link");
+    let elsewhere = outside_git("git-husky-elsewhere");
+    fs::create_dir_all(root.join(".cargo-husky")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, root.join(".cargo-husky/hooks")).unwrap();
+    let refused = install(&root, &["git"]);
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(stdout(&refused).contains("outside this working tree"));
+    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    fs::remove_dir_all(&root).unwrap();
+    fs::remove_dir_all(elsewhere).unwrap();
+
     // A hook manager: the snippet is printed and nothing is written.
     for config in [
         ".pre-commit-config.yaml",

@@ -152,7 +152,9 @@ A baseline comparison reads its base side from
 `execution/side_cache.rs` when nothing it depends on moved: the base tree, the
 toolchain and lint list, the policy, the packages, the advisory database, the
 `CARGO`/`RUST`/`CC`/`CFLAGS`/`CXX` environment and the Cargo configuration
-outside the repository. The cache lives under the target directory,
+outside the repository. The cache lives under the target directory, written
+through `workspace_write` like the installers' files: never through a symlinked
+component, and staged in a file created only where nothing sits.
 `RUST_DOCTOR_NO_CACHE=1` turns it off, a corrupt file is a miss, and only
 `--verbose` says which it was: the JSON is the same bytes either way.
 

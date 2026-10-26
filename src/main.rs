@@ -16,7 +16,6 @@ mod terminal_profile;
 mod test_scratch;
 mod tui;
 mod why_command;
-mod workspace_write;
 
 use std::env;
 use std::ffi::OsStr;

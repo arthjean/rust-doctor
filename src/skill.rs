@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 
-use crate::workspace_write::symlinked_component;
+use rust_doctor::workspace_write::symlinked_component;
 
 /// Where each agent reads a project's skills. Each entry was checked against
 /// the agent's own documentation on 2026-09-25:

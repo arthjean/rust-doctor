@@ -26,7 +26,7 @@ use std::process::ExitCode;
 use clap::{Args, Subcommand};
 use rust_doctor::BlockingLevel;
 
-use crate::workspace_write::{create_new, symlinked_component};
+use rust_doctor::workspace_write::{create_new, symlinked_component};
 
 pub const WORKFLOW_PATH: &str = ".github/workflows/rust-doctor.yml";
 

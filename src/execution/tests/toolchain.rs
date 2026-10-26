@@ -248,6 +248,46 @@ fn a_target_directory_that_cannot_be_created_falls_back_to_the_snapshot() {
     assert_eq!(crate::baseline::persistent_target(&file, "baseline"), None);
 }
 
+/// A committed target directory cannot steer the base side's build: a link
+/// at any component under it is refused, and the snapshot's target serves.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_target_component_falls_back_to_the_snapshot() {
+    for (component, side) in [
+        ("rust-doctor", "baseline"),
+        ("rust-doctor/baseline", "baseline"),
+        ("rust-doctor/staged", "staged"),
+    ] {
+        let root = crate::test_scratch::scratch("execution", "baseline-component-link");
+        let target = root.join("target");
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let link = target.join(component);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert_eq!(crate::baseline::persistent_target(&target, side), None, "{component}");
+        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0, "{component}");
+    }
+}
+
+/// The write probe is created where nothing sits: a link planted at its
+/// PID-named path leaves the file it points at as it was.
+#[cfg(unix)]
+#[test]
+fn a_link_at_the_probe_path_is_never_written_through() {
+    let root = crate::test_scratch::scratch("execution", "baseline-probe-link");
+    let outside = root.join("outside.txt");
+    fs::write(&outside, b"not the probe's to touch").unwrap();
+    let modified = fs::metadata(&outside).unwrap().modified().unwrap();
+    let side = root.join("target/rust-doctor/baseline");
+    fs::create_dir_all(&side).unwrap();
+    let probe = side.join(format!(".rust-doctor-write-{}", std::process::id()));
+    std::os::unix::fs::symlink(&outside, &probe).unwrap();
+    assert_eq!(crate::baseline::persistent_target(&root.join("target"), "baseline"), None);
+    assert_eq!(fs::read(&outside).unwrap(), b"not the probe's to touch");
+    assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), modified);
+}
+
 /// A Clippy pass the deadline ends while Cargo waits on the build directory's
 /// lock says so: the other Cargo, or rust-analyzer, is what to stop.
 #[cfg(unix)]

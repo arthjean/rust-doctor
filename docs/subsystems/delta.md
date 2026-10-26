@@ -14,8 +14,10 @@ what `cargo clippy` itself writes, so a scan writes only build artifacts under
 Cargo's target directory and `cargo clean` removes them. It used to build under
 the snapshot's temporary root, removed after every run, and each baseline paid a
 cold build of the whole dependency graph. A directory that cannot be created or
-written falls back to that temporary target, and Cargo's build-directory lock
-serializes two runs on one workspace.
+written falls back to that temporary target, and so does one a symlink under the
+target directory would redirect, since a committed `target/` must not choose
+where a scan writes. Cargo's build-directory lock serializes two runs on one
+workspace.
 
 Five rules hold it together, and each of them replaced something that had a
 cost.

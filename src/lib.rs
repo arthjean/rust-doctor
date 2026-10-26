@@ -39,6 +39,7 @@ mod test_scratch;
 pub mod terminal_text;
 mod timings;
 mod workspace_path;
+pub mod workspace_write;
 
 pub use audit::{
     Audit, AuditCategory, AuditCategoryName, AuditScore, SCORE_MODEL, ScoreDimensions, ScoreLabel,

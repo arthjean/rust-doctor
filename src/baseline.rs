@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::execution::RunDeadline;
 use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure, GitView};
+use crate::workspace_write::{create_new, symlinked_component};
 
 mod staged;
 mod sweep;
@@ -158,11 +159,20 @@ impl Drop for Snapshot {
 /// rest, and Cargo's build-directory lock serializes two baseline runs of the
 /// same workspace. The staged tree of `--staged` keeps its own, `staged`, for
 /// the same reason.
+///
+/// A target directory can be committed, so a component of the path that is a
+/// symlink is refused rather than followed, and the probe is created only
+/// where nothing sits: a link planted at its PID-named path would otherwise
+/// have the probe truncate whatever it points at.
 pub(crate) fn persistent_target(target_directory: &Path, side: &str) -> Option<PathBuf> {
-    let target = target_directory.join("rust-doctor").join(side);
+    let relative = Path::new("rust-doctor").join(side);
+    if symlinked_component(target_directory, &relative).is_some() {
+        return None;
+    }
+    let target = target_directory.join(relative);
     fs::create_dir_all(&target).ok()?;
     let probe = target.join(format!(".rust-doctor-write-{}", std::process::id()));
-    fs::write(&probe, b"").ok()?;
+    create_new(&probe, b"").ok()?;
     fs::remove_file(&probe).ok()?;
     Some(target)
 }

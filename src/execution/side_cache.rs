@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -31,6 +32,7 @@ use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
 use crate::policy::PolicyPlan;
 use crate::report::{Diagnostic, SCHEMA_VERSION};
 use crate::structure::StructureSettings;
+use crate::workspace_write::{create_new, symlinked_component};
 
 /// Base sides kept per target directory: a few branches, each a few edits
 /// apart from where it started.
@@ -40,6 +42,9 @@ const ENTRY_LIMIT: usize = 20;
 const FILE_VERSION: u32 = 2;
 /// The largest cache file read back; past it the cache is a miss.
 const FILE_BYTES_LIMIT: u64 = 256 * 1024 * 1024;
+/// Where the cache lives under the target directory, and its one file.
+const CACHE_DIRECTORY: &str = "rust-doctor/cache";
+const CACHE_FILE: &str = "base-sides.json";
 const ENVIRONMENT_PREFIXES: [&str; 5] = ["CARGO", "RUST", "CC", "CFLAGS", "CXX"];
 
 /// A base side read back from the cache.
@@ -52,7 +57,7 @@ pub(crate) struct CachedSide {
 /// Where a miss stores the base side it is about to compute.
 #[derive(Debug)]
 pub(crate) struct SideCache {
-    path: PathBuf,
+    target_directory: PathBuf,
     key: String,
 }
 
@@ -130,9 +135,8 @@ pub(crate) fn lookup(inputs: &KeyInputs<'_>, current: &Metadata) -> Lookup {
     let Some(key) = key(inputs) else {
         return Lookup::Disabled;
     };
-    let path = inputs
-        .target_directory
-        .join("rust-doctor/cache/base-sides.json");
+    let target_directory = inputs.target_directory.to_path_buf();
+    let path = target_directory.join(CACHE_DIRECTORY).join(CACHE_FILE);
     let members = members(current);
     let hit = read(&path).entries.into_iter().find(|entry| entry.key == key);
     match hit.filter(|entry| entry.members == members) {
@@ -143,9 +147,9 @@ pub(crate) fn lookup(inputs: &KeyInputs<'_>, current: &Metadata) -> Lookup {
                     evidence,
                 })
             }
-            _ => Lookup::Miss(SideCache { path, key }),
+            _ => Lookup::Miss(SideCache { target_directory, key }),
         },
-        None => Lookup::Miss(SideCache { path, key }),
+        None => Lookup::Miss(SideCache { target_directory, key }),
     }
 }
 
@@ -158,7 +162,7 @@ impl SideCache {
         diagnostics: &[Diagnostic],
         evidence: &Evidence,
     ) {
-        let mut file = read(&self.path);
+        let mut file = read(&self.target_directory.join(CACHE_DIRECTORY).join(CACHE_FILE));
         file.version = FILE_VERSION;
         file.entries.retain(|entry| entry.key != self.key);
         file.entries.push(Entry {
@@ -172,7 +176,7 @@ impl SideCache {
         });
         let excess = file.entries.len().saturating_sub(ENTRY_LIMIT);
         file.entries.drain(..excess);
-        let _ = write(&self.path, &file);
+        let _ = write(&self.target_directory, &file, std::process::id());
     }
 }
 
@@ -186,13 +190,30 @@ fn read(path: &Path) -> CacheFile {
         .unwrap_or_default()
 }
 
-fn write(path: &Path, file: &CacheFile) -> Option<()> {
-    let directory = path.parent()?;
-    fs::create_dir_all(directory).ok()?;
+/// Writes the file through a staging sibling created only where nothing sits,
+/// then renamed over the old file, under a cache directory none of whose
+/// components is a symlink: a committed target directory must not turn a
+/// store into a write elsewhere. A staging file already there, a stale one
+/// whose PID came round again, is left alone, and a later run, under another
+/// `pid`, stores the side.
+fn write(target_directory: &Path, file: &CacheFile, pid: u32) -> Option<()> {
+    if symlinked_component(target_directory, Path::new(CACHE_DIRECTORY)).is_some() {
+        return None;
+    }
+    let directory = target_directory.join(CACHE_DIRECTORY);
     let bytes = serde_json::to_vec(file).ok()?;
-    let staging = directory.join(format!("base-sides.{}.partial", std::process::id()));
-    fs::write(&staging, bytes).ok()?;
-    fs::rename(&staging, path).ok()
+    let staging = directory.join(format!("base-sides.{pid}.partial"));
+    if let Err(error) = create_new(&staging, &bytes) {
+        if error.kind() != io::ErrorKind::AlreadyExists {
+            let _ = fs::remove_file(&staging);
+        }
+        return None;
+    }
+    fs::rename(&staging, directory.join(CACHE_FILE))
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&staging);
+        })
+        .ok()
 }
 
 fn decode_evidence(evidence: &[Option<String>]) -> Option<Evidence> {
@@ -352,4 +373,87 @@ fn advisory_identity(options: &RunOptions) -> String {
     .max()
     .map_or(0, |since| since.as_nanos());
     format!("{database:?}@{newest}")
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::symlink;
+
+    use super::*;
+
+    fn stored(entries: usize) -> CacheFile {
+        CacheFile {
+            version: FILE_VERSION,
+            entries: (0..entries)
+                .map(|index| Entry {
+                    key: index.to_string(),
+                    members: Vec::new(),
+                    diagnostics: Vec::new(),
+                    evidence: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The outside file a planted link points at: its bytes and its
+    /// modification time, which a truncating open would both change.
+    fn outside(root: &Path) -> (PathBuf, Vec<u8>, std::time::SystemTime) {
+        let file = root.join("outside.txt");
+        fs::write(&file, b"not the cache's to touch").unwrap();
+        let modified = fs::metadata(&file).unwrap().modified().unwrap();
+        (file, b"not the cache's to touch".to_vec(), modified)
+    }
+
+    fn unchanged(file: &Path, bytes: &[u8], modified: std::time::SystemTime) {
+        assert_eq!(fs::read(file).unwrap(), bytes);
+        assert_eq!(fs::metadata(file).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn a_link_at_the_staging_path_is_never_written_through() {
+        let root = crate::test_scratch::scratch("side-cache", "staging-link");
+        let target = root.join("target");
+        let (file, bytes, modified) = outside(&root);
+        let directory = target.join(CACHE_DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let pid = std::process::id();
+        symlink(&file, directory.join(format!("base-sides.{pid}.partial"))).unwrap();
+        assert_eq!(write(&target, &stored(1), pid), None);
+        unchanged(&file, &bytes, modified);
+        assert!(!directory.join(CACHE_FILE).exists());
+    }
+
+    #[test]
+    fn a_symlinked_cache_component_takes_no_write() {
+        for component in ["rust-doctor", "rust-doctor/cache"] {
+            let root = crate::test_scratch::scratch("side-cache", "component-link");
+            let target = root.join("target");
+            let elsewhere = root.join("elsewhere");
+            fs::create_dir_all(&elsewhere).unwrap();
+            let link = target.join(component);
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            symlink(&elsewhere, &link).unwrap();
+            assert_eq!(write(&target, &stored(1), std::process::id()), None, "{component}");
+            assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0, "{component}");
+        }
+    }
+
+    /// A staging file left by a crashed run whose PID came round again is
+    /// refused, not truncated, the stored file stays readable, and the next
+    /// run, under another PID, stores the side.
+    #[test]
+    fn a_stale_staging_file_refuses_the_write_until_a_later_run() {
+        let root = crate::test_scratch::scratch("side-cache", "stale-staging");
+        let target = root.join("target");
+        let directory = target.join(CACHE_DIRECTORY);
+        let pid = std::process::id();
+        assert_eq!(write(&target, &stored(1), pid), Some(()));
+        let stale = directory.join(format!("base-sides.{pid}.partial"));
+        fs::write(&stale, b"stale").unwrap();
+        assert_eq!(write(&target, &stored(2), pid), None);
+        assert_eq!(fs::read(&stale).unwrap(), b"stale");
+        assert_eq!(read(&directory.join(CACHE_FILE)).entries.len(), 1);
+        assert_eq!(write(&target, &stored(2), pid.wrapping_add(1)), Some(()));
+        assert_eq!(read(&directory.join(CACHE_FILE)).entries.len(), 2);
+    }
 }

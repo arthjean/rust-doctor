@@ -849,6 +849,9 @@ fn promisor_clone_fails_closed_without_fetching_or_writing_git_objects() {
 #[path = "baseline_kernel/delta.rs"]
 mod delta;
 
+#[path = "baseline_kernel/write_confinement.rs"]
+mod write_confinement;
+
 /// The second baseline run on an unchanged base reads the base side from the
 /// side cache: the same bytes, and no Cargo process for the base side. A
 /// policy edit, a corrupt cache file and `RUST_DOCTOR_NO_CACHE=1` each make it

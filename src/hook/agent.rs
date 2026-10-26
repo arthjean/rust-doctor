@@ -28,7 +28,7 @@ use rust_doctor::{
 use serde_json::{Map, Value, json};
 
 use super::{FAILED, WriteArgs};
-use crate::workspace_write::{create_new, on_path, symlinked_component};
+use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
 /// The agents with an end-of-turn hook this tool installs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

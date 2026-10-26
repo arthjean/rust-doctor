@@ -1,9 +1,12 @@
-//! The one way the installers write into a workspace: only the files they
-//! name, never through a symlink, and never over a file they did not write.
+//! The one way rust-doctor writes into a workspace: only the files it names,
+//! never through a symlink, and never over a file it did not write. The
+//! installers write through it, and so do the scan's own files under the
+//! Cargo target directory: the baseline's write probe and the side cache.
 //!
 //! A repository is untrusted input to the tool that scans it, and a symlink
-//! committed as `.claude` or `.git/hooks/pre-commit` would otherwise turn an
-//! install into a write wherever the link points.
+//! committed as `.claude`, `.git/hooks/pre-commit` or `target/rust-doctor`
+//! would otherwise turn an install or a scan into a write wherever the link
+//! points.
 
 use std::fs;
 use std::io::{self, Write};

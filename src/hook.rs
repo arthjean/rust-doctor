@@ -19,8 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 use rust_doctor::git_hook::{self, HookSetup};
-
-use crate::workspace_write::{create_new, on_path, symlinked_component};
+use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
 
 /// The hooks that turn a rescan into a habit. Only `install` writes, and only
