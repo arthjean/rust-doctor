@@ -241,7 +241,7 @@ pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
 fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
     let toplevel = rust_doctor::git_hook::toplevel(path).ok_or(CiError::NotARepository)?;
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let workspace = rust_doctor::cargo_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
+    let workspace = rust_doctor::manifest_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
     let relative = canonical(&workspace)
         .strip_prefix(canonical(&toplevel))
         .map_err(|_| CiError::InvalidWorkspace)?

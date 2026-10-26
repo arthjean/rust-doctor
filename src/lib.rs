@@ -112,12 +112,22 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
 }
 
 /// The root of the Cargo workspace a scan of `path` would judge, found the
-/// way a scan finds it, or `None` when none resolves. `ci install` places the
-/// workflow's scan from it.
+/// way a scan finds it, through `cargo metadata`, or `None` when none
+/// resolves. `why` scans that root right after, so it asks Cargo as the scan
+/// will.
 pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
     scan_target::resolve(path, Path::new("cargo"), false, None)
         .ok()
         .map(|target| target.workspace_root().to_path_buf())
+}
+
+/// The root of the Cargo workspace `path` belongs to, found by reading
+/// manifests alone, or `None` when none resolves. `rules explain` reads its
+/// configuration there and `ci install` places the workflow's scan from it:
+/// neither starts a toolchain process, so no `rust-toolchain.toml` or Cargo
+/// configuration the tree ships can run through them.
+pub fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
+    scan_target::manifest_workspace_root(path)
 }
 
 /// Installs SIGINT, SIGTERM and SIGHUP handlers for a binary that scans. Every child

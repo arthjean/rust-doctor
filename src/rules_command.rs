@@ -6,7 +6,9 @@
 //! no workspace. It exists so that what publishes the rule list, the website
 //! included, reads it from the tool instead of restating it. `rules explain`
 //! reads the `rust-doctor.toml` a scan of its PATH reads, at the workspace
-//! root `cargo metadata` names, and starts no other process.
+//! root its manifests declare, and starts no toolchain process: Cargo is
+//! never asked, so no `rust-toolchain.toml` or Cargo configuration the tree
+//! ships can run through it.
 
 use std::io::{self, Write};
 use std::path::PathBuf;

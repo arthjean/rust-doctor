@@ -155,6 +155,41 @@ fn discover_manifest(
     }
 }
 
+/// The root of the workspace `path` names, found by reading manifests alone:
+/// the manifest a scan would start from, then the nearest manifest at or
+/// above its directory that declares a `[workspace]` table, within the same
+/// repository boundary, else that manifest's own directory.
+///
+/// It starts no toolchain process, which is the point: `cargo metadata` runs
+/// whatever a `rust-toolchain.toml` path toolchain names, and a command that
+/// only reads a configuration file must not. A scan still asks Cargo, since
+/// it needs the members Cargo resolves and not only the root.
+pub(crate) fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
+    let (manifest, _) = discover_manifest(path, None).ok()?;
+    let directory = manifest.parent()?;
+    for ancestor in directory.ancestors() {
+        if declares_workspace(&ancestor.join("Cargo.toml")) {
+            return Some(ancestor.to_path_buf());
+        }
+        if ancestor.join(".git").symlink_metadata().is_ok() {
+            break;
+        }
+    }
+    Some(directory.to_path_buf())
+}
+
+/// What a manifest read for its `[workspace]` table may weigh. Far past any
+/// real manifest, and a bound on what a tree can make this process parse.
+const MANIFEST_LIMIT: u64 = 1024 * 1024;
+
+fn declares_workspace(manifest: &Path) -> bool {
+    std::fs::metadata(manifest).is_ok_and(|metadata| metadata.is_file() && metadata.len() <= MANIFEST_LIMIT)
+        && std::fs::read_to_string(manifest)
+            .ok()
+            .and_then(|contents| contents.parse::<toml::Table>().ok())
+            .is_some_and(|document| document.get("workspace").is_some_and(toml::Value::is_table))
+}
+
 fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
     let resolved = path.canonicalize().map_err(|error| {
         invalid_manifest_error(format!("could not resolve manifest path: {error}"))

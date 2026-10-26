@@ -143,10 +143,10 @@ pub fn explain_rule(query: &str, workspace: Option<&Path>) -> Result<RuleExplana
 
 fn effective_level(rule: &CatalogEntry, path: &Path) -> Result<EffectiveLevel, ExplainError> {
     // The configuration a scan of `path` reads: its workspace root's, found
-    // the way a scan finds it. A member's own file, which scans ignore, used
-    // to answer here. Without Cargo, or outside a workspace, `path` is taken
+    // from the manifests without starting Cargo. A member's own file, which
+    // scans ignore, used to answer here. Outside a workspace, `path` is taken
     // as the root it was given as.
-    let root = crate::cargo_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
+    let root = crate::manifest_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
     let configuration = load_path(&root.join(CONFIG_FILE_NAME))
         .map_err(|error| ExplainError::Configuration(error.message))?;
     let input = PolicyInput::default();
