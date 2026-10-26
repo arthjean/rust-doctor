@@ -213,7 +213,7 @@ fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<Why
         message: text(diagnostic, "message").map(sanitize_multiline).unwrap_or_default(),
         help: text(diagnostic, "help").map(sanitize_multiline),
         url: rule_url(&rule_id),
-        directive: (!named).then(|| directive_for(&rule_id, &path)),
+        directive: if named { None } else { directive_for(&rule_id, &path) },
         rule_id,
         path,
         span,
@@ -223,13 +223,27 @@ fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<Why
 
 /// The suppression a site of `rule_id` takes: a native rule's comment, a
 /// manifest's `#` comment, or an `#[expect]` for a Clippy or rustc lint.
-fn directive_for(rule_id: &str, path: &str) -> String {
-    if rule_id.starts_with("rust_doctor::") {
+///
+/// `None` unless the id is a lint path: `::`-separated, non-empty segments of
+/// ASCII letters, digits and `_`, the charset the Markdown report trusts. A
+/// saved report is any file the reader names, and a code holding `)]` would
+/// otherwise close the attribute and hand the reader Rust to paste.
+fn directive_for(rule_id: &str, path: &str) -> Option<String> {
+    let lint_path = rule_id.split("::").all(|segment| {
+        !segment.is_empty()
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    });
+    if !lint_path {
+        return None;
+    }
+    Some(if rule_id.starts_with("rust_doctor::") {
         let marker = if path.ends_with(".rs") { "//" } else { "#" };
         format!("{marker} rust-doctor: allow({rule_id}) -- <why this site is not a defect>")
     } else {
         format!("#[expect({rule_id}, reason = \"<why this site is not a defect>\")]")
-    }
+    })
 }
 
 fn header_marks(workspace_root: &Path, path: &str) -> bool {

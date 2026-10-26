@@ -413,3 +413,65 @@ fn why_refuses_a_saved_report_of_another_schema_as_report_markdown_does() {
     }
     fs::remove_dir_all(root).unwrap();
 }
+
+/// `why --report` writes a suppression directive only for a well-formed lint
+/// path: a saved report whose `code` closes the attribute hands the reader no
+/// Rust to paste, and its suppression fields reach the terminal as text.
+#[test]
+fn why_writes_a_directive_only_for_a_lint_path_from_a_saved_report() {
+    let root = workspace("why-directive");
+    let template: Value =
+        serde_json::from_str(&fs::read_to_string(fixture("baseline.json")).unwrap()).unwrap();
+    let why = |name: &str, code: &str, suppressions: Value, json: bool| {
+        let mut report = template.clone();
+        report["diagnostics"] = json!([{
+            "code": code, "severity": "warning", "message": "m", "path": "src/lib.rs",
+            "span": { "line_start": 1, "column_start": 1, "line_end": 1, "column_end": 2 },
+            "related": [],
+        }]);
+        report["suppressions"] = suppressions;
+        let path = root.join(name);
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        let output = binary()
+            .args(["why", "src/lib.rs:1", "--report"])
+            .arg(&path)
+            .args(json.then_some("--json"))
+            .current_dir(&root)
+            .env("PATH", "")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{name}: {}", text(&output.stderr));
+        format!("{}{}", text(&output.stdout), text(&output.stderr))
+    };
+
+    let hostile = "clippy::todo)]\nfn x(){}//";
+    let printed = why("hostile.json", hostile, json!([]), false);
+    assert!(!printed.lines().any(|line| line.contains("#[expect")), "{printed}");
+    assert!(!printed.contains("To suppress this site"), "{printed}");
+    let published: Value = serde_json::from_str(&why("hostile-json.json", hostile, json!([]), true)).unwrap();
+    assert!(published["hits"][0].get("directive").is_none(), "{published}");
+
+    let printed = why("clippy.json", "clippy::todo", json!([]), false);
+    assert!(
+        printed.contains("To suppress this site: #[expect(clippy::todo, reason = \"<why this site is not a defect>\")]"),
+        "{printed}"
+    );
+    let native = "rust_doctor::source::blocking_call_in_async";
+    let printed = why("native.json", native, json!([]), false);
+    assert!(
+        printed.contains(&format!("To suppress this site: // rust-doctor: allow({native}) -- ")),
+        "{printed}"
+    );
+
+    let suppressions = json!([{
+        "path": "src/lib.rs", "line": 1,
+        "rules": ["rust_doctor::x\u{1b}]0;title\u{7}", "\u{9b}2Jy"], "status": "unused\u{9d}0;t\u{9c}",
+    }]);
+    let printed = why("escapes.json", "clippy::todo", suppressions, false);
+    assert!(printed.contains("Suppression at src/lib.rs:1"), "{printed}");
+    assert!(
+        !printed.chars().any(|character| character.is_control() && character != '\n'),
+        "{printed:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
