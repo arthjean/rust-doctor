@@ -205,6 +205,10 @@ impl InspectionSession {
         policy: &policy::PolicyInput,
     ) -> Result<Self, Box<InspectReport>> {
         let scan = execution::interrupt::ScanGuard::enter();
+        // Each scan reads the filter drivers its repository configures afresh:
+        // the configuration may have changed since the last scan of this
+        // process.
+        git::forget_filter_drivers();
         // The deadline starts here, before Cargo is first asked anything, so
         // the time metadata and the baseline snapshot take counts against it,
         // and every child the run starts, `cargo metadata`, the toolchain

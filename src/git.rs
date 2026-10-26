@@ -8,6 +8,13 @@
 //! stream is read under a bound and both streams are drained on their own
 //! thread rather than after the child exits.
 //!
+//! Nor does any call run a program the repository configures. Every filter
+//! driver the effective configuration names, not only LFS, has its `clean`,
+//! `smudge` and `process` blanked and `required` set to false, through
+//! `GIT_CONFIG_COUNT` pairs rather than `-c`: git splits a `-c` argument at its
+//! first `=`, so `-c filter.p=q.process=` leaves the driver `p=q` running. The
+//! `filters` module reads the names and fails a call closed when it cannot.
+//!
 //! One rule holds the module together: **a call names the stage every one of
 //! its outcomes is reported at**. `GitCall::stage` is that name, and the four
 //! exits (git could not start, stdout overflowed, stderr overflowed, the call
@@ -21,14 +28,18 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::thread;
 
 use crate::bounded_read::collect_bounded;
 use crate::execution::{RunDeadline, spawn_bounded};
 use crate::internal_error::InternalError;
 
+mod filters;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use filters::forget as forget_filter_drivers;
 
 pub(crate) const STDERR_OUTPUT_LIMIT: usize = 65_536;
 
@@ -94,15 +105,24 @@ pub(crate) const OUTPUT_TOO_LARGE: GitFailure = GitFailure::new(
 
 const UNAVAILABLE: GitFailure = GitFailure::new("git-unavailable", "Git could not be started.");
 
+/// The configuration that keeps every hook from running. Only the hook
+/// installer, which asks git where hooks live, takes it back out.
+pub(crate) const HOOKS_OFF: &str = "core.hooksPath=/dev/null";
+
 /// Prefixes an operation with the configuration every call of this crate runs
 /// under.
 ///
-/// Git LFS's filter is switched off on every call. Checking a snapshot out
-/// would smudge each pointer file into a download, and comparing the working
-/// tree runs the clean filter, which writes under `.git/lfs`: the scan neither
-/// reaches the network nor writes into the repository. A snapshot holds the
-/// pointer files the commit records. `GIT_LFS_SKIP_SMUDGE`, which
-/// `git_command` sets, covers an LFS that still runs.
+/// `safe.bareRepository=explicit` keeps git from binding to a git directory
+/// the tree fabricates from tracked files (`HEAD`, `objects/`, `refs/`): only
+/// a `--git-dir` this crate names reaches a repository that is not a `.git`.
+/// Git honors the key only in protected configuration, which `-c` is.
+///
+/// [`HOOKS_OFF`] keeps every hook from running: a snapshot writes an index,
+/// which starts `post-index-change`, and the repository's configuration names
+/// where hooks live.
+///
+/// Filter drivers are switched off by `git_command` rather than here, through
+/// environment pairs: see the `filters` module for why not `-c`.
 ///
 /// The operation is written in whatever string type the call site already
 /// holds, so a fixed spelling stays a literal and only a computed argument
@@ -117,13 +137,9 @@ pub(crate) fn git_arguments<T: Into<OsString>, const N: usize>(
         OsString::from("-c"),
         OsString::from("core.fsmonitor=false"),
         OsString::from("-c"),
-        OsString::from("filter.lfs.process="),
+        OsString::from("safe.bareRepository=explicit"),
         OsString::from("-c"),
-        OsString::from("filter.lfs.smudge="),
-        OsString::from("-c"),
-        OsString::from("filter.lfs.clean="),
-        OsString::from("-c"),
-        OsString::from("filter.lfs.required=false"),
+        OsString::from(HOOKS_OFF),
         OsString::from("--no-pager"),
         OsString::from("-C"),
         // Absolute, since `git_command` also runs git in `workspace_root`: a
@@ -248,7 +264,18 @@ pub(crate) fn run_git_status(
     index: Option<&Path>,
     deadline: Option<RunDeadline>,
 ) -> Option<i32> {
-    let mut command = git_command(git, workspace_root, arguments);
+    // The enumeration's outcome is only ever "no answer" here, so its call
+    // names no stage a caller would read.
+    let enumeration = GitCall {
+        arguments: Vec::new(),
+        stdout_limit: filters::ENUMERATION_LIMIT,
+        stage: "git",
+        failure: UNAVAILABLE,
+        overflow: OUTPUT_TOO_LARGE,
+    };
+    let drivers = drivers(git, workspace_root, arguments, &enumeration, deadline).ok()?;
+    let pairs = filters::neutralizing_pairs(&drivers);
+    let mut command = git_command(git, workspace_root, arguments, &pairs);
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
@@ -265,7 +292,50 @@ fn run_git_configured(
     input: Option<Vec<u8>>,
     deadline: Option<RunDeadline>,
 ) -> Result<Vec<u8>, InternalError> {
-    let mut command = git_command(git, workspace_root, &call.arguments);
+    let drivers = drivers(git, workspace_root, &call.arguments, call, deadline)?;
+    let pairs = filters::neutralizing_pairs(&drivers);
+    let command = git_command(git, workspace_root, &call.arguments, &pairs);
+    run_command(command, call, index, input, deadline)
+}
+
+/// The filter drivers the repository `arguments` select configures, read
+/// under the same global options on the first call of the scan that names
+/// them. A failed enumeration is the call's failure, so a call whose drivers
+/// are unknown never runs.
+fn drivers(
+    git: &Path,
+    workspace_root: &Path,
+    arguments: &[OsString],
+    call: &GitCall,
+    deadline: Option<RunDeadline>,
+) -> Result<Arc<[String]>, InternalError> {
+    let location = filters::location(arguments);
+    let key = [git.as_os_str(), workspace_root.as_os_str()]
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .chain(location.iter().cloned())
+        .collect();
+    filters::drivers(key, call, || {
+        let arguments = filters::enumeration_arguments(location);
+        let command = git_command(git, workspace_root, &arguments, &filters::canary_pairs());
+        let enumeration = GitCall {
+            arguments: Vec::new(),
+            stdout_limit: filters::ENUMERATION_LIMIT,
+            stage: call.stage,
+            failure: call.failure,
+            overflow: call.overflow,
+        };
+        run_command(command, &enumeration, None, None, deadline)
+    })
+}
+
+fn run_command(
+    mut command: Command,
+    call: &GitCall,
+    index: Option<&Path>,
+    input: Option<Vec<u8>>,
+    deadline: Option<RunDeadline>,
+) -> Result<Vec<u8>, InternalError> {
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
@@ -322,7 +392,15 @@ fn joined<T, E>(
     handle.join().map_err(|_| failure())?.map_err(|_| failure())
 }
 
-fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Command {
+/// The command every call runs as: in the workspace, with closed stdin, the
+/// variables that would redirect it removed, and `pairs` set as command-scope
+/// configuration once the inherited `GIT_CONFIG_COUNT` is gone.
+fn git_command(
+    git: &Path,
+    workspace_root: &Path,
+    arguments: &[OsString],
+    pairs: &[(String, &str)],
+) -> Command {
     let mut command = Command::new(git);
     command
         .args(arguments)
@@ -336,6 +414,12 @@ fn git_command(git: &Path, workspace_root: &Path, arguments: &[OsString]) -> Com
         .env("LC_ALL", "C");
     for variable in GIT_ENVIRONMENT_OVERRIDES {
         command.env_remove(variable);
+    }
+    command.env("GIT_CONFIG_COUNT", pairs.len().to_string());
+    for (index, (key, value)) in pairs.iter().enumerate() {
+        command
+            .env(format!("GIT_CONFIG_KEY_{index}"), key)
+            .env(format!("GIT_CONFIG_VALUE_{index}"), value);
     }
     command
 }

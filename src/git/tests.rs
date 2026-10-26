@@ -56,7 +56,8 @@ fn git_script(contents: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 #[test]
 fn git_command_fixes_cwd_stdio_and_hostile_environment() {
     let arguments = git_arguments(Path::new("/workspace"), ["status"]);
-    let command = git_command(Path::new("git"), Path::new("/workspace"), &arguments);
+    let pairs = filters::neutralizing_pairs(&["p=q".to_owned()]);
+    let command = git_command(Path::new("git"), Path::new("/workspace"), &arguments, &pairs);
     assert_eq!(command.get_current_dir(), Some(Path::new("/workspace")));
     assert_eq!(command.get_args().collect::<Vec<_>>(), arguments);
     let environment: BTreeMap<_, _> = command.get_envs().collect();
@@ -77,7 +78,114 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
         Some(&Some(OsStr::new("C")))
     );
     for variable in GIT_ENVIRONMENT_OVERRIDES {
-        assert_eq!(environment.get(OsStr::new(variable)), Some(&None));
+        if variable != "GIT_CONFIG_COUNT" {
+            assert_eq!(environment.get(OsStr::new(variable)), Some(&None));
+        }
+    }
+    // US-002: the inherited count never survives; the pairs replace it, and
+    // they are never spelled as `-c`, which splits `p=q` at its `=`.
+    assert_eq!(
+        environment.get(OsStr::new("GIT_CONFIG_COUNT")),
+        Some(&Some(OsStr::new("8")))
+    );
+    for (index, (key, value)) in [
+        "filter.lfs.clean",
+        "filter.lfs.smudge",
+        "filter.lfs.process",
+        "filter.lfs.required",
+        "filter.p=q.clean",
+        "filter.p=q.smudge",
+        "filter.p=q.process",
+        "filter.p=q.required",
+    ]
+    .into_iter()
+    .zip(["", "", "", "false"].into_iter().cycle())
+    .enumerate()
+    {
+        assert_eq!(
+            environment.get(OsStr::new(&format!("GIT_CONFIG_KEY_{index}"))),
+            Some(&Some(OsStr::new(key)))
+        );
+        assert_eq!(
+            environment.get(OsStr::new(&format!("GIT_CONFIG_VALUE_{index}"))),
+            Some(&Some(OsStr::new(value)))
+        );
+    }
+    assert!(
+        !arguments
+            .iter()
+            .any(|argument| argument.to_string_lossy().starts_with("filter.")),
+        "{arguments:?}"
+    );
+    assert!(arguments.contains(&OsString::from("safe.bareRepository=explicit")));
+    assert!(arguments.contains(&OsString::from("core.hooksPath=/dev/null")));
+}
+
+/// US-002: the enumeration runs first, under the call's own `-C`, carrying
+/// the canary alone; the call then carries a blanked key set per name read.
+#[cfg(unix)]
+#[test]
+fn the_enumeration_precedes_the_call_and_feeds_its_pairs() {
+    let (workspace, script) = git_script(concat!(
+        "#!/bin/sh\n",
+        "case \" $* \" in *\" config \"*)\n",
+        "  printf '%s=%s|' \"$GIT_CONFIG_KEY_0\" \"$GIT_CONFIG_COUNT\" >> \"$0.log\"\n",
+        "  printf 'filter.p=q.process\\0rust-doctor.canary\\0'; exit 0 ;;\n",
+        "esac\n",
+        "printf '%s:%s:%s' \"$GIT_CONFIG_COUNT\" \"$GIT_CONFIG_KEY_6\" \"$GIT_CONFIG_VALUE_7\"\n",
+    ));
+    let call = call("scope", git_arguments(&workspace, ["status"]));
+    let output = run_git(&script, &workspace, &call, None).unwrap();
+    assert_eq!(String::from_utf8(output).unwrap(), "8:filter.p=q.process:false");
+    // A second call of the same location reads no configuration again.
+    run_git(&script, &workspace, &call, None).unwrap();
+    let log = fs::read_to_string(script.with_extension("log")).unwrap();
+    assert_eq!(log, "rust-doctor.canary=1|");
+}
+
+/// US-002: a git that ignores the pairs (before 2.31) still runs the calls
+/// of a repository that configures no driver, as it did before the
+/// enumeration: only the `-c` sentinel matches, and nothing needs blanking.
+#[cfg(unix)]
+#[test]
+fn a_git_without_pairs_still_reads_a_repository_with_no_driver() {
+    let (workspace, script) = git_script(concat!(
+        "#!/bin/sh\n",
+        "case \" $* \" in *\" config \"*)\n",
+        "  case \" $* \" in *\" rust-doctor.present=1 \"*) printf 'rust-doctor.present\\0'; exit 0 ;; esac\n",
+        "  exit 1 ;;\n",
+        "esac\n",
+        "touch \"$0.ran\"\n",
+    ));
+    run_git(&script, &workspace, &call("scope", git_arguments(&workspace, ["diff"])), None).unwrap();
+    assert!(script.with_extension("ran").exists());
+}
+
+/// US-002: a call whose drivers cannot be read never runs.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_or_oversized_configuration_fails_the_call_closed() {
+    for (enumeration, code) in [
+        ("exit 1", "git-diff-failed"),
+        (
+            "i=0; while [ \"$i\" -lt 8193 ]; do printf 12345678; i=$((i + 1)); done; exit 0",
+            "git-output-too-large",
+        ),
+        ("printf 'filter.x.clean\\0'; exit 0", "git-diff-failed"),
+    ] {
+        let (workspace, script) = git_script(&format!(
+            "#!/bin/sh\ncase \" $* \" in *\" config \"*) {enumeration} ;; esac\ntouch \"$0.ran\"\n"
+        ));
+        let mut failing = call("scope", git_arguments(&workspace, ["diff"]));
+        failing.failure = GitFailure::new("git-diff-failed", "Git changed files could not be read.");
+        let error = run_git(&script, &workspace, &failing, None).unwrap_err();
+        assert_eq!((error.stage, error.code), ("scope", code), "{enumeration}");
+        assert!(!script.with_extension("ran").exists(), "{enumeration}");
+        assert_eq!(
+            run_git_status(&script, &workspace, &failing.arguments, None, None),
+            None
+        );
+        assert!(!script.with_extension("ran").exists(), "{enumeration}");
     }
 }
 
@@ -86,9 +194,9 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
 #[test]
 fn a_relative_workspace_reaches_git_once() {
     let arguments = git_arguments(Path::new("crates/x"), ["status"]);
-    let command = git_command(Path::new("git"), Path::new("crates/x"), &arguments);
+    let command = git_command(Path::new("git"), Path::new("crates/x"), &arguments, &[]);
     assert_eq!(command.get_current_dir(), Some(Path::new("crates/x")));
-    let directory = Path::new(&arguments[14]);
+    let directory = Path::new(&arguments[10]);
     assert!(directory.is_absolute(), "{}", directory.display());
     assert_eq!(directory, std::env::current_dir().unwrap().join("crates/x"));
 }
@@ -102,8 +210,8 @@ fn arguments_accept_a_literal_and_an_owned_operation_alike() {
         [OsString::from("diff"), OsString::from("--name-only")],
     );
     assert_eq!(literal, owned);
-    assert_eq!(literal[14], OsStr::new("/workspace"));
-    assert_eq!(literal[15], OsStr::new("diff"));
+    assert_eq!(literal[10], OsStr::new("/workspace"));
+    assert_eq!(literal[11], OsStr::new("diff"));
 }
 
 #[test]
@@ -255,6 +363,9 @@ fn real_process_output_limits_and_stderr_are_closed() {
 fn a_status_call_answers_its_code_and_discards_both_streams() {
     let (workspace, script) = git_script(concat!(
         "#!/bin/sh\n",
+        // The filter driver enumeration that precedes every call answers
+        // nothing; the flood is the status call's own.
+        "case \" $* \" in *\" config \"*) exit 0 ;; esac\n",
         "i=0\n",
         "while [ \"$i\" -lt 65536 ]; do printf 12345678; printf 12345678 >&2; i=$((i + 1)); done\n",
         "exit 1\n",
@@ -278,7 +389,11 @@ fn a_status_call_answers_its_code_and_discards_both_streams() {
 /// tests included: the layer that runs the scan has to pass the rule it raises.
 #[test]
 fn the_git_layer_holds_the_size_bound_it_scans_for() {
-    for own in [include_str!("../git.rs"), include_str!("tests.rs")] {
+    for own in [
+        include_str!("../git.rs"),
+        include_str!("tests.rs"),
+        include_str!("filters.rs"),
+    ] {
         let lines = own.lines().count();
         assert!(
             lines < crate::structure::FILE_LINES,

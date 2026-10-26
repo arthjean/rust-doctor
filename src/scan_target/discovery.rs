@@ -11,6 +11,11 @@
 //! walk outside one. Either way it stays inside the requested directory, never
 //! descends more than [`DEPTH`] levels, and skips hidden directories, `target`
 //! and `node_modules`.
+//!
+//! A candidate that is itself a git directory layout (`HEAD`, `objects/`,
+//! `refs/`) is refused, as a candidate reached through a link is: a tree can
+//! commit those files, and git run inside them would answer for the
+//! repository they fabricate rather than for the clone that tracks them.
 
 use std::fs;
 use std::path::Path;
@@ -37,7 +42,7 @@ pub(super) fn workspaces_below(directory: &Path, deadline: Option<RunDeadline>) 
         walk(directory, "", 0, &mut walked);
         walked
     });
-    found.retain(|relative| eligible(relative));
+    found.retain(|relative| eligible(relative) && !git_directory_layout(&directory.join(relative)));
     found.sort();
     found.dedup();
     found
@@ -142,6 +147,14 @@ fn eligible(relative: &str) -> bool {
             .all(|component| !component.is_empty() && !skipped(component))
 }
 
+/// Whether `directory` holds what git takes for a repository of its own: a
+/// `HEAD` file beside `objects/` and `refs/` directories.
+fn git_directory_layout(directory: &Path) -> bool {
+    directory.join("HEAD").is_file()
+        && directory.join("objects").is_dir()
+        && directory.join("refs").is_dir()
+}
+
 fn skipped(name: &str) -> bool {
     name.starts_with('.') || SKIPPED.contains(&name)
 }
@@ -183,6 +196,32 @@ mod tests {
         walk(&root, "", 0, &mut found);
         found.sort();
         assert_eq!(found, ["a/b/c/d", "app", "app/nested"]);
+    }
+
+    /// US-003: a candidate holding a git directory layout is never scanned,
+    /// whether git lists it or the walk finds it.
+    #[test]
+    fn a_candidate_holding_a_git_directory_layout_is_refused() {
+        let root = crate::test_scratch::scratch("scan-target", "embedded-git-dir");
+        for directory in ["app", "vendor/tool/objects", "vendor/tool/refs/heads", "half/objects"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        for manifest in ["app", "vendor/tool", "half"] {
+            fs::write(root.join(manifest).join("Cargo.toml"), "").unwrap();
+        }
+        fs::write(root.join("vendor/tool/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(root.join("half/HEAD"), "ref: refs/heads/main\n").unwrap();
+        assert!(git_directory_layout(&root.join("vendor/tool")));
+        assert!(!git_directory_layout(&root.join("half")));
+        // Through git: the scratch lives under this repository's ignored
+        // `target/`, so a repository of its own is what lists the manifests.
+        let initialized = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(initialized.success());
+        assert_eq!(workspaces_below(&root, None), ["app", "half"]);
     }
 
     #[test]

@@ -2,8 +2,9 @@
 // configuration names programs (fsmonitor, clean and smudge filters, a diff
 // driver, an external diff, a pager, hooks), each of which writes its name to
 // a log. Modeled on pf's poisoned-repository.test.ts. A control first proves
-// plain git runs them; each scope then runs only the filters git needs to
-// read the content it judges, and never the rest.
+// plain git runs them; no scope runs any of them, since every filter driver
+// the configuration names is neutralized and hooks are switched off (EP-001
+// of the security audit remediation).
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -91,22 +92,22 @@ describe("poisoned repository configuration", () => {
     expect(await scanPoisoned(await poisoned("pg-01", "unstaged"), [])).toEqual({});
   });
 
-  test("PG-02 a files scan runs only the clean filter", async () => {
-    expect(Object.keys(await scanPoisoned(await poisoned("pg-02", "unstaged"), ["--scope", "files", "--base", "HEAD"]))).toEqual(["clean"]);
+  test("PG-02 a files scan runs none of the repository's programs", async () => {
+    expect(Object.keys(await scanPoisoned(await poisoned("pg-02", "unstaged"), ["--scope", "files", "--base", "HEAD"]))).toEqual([]);
   });
 
-  test("PG-03 a lines scan runs only the clean filter", async () => {
-    expect(Object.keys(await scanPoisoned(await poisoned("pg-03", "unstaged"), ["--scope", "lines", "--base", "HEAD"]))).toEqual(["clean"]);
+  test("PG-03 a lines scan runs none of the repository's programs", async () => {
+    expect(Object.keys(await scanPoisoned(await poisoned("pg-03", "unstaged"), ["--scope", "lines", "--base", "HEAD"]))).toEqual([]);
   });
 
-  test("PG-04 a baseline scan runs the clean and smudge filters and the index hook, and nothing else", async () => {
+  test("PG-04 a baseline scan runs none of the repository's programs", async () => {
     const programs = await scanPoisoned(await poisoned("pg-04", "unstaged"), ["--scope", "baseline", "--base", "HEAD"]);
-    expect(Object.keys(programs).sort()).toEqual(["clean", "post-index-change", "smudge"]);
+    expect(Object.keys(programs)).toEqual([]);
   });
 
-  test("PG-05 a staged baseline scan runs the smudge filter and the index hook, and nothing else", async () => {
+  test("PG-05 a staged baseline scan runs none of the repository's programs", async () => {
     const programs = await scanPoisoned(await poisoned("pg-05", "staged"), ["--scope", "baseline", "--base", "HEAD", "--staged"]);
-    expect(Object.keys(programs).sort()).toEqual(["post-index-change", "smudge"]);
+    expect(Object.keys(programs)).toEqual([]);
   });
 
   test("PG-06 no scope runs the fsmonitor, the textconv driver, the pager or the external diff", async () => {

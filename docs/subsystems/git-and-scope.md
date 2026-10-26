@@ -13,7 +13,7 @@ which is why the layer lives
 beside them rather than inside the scope that used to own it: reading
 `git_scope::run_git` to list a tree said scope where none was involved.
 
-Four rules hold the two together, and each of them replaced something that had
+Five rules hold the two together, and each of them replaced something that had
 a cost.
 
 A call names the stage every one of its outcomes is reported at. `GitCall`
@@ -30,6 +30,20 @@ Every way out of the layer is bounded. `git_command` is private and
 closed at the pipe. The escape hatch it replaced handed a `Command` out and
 `repo_hygiene` called `.output()` on it, which reads both streams with no bound
 at all, in the one module built to make that impossible.
+
+No program the repository configures runs. Every call blanks the `clean`,
+`smudge` and `process` of each filter driver the effective configuration names,
+LFS included, and sets `required` to false. `git/filters.rs` reads the names
+once per scan and per git location with `git config --get-regexp`, includes
+resolved, and passes the overrides as `GIT_CONFIG_COUNT` pairs, command-scope
+configuration that outranks every file. `-c` ranks the same but splits at the
+first `=`, so `-c filter.p=q.process=` left the driver `p=q` running, and the
+LFS-only list it replaced left every other name running. A canary pair read
+back proves git honors the pairs: a git that does not (before 2.31), or an
+enumeration that fails or passes 64 KiB, fails the call before it runs.
+`core.hooksPath=/dev/null` keeps the index a snapshot writes from starting
+`post-index-change`, and `safe.bareRepository=explicit` keeps git from binding
+to a git directory the tree commits as plain files.
 
 Validated once, resolved from that. `ScopeRequest::validate` returns a
 `ValidatedScope` holding a `BaseSelector` that passed the closed grammar, and
@@ -77,7 +91,8 @@ Discovery stops its upward walk at the first directory holding `.git`, so a
 manifest above an unrelated repository is never scanned. With none found, it
 lists manifests below through `git ls-files` or a walk, four levels deep, past
 hidden, `target` and `node_modules` trees: one is scanned and named on stderr,
-several fail as `ambiguous-workspace`. A Tauri root used to be a dead end.
+several fail as `ambiguous-workspace`. A candidate holding `HEAD`, `objects/`
+and `refs/` is refused, as a linked one is. A Tauri root used to be a dead end.
 
 `--staged` judges the index. `baseline/staged.rs` reads it through the one
 `GIT_INDEX_FILE` a hook hands over, refuses a conflicted or locked one, and

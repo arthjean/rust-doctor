@@ -111,13 +111,9 @@ fn files_runs_three_exact_calls_and_normalizes_the_result() {
             "-c",
             "core.fsmonitor=false",
             "-c",
-            "filter.lfs.process=",
+            "safe.bareRepository=explicit",
             "-c",
-            "filter.lfs.smudge=",
-            "-c",
-            "filter.lfs.clean=",
-            "-c",
-            "filter.lfs.required=false",
+            "core.hooksPath=/dev/null",
             "--no-pager",
             "-C",
             "/workspace",
@@ -129,9 +125,9 @@ fn files_runs_three_exact_calls_and_normalizes_the_result() {
         ]
         .map(OsString::from)
     );
-    assert_eq!(calls.borrow()[1][15], OsStr::new("merge-base"));
-    assert_eq!(calls.borrow()[2][15], OsStr::new("diff"));
-    assert_eq!(calls.borrow()[2][18], OsStr::new("--relative"));
+    assert_eq!(calls.borrow()[1][11], OsStr::new("merge-base"));
+    assert_eq!(calls.borrow()[2][11], OsStr::new("diff"));
+    assert_eq!(calls.borrow()[2][14], OsStr::new("--relative"));
     assert_eq!(scope.mode(), ScopeMode::Files);
     assert_eq!(scope.comparison_base(), Some(MERGE_BASE));
     assert_eq!(
@@ -139,7 +135,7 @@ fn files_runs_three_exact_calls_and_normalizes_the_result() {
         Some(&["src/a.rs".to_owned(), "src/z.rs".to_owned()][..])
     );
     // The fourth call counts the untracked Rust files the scope left out.
-    assert_eq!(calls.borrow()[3][15], OsStr::new("ls-files"));
+    assert_eq!(calls.borrow()[3][11], OsStr::new("ls-files"));
     assert_eq!(calls.borrow()[3].last().unwrap(), OsStr::new("*.rs"));
     assert_eq!(scope.untracked_unreported(), Some(1));
     // A base the caller named is never published.
@@ -372,7 +368,7 @@ fn scripted<'a>(
     answer: impl Fn(&[String]) -> Result<Vec<u8>, ()> + 'a,
 ) -> impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError> + 'a {
     move |call| {
-        let operation: Vec<String> = call.arguments[15..]
+        let operation: Vec<String> = call.arguments[11..]
             .iter()
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect();
@@ -603,7 +599,7 @@ fn a_lines_diff_past_its_bound_is_diff_too_large() {
         Path::new("/workspace"),
         move |call| {
             calls.borrow_mut().push(());
-            match call.arguments[15].to_str() {
+            match call.arguments[11].to_str() {
                 Some("diff") => Err(call.overflow.error(call.stage)),
                 _ => output(format!("{BASE}\n")),
             }

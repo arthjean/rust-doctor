@@ -279,6 +279,8 @@ Probe (`bin/priv.sh`): HOME `<scratch>/home-SECRETUSER/u-SECRETUSER-q7`, workspa
 | PG-05 | same | `--scope baseline --base HEAD --staged` | log: `smudge` and the `post-index-change` hook only (4 and 1 on `mini` today). Corrected 2026-10-20: counts are not the contract, the set of programs is | none | yes |
 | PG-06 | all scopes | | fsmonitor, textconv, pager, external diff never run | git unit | yes |
 
+Corrected 2026-10-26 (security audit remediation EP-001 US-002): every filter driver the configuration names is neutralized on every git call, and every call sets `core.hooksPath=/dev/null`, so PG-02 to PG-05 now log nothing. Rust coverage: `tests/untrusted_tree.rs` `no_configured_filter_driver_runs_under_any_scope`.
+
 ---
 
 ## Bugs and questionable behaviors (minimal repros)

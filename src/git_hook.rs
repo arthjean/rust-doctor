@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git};
+use crate::git::{GitCall, GitFailure, HOOKS_OFF, OUTPUT_TOO_LARGE, git_arguments, run_git};
 
 const STAGE: &str = "hook";
 const ANSWER_LIMIT: usize = 4_096;
@@ -79,6 +79,12 @@ fn hooks_directory(workspace: &Path) -> Option<PathBuf> {
 /// One line of git's answer, or `None` when git refused or answered nothing.
 fn query(workspace: &Path, operation: &[&str]) -> Option<String> {
     let mut arguments = git_arguments(workspace, [] as [&str; 0]);
+    // Every scan call switches hooks off, which would make git answer
+    // `/dev/null` for the directory this installer writes into. A query runs
+    // `rev-parse`, which starts no hook.
+    if let Some(at) = arguments.iter().position(|argument| argument == HOOKS_OFF) {
+        arguments.drain(at.saturating_sub(1)..=at);
+    }
     arguments.extend(operation.iter().map(Into::into));
     let answer = run_git(
         Path::new("git"),
