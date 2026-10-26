@@ -253,3 +253,132 @@ fn a_path_with_spaces_and_non_ascii_characters_installs() {
     assert!(root.join(member).join(".claude/settings.local.json").is_file());
     assert!(root.join(member).join(".claude/skills/rust-doctor/SKILL.md").is_file());
 }
+
+/// Every byte of `output` a terminal could act on, `\n` aside.
+fn controls(output: &Output) -> Vec<char> {
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    text.chars()
+        .filter(|character| character.is_control() && *character != '\n')
+        .collect()
+}
+
+fn git(root: &Path, arguments: &[&str]) {
+    let status = Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {arguments:?}");
+}
+
+/// A clone of a repository that commits a terminal escape everywhere an
+/// installer prints from: the directory `.cargo-husky/hooks` links to, the
+/// `rust-doctor` line of the marker hook in it, a workflow's file name, and C1
+/// controls in the Claude settings' hook.
+fn hostile_clone() -> PathBuf {
+    let origin = repository();
+    let directory = "\u{1b}[2Jhooks\u{1b}]0;title\u{7}";
+    fs::create_dir_all(origin.join(directory)).unwrap();
+    fs::write(
+        origin.join(directory).join("pre-commit"),
+        "#!/bin/sh\n# rust-doctor pre-commit hook\nrust-doctor \u{1b}]52;c;cHduZWQ=\u{7} . --yes\n",
+    )
+    .unwrap();
+    fs::create_dir_all(origin.join(".cargo-husky")).unwrap();
+    std::os::unix::fs::symlink(format!("../{directory}"), origin.join(".cargo-husky/hooks")).unwrap();
+    fs::create_dir_all(origin.join(".github/workflows")).unwrap();
+    fs::write(
+        origin.join(".github/workflows/\u{1b}[31mscan.yml"),
+        "jobs:\n  scan:\n    steps:\n      - uses: arthjean/rust-doctor@v0\n",
+    )
+    .unwrap();
+    fs::create_dir_all(origin.join(".claude")).unwrap();
+    fs::write(
+        origin.join(".claude/settings.local.json"),
+        r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"rust-doctor hook run claude","timeout":7777,"note":"\u009b2J\u009d0;title\u009c"}]}]}}"#,
+    )
+    .unwrap();
+    // Forced: a global excludes file commonly ignores `settings.local.json`.
+    git(&origin, &["add", "-A", "-f"]);
+    git(
+        &origin,
+        &["-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-qm", "hostile"],
+    );
+    let clone = origin.with_file_name(format!(
+        "{}-clone",
+        origin.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = fs::remove_dir_all(&clone);
+    let status = Command::new("git")
+        .args(["clone", "-q", "--no-hardlinks"])
+        .arg(&origin)
+        .arg(&clone)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    clone
+}
+
+/// No name, line or settings value a cloned repository commits reaches the
+/// terminal as anything but text, through any installer that prints it.
+#[test]
+fn the_installers_print_no_control_character_a_clone_commits() {
+    let clone = hostile_clone();
+    let path = path_with(&clone, false);
+    let run = |arguments: &[&str]| {
+        support::rust_doctor()
+            .args(arguments)
+            .arg(&clone)
+            .env("PATH", &path)
+            .output()
+            .unwrap()
+    };
+    let setup = run(&["setup", "--dry-run"]);
+    let git_hook = run(&["hook", "install", "git", "--update", "--dry-run"]);
+    let ci = run(&["ci", "install", "--branch", "main", "--dry-run"]);
+    let claude = run(&["hook", "install", "claude", "--update", "--dry-run"]);
+    let text = |output: &Output| {
+        format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+    };
+    // Each sink is reached, so the absence below is the gate's doing.
+    assert!(text(&setup).contains("becomes"), "{}", text(&setup));
+    // The gate drops each escape sequence whole, so the names print bare.
+    assert!(
+        text(&git_hook).contains("Would update hooks/pre-commit: `rust-doctor  . --yes` becomes"),
+        "{}",
+        text(&git_hook)
+    );
+    assert!(text(&ci).contains(".github/workflows/scan.yml already runs rust-doctor"), "{}", text(&ci));
+    assert!(text(&claude).contains("7777"), "{}", text(&claude));
+    for (name, output) in [("setup", &setup), ("hook git", &git_hook), ("ci", &ci), ("hook claude", &claude)] {
+        assert_eq!(controls(output), Vec::<char>::new(), "{name}: {}", text(output));
+    }
+}
+
+/// A workspace whose path from the repository's top holds a control
+/// character is refused before the hook that would carry it is written.
+#[test]
+fn a_workspace_path_holding_a_control_character_installs_no_hook() {
+    let root = repository();
+    let workspace = root.join("crates/\u{1b}[31mx");
+    fs::create_dir_all(&workspace).unwrap();
+    let path = path_with(&root, false);
+    let output = support::rust_doctor()
+        .args(["hook", "install", "git"])
+        .arg(&workspace)
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("control character"));
+    assert!(!root.join(".git/hooks/pre-commit").exists());
+    assert_eq!(controls(&output), Vec::<char>::new());
+}

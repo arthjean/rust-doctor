@@ -19,6 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 use rust_doctor::git_hook::{self, HookSetup};
+use rust_doctor::terminal_text::sanitize;
 use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
 
@@ -182,6 +183,14 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     };
     let relative = confined.workspace.to_string_lossy().into_owned();
     let toplevel = confined.toplevel;
+    // The path is written into a script and printed: a control character in
+    // it would reach the terminal of everyone who reads either.
+    if relative.chars().any(char::is_control) {
+        eprintln!(
+            "rust-doctor: refusing to install: the workspace's path from the repository's top holds a control character."
+        );
+        return FAILED;
+    }
     let command = pre_commit_command(if relative.is_empty() { "." } else { &relative });
     let directory = match location.setup {
         HookSetup::Manager(config) => {
@@ -209,11 +218,13 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     if let Some(link) = symlinked_component(&toplevel, shown) {
         eprintln!(
             "rust-doctor: {} is a symlink, and nothing is written through one.",
-            link.display()
+            sanitize(&link.display().to_string())
         );
         return FAILED;
     }
-    let shown = shown.display();
+    // The hooks directory can be one the repository names, through
+    // `core.hooksPath` or a `.cargo-husky/hooks` link into its own tree.
+    let shown = sanitize(&shown.display().to_string());
     let script = hook_script(&command);
     let mut replaced = false;
     if target.symlink_metadata().is_ok() {
@@ -240,7 +251,7 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         println!(
             "{} {shown}: `{}` becomes `{command}`.",
             if dry_run { "Would update" } else { "Updating" },
-            script_command(&existing)
+            sanitize(script_command(&existing))
         );
         replaced = true;
     }

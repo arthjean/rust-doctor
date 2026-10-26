@@ -132,7 +132,8 @@ impl fmt::Display for CiError {
             ),
             Self::Installed(path) => write!(
                 formatter,
-                "{path} already runs rust-doctor, so nothing was written"
+                "{} already runs rust-doctor, so nothing was written",
+                rust_doctor::terminal_text::sanitize(path)
             ),
             Self::Unconfined(refusal) => write!(formatter, "{refusal}"),
             Self::BranchUndetected => write!(

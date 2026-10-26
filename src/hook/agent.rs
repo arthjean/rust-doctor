@@ -28,6 +28,7 @@ use rust_doctor::{
 use serde_json::{Map, Value, json};
 
 use super::{FAILED, WriteArgs};
+use rust_doctor::terminal_text::sanitize;
 use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
 /// The agents with an end-of-turn hook this tool installs.
@@ -222,11 +223,14 @@ fn merge(
             );
             return Some(1);
         }
-        let previous = hook.to_string();
+        // Both objects come from the settings file, extra keys included, and
+        // serde escapes C0 but writes C1 controls as they are.
+        let previous = sanitize(&hook.to_string());
         if let (Some(hook), Some(keys)) = (hook.as_object_mut(), template.as_object()) {
             hook.extend(keys.clone());
         }
         let verb = if write.dry_run { "Would update" } else { "Updated" };
+        let hook = sanitize(&hook.to_string());
         println!("{verb} the {event} hook in {relative}: {previous} becomes {hook}");
         return None;
     }
