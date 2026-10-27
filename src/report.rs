@@ -35,6 +35,7 @@ mod exclusion;
 pub(crate) use exclusion::edit_distance;
 mod normalize;
 mod sanitize;
+pub(crate) use sanitize::home_directory;
 
 pub(crate) use assembly::{
     baseline_report_failure, from_baseline_execution, from_execution_scoped,

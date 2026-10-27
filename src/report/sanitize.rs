@@ -8,6 +8,7 @@
 //! ends.
 
 use std::env;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default)]
@@ -106,8 +107,18 @@ pub(super) fn normalize_text(value: &str) -> String {
         .join("\n")
 }
 
+/// The directory a report names `<home>`: `HOME`, or `USERPROFILE` in a
+/// Windows shell, which sets no `HOME`.
+pub(crate) fn home_directory() -> Option<PathBuf> {
+    home_from(env::var_os("HOME"), env::var_os("USERPROFILE"))
+}
+
+pub(super) fn home_from(home: Option<OsString>, profile: Option<OsString>) -> Option<PathBuf> {
+    home.or(profile).map(PathBuf::from)
+}
+
 pub(super) fn home_paths() -> HomePaths {
-    let home = env::var_os("HOME").map(PathBuf::from);
+    let home = home_directory();
     let mut paths = HomePaths::from_path(home.clone());
     for (name, variable, default) in [
         ("$RUSTUP_HOME", "RUSTUP_HOME", ".rustup"),
@@ -144,35 +155,93 @@ const fn ends_a_path(character: char) -> bool {
         || matches!(character, '`' | '\'' | '"' | ')' | ']' | '>' | ',' | ';' | ':')
 }
 
-/// The length of the absolute path `text` opens with, when it opens with one
-/// of at least two components: `/usr/lib`, `C:\Users\x`, or `~/src/x`, which
-/// is how Cargo's own stderr reaches here once its home is replaced. A lone
-/// `/`, `/=` or `/ 2` is arithmetic in a message, not a path.
-fn absolute_path_at(text: &str) -> Option<usize> {
-    let mut characters = text.char_indices();
-    let start = match characters.next()? {
-        (_, '/') => 1,
-        (_, '~') if text.get(1..).is_some_and(|rest| rest.starts_with('/')) => 2,
-        (_, drive) if drive.is_ascii_alphabetic() => {
-            let rest = text.get(1..)?;
-            if !(rest.starts_with(":\\") || rest.starts_with(":/")) {
-                return None;
-            }
-            3
+/// The length of the root an absolute path opens `text` with: `/`, `~/`,
+/// which is how Cargo's own stderr reaches here once its home is replaced, a
+/// drive (`C:\`), a verbatim drive (`\\?\C:\`), a verbatim UNC share
+/// (`\\?\UNC\`) or a UNC share (`\\server\share`).
+fn root_length(text: &str) -> Option<usize> {
+    if let Some(verbatim) = text.strip_prefix("\\\\?\\") {
+        if verbatim.starts_with("UNC\\") {
+            return Some("\\\\?\\UNC\\".len());
         }
-        _ => return None,
-    };
+        return drive_root(verbatim).map(|drive| "\\\\?\\".len() + drive);
+    }
+    if text.starts_with("\\\\") {
+        return Some(2);
+    }
+    if text.starts_with('/') {
+        return Some(1);
+    }
+    if text.starts_with("~/") {
+        return Some(2);
+    }
+    drive_root(text)
+}
+
+fn drive_root(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix(|drive: char| drive.is_ascii_alphabetic())?;
+    (rest.starts_with(":\\") || rest.starts_with(":/")).then_some(3)
+}
+
+/// The length of the absolute path `text` opens with, right after `opener`,
+/// when it opens with one of at least two components: `/usr/lib`,
+/// `C:\Users\x`, `~/src/x`. A lone `/`, `/=` or `/ 2` is arithmetic in a
+/// message, not a path.
+///
+/// Where it ends depends on what opened it. A backtick or a double quote,
+/// which is how Cargo quotes the paths it names, closes at its match. An
+/// apostrophe, which is rustup's, closes at the first apostrophe no letter or
+/// digit follows, so `Jane's Drive` stays inside it. A quote that never closes
+/// runs to the end of its line. An unquoted path ends where a path character
+/// cannot continue it, or at a blank the next word does not continue with a
+/// separator of its own, which keeps `C:\Users\First Last\x` whole.
+fn absolute_path_at(text: &str, opener: Option<char>) -> Option<usize> {
+    let start = root_length(text)?;
     let body = text.get(start..)?;
     let first = body.chars().next()?;
     if !(first.is_alphanumeric() || matches!(first, '.' | '_' | '-' | '~' | '@' | '+')) {
         return None;
     }
-    let length = body.find(ends_a_path).unwrap_or(body.len());
+    let length = match opener {
+        Some(quote @ ('`' | '"')) => body.find([quote, '\n']).unwrap_or(body.len()),
+        Some('\'') => body
+            .char_indices()
+            .find(|&(index, character)| {
+                character == '\n'
+                    || (character == '\''
+                        && !body
+                            .get(index + 1..)
+                            .and_then(|after| after.chars().next())
+                            .is_some_and(char::is_alphanumeric))
+            })
+            .map_or(body.len(), |(index, _)| index),
+        _ => unquoted_length(body),
+    };
     let token = body.get(..length)?;
     token
         .trim_end_matches(['/', '\\'])
         .contains(['/', '\\'])
         .then_some(start + length)
+}
+
+/// Where an unquoted path ends: at a character no path continues with, past
+/// each run of blanks the next word continues with a separator and does not
+/// open a new absolute path with.
+fn unquoted_length(body: &str) -> usize {
+    let mut length = body.find(ends_a_path).unwrap_or(body.len());
+    loop {
+        let rest = body.get(length..).unwrap_or_default();
+        let word_start = rest.trim_start_matches([' ', '\t']);
+        if word_start.len() == rest.len() {
+            return length;
+        }
+        let word_length = word_start.find(ends_a_path).unwrap_or(word_start.len());
+        let word = word_start.get(..word_length).unwrap_or_default();
+        if !word.contains(['/', '\\']) || root_length(word).is_some() {
+            return length;
+        }
+        length = body.len() - word_start.len() + word_length;
+    }
 }
 
 /// Every absolute path still in `value` lies outside the workspace and the
@@ -185,7 +254,7 @@ fn external_paths(value: &str) -> String {
     let mut rest = value;
     while let Some(character) = rest.chars().next() {
         if opens_a_path(previous)
-            && let Some(length) = absolute_path_at(rest)
+            && let Some(length) = absolute_path_at(rest, previous)
             && let Some(path) = rest.get(..length)
         {
             let components: Vec<&str> = path

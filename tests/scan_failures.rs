@@ -801,7 +801,8 @@ fn a_toolchain_error_under_a_rustup_home_outside_home_names_no_absolute_path() {
 
 /// EP-001 US-001 and US-004: what Cargo prints when a build script fails ends
 /// the `clippy-exit` error, so a key the script echoed is masked there and a
-/// path outside the workspace it names keeps only its last two components.
+/// path outside the workspace it names keeps only its last two components,
+/// a quoted one holding a space and an apostrophe included (EP-003 US-012).
 /// The script assembles both at run time, so no source file holds either.
 #[test]
 fn a_failed_build_script_echoes_neither_a_key_nor_an_absolute_path() {
@@ -812,6 +813,7 @@ fn a_failed_build_script_echoes_neither_a_key_nor_an_absolute_path() {
          let body = \"a1\".repeat(18);\n    \
          eprintln!(\"using token {}{body}\", \"ghp_\");\n    \
          eprintln!(\"missing {}\", [\"\", \"srv\", \"rust-doctor-probe\", \"lib\", \"libfoo.so\"].join(\"/\"));\n    \
+         eprintln!(\"failed to read `{}`\", [\"\", \"srv\", \"Jane Doe's Drive\", \"member\", \"Cargo.toml\"].join(\"/\"));\n    \
          std::process::exit(1);\n}\n",
     )
     .unwrap();
@@ -821,8 +823,10 @@ fn a_failed_build_script_echoes_neither_a_key_nor_an_absolute_path() {
     let body = "a1".repeat(18);
     assert!(message.contains("ghp_<redacted>"), "{message}");
     assert!(message.contains("<external>/lib/libfoo.so"), "{message}");
+    assert!(message.contains("failed to read `<external>/member/Cargo.toml`"), "{message}");
     for text in strings_of(&report) {
         assert!(!text.contains(&body) && !text.contains("/srv/rust-doctor-probe"), "{text}");
+        assert!(!text.contains("Jane Doe") && !text.contains("Drive"), "{text}");
     }
     assert_publishes_no_machine_path(&report, &[&root], None);
 }

@@ -555,6 +555,74 @@ fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
     );
 }
 
+/// EP-003 US-012: a path Cargo quotes with backticks or rustup with
+/// apostrophes ends at its closing quote, a space or an apostrophe inside it
+/// included; Windows verbatim and UNC roots are paths; an unquoted path runs
+/// across a blank the next word continues with a separator; and each keeps
+/// no more than its last two components.
+#[test]
+fn quoted_spaced_and_windows_rooted_paths_publish_their_last_two_components() {
+    let home = HomePaths::default();
+    for (text, published) in [
+        (
+            "failed to read `/Users/Jane Doe/Projects/shared/Cargo.toml`",
+            "failed to read `<external>/shared/Cargo.toml`",
+        ),
+        (
+            "failed to read `/work/Jane's Drive/clients/acme/Cargo.toml`",
+            "failed to read `<external>/acme/Cargo.toml`",
+        ),
+        (
+            "invalid toolchain: the path '/work/Jane's Drive/toolchains/missing' has no bin/ directory",
+            "invalid toolchain: the path '<external>/toolchains/missing' has no bin/ directory",
+        ),
+        (
+            "failed to read \"/mnt/c/Ext Share/Client Acme/deep/Cargo.toml\"",
+            "failed to read \"<external>/deep/Cargo.toml\"",
+        ),
+        (
+            "could not open \\\\?\\C:\\Users\\Jane Doe\\src\\lib.rs today",
+            "could not open <external>/src/lib.rs today",
+        ),
+        (
+            "could not open \\\\?\\UNC\\server\\share\\team\\lib.rs",
+            "could not open <external>/team/lib.rs",
+        ),
+        (
+            "could not open \\\\server\\share\\team\\Cargo.toml",
+            "could not open <external>/team/Cargo.toml",
+        ),
+        ("failed in C:\\Users\\First Last\\x", "failed in <external>/First Last/x"),
+        // A relative path after an unquoted one folds into it, and the result
+        // still keeps two components; an absolute one opens a path of its own.
+        ("failed in /srv/ext/member src/main.rs", "failed in <external>/member src/main.rs"),
+        ("from /srv/a/b /opt/c/d", "from <external>/a/b <external>/c/d"),
+        // A quote that never closes runs to the end of its line.
+        (
+            "unclosed `/a/b/Jane Doe/c and more words /d/e/f",
+            "unclosed `<external>/e/f",
+        ),
+        (
+            "unclosed `/a/b/Jane Doe/c\nnext line",
+            "unclosed `<external>/Jane Doe/c\nnext line",
+        ),
+    ] {
+        assert_eq!(sanitize_text(text, None, &home), published, "{text}");
+    }
+}
+
+/// EP-003 US-012: a Windows shell sets `USERPROFILE` and no `HOME`, and the
+/// profile is then the home a report names `<home>`.
+#[test]
+fn the_profile_directory_stands_in_for_an_unset_home() {
+    let profile = std::ffi::OsString::from("C:\\Users\\Jane Doe");
+    assert_eq!(home_from(None, Some(profile.clone())), Some(PathBuf::from("C:\\Users\\Jane Doe")));
+    assert_eq!(
+        home_from(Some("/home/jane".into()), Some(profile)),
+        Some(PathBuf::from("/home/jane"))
+    );
+}
+
 /// EP-001 US-004: relative paths, URLs, the replacements already made and
 /// arithmetic in a message are not paths to rewrite.
 #[test]

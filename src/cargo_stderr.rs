@@ -54,7 +54,7 @@ pub(crate) fn excerpt(
     workspace_root: &Path,
     target_directory: Option<&Path>,
 ) -> Option<String> {
-    let home = env::var_os("HOME").map(PathBuf::from);
+    let home = crate::report::home_directory();
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| home.as_ref().map(|home| home.join(".cargo")));
