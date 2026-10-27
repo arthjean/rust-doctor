@@ -111,7 +111,7 @@ pub(super) fn first_credential(line: &str, following: &[&str]) -> Option<(&'stat
 /// whole line and the lines around it, so whatever renders source text masks
 /// every match rather than the one a finding names, vetoed or not.
 pub(crate) fn credential_ranges(line: &str) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = private_key_block(line)
+    let mut ranges: Vec<(usize, usize)> = private_key_range(line)
         .into_iter()
         .chain(
             CREDENTIAL_PATTERNS
@@ -153,17 +153,30 @@ pub(crate) fn carries_credential(text: &str) -> bool {
 }
 
 /// `text` with every credential of every line masked as a code frame masks
-/// it. Diagnostic text runs through this once, at normalization, so every
-/// renderer reads it already masked.
+/// it, a private key body a header left open included: each line of it is
+/// masked whole until the line holding its footer. Diagnostic text runs
+/// through this once, at normalization, so every renderer reads it already
+/// masked.
 pub(crate) fn mask_credentials(text: &str) -> String {
     if !carries_credential(text) {
         return text.to_owned();
     }
     let mut masked_text = String::with_capacity(text.len());
+    let mut key_open = false;
     for (index, line) in text.split('\n').enumerate() {
         if index > 0 {
             masked_text.push('\n');
         }
+        let mut line = line;
+        if key_open {
+            let body_end = open_body_end(line);
+            masked_text.push_str(if body_end > 0 || line.is_empty() { REDACTED } else { "" });
+            if body_end == line.len() {
+                continue;
+            }
+            line = line.get(body_end..).unwrap_or_default();
+        }
+        key_open = key_continues(line);
         let mut copied = 0;
         for (start, end) in credential_ranges(line) {
             let (Some(before), Some(value)) = (line.get(copied..start), line.get(start..end))
@@ -220,9 +233,56 @@ fn vetoed(line: &str, (start, end): (usize, usize)) -> bool {
         || after.starts_with('\u{2026}')
 }
 
-/// Whether a PEM private key is open after `line`, whose body lines follow it.
-pub(crate) fn opens_private_key(line: &str) -> bool {
-    private_key_block(line).is_some()
+/// What opens a PEM block's last line.
+const FOOTER: &str = "-----END ";
+
+/// Whether a PEM private key header on `line` leaves its body open below it:
+/// no footer follows the header on the line.
+pub(crate) fn key_continues(line: &str) -> bool {
+    private_key_block(line).is_some_and(|(_, end)| !line.get(end..).unwrap_or_default().contains(FOOTER))
+}
+
+/// Where the body of a key a line above left open ends on `line`: at the end
+/// of the line until its footer, then before the footer when body text sits
+/// in front of it on the footer's line, and at its start when nothing does.
+pub(crate) fn open_body_end(line: &str) -> usize {
+    match line.find(FOOTER) {
+        None => line.len(),
+        Some(footer)
+            if line
+                .get(..footer)
+                .is_some_and(|body| body.contains(|character: char| character.is_ascii_alphanumeric())) =>
+        {
+            footer
+        }
+        Some(_) => 0,
+    }
+}
+
+/// What masking hides of a line holding a private key header: the header to
+/// its footer when the line holds both, as a one-line PEM escaped with `\n`
+/// does, the header to the end of the line when a body sits on the line, and
+/// the header alone when nothing but escapes and punctuation follow it.
+fn private_key_range(line: &str) -> Option<(usize, usize)> {
+    let (start, header_end) = private_key_block(line)?;
+    let rest = line.get(header_end..).unwrap_or_default();
+    let extent = match rest.find(FOOTER) {
+        Some(footer) => {
+            let label = footer + FOOTER.len();
+            rest.get(label..)
+                .and_then(|label_text| label_text.find("-----"))
+                .map_or(rest.len(), |close| label + close + "-----".len())
+        }
+        None if rest
+            .replace("\\n", "")
+            .replace("\\r", "")
+            .contains(|character: char| character.is_ascii_alphanumeric()) =>
+        {
+            rest.len()
+        }
+        None => 0,
+    };
+    Some((start, header_end + extent))
 }
 
 fn private_key_block(line: &str) -> Option<(usize, usize)> {
@@ -266,7 +326,7 @@ fn key_body_follows(rest: &str, following: &[&str]) -> bool {
 /// The part of a line before the block's `-----END` marker, and whether the
 /// marker is on it.
 fn body_text(line: &str) -> (&str, bool) {
-    match line.find("-----END ") {
+    match line.find(FOOTER) {
         Some(end) => (&line[..end], true),
         None => (line, false),
     }

@@ -178,6 +178,35 @@ describe("privacy and secret redaction", () => {
     expect(run.stdout).not.toContain(target);
   });
 
+  test("PV-13 a private key a failing build script echoes is masked in the report error and its markdown", async () => {
+    // The header is assembled in the build script and here, so neither this
+    // file nor the scanned tree tracks a key; no three characters of the body
+    // occur in a message that does not carry it.
+    const body = "Q+/Z9".repeat(13);
+    const script = [
+      "fn main() {",
+      '    eprintln!("-----BEGIN {}PRIVATE KEY-----", "RSA ");',
+      `    for _ in 0..40 {\n        eprintln!("${body}");\n    }`,
+      '    eprintln!("-----END {}PRIVATE KEY-----", "RSA ");',
+      "    std::process::exit(1);",
+      "}",
+      "",
+    ].join("\n");
+    const workspace = crate("echoed-key", { "build.rs": script });
+    const run = await runDoctor([workspace, "--yes", "--json"]);
+    expect(run.exitCode).toBe(1);
+    const saved = join(scratchDir("pv-13-report"), "report.json");
+    writeFileSync(saved, run.stdout);
+    const rendered = await runDoctor(["report", "markdown", saved]);
+    expect(rendered.exitCode).toBe(0);
+    const messages = (run.json as Report).errors.map((error) => error.message).join("\n");
+    expect(messages).toContain("<redacted>");
+    const windows = Array.from({ length: body.length - 2 }, (_, index) => body.slice(index, index + 3));
+    for (const published of [messages, rendered.stdout]) {
+      expect(windows.filter((window) => published.includes(window))).toEqual([]);
+    }
+  });
+
   test("PV-11 a --rule value carrying a secret is never echoed", async () => {
     const secret = credential("token");
     for (const args of [["--rule", `${secret}=bogus`], ["--json", "--rule", `${secret}=bogus`], ["--json", "--rule", `clippy::${secret}=warn`]]) {

@@ -521,6 +521,66 @@ fn a_window_opening_inside_a_private_key_body_masks_it() {
     assert_eq!(rendered[1], "-----END PRIVATE KEY-----\";");
 }
 
+/// EP-003 US-011: a one-line PEM escaped with `\n` is masked from its header
+/// to its footer, and its footer closes the key on its own line, so the line
+/// below prints as it is.
+#[test]
+fn a_one_line_private_key_is_masked_whole_and_the_line_below_is_not() {
+    let root = scratch("presentation-tests", "pem-one-line");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let body = "Q+/Z9".repeat(13);
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "const KEY: &str = \"-----BEGIN {0}PRIVATE KEY-----\\n{body}\\n-----END {0}PRIVATE KEY-----\\n\";\n\
+             fn below() {{}}\n",
+            "RSA "
+        ),
+    )
+    .unwrap();
+    let frame = code_frame(&root, &at("src/lib.rs", 1, 1, 6)).unwrap();
+    let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(rendered[0], format!("const KEY: &str = \"----{REDACTED}\\n\";"), "{rendered:?}");
+    assert!(
+        rendered.iter().all(|text| !body.as_bytes().windows(3).any(|window| {
+            std::str::from_utf8(window).is_ok_and(|window| text.contains(window))
+        })),
+        "{rendered:?}"
+    );
+    assert_eq!(rendered[1], "fn below() {}");
+}
+
+/// EP-003 US-011: the body line that carries the footer is masked up to the
+/// footer, and the caret stays on the footer it pointed at.
+#[test]
+fn a_body_line_carrying_the_footer_is_masked_up_to_it() {
+    let root = scratch("presentation-tests", "pem-glued-footer");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let body = "Q+/Z9".repeat(13);
+    fs::write(
+        root.join("src/lib.rs"),
+        format!(
+            "const KEY: &str = \"-----BEGIN {0}PRIVATE KEY-----\\n\\\n{body}\\n\\\n{body}\\n-----END {0}PRIVATE KEY-----\\n\";\n\
+             fn below() {{}}\n",
+            "RSA "
+        ),
+    )
+    .unwrap();
+    let frame = code_frame(&root, &at("src/lib.rs", 3, 1, 4)).unwrap();
+    let rendered: Vec<&str> = frame.lines.iter().map(|line| line.text.as_str()).collect();
+    assert!(
+        rendered.iter().all(|text| !body.as_bytes().windows(3).any(|window| {
+            std::str::from_utf8(window).is_ok_and(|window| text.contains(window))
+        })),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered.contains(&format!("{REDACTED}-----END RSA PRIVATE KEY-----\\n\";").as_str()),
+        "{rendered:?}"
+    );
+    assert!(rendered.contains(&"fn below() {}"), "{rendered:?}");
+}
+
 /// FR-01: the literal a secret environment variable falls back to is the
 /// secret `secret_env_fallback` matched, and no frame prints it, on the call's
 /// line or on the line below a call that wrapped.

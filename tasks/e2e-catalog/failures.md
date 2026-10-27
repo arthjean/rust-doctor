@@ -244,6 +244,7 @@ Probe (`bin/priv.sh`): HOME `<scratch>/home-SECRETUSER/u-SECRETUSER-q7`, workspa
 | PV-10 | target dir outside HOME, build script failure | `--json` | path scrubbed to `$CARGO_TARGET_DIR` | unit (cargo_stderr) | yes |
 | PV-11 | `--rule <value with a secret>=bogus` | | value never echoed (stderr generic, JSON "Invalid rule selector.") | none | yes (AR-06/07) |
 | PV-12 | interactive handoff prompt contents | | the prompt `Copy prompt` prints with no clipboard on PATH carries no private path, username, environment value or planted secret. Corrected 2026-10-20: automated in privacy-redaction.test.ts through the interactive report on a terminal | local_cli_experience handoff tests | no |
+| PV-13 | crate whose `build.rs` prints a PEM header assembled at runtime, 40 body lines and a footer on stderr, then exits 1 | `--json`, then `report markdown` on it | exit 1; `errors[].message` carries `<redacted>` and neither it nor the markdown holds any three characters of the body | unit (cargo_stderr, credentials) | yes (security run-1, PRD US-011) |
 
 ## NW: network
 

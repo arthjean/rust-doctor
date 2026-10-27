@@ -5,9 +5,9 @@
 //! the exit status alone because the stream went to `/dev/null`. Every Cargo
 //! child whose failure ends a stage is now drained through
 //! [`crate::bounded_read::collect_bounded`] under [`STDERR_LIMIT`], and its
-//! failure quotes the tail of what it said through [`excerpt`]: bounded,
-//! stripped of control characters, and with the paths that would name the
-//! machine replaced by names that do not.
+//! failure quotes the tail of what it said through [`excerpt`]: masked of the
+//! credentials it echoed, bounded, stripped of control characters, and with the
+//! paths that would name the machine replaced by names that do not.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -72,6 +72,10 @@ pub(crate) fn excerpt(
             (home, "~"),
         ],
     );
+    // Masked whole and before anything is cut: a key a build script echoed
+    // spans lines, and the excerpt's bound can start the kept text on a body
+    // line no header above it is left to mark.
+    let text = crate::repo_hygiene::mask_credentials(&text);
     let lines: Vec<String> = text
         .lines()
         .map(plain)
@@ -216,6 +220,35 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
             published,
             "error: failed to write $CARGO_TARGET_DIR/debug/x.rmeta"
         );
+    }
+
+    /// EP-003 US-011: a key a build script echoed is masked before the bound
+    /// cuts the stream, so a tail that starts on a body line, past the header
+    /// that marked it, publishes no character of it.
+    #[test]
+    fn a_key_a_build_script_echoed_is_masked_before_the_excerpt_cuts_it() {
+        let body = "Q+/Z9".repeat(13);
+        let mut stderr = format!(
+            "error: failed to run custom build command for `probe`\n--- stderr\n-----BEGIN {}PRIVATE KEY-----\n",
+            "RSA "
+        );
+        for _ in 0..120 {
+            stderr.push_str(&body);
+            stderr.push('\n');
+        }
+        stderr.push_str(&format!("-----END {}PRIVATE KEY-----\n", "RSA "));
+        let unmasked: Vec<String> = stderr.lines().map(str::to_owned).collect();
+        assert!(tail(&unmasked).unwrap().starts_with(&body));
+
+        let published = excerpt(stderr.as_bytes(), Path::new("/work"), None).unwrap();
+        let leaked = body
+            .as_bytes()
+            .windows(3)
+            .filter_map(|window| std::str::from_utf8(window).ok())
+            .any(|window| published.contains(window));
+        assert!(!leaked, "{published}");
+        assert!(published.starts_with("<redacted> <redacted>"), "{published}");
+        assert!(published.ends_with("-----END RSA PRIVATE KEY-----"), "{published}");
     }
 
     #[test]

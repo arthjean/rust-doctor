@@ -133,3 +133,57 @@ fn diagnostic_text_is_masked_line_by_line_and_plain_text_is_untouched() {
     assert_eq!(mask_credentials(plain), plain);
     assert!(!carries_credential(plain));
 }
+
+/// A PEM body no three characters of which occur in the text the tests below
+/// set around it, so any window of three in an output is a character of the
+/// key.
+fn pem_body() -> String {
+    "Q+/Z9".repeat(13)
+}
+
+fn holds_body(text: &str, body: &str) -> bool {
+    body.as_bytes()
+        .windows(3)
+        .filter_map(|window| std::str::from_utf8(window).ok())
+        .any(|window| text.contains(window))
+}
+
+/// EP-003 US-011: a key is masked from its header to its footer, whether its
+/// body sits on the header's line, escaped with `\n`, or on the lines below,
+/// and the line after a footer is published as it was.
+#[test]
+fn a_private_key_is_masked_from_its_header_to_its_footer() {
+    let body = pem_body();
+    let header = format!("-----BEGIN {}PRIVATE KEY-----", "RSA ");
+    let footer = format!("-----END {}PRIVATE KEY-----", "RSA ");
+
+    let escaped = format!("const KEY: &str = \"{header}\\n{body}\\n{body}\\n{footer}\\n\";\nfn below() {{}}");
+    let masked_escaped = mask_credentials(&escaped);
+    assert!(!holds_body(&masked_escaped, &body), "{masked_escaped}");
+    assert_eq!(masked_escaped, format!("const KEY: &str = \"----{REDACTED}\\n\";\nfn below() {{}}"));
+    assert!(!key_continues(&escaped));
+
+    let three = format!("{header}\n{body}\n{footer}\nafter");
+    let masked_three = mask_credentials(&three);
+    assert!(!holds_body(&masked_three, &body), "{masked_three}");
+    assert_eq!(masked_three, format!("----{REDACTED}\n{REDACTED}\n{footer}\nafter"));
+    assert!(key_continues(&header));
+
+    // A body on the header's line with no footer after it runs to the end of
+    // the line, and the key stays open below it.
+    let open = format!("{header}\\n{body}\n{body}\n{footer}");
+    assert_eq!(mask_credentials(&open), format!("----{REDACTED}\n{REDACTED}\n{footer}"));
+
+    // A body line that also carries the footer, as a source string escaped
+    // with `\n` and broken across lines does, keeps only the footer.
+    let glued = format!("{header}\\n\\\n{body}\\n\\\n{body}\\n{footer}\\n\";\nafter");
+    let masked_glued = mask_credentials(&glued);
+    assert!(!holds_body(&masked_glued, &body), "{masked_glued}");
+    assert_eq!(masked_glued, format!("----{REDACTED}\\n\\\n{REDACTED}\n{REDACTED}{footer}\\n\";\nafter"));
+
+    // A header a parser keeps as a constant loses only the header.
+    assert_eq!(
+        mask_credentials(&format!("pem.starts_with(\"{header}\")")),
+        format!("pem.starts_with(\"----{REDACTED}\")")
+    );
+}

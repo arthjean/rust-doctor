@@ -390,28 +390,30 @@ struct Carry {
 /// whole: its body is the key, and no pattern of the rule matches a base64
 /// line on its own.
 fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
+    let mut text = String::with_capacity(source.len());
+    let mut edits = Vec::new();
+    let mut copied = 0usize;
     if carry.key_body {
-        if source.contains("-----END ") {
-            carry.key_body = false;
-        } else {
-            let width = source.chars().count();
-            return RedactedLine {
-                text: REDACTED.to_owned(),
-                edits: vec![ColumnEdit {
-                    start: 0,
-                    end: width,
-                    width: REDACTED.len(),
-                }],
-            };
+        // The body runs to the footer, and a body line can carry it.
+        let body_end = crate::repo_hygiene::open_body_end(source);
+        if body_end > 0 || source.is_empty() {
+            text.push_str(REDACTED);
+            edits.push(ColumnEdit {
+                start: 0,
+                end: source.get(..body_end).map_or(0, |body| body.chars().count()),
+                width: REDACTED.len(),
+            });
         }
+        if body_end == source.len() {
+            return RedactedLine { text, edits };
+        }
+        carry.key_body = false;
+        copied = body_end;
     }
     track_private_key(source, &mut carry.key_body);
     let mut ranges = crate::repo_hygiene::credential_ranges(source);
     ranges.extend(fallback_literals(source, &mut carry.fallback));
     ranges.sort_unstable();
-    let mut text = String::with_capacity(source.len());
-    let mut edits = Vec::new();
-    let mut copied = 0usize;
     for (start, end) in ranges {
         // Two ranges overlap only when a fallback literal holds a credential
         // pattern, and the first already masked both.
@@ -439,12 +441,12 @@ fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
 }
 
 /// Whether a PEM private key is open after `line`: an `-----END ` line closes
-/// it, and a private key header opens one.
+/// it, and a private key header whose footer is not on its own line opens one.
 fn track_private_key(line: &str, open: &mut bool) {
     if *open && line.contains("-----END ") {
         *open = false;
     }
-    if crate::repo_hygiene::opens_private_key(line) {
+    if crate::repo_hygiene::key_continues(line) {
         *open = true;
     }
 }

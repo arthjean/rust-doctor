@@ -288,7 +288,10 @@ cost.
 No detected key reaches a frame. Every line a frame keeps passes through the
 repository pass's own credential matcher (`repo_hygiene::credential_ranges`),
 which leaves each match's first four characters and `<redacted>`, nothing for a
-value under eight, and masks whole the body of a PEM key the frame opened. The
+value under eight, masks a PEM key from its header to its footer, a one-line
+key escaped with `\n` included, and masks whole each line of a body a header
+left open. `cargo_stderr::excerpt` masks the same way before it cuts, since
+its bound can start the kept tail on a body line. The
 caret is remapped onto the mask. `hardcoded_credential` kept the value out of
 its message while both reports printed it in the frame under carets, into
 transcripts and CI logs. Masking every line, not a range the finding carries,
