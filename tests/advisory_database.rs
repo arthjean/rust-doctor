@@ -62,6 +62,21 @@ fn copy_tree(source: &Path, destination: &Path) {
     }
 }
 
+/// A copy of the fixture database at `at`, made a clone of `remote` the way
+/// cargo audit and cargo deny leave one: discovery reads its `.git/config`.
+fn clone_at(at: &Path, remote: &str) {
+    copy_tree(&database(), at);
+    fs::create_dir_all(at.join(".git")).unwrap();
+    fs::write(at.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(
+        at.join(".git/config"),
+        format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {remote}\n\tfetch = +HEAD:refs/remotes/origin/HEAD\n"),
+    )
+    .unwrap();
+}
+
+const RUSTSEC: &str = "https://github.com/RustSec/advisory-db";
+
 fn scan(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg(root.join("project"))
@@ -160,7 +175,7 @@ fn a_named_database_reports_the_affected_package_at_its_lockfile_entry() {
 #[test]
 fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     let root = scratch("cargo-audit");
-    copy_tree(&database(), &root.join("cargo-home/advisory-db"));
+    clone_at(&root.join("cargo-home/advisory-db"), RUSTSEC);
     let report = json(&root, &[]);
     assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-audit");
     assert_eq!(findings(&report, VULNERABLE).len(), 2);
@@ -170,12 +185,58 @@ fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     let root = scratch("cargo-deny");
     let stale = root.join("cargo-home/advisory-dbs/advisory-db-0000000000000000");
     fs::create_dir_all(stale.join("crates")).unwrap();
+    fs::create_dir_all(stale.join(".git")).unwrap();
+    fs::write(stale.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(stale.join(".git/config"), format!("[remote \"origin\"]\n\turl = {RUSTSEC}\n")).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(20));
-    copy_tree(&database(), &root.join("cargo-home/advisory-dbs/advisory-db-1111111111111111"));
+    clone_at(&root.join("cargo-home/advisory-dbs/advisory-db-1111111111111111"), RUSTSEC);
     let report = json(&root, &[]);
     assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-deny");
     assert_eq!(report["scan"]["advisory_db"]["advisories"], 7);
     assert_eq!(findings(&report, UNMAINTAINED).len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// EP-003 US-013: a database cargo deny cloned from a remote other than
+/// RustSec's is never discovered, even fetched after the RustSec clone, and
+/// on its own it leaves both rules without a database. `--advisory-db` still
+/// reads it, since the user named it.
+#[test]
+fn discovery_reads_only_a_clone_of_the_rustsec_remote() {
+    let root = scratch("impostor");
+    let databases = root.join("cargo-home/advisory-dbs");
+    clone_at(&databases.join("advisory-db-1111111111111111"), &format!("{RUSTSEC}.git/"));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let impostor = databases.join("advisory-db-2222222222222222");
+    fs::create_dir_all(impostor.join(".git")).unwrap();
+    fs::write(
+        impostor.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://example.invalid/advisory-db\n",
+    )
+    .unwrap();
+    fs::write(impostor.join(".git/FETCH_HEAD"), "").unwrap();
+    fs::create_dir_all(impostor.join("crates/unrelated-crate")).unwrap();
+    fs::copy(
+        database().join("crates/unrelated-crate/RUSTSEC-2020-9008.md"),
+        impostor.join("crates/unrelated-crate/RUSTSEC-2020-9008.md"),
+    )
+    .unwrap();
+
+    let report = json(&root, &[]);
+    assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-deny");
+    assert_eq!(report["scan"]["advisory_db"]["advisories"], 7);
+    assert_eq!(findings(&report, VULNERABLE).len(), 2);
+
+    fs::remove_dir_all(databases.join("advisory-db-1111111111111111")).unwrap();
+    let report = json(&root, &[]);
+    assert!(report["scan"].get("advisory_db").is_none(), "{}", report["scan"]);
+    for id in [VULNERABLE, UNMAINTAINED] {
+        assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
+    }
+
+    let report = json(&root, &["--advisory-db", impostor.to_str().unwrap()]);
+    assert_eq!(report["scan"]["advisory_db"]["source"], "explicit");
+    assert_eq!(report["scan"]["advisory_db"]["advisories"], 1);
     fs::remove_dir_all(root).unwrap();
 }
 

@@ -3,9 +3,13 @@
 //!
 //! The tool never reaches the network, so it never fetches the database: it
 //! reads the copy `cargo audit` or `cargo deny` left under `$CARGO_HOME`, or
-//! the directory `--advisory-db` names. Without one, both rules are published
-//! as not evaluated and the score keeps its authority, since a missing
-//! database is a machine that never asked, not a scan that failed.
+//! the directory `--advisory-db` names. Discovery accepts only a clone of the
+//! RustSec remote: `cargo deny` clones whatever database a `deny.toml` names
+//! into the same directory, and one of those deciding the verdicts in silence
+//! would be another authority than the one the rules cite. Without one, both
+//! rules are published as not evaluated and the score keeps its authority,
+//! since a missing database is a machine that never asked, not a scan that
+//! failed.
 //!
 //! Every read is bounded: an advisory file over 1 MiB, one that does not
 //! parse, and every file past the 20,000th are skipped and counted, and the
@@ -13,6 +17,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +34,13 @@ const MAX_ADVISORY_BYTES: u64 = 1024 * 1024;
 
 /// Most advisory files read from one database.
 const MAX_ADVISORY_FILES: usize = 20_000;
+
+/// The one remote a discovered database may be a clone of, compared without
+/// case and without a trailing `.git` or `/`.
+const RUSTSEC_REMOTE: &str = "https://github.com/rustsec/advisory-db";
+
+/// Largest `.git/config` read to tell a clone's remote.
+const MAX_GIT_CONFIG_BYTES: u64 = 64 * 1024;
 
 /// Age past which the report says the database is stale.
 pub(crate) const STALE_AFTER_DAYS: i64 = 30;
@@ -83,12 +95,14 @@ impl AdvisoryDatabase {
         Self::discover(&cargo_home)
     }
 
-    /// The database `cargo audit` or `cargo deny` left under `cargo_home`,
-    /// in that order, or none. A directory counts when it holds `crates/`,
-    /// which is where every advisory of the database lives.
+    /// The RustSec clone `cargo audit` or `cargo deny` left under
+    /// `cargo_home`, in that order, or none. A directory counts when it holds
+    /// `crates/`, which is where every advisory of the database lives, and
+    /// its `.git/config` names the RustSec remote and no other. Of the
+    /// `cargo deny` clones, the one fetched last is read.
     pub fn discover(cargo_home: &Path) -> Option<Self> {
         let audit = cargo_home.join("advisory-db");
-        if audit.join("crates").is_dir() {
+        if rustsec_clone(&audit) {
             return Some(Self {
                 source: AdvisorySource::CargoAudit,
                 path: audit,
@@ -98,17 +112,66 @@ impl AdvisoryDatabase {
             .ok()?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| path.join("crates").is_dir())
-            .filter_map(|path| {
-                let modified = fs::metadata(&path).and_then(|metadata| metadata.modified()).ok()?;
-                Some((modified, path))
-            })
+            .filter(|path| rustsec_clone(path))
+            .filter_map(|path| Some((last_fetch(&path)?, path)))
             .max()?;
         Some(Self {
             source: AdvisorySource::CargoDeny,
             path: newest.1,
         })
     }
+}
+
+/// Whether `path` holds advisories and is a git clone whose every remote is
+/// RustSec's. The config is read as text: asking git would start a program
+/// for what one file says.
+fn rustsec_clone(path: &Path) -> bool {
+    if !path.join("crates").is_dir() {
+        return false;
+    }
+    let mut config = String::new();
+    let read = fs::File::open(path.join(".git").join("config"))
+        .and_then(|file| file.take(MAX_GIT_CONFIG_BYTES).read_to_string(&mut config));
+    if read.is_err() {
+        return false;
+    }
+    let urls = remote_urls(&config);
+    !urls.is_empty() && urls.iter().all(|url| is_rustsec_remote(url))
+}
+
+/// The `url` of every `[remote "..."]` section of a git config.
+fn remote_urls(config: &str) -> Vec<&str> {
+    let mut in_remote = false;
+    let mut urls = Vec::new();
+    for line in config.lines().map(str::trim) {
+        if let Some(header) = line.strip_prefix('[') {
+            in_remote = header
+                .split([' ', ']'])
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case("remote"));
+        } else if in_remote
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim().eq_ignore_ascii_case("url")
+        {
+            urls.push(value.trim().trim_matches('"'));
+        }
+    }
+    urls
+}
+
+fn is_rustsec_remote(url: &str) -> bool {
+    let url = url.to_ascii_lowercase();
+    let url = url.trim_end_matches('/');
+    url.strip_suffix(".git").unwrap_or(url).trim_end_matches('/') == RUSTSEC_REMOTE
+}
+
+/// When a clone was last fetched: the modification time of `.git/FETCH_HEAD`,
+/// or of `.git/HEAD` for a clone never fetched since.
+fn last_fetch(path: &Path) -> Option<SystemTime> {
+    let git = path.join(".git");
+    ["FETCH_HEAD", "HEAD"]
+        .into_iter()
+        .find_map(|name| fs::metadata(git.join(name)).and_then(|metadata| metadata.modified()).ok())
 }
 
 /// What the report publishes about the database it read.
@@ -384,6 +447,43 @@ fn days_from_civil(date: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EP-003 US-013: the RustSec remote matches in any spelling git keeps
+    /// it, and a config naming another remote beside it is not a RustSec
+    /// clone.
+    #[test]
+    fn only_the_rustsec_remote_is_a_rustsec_clone() {
+        for url in [
+            "https://github.com/rustsec/advisory-db",
+            "https://github.com/RustSec/advisory-db.git/",
+            "https://github.com/rustsec/advisory-db/",
+            "\"https://github.com/RustSec/advisory-db.git\"",
+        ] {
+            let config = format!("[core]\n\tbare = false\n[remote \"origin\"]\n\tURL = {url}\n");
+            let urls = remote_urls(&config);
+            assert!(urls.len() == 1 && is_rustsec_remote(urls[0]), "{url}");
+        }
+        for url in [
+            "https://example.invalid/advisory-db",
+            "https://github.com/rustsec/advisory-db-mirror",
+            "git@github.com:rustsec/advisory-db.git",
+        ] {
+            assert!(!is_rustsec_remote(url), "{url}");
+        }
+        let config = "[remote \"origin\"]\n\turl = https://github.com/rustsec/advisory-db\n\
+                      [remote \"mirror\"]\n\turl = https://example.invalid/advisory-db\n\
+                      [branch \"main\"]\n\turl = ignored\n";
+        assert_eq!(remote_urls(config).len(), 2);
+
+        let root = scratch("remote-check");
+        fs::create_dir_all(root.join("db/crates")).unwrap();
+        assert!(!rustsec_clone(&root.join("db")), "a database with no git config is not discovered");
+        fs::create_dir_all(root.join("db/.git")).unwrap();
+        fs::write(root.join("db/.git/config"), config).unwrap();
+        assert!(!rustsec_clone(&root.join("db")));
+        fs::write(root.join("db/.git/config"), "[remote \"origin\"]\n\turl = https://github.com/rustsec/advisory-db\n").unwrap();
+        assert!(rustsec_clone(&root.join("db")));
+    }
 
     #[test]
     fn civil_days_count_from_the_epoch() {

@@ -530,7 +530,8 @@ pub struct ScanReport {
     /// vendored, or opens on a generator header.
     pub excluded_generated: usize,
     /// The RustSec database the advisory rules read: which tool left it and
-    /// how recent it is, never where it sits. Absent when none was read.
+    /// how recent it is, never where it sits. Absent when none was read, and
+    /// discovery reads none but a clone of the RustSec remote.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisory_db: Option<AdvisoryDbReport>,
 }

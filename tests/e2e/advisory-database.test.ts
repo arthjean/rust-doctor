@@ -58,11 +58,20 @@ async function scan(args: string[], options: DoctorOptions = {}): Promise<Doctor
   return { ...run, report };
 }
 
-// A CARGO_HOME holding nothing, or a copy of the fixture database at `at`.
+// A copy of the fixture database at `at`, a clone of the RustSec remote as
+// cargo audit and cargo deny leave one: discovery accepts no other (US-013).
+function rustsecClone(at: string): void {
+  cpSync(DATABASE, at, { recursive: true });
+  mkdirSync(join(at, ".git"));
+  writeFileSync(join(at, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(at, ".git", "config"), '[remote "origin"]\n\turl = https://github.com/rustsec/advisory-db\n');
+}
+
+// A CARGO_HOME holding nothing, or a RustSec clone of the fixture database at `at`.
 function cargoHome(at?: string): string {
   const home = join(scratchDir("cargo-home"), "cargo");
   mkdirSync(home);
-  if (at) cpSync(DATABASE, join(home, at), { recursive: true });
+  if (at) rustsecClone(join(home, at));
   return home;
 }
 
@@ -133,7 +142,7 @@ describe("advisory database", () => {
 
   test("AD-07 an empty CARGO_HOME falls back to HOME/.cargo", async () => {
     const box = sandbox("home-fallback");
-    cpSync(DATABASE, join(box.home, ".cargo", "advisory-db"), { recursive: true });
+    rustsecClone(join(box.home, ".cargo", "advisory-db"));
     const { report } = await scan(["--json"], { advisoryDb: false, sandbox: box, env: { CARGO_HOME: "" } });
     expect(report.scan.advisory_db).toEqual({ ...FIXTURE_DATABASE, source: "cargo-audit" });
   });
