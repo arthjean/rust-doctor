@@ -22,7 +22,7 @@ inputs:
   version:
     description: The rust-doctor version to install through the npm launcher, or `preinstalled` to run the rust-doctor already on PATH.
     required: false
-    default: "0.8.0"
+    default: "0.9.0"
   toolchain:
     description: The Rust toolchain to install with Clippy. Defaults to the one this release was validated on.
     required: false
