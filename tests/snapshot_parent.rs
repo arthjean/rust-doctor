@@ -105,9 +105,16 @@ fn a_world_writable_tmp_and_no_private_candidate_create_no_snapshot() {
         let errors = report["errors"].as_array().unwrap();
         assert_eq!(errors.len(), 1, "{arguments:?}: {report:#}");
         assert_eq!(errors[0]["code"], "baseline-temp-unavailable");
+        // macOS links /tmp to /private/tmp, and the report externalizes the
+        // canonical path the refusal names.
+        let refused = if cfg!(target_os = "macos") {
+            "<external>/private/tmp"
+        } else {
+            "/tmp"
+        };
         assert_eq!(
             errors[0]["message"],
-            "no private directory for the snapshot: /tmp is writable by other users",
+            format!("no private directory for the snapshot: {refused} is writable by other users"),
             "{arguments:?}"
         );
         let after = snapshots_in(tmp);
