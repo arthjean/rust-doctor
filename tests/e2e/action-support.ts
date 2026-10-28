@@ -1,7 +1,8 @@
-// action.yml replayed without GitHub: its `run:` steps execute as GitHub runs
-// a composite action's `shell: bash` (`bash --noprofile --norc -eo pipefail`),
-// under fake GITHUB_* files, with the release binary as the preinstalled
-// `rust-doctor` and a recording `gh` stub. Only the expressions action.yml
+// action.yml, or comment/action.yml, replayed without GitHub: its `run:` steps
+// execute as GitHub runs a composite action's `shell: bash` (`bash --noprofile
+// --norc -eo pipefail`), under fake GITHUB_* files, with the release binary as
+// the preinstalled `rust-doctor` and as the launcher a stub `npm` installed
+// under its prefix, and a recording `gh` stub. Only the expressions action.yml
 // uses are evaluated: `inputs.*`, `github.*`, `steps.<id>.outputs.*` and the
 // `if:` forms built from `always()`, `==`, `!=` and `&&`. A `uses:` step
 // (toolchain, cache, artifact upload) is the runner's and is skipped.
@@ -21,14 +22,15 @@ type Step = {
 
 type ActionYaml = {
   inputs: Record<string, { default?: string }>;
-  outputs: Record<string, { value: string }>;
+  outputs?: Record<string, { value: string }>;
   runs: { using: string; steps: Step[] };
 };
 
 export const ACTION_PATH = join(REPO_ROOT, "action.yml");
+export const COMMENT_ACTION_PATH = join(REPO_ROOT, "comment/action.yml");
 
-export function actionYaml(): ActionYaml {
-  return Bun.YAML.parse(readFileSync(ACTION_PATH, "utf8")) as ActionYaml;
+export function actionYaml(path = ACTION_PATH): ActionYaml {
+  return Bun.YAML.parse(readFileSync(path, "utf8")) as ActionYaml;
 }
 
 // The stand-in for `gh api`: every call is appended to $GH_LOG as one JSON
@@ -56,13 +58,28 @@ cat "\${GH_COMMENTS:-/dev/null}"
 
 let toolsDir: string | undefined;
 
-// rust-doctor (the binary under test), gh (the stub) and jq, in front of the
-// suite's toolchain directory.
-function actionTools(): string {
+// The prefix the `npm` stub answers `npm prefix -g` with, whose
+// `bin/rust-doctor` is the binary under test.
+export const NPM_PREFIX = join(RUN_ROOT, "npm-prefix");
+
+// `npm install -g` installs nothing (the launcher already sits under the
+// prefix), and `npm prefix -g` prints the prefix.
+const NPM_STUB = `#!/bin/sh
+[ "\${1:-}" = prefix ] && echo "${NPM_PREFIX}"
+exit 0
+`;
+
+// rust-doctor (the binary under test), npm, gh (the stubs) and jq, in front of
+// the suite's toolchain directory.
+export function actionTools(): string {
   if (toolsDir) return toolsDir;
   const dir = join(RUN_ROOT, "action-bin");
   mkdirSync(dir, { recursive: true });
   symlinkSync(BIN, join(dir, "rust-doctor"));
+  mkdirSync(join(NPM_PREFIX, "bin"), { recursive: true });
+  symlinkSync(BIN, join(NPM_PREFIX, "bin/rust-doctor"));
+  writeFileSync(join(dir, "npm"), NPM_STUB);
+  chmodSync(join(dir, "npm"), 0o755);
   const jq = Bun.which("jq", { PATH: "/usr/local/bin:/usr/bin:/bin" });
   if (!jq) throw new Error("jq is not installed: the Action replay needs it, as a hosted runner provides it");
   symlinkSync(jq, join(dir, "jq"));
@@ -75,6 +92,10 @@ function actionTools(): string {
 export type Event = "push" | "pull_request" | "workflow_dispatch";
 
 export type ReplayOptions = {
+  // The action replayed, action.yml unless set.
+  action?: string;
+  // Directories put in front of PATH, as a runner's `~/.cargo/bin` is.
+  pathPrefix?: string[];
   // The checkout, GITHUB_WORKSPACE and the steps' working directory.
   workspace: string;
   event: Event;
@@ -159,7 +180,7 @@ function parseOutputs(path: string): Record<string, string> {
 }
 
 export async function replayAction(options: ReplayOptions): Promise<Replay> {
-  const action = actionYaml();
+  const action = actionYaml(options.action);
   const box = options.sandbox ?? sandbox("action");
   const runner = join(box.dir, "runner");
   const runnerTemp = join(runner, "temp");
@@ -171,7 +192,7 @@ export async function replayAction(options: ReplayOptions): Promise<Replay> {
   writeFileSync(comments, options.comments ?? "[]");
   const inputs: Record<string, string> = {};
   for (const [name, input] of Object.entries(action.inputs)) inputs[name] = input.default ?? "";
-  Object.assign(inputs, { version: "preinstalled", cache: "false" }, options.inputs);
+  Object.assign(inputs, options.action ? {} : { version: "preinstalled", cache: "false" }, options.inputs);
   const context: Context = {
     inputs,
     github: {
@@ -202,7 +223,7 @@ export async function replayAction(options: ReplayOptions): Promise<Replay> {
     const script = join(runner, `step-${index}.sh`);
     writeFileSync(script, interpolate(step.run!, context));
     const env = hermeticEnv(box, {
-      PATH: `${actionTools()}:${toolchainBin()}`,
+      PATH: [...(options.pathPrefix ?? []), actionTools(), toolchainBin()].join(":"),
       CI: "true",
       GITHUB_ACTIONS: "true",
       GITHUB_EVENT_NAME: options.event,
@@ -229,7 +250,7 @@ export async function replayAction(options: ReplayOptions): Promise<Replay> {
       exitCode = run.exitCode ?? 1;
     }
   }
-  const outputs = Object.fromEntries(Object.entries(action.outputs).map(([name, output]) => [name, interpolate(output.value, context)]));
+  const outputs = Object.fromEntries(Object.entries(action.outputs ?? {}).map(([name, output]) => [name, interpolate(output.value, context)]));
   const gh = existsSync(ghLog)
     ? readFileSync(ghLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[])
     : [];

@@ -3,7 +3,7 @@
 | Workflow | When | What it settles |
 |---|---|---|
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
-| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself), and posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails |
+| `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself); a second job posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails, from the default branch only |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | weekly, manual, pull request touching the record, its harness, a producer or the score | One job fills the clone cache with every pinned revision and its history; then, in parallel, one reproduces the measurement of `tests/corpus.json` in process and writes the position proof that anchors every published site, and one scans the 18 subjects offline through the CLI and the installed launcher: each matches its record, a rerun is identical, the copy is untouched |
 
@@ -61,15 +61,19 @@ moves the clocks only: the counter assertions that prove the near-duplicate
 scoring stays nominated rather than pairwise hold on any machine and are never
 relaxed.
 
-The comment is posted from the scan job itself, as React Doctor's Action does
-(`react-doctor/action.yml`, "Update sticky PR comment"), and rendered by the
-binary built from the commit under review, so it never waits on a release. The
-job holds `pull-requests: write`. GitHub reduces that token to read on a pull
-request from a fork, so a fork gets a warning in the job instead of a comment,
-and a pull request from this repository's own branches runs its code beside a
-token its author could already use. A `workflow_run` job could comment on
-forks too, but it renders with a published binary, which lags every change to
-the report. `pull_request_target` appears nowhere: GitHub's guidance forbids it
+The comment is posted from a second job: the scan job builds the pull
+request's code and holds `contents: read` alone. The `comment`
+job needs the scan, holds `pull-requests: write`, checks out nothing of the
+pull request and reads only the `rust-doctor-report` artifact, so no build
+script runs beside the token. `comment/action.yml` is that job for Action users
+and the generated workflow inlines the same script; `dogfood.yml` checks the
+action out at the base commit, so a pull request cannot rewrite what runs with
+the token. GitHub reduces it to read on a pull request from a fork, which gets a
+warning instead of a comment. A `workflow_run` job could comment on forks,
+but it renders with a published binary, which lags every change to the report.
+Every rust-cache step saves from the default branch alone (`save-if`) and never
+caches `~/.cargo/bin`, and the Action runs the launcher at the path npm
+installed it. `pull_request_target` appears nowhere: GitHub's guidance forbids it
 beside a checkout of pull request code
 ([Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)).
 

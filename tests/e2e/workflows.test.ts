@@ -20,6 +20,7 @@ import {
   type Exit,
 } from "./e2e-helpers";
 import { gitScenario, type Repo } from "./git-scenario";
+import { actionTools } from "./action-support";
 
 const VERSION = cargoVersion();
 const TODO_LINE = "pub fn later() -> u8 {\n    todo!()\n}\n";
@@ -77,24 +78,26 @@ const commit = (repo: Repo, message: string, extra: string[] = [], env: EnvOverr
 const head = async (repo: Repo) => (await git(repo, ["rev-parse", "HEAD"])).stdout.trim();
 
 type Step = { name?: string; uses?: string; run?: string; env?: Record<string, string> };
-type Workflow = { jobs: { inspect: { steps: Step[] } } };
+type Workflow = { jobs: Record<string, { steps: Step[] }> };
 
 function workflow(repo: Repo): Workflow {
   return Bun.YAML.parse(readFileSync(join(repo.path, ".github/workflows/rust-doctor.yml"), "utf8")) as Workflow;
 }
 
 function step(flow: Workflow, name: string): Step {
-  const found = flow.jobs.inspect.steps.find((entry) => entry.name === name);
+  const found = Object.values(flow.jobs).flatMap((job) => job.steps).find((entry) => entry.name === name);
   if (!found?.run) throw new Error(`no run step named ${name}`);
   return found;
 }
 
 // Replays one `run:` block the way the runner does: bash, in the checkout.
+// The inspect step resolves the launcher through `npm prefix -g`, whose stub
+// answers a prefix holding the binary under test.
 function runStep(repo: Repo, flow: Workflow, name: string, env: EnvOverrides): Promise<Exit> {
   return runCommand(["bash", "-c", step(flow, name).run!], {
     sandbox: repo.sandbox,
     cwd: repo.path,
-    env: { CARGO_TARGET_DIR: join(repo.sandbox.dir, "ci-target"), ...env },
+    env: { CARGO_TARGET_DIR: join(repo.sandbox.dir, "ci-target"), PATH: `${actionTools()}:${toolchainBin()}`, ...env },
   });
 }
 

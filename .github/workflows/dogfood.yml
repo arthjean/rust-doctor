@@ -19,12 +19,11 @@ concurrency:
   group: rust-doctor-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The Action posts the sticky pull request comment from this job, the way
-# React Doctor's does. GitHub reduces the token to read on a pull request from
-# a fork, so a fork gets a warning instead of a comment.
+# The scan job builds and runs the pull request's code, so it holds
+# `contents: read` alone. The sticky comment is posted by the `comment` job,
+# the only one granted `pull-requests: write`, which runs no pull request code.
 permissions:
   contents: read
-  pull-requests: write
 
 defaults:
   run:
@@ -55,14 +54,17 @@ jobs:
           toolchain: "1.97.1"
           components: clippy
 
-      # Saved even when the gate fails the job, so the retry is warm. This
-      # step caches the scanner's build and the scan's both, so the Action's
-      # own cache is turned off below.
+      # Saved even when the gate fails the job, so the retry is warm, and
+      # only from the default branch, so a pull request's build scripts write
+      # no entry a later run restores. This step caches the scanner's build
+      # and the scan's both, so the Action's own cache is turned off below.
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: dogfood
           cache-on-failure: true
+          cache-bin: false
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
       - name: Build the scanner under review
         run: |
@@ -70,13 +72,34 @@ jobs:
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       # The Action from this checkout, driving the binary just built: its
-      # outputs, its job summary, the `rust-doctor-report` artifact and, on a
-      # pull request, the sticky comment, all rendered by the code under
-      # review. A pull request is scanned in baseline scope against its base,
-      # a push in full scope.
+      # outputs, its job summary and the `rust-doctor-report` artifact the
+      # comment is posted from, all rendered by the code under review. A pull
+      # request is scanned in baseline scope against its base, a push in full
+      # scope.
       - name: Scan
         id: scan
         uses: ./
         with:
           version: preinstalled
           cache: "false"
+
+  # The comment action as the pull request's base commit holds it, never as
+  # the pull request rewrites it: this job holds the write token, so the code
+  # it runs is code already reviewed. It checks out `comment/` alone.
+  comment:
+    name: Comment
+    needs: scan
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: comment
+          persist-credentials: false
+
+      - uses: ./comment

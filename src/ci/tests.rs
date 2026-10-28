@@ -66,9 +66,12 @@ pub(crate) fn execute(block: &str, environment: &[(&str, &str)]) -> Vec<Vec<Stri
 /// answers `JQ_1` then `JQ_2`; `gh` logs its arguments and, under
 /// `GH_REFUSES`, refuses every write as a fork's read-only token would.
 /// `NO_REPORT` leaves the report and its rendered summary out, and
-/// `EMPTY_REPORT` leaves both empty. `git` logs its arguments, answers
-/// `SHALLOW` (default `false`) to `--is-shallow-repository`, and fails a
-/// fetch under `FETCH_FAILS`.
+/// `EMPTY_REPORT` leaves both empty; `CLEAN` is written as the scan's clean
+/// flag. `git` logs its arguments, answers `SHALLOW` (default `false`) to
+/// `--is-shallow-repository`, and fails a fetch under `FETCH_FAILS`. `npm
+/// prefix -g` answers a prefix whose `bin/rust-doctor` logs as the `rust-doctor`
+/// function does, under its absolute path, and `{prefix}` in an environment
+/// value stands for that prefix.
 pub(crate) fn run_stubbed(block: &str, environment: &[(&str, &str)]) -> Execution {
     let root = scratch("ci-tests", "execute");
     let log = root.join("argv");
@@ -79,6 +82,30 @@ pub(crate) fn run_stubbed(block: &str, environment: &[(&str, &str)]) -> Executio
         let summary = if empty { "" } else { "## rust-doctor\n" };
         fs::write(root.join("rust-doctor/summary.md"), summary).unwrap();
     }
+    if let Some((_, clean)) = environment.iter().find(|(name, _)| *name == "CLEAN") {
+        fs::write(root.join("rust-doctor/clean"), format!("{clean}\n")).unwrap();
+    }
+    let prefix = root.join("npm-prefix");
+    fs::create_dir_all(prefix.join("bin")).unwrap();
+    let launcher = prefix.join("bin/rust-doctor");
+    fs::write(
+        &launcher,
+        "#!/bin/bash\nprintf '%s\\037' \"$0\" \"$@\" >> \"$ARGV_LOG\"; printf '\\n' >> \"$ARGV_LOG\"\n\
+         if [ \"${1:-}\" = report ]; then echo '## rust-doctor'; exit 0; fi\n\
+         if [ \"${1:-}\" = --version ]; then echo 'rust-doctor 0.0.0'; exit 0; fi\n\
+         exit \"${SCAN_STATUS:-0}\"\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let prefix_text = prefix.to_string_lossy().into_owned();
+    let environment: Vec<(String, String)> = environment
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), value.replace("{prefix}", &prefix_text)))
+        .collect();
     let prelude = r#"
 rust-doctor() {
   printf '%s\037' rust-doctor "$@" >> "$ARGV_LOG"; printf '\n' >> "$ARGV_LOG"
@@ -92,7 +119,7 @@ git() {
     *" fetch "*) [ -z "${FETCH_FAILS:-}" ] ;;
   esac
 }
-npm() { :; }
+npm() { if [ "${1:-}" = prefix ]; then echo "$NPM_PREFIX"; fi; }
 gh() {
   echo "$*" >> "$GH_LOG"
   if [ "${1:-}" = api ] && [ "${2:-}" = -X ] && [ -n "${GH_REFUSES:-}" ]; then return 1; fi
@@ -128,7 +155,8 @@ jq() {
         .env("RUNNER_TEMP", &root)
         .env("GITHUB_STEP_SUMMARY", root.join("summary"))
         .env("GITHUB_OUTPUT", root.join("output"))
-        .envs(environment.iter().copied())
+        .env("NPM_PREFIX", &prefix)
+        .envs(environment.iter().map(|(name, value)| (name.as_str(), value.as_str())))
         .output()
         .unwrap();
     let argv = fs::read_to_string(&log).unwrap_or_default();
@@ -158,7 +186,11 @@ jq() {
 pub(crate) fn assert_parses(invocations: &[Vec<String>]) {
     for argv in invocations {
         let parsed = crate::Cli::try_parse_from(argv);
-        assert!(parsed.is_ok(), "the CLI refuses {argv:?}: {:?}", parsed.err());
+        let printed_version = parsed
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.kind() == clap::error::ErrorKind::DisplayVersion);
+        assert!(parsed.is_ok() || printed_version, "the CLI refuses {argv:?}: {:?}", parsed.err());
     }
 }
 
@@ -188,12 +220,16 @@ fn every_command_the_scan_workflow_runs_parses_against_the_cli() {
         assert_parses(&push);
 
         let scan = |invocations: &[Vec<String>]| {
-            invocations
+            let argv = invocations
                 .iter()
                 .find(|argv| argv.get(2).map(String::as_str) == Some("--yes"))
                 .cloned()
-                .unwrap()
-                .join(" ")
+                .unwrap();
+            assert!(
+                Path::new(&argv[0]).is_absolute() && argv[0].ends_with("/npm-prefix/bin/rust-doctor"),
+                "the launcher runs by the path npm installed it at: {argv:?}"
+            );
+            command_line(&argv)
         };
         let pull_request_scan = scan(&pull_request);
         assert!(
@@ -210,12 +246,25 @@ fn every_command_the_scan_workflow_runs_parses_against_the_cli() {
             "rust-doctor . --yes --json --scope full --blocking none"
         );
         assert!(
-            pull_request
-                .iter()
-                .any(|argv| argv.get(1..3) == Some(&["report".to_owned(), "markdown".to_owned()][..])),
-            "the summary is rendered by `report markdown`"
+            pull_request.iter().any(|argv| {
+                argv.get(1..3) == Some(&["report".to_owned(), "markdown".to_owned()][..])
+                    && argv[0].ends_with("/npm-prefix/bin/rust-doctor")
+            }),
+            "the summary is rendered by `report markdown`, through the same launcher"
         );
     }
+}
+
+/// An invocation as a command line, the program named by its file name.
+fn command_line(argv: &[String]) -> String {
+    let program = Path::new(&argv[0])
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    std::iter::once(program)
+        .chain(argv[1..].iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]
@@ -224,6 +273,7 @@ fn the_scan_workflow_runs_read_only_and_never_interpolates_into_a_shell() {
     assert!(workflow.starts_with(MARKER));
     assert!(workflow.contains("permissions:\n  contents: read\n\njobs:"));
     assert!(!workflow.contains("pull-requests") && !workflow.contains("<!-- rust-doctor -->"));
+    assert!(!workflow.contains("\n  comment:\n"));
     assert!(workflow.contains("persist-credentials: false"));
     assert!(workflow.contains("branches: ['trunk']"));
     assert!(workflow.contains(&format!("toolchain: '{VALIDATED_TOOLCHAIN}'")));
@@ -241,17 +291,25 @@ fn the_scan_workflow_runs_read_only_and_never_interpolates_into_a_shell() {
     }
 }
 
-/// `--comment` grants the one write permission and adds the step, and the
-/// Action runs the same script byte for byte.
+/// `--comment` adds a second job, the only one granted the write permission,
+/// which needs the scan, checks nothing out and runs the script
+/// `comment/action.yml` runs, byte for byte.
 #[test]
 fn the_comment_is_opt_in_and_the_action_runs_the_same_script() {
     let workflow = scan_workflow(&WorkflowOptions {
         comment: true,
         ..workflow_options(None)
     });
-    assert!(workflow.contains("permissions:\n  contents: read\n  pull-requests: write\n\njobs:"));
+    assert!(workflow.contains("permissions:\n  contents: read\n\njobs:"));
     assert_eq!(workflow.matches("pull-requests: write").count(), 1);
-    assert!(workflow.contains("if: always() && github.event_name == 'pull_request'"));
+    let comment = workflow.split("\n  comment:\n").nth(1).unwrap();
+    assert!(comment.contains("    needs: inspect\n"), "{comment}");
+    assert!(comment.contains("    if: always() && github.event_name == 'pull_request'\n"));
+    assert!(comment.contains("    permissions:\n      pull-requests: write\n"));
+    assert!(!comment.contains("actions/checkout") && !comment.contains("npm install"));
+    assert!(comment.contains(
+        "uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0"
+    ));
     assert!(!workflow.contains("pull_request_target"));
     let blocks = run_blocks(&workflow);
     assert_eq!(blocks.len(), 3, "install, scan, comment");
@@ -259,7 +317,8 @@ fn the_comment_is_opt_in_and_the_action_runs_the_same_script() {
     for block in &blocks {
         assert!(!block.contains("${{"), "a run block interpolates: {block}");
     }
-    let action_comment = run_blocks(ACTION)
+    assert!(!ACTION.contains("<!-- rust-doctor -->"), "action.yml no longer comments");
+    let action_comment = run_blocks(COMMENT_ACTION)
         .into_iter()
         .find(|block| block.contains("<!-- rust-doctor -->"));
     assert_eq!(action_comment.as_deref().map(str::trim_end), Some(COMMENT_SCRIPT.trim_end()));
@@ -290,10 +349,16 @@ fn options_for(root: &Path, branch: &str, toolchain: &str) -> Result<WorkflowOpt
 }
 
 const ACTION: &str = include_str!("../../action.yml");
+const COMMENT_ACTION: &str = include_str!("../../comment/action.yml");
 
 /// The default an input of `action.yml` declares, unquoted.
 fn input_default(name: &str) -> Option<String> {
-    let mut lines = ACTION
+    declared_default(ACTION, name)
+}
+
+/// The default an input of an action declares, unquoted.
+fn declared_default(action: &str, name: &str) -> Option<String> {
+    let mut lines = action
         .lines()
         .skip_while(|line| *line != format!("  {name}:"))
         .skip(1)
@@ -314,13 +379,16 @@ fn the_action_declares_its_inputs_and_defaults_to_this_release() {
         "warning-exit-code",
         "working-directory",
         "args",
-        "comment",
+        "cache",
     ] {
         assert!(input_default(input).is_some(), "action.yml declares no default for `{input}`");
     }
     assert_eq!(input_default("version").as_deref(), Some(env!("CARGO_PKG_VERSION")));
     assert_eq!(input_default("toolchain").as_deref(), Some(VALIDATED_TOOLCHAIN));
-    assert_eq!(input_default("comment").as_deref(), Some("true"));
+    for removed in ["comment", "comment-on-clean"] {
+        assert!(!ACTION.contains(&format!("\n  {removed}:\n")), "action.yml still declares `{removed}`");
+    }
+    assert_eq!(declared_default(COMMENT_ACTION, "comment-on-clean").as_deref(), Some("true"));
     for output in ["score", "authoritative", "introduced", "fixed", "exit-code"] {
         assert!(ACTION.contains(&format!("\n  {output}:\n")), "action.yml has no `{output}` output");
     }
@@ -333,7 +401,7 @@ fn the_action_declares_its_inputs_and_defaults_to_this_release() {
 #[test]
 fn every_command_the_action_runs_parses_against_the_cli() {
     let blocks = run_blocks(ACTION);
-    assert_eq!(blocks.len(), 6, "install, scan, summary, comment, outputs, exit");
+    assert_eq!(blocks.len(), 5, "install, scan, summary, outputs, exit");
     let cases: [(&[(&str, &str)], &str); 5] = [
         (
             &[("PULL_REQUEST_BASE", "main")],
@@ -364,8 +432,7 @@ fn every_command_the_action_runs_parses_against_the_cli() {
             ("VERSION", "0.9.0"),
             ("REPORT", "report.json"),
             ("EXIT_CODE", "0"),
-            ("REPOSITORY", "o/r"),
-            ("PULL_REQUEST", "7"),
+            ("LAUNCHER", "{prefix}/bin/rust-doctor"),
         ];
         environment.retain(|(name, _)| !inputs.iter().any(|(input, _)| input == name));
         environment.extend_from_slice(inputs);
@@ -376,14 +443,44 @@ fn every_command_the_action_runs_parses_against_the_cli() {
         assert_parses(&invocations);
         let scan = invocations
             .iter()
-            .find(|argv| argv.get(2).map(String::as_str) == Some("--yes"))
-            .map(|argv| argv.join(" "));
-        assert_eq!(scan.as_deref(), Some(expected), "{inputs:?}");
+            .find(|argv| argv.get(2).map(String::as_str) == Some("--yes"));
+        assert_eq!(scan.map(|argv| command_line(argv)).as_deref(), Some(expected), "{inputs:?}");
+        for argv in &invocations {
+            assert!(
+                argv[0].ends_with("/npm-prefix/bin/rust-doctor"),
+                "the Action runs the launcher it installed: {argv:?}"
+            );
+        }
         assert!(
             invocations.iter().any(|argv| argv.get(1).map(String::as_str) == Some("report")),
             "the job summary is rendered by `report markdown`"
         );
     }
+}
+
+/// The install step resolves the launcher once, by the absolute path npm
+/// installed it at, and the scan and summary steps run that path. With
+/// `version: preinstalled` the step is skipped, its output is empty and both
+/// fall back to the `rust-doctor` on PATH.
+#[test]
+fn the_action_runs_the_launcher_it_installed_by_its_absolute_path() {
+    let install = run_blocks(ACTION).remove(0);
+    let installed = run_stubbed(&install, &[("VERSION", "0.9.0")]);
+    assert_eq!(installed.status, Some(0));
+    let launcher = installed.outputs.trim().strip_prefix("launcher=").unwrap();
+    assert!(Path::new(launcher).is_absolute() && launcher.ends_with("/npm-prefix/bin/rust-doctor"));
+    assert_eq!(installed.stdout, "rust-doctor 0.0.0\n");
+    let header = ACTION.split("- name: Install rust-doctor").nth(1).unwrap();
+    assert!(header.contains("id: install\n") && header.contains("if: inputs.version != 'preinstalled'"));
+    for step in ["- name: Scan", "- name: Summarize"] {
+        let block = ACTION.split(step).nth(1).unwrap().split("run: |").next().unwrap();
+        assert!(block.contains("LAUNCHER: ${{ steps.install.outputs.launcher }}"), "{step}");
+    }
+    let mut environment = SCAN_INPUTS.to_vec();
+    environment.push(("PULL_REQUEST_BASE", ""));
+    environment.push(("LAUNCHER", ""));
+    let preinstalled = run_stubbed(&action_scan(), &environment);
+    assert_eq!(preinstalled.invocations[0][0], "rust-doctor", "preinstalled keeps the PATH lookup");
 }
 
 /// This repository scans itself through the Action from its own checkout,
@@ -394,7 +491,11 @@ fn this_repository_runs_the_action_it_ships() {
     assert!(dogfood.starts_with("name: Rust Doctor\n"));
     assert!(dogfood.contains("uses: ./\n"));
     assert!(dogfood.contains("pull_request:"));
-    assert!(dogfood.contains("  pull-requests: write\n"));
+    let comment = dogfood.split("\n  comment:\n").nth(1).unwrap();
+    assert!(comment.contains("      - uses: ./comment\n"));
+    assert!(comment.contains("      pull-requests: write\n"));
+    let grants = dogfood.lines().filter(|line| line.trim() == "pull-requests: write").count();
+    assert_eq!(grants, 1, "only the comment job writes to the pull request");
 }
 
 /// A scan that exits 2 still leaves an exit code for the summary, the upload
@@ -405,7 +506,7 @@ fn a_failed_scan_still_publishes_and_then_fails_the_step() {
     let blocks = run_blocks(ACTION);
     let scan = blocks
         .iter()
-        .find(|block| block.contains("rust-doctor \"${arguments[@]}\""))
+        .find(|block| block.contains(SCAN_COMMAND))
         .unwrap();
     let environment = [
         ("SCOPE", ""),
@@ -424,8 +525,8 @@ fn a_failed_scan_still_publishes_and_then_fails_the_step() {
     let after_scan = ACTION.split("id: scan").nth(1).unwrap();
     assert_eq!(
         after_scan.matches("if: always()").count(),
-        5,
-        "summary, upload, comment, outputs and exit run after a failed scan"
+        4,
+        "summary, upload, outputs and exit run after a failed scan"
     );
 }
 
@@ -467,9 +568,12 @@ fn the_comment_is_edited_in_place_and_never_fails_the_job() {
 fn action_scan() -> String {
     run_blocks(ACTION)
         .into_iter()
-        .find(|block| block.contains("rust-doctor \"${arguments[@]}\""))
+        .find(|block| block.contains(SCAN_COMMAND))
         .unwrap()
 }
+
+/// The line the Action's scan step runs the scan on.
+const SCAN_COMMAND: &str = "\"${LAUNCHER:-rust-doctor}\" \"${arguments[@]}\"";
 
 const SCAN_INPUTS: [(&str, &str); 6] = [
     ("SCOPE", ""),
@@ -575,27 +679,34 @@ fn a_clean_pull_request_stays_quiet_when_asked() {
         let posted = with(extra);
         assert!(posted.gh.contains("-X POST repos/o/r/issues/7/comments"), "{extra:?}: {}", posted.gh);
     }
-    assert_eq!(input_default("comment-on-clean").as_deref(), Some("true"));
+    assert_eq!(declared_default(COMMENT_ACTION, "comment-on-clean").as_deref(), Some("true"));
     assert_eq!(input_default("cache").as_deref(), Some("true"));
-    assert!(ACTION.contains("CLEAN: ${{ steps.summarize.outputs.clean }}"));
+    assert!(COMMENT_ACTION.contains("COMMENT_ON_CLEAN: ${{ inputs.comment-on-clean }}"));
+    assert!(ACTION.contains("echo \"$clean\" > \"$RUNNER_TEMP/rust-doctor/clean\""));
+    assert!(ACTION.contains("${{ runner.temp }}/rust-doctor/clean\n"));
 }
 
 /// Every action the shipped YAML uses is pinned to a full commit, with the
 /// ref it was read from beside it, and every rust-cache step saves on
-/// failure.
+/// failure, from the default branch only, and never caches `~/.cargo/bin`.
 #[test]
 fn every_shipped_action_is_pinned_to_a_commit() {
     let workflow = scan_workflow(&WorkflowOptions {
         comment: true,
         ..workflow_options(None)
     });
-    for (name, yaml) in [("action.yml", ACTION), ("the generated workflow", workflow.as_str())] {
+    for (name, yaml) in [
+        ("action.yml", ACTION),
+        ("the generated workflow", workflow.as_str()),
+        ("comment/action.yml", COMMENT_ACTION),
+    ] {
         let uses: Vec<&str> = yaml
             .lines()
             .filter_map(|line| line.trim_start().trim_start_matches("- ").strip_prefix("uses: "))
             .filter(|target| !target.starts_with("./"))
             .collect();
-        assert!(uses.len() >= 3, "{name}: {uses:?}");
+        assert!(!uses.is_empty(), "{name}: {uses:?}");
+        let count = uses.len();
         for target in uses {
             let pinned = target.split_once('@').is_some_and(|(_, reference)| {
                 reference.get(..40).is_some_and(|sha| {
@@ -604,10 +715,161 @@ fn every_shipped_action_is_pinned_to_a_commit() {
             });
             assert!(pinned, "{name}: `{target}` is not pinned to a 40-hex SHA and a `# <ref>` comment");
         }
+        if name == "comment/action.yml" {
+            assert!(!yaml.contains("rust-cache") && !yaml.contains("actions/checkout"), "{name}");
+            continue;
+        }
+        assert!(count >= 3, "{name}: {count} actions");
         let caches = yaml.matches("Swatinem/rust-cache@").count();
         assert_eq!(caches, 1, "{name}");
-        assert!(yaml.contains("cache-on-failure: true"), "{name}");
+        let cache = yaml.split("Swatinem/rust-cache@").nth(1).unwrap();
+        let settings: Vec<&str> = cache
+            .lines()
+            .skip(1)
+            .take_while(|line| !line.trim().is_empty())
+            .map(str::trim)
+            .collect();
+        for setting in ["cache-on-failure: true", "cache-bin: false", SAVE_IF] {
+            assert!(settings.contains(&setting), "{name}: {settings:?} lacks {setting}");
+        }
     }
+}
+
+/// What both rust-cache steps save under: the default branch, and nothing else.
+const SAVE_IF: &str =
+    "save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}";
+
+/// The `save-if` expression of [`SAVE_IF`], evaluated as GitHub would for a
+/// run on `reference` in a repository whose payload names `default_branch`:
+/// `format` fills `{0}`, a missing property is the empty string.
+fn saves(reference: &str, default_branch: Option<&str>) -> bool {
+    let expression = SAVE_IF
+        .strip_prefix("save-if: ${{ ")
+        .and_then(|rest| rest.strip_suffix(" }}"))
+        .unwrap();
+    let (left, right) = expression.split_once(" == ").unwrap();
+    assert_eq!(left, "github.ref");
+    let (template, argument) = right
+        .strip_prefix("format('")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .and_then(|rest| rest.split_once("', "))
+        .unwrap();
+    assert_eq!(argument, "github.event.repository.default_branch");
+    reference == template.replace("{0}", default_branch.unwrap_or_default())
+}
+
+/// EP-005 US-019, unhappy path: a pull request's ref is its merge ref, so the
+/// expression is false and the cache step restores without saving; a
+/// scheduled payload without the default branch saves nothing either.
+#[test]
+fn only_a_run_on_the_default_branch_saves_the_cache() {
+    assert!(!saves("refs/pull/7/merge", Some("main")), "a pull request never saves");
+    assert!(saves("refs/heads/main", Some("main")), "the default branch saves");
+    assert!(!saves("refs/heads/feature", Some("main")), "another branch never saves");
+    assert!(!saves("refs/heads/main", None), "a payload without the default branch never saves");
+}
+
+/// The jobs of a workflow, each with its id and the lines it spans, after
+/// the lines before `jobs:`.
+fn workflow_jobs(yaml: &str) -> (Vec<&str>, Vec<(String, Vec<&str>)>) {
+    let (preamble, jobs) = yaml.split_once("\njobs:\n").unwrap_or((yaml, ""));
+    let mut parsed: Vec<(String, Vec<&str>)> = Vec::new();
+    for line in jobs.lines() {
+        match line.strip_prefix("  ").and_then(|rest| rest.strip_suffix(':')) {
+            Some(id) if !id.starts_with([' ', '#']) => parsed.push((id.to_owned(), Vec::new())),
+            _ => {
+                if let Some((_, lines)) = parsed.last_mut() {
+                    lines.push(line);
+                }
+            }
+        }
+    }
+    (preamble.lines().collect(), parsed)
+}
+
+/// Whether line `index` of a job runs pull request code: a checkout of
+/// anything but the base commit, the scan Action, rust-doctor, or Cargo.
+fn runs_pull_request_code(lines: &[&str], index: usize) -> bool {
+    let code = lines[index].trim().trim_start_matches("- ");
+    if code.starts_with('#') {
+        return false;
+    }
+    if code.starts_with("uses: actions/checkout@") {
+        return !lines[index + 1..]
+            .iter()
+            .take_while(|next| !next.trim_start().starts_with("- "))
+            .any(|next| next.trim() == "ref: ${{ github.event.pull_request.base.sha }}");
+    }
+    let scans = ["uses: ./", "uses: arthjean/rust-doctor@", "rust-doctor ", "run: rust-doctor"];
+    let builds = ["npm install -g rust-doctor", "\"$launcher\"", "cargo "];
+    code == scans[0]
+        || scans[1..].iter().any(|prefix| code.starts_with(prefix))
+        || builds.iter().any(|fragment| code.contains(fragment))
+}
+
+/// Why a job of a workflow could run pull request code beside the token that
+/// writes to the pull request: it holds `pull-requests: write`, its own or the
+/// workflow's, and a line of it runs that code.
+pub(crate) fn writing_jobs_that_run_pull_request_code(yaml: &str) -> Vec<String> {
+    let grants = |lines: &[&str]| lines.iter().any(|line| line.trim() == "pull-requests: write");
+    let (preamble, jobs) = workflow_jobs(yaml);
+    let workflow_grants = grants(&preamble);
+    let mut violations = Vec::new();
+    for (id, lines) in jobs {
+        let own = lines.iter().any(|line| line.trim() == "permissions:");
+        if !(grants(&lines) || (workflow_grants && !own)) {
+            continue;
+        }
+        for index in (0..lines.len()).filter(|index| runs_pull_request_code(&lines, *index)) {
+            violations.push(format!("job `{id}`: {}", lines[index].trim()));
+        }
+    }
+    violations
+}
+
+/// EP-005 US-020, unhappy path: in the generated workflow, no job holding
+/// `pull-requests: write` checks out the pull request or runs rust-doctor,
+/// and the check refuses each way a writing job could.
+#[test]
+fn no_job_that_writes_to_the_pull_request_runs_its_code() {
+    for comment in [false, true] {
+        let workflow = scan_workflow(&WorkflowOptions {
+            comment,
+            ..workflow_options(None)
+        });
+        assert_eq!(writing_jobs_that_run_pull_request_code(&workflow), Vec::<String>::new());
+    }
+    let dogfood = include_str!("../../.github/workflows/dogfood.yml");
+    assert_eq!(writing_jobs_that_run_pull_request_code(dogfood), Vec::<String>::new());
+    let documented: Vec<&str> = include_str!("../../README.md")
+        .split("```yaml\n")
+        .skip(1)
+        .filter_map(|block| block.split("```").next())
+        .filter(|block| block.contains("pull-requests: write"))
+        .collect();
+    assert_eq!(documented.len(), 1, "the README documents the two-job layout once");
+    for layout in documented {
+        assert!(layout.contains("uses: arthjean/rust-doctor/comment@v0"), "{layout}");
+        assert_eq!(writing_jobs_that_run_pull_request_code(layout), Vec::<String>::new());
+    }
+
+    let job = |permissions: &str, steps: &str| {
+        format!("permissions:\n  contents: read{permissions}\n\njobs:\n  scan:\n    steps:\n{steps}\n")
+    };
+    for steps in [
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0",
+        "      - uses: ./",
+        "      - uses: arthjean/rust-doctor@v0",
+        "      - run: npm install -g rust-doctor@0.9.0",
+        "      - run: rust-doctor . --yes",
+        "      - run: cargo build",
+    ] {
+        let granted = job("\n  pull-requests: write", steps);
+        assert_eq!(writing_jobs_that_run_pull_request_code(&granted).len(), 1, "{steps}");
+        assert!(writing_jobs_that_run_pull_request_code(&job("", steps)).is_empty(), "{steps}");
+    }
+    let base = "      - uses: actions/checkout@v5\n        with:\n          ref: ${{ github.event.pull_request.base.sha }}\n      - uses: ./comment";
+    assert!(writing_jobs_that_run_pull_request_code(&job("\n  pull-requests: write", base)).is_empty());
 }
 
 /// A workspace below the repository's top is the path the workflow scans and
@@ -618,7 +880,7 @@ fn a_nested_workspace_is_scanned_and_cached_by_its_path() {
         workspace: "src-tauri".to_owned(),
         ..workflow_options(None)
     });
-    assert!(workflow.contains("cache-on-failure: true\n          workspaces: src-tauri\n"), "{workflow}");
+    assert!(workflow.contains(&format!("{SAVE_IF}\n          workspaces: src-tauri\n")), "{workflow}");
     let scan = run_blocks(&workflow).pop().unwrap();
     let invocations = execute(&scan, &[("BASE_REF", "main")]);
     assert_parses(&invocations);

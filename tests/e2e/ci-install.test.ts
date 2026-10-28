@@ -19,6 +19,7 @@ import {
 } from "./e2e-helpers";
 import { fakeCalls, fakeEnv } from "./fakes";
 import { gitScenario, type Repo } from "./git-scenario";
+import { actionTools } from "./action-support";
 
 const WORKFLOW = ".github/workflows/rust-doctor.yml";
 const MARKER = "# Written by rust-doctor ci install; `rust-doctor ci install --update` rewrites it.";
@@ -28,13 +29,23 @@ const TOOLCHAIN = "1.97.1";
 const JQ = Bun.which("jq", { PATH: "/usr/local/bin:/usr/bin:/bin" });
 
 type Step = { name?: string; uses?: string; if?: string; with?: Record<string, unknown>; env?: Record<string, string>; run?: string };
+type Job = {
+  "runs-on": string;
+  "timeout-minutes": number;
+  needs?: string;
+  if?: string;
+  permissions?: Record<string, string>;
+  steps: Step[];
+};
 type Workflow = {
   name: string;
   on: { push: { branches: string[] }; pull_request: { types: string[] } };
   concurrency: { group: string; "cancel-in-progress": string };
   permissions: Record<string, string>;
-  jobs: { inspect: { "runs-on": string; "timeout-minutes": number; steps: Step[] } };
+  jobs: { inspect: Job; comment?: Job };
 };
+
+const SAVE_IF = "${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}";
 
 const clean = (name: string) => gitScenario(name).fixture("projects/clean").write({ ".gitignore": "/target\n" }).commit("base").build();
 
@@ -51,8 +62,9 @@ async function installed(name: string, args: string[] = []): Promise<Repo> {
 const written = (repo: Repo) => readFileSync(join(repo.path, WORKFLOW), "utf8");
 const parse = (text: string) => Bun.YAML.parse(text) as Workflow;
 const steps = (text: string) => parse(text).jobs.inspect.steps;
+// A run step of any job.
 const step = (text: string, name: string) => {
-  const found = steps(text).find((candidate) => candidate.name === name);
+  const found = Object.values(parse(text).jobs).flatMap((job) => job?.steps ?? []).find((candidate) => candidate.name === name);
   if (!found?.run) throw new Error(`no run step named ${name}`);
   return found;
 };
@@ -143,8 +155,14 @@ describe("ci install", () => {
     const by = (action: string) => job.steps.find((s) => s.uses?.startsWith(`${action}@`))!.with;
     expect(by("actions/checkout")).toEqual({ "fetch-depth": 0, "persist-credentials": false });
     expect(by("dtolnay/rust-toolchain")).toEqual({ toolchain: TOOLCHAIN, components: "clippy" });
-    expect(by("Swatinem/rust-cache")).toEqual({ "cache-on-failure": true });
+    expect(by("Swatinem/rust-cache")).toEqual({ "cache-on-failure": true, "cache-bin": false, "save-if": SAVE_IF });
     expect(step(written(repo), "Install rust-doctor").run).toBe(`npm install -g rust-doctor@${cargoVersion()}`);
+    const inspect = step(written(repo), "Inspect the workspace").run!;
+    expect(inspect).toContain('launcher="$(npm prefix -g)/bin/rust-doctor"\n');
+    expect(inspect).toContain('"$launcher" . --yes --json "${scan_arguments[@]}" > "$report"\n');
+    expect(inspect).toContain('"$launcher" report markdown "$report" > "$summary" || true\n');
+    expect(inspect).not.toMatch(/^rust-doctor /m);
+    expect(doc.jobs.comment).toBeUndefined();
     expect(written(repo)).toContain(`toolchain: '${TOOLCHAIN}'\n`);
     expect(written(repo)).toContain("temporary snapshot");
     expect(written(repo)).not.toContain("temporary worktree");
@@ -155,7 +173,8 @@ describe("ci install", () => {
     ["--comment", ["--comment", "--blocking", "warning"]],
   ])("CI-04 every run block of the %s workflow passes bash -n and reads no ${{ expression", async (_label, args) => {
     const repo = await clean(`ci-04-${args.length}`);
-    const blocks = steps(await preview(repo, args)).flatMap((s) => (s.run ? [s.run] : []));
+    const doc = parse(await preview(repo, args));
+    const blocks = Object.values(doc.jobs).flatMap((job) => job?.steps ?? []).flatMap((s) => (s.run ? [s.run] : []));
     expect(blocks.length).toBeGreaterThanOrEqual(args.length ? 3 : 2);
     for (const block of blocks) {
       expect(block).not.toContain("${{");
@@ -198,11 +217,16 @@ describe("ci install", () => {
     expect(run.exitCode).toBe(0);
     const text = written(repo);
     const doc = parse(text);
-    expect(doc.permissions).toEqual({ contents: "read", "pull-requests": "write" });
+    expect(doc.permissions).toEqual({ contents: "read" });
     expect(doc.on.push.branches).toEqual(["dev"]);
-    expect(doc.jobs.inspect.steps).toHaveLength(7);
+    expect(doc.jobs.inspect.steps).toHaveLength(6);
+    const job = doc.jobs.comment!;
+    expect(job.needs).toBe("inspect");
+    expect(job.if).toBe("always() && github.event_name == 'pull_request'");
+    expect(job.permissions).toEqual({ "pull-requests": "write" });
+    expect(job.steps.map((s) => s.uses?.split("@")[0] ?? s.name)).toEqual(["actions/download-artifact", "Comment on the pull request"]);
     const comment = step(text, "Comment on the pull request");
-    expect(comment.if).toBe("always() && github.event_name == 'pull_request'");
+    expect(comment.if).toBeUndefined();
     expect(Object.keys(comment.env ?? {}).sort()).toEqual(["GH_TOKEN", "PULL_REQUEST", "REPOSITORY"]);
     expect(text).toContain("toolchain: 'stable'\n");
     expect(step(text, "Inspect the workspace").run).toContain(
@@ -380,8 +404,8 @@ describe("ci install", () => {
     const repo = await nested("ci-28");
     const before = treeFingerprint(repo.path);
     const text = await preview({ ...repo, path: join(repo.path, "crates/x") }, [], { cwd: repo.path });
-    expect(steps(text)[2]!.with).toEqual({ workspaces: "crates/x", "cache-on-failure": true });
-    expect(step(text, "Inspect the workspace").run).toContain('rust-doctor crates/x --yes --json "${scan_arguments[@]}" > "$report"\n');
+    expect(steps(text)[2]!.with).toEqual({ workspaces: "crates/x", "cache-on-failure": true, "cache-bin": false, "save-if": SAVE_IF });
+    expect(step(text, "Inspect the workspace").run).toContain('"$launcher" crates/x --yes --json "${scan_arguments[@]}" > "$report"\n');
     expect(treeFingerprint(repo.path)).toBe(before);
   });
 
@@ -445,6 +469,8 @@ describe("ci install steps", () => {
           BASE_REF: baseRef,
           EVENT_NAME: eventName,
           CARGO_TARGET_DIR: repo.target("ci-32"),
+          // `npm prefix -g` answers a prefix whose launcher is the binary under test.
+          PATH: `${actionTools()}:${toolchainBin()}`,
         },
         150_000,
       );

@@ -8,10 +8,15 @@ branding:
 # Every input reaches the shell through `env`, never through `${{ }}` inside a
 # run block: a branch name or an argument is text the caller may not control,
 # and interpolating it into a script is a command injection. rust-doctor
-# itself reaches no network; the npm install, the base fetch, the artifact
-# upload and the pull request comment are the runner's, the last with the
-# workflow's own token. Every action used here is pinned to a commit, with the
-# ref it was read from beside it.
+# itself reaches no network; the npm install, the base fetch and the artifact
+# upload are the runner's. Every action used here is pinned to a commit, with
+# the ref it was read from beside it.
+#
+# This job builds the pull request's code, build scripts and procedural macros
+# included, so grant it `contents: read` and nothing else. The sticky pull
+# request comment is posted by `arthjean/rust-doctor/comment`, from a second
+# job that holds `pull-requests: write`, checks nothing out and reads only the
+# `rust-doctor-report` artifact this job uploads.
 
 inputs:
   version:
@@ -46,16 +51,8 @@ inputs:
     description: Further rust-doctor arguments, split on whitespace.
     required: false
     default: ""
-  comment:
-    description: "On a pull request, post the summary as one sticky comment, edited on each push. Needs `pull-requests: write`; a pull request from a fork gets a read-only token, and a warning instead."
-    required: false
-    default: "true"
-  comment-on-clean:
-    description: "Post the comment on a clean pull request too: a complete scan with no introduced finding in baseline scope, or no finding otherwise. With `false`, a clean pull request gets no new comment, and an existing one is still updated."
-    required: false
-    default: "true"
   cache:
-    description: "Restore and save Cargo's build with Swatinem/rust-cache, saving it even when the gate fails the job, so the retry is warm."
+    description: "Restore Cargo's build with Swatinem/rust-cache. Only a run on the default branch saves it, even when the gate fails the job, so the retry is warm; a pull request restores and never saves."
     required: false
     default: "true"
 
@@ -85,19 +82,35 @@ runs:
         components: clippy
 
     # The post-job save is skipped when a failed gate fails the job, unless
-    # rust-cache is told to save on failure.
+    # rust-cache is told to save on failure. Only the default branch saves: a
+    # pull request's build scripts write `target/`, and an entry they saved
+    # would be restored into the next run. `~/.cargo/bin` is never cached, so
+    # no binary a build planted there outlives its job.
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       if: inputs.cache == 'true'
       with:
         workspaces: ${{ inputs.working-directory }}
         cache-on-failure: true
+        cache-bin: false
+        save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
+    # The launcher is run by the absolute path npm installed it at, never
+    # looked up on PATH, where `~/.cargo/bin` comes first on a hosted runner.
     - name: Install rust-doctor
+      id: install
       if: inputs.version != 'preinstalled'
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
-      run: npm install -g "rust-doctor@$VERSION"
+      run: |
+        npm install -g "rust-doctor@$VERSION"
+        launcher="$(npm prefix -g)/bin/rust-doctor"
+        if [ ! -x "$launcher" ]; then
+          echo "::error::npm installed no rust-doctor launcher at $launcher."
+          exit 1
+        fi
+        "$launcher" --version
+        echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
 
     # The scan's exit code is kept rather than raised here, so the summary,
     # the artifact and the outputs exist for a failed scan too. GitHub runs
@@ -113,6 +126,7 @@ runs:
         ARGS: ${{ inputs.args }}
         WORKSPACE: ${{ inputs.working-directory }}
         PULL_REQUEST_BASE: ${{ github.base_ref }}
+        LAUNCHER: ${{ steps.install.outputs.launcher }}
       run: |
         set -uo pipefail
         report="$RUNNER_TEMP/rust-doctor/report.json"
@@ -143,21 +157,23 @@ runs:
           arguments+=("${extra[@]}")
         fi
         status=0
-        rust-doctor "${arguments[@]}" > "$report" || status=$?
+        "${LAUNCHER:-rust-doctor}" "${arguments[@]}" > "$report" || status=$?
         echo "exit-code=$status" >> "$GITHUB_OUTPUT"
 
     # Rendered once, for the job summary and the pull request comment, on
-    # every event. `clean` is a boolean jq computes, never text of the report.
+    # every event. `clean` is a boolean jq computes, never text of the report,
+    # and travels to the comment job in the artifact.
     - name: Summarize
       id: summarize
       if: always()
       shell: bash
       env:
         REPORT: ${{ steps.scan.outputs.report }}
+        LAUNCHER: ${{ steps.install.outputs.launcher }}
       run: |
         summary="$RUNNER_TEMP/rust-doctor/summary.md"
         mkdir -p "$(dirname "$summary")"
-        if rust-doctor report markdown "$REPORT" > "$summary"; then
+        if "${LAUNCHER:-rust-doctor}" report markdown "$REPORT" > "$summary"; then
           cat "$summary" >> "$GITHUB_STEP_SUMMARY"
         else
           : > "$summary"
@@ -165,48 +181,22 @@ runs:
         fi
         clean=$(jq -r '.status == "complete" and (if .scope.mode == "baseline" then .delta.summary.introduced == 0 else (.diagnostics | length) == 0 end)' "$REPORT" 2>/dev/null) || clean=false
         if [ "$clean" != true ]; then clean=false; fi
+        echo "$clean" > "$RUNNER_TEMP/rust-doctor/clean"
         echo "clean=$clean" >> "$GITHUB_OUTPUT"
 
+    # Everything the comment job reads: the report, its summary and the clean
+    # flag, at the root of the artifact.
     - name: Upload the report
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: rust-doctor-report
-        path: ${{ steps.scan.outputs.report }}
+        path: |
+          ${{ runner.temp }}/rust-doctor/report.json
+          ${{ runner.temp }}/rust-doctor/summary.md
+          ${{ runner.temp }}/rust-doctor/clean
         if-no-files-found: ignore
         retention-days: 7
-
-    - name: Comment on the pull request
-      if: always() && github.event_name == 'pull_request' && inputs.comment == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        REPOSITORY: ${{ github.repository }}
-        PULL_REQUEST: ${{ github.event.pull_request.number }}
-        CLEAN: ${{ steps.summarize.outputs.clean }}
-        COMMENT_ON_CLEAN: ${{ inputs.comment-on-clean }}
-      run: |
-        set -euo pipefail
-        summary="$RUNNER_TEMP/rust-doctor/summary.md"
-        if [ ! -s "$summary" ]; then
-          echo "::notice::rust-doctor wrote no report, so no comment was posted."
-          exit 0
-        fi
-        body="$(printf '<!-- rust-doctor -->\n\n'; cat "$summary")"
-        if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/comments"); then
-          echo "::warning::rust-doctor could not read the pull request's comments, so none was posted."
-          exit 0
-        fi
-        comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
-        if [ -z "$comment" ] && [ "${CLEAN:-false}" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
-          echo "::notice::The pull request is clean and comment-on-clean is false, so no comment was posted."
-          exit 0
-        fi
-        if [ -n "$comment" ]; then
-          gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
-        else
-          gh api -X POST "repos/$REPOSITORY/issues/$PULL_REQUEST/comments" -f body="$body" > /dev/null
-        fi || echo "::warning::rust-doctor could not post the pull request comment. A pull request from a fork gets a read-only token."
 
     # Only numbers and booleans are read out of the report, so nothing it
     # carries can write a second output line.

@@ -30,6 +30,7 @@ exclude = [
     ".claude/",
     ".github/",
     "action.yml",
+    "comment/",
 ]
 
 [lib]

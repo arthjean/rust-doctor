@@ -5,12 +5,14 @@
 //! The workflow judges a pull request in baseline scope, so the backlog the
 //! default branch already carries is nobody's pull request's problem, and
 //! scans a push to that branch with `--blocking none`, so it reports without
-//! ever turning the branch red. With `--comment`, the same job posts the
-//! summary as one sticky pull request comment, the way React Doctor's Action
-//! does: the job gains `pull-requests: write`, which GitHub reduces to read
-//! on a pull request from a fork, so a fork gets a warning instead of a
-//! comment. The binary reaches no network: the comment is posted by `gh` with
-//! the workflow's own token.
+//! ever turning the branch red. With `--comment`, a second job posts the
+//! summary as one sticky pull request comment: it alone holds
+//! `pull-requests: write`, checks nothing out and installs nothing, and reads
+//! the report artifact the scan uploaded, so the build scripts of the pull
+//! request never run beside that token. GitHub reduces it to read on a pull
+//! request from a fork, so a fork gets a warning instead of a comment. The
+//! binary reaches no network: the comment is posted by `gh` with the
+//! workflow's own token.
 //!
 //! GitHub reads workflows only at the top of the repository, so the file goes
 //! under the git toplevel, and a Cargo workspace below it (`src-tauri/`,
@@ -68,9 +70,10 @@ enum CiCommand {
         /// The Rust toolchain the workflow installs.
         #[arg(long, value_name = "VERSION", default_value = VALIDATED_TOOLCHAIN)]
         toolchain: String,
-        /// Also post the summary as one sticky pull request comment, which
-        /// grants the job `pull-requests: write`. A pull request from a fork
-        /// gets a read-only token, and a warning instead of the comment.
+        /// Also post the summary as one sticky pull request comment, from a
+        /// second job that holds `pull-requests: write` and runs no pull
+        /// request code. A pull request from a fork gets a read-only token,
+        /// and a warning instead of the comment.
         #[arg(long)]
         comment: bool,
         /// Rewrite the workflow this command wrote before.
@@ -410,14 +413,13 @@ pub fn scan_workflow(options: &WorkflowOptions) -> String {
     } else {
         format!("\n          workspaces: {}", options.workspace)
     };
-    let (permission, step) = if options.comment {
-        ("\n  pull-requests: write", COMMENT_STEP.replace("{SCRIPT}", &indented(COMMENT_SCRIPT, 10)))
+    let job = if options.comment {
+        COMMENT_JOB.replace("{SCRIPT}", &indented(COMMENT_SCRIPT, 10))
     } else {
-        ("", String::new())
+        String::new()
     };
     SCAN_WORKFLOW
-        .replace("{COMMENT_PERMISSION}", permission)
-        .replace("{COMMENT_STEP}", &step)
+        .replace("{COMMENT_JOB}", &job)
         .replace("{MARKER}", MARKER)
         .replace("{BRANCH}", &options.branch)
         .replace("{TOOLCHAIN}", &options.toolchain)
@@ -450,7 +452,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read{COMMENT_PERMISSION}
+  contents: read
 
 jobs:
   inspect:
@@ -472,10 +474,14 @@ jobs:
           components: clippy
 
       # A failed gate keeps the build its retry needs: rust-cache saves only
-      # on success unless told otherwise.
+      # on success unless told otherwise. Only the default branch saves, so a
+      # pull request's build scripts never write an entry a later run
+      # restores, and `~/.cargo/bin` is never cached.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          cache-on-failure: true{CACHE_WORKSPACE}
+          cache-on-failure: true
+          cache-bin: false
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}{CACHE_WORKSPACE}
 
       # The version is pinned to the one that wrote this file: a gate whose
       # rule set moves on its own fails builds for reasons nobody chose.
@@ -488,6 +494,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # The launcher npm installed, by its absolute path: a binary
+          # earlier on PATH, `~/.cargo/bin` first, never stands in for it.
+          launcher="$(npm prefix -g)/bin/rust-doctor"
           report="$RUNNER_TEMP/rust-doctor/report.json"
           mkdir -p "$(dirname "$report")"
           if [ -n "${BASE_REF:-}" ]; then
@@ -497,12 +506,12 @@ jobs:
           fi
 
           set +e
-          rust-doctor {WORKSPACE} --yes --json "${scan_arguments[@]}" > "$report"
+          "$launcher" {WORKSPACE} --yes --json "${scan_arguments[@]}" > "$report"
           scan_status=$?
           set -e
 
           summary="$RUNNER_TEMP/rust-doctor/summary.md"
-          rust-doctor report markdown "$report" > "$summary" || true
+          "$launcher" report markdown "$report" > "$summary" || true
           cat "$summary" >> "$GITHUB_STEP_SUMMARY"
           # Only a pull request fails on the gate. A push reports the
           # branch's health without turning it red, and a scan that could
@@ -517,16 +526,39 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rust-doctor-report
-          path: ${{ runner.temp }}/rust-doctor/report.json
+          path: |
+            ${{ runner.temp }}/rust-doctor/report.json
+            ${{ runner.temp }}/rust-doctor/summary.md
           if-no-files-found: ignore
           retention-days: 7
-{COMMENT_STEP}"#;
+{COMMENT_JOB}"#;
 
-const COMMENT_STEP: &str = r#"
-      # One sticky comment per pull request, edited on each push. A pull
-      # request from a fork gets a read-only token, and a warning instead.
+/// The job that posts the comment. It alone holds `pull-requests: write`, and
+/// it checks nothing out and installs nothing: the pull request's code ran in
+/// `inspect`, and what crosses over is the artifact, read as data.
+const COMMENT_JOB: &str = r#"
+  # One sticky comment per pull request, edited on each push, posted after the
+  # scan whatever its verdict. A pull request from a fork gets a read-only
+  # token, and a warning instead.
+  comment:
+    name: Comment
+    needs: inspect
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      # A scan that crashed before its upload leaves no artifact, and the
+      # comment step then says so.
+      - name: Download the report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: rust-doctor-report
+          path: ${{ runner.temp }}/rust-doctor
+
       - name: Comment on the pull request
-        if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -535,13 +567,14 @@ const COMMENT_STEP: &str = r#"
 {SCRIPT}
 "#;
 
-/// Posts the summary the scan step rendered as the pull request's one
-/// `<!-- rust-doctor -->` comment, editing the bot's earlier one. `action.yml`
-/// runs the same script, and a test holds the two to it. Under the Action's
-/// `comment-on-clean: false`, a clean pull request gets no new comment, while
-/// one already posted is still edited so it never reports a stale result. Nothing here fails
-/// the job: the scan's exit code is the verdict, and a fork's read-only token
-/// is expected.
+/// Posts the summary the scan job rendered, downloaded with its report, as the
+/// pull request's one `<!-- rust-doctor -->` comment, editing the bot's
+/// earlier one. `comment/action.yml` runs the same script, and a test holds
+/// the two to it. Under its `comment-on-clean: false`, a clean pull request,
+/// as the scan's `clean` file says, gets no new comment, while one already
+/// posted is still edited so it never reports a stale result. Nothing here
+/// fails the job: the scan's exit code is the verdict, and a fork's read-only
+/// token is expected.
 const COMMENT_SCRIPT: &str = r#"set -euo pipefail
 summary="$RUNNER_TEMP/rust-doctor/summary.md"
 if [ ! -s "$summary" ]; then
@@ -554,7 +587,8 @@ if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/commen
   exit 0
 fi
 comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
-if [ -z "$comment" ] && [ "${CLEAN:-false}" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
+clean="$(cat "$RUNNER_TEMP/rust-doctor/clean" 2>/dev/null || true)"
+if [ -z "$comment" ] && [ "$clean" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
   echo "::notice::The pull request is clean and comment-on-clean is false, so no comment was posted."
   exit 0
 fi

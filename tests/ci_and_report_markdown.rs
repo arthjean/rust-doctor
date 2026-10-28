@@ -114,8 +114,8 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
         workflow
     );
 
-    // With it, the file rust-doctor wrote is rewritten, and --comment moves
-    // the sticky comment into the same job.
+    // With it, the file rust-doctor wrote is rewritten, and --comment adds
+    // the sticky comment as a second job, the only one that writes.
     let updated = install(
         &root,
         &["--update", "--blocking", "warning", "--branch", "main", "--toolchain", "1.98.0", "--comment"],
@@ -126,7 +126,9 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
     assert!(rewritten.contains("branches: ['main']"));
     assert!(rewritten.contains("toolchain: '1.98.0'"));
     assert!(rewritten.contains("--base \"origin/$BASE_REF\" --blocking warning)"));
-    assert!(rewritten.contains("  contents: read\n  pull-requests: write\n"));
+    assert!(rewritten.contains("permissions:\n  contents: read\n\njobs:"));
+    assert!(rewritten.contains("\n  comment:\n    name: Comment\n    needs: inspect\n"));
+    assert!(rewritten.contains("    permissions:\n      pull-requests: write\n"));
     assert!(rewritten.contains("<!-- rust-doctor -->"));
     assert!(!root.join(".github/workflows/rust-doctor-comment.yml").exists());
     fs::remove_dir_all(root).unwrap();
@@ -195,7 +197,7 @@ fn ci_install_writes_at_the_git_root_and_scans_the_nested_workspace() {
         assert!(written.status.success(), "{}", text(&written.stderr));
         assert_eq!(text(&written.stdout), "Wrote .github/workflows/rust-doctor.yml\n");
         let workflow = fs::read_to_string(root.join(".github/workflows/rust-doctor.yml")).unwrap();
-        assert!(workflow.contains("rust-doctor src-tauri --yes --json"), "{workflow}");
+        assert!(workflow.contains("\"$launcher\" src-tauri --yes --json"), "{workflow}");
         assert!(workflow.contains("          workspaces: src-tauri\n"), "{workflow}");
         assert!(!root.join("src-tauri/.github").exists());
         fs::remove_dir_all(root.join(".github")).unwrap();

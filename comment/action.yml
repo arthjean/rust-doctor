@@ -1,0 +1,76 @@
+name: rust-doctor comment
+description: Post the summary of a rust-doctor scan as one sticky pull request comment, from a job that runs no pull request code.
+author: Arthur Jean
+branding:
+  icon: message-square
+  color: orange
+
+# Run this in its own job, after the job that scanned with
+# `arthjean/rust-doctor`, with `pull-requests: write` and nothing else:
+#
+#   comment:
+#     needs: scan
+#     if: always() && github.event_name == 'pull_request'
+#     runs-on: ubuntu-latest
+#     permissions:
+#       pull-requests: write
+#     steps:
+#       - uses: arthjean/rust-doctor/comment@v0
+#
+# It checks nothing out and installs nothing. The scan job built the pull
+# request's code, build scripts and procedural macros included, and the one
+# token that can write to the pull request never shares a job with them: what
+# crosses over is the `rust-doctor-report` artifact, read as data. The comment
+# is posted by `gh` with the workflow's own token; a pull request from a fork
+# gets a read-only one, and a warning instead. Every action used here is pinned
+# to a commit, with the ref it was read from beside it.
+
+inputs:
+  comment-on-clean:
+    description: "Post the comment on a clean pull request too: a complete scan with no introduced finding in baseline scope, or no finding otherwise. With `false`, a clean pull request gets no new comment, and an existing one is still updated."
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # A scan that crashed before its upload leaves no artifact, and the
+    # comment step then says so.
+    - name: Download the report
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      continue-on-error: true
+      with:
+        name: rust-doctor-report
+        path: ${{ runner.temp }}/rust-doctor
+
+    - name: Comment on the pull request
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+        COMMENT_ON_CLEAN: ${{ inputs.comment-on-clean }}
+      run: |
+        set -euo pipefail
+        summary="$RUNNER_TEMP/rust-doctor/summary.md"
+        if [ ! -s "$summary" ]; then
+          echo "::notice::rust-doctor wrote no report, so no comment was posted."
+          exit 0
+        fi
+        body="$(printf '<!-- rust-doctor -->\n\n'; cat "$summary")"
+        if ! comments=$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST/comments"); then
+          echo "::warning::rust-doctor could not read the pull request's comments, so none was posted."
+          exit 0
+        fi
+        comment=$(jq -s -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rust-doctor -->"))) | .id] | first // empty' <<< "$comments")
+        clean="$(cat "$RUNNER_TEMP/rust-doctor/clean" 2>/dev/null || true)"
+        if [ -z "$comment" ] && [ "$clean" = true ] && [ "${COMMENT_ON_CLEAN:-true}" = false ]; then
+          echo "::notice::The pull request is clean and comment-on-clean is false, so no comment was posted."
+          exit 0
+        fi
+        if [ -n "$comment" ]; then
+          gh api -X PATCH "repos/$REPOSITORY/issues/comments/$comment" -f body="$body" > /dev/null
+        else
+          gh api -X POST "repos/$REPOSITORY/issues/$PULL_REQUEST/comments" -f body="$body" > /dev/null
+        fi || echo "::warning::rust-doctor could not post the pull request comment. A pull request from a fork gets a read-only token."
