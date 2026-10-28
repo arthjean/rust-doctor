@@ -35,7 +35,8 @@ describe("the launcher refuses a broken install in one line", () => {
   test("the native binary is gone", async () => {
     const { launcher, native } = await installedCopy("no-binary");
     rmSync(join(native, "bin/rust-doctor"));
-    await expectOneLine(launcher, `Native package ${NATIVE_PACKAGE} is not installed. Reinstall rust-doctor with its optional dependencies.`);
+    // The manifest chose this root, so its binary is never looked for elsewhere.
+    await expectOneLine(launcher, `Native package ${NATIVE_PACKAGE} is incomplete. Reinstall rust-doctor with its optional dependencies.`);
   });
 
   test("the native package is another version", async () => {

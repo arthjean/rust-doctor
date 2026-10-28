@@ -34,10 +34,13 @@ const wrapperVersion = JSON.parse(
   readFileSync(join(packageRoot, "package.json"), "utf8"),
 ).version;
 
-function fixture(name) {
+function fixture(name, {
+  wrapperPath = "node_modules/rust-doctor",
+  nativePath = "node_modules/@rustdoctor/linux-x64",
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), `rust-doctor-wrapper-${name}-`));
   roots.push(root);
-  const wrapper = join(root, "node_modules/rust-doctor");
+  const wrapper = join(root, wrapperPath);
   mkdirSync(wrapper, { recursive: true });
   cpSync(join(packageRoot, "package.json"), join(wrapper, "package.json"));
   cpSync(join(packageRoot, "bin"), join(wrapper, "bin"), { recursive: true });
@@ -46,7 +49,7 @@ function fixture(name) {
     root,
     wrapper,
     command: join(wrapper, "bin/rust-doctor.js"),
-    native: join(root, "node_modules/@rustdoctor/linux-x64"),
+    native: join(root, nativePath),
   };
 }
 
@@ -225,6 +228,59 @@ setInterval(() => {}, 1000);
     const wrongPlatform = fixture("wrong-platform");
     installNative(wrongPlatform, "#!/bin/sh\nexit 0\n", { cpu: "arm64" });
     expect(run(wrongPlatform).stderr).toContain("does not match linux-x64");
+  });
+
+  // EP-004 US-015: the native package is looked up beside the wrapper only,
+  // never in an ancestor `node_modules` the install did not write.
+  test("resolves the native package in the nested, flat and pnpm layouts", () => {
+    const layouts = {
+      flat: {},
+      nested: { nativePath: "node_modules/rust-doctor/node_modules/@rustdoctor/linux-x64" },
+      pnpm: {
+        wrapperPath: "node_modules/.pnpm/rust-doctor@0.0.0/node_modules/rust-doctor",
+        nativePath: "node_modules/.pnpm/rust-doctor@0.0.0/node_modules/@rustdoctor/linux-x64",
+      },
+    };
+    for (const [name, layout] of Object.entries(layouts)) {
+      const fixture_ = fixture(`layout-${name}`, layout);
+      installNative(fixture_, "#!/bin/sh\nprintf resolved\n");
+      const output = run(fixture_);
+      expect(output.stderr).toBe("");
+      expect(output.status).toBe(0);
+      expect(output.stdout).toBe("resolved");
+    }
+  });
+
+  test("never executes a same-named native package from an ancestor node_modules", () => {
+    const ancestor = fixture("ancestor-only", {
+      wrapperPath: "project/node_modules/rust-doctor",
+      nativePath: "node_modules/@rustdoctor/linux-x64",
+    });
+    const marker = join(ancestor.root, "ancestor-ran");
+    installNative(ancestor, `#!/bin/sh\ntouch "${marker}"\n`);
+    const output = run(ancestor);
+    expect(output.status).toBe(1);
+    expect(output.stderr).toContain("@rustdoctor/linux-x64 is not installed");
+    expect(existsSync(marker)).toBeFalse();
+
+    // A sibling manifest selects the sibling root: its missing binary is
+    // never completed from the ancestor's.
+    const incomplete = fixture("sibling-incomplete", {
+      wrapperPath: "project/node_modules/rust-doctor",
+      nativePath: "node_modules/@rustdoctor/linux-x64",
+    });
+    const incompleteMarker = join(incomplete.root, "ancestor-ran");
+    installNative(incomplete, `#!/bin/sh\ntouch "${incompleteMarker}"\n`);
+    const sibling = join(incomplete.root, "project/node_modules/@rustdoctor/linux-x64");
+    mkdirSync(sibling, { recursive: true });
+    writeFileSync(
+      join(sibling, "package.json"),
+      `${JSON.stringify({ name: "@rustdoctor/linux-x64", version: wrapperVersion, os: ["linux"], cpu: ["x64"] })}\n`,
+    );
+    const incompleteOutput = run(incomplete);
+    expect(incompleteOutput.status).toBe(1);
+    expect(incompleteOutput.stderr).toContain("@rustdoctor/linux-x64 is incomplete");
+    expect(existsSync(incompleteMarker)).toBeFalse();
   });
 
   test("spawn failure is bounded and action-oriented", () => {

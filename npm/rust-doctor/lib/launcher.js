@@ -1,6 +1,7 @@
 import { statSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 export const PLATFORM_PACKAGES = Object.freeze({
@@ -21,10 +22,24 @@ export function platformKey(platform = process.platform, arch = process.arch) {
   return `${platform}-${arch}`;
 }
 
+// The two places an installer puts the native package beside this wrapper:
+// nested under it, or as its sibling in the `node_modules` that holds it (the
+// npm and bun flat layouts, and pnpm's `.pnpm/<wrapper>/node_modules`). Node's
+// resolver would also climb to every ancestor `node_modules`, where a
+// same-named package this install never placed would run.
+function candidateRoots(wrapperRoot, packageName) {
+  const roots = [join(wrapperRoot, "node_modules", packageName)];
+  const parent = dirname(wrapperRoot);
+  if (basename(parent) === "node_modules") {
+    roots.push(join(parent, packageName));
+  }
+  return roots;
+}
+
 export function resolveNativeBinary({
   platform = process.platform,
   arch = process.arch,
-  resolve = createRequire(import.meta.url).resolve,
+  wrapperRoot = fileURLToPath(new URL("..", import.meta.url)),
 } = {}) {
   const key = platformKey(platform, arch);
   const packageName = PLATFORM_PACKAGES[key];
@@ -34,22 +49,29 @@ export function resolveNativeBinary({
     );
   }
 
-  let manifestPath;
-  let binaryPath;
   const binaryName = platform === "win32" ? "rust-doctor.exe" : "rust-doctor";
-  try {
-    manifestPath = resolve(`${packageName}/package.json`);
-    binaryPath = resolve(`${packageName}/bin/${binaryName}`);
-  } catch {
+  let nativeRoot;
+  let manifestSource;
+  for (const root of candidateRoots(wrapperRoot, packageName)) {
+    try {
+      manifestSource = readFileSync(join(root, "package.json"), "utf8");
+      nativeRoot = root;
+      break;
+    } catch {
+      // Not installed at this root; the next candidate is the only other one.
+    }
+  }
+  if (nativeRoot === undefined) {
     throw new LauncherError(
       `Native package ${packageName} is not installed. Reinstall rust-doctor with its optional dependencies.`,
     );
   }
 
+  const binaryPath = join(nativeRoot, "bin", binaryName);
   let nativeManifest;
   let metadata;
   try {
-    nativeManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    nativeManifest = JSON.parse(manifestSource);
     metadata = statSync(binaryPath);
   } catch {
     throw new LauncherError(
