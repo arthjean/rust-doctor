@@ -15,7 +15,7 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::AtomicUsize;
 use std::thread;
 
@@ -223,6 +223,7 @@ fn inspect_command(fixture: &Fixture, arguments: &[&str], target: &Path) -> Comm
         .env("RUST_DOCTOR_REAL_RUSTUP", &fixture.real_rustup)
         .env("CARGO_TARGET_DIR", target)
         .env("CARGO_NET_OFFLINE", "true")
+        .env("TMPDIR", snapshot_parent())
         .env("GIT_DIR", "/private/hostile/repository")
         .env("GIT_WORK_TREE", "/private/hostile/worktree")
         .env("GIT_INDEX_FILE", "/private/hostile/index")
@@ -254,8 +255,22 @@ fn report(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+/// The private parent every scan of this suite snapshots under, so a snapshot
+/// left behind is one this listing sees. `/tmp` is refused as a parent.
+fn snapshot_parent() -> &'static Path {
+    static PARENT: OnceLock<PathBuf> = OnceLock::new();
+    PARENT.get_or_init(|| {
+        let parent = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/baseline-kernel-tmp")
+            .join(std::process::id().to_string());
+        fs::create_dir_all(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        parent.canonicalize().unwrap()
+    })
+}
+
 fn temporary_snapshots() -> BTreeSet<PathBuf> {
-    fs::read_dir(env::temp_dir())
+    fs::read_dir(snapshot_parent())
         .unwrap()
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -753,6 +768,7 @@ fn concurrent_baseline_scans_are_isolated_and_deterministic() {
                 .arg(project)
                 .env("CARGO_TARGET_DIR", target)
                 .env("CARGO_NET_OFFLINE", "true")
+                .env("TMPDIR", snapshot_parent())
                 .output()
                 .unwrap()
         })

@@ -15,7 +15,7 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 export const REPO_ROOT = resolve(import.meta.dir, "../..");
@@ -54,11 +54,14 @@ export const UNATTENDED_VARIABLES = [...NON_INTERACTIVE_MARKERS, "CI"];
 
 // Everything the suite writes lives under one base: `runs/` holds one process's
 // sandboxes and is removed when it exits, `targets/` holds the named scan
-// targets CI caches between runs.
+// targets CI caches between runs. The base is not under the system temporary
+// directory: a sandbox's TMPDIR is where its baseline and staged scans
+// snapshot, and the binary refuses a snapshot parent with an ancestor other
+// users can write, which a 1777 `/tmp` is.
 export const E2E_BASE = process.env.RUST_DOCTOR_E2E_ROOT
   ? resolve(process.env.RUST_DOCTOR_E2E_ROOT)
-  : join(tmpdir(), "rust-doctor-e2e");
-mkdirSync(join(E2E_BASE, "runs"), { recursive: true });
+  : join(homedir(), ".cache", "rust-doctor-e2e");
+mkdirSync(join(E2E_BASE, "runs"), { recursive: true, mode: 0o700 });
 export const RUN_ROOT = mkdtempSync(join(E2E_BASE, "runs", `${process.pid}-`));
 process.on("exit", () => {
   killLiveProcesses();

@@ -2,7 +2,7 @@
 // private tree under TMPDIR, the repository pass included (US-003), and refuse
 // an index they cannot read.
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runCommand, runDoctor, treeFingerprint } from "./e2e-helpers";
 import { credential, gitScenario, miniTemplate, NEW_FN, restoreFrom } from "./git-scenario";
@@ -256,7 +256,9 @@ describe("an index another git process holds", () => {
 });
 
 describe("an unusable TMPDIR", () => {
-  // The snapshot tree must live outside the repository it copies.
+  // The snapshot tree must live outside the repository it copies. A TMPDIR
+  // that cannot hold it is skipped for the next private candidate, so these
+  // rows fail only once HOME offers none either (US-018).
   test.each([
     ["H01", "inside", ["--scope", "baseline", "--base", "HEAD"]],
     ["H01b", "inside", ["--scope", "lines", "--staged"]],
@@ -265,8 +267,23 @@ describe("an unusable TMPDIR", () => {
     const repo = await gitScenario("h01").template("mini").commit("base").stage({ write: { "src/lib.rs": LIB + NEW_FN } }).build();
     const tmp = where === "inside" ? join(repo.path, "tmpin") : "/nonexistent";
     if (where === "inside") mkdirSync(tmp);
-    const { run, report } = await scan(repo.path, [...args], { sandbox: repo.sandbox, env: { TMPDIR: tmp } });
+    const env = { TMPDIR: tmp, HOME: join(repo.sandbox.dir, "no-home") };
+    const { run, report } = await scan(repo.path, [...args], { sandbox: repo.sandbox, env });
     expect(run.exitCode).toBe(2);
     expect(errorCodes(report)).toEqual(["baseline/baseline-temp-unavailable"]);
+  });
+
+  test.each([
+    ["H01d", ["--scope", "baseline", "--base", "HEAD"]],
+    ["H01e", ["--scope", "lines", "--staged"]],
+  ] as const)("%s a TMPDIR inside the repository is skipped for the private cache home on %p", async (_id, args) => {
+    const repo = await gitScenario("h01d").template("mini").commit("base").stage({ write: { "src/lib.rs": LIB + NEW_FN } }).build();
+    const tmp = join(repo.path, "tmpin");
+    mkdirSync(tmp);
+    const { report } = await scan(repo.path, [...args], { sandbox: repo.sandbox, env: { TMPDIR: tmp } });
+    expect(errorCodes(report)).toEqual([]);
+    expect(report.status).toBe("complete");
+    expect(readdirSync(tmp)).toEqual([]);
+    expect(readdirSync(join(repo.sandbox.home, ".cache/rust-doctor"))).toEqual([]);
   });
 });

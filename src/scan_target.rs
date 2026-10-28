@@ -106,7 +106,8 @@ fn resolve_with(
 /// workspace below it, with the directory it was found in.
 ///
 /// The upward walk stops at the first directory holding `.git`, a file in a
-/// worktree or a submodule and a directory otherwise: a manifest above the
+/// worktree or a submodule and a directory otherwise, or at the tree of a
+/// baseline or staged snapshot, which holds no `.git`: a manifest above the
 /// repository belongs to another project, and scanning it would judge code
 /// the reader never pointed at.
 fn discover_manifest(
@@ -135,7 +136,7 @@ fn discover_manifest(
                 )));
             }
         }
-        if ancestor.join(".git").symlink_metadata().is_ok() {
+        if repository_boundary(ancestor) {
             break;
         }
     }
@@ -171,11 +172,16 @@ pub(crate) fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
         if declares_workspace(&ancestor.join("Cargo.toml")) {
             return Some(ancestor.to_path_buf());
         }
-        if ancestor.join(".git").symlink_metadata().is_ok() {
+        if repository_boundary(ancestor) {
             break;
         }
     }
     Some(directory.to_path_buf())
+}
+
+/// Whether an upward walk for a manifest stops at `ancestor`.
+fn repository_boundary(ancestor: &Path) -> bool {
+    ancestor.join(".git").symlink_metadata().is_ok() || crate::baseline::is_snapshot_tree(ancestor)
 }
 
 /// What a manifest read for its `[workspace]` table may weigh. Far past any
@@ -350,6 +356,36 @@ mod tests {
             assert_eq!(target.manifest_path, expected_manifest);
             assert_eq!(target.workspace_root(), workspace);
         }
+    }
+
+    /// EP-005 US-018: a snapshot tree holds no `.git`, so the walk stops at
+    /// it instead of reaching a manifest planted beside the snapshot root.
+    #[test]
+    fn discovery_inside_a_snapshot_stops_at_its_tree() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/scan-target-snapshot-boundary")
+            .join(std::process::id().to_string());
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("rust-doctor-baseline-4242-0");
+        let start = root.join("tree/crates/empty");
+        fs::create_dir_all(&start).unwrap();
+        let planted = "[package]\nname = \"planted\"\nversion = \"0.1.0\"\n[workspace]\n";
+        fs::write(base.join("Cargo.toml"), planted).unwrap();
+        fs::write(root.join("Cargo.toml"), planted).unwrap();
+
+        let error = discover_manifest(&start, None).unwrap_err();
+        assert_eq!(error.message, NO_MANIFEST);
+        assert_eq!(manifest_workspace_root(&start), None);
+
+        fs::write(root.join("tree/Cargo.toml"), "[package]\nname = \"tree\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        let (manifest, _) = discover_manifest(&start, None).unwrap();
+        assert_eq!(manifest, root.join("tree/Cargo.toml").canonicalize().unwrap());
+        assert_eq!(
+            manifest_workspace_root(&start),
+            Some(root.join("tree").canonicalize().unwrap())
+        );
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

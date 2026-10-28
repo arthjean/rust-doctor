@@ -157,6 +157,7 @@ Binary: `target/release/rust-doctor` 0.7.0 built from `b5389f7`. Host toolchain 
 | WS-34 | NOT a git repo, git removed from PATH | `--json` | exit 1 as WS-33, although the same workspace with git on PATH is complete/exit 0 (BUG-08) | none | yes |
 | WS-35 | not a git repo, git present | `--json` | exit 0, complete, repo rules silent | repo_hygiene unit a_workspace_outside_git_yields_no_finding_and_no_error | yes |
 | WS-36 | `TMPDIR` read-only or missing, `--scope baseline --base HEAD`, `RUST_DOCTOR_NO_CACHE=1` | `--json` | exit 2, `baseline/baseline-temp-unavailable` "Git baseline temporary storage is unavailable." | none | yes |
+| WS-36b | `TMPDIR` and `HOME` missing, no `XDG_RUNTIME_DIR` (US-018), `--scope baseline --base HEAD` | `--json` | exit 2, `baseline/baseline-temp-unavailable` "no private directory for the snapshot: <external>/.../missing-tmp is unavailable" | baseline/parent.rs unit | yes |
 | WS-37 | `TMPDIR` read-only, full scan | `--json` | exit 0 (full scan never writes TMPDIR) | none | yes |
 | WS-38 | `HOME` unset, `CARGO_HOME` unset | `--json` | exit 0 (Cargo falls back to passwd home); advisory discovery finds nothing because `locate` needs HOME or CARGO_HOME | none | yes |
 

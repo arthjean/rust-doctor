@@ -249,6 +249,8 @@ Workaround to document for agents: `--base "$(git rev-parse HEAD~1)"`.
 | H01 | `TMPDIR=<repo>/tmpin` (inside the repo) | `--scope baseline --base HEAD` | exit 2, `E[baseline/baseline-temp-unavailable]` | baseline.rs unit | yes | 0.02 |
 | H01b | H01 | `--scope lines --staged` | exit 2, `E[baseline/baseline-temp-unavailable]` (stage label says baseline on a staged scan) | none | yes | 0.02 |
 | H01c | `TMPDIR=/nonexistent` | `--scope baseline --base HEAD` | `E[baseline/baseline-temp-unavailable]` | none | yes | 0.02 |
+| H01d | H01 with a private `HOME` (US-018) | `--scope baseline --base HEAD` | complete, no error; `tmpin` and `$HOME/.cache/rust-doctor` empty after the run (the inside candidate is skipped, the snapshot lands in the cache home and is removed) | snapshot_parent | yes | 0.10 |
+| H01e | H01d | `--scope lines --staged` | as H01d | snapshot_parent | yes | 0.10 |
 | H04 | committed `d.rs`, `r.rs`; staged `git rm d.rs` + `git mv r.rs r2.rs` | `--scope files --staged` | `f:["src/lib.rs","src/r2.rs"]` | none | yes | 0.13 |
 | H04b | H04 | `--scope lines --staged` | `f:["src/lib.rs"]` | none | yes | 0.11 |
 | H04c | H04 | `--scope baseline --staged` | `D[0,2,1,1,0]` (d.rs todo fixed, r.rs todo paired across the rename) | none | yes | 0.22 |

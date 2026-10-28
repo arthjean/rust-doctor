@@ -22,7 +22,9 @@ bun test cli-surface.test.ts
 `bun test` alone runs every file. `RUST_DOCTOR_E2E_BIN` points the suite at
 another binary, and a missing one fails every file with the build instruction.
 `RUST_DOCTOR_E2E_ROOT` moves the scratch root, which defaults to
-`rust-doctor-e2e` under the system temporary directory. The interactive-report
+`~/.cache/rust-doctor-e2e`: a sandbox's TMPDIR is its snapshot parent, and
+the binary refuses one under a directory other users can write, as `/tmp` is.
+The interactive-report
 files need tmux: without it they skip with one stated reason, and
 `E2E_REQUIRE_TMUX=1` turns that skip into a failure, which is what CI sets.
 The network-namespace scenarios (`netns.ts`) skip the same way where

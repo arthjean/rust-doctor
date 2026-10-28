@@ -30,8 +30,8 @@ whose `.git/config`, read as text, names the RustSec remote: `cargo deny`
 clones any database a `deny.toml` names beside it, and that one deciding the
 verdicts in silence was the alternative. A machine without one publishes
 both advisory rules `advisory-db-missing` and keeps the score authoritative,
-since a check nobody could run is not a failed stage. Fetching the database was
-the alternative, and it would be the tool's first network call. The report
+since a check nobody could run is not a failed stage. Fetching it would have
+been the tool's first network call. The report
 publishes where the database came from and its date, never its path, and a
 database older than thirty days is read and its age printed.
 
@@ -47,9 +47,8 @@ bounds what one line of Cargo's stream may contribute, `MESSAGE_MAX_COUNT` how
 many messages one scan may keep, `RUSTUP_OUTPUT_LIMIT` what a toolchain probe
 may print, and none of them decides which diagnostic the report may publish: an
 oversized line is counted malformed and the stream keeps going, a flood stops
-with an error at the `parsing` stage. The reader had no bound at all in a crate
-whose git layer documents that every way out of it is bounded, and the scanned
-workspace's procedural macros are what decide how many diagnostics Cargo emits.
+with an error at the `parsing` stage. The reader had no bound at all, and the
+scanned workspace's procedural macros decide how many diagnostics Cargo emits.
 `src/bounded_read.rs` is the one primitive both layers read streams through.
 A compiler message keeps its `children` and the replacement each of their spans
 proposes, which is what the report's `suggestion` is read from; the text of a
@@ -135,7 +134,13 @@ why the handler kills them. While the interactive report holds the terminal,
 a signal restores the mode it found and shows the cursor before the process
 exits. SIGKILL runs nothing, so the first snapshot a baseline or staged scan
 creates sweeps the `rust-doctor-baseline-<pid>-<n>` directories this user owns
-whose process is gone, never a live one's, and one it cannot remove stays. On
+whose process is gone, never a live one's, and one it cannot remove stays.
+
+A snapshot is a tree Cargo walks up from, so `src/baseline/parent.rs` creates
+it under the first of the temporary directory, `$XDG_RUNTIME_DIR` and the
+cache home whose every ancestor only this user or root can write: a 1777
+`/tmp` would let another user plant a `.cargo/config.toml` above it.
+Discovery stops at a snapshot's `tree`. On
 Windows `taskkill /T` kills the tree it can see, no signal is handled, and
 nothing tests either.
 

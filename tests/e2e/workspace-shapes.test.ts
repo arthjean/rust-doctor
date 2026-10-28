@@ -517,17 +517,30 @@ describe("workspace shapes", () => {
     const repo = await gitScenario("ws-36").fixture("scan-failures/lint-flags").write({ ".gitignore": "/target\n" }).commit("base").build();
     const readOnly = scratchDir("read-only-tmp");
     const tmpdirs: Array<[string, () => Promise<DoctorRun & { report: Report }>]> = [
-      ["missing", () => scan(repo.path, ["--scope", "baseline", "--base", "HEAD"], { sandbox: repo.sandbox, env: { TMPDIR: join(repo.sandbox.dir, "missing-tmp"), RUST_DOCTOR_NO_CACHE: "1" } })],
+      // A missing TMPDIR is skipped for the cache home, so HOME is missing too.
+      ["missing", () => scan(repo.path, ["--scope", "baseline", "--base", "HEAD"], { sandbox: repo.sandbox, env: { TMPDIR: join(repo.sandbox.dir, "missing-tmp"), HOME: join(repo.sandbox.dir, "missing-home"), RUST_DOCTOR_NO_CACHE: "1" } })],
     ];
     if (!ROOT) {
       tmpdirs.push(["read-only", () => withMode(readOnly, 0o555, 0o755, () => scan(repo.path, ["--scope", "baseline", "--base", "HEAD"], { sandbox: repo.sandbox, env: { TMPDIR: readOnly, RUST_DOCTOR_NO_CACHE: "1" } }))]);
     }
-    for (const [, run] of tmpdirs) {
+    for (const [kind, run] of tmpdirs) {
       const { exitCode, report } = await run();
       expect(exitCode).toBe(2);
       expect(codes(report)).toEqual(["baseline/baseline-temp-unavailable"]);
-      expect(message(report, "baseline-temp-unavailable")).toBe("Git baseline temporary storage is unavailable.");
+      // A missing TMPDIR is refused as a candidate before any write: WS-36b.
+      if (kind === "read-only") {
+        expect(message(report, "baseline-temp-unavailable")).toBe("Git baseline temporary storage is unavailable.");
+      }
     }
+  });
+
+  test("WS-36b a missing TMPDIR with no private fallback names the refused candidate", async () => {
+    const repo = await gitScenario("ws-36b").fixture("scan-failures/lint-flags").write({ ".gitignore": "/target\n" }).commit("base").build();
+    const env = { TMPDIR: join(repo.sandbox.dir, "missing-tmp"), HOME: join(repo.sandbox.dir, "missing-home"), RUST_DOCTOR_NO_CACHE: "1" };
+    const { exitCode, report } = await scan(repo.path, ["--scope", "baseline", "--base", "HEAD"], { sandbox: repo.sandbox, env });
+    expect(exitCode).toBe(2);
+    expect(codes(report)).toEqual(["baseline/baseline-temp-unavailable"]);
+    expect(message(report, "baseline-temp-unavailable")).toMatch(/^no private directory for the snapshot: \S*\/missing-tmp is unavailable$/);
   });
 
   test.skipIf(ROOT)("WS-37 a full scan never needs TMPDIR", async () => {

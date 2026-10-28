@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::env;
 use std::fs;
 use std::io;
 #[cfg(unix)]
@@ -12,10 +11,18 @@ use crate::internal_error::InternalError;
 use crate::git::{self, GitCall, GitFailure, GitView};
 use crate::workspace_write::{create_new, symlinked_component};
 
+mod parent;
 mod staged;
 mod sweep;
 
 pub(crate) use staged::{StagedIndex, locate_index, materialize_index};
+
+/// Whether `path` is the root of a snapshot's tree, the directory standing for
+/// the repository root. Nothing above it belongs to the snapshot, and an
+/// upward walk that went on would read the parent directory's neighbours.
+pub(crate) fn is_snapshot_tree(path: &Path) -> bool {
+    sweep::is_snapshot_tree(path)
+}
 
 pub(crate) const ENTRY_LIMIT: usize = 100_000;
 pub(crate) const BLOB_LIMIT: u64 = 64 * 1024 * 1024;
@@ -393,8 +400,10 @@ fn repository_root(workspace_root: &Path) -> Result<PathBuf, InternalError> {
         .ok_or_else(materialization_failed)
 }
 
+/// A new owner-only snapshot root under the first private parent
+/// `parent::choose` accepts, after sweeping that parent of dead runs.
 fn create_temp_root(repository_root: &Path) -> Result<TempRoot, InternalError> {
-    let temporary = env::temp_dir();
+    let temporary = parent::choose(repository_root, parent::candidates())?;
     sweep::dead_snapshots(&temporary);
     create_temp_root_in(repository_root, &temporary)
 }
@@ -521,6 +530,8 @@ pub(crate) fn cleanup_failed() -> InternalError {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use super::*;
 
     fn record(mode: &str, kind: &str, size: u64, path: &str) -> Vec<u8> {

@@ -50,8 +50,19 @@ fn sweep(temporary_root: &Path) {
 #[cfg(not(unix))]
 fn sweep(_temporary_root: &Path) {}
 
+/// Whether `path` is the tree of a snapshot: the `tree` directory of a
+/// `rust-doctor-baseline-<pid>-<n>` root.
+pub(super) fn is_snapshot_tree(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "tree")
+        && path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .and_then(owner)
+            .is_some()
+}
+
 /// The process a snapshot directory's name says created it.
-#[cfg(any(unix, test))]
 fn owner(name: &str) -> Option<u32> {
     let (pid, sequence) = name.strip_prefix(PREFIX)?.split_once('-')?;
     sequence.parse::<u64>().ok()?;
@@ -72,6 +83,20 @@ mod tests {
             "rust-doctor-temp-boundary-4242",
         ] {
             assert_eq!(owner(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn only_the_tree_of_a_snapshot_root_is_a_snapshot_tree() {
+        assert!(is_snapshot_tree(Path::new("/p/rust-doctor-baseline-4242-7/tree")));
+        for path in [
+            "/p/rust-doctor-baseline-4242-7",
+            "/p/rust-doctor-baseline-4242-7/target",
+            "/p/rust-doctor-baseline-4242-7/tree/src",
+            "/p/rust-doctor-baseline-notes/tree",
+            "/tree",
+        ] {
+            assert!(!is_snapshot_tree(Path::new(path)), "{path}");
         }
     }
 
