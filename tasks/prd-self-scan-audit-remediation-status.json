@@ -1,0 +1,432 @@
+{
+  "prd": {
+    "file": "tasks/prd-self-scan-audit-remediation.md",
+    "title": "Self-Scan Audit Remediation",
+    "created_at": "2026-10-28",
+    "status": "READY"
+  },
+  "epics": [
+    {
+      "id": "EP-001",
+      "title": "A scan survives its input",
+      "status": "DONE",
+      "priority": "P0",
+      "stories_total": 6,
+      "stories_done": 6
+    },
+    {
+      "id": "EP-002",
+      "title": "The report states what it measured",
+      "status": "TODO",
+      "priority": "P1",
+      "stories_total": 8,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-003",
+      "title": "Score model core-v6 and report schema 24",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 6,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-004",
+      "title": "Detectors flag what a reviewer would act on",
+      "status": "TODO",
+      "priority": "P1",
+      "stories_total": 5,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-005",
+      "title": "Re-baseline, catalog defaults and public claims",
+      "status": "TODO",
+      "priority": "P1",
+      "stories_total": 4,
+      "stories_done": 0
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Locate the URL scheme on bytes in the credential scanner",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-002",
+      "title": "Contain a panicking pass as a ReportError at its stage",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-003",
+      "title": "Keep the native findings when the Clippy pass fails",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-002"
+      ],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-004",
+      "title": "Kill the child on drop and turn an uncaught panic into exit 2",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-005",
+      "title": "Always advance the TUI wrap by at least one character",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "XS",
+      "blocked_by": [],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-006",
+      "title": "Pin char-boundary safety with a table test and the crate's own string_slice lint",
+      "epic": "EP-001",
+      "status": "DONE",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-001",
+        "US-005"
+      ],
+      "started_at": "2026-10-28",
+      "completed_at": "2026-10-28",
+      "reviewed_at": "2026-10-28"
+    },
+    {
+      "id": "US-007",
+      "title": "State the criterion that withholds a rule",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "XS",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-008",
+      "title": "Print the five dimension scores",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-009",
+      "title": "Disclose the scan's scope and the rules it did not evaluate",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-010",
+      "title": "Count only weighing findings in the text tallies and group headings",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-011",
+      "title": "Read the most recently fetched RustSec clone",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-012",
+      "title": "Split the Clippy phases at the last dependency artifact",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-013",
+      "title": "Correct the documents that misstate their gates and constants",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-014",
+      "title": "Clear the two self-scan sites that are correct by design",
+      "epic": "EP-002",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "XS",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-015",
+      "title": "A withheld rule caps no dimension",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-016",
+      "title": "Discount a measured rule once in the ranking",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-017",
+      "title": "Publish a duplicate major no member requires at Info",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-018",
+      "title": "Compare versions by Cargo compatibility class",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "S",
+      "blocked_by": [
+        "US-017"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-019",
+      "title": "Leave inline test-gated items out of the production lines",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-020",
+      "title": "Publish the binding ceilings and the production tallies (schema 24)",
+      "epic": "EP-003",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-008",
+        "US-010",
+        "US-015"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-021",
+      "title": "Skip test-case-only duplicate families and nested items",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-022",
+      "title": "Fingerprint macro arguments and publish the lowest pairwise similarity",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "L",
+      "blocked_by": [
+        "US-021"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-023",
+      "title": "Honor a manifest [lints] allow and charge it once at P3",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-024",
+      "title": "Narrow crate_level_allow to allows that hide catalogued or dead code",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "M",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-025",
+      "title": "Count a unit's lines from its keyword",
+      "epic": "EP-004",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-026",
+      "title": "Validate assumption: making indexing_slicing and string_slice opt-in loses no corpus true positive",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-027",
+      "title": "Make indexing_slicing and string_slice opt-in",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P2",
+      "size": "M",
+      "blocked_by": [
+        "US-026"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-028",
+      "title": "Replay the corpus once under core-v6 and re-baseline",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "L",
+      "blocked_by": [
+        "US-015",
+        "US-016",
+        "US-017",
+        "US-018",
+        "US-019",
+        "US-020",
+        "US-021",
+        "US-022",
+        "US-023",
+        "US-024",
+        "US-025",
+        "US-027"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-029",
+      "title": "Bring rust-doctor.com and the release skill in line with core-v6",
+      "epic": "EP-005",
+      "status": "TODO",
+      "priority": "P1",
+      "size": "M",
+      "blocked_by": [
+        "US-028"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    }
+  ]
+}
