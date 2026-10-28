@@ -9,7 +9,7 @@
     { "id": "EP-001", "title": "Scan-time programs the workspace cannot choose", "status": "DONE", "priority": "P0", "stories_total": 6, "stories_done": 6 },
     { "id": "EP-002", "title": "Writes and terminal output the workspace cannot steer", "status": "DONE", "priority": "P0", "stories_total": 4, "stories_done": 4 },
     { "id": "EP-003", "title": "Report privacy and advisory authority", "status": "DONE", "priority": "P0", "stories_total": 3, "stories_done": 3 },
-    { "id": "EP-004", "title": "Release and launcher supply chain", "status": "IN_REVIEW", "priority": "P0", "stories_total": 2, "stories_done": 1 },
+    { "id": "EP-004", "title": "Release and launcher supply chain", "status": "DONE", "priority": "P0", "stories_total": 2, "stories_done": 2 },
     { "id": "EP-005", "title": "Close the five needs-validation leads", "status": "TODO", "priority": "P1", "stories_total": 6, "stories_done": 0 }
   ],
   "stories": [
@@ -26,7 +26,7 @@
     { "id": "US-011", "title": "Mask a private key from its header to its footer, and mask Cargo stderr before the excerpt cuts it", "epic": "EP-003", "status": "DONE", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-27", "completed_at": "2026-10-27", "reviewed_at": "2026-10-27" },
     { "id": "US-012", "title": "Externalize quoted, spaced and Windows-rooted paths whole", "epic": "EP-003", "status": "DONE", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-27", "completed_at": "2026-10-27", "reviewed_at": "2026-10-27" },
     { "id": "US-013", "title": "Bind advisory database discovery to the RustSec remote", "epic": "EP-003", "status": "DONE", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-27", "completed_at": "2026-10-27", "reviewed_at": "2026-10-27" },
-    { "id": "US-014", "title": "Pin every release.yml action to a commit and the release's npm and Node exactly, under a contract test", "epic": "EP-004", "status": "IN_REVIEW", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-28", "completed_at": null, "reviewed_at": "2026-10-28" },
+    { "id": "US-014", "title": "Pin every release.yml action to a commit and the release's npm and Node exactly, under a contract test", "epic": "EP-004", "status": "DONE", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-015", "title": "Confine the npm launcher's native package to its own install tree", "epic": "EP-004", "status": "DONE", "priority": "P0", "size": "S", "blocked_by": [], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-016", "title": "Verify the crate in a job that holds no OIDC permission", "epic": "EP-005", "status": "TODO", "priority": "P1", "size": "S", "blocked_by": ["US-014"], "started_at": null, "completed_at": null, "reviewed_at": null },
     { "id": "US-017", "title": "Build release artifacts without a restored cache", "epic": "EP-005", "status": "TODO", "priority": "P1", "size": "S", "blocked_by": ["US-014"], "started_at": null, "completed_at": null, "reviewed_at": null },
