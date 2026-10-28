@@ -38,11 +38,29 @@ enum HookCommand {
         #[command(subcommand)]
         target: HookTarget,
     },
-    #[command(about = "Run an agent's end-of-turn hook: rescan the lines the turn changed")]
+    #[command(
+        about = "Run an agent's end-of-turn hook: rescan the lines the turn changed",
+        long_about = format!(
+            "Run an agent's end-of-turn hook: rescan the lines the turn changed.\n\n{}",
+            crate::TRUST_WARNING
+        )
+    )]
     Run {
         #[arg(value_enum)]
         agent: AgentHook,
+        #[command(flatten)]
+        clippy: ClippyArgs,
     },
+}
+
+/// Whether an agent hook compiles the tree its agent wrote.
+#[derive(Debug, Clone, Copy, Args)]
+pub(crate) struct ClippyArgs {
+    /// Turn every Clippy rule off, whatever rust-doctor.toml says: the hook
+    /// then compiles nothing, so no build script or procedural macro of the
+    /// tree the agent wrote runs under your account.
+    #[arg(long)]
+    pub(crate) no_clippy: bool,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -64,12 +82,16 @@ enum HookTarget {
         #[arg(long)]
         shared: bool,
         #[command(flatten)]
+        clippy: ClippyArgs,
+        #[command(flatten)]
         write: WriteArgs,
     },
     #[command(about = "Add a stop hook to .cursor/hooks.json")]
     Cursor {
         #[arg(default_value = ".", value_name = "PATH")]
         path: PathBuf,
+        #[command(flatten)]
+        clippy: ClippyArgs,
         #[command(flatten)]
         write: WriteArgs,
     },
@@ -90,7 +112,7 @@ pub(crate) struct WriteArgs {
 /// `rust-doctor hook`.
 pub fn run(arguments: &HookArgs) -> ExitCode {
     match &arguments.command {
-        HookCommand::Run { agent } => agent::run(*agent),
+        HookCommand::Run { agent, clippy } => agent::run(*agent, *clippy),
         HookCommand::Install { target } => {
             let (HookTarget::Git { path, .. }
             | HookTarget::Claude { path, .. }
@@ -101,11 +123,11 @@ pub fn run(arguments: &HookArgs) -> ExitCode {
             };
             ExitCode::from(match target {
                 HookTarget::Git { write, .. } => install_git(&path, *write),
-                HookTarget::Claude { shared, write, .. } => {
-                    agent::install(AgentHook::Claude, &path, *shared, *write)
+                HookTarget::Claude { shared, clippy, write, .. } => {
+                    agent::install(AgentHook::Claude, &path, *shared, *clippy, *write)
                 }
-                HookTarget::Cursor { write, .. } => {
-                    agent::install(AgentHook::Cursor, &path, false, *write)
+                HookTarget::Cursor { clippy, write, .. } => {
+                    agent::install(AgentHook::Cursor, &path, false, *clippy, *write)
                 }
             })
         }

@@ -22,12 +22,12 @@ use std::time::Duration;
 
 use clap::ValueEnum;
 use rust_doctor::{
-    BlockingLevel, Diagnostic, GateStatus, InspectReport, InspectRequest, ScopeMode, Severity,
-    Status, inspect,
+    BlockingLevel, Diagnostic, GateStatus, InspectReport, InspectRequest, RuleLevel, RuleOverride,
+    ScopeMode, Severity, Status, catalog, inspect,
 };
 use serde_json::{Map, Value, json};
 
-use super::{FAILED, WriteArgs};
+use super::{ClippyArgs, FAILED, WriteArgs};
 use rust_doctor::terminal_text::sanitize;
 use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
@@ -51,12 +51,19 @@ const MAX_FOLLOWUPS: u64 = 1;
 const RESCAN: &str =
     "rust-doctor . --scope lines --base HEAD --include-untracked --blocking warning";
 
+/// What an install without `--no-clippy` grants, said once as it is written.
+pub(crate) const COMPILE_AUTHORITY: &str = "Note: this hook runs `cargo clippy`, which executes the \
+build scripts and procedural macros of the tree the agent wrote, at the end of every turn and with \
+your account's authority. `--no-clippy` installs a hook that compiles nothing.";
+
 impl AgentHook {
-    const fn command(self) -> &'static str {
-        match self {
-            Self::Claude => "rust-doctor hook run claude",
-            Self::Cursor => "rust-doctor hook run cursor",
-        }
+    fn command(self, clippy: ClippyArgs) -> String {
+        let agent = match self {
+            Self::Claude => "claude",
+            Self::Cursor => "cursor",
+        };
+        let flag = if clippy.no_clippy { " --no-clippy" } else { "" };
+        format!("rust-doctor hook run {agent}{flag}")
     }
 
     fn settings(self, shared: bool) -> &'static str {
@@ -69,22 +76,22 @@ impl AgentHook {
 
     /// The hook object the agent runs: the entry itself for Cursor, the one
     /// hook of a matcher group for Claude.
-    fn hook(self) -> Value {
+    fn hook(self, clippy: ClippyArgs) -> Value {
         match self {
             Self::Claude => json!({
                 "type": "command",
-                "command": self.command(),
+                "command": self.command(clippy),
                 "timeout": HOOK_TIMEOUT_SECONDS,
             }),
-            Self::Cursor => json!({ "command": self.command() }),
+            Self::Cursor => json!({ "command": self.command(clippy) }),
         }
     }
 
     /// The entry merged into the settings file.
-    fn entry(self) -> Value {
+    fn entry(self, clippy: ClippyArgs) -> Value {
         match self {
-            Self::Claude => json!({ "hooks": [self.hook()] }),
-            Self::Cursor => self.hook(),
+            Self::Claude => json!({ "hooks": [self.hook(clippy)] }),
+            Self::Cursor => self.hook(clippy),
         }
     }
 
@@ -131,6 +138,7 @@ pub(crate) fn install(
     agent: AgentHook,
     workspace: &Path,
     shared: bool,
+    clippy: ClippyArgs,
     write: WriteArgs,
 ) -> u8 {
     let relative = agent.settings(shared);
@@ -152,11 +160,14 @@ pub(crate) fn install(
         );
         return FAILED;
     };
-    if let Some(code) = merge(agent, entries, relative, write) {
+    if let Some(code) = merge(agent, entries, relative, clippy, write) {
         return code;
     }
     if write.dry_run {
         return 0;
+    }
+    if !clippy.no_clippy {
+        eprintln!("{COMPILE_AUTHORITY}");
     }
     let Ok(serialized) = serde_json::to_string_pretty(&settings) else {
         return FAILED;
@@ -207,10 +218,11 @@ fn merge(
     agent: AgentHook,
     entries: &mut Vec<Value>,
     relative: &str,
+    clippy: ClippyArgs,
     write: WriteArgs,
 ) -> Option<u8> {
     let event = agent.event();
-    let template = agent.hook();
+    let template = agent.hook(clippy);
     let mut ours = agent.ours(entries);
     if ours.iter().any(|hook| current(hook, &template)) {
         println!("The rust-doctor {event} hook is already in {relative}.");
@@ -234,7 +246,7 @@ fn merge(
         println!("{verb} the {event} hook in {relative}: {previous} becomes {hook}");
         return None;
     }
-    let entry = agent.entry();
+    let entry = agent.entry(clippy);
     let verb = if write.dry_run { "Would add" } else { "Added" };
     println!("{verb} a {event} hook to {relative}: {entry}");
     entries.push(entry);
@@ -256,8 +268,11 @@ fn event_entries(settings: &mut Value, agent: AgentHook) -> Option<&mut Vec<Valu
         .as_array_mut()
 }
 
-/// `rust-doctor hook run claude|cursor`: rescans what the turn changed.
-pub(super) fn run(agent: AgentHook) -> ExitCode {
+/// `rust-doctor hook run claude|cursor`: rescans what the turn changed. Under
+/// `--no-clippy` every Clippy rule is overridden off, and a request override
+/// wins over `rust-doctor.toml` under every path, so the plan holds no active
+/// Clippy rule and the scan starts no toolchain process and compiles nothing.
+pub(super) fn run(agent: AgentHook, clippy: ClippyArgs) -> ExitCode {
     let mut input = String::new();
     // The input is advisory: a hook whose input cannot be read still scans,
     // and a reader at a terminal is not made to type one.
@@ -268,13 +283,19 @@ pub(super) fn run(agent: AgentHook) -> ExitCode {
     if guarded(agent, &input) {
         return ExitCode::SUCCESS;
     }
-    let report = inspect(
-        InspectRequest::new(workspace(agent))
-            .with_scope(ScopeMode::Lines, Some("HEAD".to_owned()))
-            .with_untracked()
-            .with_blocking(BlockingLevel::Warning)
-            .with_max_duration(Duration::from_secs(SCAN_DEADLINE_SECONDS)),
-    );
+    let mut request = InspectRequest::new(workspace(agent))
+        .with_scope(ScopeMode::Lines, Some("HEAD".to_owned()))
+        .with_untracked()
+        .with_blocking(BlockingLevel::Warning)
+        .with_max_duration(Duration::from_secs(SCAN_DEADLINE_SECONDS));
+    if clippy.no_clippy {
+        // A rule's id prefix names its producer, which `validate_catalog`
+        // holds for every rule.
+        for rule in catalog().iter().filter(|rule| rule.id.starts_with("clippy::")) {
+            request = request.with_rule_override(RuleOverride::new(rule.id, RuleLevel::Off));
+        }
+    }
+    let report = inspect(request);
     let verdict = verdict(&report);
     match (agent, verdict) {
         (_, Verdict::Pass) => ExitCode::SUCCESS,
@@ -384,14 +405,19 @@ fn blocked_message(report: &InspectReport) -> String {
 mod tests {
     use super::*;
 
+    const COMPILING: ClippyArgs = ClippyArgs { no_clippy: false };
+    const COMPILE_FREE: ClippyArgs = ClippyArgs { no_clippy: true };
+
     /// Every command a hook runs or prints parses as the CLI stands, so a
     /// renamed flag fails here rather than in someone's commit or turn.
     #[test]
     fn every_hook_command_parses_as_the_cli_stands() {
         for command in [
             crate::hook::pre_commit_command("."),
-            AgentHook::Claude.command().to_owned(),
-            AgentHook::Cursor.command().to_owned(),
+            AgentHook::Claude.command(COMPILING),
+            AgentHook::Cursor.command(COMPILING),
+            AgentHook::Claude.command(COMPILE_FREE),
+            AgentHook::Cursor.command(COMPILE_FREE),
             RESCAN.to_owned(),
         ] {
             let parsed = <crate::Cli as clap::Parser>::try_parse_from(command.split_whitespace());
@@ -425,8 +451,8 @@ mod tests {
         });
         let entries = event_entries(&mut settings, AgentHook::Claude).unwrap();
         assert!(AgentHook::Claude.ours(entries).is_empty());
-        entries.push(AgentHook::Claude.entry());
-        let template = AgentHook::Claude.hook();
+        entries.push(AgentHook::Claude.entry(COMPILING));
+        let template = AgentHook::Claude.hook(COMPILING);
         assert!(current(AgentHook::Claude.ours(entries)[0], &template));
         assert!(!current(&json!({"command": "rust-doctor hook run claude"}), &template));
         assert_eq!(settings["permissions"]["allow"][0], "Bash(ls)");
@@ -436,7 +462,7 @@ mod tests {
         let mut cursor = json!({});
         event_entries(&mut cursor, AgentHook::Cursor)
             .unwrap()
-            .push(AgentHook::Cursor.entry());
+            .push(AgentHook::Cursor.entry(COMPILING));
         assert_eq!(
             cursor,
             json!({ "version": 1, "hooks": { "stop": [{ "command": "rust-doctor hook run cursor" }] } })
@@ -450,5 +476,25 @@ mod tests {
             let mut wrong = wrong;
             assert!(event_entries(&mut wrong, AgentHook::Claude).is_none());
         }
+    }
+
+    /// `--update` moves an installed hook to the invocation it is given, the
+    /// flag set or dropped, and the hook stays recognized as this tool's.
+    #[test]
+    fn an_update_sets_or_drops_the_compile_free_flag() {
+        let mut settings = json!({});
+        let entries = event_entries(&mut settings, AgentHook::Claude).unwrap();
+        entries.push(AgentHook::Claude.entry(COMPILING));
+        let write = WriteArgs { update: true, dry_run: false };
+        for (clippy, command) in [
+            (COMPILE_FREE, "rust-doctor hook run claude --no-clippy"),
+            (COMPILING, "rust-doctor hook run claude"),
+        ] {
+            assert_eq!(merge(AgentHook::Claude, entries, "settings", clippy, write), None);
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0]["hooks"][0]["command"], command);
+        }
+        let outdated = WriteArgs { update: false, dry_run: false };
+        assert_eq!(merge(AgentHook::Claude, entries, "settings", COMPILE_FREE, outdated), Some(1));
     }
 }

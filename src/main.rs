@@ -139,7 +139,10 @@ enum CliCommand {
     Inspect(InspectArgs),
     #[command(about = "Print the rule catalog, or explain one rule")]
     Rules(rules_command::RulesArgs),
-    #[command(about = "Explain why a line is reported, and how to silence it")]
+    #[command(
+        about = "Explain why a line is reported, and how to silence it",
+        long_about = format!("Explain why a line is reported, and how to silence it.\n\n{TRUST_WARNING}")
+    )]
     Why(why_command::WhyArgs),
     #[command(about = "Install the agent skill")]
     Skill(SkillArgs),

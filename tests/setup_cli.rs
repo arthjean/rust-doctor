@@ -201,6 +201,30 @@ fn a_relative_member_path_behaves_like_its_absolute_form() {
     assert!(hook.contains("rust-doctor crates/x --yes"), "{hook}");
 }
 
+/// EP-005 US-021: an end-of-turn hook installed through `setup` says what it
+/// runs and with whose authority, once per hook, and a dry run says nothing.
+#[test]
+fn setup_states_the_compile_authority_of_the_hooks_it_installs() {
+    let root = repository();
+    fs::create_dir_all(root.join(".claude")).unwrap();
+    fs::create_dir_all(root.join(".cursor")).unwrap();
+    let path = path_with(&root, false);
+    let authority = "Note: this hook runs `cargo clippy`, which executes the build scripts and \
+                     procedural macros of the tree the agent wrote, at the end of every turn and \
+                     with your account's authority. `--no-clippy` installs a hook that compiles nothing.";
+
+    let planned = setup(&root, &path, &["--dry-run"]);
+    assert!(planned.status.success(), "{}", String::from_utf8_lossy(&planned.stderr));
+    assert!(!String::from_utf8_lossy(&planned.stderr).contains(authority));
+
+    let output = setup(&root, &path, &[]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.matches(authority).count(), 2, "{stderr}");
+    assert!(root.join(".claude/settings.local.json").is_file());
+    assert!(root.join(".cursor/hooks.json").is_file());
+}
+
 /// EP-002 US-007: a PATH that names nothing is refused before anything is
 /// created for it.
 #[test]

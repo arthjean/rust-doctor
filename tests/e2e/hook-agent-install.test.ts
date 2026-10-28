@@ -26,6 +26,9 @@ const CURSOR = ".cursor/hooks.json";
 const CLAUDE_HOOK = { command: "rust-doctor hook run claude", timeout: 600, type: "command" };
 const CURSOR_HOOK = { command: "rust-doctor hook run cursor" };
 const CLAUDE_ENTRY = JSON.stringify({ hooks: [CLAUDE_HOOK] });
+// What an install without --no-clippy says it grants (US-021).
+const AUTHORITY =
+  "Note: this hook runs `cargo clippy`, which executes the build scripts and procedural macros of the tree the agent wrote, at the end of every turn and with your account's authority. `--no-clippy` installs a hook that compiles nothing.\n";
 const SHAPE = (file: string) => `rust-doctor: ${file} does not hold the shape its agent reads: nothing was written.\n`;
 
 function workspace(label: string): Workspace {
@@ -61,7 +64,7 @@ describe("hook install claude", () => {
     const ws = workspace("ha-02");
     const run = await install(ws, "claude");
     expect(run.exitCode).toBe(0);
-    expect(run.stderr).toBe("");
+    expect(run.stderr).toBe(AUTHORITY);
     expect(run.stdout).toBe(`Added a Stop hook to ${CLAUDE}: ${CLAUDE_ENTRY}\n`);
     const expected = { hooks: { Stop: [{ hooks: [CLAUDE_HOOK] }] } };
     expect(readFileSync(join(ws.path, CLAUDE), "utf8")).toBe(`${JSON.stringify(expected, null, 2)}\n`);
@@ -359,7 +362,7 @@ describe("hook install paths", () => {
     const run = await install(ws, agent, [], { env: { PATH: pathWithout("rust-doctor") } });
     expect(run.exitCode).toBe(0);
     expect(existsSync(join(ws.path, file))).toBe(true);
-    expect(run.stderr).toBe("Warning: `rust-doctor` is not on PATH, and the hook runs it by name.\n");
+    expect(run.stderr).toBe(`${AUTHORITY}Warning: \`rust-doctor\` is not on PATH, and the hook runs it by name.\n`);
   });
 
   test("HA-31 a relative nested path installs into that member", async () => {

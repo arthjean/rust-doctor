@@ -680,3 +680,118 @@ fn a_relative_path_installs_every_hook_where_its_absolute_form_does() {
         assert_eq!(relative.stderr, absolute.stderr, "{agent}");
     }
 }
+
+/// EP-005 US-021: `hook run --no-clippy` turns every Clippy rule off, a
+/// configuration that denies one included, so a turn that adds a `todo!()`
+/// passes, no `cargo clippy` starts and the tree's build script never runs.
+/// The same turn without the flag compiles the tree and blocks on the rule.
+#[test]
+fn a_compile_free_stop_hook_runs_no_build_whatever_the_configuration_says() {
+    let root = repository("no-clippy");
+    let marker = support::temporary_target("agent-hooks-no-clippy-marker", &NEXT_WORKSPACE);
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    let _ = fs::remove_file(&marker);
+    fs::write(
+        root.join("build.rs"),
+        "fn main() {\n    if let Some(path) = std::env::var_os(\"AGENT_HOOK_BUILD_MARKER\") {\n        std::fs::write(path, b\"built\").unwrap();\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("rust-doctor.toml"),
+        "[rules]\n\"clippy::todo\" = \"error\"\n\n[[overrides]]\npaths = [\"src/**\"]\nrules = { \"clippy::todo\" = \"error\" }\n",
+    )
+    .unwrap();
+    git(&root, &["add", "."]);
+    assert!(commit(&root, "configure").status.success());
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\npub fn pending() { todo!() }\n",
+    )
+    .unwrap();
+    let processes = support::ProcessHarness::install(&root.with_extension("harness"));
+    let run = |flags: &[&str]| {
+        processes.reset();
+        let mut child = binary()
+            .args(["hook", "run", "claude"])
+            .args(flags)
+            .current_dir(&root)
+            .env("CLAUDE_PROJECT_DIR", &root)
+            .env("CARGO_TARGET_DIR", support::scan_target(&root))
+            .env("PATH", processes.command_path())
+            .env("RUST_DOCTOR_PROCESS_LOG", processes.log_path())
+            .env("RUST_DOCTOR_REAL_CARGO", support::resolve_program("cargo"))
+            .env("RUST_DOCTOR_REAL_RUSTC", support::resolve_program("rustc"))
+            .env("RUST_DOCTOR_REAL_RUSTUP", support::resolve_program("rustup"))
+            .env("AGENT_HOOK_BUILD_MARKER", &marker)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"stop_hook_active":false}"#)
+            .unwrap();
+        child.wait_with_output().unwrap()
+    };
+
+    let compile_free = run(&["--no-clippy"]);
+    assert_eq!(compile_free.status.code(), Some(0), "{}", stderr(&compile_free));
+    assert!(!stderr(&compile_free).contains("clippy::"), "{}", stderr(&compile_free));
+    let events = processes.events();
+    assert!(!events.iter().any(|event| event.starts_with("clippy")), "{events:?}");
+    assert!(!marker.exists(), "the tree's build script ran under --no-clippy");
+
+    // The control: the same turn without the flag builds the tree and blocks
+    // on the rule the configuration denies.
+    let compiling = run(&[]);
+    assert_eq!(compiling.status.code(), Some(2), "{}", stderr(&compiling));
+    assert!(stderr(&compiling).contains("- clippy::todo src/lib.rs:2 "), "{}", stderr(&compiling));
+    assert!(processes.events().iter().any(|event| event == "clippy"));
+    assert!(marker.exists(), "the control never compiled the tree");
+    fs::remove_dir_all(&root).unwrap();
+    let _ = fs::remove_file(&marker);
+}
+
+/// EP-005 US-021: an agent hook installed without `--no-clippy` says what it
+/// runs and with whose authority; with the flag it writes the compile-free
+/// command and says nothing, and `--update` sets or drops the flag.
+#[test]
+fn an_agent_hook_install_states_the_compile_authority_it_grants() {
+    let root = workspace("compile-authority");
+    let authority = "Note: this hook runs `cargo clippy`, which executes the build scripts and \
+                     procedural macros of the tree the agent wrote, at the end of every turn and \
+                     with your account's authority. `--no-clippy` installs a hook that compiles nothing.\n";
+
+    let compiling = install(&root, &["claude"]);
+    assert_eq!(compiling.status.code(), Some(0), "{}", stderr(&compiling));
+    assert!(stderr(&compiling).starts_with(authority), "{}", stderr(&compiling));
+    let settings = || -> Value {
+        serde_json::from_str(&fs::read_to_string(root.join(".claude/settings.local.json")).unwrap())
+            .unwrap()
+    };
+
+    let outdated = install(&root, &["claude", "--no-clippy"]);
+    assert_eq!(outdated.status.code(), Some(1));
+    assert!(stdout(&outdated).contains("pass --update"), "{}", stdout(&outdated));
+    let updated = install(&root, &["claude", "--no-clippy", "--update"]);
+    assert_eq!(updated.status.code(), Some(0), "{}", stderr(&updated));
+    assert!(!stderr(&updated).contains("cargo clippy"), "{}", stderr(&updated));
+    assert_eq!(
+        settings()["hooks"]["Stop"],
+        json!([{"hooks": [{"type": "command", "command": "rust-doctor hook run claude --no-clippy", "timeout": 600}]}])
+    );
+    let dropped = install(&root, &["claude", "--update"]);
+    assert_eq!(dropped.status.code(), Some(0));
+    assert_eq!(settings()["hooks"]["Stop"][0]["hooks"][0]["command"], "rust-doctor hook run claude");
+
+    let cursor = install(&root, &["cursor", "--no-clippy"]);
+    assert_eq!(cursor.status.code(), Some(0), "{}", stderr(&cursor));
+    assert!(!stderr(&cursor).contains("cargo clippy"));
+    let hooks: Value =
+        serde_json::from_str(&fs::read_to_string(root.join(".cursor/hooks.json")).unwrap()).unwrap();
+    assert_eq!(hooks["hooks"]["stop"], json!([{"command": "rust-doctor hook run cursor --no-clippy"}]));
+    fs::remove_dir_all(root).unwrap();
+}

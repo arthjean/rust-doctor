@@ -174,7 +174,7 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
 | `rust-doctor . --json --timings` | Publish how long each phase took, in milliseconds, under `timings` |
 | `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines --blocking warning` |
-| `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings) |
+| `rust-doctor hook install claude` | A Claude Code `Stop` hook that rescans each turn (`--shared` for the committed settings, `--no-clippy` for one that compiles nothing) |
 | `rust-doctor hook install cursor` | A Cursor `stop` hook that asks for a follow-up on findings |
 | `rust-doctor skill install --agent all --update` | Refresh this skill for Claude Code, Codex and Cursor after an upgrade |
 | `rust-doctor setup --dry-run` | Plan the skill, the git hook and the end-of-turn hooks for the agents detected on `PATH` or in the workspace; without `--dry-run` it writes them, and never adds CI |
@@ -192,7 +192,11 @@ no-verify option skips it. The
 end-of-turn hook runs `rust-doctor hook run claude`, which rescans with
 `--scope lines --base HEAD --include-untracked --blocking warning`, exits 2
 with up to ten findings when the turn introduced one, and never blocks when the
-scan itself fails. The Cursor hook stays silent on a turn whose `status` is not
+scan itself fails. That rescan runs `cargo clippy`, so the build scripts and
+procedural macros of the tree the agent wrote execute at the end of every turn
+with the user's authority, and the installer says so. `--no-clippy`, on
+`hook install claude|cursor` or `hook run`, turns every Clippy rule off
+whatever `rust-doctor.toml` says: that hook compiles nothing. The Cursor hook stays silent on a turn whose `status` is not
 `completed` or whose `loop_count` is already 1.
 
 | Exit status | Meaning |

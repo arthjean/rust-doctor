@@ -33,6 +33,8 @@ npx rust-doctor@latest setup
 
 This detects Claude Code, Codex and Cursor from their commands on `PATH` and their project directories, then writes the skill for each, the git pre-commit hook, and the end-of-turn hook of Claude Code or Cursor, from the binary rather than the network. It prints the plan and checks every file before writing any (`--dry-run` stops there), never writes over a file it did not create, and merges the end-of-turn hook into an existing agent settings file, keeping every other key. `skill install` installs the skill alone.
 
+The end-of-turn hook runs `cargo clippy`, so the build scripts and procedural macros of the tree the agent wrote execute at the end of every turn, with your account's authority. `rust-doctor hook install claude --no-clippy` (or `cursor`) installs one that compiles nothing: every Clippy rule is off, whatever `rust-doctor.toml` says.
+
 The pre-commit hook scans what the commit records, in `--scope lines`, and refuses a commit that adds a warning, the level the end-of-turn hook blocks on too. `git commit --no-verify` skips it, and a scan that cannot run lets the commit through, saying it was not judged.
 
 For a one-off handoff instead, the report sends the findings straight to an agent, with the rules, their spans, and the scan scope already written into the prompt.

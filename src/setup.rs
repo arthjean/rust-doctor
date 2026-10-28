@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use clap::Args;
 
 use crate::handoff::{AvailableAgent, available_agents};
-use crate::hook::{AgentHook, WriteArgs, install_agent, install_git};
+use crate::hook::{AgentHook, ClippyArgs, WriteArgs, install_agent, install_git};
 use crate::skill::{self, Agent, AgentSelection, InstallOptions};
 
 /// What detection looks at, named when it finds nothing.
@@ -111,7 +111,7 @@ fn step_all(root: &Path, agents: &[Agent], dry_run: bool) -> u8 {
         Agent::Cursor => Some(AgentHook::Cursor),
         Agent::Codex => None,
     }) {
-        let status = install_agent(hook, root, false, write);
+        let status = install_agent(hook, root, false, ClippyArgs { no_clippy: false }, write);
         if status != 0 {
             return status;
         }

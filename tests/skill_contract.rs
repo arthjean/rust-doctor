@@ -228,3 +228,17 @@ fn the_bands_the_skill_states_are_the_bands_the_reports_label_by() {
         "SKILL.md should state the bands as `{stated}`"
     );
 }
+
+/// EP-005 US-021: every command that may compile the workspace says so in its
+/// `--help`, `why` and `hook run` as the root and `inspect` already did, and
+/// `hook run` names the flag that compiles nothing.
+#[test]
+fn every_command_that_may_compile_carries_the_trust_warning() {
+    let warning = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";
+    for command in [&[][..], &["inspect"], &["why"], &["hook", "run"]] {
+        assert!(help(command).contains(warning), "`{command:?} --help` omits the trust warning");
+    }
+    for command in [&["hook", "run"][..], &["hook", "install", "claude"], &["hook", "install", "cursor"]] {
+        assert!(help(command).contains("--no-clippy"), "`{command:?} --help` omits --no-clippy");
+    }
+}
