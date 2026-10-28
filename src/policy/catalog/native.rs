@@ -195,7 +195,7 @@ pub(crate) static REPO_SECRET_IN_BUILD_STEP: RuleDefinition = RuleDefinition {
     producer: Producer::Repo,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P1,
-    help: "Move the secret to the one step that needs it and compile in a step without it; publish with cargo publish --no-verify after verifying the package in a step that holds no token.",
+    help: "Move the secret to the one step that needs it and compile in a step without it; publish with cargo publish --no-verify after verifying the package in a job that holds no OIDC permission, since id-token: write reaches every step of its job.",
     diff_scope: DiffScope::Line,
     title: "CI step compiles with a secret in scope",
     not_a_defect_when: "Every dependency compiled in the step is vendored or pinned and audited, or the secret grants nothing a build script could abuse, such as a read-only token for a public resource.",

@@ -24,6 +24,11 @@ name: Release
 # a single Rust crate: the version lives in Cargo.toml and the launcher's
 # package.json mirrors it (pack-local.mjs fails the build when they disagree),
 # so a release is one version bump, not a changeset graph.
+#
+# No job here restores a cache. A rust-cache entry is written by whichever run
+# on the default branch saved it last, corpus and CI runs included, and a
+# restored `target/` or `~/.cargo` would carry what those runs compiled into a
+# shipped binary. Every release build starts cold.
 
 on:
   workflow_dispatch:
@@ -86,11 +91,6 @@ jobs:
           toolchain: "1.97.1"
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          prefix-key: "v1-rust"
-          key: release-${{ matrix.target }}
-
       - name: Build
         run: cargo build --release --locked --bin rust-doctor --target ${{ matrix.target }}
 
@@ -134,11 +134,6 @@ jobs:
           toolchain: "1.97.1"
           targets: x86_64-pc-windows-msvc
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          prefix-key: "v1-rust"
-          key: release-x86_64-pc-windows-msvc
-
       - name: Build
         run: cargo build --release --locked --bin rust-doctor --target x86_64-pc-windows-msvc
 
@@ -179,11 +174,6 @@ jobs:
         with:
           toolchain: "1.97.1"
           components: clippy
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          prefix-key: "v1-rust"
-          key: release-launcher
 
       - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
         with:
@@ -309,9 +299,34 @@ jobs:
           done
           publish "$GITHUB_WORKSPACE/release-packages/wrapper" rust-doctor
 
+  # The verification build runs in its own job, which holds no OIDC
+  # permission: `id-token: write` is granted to a whole job, never to one step,
+  # and `cargo publish` compiles the packaged crate, build scripts and
+  # procedural macros included, so nothing it compiles may share the identity
+  # the `crates` job exchanges for a registry token. `cargo publish --dry-run`
+  # never asks the registry, which is where this differs from the npm job, so it
+  # stays a real check of the tarball and its build between releases too.
+  crates-verify:
+    name: Verify the crate package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: "1.97.1"
+
+      - name: Verify the package
+        run: cargo publish --locked --dry-run
+
   crates:
     name: Publish to crates.io
-    needs: [build, build-windows, launcher]
+    needs: [build, build-windows, launcher, crates-verify]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -331,11 +346,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.97.1"
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          prefix-key: "v1-rust"
-          key: crates-io
 
       # Cargo.toml is where the version lives; npm/rust-doctor/package.json
       # mirrors it, and the npm job checks the mirror. Both jobs refuse a tag
@@ -373,15 +383,6 @@ jobs:
             echo "published=$published"
           } >> "$GITHUB_OUTPUT"
 
-      # The verification build runs here, in a step that holds no token:
-      # `cargo publish` compiles the packaged crate, build scripts and
-      # procedural macros included, and nothing it compiles may read the
-      # registry credential. `cargo publish --dry-run` never asks the registry,
-      # which is where this differs from the npm job, so it stays a real check
-      # of the tarball and its build between releases too.
-      - name: Verify the package
-        run: cargo publish --locked --dry-run
-
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
         if: github.ref_type == 'tag' && steps.version.outputs.published != 'true'
@@ -397,7 +398,7 @@ jobs:
             echo "rust-doctor@$VERSION is already on the registry, skipping"
             exit 0
           fi
-          # Verified by the step above: the upload compiles nothing.
+          # Verified by the crates-verify job: the upload compiles nothing.
           cargo publish --locked --no-verify
 
   # The GitHub Release is published from a note written before the tag, not from
@@ -460,7 +461,7 @@ jobs:
   # What the run shipped, or would have shipped.
   summary:
     name: Release summary
-    needs: [build, build-windows, launcher, publish, crates, github-release]
+    needs: [build, build-windows, launcher, publish, crates-verify, crates, github-release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

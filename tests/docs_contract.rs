@@ -597,3 +597,239 @@ fn the_network_promise_names_cargo_s_downloads_and_how_to_forbid_them() {
         }
     }
 }
+
+/// The jobs of a workflow, in order, each with its id and the lines it spans.
+/// A job is a two-space key under the top-level `jobs:`.
+fn workflow_jobs(text: &str) -> Vec<(String, Vec<&str>)> {
+    let mut jobs: Vec<(String, Vec<&str>)> = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if !line.starts_with(' ') && !line.trim().is_empty() && !line.starts_with('#') {
+            inside = line == "jobs:";
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let key = line.strip_prefix("  ").and_then(|rest| rest.strip_suffix(':'));
+        match key {
+            Some(id) if !id.starts_with([' ', '#']) => jobs.push((id.to_owned(), Vec::new())),
+            _ => {
+                if let Some((_, lines)) = jobs.last_mut() {
+                    lines.push(line);
+                }
+            }
+        }
+    }
+    jobs
+}
+
+/// The steps of a job, each as its lines, the first being the `- ` line.
+fn job_steps<'a>(lines: &[&'a str]) -> Vec<Vec<&'a str>> {
+    let mut steps: Vec<Vec<&'a str>> = Vec::new();
+    for line in lines {
+        if line.starts_with("      - ") {
+            steps.push(vec![line]);
+        } else if line.starts_with("       ")
+            || line.trim().is_empty()
+            || line.trim_start().starts_with('#')
+        {
+            if let Some(step) = steps.last_mut() {
+                step.push(line);
+            }
+        } else if !steps.is_empty() {
+            break;
+        }
+    }
+    steps
+}
+
+/// Whether a workflow line restores a cache: a rust-cache or `actions/cache`
+/// step brings back what another run compiled.
+fn restores_a_cache(line: &str) -> bool {
+    let trimmed = line.trim_start().trim_start_matches("- ").trim();
+    trimmed.strip_prefix("uses:").is_some_and(|action| {
+        let action = action.trim();
+        action.starts_with("Swatinem/rust-cache@") || action.starts_with("actions/cache@")
+    })
+}
+
+/// The cargo commands a workflow line starts, each cut at the shell operator
+/// that ends it. A comment line starts nothing.
+fn cargo_commands(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') {
+        return Vec::new();
+    }
+    let mut commands = Vec::new();
+    let mut rest = trimmed;
+    while let Some(at) = rest.find("cargo ") {
+        let bounded = rest[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| !before.is_ascii_alphanumeric() && before != '_' && before != '-');
+        let after = &rest[at..];
+        if bounded {
+            let end = after.find(['|', ')', ';', '&']).unwrap_or(after.len());
+            commands.push(after[..end].trim().to_owned());
+        }
+        rest = &after["cargo ".len()..];
+    }
+    commands
+}
+
+/// Why a job of `release.yml` holding `id-token: write` could hand that
+/// identity to code it compiled: a cache it restores, or a cargo command other
+/// than the two that compile nothing.
+fn oidc_job_violations(text: &str) -> (usize, Vec<String>) {
+    let preamble = text.split("\njobs:").next().unwrap_or_default();
+    let granted_to_all = preamble.lines().any(|line| line.trim() == "id-token: write");
+    let mut oidc_jobs = 0;
+    let mut violations = Vec::new();
+    for (id, lines) in workflow_jobs(text) {
+        if !granted_to_all && !lines.iter().any(|line| line.trim() == "id-token: write") {
+            continue;
+        }
+        oidc_jobs += 1;
+        for line in &lines {
+            if restores_a_cache(line) {
+                violations.push(format!("job `{id}` restores a cache: {}", line.trim()));
+            }
+            for command in cargo_commands(line) {
+                if !command.starts_with("cargo metadata --no-deps")
+                    && command != "cargo publish --locked --no-verify"
+                {
+                    violations.push(format!("job `{id}` runs `{command}`"));
+                }
+            }
+        }
+    }
+    (oidc_jobs, violations)
+}
+
+/// EP-005 US-016: `id-token: write` is granted to a whole job, so a job that
+/// exchanges it for a registry token compiles nothing and restores nothing a
+/// compiler wrote: a build script would otherwise run under that identity.
+#[test]
+fn no_release_job_holding_an_oidc_identity_compiles_or_restores_a_cache() {
+    let (oidc_jobs, violations) = oidc_job_violations(&read(".github/workflows/release.yml"));
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+    assert_eq!(oidc_jobs, 2, "release.yml should hold the npm and crates.io OIDC jobs");
+}
+
+/// The OIDC check refuses each form a compiling or cache-restoring job takes,
+/// and admits the two cargo commands that compile nothing.
+#[test]
+fn the_oidc_job_check_rejects_a_compiling_or_cached_job() {
+    let job = |body: &str| {
+        format!(
+            "permissions:\n  contents: read\njobs:\n  crates:\n    permissions:\n      id-token: write\n    steps:\n{body}\n"
+        )
+    };
+    for body in [
+        "      - run: cargo publish --locked --dry-run",
+        "      - run: cargo build --release --locked",
+        "      - run: echo x && cargo test",
+        "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
+        "      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4",
+    ] {
+        let (oidc_jobs, violations) = oidc_job_violations(&job(body));
+        assert_eq!(oidc_jobs, 1);
+        assert!(!violations.is_empty(), "{body} should be refused in an OIDC job");
+    }
+    for body in [
+        "      - run: version=\"$(cargo metadata --no-deps --format-version 1 | jq -r .x)\"",
+        "      - run: cargo publish --locked --no-verify",
+        "      - run: |\n          # cargo build would compile here\n          true",
+    ] {
+        assert_eq!(oidc_job_violations(&job(body)).1, Vec::<String>::new(), "{body}");
+    }
+    let unprivileged = "jobs:\n  verify:\n    steps:\n      - run: cargo publish --locked --dry-run\n";
+    assert_eq!(oidc_job_violations(unprivileged), (0, Vec::new()));
+    let inherited =
+        "permissions:\n  id-token: write\njobs:\n  verify:\n    steps:\n      - run: cargo build\n";
+    assert_eq!(oidc_job_violations(inherited).0, 1);
+    assert_eq!(oidc_job_violations(inherited).1.len(), 1);
+}
+
+/// EP-005 US-016, unhappy path: a run that is not a tag still verifies the
+/// package, in a job that holds no OIDC permission, and the `crates` job keeps
+/// only the five steps it needs, the two that touch the registry guarded by
+/// the tag.
+#[test]
+fn the_crate_is_verified_on_every_run_and_published_only_from_a_tag() {
+    let release = read(".github/workflows/release.yml");
+    let jobs = workflow_jobs(&release);
+    let job = |id: &str| {
+        jobs.iter()
+            .find(|(name, _)| name == id)
+            .map(|(_, lines)| lines.clone())
+            .unwrap_or_else(|| unreachable!("release.yml should hold the `{id}` job"))
+    };
+
+    let verify = job("crates-verify");
+    assert!(verify.iter().any(|line| line.trim() == "contents: read"));
+    assert!(!verify.iter().any(|line| line.contains("id-token")));
+    assert!(!verify.iter().any(|line| line.trim_start().starts_with("if:")));
+    assert!(verify.iter().any(|line| line.trim() == "run: cargo publish --locked --dry-run"));
+    assert!(verify.iter().any(|line| line.trim() == "persist-credentials: false"));
+
+    let crates = job("crates");
+    assert!(
+        crates
+            .iter()
+            .any(|line| line.trim_start().starts_with("needs:") && line.contains("crates-verify")),
+        "the `crates` job should need `crates-verify`"
+    );
+    let steps = job_steps(&crates);
+    let heads: Vec<String> = steps
+        .iter()
+        .map(|step| {
+            let head = step[0].trim().trim_start_matches("- ");
+            head.split('@').next().unwrap_or(head).to_owned()
+        })
+        .collect();
+    assert_eq!(
+        heads,
+        [
+            "uses: actions/checkout",
+            "uses: dtolnay/rust-toolchain",
+            "name: Resolve the release version",
+            "uses: rust-lang/crates-io-auth-action",
+            "name: Publish",
+        ]
+    );
+    for step in &steps[3..] {
+        assert!(
+            step.iter().any(|line| line.trim().starts_with("if: github.ref_type == 'tag'")),
+            "{} should run only from a tag",
+            step[0].trim()
+        );
+    }
+}
+
+/// EP-005 US-017: a cache entry is written by whichever default-branch run
+/// saved it last, corpus and CI runs included, so no release job restores one
+/// and every shipped binary is built cold.
+#[test]
+fn release_yml_restores_no_cache() {
+    let release = read(".github/workflows/release.yml");
+    let restoring: Vec<String> = release
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| restores_a_cache(line))
+        .map(|(index, line)| format!("release.yml:{} {}", index + 1, line.trim()))
+        .collect();
+    assert!(restoring.is_empty(), "{}", restoring.join("\n"));
+    for job in ["build", "build-windows", "launcher", "crates"] {
+        assert!(
+            workflow_jobs(&release).iter().any(|(id, _)| id == job),
+            "release.yml should hold the `{job}` job"
+        );
+    }
+    assert!(restores_a_cache(
+        "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3"
+    ));
+    assert!(restores_a_cache("      - uses: actions/cache@v4"));
+    assert!(!restores_a_cache("# No job here restores a rust-cache entry"));
+}

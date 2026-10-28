@@ -19418,6 +19418,6 @@
     "clippy_executes_corpus_build_code": true,
     "corpus_materialised_outside_repository": true,
     "native_detectors_compile_corpus_code": false,
-    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. With every Clippy rule switched off, a scan starts no program the scanned tree selects, which the harness proves by replaying a fixture that carries a clippy alias and a path toolchain, each leaving a marker if it runs."
+    "rationale": "Cargo runs build scripts and procedural macros, so the Clippy leg of every corpus scan is an explicit trusted boundary: only mature, widely reviewed repositories are pinned. The pin is a revision, not a dependency graph: anyhow, async-channel, bytes, log, serde_json, smol and thiserror commit no Cargo.lock, so their graph resolves at replay, and the build code Clippy runs for them is whatever the registry serves then. With every Clippy rule switched off, a scan starts no program the scanned tree selects, which the harness proves by replaying a fixture that carries a clippy alias and a path toolchain, each leaving a marker if it runs."
   }
 }

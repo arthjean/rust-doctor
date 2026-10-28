@@ -26,7 +26,12 @@ name: Corpus
 # TRUST BOUNDARY. This workflow scans eighteen third-party repositories, and
 # the ten healthy ones are scanned with Clippy, which executes their build
 # scripts and procedural macros. That is acceptable here only because the
-# runner is disposable and every revision is pinned. Do not port these steps
+# runner is disposable and every revision is pinned. A pinned revision is not a
+# pinned dependency graph: anyhow, async-channel, bytes, log, serde_json, smol
+# and thiserror commit no Cargo.lock, so their graph resolves at replay against
+# whatever the registry serves that day, and their build code is chosen then.
+# That is also why no release job restores a cache this workflow could have
+# written (release.yml starts every build cold). Do not port these steps
 # to a developer machine, and do not add a repository to the manifest without
 # the review the corpus protocol requires. The eight agent repositories are
 # scanned with every Clippy rule off, and a Clippy-off scan starts no program
