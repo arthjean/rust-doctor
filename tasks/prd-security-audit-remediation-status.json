@@ -10,7 +10,7 @@
     { "id": "EP-002", "title": "Writes and terminal output the workspace cannot steer", "status": "DONE", "priority": "P0", "stories_total": 4, "stories_done": 4 },
     { "id": "EP-003", "title": "Report privacy and advisory authority", "status": "DONE", "priority": "P0", "stories_total": 3, "stories_done": 3 },
     { "id": "EP-004", "title": "Release and launcher supply chain", "status": "DONE", "priority": "P0", "stories_total": 2, "stories_done": 2 },
-    { "id": "EP-005", "title": "Close the five needs-validation leads", "status": "IN_REVIEW", "priority": "P1", "stories_total": 6, "stories_done": 5 }
+    { "id": "EP-005", "title": "Close the five needs-validation leads", "status": "DONE", "priority": "P1", "stories_total": 6, "stories_done": 6 }
   ],
   "stories": [
     { "id": "US-001", "title": "Validate assumption: a name-only toolchain pin closes cargo metadata without moving its working directory", "epic": "EP-001", "status": "DONE", "priority": "P0", "size": "S", "blocked_by": [], "started_at": "2026-10-26", "completed_at": "2026-10-26", "reviewed_at": "2026-10-26" },
@@ -29,7 +29,7 @@
     { "id": "US-014", "title": "Pin every release.yml action to a commit and the release's npm and Node exactly, under a contract test", "epic": "EP-004", "status": "DONE", "priority": "P0", "size": "M", "blocked_by": [], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-015", "title": "Confine the npm launcher's native package to its own install tree", "epic": "EP-004", "status": "DONE", "priority": "P0", "size": "S", "blocked_by": [], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-016", "title": "Verify the crate in a job that holds no OIDC permission", "epic": "EP-005", "status": "DONE", "priority": "P1", "size": "S", "blocked_by": ["US-014"], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
-    { "id": "US-017", "title": "Build release artifacts without a restored cache", "epic": "EP-005", "status": "IN_REVIEW", "priority": "P1", "size": "S", "blocked_by": ["US-014"], "started_at": "2026-10-28", "completed_at": null, "reviewed_at": "2026-10-28" },
+    { "id": "US-017", "title": "Build release artifacts without a restored cache", "epic": "EP-005", "status": "DONE", "priority": "P1", "size": "S", "blocked_by": ["US-014"], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-018", "title": "Create baseline and staged snapshots under a per-user private parent", "epic": "EP-005", "status": "DONE", "priority": "P1", "size": "M", "blocked_by": ["US-007"], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-019", "title": "Restore no executables and save no pull request cache in the Action and the generated workflow, and run the launcher by absolute path", "epic": "EP-005", "status": "DONE", "priority": "P1", "size": "M", "blocked_by": [], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
     { "id": "US-020", "title": "Post the sticky comment from a job that runs no pull request code", "epic": "EP-005", "status": "DONE", "priority": "P1", "size": "L", "blocked_by": ["US-019"], "started_at": "2026-10-28", "completed_at": "2026-10-28", "reviewed_at": "2026-10-28" },
