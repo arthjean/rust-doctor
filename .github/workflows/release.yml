@@ -77,16 +77,16 @@ jobs:
             target: x86_64-apple-darwin
             native: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.97.1"
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: "v1-rust"
           key: release-${{ matrix.target }}
@@ -106,7 +106,7 @@ jobs:
           mkdir -p staging
           cp "target/${{ matrix.target }}/release/rust-doctor" staging/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rust-doctor-${{ matrix.platform }}
           path: staging
@@ -125,16 +125,16 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.97.1"
           targets: x86_64-pc-windows-msvc
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: "v1-rust"
           key: release-x86_64-pc-windows-msvc
@@ -150,7 +150,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           Copy-Item target\x86_64-pc-windows-msvc\release\rust-doctor.exe staging\
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rust-doctor-win32-x64
           path: staging
@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -175,23 +175,23 @@ jobs:
       # the smoke drives a full scan of this repository, and without the
       # component the scan fails, the score loses its authoritative flag, and
       # the report drops the share line the proof reads.
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.97.1"
           components: clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: "v1-rust"
           key: release-launcher
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
         with:
           bun-version: 1.3.14
 
       # The smoke's npm leg installs the packed tarballs the way `npm install
       # -g` and the Action do. Node 22.13.0 ships npm 10.9.2, the npm it runs.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22.13.0"
 
@@ -220,28 +220,31 @@ jobs:
       # identity, which is what lets a reader tie the tarball to this commit.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
         with:
           bun-version: 1.3.14
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version: "22.13.0"
           registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships npm 10.
+      # The install names one exact npm, as every `uses:` above names a commit:
+      # this job holds publish authority, so a new upstream release reaches it
+      # only through a reviewed change to this file.
       # The registry authenticates this job by the OIDC identity the six
       # packages each name as their trusted publisher, so no token is stored:
       # a leaked secret cannot publish, and a workflow renamed or moved to
       # another repository stops being trusted rather than staying authorized.
       - name: Upgrade npm to a trusted-publishing build
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.21.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
@@ -321,15 +324,15 @@ jobs:
       # crates.io, naming this repository and this workflow file.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.97.1"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: "v1-rust"
           key: crates-io
@@ -379,7 +382,7 @@ jobs:
       - name: Verify the package
         run: cargo publish --locked --dry-run
 
-      - uses: rust-lang/crates-io-auth-action@v1
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
         if: github.ref_type == 'tag' && steps.version.outputs.published != 'true'
 
@@ -413,7 +416,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -461,7 +464,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 

@@ -46,8 +46,9 @@ the existing one so a partial release finishes rather than needing a new tag.
 
 The job stores no secret. Each of the six packages names this repository's
 `release.yml` as its trusted publisher on npmjs.com, and the registry
-authenticates the run by its OIDC identity, which is why the job upgrades npm
-past 11.5.1 and asks for `id-token: write`. A new package has to be published
+authenticates the run by its OIDC identity, which is why the job installs npm
+11.21.1 exactly, past the 11.5.1 trusted publishing needs, and asks for
+`id-token: write`. A new package has to be published
 once by token before it can be given a trusted publisher, since the setting
 lives in a package's settings: 0.3.0 went out that way, and the token was
 revoked afterwards. Every package is published with `--provenance`, which ties

@@ -7,6 +7,16 @@
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | weekly, manual, pull request touching the record, its harness, a producer or the score | One job fills the clone cache with every pinned revision and its history; then, in parallel, one reproduces the measurement of `tests/corpus.json` in process and writes the position proof that anchors every published site, and one scans the 18 subjects offline through the CLI and the installed launcher: each matches its record, a rerun is identical, the copy is untouched |
 
+Every program a `release.yml` job starts is bound by content, since those jobs
+publish with this repository's OIDC identity. Each non-local `uses:` names a
+40-hex commit followed by `# <ref>`, the tag or branch that commit was read
+from, and the publish job installs one exact npm and one exact Node.
+`release_yml_binds_every_program_by_commit_or_exact_version` in
+`tests/docs_contract.rs` fails on a tag, a branch, a pin without its comment or
+a version range. To move a pin, read the commit the ref names now
+(`gh api repos/<owner>/<action>/commits/<ref> --jq .sha`), review the upstream
+diff from the old commit, and replace the commit and its comment together.
+
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not
 something a CI file should decide. The Windows leg stops at `cargo check`

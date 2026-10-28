@@ -467,6 +467,109 @@ fn every_checkout_drops_its_persisted_credentials() {
     assert!(checkouts > 0, "no checkout step was found");
 }
 
+/// Why one `release.yml` line binds its program by less than content: a
+/// non-local `uses:` without a 40-hex commit and the `# <ref>` it was read
+/// from, an `npm@` spec that is not one exact version, or a `node-version`
+/// that is not one. `None` is a line that binds nothing or binds it exactly.
+fn release_pin_violation(line: &str) -> Option<&'static str> {
+    fn exact_version(value: &str) -> bool {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    }
+
+    let trimmed = line.trim_start().trim_start_matches("- ").trim();
+    if let Some(action) = trimmed.strip_prefix("uses:") {
+        let action = action.trim();
+        if action.starts_with("./") {
+            return None;
+        }
+        let Some((_, pin)) = action.split_once('@') else {
+            return Some("a `uses:` without a ref");
+        };
+        let (commit, comment) = pin.split_once(' ').unwrap_or((pin, ""));
+        if commit.len() != 40
+            || !commit
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Some("a `uses:` whose ref is not a 40-hex commit");
+        }
+        return match comment.trim().strip_prefix('#') {
+            Some(reference) if !reference.trim().is_empty() => None,
+            _ => Some("a pinned `uses:` without the `# <ref>` its commit was read from"),
+        };
+    }
+    if let Some((_, spec)) = trimmed.split_once("npm@") {
+        let spec = spec.split_whitespace().next().unwrap_or_default();
+        if !exact_version(spec) {
+            return Some("an `npm@` spec that is not an exact x.y.z");
+        }
+    }
+    if let Some(version) = trimmed.strip_prefix("node-version:")
+        && !exact_version(version.trim().trim_matches('"'))
+    {
+        return Some("a `node-version` that is not an exact x.y.z");
+    }
+    None
+}
+
+/// EP-004 US-014: the release jobs publish with this repository's OIDC
+/// identity, so every program they start is bound by content. A tag or branch
+/// moved upstream reaches a publication only through a change reviewed here.
+#[test]
+fn release_yml_binds_every_program_by_commit_or_exact_version() {
+    let release = read(".github/workflows/release.yml");
+    let violations: Vec<String> = release
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            release_pin_violation(line).map(|violation| {
+                format!("release.yml:{} holds {violation}: {}", index + 1, line.trim())
+            })
+        })
+        .collect();
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+    assert!(
+        release.lines().any(|line| line.trim_start().starts_with("- uses:")),
+        "release.yml should hold `uses:` steps"
+    );
+    for sample in ["npm install -g npm@11.21.1", "node-version: \"22.13.0\""] {
+        assert_eq!(release_pin_violation(sample), None, "{sample} binds exactly");
+    }
+    assert_eq!(
+        release_pin_violation(
+            "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0"
+        ),
+        None
+    );
+}
+
+/// The predicate behind the release pins rejects each mutable form the run-1
+/// audit found or that a hurried update would write.
+#[test]
+fn the_release_pin_predicate_rejects_every_mutable_form() {
+    for sample in [
+        "      - uses: actions/checkout@v5",
+        "      - uses: dtolnay/rust-toolchain@master",
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c0 # v5.1.0",
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 #",
+        "      - uses: actions/checkout",
+        "        run: npm install -g npm@^11.5.1",
+        "        run: npm install -g npm@11",
+        "          node-version: \"22\"",
+        "          node-version: 22.x",
+    ] {
+        assert!(
+            release_pin_violation(sample).is_some(),
+            "{sample} should be rejected as mutable"
+        );
+    }
+}
+
 /// EP-003 US-013: the network promise says what holds wherever it is read.
 /// rust-doctor opens no connection, but Cargo downloads a missing dependency,
 /// so "no network" was false on a fresh clone.
