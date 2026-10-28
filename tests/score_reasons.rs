@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 //! Proofs of EP-001 US-004 and US-005: an uncatalogued warning is published and
 //! weighs nothing, and a score that is not authoritative says why.

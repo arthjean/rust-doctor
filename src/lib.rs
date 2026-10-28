@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +36,8 @@ mod test_clock;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
 mod test_scratch;
+#[cfg(test)]
+mod boundary_table;
 pub mod terminal_text;
 mod timings;
 mod workspace_path;
@@ -62,6 +64,11 @@ pub use cargo_health::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
 pub use timings::Timings;
 pub use execution::CacheOutcome;
+
+/// The fault a debug build injects at a named site, for the tests that prove
+/// a panic is contained; a release build compiles it to nothing.
+#[doc(hidden)]
+pub use execution::containment::inject as inject_fault;
 
 /// The native source detectors run in process on one unit, for the regression
 /// seeds `tests/regression_seeds.rs` replays. Not a stable interface.

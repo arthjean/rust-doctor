@@ -203,13 +203,17 @@ pub fn wrap(content: &str, width: usize) -> Vec<String> {
         if hard_split == 0 {
             let character_length = remaining.chars().next().map_or(0, char::len_utf8);
             lines.push("…".to_owned());
-            remaining = &remaining[character_length..];
+            remaining = remaining.get(character_length..).unwrap_or_default();
             continue;
         }
 
         let split = last_break.unwrap_or(hard_split);
-        lines.push(remaining[..split].trim_end().to_owned());
-        remaining = remaining[split..].trim_start();
+        let Some((line, rest)) = remaining.split_at_checked(split) else {
+            lines.push(remaining.to_owned());
+            break;
+        };
+        lines.push(line.trim_end().to_owned());
+        remaining = rest.trim_start();
     }
     lines
 }
@@ -217,6 +221,18 @@ pub fn wrap(content: &str, width: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Self-scan audit US-006: wrapping and truncation return on every line
+    /// of the non-ASCII table, at the narrowest widths.
+    #[test]
+    fn wrapping_and_truncation_return_on_every_line_of_the_non_ascii_table() {
+        for line in crate::boundary_table::lines() {
+            for width in 0..=4 {
+                assert!(!wrap(&line, width).is_empty(), "{line:?} at {width}");
+                assert!(display_width(&truncate(&line, width)) <= width.max(1), "{line:?} at {width}");
+            }
+        }
+    }
 
     #[test]
     fn wrapping_uses_terminal_columns_and_removes_complete_escape_sequences() {

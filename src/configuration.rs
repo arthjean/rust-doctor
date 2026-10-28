@@ -259,7 +259,7 @@ fn line_column(document: &str, offset: usize) -> (usize, usize) {
     while !document.is_char_boundary(boundary) {
         boundary -= 1;
     }
-    let prefix = &document[..boundary];
+    let prefix = document.get(..boundary).unwrap_or_default();
     let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
     let column = prefix
         .rsplit('\n')

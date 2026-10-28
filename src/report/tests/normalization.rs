@@ -279,6 +279,7 @@ fn malformed_messages_make_a_started_scan_incomplete() {
         cargo_health: None,
         repo: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
         toolchain: None,
         scan: ClippyExecution::from_scan(ScanExecution {
@@ -327,6 +328,7 @@ fn incomplete_scan_reports_each_distinct_normative_cause_once() {
         cargo_health: None,
         repo: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
         toolchain: None,
         scan: ClippyExecution::from_scan(ScanExecution {
@@ -381,6 +383,7 @@ fn missing_exit_and_build_finished_have_explicit_causes() {
         cargo_health: None,
         repo: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
         toolchain: None,
         scan: ClippyExecution::from_scan(ScanExecution {
@@ -448,6 +451,7 @@ fn repo_errors_surface_at_stage_repo_and_make_the_scan_incomplete() {
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     };
     let report = from_execution(result);

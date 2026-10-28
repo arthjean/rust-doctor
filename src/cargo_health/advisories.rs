@@ -333,7 +333,7 @@ fn parse(path: &Path) -> Option<AdvisoryFile> {
         text.as_str()
     } else {
         let body = text.trim_start().strip_prefix("```toml")?;
-        &body[..body.find("\n```")?]
+        body.get(..body.find("\n```")?)?
     };
     toml::from_str(front).ok()
 }

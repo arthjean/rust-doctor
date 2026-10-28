@@ -118,6 +118,26 @@ fn a_database_url_password_is_reported_only_where_it_reaches_a_deployment() {
     assert_eq!(credential_ranges("postgres://user:pass@localhost/db"), vec![(16, 20)]);
 }
 
+/// Self-scan audit US-001: a multibyte character right before the scheme
+/// once made the scheme search slice inside it.
+#[test]
+fn a_multibyte_character_before_the_scheme_is_stepped_over() {
+    let lines = [
+        "«https://example.com»".to_owned(),
+        "详见https://example.com".to_owned(),
+        format!("𝄞postgres:/{}/u:p@h.io/x", ""),
+        format!("“postgres:/{}/admin:Hunter2Secret@db.prod.example.com/app”", ""),
+    ];
+    for line in &lines {
+        for (start, end) in credential_ranges(line) {
+            assert!(line.is_char_boundary(start) && line.is_char_boundary(end), "{line}");
+        }
+    }
+    assert_eq!(credential_ranges(&lines[2]).len(), 1);
+    let (_, (start, end)) = first_credential(&lines[3], &[]).unwrap();
+    assert_eq!(&lines[3][start..end], "Hunter2Secret");
+}
+
 /// EP-001 US-001: diagnostic text is masked as a code frame masks a line,
 /// every line of it, and text with no credential comes back unchanged.
 #[test]
@@ -186,4 +206,22 @@ fn a_private_key_is_masked_from_its_header_to_its_footer() {
         mask_credentials(&format!("pem.starts_with(\"{header}\")")),
         format!("pem.starts_with(\"----{REDACTED}\")")
     );
+}
+
+/// Self-scan audit US-006: every range the scanner returns lies on char
+/// boundaries of the non-ASCII table, and masking returns on every line of it.
+#[test]
+fn every_range_of_the_non_ascii_table_lies_on_char_boundaries() {
+    let on_boundaries = |line: &str, (start, end): (usize, usize)| {
+        start <= end && line.is_char_boundary(start) && line.is_char_boundary(end)
+    };
+    for line in crate::boundary_table::lines() {
+        for range in credential_ranges(&line) {
+            assert!(on_boundaries(&line, range), "{line:?} {range:?}");
+        }
+        if let Some((_, range)) = first_credential(&line, &[]) {
+            assert!(on_boundaries(&line, range), "{line:?} {range:?}");
+        }
+        assert!(mask_credentials(&line).len() <= line.len() + 2 * REDACTED.len(), "{line:?}");
+    }
 }

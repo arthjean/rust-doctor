@@ -85,6 +85,7 @@ pub(crate) struct BoundedChild {
     pub(crate) child: Child,
     watchdog: Option<Watchdog>,
     registered: Option<u32>,
+    waited: bool,
 }
 
 pub(crate) fn spawn(mut command: Command, deadline: Option<RunDeadline>) -> io::Result<BoundedChild> {
@@ -106,6 +107,7 @@ pub(crate) fn spawn(mut command: Command, deadline: Option<RunDeadline>) -> io::
         child,
         watchdog,
         registered,
+        waited: false,
     })
 }
 
@@ -114,16 +116,27 @@ impl BoundedChild {
     /// before it exited.
     pub(crate) fn wait(mut self) -> (io::Result<ExitStatus>, bool) {
         let status = self.child.wait();
+        self.waited = true;
         let expired = self.watchdog.take().is_some_and(Watchdog::disarm);
         (status, expired)
     }
 }
 
 impl Drop for BoundedChild {
-    /// The group leaves the register once its leader is reaped, and a child
-    /// abandoned on an error path is not killed later by a watchdog nobody
-    /// waits on.
+    /// A child nobody waited on, left by an error path or by a reader that
+    /// panicked, is killed with its group and reaped here, so no `cargo
+    /// clippy` outlives the pass that started it. The group leaves the
+    /// register only once its leader is reaped, and the watchdog is disarmed.
     fn drop(&mut self) {
+        if !self.waited {
+            match self.registered {
+                Some(group) => kill_tree(group),
+                None => {
+                    let _ = self.child.kill();
+                }
+            }
+            let _ = self.child.wait();
+        }
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.disarm();
         }
@@ -294,6 +307,21 @@ mod tests {
             !alive.success()
         });
         assert!(gone, "the grandchild {grandchild} survived");
+    }
+
+    /// Self-scan audit US-004: a child dropped before `wait`, grouped by a
+    /// deadline or not, is gone once the drop returns.
+    #[test]
+    fn a_child_dropped_before_its_wait_is_killed_and_reaped() {
+        for deadline in [Some(RunDeadline::starting_now(Duration::from_secs(60))), None] {
+            let mut command = Command::new("sleep");
+            command.arg("60");
+            let bounded = spawn(command, deadline).unwrap();
+            let pid = bounded.child.id();
+            assert!(is_running(pid));
+            drop(bounded);
+            assert!(!is_running(pid), "pid {pid} survived its drop ({deadline:?})");
+        }
     }
 
     #[test]

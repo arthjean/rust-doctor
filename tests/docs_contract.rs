@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 //! The standing documents state numbers an agent acts on without checking: how
 //! large the catalog is, which schema the report publishes, the bounds

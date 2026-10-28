@@ -619,3 +619,13 @@ fn a_secret_fallback_literal_is_masked_on_its_line_and_after_a_wrap() {
         format!("x.unwrap_or_else(|| r#\"raw-{REDACTED}\"#)")
     );
 }
+
+/// Self-scan audit US-006: redaction returns on every line of the non-ASCII
+/// table, and every column edit it returns is ordered.
+#[test]
+fn redaction_returns_on_every_line_of_the_non_ascii_table() {
+    for line in crate::boundary_table::lines() {
+        let redacted = redact_line(&line, &mut Carry::default());
+        assert!(redacted.edits.iter().all(|edit| edit.start <= edit.end), "{line:?}");
+    }
+}

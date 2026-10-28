@@ -164,7 +164,7 @@ pub(crate) fn rust_doctor() -> Command {
 pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
     let key = blake3::hash(workspace.as_os_str().as_encoded_bytes()).to_hex();
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/scan-caches");
-    base.canonicalize().unwrap_or(base).join(&key[..16])
+    base.canonicalize().unwrap_or(base).join(key.get(..16).unwrap_or_default())
 }
 
 /// Projects a current report back onto the frozen bytes of v7.

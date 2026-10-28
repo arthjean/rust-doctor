@@ -636,6 +636,7 @@ fn complete_analysis_side(
         }),
         error: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     }
 }
@@ -785,6 +786,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     });
     assert_eq!(complete.status, Status::Complete);
@@ -816,6 +818,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     });
     assert_eq!(incomplete.status, Status::Incomplete);
@@ -846,6 +849,7 @@ fn native_warnings_follow_existing_complete_incomplete_and_failed_statuses() {
             message: "metadata unavailable".to_owned(),
         }),
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     });
     assert_eq!(failed.status, Status::Failed);
@@ -913,6 +917,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
         source_measurement: None,
         error: None,
         deadline_skipped: Vec::new(),
+        panicked: Vec::new(),
         exclusions: Default::default(),
     });
 

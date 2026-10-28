@@ -58,9 +58,14 @@ pub(crate) fn byte_range_span(
 }
 
 fn source_position(offset: usize, line_starts: &[usize], source: &str) -> (usize, usize) {
-    let bounded = offset.min(source.len());
+    let bounded = source.floor_char_boundary(offset);
     let line_index = line_starts.partition_point(|start| *start <= bounded) - 1;
-    let column = source[line_starts[line_index]..bounded].chars().count() + 1;
+    let column = source
+        .get(line_starts[line_index]..bounded)
+        .unwrap_or_default()
+        .chars()
+        .count()
+        + 1;
     (line_index + 1, column)
 }
 

@@ -15,6 +15,7 @@ use cargo_metadata::Metadata;
 
 use super::lockfile::LockfileGuard;
 use super::members::Members;
+use super::containment;
 use super::messages::{self, ScanExecution};
 use super::rustflags::RustflagsOverride;
 use super::{
@@ -197,6 +198,7 @@ pub(super) fn run(
             if first_member.is_none() && !linted.is_empty() {
                 first_member = Some(Instant::now());
             }
+            containment::observe_stream(message);
         })
     })
     .map_err(|error| {
@@ -343,17 +345,20 @@ fn command(
     command
 }
 
-/// What became of the pass: never started, switched off by the policy, or run
-/// to an outcome.
+/// What became of the pass: never started, switched off by the policy, run
+/// to an outcome, or ended by a panic its containment caught.
 ///
 /// `Disabled` is a complete answer and `NotRun` is not, which is the whole
-/// reason the three are one enum rather than an `Option` and a flag.
+/// reason they are one enum rather than an `Option` and a flag. `Panicked` is
+/// an outcome, so the native findings are still published, and an incomplete
+/// one, whose error the containment publishes at the `execution` stage.
 #[derive(Debug, Default)]
 pub(crate) enum ClippyExecution {
     #[default]
     NotRun,
     Disabled,
     Finished(Box<ScanExecution>),
+    Panicked,
 }
 
 impl ClippyExecution {
@@ -364,7 +369,7 @@ impl ClippyExecution {
     pub(crate) fn finished(&self) -> Option<&ScanExecution> {
         match self {
             Self::Finished(scan) => Some(scan),
-            Self::NotRun | Self::Disabled => None,
+            Self::NotRun | Self::Disabled | Self::Panicked => None,
         }
     }
 
@@ -381,7 +386,7 @@ impl ClippyExecution {
                     && scan.malformed_messages == 0
                     && scan.errors.is_empty()
             }
-            Self::NotRun => false,
+            Self::NotRun | Self::Panicked => false,
         }
     }
 
@@ -389,7 +394,7 @@ impl ClippyExecution {
     pub(super) fn into_finished(self) -> Option<ScanExecution> {
         match self {
             Self::Finished(scan) => Some(*scan),
-            Self::NotRun | Self::Disabled => None,
+            Self::NotRun | Self::Disabled | Self::Panicked => None,
         }
     }
 }

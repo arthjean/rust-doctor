@@ -327,7 +327,7 @@ fn contains_identifier(haystack: &str, needle: &str, excluded: &[TextRange]) -> 
         byte.is_none_or(|byte| !(byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'))
     };
     let mut from = 0;
-    while let Some(position) = haystack[from..].find(needle) {
+    while let Some(position) = haystack.get(from..).and_then(|rest| rest.find(needle)) {
         let start = from + position;
         let end = start + needle.len();
         let gated = u32::try_from(start).is_ok_and(|offset| {

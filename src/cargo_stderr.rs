@@ -167,6 +167,16 @@ fn tail(lines: &[String]) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Self-scan audit US-006: the excerpt returns on every line of the
+    /// non-ASCII table, as Cargo's stderr would carry it.
+    #[test]
+    fn the_excerpt_returns_on_every_line_of_the_non_ascii_table() {
+        for line in crate::boundary_table::lines() {
+            let excerpt = excerpt(line.as_bytes(), Path::new("/work"), None);
+            assert!(excerpt.is_some(), "{line:?}");
+        }
+    }
+
     #[test]
     fn the_excerpt_keeps_the_cause_and_drops_the_progress() {
         let stderr = b"    Checking a v0.1.0 (/work/a)\n\

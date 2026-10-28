@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 //! Proofs of EP-002: a scan that fails says what Cargo said, a scan bounded by
 //! `--max-duration` finishes on time and kills what it started, one broken

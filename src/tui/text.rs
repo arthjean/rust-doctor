@@ -383,12 +383,18 @@ impl Wrapping {
     }
 }
 
+/// The longest head of `content` that fits `width` columns, and the rest.
+///
+/// The head holds at least one character, however wide: an empty head leaves
+/// the remainder as it was, and `place` then wrapped a double-width character
+/// on a one-column pane forever.
 fn split_at_width(content: &str, width: usize) -> (String, &str) {
     let mut used = 0usize;
     for (offset, character) in content.char_indices() {
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if used.saturating_add(character_width) > width {
-            return (content[..offset].to_owned(), &content[offset..]);
+        if offset > 0 && used.saturating_add(character_width) > width {
+            let (head, tail) = content.split_at(offset);
+            return (head.to_owned(), tail);
         }
         used = used.saturating_add(character_width);
     }
@@ -468,6 +474,40 @@ mod tests {
             split.iter().map(visible).collect::<Vec<_>>(),
             ["abcde", "fghij", "kl"]
         );
+    }
+
+    fn placed(word: &str, width: usize) -> Vec<String> {
+        let mut wrapping = Wrapping::new(width);
+        wrapping.place(word, &Span::plain(""), &mut false);
+        wrapping.finish().iter().map(visible).collect()
+    }
+
+    /// Self-scan audit US-005: a character wider than the pane still moves
+    /// the wrap forward, one character per line.
+    #[test]
+    fn a_character_wider_than_the_pane_takes_a_line_of_its_own() {
+        let started = std::time::Instant::now();
+        assert_eq!(placed("日本", 1), ["日", "本"]);
+        assert!(started.elapsed() < std::time::Duration::from_millis(10));
+        assert_eq!(placed("ab", 0), ["a", "b"]);
+        assert_eq!(placed("", 0), [""]);
+        assert_eq!(placed("", 1), [""]);
+        let long = "日a𝄞e\u{301} ".repeat(2_000);
+        for width in [1, 2, 3, 40, 400] {
+            assert!(wrap_spans(&[Span::plain(&long)], width).len() >= 25, "{width}");
+        }
+    }
+
+    /// Self-scan audit US-006: the detail pane's wrap returns on every line
+    /// of the non-ASCII table, at widths 1 to 4.
+    #[test]
+    fn wrapping_returns_on_every_line_of_the_non_ascii_table() {
+        for line in crate::boundary_table::lines() {
+            for width in 1..=4 {
+                let wrapped = wrap_spans(&[Span::plain(&line)], width);
+                assert!(wrapped.iter().all(|line| line.width() <= width.max(2)), "{line:?} at {width}");
+            }
+        }
     }
 
     #[test]

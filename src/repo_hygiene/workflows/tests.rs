@@ -129,3 +129,14 @@ fn a_credentials_file_counts_only_with_a_registry_token() {
     assert!(holds_registry_token("[registry] # crates.io\ntoken = \"abc\"\n"));
     assert!(!holds_registry_token("[registry]\ntoken = \"\" # fill in\n"));
 }
+
+/// Self-scan audit US-006: the step reader returns on every line of the
+/// non-ASCII table.
+#[test]
+fn the_step_reader_returns_on_every_line_of_the_non_ascii_table() {
+    let compiling = crate::boundary_table::lines()
+        .iter()
+        .filter(|line| compiling_command(line).is_some())
+        .count();
+    assert!(compiling > 0);
+}

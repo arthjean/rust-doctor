@@ -289,11 +289,11 @@ fn private_key_block(line: &str) -> Option<(usize, usize)> {
     let start = line.find("-----BEGIN ")?;
     let label_start = start + "-----BEGIN ".len();
     let suffix = "PRIVATE KEY-----";
-    let suffix_start = line[label_start..].find(suffix)? + label_start;
+    let suffix_start = line.get(label_start..)?.find(suffix)? + label_start;
     // A real PEM label is uppercase words: `RSA`, `OPENSSH`, or nothing at
     // all. Anything else is prose about key blocks, not a key block, which is
     // what keeps this rule off documentation that spells the pattern out.
-    line[label_start..suffix_start]
+    line.get(label_start..suffix_start)?
         .bytes()
         .all(|byte| byte.is_ascii_uppercase() || byte == b' ')
         .then_some((start, suffix_start + suffix.len()))
@@ -327,7 +327,7 @@ fn key_body_follows(rest: &str, following: &[&str]) -> bool {
 /// marker is on it.
 fn body_text(line: &str) -> (&str, bool) {
     match line.find(FOOTER) {
-        Some(end) => (&line[..end], true),
+        Some(end) => (line.get(..end).unwrap_or_default(), true),
         None => (line, false),
     }
 }
@@ -353,32 +353,41 @@ fn database_passwords(line: &str) -> Vec<DatabasePassword> {
     while let Some(offset) = line.get(from..).and_then(|rest| rest.find("://")) {
         let separator = from + offset;
         from = separator + 3;
-        let scheme_start = line[..separator]
-            .rfind(|character: char| !(character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-')))
+        // On bytes: a scheme is ASCII, so the byte after the last one outside
+        // it is a char boundary even when a multibyte character precedes it,
+        // as a typographic quote before `postgres://` does.
+        let scheme_start = bytes
+            .get(..separator)
+            .and_then(|before| {
+                before
+                    .iter()
+                    .rposition(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-')))
+            })
             .map_or(0, |index| index + 1);
-        let scheme = line[scheme_start..separator].to_ascii_lowercase();
+        let scheme = line.get(scheme_start..separator).unwrap_or_default().to_ascii_lowercase();
         if !DATABASE_SCHEMES.contains(&scheme.as_str())
-            || (scheme_start > 0 && bytes[scheme_start - 1] == b'_')
+            || (scheme_start > 0 && bytes.get(scheme_start - 1) == Some(&b'_'))
         {
             continue;
         }
-        let authority_end = line[from..]
+        let rest = line.get(from..).unwrap_or_default();
+        let authority_end = rest
             .find(|character: char| {
                 character.is_whitespace() || matches!(character, '/' | '?' | '#' | '"' | '\'' | '`')
             })
-            .map_or(line.len(), |index| from + index);
-        let authority = &line[from..authority_end];
+            .unwrap_or(rest.len());
+        let authority = rest.get(..authority_end).unwrap_or_default();
         let Some(at) = authority.rfind('@') else {
             continue;
         };
-        let Some(colon) = authority[..at].find(':') else {
+        let Some(colon) = authority.get(..at).and_then(|user_info| user_info.find(':')) else {
             continue;
         };
-        let password = &authority[colon + 1..at];
+        let password = authority.get(colon + 1..at).unwrap_or_default();
         if password.is_empty() {
             continue;
         }
-        let host = authority[at + 1..].split(':').next().unwrap_or_default();
+        let host = authority.get(at + 1..).unwrap_or_default().split(':').next().unwrap_or_default();
         let local = host.eq_ignore_ascii_case("localhost") || !host.contains('.');
         found.push(DatabasePassword {
             range: (from + colon + 1, from + at),

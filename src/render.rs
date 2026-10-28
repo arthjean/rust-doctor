@@ -111,8 +111,14 @@ pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<()
     if !report.is_valid() {
         return Err(RenderError::InvalidReport);
     }
-    serde_json::to_writer(&mut writer, report).map_err(RenderError::Json)?;
-    writer.write_all(b"\n").map_err(RenderError::Write)
+    // Whole or not at all: a serializer that fails or panics midway leaves
+    // no partial document on the writer for a reader to parse. A failed write
+    // still reads as the serializer's, as it did when it wrote the stream.
+    let mut document = serde_json::to_vec(report).map_err(RenderError::Json)?;
+    document.push(b'\n');
+    writer
+        .write_all(&document)
+        .map_err(|error| RenderError::Json(serde_json::Error::io(error)))
 }
 
 pub fn render_terminal<W: Write>(report: &InspectReport, writer: W) -> Result<(), RenderError> {

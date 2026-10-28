@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 mod ci;
 mod handoff;
@@ -14,6 +14,9 @@ mod terminal_profile;
 #[cfg(test)]
 #[path = "test_scratch.rs"]
 mod test_scratch;
+#[cfg(test)]
+#[path = "boundary_table.rs"]
+mod boundary_table;
 mod tui;
 mod why_command;
 
@@ -316,7 +319,22 @@ impl InspectArgs {
     }
 }
 
+/// What a panic no pass contained prints, in place of its message: the
+/// message can quote the scanned tree, and the abort it would cause, exit
+/// 101, is no status the documentation names.
+const INTERNAL_ERROR: &str = "rust-doctor: internal error, please report it";
+
 fn main() -> ExitCode {
+    // Silent: the one line below says what happened, and a contained pass
+    // already says it at its stage.
+    std::panic::set_hook(Box::new(|_| {}));
+    std::panic::catch_unwind(run).unwrap_or_else(|_| {
+        eprintln!("{INTERNAL_ERROR}");
+        ExitCode::from(2)
+    })
+}
+
+fn run() -> ExitCode {
     let cli = Cli::parse();
     if let Some(CliCommand::Rules(arguments)) = &cli.command {
         return rules_command::run(arguments);
@@ -429,6 +447,7 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
     // reading and the interactive report has no room to carry them.
     let interactive_report =
         profile.interactive && !arguments.verbose && report.status != Status::Failed;
+    rust_doctor::inject_fault("render");
     let stdout = io::stdout();
     let render_result = if arguments.json {
         render_json(&report, stdout.lock())

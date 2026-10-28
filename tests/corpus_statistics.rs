@@ -1,5 +1,5 @@
 #![cfg(unix)]
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 //! What a published rate and a published agreement are worth.
 //!

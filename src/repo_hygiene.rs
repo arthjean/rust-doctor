@@ -419,8 +419,8 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
             continue;
         };
         let line_number = index + 1;
-        let column_start = line[..range.0].chars().count() + 1;
-        let column_end = line[..range.1].chars().count() + 1;
+        let columns = |offset: usize| line.get(..offset).unwrap_or_default().chars().count() + 1;
+        let (column_start, column_end) = (columns(range.0), columns(range.1));
         scan.findings.push(RepoFinding {
             definition: &REPO_HARDCODED_CREDENTIAL,
             // The pattern name is published, the matched value never is.

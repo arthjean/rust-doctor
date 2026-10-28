@@ -1,5 +1,5 @@
 #![cfg(unix)]
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 use std::collections::BTreeSet;
 use std::fs;

@@ -10,16 +10,17 @@ each carries its tests in a file of its own.
 Five rules hold it together, and each of them replaced something that had a
 cost.
 
-One list of the producers that degrade rather than abort.
+One list of the producers that degrade rather than abort, a panic included.
 `ExecutionResult::producer_errors` is that list, and `is_complete` and
-`report::errors` both read it. It used to be written twice, as a four-clause
-conjunction in `execution.rs` and four `if let` blocks with the stage spelled
-again in `report.rs`, and `cargo_health` was in the second list only: a
-workspace whose `.cargo/config.toml` could not be read published a
-`dependencies` error under `"status": "complete"`, with the score still calling
-itself authoritative.
+`report::errors` both read it. It used to be written twice, and `cargo_health`
+was in the second list only: a `.cargo/config.toml` that could not be read
+published a `dependencies` error under `"status": "complete"`.
 `every_producer_error_drops_the_authoritative_flag_at_its_own_stage` asserts the
-four together, because the defect was never the missing clause.
+four together. Every pass runs under `execution/containment.rs`: one that panics
+is dropped and published as `pass-panicked` at its stage, with a fixed sentence
+and never the payload, which can quote the tree, and a child nobody waited on is
+killed with its group on drop. `tests/pass_containment.rs` injects each panic
+through `RUST_DOCTOR_INJECT_PANIC`, which only a debug build reads.
 
 The advisory database is read, never fetched. `cargo_health/advisories.rs`
 judges each crates.io package `Cargo.lock` resolves against the RustSec
@@ -36,11 +37,9 @@ publishes where the database came from and its date, never its path, and a
 database older than thirty days is read and its age printed.
 
 The result is assembled from what came back, never asked back for what it was
-given. `ExecutionContext::run` owns the metadata to the end, so the three
-`Option` dances that no input could make `None`, and the workspace-root clone
-that only existed to survive an early move, are gone with them. The same run
-carries `ExecutionContext` rather than seven positional parameters, four of
-which were identical on both sides of a baseline comparison.
+given. `ExecutionContext::run` owns the metadata to the end, which retired
+three `Option` dances no input could make `None` and a workspace-root clone,
+and carries what seven positional parameters used to.
 
 Every bound is a budget on work, never a filter on meaning. `LINE_MAX_BYTES`
 bounds what one line of Cargo's stream may contribute, `MESSAGE_MAX_COUNT` how

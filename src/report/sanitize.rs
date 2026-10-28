@@ -276,3 +276,17 @@ fn external_paths(value: &str) -> String {
     }
     published
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Self-scan audit US-006: sanitizing returns on every line of the
+    /// non-ASCII table.
+    #[test]
+    fn sanitizing_returns_on_every_line_of_the_non_ascii_table() {
+        for line in crate::boundary_table::lines() {
+            assert!(!sanitize_text(&line, None, &HomePaths::default()).is_empty(), "{line:?}");
+        }
+    }
+}
