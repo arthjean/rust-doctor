@@ -25,7 +25,7 @@ const WORKFLOW = ".github/workflows/rust-doctor.yml";
 const MARKER = "# Written by rust-doctor ci install; `rust-doctor ci install --update` rewrites it.";
 const PREVIEW = `Would write ${WORKFLOW}:\n\n`;
 const NOT_INSTALLED = "rust-doctor: the workflow was not installed, ";
-const TOOLCHAIN = "1.97.1";
+const TOOLCHAIN = "1.99.1";
 const JQ = Bun.which("jq", { PATH: "/usr/local/bin:/usr/bin:/bin" });
 
 type Step = { name?: string; uses?: string; if?: string; with?: Record<string, unknown>; env?: Record<string, string>; run?: string };

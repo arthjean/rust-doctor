@@ -52,7 +52,7 @@ describe("cli surface", () => {
     ["skill", []],
     ["skill install", ["--update", "--dry-run", "[possible values: claude, codex, cursor, all, detected]"]],
     ["ci", []],
-    ["ci install", ["--update", "--dry-run", "--comment", "[possible values: none, error, warning]", "[default: 1.97.1]"]],
+    ["ci install", ["--update", "--dry-run", "--comment", "[possible values: none, error, warning]", "[default: 1.99.1]"]],
   ];
   test.each(documented)("CL-02 %s --help documents its flags", async (command, flags) => {
     const run = await runDoctor([...command.split(" "), "--help"], { sandbox: box });

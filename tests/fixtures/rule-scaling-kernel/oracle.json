@@ -1,8 +1,8 @@
 {
   "toolchain": {
-    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
-    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+    "clippy": "clippy 0.1.99 (58cf8f9c35 2026-10-13)",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)"
   },
   "rules": [
     {
@@ -241,56 +241,56 @@
   "compatibility": {
     "git_change_scope_output_hashes": {
       "full": {
-        "member-manifest": "94ab28d2c4bd681bcc5969b68532ad854b23d3b1b173af4b36930d68cb8682f9",
-        "member-subdirectory": "94ab28d2c4bd681bcc5969b68532ad854b23d3b1b173af4b36930d68cb8682f9",
-        "workspace": "148a987a2fb06d67ce69e83734efea6f0f26d1c54f69ff6be6c65a03dee53269"
+        "member-manifest": "f1756857fa8a1d6bc13a8fbd57782ed6bf2c028311bcc395fb1287af1ad51510",
+        "member-subdirectory": "f1756857fa8a1d6bc13a8fbd57782ed6bf2c028311bcc395fb1287af1ad51510",
+        "workspace": "f4827fba3da63a6c9c57d6a36e2f830ff17430cb5d5849c2b76145ce36866c4d"
       },
       "files-empty": {
-        "member-manifest": "0d7c66c9b118a84d3759eca90d9a2d5a2ee390c13514e9575349f23141c6db87",
-        "member-subdirectory": "0d7c66c9b118a84d3759eca90d9a2d5a2ee390c13514e9575349f23141c6db87",
-        "workspace": "c930e88b9c37e77a62addc9ef488fd91773599a4f6929f605113d43c874d9a90"
+        "member-manifest": "717888a06477a418b591f56f8afca19f42f9f93bef73047776472b808173f9ad",
+        "member-subdirectory": "717888a06477a418b591f56f8afca19f42f9f93bef73047776472b808173f9ad",
+        "workspace": "a5e4bf0eddd423569b6bfaac1d6783790bcbf7d2c9e7ccd70354a1eb162eaf2b"
       },
       "files-source": {
-        "member-manifest": "99d323a51d34a6a8ec37e595217d6efecb861cc7e7b6c5fbff4a892b63759889",
-        "member-subdirectory": "99d323a51d34a6a8ec37e595217d6efecb861cc7e7b6c5fbff4a892b63759889",
-        "workspace": "aa4ff9e4ba849bdc7881edb7ea245cde5a1965f465576d0a7163aa0b70b4b33e"
+        "member-manifest": "2fa1d4829d0190f1a29615481af0242216636f14332b56812f2930ec85aaad59",
+        "member-subdirectory": "2fa1d4829d0190f1a29615481af0242216636f14332b56812f2930ec85aaad59",
+        "workspace": "aaec3ee6c6a16fbd4a74ce953c79ccd13b1ddc8c2977a4fdb2a9128b72eefb78"
       },
       "files-manifest": {
-        "member-manifest": "072bc37941fa5a75ea9bc9996c7b0cc35df65c20ed64e143b758906e94fef672",
-        "member-subdirectory": "072bc37941fa5a75ea9bc9996c7b0cc35df65c20ed64e143b758906e94fef672",
-        "workspace": "2b71f153cb9f43edb8e97ee27bebe8c579c59bd566491134c86f0104801b39fa"
+        "member-manifest": "0c3e3841efdbff5053e123674c1d6d81225a72d2de4222f46cdd0278bcecadfd",
+        "member-subdirectory": "0c3e3841efdbff5053e123674c1d6d81225a72d2de4222f46cdd0278bcecadfd",
+        "workspace": "04531379f7c50aecb8cfb068d31a7bd702b2bf1d5644ea724ce44347ddbde88f"
       }
     },
     "persistent_configuration_output_hashes": {
       "absent": {
-        "member-manifest": "9b731eac6cf6609592003275d8a46f630e9cde4ea74c7ad370f7d31fa42ce168",
-        "member-subdirectory": "9b731eac6cf6609592003275d8a46f630e9cde4ea74c7ad370f7d31fa42ce168",
-        "workspace": "980c67728ac7f96fe44a11ab560b800b0ed429950411db52ad105a5eee2d1d99"
+        "member-manifest": "5a6bfefe23abe0f4d5eeb9ad8e14ec75344e5bab03e90c94a74543a890f1d945",
+        "member-subdirectory": "5a6bfefe23abe0f4d5eeb9ad8e14ec75344e5bab03e90c94a74543a890f1d945",
+        "workspace": "a0cf8adcd243e2f6b7c01b2580dd1319be7ebe1f16d4f4ce951c871873d808b5"
       },
       "empty": {
-        "member-manifest": "8c1541e6264de35684ed776c3274b222a98ac24f004ec871a4eb2d9d2a06ddbb",
-        "member-subdirectory": "8c1541e6264de35684ed776c3274b222a98ac24f004ec871a4eb2d9d2a06ddbb",
-        "workspace": "a11b4395ada110009470e61016c294bbb8d969a93b2fa841162135c6aabfa329"
+        "member-manifest": "b7617d585ce81d7ca79e115fc3bc13c5f43d73b63a9f1386005c6a382eb71ab7",
+        "member-subdirectory": "b7617d585ce81d7ca79e115fc3bc13c5f43d73b63a9f1386005c6a382eb71ab7",
+        "workspace": "db0130a3da76d2037b033860e40209ad9789374629d84125cb441b53761d6e6f"
       },
       "config-rule": {
-        "member-manifest": "fc76ef43ca4bc4fcaa08843410691f0b63d343f5ffc649531288a1c71671ab29",
-        "member-subdirectory": "fc76ef43ca4bc4fcaa08843410691f0b63d343f5ffc649531288a1c71671ab29",
-        "workspace": "6472f8da040781b44f1d2bc9380193b96d1a19d355e16ed59e573dc77710a1fd"
+        "member-manifest": "75ce1fc51d7c2eec01a6bf6d9d574b1c5c14173c4b153dbd11b1583d0767eece",
+        "member-subdirectory": "75ce1fc51d7c2eec01a6bf6d9d574b1c5c14173c4b153dbd11b1583d0767eece",
+        "workspace": "04ebb97f7725fc85eb4601fdb83deb73aff8d235159a335e42380796c8e7359f"
       },
       "shell-reactivated": {
-        "member-manifest": "c52adf348ce21c08409734853576f0356dd1fe15abb8a1c88c29b8d2beeaba0c",
-        "member-subdirectory": "c52adf348ce21c08409734853576f0356dd1fe15abb8a1c88c29b8d2beeaba0c",
-        "workspace": "6664205d11b987219ae7d861d6a00051532d2938074c38c31efbb642d09f32ec"
+        "member-manifest": "11d9d24c870637f035db54ddc633483acb5fb5d07e70bcb2254303c6c149b311",
+        "member-subdirectory": "11d9d24c870637f035db54ddc633483acb5fb5d07e70bcb2254303c6c149b311",
+        "workspace": "6fef43575e8fd5eb0f0af1f291a80423350e3e38711390b9f1673738d369136c"
       },
       "request-category-off": {
-        "member-manifest": "7fb371055aaa1f267508303f05efced6a621205fe48a33462a67b6e756027e24",
-        "member-subdirectory": "7fb371055aaa1f267508303f05efced6a621205fe48a33462a67b6e756027e24",
-        "workspace": "ebe57a6d163ae6ea97030f08a4b479f55b7d70656c7294c685122fe1e6827d5b"
+        "member-manifest": "a857067eb2ef30d1be6a62e91d12ed346eba3faf302aacda42ee44547748aeee",
+        "member-subdirectory": "a857067eb2ef30d1be6a62e91d12ed346eba3faf302aacda42ee44547748aeee",
+        "workspace": "7e5e8dbba8cff09fcf1ddb041221560cad75ed22fdb1a1e216538682ef54ade7"
       },
       "request-blocking": {
-        "member-manifest": "d2344523906e56a071ab189e67fe6acfe5afc1c893fb93790e0b42e108d76505",
-        "member-subdirectory": "d2344523906e56a071ab189e67fe6acfe5afc1c893fb93790e0b42e108d76505",
-        "workspace": "000ad44a5503a40a3f1ba68ca0e44906533b6d45fb5a3ac9163d873d3ecbe947"
+        "member-manifest": "8c49dcafb3ddc5da02e458f521b1471ddbd7899cb82d46467a407e8b2c3f6866",
+        "member-subdirectory": "8c49dcafb3ddc5da02e458f521b1471ddbd7899cb82d46467a407e8b2c3f6866",
+        "workspace": "b3b60cbc833ff094846192286ace827f4faf1e151647dba9a70ae36353dee9d6"
       }
     },
     "policy_disabled_clippy_rules": {

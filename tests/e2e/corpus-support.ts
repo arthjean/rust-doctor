@@ -58,8 +58,8 @@ type Record_ = {
 
 const RECORD: Record_ = JSON.parse(readFileSync(join(REPO_ROOT, "tests/corpus.json"), "utf8"));
 
-// The toolchain the record was measured under, `1.97.1` out of
-// `rustc 1.97.1 (... )`: every scan pins it, so a machine whose default is
+// The toolchain the record was measured under, `1.99.1` out of
+// `rustc 1.99.1 (... )`: every scan pins it, so a machine whose default is
 // newer replays the record rather than its own Clippy.
 export const RECORD_TOOLCHAIN = RECORD.toolchain.rustc.split(" ")[1]!;
 

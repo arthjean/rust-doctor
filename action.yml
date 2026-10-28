@@ -26,7 +26,7 @@ inputs:
   toolchain:
     description: The Rust toolchain to install with Clippy. Defaults to the one this release was validated on.
     required: false
-    default: "1.97.1"
+    default: "1.99.1"
   scope:
     description: full, files, lines or baseline. Empty scans a pull request in baseline scope against its base, and anything else in full scope.
     required: false

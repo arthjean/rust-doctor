@@ -5,7 +5,7 @@ name: Corpus
 # `replay` scans the same eighteen subjects through the shipped CLI and the
 # installed npm launcher, offline (tests/e2e/corpus-replay.test.ts and
 # tests/e2e/real-subject.test.ts). Both judge tests/corpus.json, which was
-# recorded under one exact toolchain (rustc 1.97.1 / clippy 0.1.97, named in
+# recorded under one exact toolchain (rustc 1.99.1 / clippy 0.1.99, named in
 # the artifact's `toolchain` block).
 #
 # One workflow and three jobs because the cache is one producer and two
@@ -194,7 +194,7 @@ jobs:
         with:
           # Pinned to the toolchain the artifact was measured under. Read it
           # back from tests/corpus.json before changing this line.
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -258,7 +258,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       - uses: Swatinem/rust-cache@v2

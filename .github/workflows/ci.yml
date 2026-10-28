@@ -44,7 +44,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -112,7 +112,7 @@ jobs:
       # since the test type-checks and never builds an executable.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
           targets: x86_64-pc-windows-msvc
 
@@ -179,7 +179,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -239,7 +239,7 @@ jobs:
       # ever see.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -283,7 +283,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -350,7 +350,7 @@ jobs:
       # Clippy is required: every scan in the suite runs it.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       # Every scan in the suite runs with CARGO_NET_OFFLINE=true, so the
@@ -390,7 +390,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/rust-doctor-e2e/targets
-          key: e2e-targets-1.97.1-${{ hashFiles('Cargo.lock') }}-${{ steps.plan.outputs.key }}
+          key: e2e-targets-1.99.1-${{ hashFiles('Cargo.lock') }}-${{ steps.plan.outputs.key }}
 
       - name: Typecheck
         working-directory: tests/e2e

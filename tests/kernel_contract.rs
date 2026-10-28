@@ -70,7 +70,7 @@ fn target_clippy_contract_matches_the_curated_oracle_matrix() {
         .expect("Clippy version process should start");
     assert!(version.status.success());
     assert!(
-        String::from_utf8_lossy(&version.stdout).starts_with("clippy 0.1.97 "),
+        String::from_utf8_lossy(&version.stdout).starts_with("clippy 0.1.99 "),
         "unexpected target toolchain: {}",
         String::from_utf8_lossy(&version.stdout)
     );

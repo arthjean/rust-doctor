@@ -95,7 +95,7 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
     assert_eq!(text(&written.stdout), "Wrote .github/workflows/rust-doctor.yml\n");
     let workflow = fs::read_to_string(root.join(".github/workflows/rust-doctor.yml")).unwrap();
     assert!(workflow.contains("branches: ['trunk']"), "{workflow}");
-    assert!(workflow.contains("toolchain: '1.97.1'"));
+    assert!(workflow.contains("toolchain: '1.99.1'"));
     assert!(workflow.contains("persist-credentials: false"));
     assert!(workflow.contains("permissions:\n  contents: read\n"));
     assert!(workflow.contains("--scope full --blocking none"));

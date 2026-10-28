@@ -138,7 +138,7 @@ what enforce that, one per module, each naming its own, and two of them cover
   `v<version>` tag whose note already exists at `.github/releases/v<version>.md`.
   [docs/publishing.md](docs/publishing.md) and `.claude/skills/release`
 - Four workflows settle four different questions, and every one of them pins
-  toolchain 1.97.1. [docs/ci-workflows.md](docs/ci-workflows.md)
+  toolchain 1.99.1. [docs/ci-workflows.md](docs/ci-workflows.md)
 - `skills/rust-doctor/` ships inside the crate and is checked against `--help`
   and `catalog()` by `tests/skill_contract.rs`.
   [docs/agent-skill.md](docs/agent-skill.md)

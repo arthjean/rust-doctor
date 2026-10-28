@@ -67,9 +67,9 @@
     ]
   },
   "toolchain": {
-    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
-    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)"
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "clippy": "clippy 0.1.99 (58cf8f9c35 2026-10-13)"
   },
   "scan": {
     "command": [

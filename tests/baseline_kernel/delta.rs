@@ -739,7 +739,7 @@ fn prepare_public_lockfile(repository: &Path) -> &'static str {
         .args(["generate-lockfile", "--offline"])
         .current_dir(repository)
         .env("CARGO_NET_OFFLINE", "true")
-        .env("RUSTUP_TOOLCHAIN", "1.97.1")
+        .env("RUSTUP_TOOLCHAIN", "1.99.1")
         .output()
         .unwrap();
     assert!(
@@ -783,7 +783,7 @@ fn measure_public_repositories(corpus_root: &Path, target_root: &Path) -> Value 
                     .arg(&repository)
                     .env("CARGO_TARGET_DIR", target_root.join(name))
                     .env("CARGO_NET_OFFLINE", "true")
-                    .env("RUSTUP_TOOLCHAIN", "1.97.1")
+                    .env("RUSTUP_TOOLCHAIN", "1.99.1")
                     .output()
                     .unwrap();
                 let report: Value = serde_json::from_slice(&output.stdout).unwrap();

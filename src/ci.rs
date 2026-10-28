@@ -35,7 +35,7 @@ pub const WORKFLOW_PATH: &str = ".github/workflows/rust-doctor.yml";
 /// The toolchain this release was validated on. The workflow pins it rather
 /// than tracking `stable`: Clippy's diagnostics are the product, and a gate
 /// whose lints move every six weeks fails builds for reasons nobody chose.
-pub const VALIDATED_TOOLCHAIN: &str = "1.97.1";
+pub const VALIDATED_TOOLCHAIN: &str = "1.99.1";
 
 /// The line the workflow this command writes opens with, and the one
 /// `--update` requires before it rewrites the file.

@@ -77,7 +77,7 @@ installed it. `pull_request_target` appears nowhere: GitHub's guidance forbids i
 beside a checkout of pull request code
 ([Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)).
 
-The toolchain is pinned to 1.97.1 in every workflow that installs Rust rather
+The toolchain is pinned to 1.99.1 in every workflow that installs Rust rather
 than tracking `stable`, and is the default of `action.yml` and of
 `ci install` (`VALIDATED_TOOLCHAIN` in `src/ci.rs`). Clippy's diagnostics are the product: 104 curated lints of the 142
 catalogued rules are its own, and `tests/corpus.json` records the exact Clippy

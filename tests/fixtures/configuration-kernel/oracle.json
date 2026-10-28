@@ -3,16 +3,16 @@
   "epic": "EP-011",
   "story": "US-030",
   "toolchain": {
-    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
-    "clippy": "clippy 0.1.97 (8bab26f4f6 2026-07-14)",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "clippy": "clippy 0.1.99 (58cf8f9c35 2026-10-13)",
     "clap": "4.6.4",
     "serde": "1.0.229",
     "toml": "1.1.4"
   },
   "msrv_verification": {
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
-    "cargo_driver": "cargo 1.97.1 (c980f4866 2026-06-30)"
+    "cargo_driver": "cargo 1.99.1 (5f94df478 2026-08-27)"
   },
   "targets": [
     {

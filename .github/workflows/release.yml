@@ -88,7 +88,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           targets: ${{ matrix.target }}
 
       - name: Build
@@ -131,7 +131,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           targets: x86_64-pc-windows-msvc
 
       - name: Build
@@ -172,7 +172,7 @@ jobs:
       # the report drops the share line the proof reads.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
           components: clippy
 
       - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
@@ -319,7 +319,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
 
       - name: Verify the package
         run: cargo publish --locked --dry-run
@@ -345,7 +345,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: "1.97.1"
+          toolchain: "1.99.1"
 
       # Cargo.toml is where the version lives; npm/rust-doctor/package.json
       # mirrors it, and the npm job checks the mirror. Both jobs refuse a tag
