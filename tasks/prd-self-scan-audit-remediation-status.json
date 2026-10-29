@@ -25,10 +25,10 @@
     {
       "id": "EP-003",
       "title": "Score model core-v6 and report schema 24",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 6,
-      "stories_done": 0
+      "stories_done": 6
     },
     {
       "id": "EP-004",
@@ -225,71 +225,71 @@
       "id": "US-015",
       "title": "A withheld rule caps no dimension",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-016",
       "title": "Discount a measured rule once in the ranking",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-015"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-017",
       "title": "Publish a duplicate major no member requires at Info",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-018",
       "title": "Compare versions by Cargo compatibility class",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-017"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-019",
       "title": "Leave inline test-gated items out of the production lines",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-020",
       "title": "Publish the binding ceilings and the production tallies (schema 24)",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
@@ -297,9 +297,9 @@
         "US-010",
         "US-015"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-021",
