@@ -246,7 +246,7 @@ fn render_scope(out: &mut String, report: &Value) {
                         == Some("crate-version-unsupported")
                 })
                 .filter_map(|rule| rule.get("id").and_then(Value::as_str))
-                .map(|id| format!("`{}`", id.replace('`', "")))
+                .map(rule_id)
                 .collect()
         })
         .unwrap_or_default();
@@ -382,18 +382,23 @@ fn borrowed<'a>(finding: &'a Value, name: &str) -> &'a str {
 
 fn rule_cell(finding: &Value) -> String {
     match finding.get("code").and_then(Value::as_str) {
-        // A catalogued id is letters, digits, underscores and colons, which a
-        // code span shows as they are. Anything else is escaped text.
-        Some(code)
-            if !code.is_empty()
-                && code
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"_:".contains(&byte)) =>
-        {
-            format!("[`{code}`]({})", rule_url(code))
-        }
-        Some(code) => format!("[{}]({})", escape(code), rule_url(code)),
+        Some(code) => format!("[{}]({})", rule_id(code), rule_url(code)),
         None => escape(&field(finding, "source")),
+    }
+}
+
+/// A rule id as the comment shows it. A catalogued id is letters, digits,
+/// underscores and colons, which a code span shows as they are. Anything else
+/// came from a report someone else may have written, and is escaped text.
+fn rule_id(id: &str) -> String {
+    if !id.is_empty()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_:".contains(&byte))
+    {
+        format!("`{id}`")
+    } else {
+        escape(id)
     }
 }
 

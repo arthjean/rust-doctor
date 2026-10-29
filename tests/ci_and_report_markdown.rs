@@ -389,6 +389,12 @@ fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
         .as_array_mut()
         .unwrap()
         .push(json!({ "id": "rust_doctor::source::disabled_tls_verification", "not_evaluated": "crate-version-unsupported" }));
+    // A saved report is text someone else may have written: an id that is not
+    // a catalogued one cannot close the paragraph or open markup.
+    report["policy"]["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "x`\n\n# Injected [link](https://evil.example)", "not_evaluated": "crate-version-unsupported" }));
     let path = root.join("disclosure.json");
     fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
     let rendered = render(&path, &[]);
@@ -404,10 +410,12 @@ fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
     assert!(
         markdown.contains(
             "\nNot evaluated, the crate version is outside the range the rule was validated \
-             against: `rust_doctor::source::disabled_tls_verification`.\n"
+             against: `rust_doctor::source::disabled_tls_verification`, "
         ),
         "{markdown}"
     );
+    assert!(!markdown.contains("\n# Injected"), "{markdown}");
+    assert!(!markdown.contains("](https://evil.example)"), "{markdown}");
     fs::remove_dir_all(root).unwrap();
 }
 
