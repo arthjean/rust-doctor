@@ -17,10 +17,10 @@
     {
       "id": "EP-002",
       "title": "The report states what it measured",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 8,
-      "stories_done": 0
+      "stories_done": 8
     },
     {
       "id": "EP-003",
@@ -129,97 +129,97 @@
       "id": "US-007",
       "title": "State the criterion that withholds a rule",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "XS",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-008",
       "title": "Print the five dimension scores",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-009",
       "title": "Disclose the scan's scope and the rules it did not evaluate",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-010",
       "title": "Count only weighing findings in the text tallies and group headings",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-011",
       "title": "Read the most recently fetched RustSec clone",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-012",
       "title": "Split the Clippy phases at the last dependency artifact",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-013",
       "title": "Correct the documents that misstate their gates and constants",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-014",
       "title": "Clear the two self-scan sites that are correct by design",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "XS",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-015",
