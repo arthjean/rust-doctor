@@ -450,6 +450,25 @@ fn the_prompt_names_the_ceiling_and_the_rules_holding_it_first() {
     assert!(audit_at < ceiling_at && ceiling_at < group_at, "{text}");
 }
 
+/// A test-context finding of the ceiling's tier weighs nothing and holds nothing, so the prompt
+/// names only the rule whose scored sites impose the ceiling.
+#[test]
+fn the_prompt_never_names_a_test_context_finding_as_holding_the_ceiling() {
+    let mut report = report();
+    report.diagnostics[0].code = Some("clippy::await_holding_lock".to_owned());
+    let mut in_tests = report.diagnostics[0].clone();
+    in_tests.id = "two".to_owned();
+    in_tests.code = Some("clippy::arc_with_non_send_sync".to_owned());
+    in_tests.context = Some(rust_doctor::DiagnosticContext::Tests);
+    report.diagnostics.push(in_tests);
+    report.audit = Audit::build(1, 100, Status::Complete, &report.diagnostics);
+    let presentation = ReportPresentation::derive(&report);
+    let prompt = build_prompt(&report, &presentation, &rescan_command()).unwrap();
+
+    let ceiling = "Ceiling: the score is held at 65/100 by P1 findings; repair clippy::await_holding_lock before anything else.";
+    assert!(prompt.as_str().contains(ceiling), "{}", prompt.as_str());
+}
+
 /// US-001: the prompt an agent receives is built from a real scan of a
 /// committed key, and carries the finding without a byte of the value.
 #[test]

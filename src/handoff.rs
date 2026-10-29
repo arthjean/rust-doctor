@@ -201,35 +201,37 @@ pub fn build_prompt(
 
 /// What the repairs are worth, so the agent has a stopping condition rather than a backlog.
 ///
-/// The ceiling comes first, since under it nothing else is worth points: the rules holding the
-/// worst tier are named from the catalog the binary shipped with, never from report text. The
-/// projected value is the score the three groups below reach, which is what the skill tells the
-/// agent to rescan for and what the prompt never said.
+/// The ceiling comes first, since under it nothing else is worth points: the rules holding it
+/// are read from the score's own `overall` ceiling, which counts only scored sites, and kept only
+/// when the catalog the binary shipped with puts them at that tier, never taken from report
+/// text. Gathered from the diagnostics instead, a test-context finding of the same tier was
+/// named as holding a ceiling it does not weigh in. The projected value is the score the three
+/// groups below reach, which is what the skill tells the agent to rescan for and what the prompt
+/// never said.
 fn push_targets(prompt: &mut PromptBuilder, report: &InspectReport) {
     let Some(score) = &report.audit.score else {
         return;
     };
-    if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
+    if let Some(overall) = score.ceilings.iter().find(|ceiling| ceiling.dimension == "overall") {
         let holding: BTreeSet<&str> = rust_doctor::catalog()
             .into_iter()
-            .filter(|rule| rule.tier == tier)
+            .filter(|rule| rule.tier == overall.tier)
             .map(|rule| rule.id)
             .collect();
-        let mut named: Vec<&str> = report
-            .diagnostics
+        let named: Vec<&str> = overall
+            .rule_ids
             .iter()
-            .filter_map(|diagnostic| diagnostic.code.as_deref())
-            .filter(|code| holding.contains(code))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
+            .map(String::as_str)
+            .filter(|id| holding.contains(id))
+            .take(MAX_GROUPS)
             .collect();
-        named.truncate(MAX_GROUPS);
         if named.iter().any(|id| prompt.require(RuleId::new(id)).is_none()) {
             return;
         }
         prompt.push_line(&format!(
-            "Ceiling: the score is held at {ceiling}/100 by {} findings; repair {} before anything else.",
-            tier.as_str(),
+            "Ceiling: the score is held at {}/100 by {} findings; repair {} before anything else.",
+            overall.ceiling,
+            overall.tier.as_str(),
             named.join(", ")
         ));
     }
