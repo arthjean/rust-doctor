@@ -294,6 +294,11 @@ mod unix {
             kill_registered();
             if ACTIVE.load(Ordering::SeqCst) == 0 {
                 give_terminal_back();
+                #[allow(
+                    clippy::exit,
+                    reason = "the watcher thread has no caller to return to, and it replaced the \
+                              default Ctrl-C action, so it must end the process itself"
+                )]
                 std::process::exit(i32::from(EXIT_STATUS));
             }
         }

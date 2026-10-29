@@ -348,10 +348,15 @@ fn ends(pid: &str) -> bool {
     })
 }
 
+/// Sends each of the space-separated `signals` to `pid`, in order. The script is
+/// a literal and the signals reach it as positional arguments, so nothing the
+/// caller passes is ever read as shell syntax.
 #[cfg(unix)]
 fn signal(pid: u32, signals: &str) {
     let sent = Command::new("sh")
-        .args(["-c", &format!("for s in {signals}; do kill -s $s \"$1\"; done"), "sh", &pid.to_string()])
+        .args(["-c", "pid=\"$1\"; shift; for s in \"$@\"; do kill -s \"$s\" \"$pid\"; done", "sh"])
+        .arg(pid.to_string())
+        .args(signals.split_whitespace())
         .status()
         .unwrap();
     assert!(sent.success());
