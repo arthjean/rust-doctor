@@ -194,7 +194,7 @@ describe("workspace shapes", () => {
     expect(linear.stdout + linear.stderr).not.toContain(parent);
   });
 
-  test.failing("failures/BUG-16 a path that merely starts with the workspace root's text is not rewritten into it (WS-08)", async () => {
+  test("failures/BUG-16 a path that merely starts with the workspace root's text is not rewritten into it (WS-08)", async () => {
     const parent = scratchDir("prefix-member");
     const workspace = crate("gone", { "Cargo.toml": '[workspace]\nmembers = ["../gone-member"]\n' }, join(parent, "gone"));
     const { report } = await scan(workspace);
@@ -415,11 +415,15 @@ describe("workspace shapes", () => {
     const { exitCode, report, stdout } = await withMode(parent, 0o555, 0o755, () => scan(copyWorkspace("scan-failures/lint-flags"), [], { target: join(parent, "target") }));
     expect(exitCode).toBe(1);
     expect(message(report, "clippy-exit")).toContain("Permission denied (os error 13)");
-    expect(message(report, "clippy-exit")).toContain("$CARGO_TARGET_DIR");
+    // The path Cargo is refused is the sibling it creates beside the target
+    // directory, so it is named as a path outside the workspace, not as the
+    // target directory (failures/BUG-16).
+    expect(message(report, "clippy-exit")).toContain("<external>/");
+    expect(message(report, "clippy-exit")).not.toContain(parent);
     expect(stdout).not.toContain(parent);
   });
 
-  test.failing("failures/BUG-16 a sibling of the target directory is not rewritten as the target directory (WS-25)", async () => {
+  test("failures/BUG-16 a sibling of the target directory is not rewritten as the target directory (WS-25)", async () => {
     const parent = scratchDir("read-only-target-sibling");
     const { report } = await withMode(parent, 0o555, 0o755, () => scan(copyWorkspace("scan-failures/lint-flags"), [], { target: join(parent, "target") }));
     expect(message(report, "clippy-exit")).not.toMatch(/\$CARGO_TARGET_DIR[A-Za-z0-9]/);

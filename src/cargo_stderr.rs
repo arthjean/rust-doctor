@@ -125,7 +125,7 @@ fn scrub(text: &str, prefixes: &[(Option<PathBuf>, &str)]) -> String {
         forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
         forms.dedup();
         for form in forms.iter().filter(|form| form.len() > 1) {
-            text = text.replace(form.as_str(), replacement);
+            text = crate::report::replace_path(&text, form, replacement);
         }
     }
     text
@@ -272,5 +272,19 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
             ],
         );
         assert_eq!(scrubbed, "./src $CARGO_HOME/registry ~/x");
+    }
+
+    /// A directory whose name only starts with a home's is not under it: a
+    /// target directory at `~/.cargo-target` was published `$CARGO_HOME-target`.
+    #[test]
+    fn a_prefix_is_replaced_only_where_a_path_component_ends() {
+        let scrubbed = scrub(
+            "/home/u/.cargo-target/x /home/u/.cargo/registry /home/u/.cargo. /home/u/.cargo.d/y",
+            &[
+                (Some(PathBuf::from("/home/u/.cargo")), "$CARGO_HOME"),
+                (Some(PathBuf::from("/home/u")), "~"),
+            ],
+        );
+        assert_eq!(scrubbed, "~/.cargo-target/x $CARGO_HOME/registry $CARGO_HOME. ~/.cargo.d/y");
     }
 }

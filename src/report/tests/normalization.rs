@@ -557,6 +557,17 @@ fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
         sanitize_text("failed to read `~/dev/scratch/gone/Cargo.toml`", None, &home),
         "failed to read `<external>/gone/Cargo.toml`"
     );
+    // failures/BUG-16: a name that only starts with a replaced path's is not
+    // under it. `/work/project-member` used to read `.-member`, and a home's
+    // `.cargo-target` `$CARGO_HOME-target`.
+    assert_eq!(
+        sanitize_text(
+            "failed to read `/work/project-member/Cargo.toml` and `/home/someone/.cargo-target/x/Cargo.toml`",
+            Some(Path::new("/work/project")),
+            &home
+        ),
+        "failed to read `<external>/project-member/Cargo.toml` and `<home>/.cargo-target/x/Cargo.toml`"
+    );
 }
 
 /// EP-003 US-012: a path Cargo quotes with backticks or rustup with

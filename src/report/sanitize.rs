@@ -71,14 +71,14 @@ fn sanitize_source_text(
     if let Some(workspace_root) = workspace_root.and_then(Path::to_str)
         && !workspace_root.is_empty()
     {
-        value = value.replace(workspace_root, ".");
+        value = replace_path(&value, workspace_root, ".");
     }
     if toolchain {
         let mut forms: Vec<&(&str, String)> =
             home.toolchain.iter().filter(|(_, path)| !path.is_empty()).collect();
         forms.sort_by_key(|(_, path)| std::cmp::Reverse(path.len()));
         for (name, path) in forms {
-            value = value.replace(path.as_str(), name);
+            value = replace_path(&value, path, name);
         }
     }
     let mut home_forms: Vec<_> = [home.lexical.as_deref(), home.canonical.as_deref()]
@@ -89,9 +89,48 @@ fn sanitize_source_text(
     home_forms.sort_by_key(|path| std::cmp::Reverse(path.len()));
     home_forms.dedup();
     for home in home_forms {
-        value = value.replace(home, "<home>");
+        value = replace_path(&value, home, "<home>");
     }
     value
+}
+
+/// `text` with every occurrence of `path` that ends where a path component
+/// does replaced by `replacement`.
+///
+/// A plain substring replace read `~/.cargo` inside `~/.cargo-target` and
+/// published `$CARGO_HOME-target/…`: a name that is not the one replaced, and
+/// a path no later pass recognizes as one. An occurrence counts only when
+/// what follows it cannot continue the last name.
+pub(crate) fn replace_path(text: &str, path: &str, replacement: &str) -> String {
+    if path.is_empty() {
+        return text.to_owned();
+    }
+    let mut replaced = String::with_capacity(text.len());
+    let mut copied = 0;
+    for (start, _) in text.match_indices(path) {
+        let end = start + path.len();
+        if continues_a_name(text.get(end..).unwrap_or_default()) {
+            continue;
+        }
+        replaced.push_str(text.get(copied..start).unwrap_or_default());
+        replaced.push_str(replacement);
+        copied = end;
+    }
+    replaced.push_str(text.get(copied..).unwrap_or_default());
+    replaced
+}
+
+/// Whether `after` opens with more of the name a path ended on: a name
+/// character, or a dot followed by one, as in an extension. A dot that ends a
+/// sentence does not.
+fn continues_a_name(after: &str) -> bool {
+    let name = |character: char| character.is_alphanumeric() || matches!(character, '-' | '_');
+    let mut characters = after.chars();
+    match characters.next() {
+        Some('.') => characters.next().is_some_and(name),
+        Some(character) => name(character),
+        None => false,
+    }
 }
 
 /// Carriage returns become newlines before the sanitizer runs, because it

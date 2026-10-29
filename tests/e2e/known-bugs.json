@@ -411,7 +411,8 @@
   {
     "id": "failures/BUG-16",
     "severity": "low",
-    "status": "open",
+    "status": "fixed",
+    "fixed_by": "self-scan EP-002",
     "defect": "The path scrubber replaces a prefix with no separator boundary, so a sibling path whose name only starts with the workspace root or target directory is rewritten into it"
   },
   {
