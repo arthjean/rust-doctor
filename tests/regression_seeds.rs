@@ -29,9 +29,10 @@ mod support;
 
 /// The ways a native rule has been measured to be wrong, closed so that a
 /// seed's weakness is a class two seeds can share and a count can be taken of.
-const WEAKNESSES: [&str; 8] = [
+const WEAKNESSES: [&str; 9] = [
     "api-variant",
     "conditional-module",
+    "doc-comment",
     "glob-import",
     "helper-call",
     "library-name",

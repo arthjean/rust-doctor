@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::oversized_unit
+# weakness: doc-comment
+# source: US-025, a function under the bound from its keyword, pushed over it by its doc comment
+# verdict: quiet
+
+[package]
+name = "seed-oversized-unit-documented-function"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

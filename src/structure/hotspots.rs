@@ -189,13 +189,30 @@ fn complex(
 /// Lines a node covers, from the line index alone. The full span, with its
 /// column arithmetic, is only computed for the units actually reported.
 ///
+/// A function, an impl or a module is counted from its first child that is
+/// not an attribute, a comment or whitespace, its keyword or its visibility:
+/// the doc comment above a function belongs to its node, and documenting it
+/// must never push it over the bound. A file is counted whole.
+///
 /// The end is read at the last character of the node, never at the position
 /// after it. A file ends on its final newline, and that position sits on the
 /// empty line past it: counted, every file ending the way files end would be
 /// reported one line longer than it is.
 fn lines_of(unit: &Unit<'_>, node: &SyntaxNode) -> usize {
     let range = node.text_range();
-    let first = usize::from(range.start());
+    let start = match node.kind() {
+        SyntaxKind::SOURCE_FILE => range.start(),
+        _ => node
+            .children_with_tokens()
+            .find(|child| {
+                !matches!(
+                    child.kind(),
+                    SyntaxKind::ATTR | SyntaxKind::COMMENT | SyntaxKind::WHITESPACE
+                )
+            })
+            .map_or(range.start(), |child| child.text_range().start()),
+    };
+    let first = usize::from(start);
     let last = usize::from(range.end()).saturating_sub(1).max(first);
     let start = unit.line_starts.partition_point(|offset| *offset <= first);
     let end = unit.line_starts.partition_point(|offset| *offset <= last);
@@ -560,6 +577,40 @@ mod tests {
 
         let empty = unit("");
         assert_eq!(lines_of(&empty, empty.tree.syntax()), 1);
+    }
+
+    /// US-025: a unit is measured from its keyword, so the doc comment and the
+    /// attributes above a function never push it over the bound, and the span
+    /// it is published with still starts at them.
+    #[test]
+    fn a_unit_is_counted_from_its_keyword() {
+        let documented = |lines: usize| {
+            format!(
+                "/// What it does.\n///\n/// How it does it.\n///\n/// Why.\n#[inline]\nfn stretched() {{\n{}}}\n",
+                "    call();\n".repeat(lines - 2)
+            )
+        };
+        let under = documented(FUNCTION_LINES - 1);
+        let observed = observe(&unit(&under), &StructureSettings::default(), &size_only());
+        let subjects: Vec<&String> = observed.iter().map(|(_, entry)| &entry.subject).collect();
+        assert!(observed.is_empty(), "{subjects:?}");
+
+        let at = documented(FUNCTION_LINES);
+        let observed = observe(&unit(&at), &StructureSettings::default(), &size_only());
+        assert_eq!(observed.len(), 1);
+        assert_eq!(
+            observed[0].1.subject,
+            format!("Function stretched spans {FUNCTION_LINES} lines.")
+        );
+        assert_eq!(observed[0].1.span.line_start, 1, "the span still covers the doc comment");
+
+        let file = "// line\n".repeat(FILE_LINES);
+        let observed = observe(&unit(&file), &StructureSettings::default(), &size_only());
+        assert_eq!(observed.len(), 1);
+        assert_eq!(
+            observed[0].1.subject,
+            format!("src/lib.rs is {FILE_LINES} lines long.")
+        );
     }
 
     /// A rule the policy left off costs its half of the walk nothing.
