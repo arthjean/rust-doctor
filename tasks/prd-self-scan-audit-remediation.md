@@ -286,10 +286,10 @@ A forced panic in each native pass yields a report with `complete: false` and on
 
 **Acceptance Criteria:**
 - [ ] `database_passwords` (`src/repo_hygiene/credentials.rs:356-359`) finds the scheme start with a byte-level reverse search over `line.as_bytes()[..separator]` that accepts only ASCII alphanumerics, `+`, `.` and `-`. Every offset it slices at is a char boundary.
-- [ ] Given a tracked `README.md` holding `Connect with “postgres://admin:Hunter2Secret@db.prod.example.com/app” today.`, when `rust-doctor . --yes --json` runs, then it exits with the gate's code, not 101, and reports `rust_doctor::repo::hardcoded_credential` at that line.
-- [ ] Given `src/main.rs` with `// docs: “postgres://u:p@h.example.com/x”` above a `println!`, when `rust-doctor . --yes --verbose --package <name>` runs, then the code frame renders and the process does not panic.
-- [ ] Given a `build.rs` that prints `“postgres://u:secretpw@db.example.com/x` to stderr and exits 1, when the scan runs, then the report is produced, the masking still hides `secretpw`, and no error carries the code `clippy-thread-failed`.
-- [ ] Given `«https://example.com»`, `详见https://example.com` and `𝄞postgres://u:p@h.io/x`, when `credential_ranges` runs on each line, then it returns without panicking, and every returned range starts and ends on a char boundary.
+- [ ] Given a tracked `README.md` holding a deployed database URL with its password behind a typographic quote (`tests/fixtures/scan-failures/multibyte-scheme/README.md`, which spells the scheme separator `:/@@/` so this repository tracks no live credential), when `rust-doctor . --yes --json` runs, then it exits with the gate's code, not 101, and reports `rust_doctor::repo::hardcoded_credential` at that line.
+- [ ] Given `src/main.rs` with a comment holding a typographic quote before a database URL (`tests/non_ascii_input.rs:130`) above a `println!`, when `rust-doctor . --yes --verbose --package <name>` runs, then the code frame renders and the process does not panic.
+- [ ] Given a `build.rs` that prints a typographic quote before a database URL with a password to stderr (`tests/non_ascii_input.rs:158`) and exits 1, when the scan runs, then the report is produced, the masking still hides the password, and no error carries the code `clippy-thread-failed`.
+- [ ] Given `«https://example.com»`, `详见https://example.com` and a database URL behind a four-byte character (`src/repo_hygiene/credentials/tests.rs:128`), when `credential_ranges` runs on each line, then it returns without panicking, and every returned range starts and ends on a char boundary.
 - [ ] A fixture under `tests/fixtures/` holds the README case, and an integration test asserts the scan completes.
 
 #### US-002: Contain a panicking pass as a ReportError at its stage
