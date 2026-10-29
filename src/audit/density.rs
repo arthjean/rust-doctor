@@ -130,8 +130,8 @@ impl Scale {
 /// The density that costs a dimension 63 points, in weighted sites per denominator.
 ///
 /// It is the whole calibration: a dimension sitting exactly at its λ scores 37, twice its λ
-/// scores 14, and half of it scores 61. Security is the tightest, because one security finding
-/// per two kilolines is already a workspace in trouble; reliability is the loosest, because the
+/// scores 14, and half of it scores 61. Maintainability is the tightest at three, security and
+/// performance sit at four, dependencies at six; reliability is the loosest at ten, because the
 /// correctness lints fire densely on code nobody would call broken. Security is four and
 /// dependencies six because the tier enters the weight and those two dimensions hold no `P3`
 /// rule: a `P1` security site weighs four and a `P2` dependency site two, so one unpinned git

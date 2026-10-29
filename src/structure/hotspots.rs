@@ -33,11 +33,11 @@ pub(super) const RULES: [&RuleDefinition; 2] =
 
 /// Lines a file may reach before it is named.
 ///
-/// Measured on this repository on 2026-08-08: six of its source files sit
-/// above a thousand lines, `src/report.rs` and `src/audit.rs` among them, and
-/// each is a file its own history routes around rather than reads. Naming them
-/// on a self-scan is the admission the PRD asks the tool to make about its own
-/// code.
+/// Measured on this repository on 2026-08-08: six of its source files sat
+/// above a thousand lines then, `src/report.rs` and `src/audit.rs` among them,
+/// and each was a file its own history routed around rather than read. Naming
+/// them on a self-scan was the admission the PRD asked the tool to make about
+/// its own code, and every file has since been brought under the bound.
 pub const FILE_LINES: usize = 1_000;
 
 /// Lines an inline `mod` block may reach before it is named.

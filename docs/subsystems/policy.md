@@ -28,9 +28,9 @@ complete failure branch in `prepare_with` that no input could ever reach.
 
 One lookup, total. Four tables of the module are sorted by identifier and
 binary-searched, and `by_id` is the one way through them. The four hand-written
-copies indexed the slice they had just searched, which is five of the
-`indexing_slicing` findings the tool reports on its own source, and one of them
-indexed twice on the same line.
+copies indexed the slice they had just searched, which were five of the
+`indexing_slicing` findings the tool then reported on its own source, and one of
+them indexed twice on the same line.
 
 One fact, stored once. A `PlannedRule` carries the source of its level and
 answers `restamped()` from it. The boolean that used to sit beside the source

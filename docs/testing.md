@@ -21,8 +21,8 @@
   [doc-gates.md](doc-gates.md)
 - **The crate passes its own rules.** Production code carries no `unwrap`,
   `expect`, `panic!`, or `dbg!`: use `?`, `ok_or(...)?`, `unwrap_or`, or
-  `match`. `tests/score_credibility_packs.rs` scans this repository with the
-  concurrency pack and fails on any hit.
+  `match`. `Cargo.toml` `[lints.clippy]` flags them, and CI's `-D warnings`
+  fails on any hit.
 - **No catalogued Clippy rule is `deny` by default**
   (`no_catalogued_clippy_rule_is_denied_by_default`). A `deny` rule cannot be
   switched off: dropping its `-W` restores Clippy's refusal and turns a scan

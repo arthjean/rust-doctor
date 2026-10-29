@@ -88,9 +88,10 @@ editing the module.
 
 Every module holds its files under the 1000 lines `oversized_unit` reports, and
 every `impl` block under the 500 it reports at, tests included: the code that
-raises the rule has to pass it. Fourteen `the_X_holds_the_size_bound` tests are
-what enforce that, one per module, each naming its own, and two of them cover
-`src/cargo_health.rs` and `src/handoff.rs`, which have no section of their own.
+raises the rule has to pass it. `no_unit_of_this_crate_s_own_source_is_a_hotspot`
+enforces both across `src/`. Fourteen `the_X_holds_the_size_bound` tests add
+per-module file checks over hand-listed files, two covering
+`src/cargo_health.rs` and `src/handoff.rs`.
 
 ## The catalog, the corpus and the report
 
@@ -115,8 +116,8 @@ what enforce that, one per module, each naming its own, and two of them cover
 ## Testing
 
 - Production code carries no `unwrap`, `expect`, `panic!` or `dbg!`: use `?`,
-  `ok_or(...)?`, `unwrap_or` or `match`. `tests/score_credibility_packs.rs`
-  scans this repository and fails on any hit. [docs/testing.md](docs/testing.md)
+  `ok_or(...)?`, `unwrap_or` or `match`. `Cargo.toml` `[lints.clippy]` flags
+  them and CI's `-D warnings` fails on any hit. [docs/testing.md](docs/testing.md)
 - Every test that runs `cargo` or the built binary sets `CARGO_TARGET_DIR` to
   its own scratch directory through `support::scan_target(workspace)`, and no
   test touches the network. [docs/testing.md](docs/testing.md)

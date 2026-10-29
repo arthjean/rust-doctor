@@ -39,13 +39,16 @@ two, so the same finding costs a small crate more than a large one, while the
 manifest and repository rules divide by nothing, since a workspace has one
 `Cargo.toml` whatever its size, except that what a member's own manifest
 holds is averaged over the members. Lambda is the density at which a dimension
-falls to 37, tightest on security and most forgiving on reliability. The five
+falls to 37: 3 on maintainability, 4 on security and performance, 6 on
+dependencies and 10 on reliability, the most forgiving. The five
 dimensions combine at weights 4 for security, 3 for reliability and 2 each for
 maintainability, performance and dependencies, and the result lands in one of
 three bands: 75 and above reads
 `Great`, 50 to 74 `Needs work`, below 50 `Critical`. A clone family is one site
 whatever its `related` array names, and findings outside production code stay
-visible and cost nothing.
+visible and cost nothing. Clippy lints the library and binary targets only,
+while the native rules also read `tests/`, which is the scope the terminal
+report states on its `Scored` line.
 
 The report names the shortlist itself. `audit.score.projected_rule_ids` is the
 three rules worth repairing first, in the order to repair them: each is the
@@ -170,7 +173,7 @@ Prefer fixing the code, then the narrowest control:
 | `rust-doctor . --rule <id>=off` | Run without one rule |
 | `rust-doctor . --category <name>=error` | Raise or lower a whole category |
 | `rust-doctor . --blocking <none\|error\|warning>` | The level that makes the run exit non-zero |
-| `rust-doctor . --json --advisory-db <PATH>` | Judge `Cargo.lock` against a RustSec database you name instead of the one `cargo audit` left |
+| `rust-doctor . --json --advisory-db <PATH>` | Judge `Cargo.lock` against a RustSec database you name instead of the clone `cargo audit` or `cargo deny` fetched last |
 | `rust-doctor . --json --max-duration 300` | Stop after 300 seconds, killing every process the scan started |
 | `rust-doctor . --json --timings` | Publish how long each phase took, in milliseconds, under `timings` |
 | `rust-doctor hook install git` | A pre-commit hook running `--staged --scope lines --blocking warning` |

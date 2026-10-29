@@ -448,7 +448,7 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
 /// fixture, and `tests/rule_evidence.json` names the two tests that carry it.
 /// What belongs here is the gate: the tool has to pass what it reports.
 ///
-/// The nine `the_X_holds_the_size_bound` tests scattered across the crate stay,
+/// The `the_X_holds_the_size_bound` tests scattered across the crate stay,
 /// because each of them fails on its own module and says which one. This one
 /// covers every file none of them names, and the three units below the file
 /// level that none of them can see.

@@ -49,12 +49,12 @@ pub(super) const RULES: [&RuleDefinition; 2] = [
 /// Smallest canonical form a family is built from, counted in normalized
 /// nodes rather than in source lines, so reformatting cannot move it.
 ///
-/// Measured over the 895 functions of this repository on 2026-08-08: the
-/// smallest function normalizes to 8 nodes, the median to 88. Grouping with no
-/// floor produces 42 families; at 30 nodes it produces 20, and everything the
-/// floor removes between those two numbers is a pair of functions whose whole
-/// body is two calls. At 30 and above, every family on this repository names
-/// functions a reviewer recognizes as one function. This is the empirical
+/// Measured over the 895 functions this repository held on 2026-08-08: the
+/// smallest function normalized to 8 nodes, the median to 88. Grouping with no
+/// floor produced 42 families; at 30 nodes it produced 20, and everything the
+/// floor removed between those two numbers was a pair of functions whose whole
+/// body was two calls. At 30 and above, every family on the repository then
+/// named functions a reviewer recognized as one function. This is the empirical
 /// answer to the PRD's open question, and it is a floor rather than a
 /// certainty: a smaller clone is still a clone, it is simply not worth a line
 /// of a report.
@@ -75,10 +75,10 @@ pub(super) const MINIMUM_STATEMENTS: usize = 3;
 /// Similarity two shapes reach before they are called the same shape, in basis
 /// points of a Sørensen-Dice score over their subtree multisets.
 ///
-/// Measured over the 787 distinct shapes of this repository on 2026-08-08:
-/// 8000 nominates 17 pairs and every one of them is two functions a reviewer
-/// would recognize as one, 7500 nominates 38 and starts linking shapes that
-/// only meet through a third, 8500 nominates 9 and misses pairs that differ by
+/// Measured over the 787 distinct shapes this repository held on 2026-08-08:
+/// 8000 nominated 17 pairs and every one of them was two functions a reviewer
+/// would recognize as one, 7500 nominated 38 and started linking shapes that
+/// only met through a third, 8500 nominated 9 and missed pairs that differed by
 /// a single added statement.
 ///
 /// That last number is the reason the threshold is not higher. A subtree hash
