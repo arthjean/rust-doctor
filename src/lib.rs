@@ -44,7 +44,8 @@ mod workspace_path;
 pub mod workspace_write;
 
 pub use audit::{
-    Audit, AuditCategory, AuditCategoryName, AuditScore, SCORE_MODEL, ScoreDimensions, ScoreLabel,
+    Audit, AuditCategory, AuditCategoryName, AuditScore, SCORE_MODEL, ScoreCeiling, ScoreDimensions,
+    ScoreLabel,
     ScoreReason,
     SeverityCounts, ShareError,
 };

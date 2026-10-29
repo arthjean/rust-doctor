@@ -845,7 +845,7 @@ fn duplicate_major_versions_are_named_with_their_versions() {
     assert_eq!(
         candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS),
         [
-            "Crate \"shared\" is resolved with incompatible major versions 1.4.2 (through aligned), 2.0.0 (required by duplicate-resolution)."
+            "Crate \"shared\" is resolved with incompatible versions 1.4.2 (through aligned), 2.0.0 (required by duplicate-resolution)."
         ]
     );
     let candidate = scan

@@ -435,6 +435,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -459,7 +466,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -471,6 +478,7 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [],
           "value": 100,
           "worst_tier": null
         },
@@ -541,6 +549,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           },
@@ -556,6 +571,13 @@
             "info": 0,
             "name": "Bugs",
             "occurrences": {
+              "errors": 0,
+              "info": 0,
+              "total": 3,
+              "unknown": 0,
+              "warnings": 3
+            },
+            "production": {
               "errors": 0,
               "info": 0,
               "total": 3,
@@ -583,6 +605,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           },
@@ -598,6 +627,13 @@
             "info": 0,
             "name": "Dependencies",
             "occurrences": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
+            "production": {
               "errors": 0,
               "info": 0,
               "total": 1,
@@ -625,6 +661,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 0,
+              "info": 1,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           }
@@ -633,7 +676,40 @@
         "score": {
           "applied_ceiling": 65,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 50,
+              "dimension": "security",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            },
+            {
+              "ceiling": 75,
+              "dimension": "reliability",
+              "rule_ids": [
+                "clippy::mut_mutex_lock"
+              ],
+              "tier": "P2"
+            },
+            {
+              "ceiling": 75,
+              "dimension": "dependencies",
+              "rule_ids": [
+                "rust_doctor::cargo::missing_lockfile"
+              ],
+              "tier": "P2"
+            },
+            {
+              "ceiling": 65,
+              "dimension": "overall",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            }
+          ],
           "dimensions": {
             "dependencies": 72,
             "maintainability": 100,
@@ -649,6 +725,7 @@
             "clippy::mut_mutex_lock",
             "rust_doctor::cargo::missing_lockfile"
           ],
+          "reasons": [],
           "value": 65,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
@@ -698,6 +775,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -706,7 +790,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -718,11 +802,12 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [],
           "value": 100,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
           ],
-          "worst_tier": "P3"
+          "worst_tier": null
         },
         "source_files": 30
       },
@@ -1057,6 +1142,13 @@
               "unknown": 0,
               "warnings": 50
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 50,
+              "unknown": 0,
+              "warnings": 50
+            },
             "unknown": 0,
             "warnings": 50
           }
@@ -1065,7 +1157,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1077,11 +1169,12 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [],
           "value": 99,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
           ],
-          "worst_tier": "P3"
+          "worst_tier": null
         },
         "source_files": 30
       },
@@ -1122,6 +1215,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1130,7 +1230,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1142,11 +1242,12 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [],
           "value": 100,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
           ],
-          "worst_tier": "P3"
+          "worst_tier": null
         },
         "source_files": 1
       },
@@ -1187,6 +1288,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           }
@@ -1195,7 +1303,16 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 75,
+              "dimension": "dependencies",
+              "rule_ids": [
+                "rust_doctor::cargo::missing_lockfile"
+              ],
+              "tier": "P2"
+            }
+          ],
           "dimensions": {
             "dependencies": 51,
             "maintainability": 100,
@@ -1209,6 +1326,7 @@
           "projected_rule_ids": [
             "rust_doctor::cargo::missing_lockfile"
           ],
+          "reasons": [],
           "value": 92,
           "worst_tier": "P2"
         },
@@ -1251,6 +1369,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           }
@@ -1259,7 +1384,16 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 75,
+              "dimension": "dependencies",
+              "rule_ids": [
+                "rust_doctor::cargo::missing_lockfile"
+              ],
+              "tier": "P2"
+            }
+          ],
           "dimensions": {
             "dependencies": 51,
             "maintainability": 100,
@@ -1273,6 +1407,7 @@
           "projected_rule_ids": [
             "rust_doctor::cargo::missing_lockfile"
           ],
+          "reasons": [],
           "value": 92,
           "worst_tier": "P2"
         },
@@ -1321,6 +1456,13 @@
               "unknown": 0,
               "warnings": 2
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 3,
+              "unknown": 0,
+              "warnings": 2
+            },
             "unknown": 0,
             "warnings": 2
           }
@@ -1329,7 +1471,16 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 75,
+              "dimension": "reliability",
+              "rule_ids": [
+                "clippy::mut_mutex_lock"
+              ],
+              "tier": "P2"
+            }
+          ],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1343,6 +1494,7 @@
           "projected_rule_ids": [
             "clippy::mut_mutex_lock"
           ],
+          "reasons": [],
           "value": 94,
           "worst_tier": "P2"
         },
@@ -1385,6 +1537,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1393,9 +1552,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
-          "reasons": [
-            "stage-failed"
-          ],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1407,6 +1564,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "stage-failed"
+          ],
           "value": 100,
           "worst_tier": null
         },
@@ -1447,6 +1607,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1455,9 +1622,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
-          "reasons": [
-            "category-mapping-conflict"
-          ],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1469,6 +1634,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "category-mapping-conflict"
+          ],
           "value": 100,
           "worst_tier": null
         },
@@ -1509,6 +1677,13 @@
               "unknown": 1,
               "warnings": 0
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 1,
+              "warnings": 0
+            },
             "unknown": 1,
             "warnings": 0
           }
@@ -1517,9 +1692,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": false,
-          "reasons": [
-            "category-mapping-conflict"
-          ],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1531,6 +1704,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "category-mapping-conflict"
+          ],
           "value": 100,
           "worst_tier": null
         },
@@ -1577,6 +1753,13 @@
               "unknown": 1,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 2,
+              "unknown": 1,
+              "warnings": 0
+            },
             "unknown": 1,
             "warnings": 0
           }
@@ -1585,8 +1768,23 @@
         "score": {
           "applied_ceiling": 65,
           "authoritative": false,
-          "reasons": [
-            "category-mapping-conflict"
+          "ceilings": [
+            {
+              "ceiling": 50,
+              "dimension": "security",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            },
+            {
+              "ceiling": 65,
+              "dimension": "overall",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            }
           ],
           "dimensions": {
             "dependencies": 100,
@@ -1599,6 +1797,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "category-mapping-conflict"
+          ],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -1641,6 +1842,13 @@
               "unknown": 0,
               "warnings": 0
             },
+            "production": {
+              "errors": 1,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 0
+            },
             "unknown": 0,
             "warnings": 0
           }
@@ -1649,8 +1857,23 @@
         "score": {
           "applied_ceiling": 65,
           "authoritative": false,
-          "reasons": [
-            "scan-incomplete"
+          "ceilings": [
+            {
+              "ceiling": 50,
+              "dimension": "security",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            },
+            {
+              "ceiling": 65,
+              "dimension": "overall",
+              "rule_ids": [
+                "clippy::permissions_set_readonly_false"
+              ],
+              "tier": "P1"
+            }
           ],
           "dimensions": {
             "dependencies": 100,
@@ -1663,6 +1886,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "scan-incomplete"
+          ],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -1705,6 +1931,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1713,7 +1946,24 @@
         "score": {
           "applied_ceiling": 40,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 20,
+              "dimension": "security",
+              "rule_ids": [
+                "rust_doctor::source::dynamic_shell_command"
+              ],
+              "tier": "P0"
+            },
+            {
+              "ceiling": 40,
+              "dimension": "overall",
+              "rule_ids": [
+                "rust_doctor::source::dynamic_shell_command"
+              ],
+              "tier": "P0"
+            }
+          ],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1727,6 +1977,7 @@
           "projected_rule_ids": [
             "rust_doctor::source::dynamic_shell_command"
           ],
+          "reasons": [],
           "value": 40,
           "worst_tier": "P0"
         },
@@ -1769,6 +2020,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1777,7 +2035,24 @@
         "score": {
           "applied_ceiling": 65,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 50,
+              "dimension": "reliability",
+              "rule_ids": [
+                "clippy::unimplemented"
+              ],
+              "tier": "P1"
+            },
+            {
+              "ceiling": 65,
+              "dimension": "overall",
+              "rule_ids": [
+                "clippy::unimplemented"
+              ],
+              "tier": "P1"
+            }
+          ],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1791,6 +2066,7 @@
           "projected_rule_ids": [
             "clippy::unimplemented"
           ],
+          "reasons": [],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -1833,6 +2109,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1841,7 +2124,16 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 75,
+              "dimension": "reliability",
+              "rule_ids": [
+                "clippy::todo"
+              ],
+              "tier": "P2"
+            }
+          ],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1855,6 +2147,7 @@
           "projected_rule_ids": [
             "clippy::todo"
           ],
+          "reasons": [],
           "value": 94,
           "worst_tier": "P2"
         },
@@ -1897,6 +2190,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -1905,7 +2205,7 @@
         "score": {
           "applied_ceiling": null,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 85,
@@ -1919,6 +2219,7 @@
           "projected_rule_ids": [
             "clippy::dbg_macro"
           ],
+          "reasons": [],
           "value": 98,
           "worst_tier": "P3"
         },
@@ -1967,6 +2268,13 @@
               "unknown": 0,
               "warnings": 2
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 2,
+              "unknown": 0,
+              "warnings": 2
+            },
             "unknown": 0,
             "warnings": 2
           }
@@ -1975,7 +2283,24 @@
         "score": {
           "applied_ceiling": 40,
           "authoritative": true,
-          "reasons": [],
+          "ceilings": [
+            {
+              "ceiling": 20,
+              "dimension": "security",
+              "rule_ids": [
+                "rust_doctor::source::disabled_tls_verification"
+              ],
+              "tier": "P0"
+            },
+            {
+              "ceiling": 40,
+              "dimension": "overall",
+              "rule_ids": [
+                "rust_doctor::source::disabled_tls_verification"
+              ],
+              "tier": "P0"
+            }
+          ],
           "dimensions": {
             "dependencies": 100,
             "maintainability": 100,
@@ -1990,6 +2315,7 @@
             "rust_doctor::source::disabled_tls_verification",
             "clippy::permissions_set_readonly_false"
           ],
+          "reasons": [],
           "value": 40,
           "worst_tier": "P0"
         },
@@ -2033,6 +2359,13 @@
               "unknown": 0,
               "warnings": 1
             },
+            "production": {
+              "errors": 0,
+              "info": 0,
+              "total": 1,
+              "unknown": 0,
+              "warnings": 1
+            },
             "unknown": 0,
             "warnings": 1
           }
@@ -2041,8 +2374,23 @@
         "score": {
           "applied_ceiling": 40,
           "authoritative": false,
-          "reasons": [
-            "scan-incomplete"
+          "ceilings": [
+            {
+              "ceiling": 20,
+              "dimension": "security",
+              "rule_ids": [
+                "rust_doctor::source::disabled_tls_verification"
+              ],
+              "tier": "P0"
+            },
+            {
+              "ceiling": 40,
+              "dimension": "overall",
+              "rule_ids": [
+                "rust_doctor::source::disabled_tls_verification"
+              ],
+              "tier": "P0"
+            }
           ],
           "dimensions": {
             "dependencies": 100,
@@ -2055,6 +2403,9 @@
           "model": "core-v5",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
+          "reasons": [
+            "scan-incomplete"
+          ],
           "value": 40,
           "worst_tier": "P0"
         },

@@ -77,11 +77,15 @@ describe("this repository: human, Markdown and JSON parity", () => {
     const share = out.match(/https:\/\/rust-doctor\.com\/share\?\S+/);
     expect(share).not.toBeNull();
     const params = new URL(share![0]).searchParams;
+    // The link counts what weighs, the categories' production counts, never
+    // the unscored findings `summary` also publishes.
+    const production = (key: "warnings" | "info") =>
+      scan.audit.categories.reduce((sum, category) => sum + category.production[key], 0);
     expect(Object.fromEntries(params)).toEqual({
       s: String(score.value),
       m: score.model,
-      w: String(scan.summary.occurrences.warnings),
-      i: String(scan.summary.occurrences.info),
+      w: String(production("warnings")),
+      i: String(production("info")),
       f: String(scan.audit.source_files),
       l: String(scan.audit.production_lines),
     });

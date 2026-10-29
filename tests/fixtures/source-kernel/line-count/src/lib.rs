@@ -1,4 +1,4 @@
-//! Every line of this file is counted, whatever it holds.
+//! Every line of this file is counted, except its inline test module.
 
 // A comment line is a line. The denominator measures the file the reader
 // maintains, not the subset the compiler keeps.

@@ -661,18 +661,24 @@ pub(super) fn in_test_code(context: &Context<'_>, node: &SyntaxNode) -> bool {
 }
 
 pub(super) fn under_test_attribute(node: &SyntaxNode) -> bool {
-    node.ancestors().any(|ancestor| {
-        let has_cfg_test = ancestor
-            .children()
-            .filter_map(ast::Attr::cast)
-            .any(|attribute| compact(attribute.syntax()) == "#[cfg(test)]");
-        let is_test_function = ast::Fn::cast(ancestor.clone()).is_some_and(|function| {
-            function
-                .attrs()
-                .any(|attribute| compact(attribute.syntax()) == "#[test]")
-        });
-        has_cfg_test || is_test_function
-    })
+    node.ancestors().any(|ancestor| carries_test_attribute(&ancestor))
+}
+
+/// Does this node itself carry `#[cfg(test)]`, or is it a `#[test]` function?
+/// `under_test_attribute` asks it of every ancestor; a walk that already
+/// descends from the root asks it of each node once, since asking the
+/// ancestors of every item reads the root's children once per item.
+pub(super) fn carries_test_attribute(node: &SyntaxNode) -> bool {
+    let has_cfg_test = node
+        .children()
+        .filter_map(ast::Attr::cast)
+        .any(|attribute| compact(attribute.syntax()) == "#[cfg(test)]");
+    let is_test_function = ast::Fn::cast(node.clone()).is_some_and(|function| {
+        function
+            .attrs()
+            .any(|attribute| compact(attribute.syntax()) == "#[test]")
+    });
+    has_cfg_test || is_test_function
 }
 
 pub(super) fn strip_wrappers(mut expression: ast::Expr) -> ast::Expr {

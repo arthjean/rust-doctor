@@ -3,10 +3,10 @@
   "story": "US-073",
   "label": "panique et placeholders",
   "score": {
-    "value": 92,
+    "value": 96,
     "dimensions": {
       "security": 100,
-      "reliability": 75,
+      "reliability": 92,
       "maintainability": 83,
       "performance": 100,
       "dependencies": 100

@@ -11,7 +11,7 @@
 //! are the one question no pair of real rules asks, since no two catalogued rules share a rate
 //! across two sample sizes.
 
-use crate::audit::{BASIS_POINTS, DensityScope, RuleAggregate, ScoreDimension};
+use crate::audit::{DensityScope, RuleAggregate, ScoreDimension};
 use crate::policy::{RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::Severity;
 
@@ -94,20 +94,77 @@ fn an_unmeasured_rule_is_ranked_at_half_its_contribution() {
     );
 }
 
-/// The same rate on more sites is a stronger claim, and the key says so.
+/// The same rate on more sites is a stronger claim, and the charge says so.
 ///
 /// Five sites all adjudicated wrong and forty sites all adjudicated wrong are the same raw rate
 /// and not the same evidence. The smoothing is what separates them: both sit above the
 /// unmeasured middle, and the larger sample sits further from it, in the direction its data
-/// indicates.
+/// indicates. The discount lives in the charge, which is what a contribution is read from, so
+/// the ranking does not apply it a second time.
 #[test]
 fn the_same_rate_on_more_sites_moves_further_from_the_default() {
-    let five = ranked("clippy::panic", 1_000_000, Some(8571));
-    let forty = ranked("clippy::indexing_slicing", 1_000_000, Some(9762));
-    let unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 1_000_000, None);
+    let mut five = ranked("clippy::panic", 0, Some(8571));
+    let mut forty = ranked("clippy::indexing_slicing", 0, Some(9762));
+    let mut unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 0, None);
+    for rule in [&mut five, &mut forty, &mut unmeasured] {
+        rule.numerator = 10;
+    }
 
-    assert!(forty.expected_repair_value() < five.expected_repair_value());
-    assert!(five.expected_repair_value() < unmeasured.expected_repair_value());
+    assert!(forty.charged() < five.charged());
+    assert!(five.charged() < unmeasured.charged());
+    assert_eq!(
+        forty.expected_repair_value(),
+        five.expected_repair_value(),
+        "two measured rules of equal contribution are worth the same: the rate is already in it"
+    );
+}
+
+/// A measured rule is discounted once, in its charge, and an unmeasured one at the middle.
+///
+/// Two `P3` performance rules of equal raw relief, one site each: `ptr_arg`, which the corpus
+/// confirmed at 3333 basis points, and `useless_vec`, which it never measured. Under core-v5 the
+/// ranking applied the measured rule's discount on top of the charge that already carried it,
+/// kept 4444 of its relief against the unmeasured rule's 5000, and ranked the confirmed rule
+/// second.
+#[test]
+fn a_measured_rule_is_discounted_once_and_ranks_above_an_unmeasured_peer() {
+    let score = scored(&[
+        ("clippy::useless_vec", "performance", Severity::Warning, 1),
+        ("clippy::ptr_arg", "performance", Severity::Warning, 1),
+    ]);
+    assert_eq!(
+        score.projected_rule_ids,
+        vec!["clippy::ptr_arg".to_owned(), "clippy::useless_vec".to_owned()]
+    );
+
+    let measured = ranked("clippy::ptr_arg", 1_000_000, Some(3333));
+    let unmeasured = ranked("clippy::useless_vec", 1_000_000, None);
+    assert_eq!(measured.expected_repair_value(), 1_000_000);
+    assert_eq!(unmeasured.expected_repair_value(), 500_000);
+}
+
+/// A measured rule holding a ceiling is projected for the ceiling it releases, whole.
+///
+/// One duplicate major holds dependencies at 75. The gain of repairing it is the ceiling it
+/// lifts, read through the published value, and the rate the corpus measured it at discounts
+/// none of that: the promise is a hundred.
+#[test]
+fn the_ceiling_a_measured_rule_holds_is_released_whole() {
+    let score = scored(&[
+        (
+            "rust_doctor::cargo::duplicate_major_versions",
+            "dependencies",
+            Severity::Warning,
+            1,
+        ),
+        ("clippy::useless_vec", "performance", Severity::Warning, 1),
+    ]);
+    assert_eq!(score.dimensions.dependencies, 75);
+    assert_eq!(
+        score.projected_rule_ids.first().map(String::as_str),
+        Some("rust_doctor::cargo::duplicate_major_versions")
+    );
+    assert_eq!(score.projected_after_top_three, Some(100));
 }
 
 /// A rule the corpus found wrong more often than right is withheld, and still named.
@@ -122,7 +179,7 @@ fn a_rule_wrong_more_often_than_right_is_withheld_and_still_named() {
     assert!(worst.is_withheld());
     assert_eq!(
         worst.expected_repair_value(),
-        1_000_000 * (BASIS_POINTS - 8571) / BASIS_POINTS,
+        1_000_000,
         "withholding does not zero the value, it declines to rank it"
     );
     let at_the_middle = ranked("clippy::todo", 1_000_000, Some(5000));
@@ -215,14 +272,12 @@ fn the_rate_discounts_the_charge_of_a_measured_rule() {
     assert!(forty.value > five.value, "{} vs {}", forty.value, five.value);
     assert!(five.value < clean.value);
     assert_eq!(clean.value, 100);
-    assert_eq!(
-        ranked("clippy::indexing_slicing", 1_000_000, Some(9762)).expected_repair_value(),
-        23_800
-    );
-    assert_eq!(
-        ranked("clippy::unreachable", 1_000_000, Some(7143)).expected_repair_value(),
-        285_700
-    );
+    let mut indexing = ranked("clippy::indexing_slicing", 0, Some(9762));
+    indexing.numerator = 10_000;
+    assert_eq!(indexing.charged(), 238.0);
+    let mut unreachable = ranked("clippy::unreachable", 0, Some(7143));
+    unreachable.numerator = 10_000;
+    assert_eq!(unreachable.charged(), 2857.0);
 }
 
 /// An unmeasured rule is charged whole: a measurement can only lower a charge.

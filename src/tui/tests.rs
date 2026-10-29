@@ -498,6 +498,7 @@ fn scored_report(value: u8) -> InspectReport {
         },
         worst_tier: None,
         applied_ceiling: None,
+        ceilings: Vec::new(),
         projected_after_top_three: None,
         projected_rule_ids: Vec::new(),
         withheld_rule_ids: Vec::new(),

@@ -38,14 +38,15 @@ impl Audit {
             return Err(ShareError::InvalidPayload);
         }
 
-        // The counts the block already publishes, not a third summation over the same
-        // categories that nothing kept in step with the first two.
-        let (_, occurrences) = self.totals();
+        // The production counts the block already publishes, not a third summation over the
+        // same diagnostics. The link used to carry every occurrence, and on this crate's own
+        // scan 140 of its 192 warnings weighed nothing.
+        let production = self.production_totals();
         build_share_url(
             score.value,
-            occurrences.errors,
-            occurrences.warnings,
-            occurrences.info,
+            production.errors,
+            production.warnings,
+            production.info,
             self.source_files,
             self.production_lines,
         )

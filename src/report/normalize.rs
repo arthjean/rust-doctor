@@ -113,6 +113,9 @@ pub(super) fn normalize_cargo_health_candidate(
         .as_deref()
         .and_then(|path| workspace_path::normalize_relative(Path::new(path)));
     let severity = canonical_severity(definition.default_level);
+    // The identity hashes the rule's level, so a fact published at `Info`
+    // keeps the id, the baseline entry and the position proof it had when it
+    // was charged.
     let id = fingerprint(source, code.as_deref(), path.as_deref(), None, severity, &message);
 
     Diagnostic {
@@ -122,7 +125,11 @@ pub(super) fn normalize_cargo_health_candidate(
         context: None,
         code,
         base_severity: severity,
-        severity,
+        severity: if candidate.informational {
+            Severity::Info
+        } else {
+            severity
+        },
         category: Some(definition.category.to_owned()),
         message,
         help: Some(definition.help.to_owned()),

@@ -29,7 +29,7 @@ scope's `base_ref`, `staged` and `untracked_unreported`, v19 the policy's
 and the scan's `ignored` and `excluded_generated`, v20 the scan's
 `advisory_db`, v21 the scope `mode` `contextual` and the discovery error
 `ambiguous-workspace`, v22 `timings`, a package's `unlinted`, the delta's
-`rule_count_matches` and the codes `interrupted` and `line-map-unavailable`, v23 the `not_evaluated` reasons `crate-absent` and `crate-version-unsupported`, which leave the score its authority. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
+`rule_count_matches` and the codes `interrupted` and `line-map-unavailable`, v23 the `not_evaluated` reasons `crate-absent` and `crate-version-unsupported`, which leave the score its authority, v24 the score's `ceilings`, each with the rules holding its tier, and a category's `production`, the occurrences that weigh. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
 reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
@@ -51,18 +51,12 @@ be kept and weighed, so one `unused_imports` voided the score; an uncatalogued
 error is still the compilation failing, never a note.
 
 One merge, one order. `diagnostics_from_execution` keeps one `BTreeMap` open
-across all five producers and sorts once at the end. Three word-for-word
-`merge_*` functions used to close it between producers, each rebuilding the map
-it had just been handed and re-sorting behind it: the vector was sorted five
-times per scan, every diagnostic id was cloned three times over, and the guard
-that skips a failed scan was spelled three more times after the `match` above
-had already answered it.
+across all five producers and sorts once at the end. Three identical `merge_*`
+functions used to rebuild and re-sort it between producers, five sorts per scan.
 
 Two states, not eight. `Origin` says whether the run compiled a plan and
-resolved a scope, or failed before either existed. It used to be an
-`Option<&PolicyPlan>`, a `BlockingLevel` and an `Option<ScopeReport>` side by
-side: every caller holding a plan passed that plan's own blocking level, and the
-single caller without a plan was also the one without a scope.
+resolved a scope, or failed before either existed, where three independent
+options used to sit side by side.
 
 One escape grammar, in `terminal_text`. This module carried a second, and
 neither copy was complete: `terminal_text` advanced two characters past any
@@ -101,9 +95,9 @@ paths. A replacement skips that rewrite, since its path literals are the code's.
 carry the one sentence the catalog wrote for its rule, so a reader was told to
 use `get` at a site where Clippy had already written the exact expression. One
 finding is published at `Info` on purpose, shown and never charged: a print
-lint inside a `bin` target, whose streams are the program's output. A duplicate
-major stays a warning whoever requires it, since the binary embeds both copies
-either way, and its message now names the dependency each version arrives under.
+lint inside a `bin` target, whose streams are the program's output, and a
+duplicate no member requires directly, which keeps `base_severity: warning` and
+so its id; its message names the dependency each version arrives under.
 
 `the_report_holds_the_size_bound_it_publishes` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. This was one file
@@ -129,6 +123,11 @@ report: on this crate's own scan such groups were a thousand of the eleven
 hundred lines printed, the help sentence repeated twenty-two times, and the
 rule link cut at column eighty. Compiler notes close the list under "Compiler
 notes (not scored)", one line each, and the summary line counts them.
+
+A cap names its cause from `audit.score.ceilings`, one line per capped
+dimension, never from the diagnostics: the text used to name every rule of the
+worst tier, test findings and withheld rules included, which cap nothing. The
+share link counts `production`, so its `w` stopped counting unscored warnings.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
 thirteen calls and nothing else: a line written straight into the entry point is

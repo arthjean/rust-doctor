@@ -110,7 +110,7 @@ per-module file checks over hand-listed files, two covering
   `adjudication.position_proof` anchors every published site to a run that
   located it. [docs/catalog-and-corpus.md](docs/catalog-and-corpus.md)
 - Any change to the report shape bumps `SCHEMA_VERSION` in `src/report.rs`,
-  currently 23, and the frozen v7 archive keeps projecting.
+  currently 24, and the frozen v7 archive keeps projecting.
   [docs/subsystems/reporting.md](docs/subsystems/reporting.md)
 
 ## Testing

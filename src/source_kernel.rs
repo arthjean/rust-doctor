@@ -321,6 +321,41 @@ impl SourceUnit {
     fn is_test_code(&self, contexts: &TargetContexts) -> bool {
         self.is_test_target(contexts) || path_contains_tests_segment(&self.relative_path)
     }
+
+    /// Lines of this unit outside every outermost item `under_test_attribute`
+    /// classifies as test code: what the score's denominator counts of a
+    /// production file. The walk asks each item for its own attributes, which
+    /// keeps it linear in the file where asking every item's ancestors read the
+    /// root's children once per item and stalled on a ten-thousand-item file.
+    ///
+    /// The numerator already set an inline `#[cfg(test)] mod tests` aside while
+    /// the denominator counted it, so about six thousand lines of this crate's
+    /// own inline tests diluted every density it published. A line two items
+    /// share is subtracted once, and the attributes above an item are its own.
+    fn production_line_count(&self) -> usize {
+        let line_starts = line_starts(&self.source);
+        let line_of = |offset: usize| line_starts.partition_point(|start| *start <= offset);
+        let mut gated = 0;
+        let mut last_gated_line = 0;
+        let mut preorder = self.tree().syntax().preorder();
+        while let Some(event) = preorder.next() {
+            let ra_ap_syntax::WalkEvent::Enter(node) = event else {
+                continue;
+            };
+            // Descending from the root, the first item carrying a test attribute is the
+            // outermost one `under_test_attribute` classifies, and its subtree is skipped.
+            if ast::Item::cast(node.clone()).is_none() || !detectors::carries_test_attribute(&node) {
+                continue;
+            }
+            preorder.skip_subtree();
+            let range = node.text_range();
+            let first = line_of(range.start().into()).max(last_gated_line + 1);
+            let last = line_of(range.end().into());
+            gated += (last + 1).saturating_sub(first);
+            last_gated_line = last_gated_line.max(last);
+        }
+        self.source.lines().count().saturating_sub(gated)
+    }
 }
 
 /// Files the workspace reaches, read and parsed once for every producer that
@@ -441,7 +476,7 @@ impl Enumeration {
             let package = unit.package();
             let counted = per_path
                 .entry(identity.path.as_path())
-                .or_insert_with(|| (unit.source().lines().count(), false, package.clone()));
+                .or_insert_with(|| (unit.production_line_count(), false, package.clone()));
             counted.1 |= !unit.is_test_code(&self.contexts);
             if counted.2 != package {
                 counted.2 = None;
@@ -469,12 +504,14 @@ impl Enumeration {
     ///
     /// A line is what `str::lines` calls one, blanks and comments included, so
     /// a file whose last line carries no terminator still contributes it once.
+    /// The lines of an inline test-gated item are not production lines, and
+    /// `production_line_count` takes them out for both counts.
     fn production_source(&self) -> (usize, usize) {
         let mut per_path: BTreeMap<&Path, (usize, bool)> = BTreeMap::new();
         for (identity, unit) in self.scanned() {
             let counted = per_path
                 .entry(identity.path.as_path())
-                .or_insert_with(|| (unit.source().lines().count(), false));
+                .or_insert_with(|| (unit.production_line_count(), false));
             counted.1 |= !unit.is_test_code(&self.contexts);
         }
         per_path

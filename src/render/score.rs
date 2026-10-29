@@ -4,40 +4,54 @@
 //! It lives beside the report rather than inside it so that every file of the
 //! module stays under the thousand lines `oversized_unit` reports.
 
-use std::collections::BTreeSet;
 use std::io::Write;
 
 use crate::InspectReport;
 
 use super::{RenderError, Style, TerminalOptions, line, score_header};
 
-/// Rules of the worst tier present in the score scope, bounded to fit on one
-/// line. A cap with no named cause cannot be explained.
-fn capping_rule_ids(report: &InspectReport, tier: crate::RuleTier) -> Vec<String> {
+/// The rules a published ceiling names, bounded to fit on one line. A cap with
+/// no named cause cannot be explained.
+///
+/// They are read from `ceilings[]` rather than gathered from the diagnostics:
+/// the text used to name every rule of the worst tier the report carried, a
+/// test-context finding or a withheld rule included, and neither caps anything.
+fn named_rules(ceiling: &crate::ScoreCeiling) -> String {
     const MAX_NAMED_RULES: usize = 3;
-    let scoped: Option<BTreeSet<_>> = report.delta.as_ref().map(|delta| {
-        delta
-            .introduced
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>()
-    });
-    let mut ids: Vec<_> = report
-        .diagnostics
+    let mut named: Vec<&str> = ceiling
+        .rule_ids
         .iter()
-        .filter(|diagnostic| {
-            scoped
-                .as_ref()
-                .is_none_or(|scoped| scoped.contains(diagnostic.id.as_str()))
-        })
-        .filter_map(|diagnostic| diagnostic.code.as_deref())
-        .filter(|code| crate::policy::find(code).is_some_and(|definition| definition.tier == tier))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(str::to_owned)
+        .take(MAX_NAMED_RULES)
+        .map(String::as_str)
         .collect();
-    ids.truncate(MAX_NAMED_RULES);
-    ids
+    let rest = ceiling.rule_ids.len().saturating_sub(MAX_NAMED_RULES);
+    let more = format!("{rest} more");
+    if rest > 0 {
+        named.push(&more);
+    }
+    named.join(", ")
+}
+
+/// One dimension a tier caps, its value and the rules holding the ceiling:
+/// `Reliability 75 (P2 ceiling: clippy::todo)`. `None` for the score's own
+/// ceiling, which the sentence above the block names.
+fn dimension_ceiling_line(
+    dimensions: crate::ScoreDimensions,
+    ceiling: &crate::ScoreCeiling,
+) -> Option<String> {
+    let (name, value) = match ceiling.dimension {
+        "security" => ("Security", dimensions.security),
+        "reliability" => ("Reliability", dimensions.reliability),
+        "maintainability" => ("Maintainability", dimensions.maintainability),
+        "performance" => ("Performance", dimensions.performance),
+        "dependencies" => ("Dependencies", dimensions.dependencies),
+        _ => return None,
+    };
+    Some(format!(
+        "{name} {value} ({} ceiling: {})",
+        ceiling.tier.as_str(),
+        named_rules(ceiling)
+    ))
 }
 
 /// The ceiling holds the score only when the dimensions alone would have
@@ -66,9 +80,17 @@ pub(super) fn render_score<W: Write>(
             Style::Warning,
         );
     };
-    if let Some((tier, ceiling)) = score.worst_tier.zip(score.applied_ceiling) {
-        let blocking = capping_rule_ids(report, tier).join(", ");
-        let sentence = ceiling_sentence(score.value, ceiling, tier.as_str(), &blocking);
+    if let Some(overall) = score
+        .ceilings
+        .iter()
+        .find(|ceiling| ceiling.dimension == crate::audit::OVERALL)
+    {
+        let sentence = ceiling_sentence(
+            score.value,
+            overall.ceiling,
+            overall.tier.as_str(),
+            &named_rules(overall),
+        );
         line(writer, &sentence, options, Style::Warning)?;
     }
     score_header::render(writer, score, options, score_header::Cadence::DEFAULT)?;
@@ -82,6 +104,11 @@ pub(super) fn render_score<W: Write>(
             options,
             Style::Plain,
         )?;
+        for ceiling in &score.ceilings {
+            if let Some(sentence) = dimension_ceiling_line(score.dimensions, ceiling) {
+                line(writer, &sentence, options, Style::Muted)?;
+            }
+        }
     }
     for reason in &score.reasons {
         line(writer, reason.explanation(), options, Style::Warning)?;

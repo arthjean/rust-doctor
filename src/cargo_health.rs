@@ -57,6 +57,10 @@ pub(crate) struct Candidate {
     /// none, so a suppression directive written above the key finds them by
     /// this name.
     pub(crate) key: Option<String>,
+    /// Published at `Info` rather than at the rule's level, which stays its
+    /// base severity and its identity: a fact the workspace's manifests do not
+    /// control, such as a duplicate no member requires directly.
+    pub(crate) informational: bool,
 }
 
 /// Bounded error of the pack: a closed code and a frozen message, with no
@@ -136,6 +140,7 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
                     manifest_path: manifest_path.clone(),
                     span,
                     key: Some(key.to_owned()),
+                    informational: false,
                 });
             };
             if active.on(&CARGO_UNBOUNDED_REGISTRY) {
@@ -234,6 +239,7 @@ pub(crate) fn inspect_dependency_truth(
                             .unwrap_or(&dependency.name)
                             .to_owned(),
                     ),
+                    informational: false,
                 });
             }
         }
@@ -462,6 +468,7 @@ fn permissive_entries(
             manifest_path: manifest_path.clone(),
             span: Some(byte_range_span(key.span(), &starts, source)),
             key: None,
+            informational: false,
         });
     }
 }
@@ -613,6 +620,7 @@ fn inspect_release_profile(
                 manifest_path: Some("Cargo.toml".to_owned()),
                 span: span.map(|range| byte_range_span(range, &starts, &source)),
                 key: None,
+                informational: false,
             });
         }
     }
@@ -643,6 +651,7 @@ fn inspect_release_profile(
                 manifest_path: Some("Cargo.toml".to_owned()),
                 span: Some(byte_range_span(debug.span(), &starts, &source)),
                 key: None,
+                informational: false,
             });
         }
     }
@@ -730,6 +739,7 @@ fn inspect_rustflags(metadata: &Metadata, scan: &mut CargoHealthScan) {
                 manifest_path: Some(".cargo/config.toml".to_owned()),
                 span: Some(byte_range_span(span, &starts, &contents)),
                 key: None,
+                informational: false,
             });
         }
     }

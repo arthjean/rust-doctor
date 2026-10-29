@@ -190,8 +190,9 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
 /// a member the projection drops whole or that a v7 run never requests, and
 /// the `rule_count_matches` of a delta summary, v23 the `crate-absent` and
 /// `crate-version-unsupported` reasons of a rule gated on a crate, carried by
-/// the `not_evaluated` member v18 added. No
-/// historical field is removed
+/// the `not_evaluated` member v18 added, v24 the `ceilings` of the score and
+/// the `production` counts of a category, which live in the audit the
+/// projection drops whole. No historical field is removed
 /// or retyped, so the projection consists solely of removing the members added
 /// since.
 ///

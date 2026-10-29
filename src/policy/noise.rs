@@ -52,6 +52,22 @@ pub(crate) const SMOOTHING: Smoothing = Smoothing {
 /// look like it.
 pub(crate) const UNMEASURED_NOISE_BASIS_POINTS: u16 = SMOOTHING.rate(0, 0);
 
+/// The smoothed rate past which a rule is more often wrong than right on
+/// healthy code: it is withheld from the projection whatever it would recover,
+/// and its tier caps no dimension, while its sites are still charged at the
+/// discount.
+///
+/// It is strictly above the middle so that an unmeasured rule, which sits
+/// exactly there, is ranked and not withheld. The threshold used to be an
+/// expected repair value rounding to zero millionths of a point, which no
+/// rule ever reached: one site of `indexing_slicing` on five million lines
+/// still carried a value, and the report recommended fixing `print_stderr`,
+/// adjudicated wrong on every site it showed, in the entry point of a binary.
+/// Under core-v5 a withheld rule still capped: one correct `process::exit` in
+/// a signal path held reliability at 75 on a rule the corpus judged wrong on
+/// every site it showed.
+pub(crate) const WITHHOLD_NOISE_BASIS_POINTS: u16 = 5_000;
+
 /// The pseudo-counts, and the one place that reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Smoothing {
@@ -265,6 +281,30 @@ mod tests {
             Some(3333)
         );
         assert_eq!(corpus_measurement("clippy::todo"), None);
+    }
+
+    /// A withheld rule caps nothing, so withholding a `P0` or `P1` rule is a
+    /// decision about what a defect is worth, not a measurement: it takes the
+    /// ceiling off the two tiers that exist to hold a workspace down whatever
+    /// its density. A re-adjudication that pushes one over the threshold fails
+    /// here, naming it, rather than silently uncapping it.
+    #[test]
+    fn no_p0_or_p1_rule_is_withheld() {
+        let withheld: Vec<(&str, u16)> = CORPUS_NOISE
+            .iter()
+            .filter(|measurement| {
+                find(measurement.id).is_some_and(|rule| {
+                    matches!(rule.tier, crate::policy::RuleTier::P0 | crate::policy::RuleTier::P1)
+                })
+            })
+            .map(|measurement| (measurement.id, measurement.noise_basis_points()))
+            .filter(|(_, noise)| *noise > WITHHOLD_NOISE_BASIS_POINTS)
+            .collect();
+        assert!(
+            withheld.is_empty(),
+            "these P0 or P1 rules are smoothed above {WITHHOLD_NOISE_BASIS_POINTS} basis points \
+             and would stop capping: {withheld:?}"
+        );
     }
 
     /// An unmeasured rule is ranked at the middle, and the middle is the same

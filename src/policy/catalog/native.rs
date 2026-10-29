@@ -9,7 +9,7 @@ pub(crate) static CARGO_DUPLICATE_MAJOR_VERSIONS: RuleDefinition = RuleDefinitio
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
-    help: "Align the requirements so one major version of the crate is resolved; duplicates ship twice and their types do not interoperate.",
+    help: "Align the requirement your manifest controls, or bump the dependency the message names so it moves to the version you require.",
     diff_scope: DiffScope::File,
     title: "Two major versions of one crate resolved",
     not_a_defect_when: "The duplicate comes from transitive dependencies mid-migration whose types never cross between the two versions in this workspace's code, so it costs only build time until upstream aligns.",

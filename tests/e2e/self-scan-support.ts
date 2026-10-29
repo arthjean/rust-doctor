@@ -98,7 +98,7 @@ export type Report = {
     source_files: number;
     production_lines: number;
     score: Score | null;
-    categories: Array<{ name: string; errors: number; warnings: number; info: number; unknown: number }>;
+    categories: Array<{ name: string; errors: number; warnings: number; info: number; unknown: number; production: Counts }>;
   };
   policy: { rules: Array<{ id: string; tier: string }> };
   scope: Record<string, unknown> | null;

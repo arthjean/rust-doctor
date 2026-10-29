@@ -8,17 +8,19 @@
 
 use super::{metadata, scan};
 
-/// `src/lib.rs` is 22 lines and `src/helper.rs` is 3, so the workspace is 25
-/// production lines. Every kind of line the two carry is in that number: a doc
-/// comment, a plain comment, blank lines, a `mod` declaration, and a whole
-/// `#[cfg(test)]` module living inside a production file. `src/helper.rs` ends
-/// without a trailing newline and contributes 3, not 4: a final unterminated
-/// line is a line, and a terminated one adds no phantom successor.
+/// `src/lib.rs` is 22 lines, the last 9 of them a `#[cfg(test)]` module, and
+/// `src/helper.rs` is 3, so the workspace is 16 production lines. Every other
+/// kind of line the two carry is in that number: a doc comment, a plain
+/// comment, blank lines and a `mod` declaration. The inline test module is
+/// not: the numerator already set its findings aside, and counting its lines
+/// diluted every density. `src/helper.rs` ends without a trailing newline and
+/// contributes 3, not 4: a final unterminated line is a line, and a terminated
+/// one adds no phantom successor.
 #[test]
-fn every_line_of_a_production_file_is_counted_whatever_it_holds() {
+fn every_line_of_a_production_file_is_counted_except_its_inline_tests() {
     let scanned = scan(&metadata("line-count"));
 
-    assert_eq!(scanned.production_lines, 25);
+    assert_eq!(scanned.production_lines, 16);
     assert!(scanned.complete);
     assert!(scanned.errors.is_empty(), "{:?}", scanned.errors);
 }
@@ -30,10 +32,10 @@ fn a_test_target_contributes_no_line_to_the_denominator() {
     let scanned = scan(&metadata("line-count"));
 
     assert_ne!(
-        scanned.production_lines, 31,
+        scanned.production_lines, 22,
         "the 6 lines of the test target were counted as production"
     );
-    assert_eq!(scanned.production_lines, 25);
+    assert_eq!(scanned.production_lines, 16);
 }
 
 /// A file that never decodes was still read, so it is not silently absent: it

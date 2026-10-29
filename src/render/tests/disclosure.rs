@@ -25,8 +25,8 @@ fn in_context(diagnostic: Diagnostic, id: &str, context: DiagnosticContext) -> D
 
 /// US-007: a withheld rule still weighs, so the sentence naming it states the
 /// criterion and never claims its repair is worth nothing. `clippy::exit` is
-/// the self-scan's case: withheld for its measured noise, and its one site
-/// still caps reliability through its tier.
+/// the self-scan's case: withheld for its measured noise, its tier caps
+/// nothing since core-v6, and its one site still costs reliability its charge.
 #[test]
 fn a_withheld_rule_that_moves_the_score_is_never_called_worthless() {
     let mut report = report();
@@ -34,8 +34,12 @@ fn a_withheld_rule_that_moves_the_score_is_never_called_worthless() {
     let report = rebuilt(report);
     let score = report.audit.score.as_ref().unwrap();
     assert_eq!(score.withheld_rule_ids, ["clippy::exit"]);
+    assert_eq!(score.applied_ceiling, None);
     let without = Audit::build(1, 100, Status::Complete, &[]);
-    assert!(without.score.unwrap().value > score.value, "removing it moves the score");
+    assert!(
+        without.score.unwrap().dimensions.reliability > score.dimensions.reliability,
+        "removing it moves its dimension"
+    );
 
     let output = rendered(&report, 200, false, false);
     assert!(

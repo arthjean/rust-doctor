@@ -95,7 +95,7 @@ describe("cli surface", () => {
     expect(subcommand.stderr).toContain("no agent detected");
     const scan = await runDoctor(["./setup", "--yes", "--json"], { sandbox: box, cwd: parent });
     expect(scan.exitCode).toBe(0);
-    expect((scan.json as { schema_version: number }).schema_version).toBe(23);
+    expect((scan.json as { schema_version: number }).schema_version).toBe(24);
   });
 
   test("CL-07 hook install codex is an unknown subcommand", async () => {

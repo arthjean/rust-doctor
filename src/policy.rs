@@ -31,7 +31,9 @@ pub(crate) use catalog::{
     STRUCTURE_ORPHAN_MODULE_FILE, STRUCTURE_OVERSIZED_UNIT, STRUCTURE_STACKED_ALLOW,
     STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE, find,
 };
-pub(crate) use noise::{CorpusMeasurement, UNMEASURED_NOISE_BASIS_POINTS, corpus_measurement};
+pub(crate) use noise::{
+    CorpusMeasurement, UNMEASURED_NOISE_BASIS_POINTS, WITHHOLD_NOISE_BASIS_POINTS, corpus_measurement,
+};
 pub use paths::PathOverrideReport;
 pub(crate) use paths::{PathOverride, PathPolicy};
 

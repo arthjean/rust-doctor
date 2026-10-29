@@ -412,6 +412,7 @@ pub(super) fn inspect(
                 manifest_path: Some("Cargo.lock".to_owned()),
                 span: entry_span(lockfile, &package.name, &package.version),
                 key: None,
+                informational: false,
             });
         }
     }

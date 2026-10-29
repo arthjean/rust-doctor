@@ -17,10 +17,47 @@ use std::collections::BTreeSet;
 use crate::policy::{Producer, RuleTier};
 use crate::report::Severity;
 
+use super::ceilings::{capped, tier_dimension_ceiling, tier_overall_ceiling, worse_tier};
 use super::{
-    RuleAggregate, ScoreDimension, ScoreDimensions, capped, dimension_weight_twice,
-    tier_dimension_ceiling, tier_overall_ceiling, worse_tier,
+    BASIS_POINTS, RuleAggregate, ScoreDimension, ScoreDimensions, dimension_weight_twice,
 };
+
+impl RuleAggregate {
+    /// What this rule adds to its dimension's density before the denominator:
+    /// its severity-weighted sites, weighed by its tier and discounted by the
+    /// rate the corpus measured it wrong.
+    ///
+    /// Only a measured rule is discounted here. The ranking reads an unmeasured
+    /// rule at the middle because no measurement is not evidence of
+    /// correctness; the score charges it whole because a workspace's value
+    /// must not depend on which rules the corpus happened to adjudicate, and
+    /// a discount that appears with the first adjudicated site can only lower
+    /// a charge, never raise one.
+    pub(super) fn charged(&self) -> f64 {
+        self.charge(self.numerator)
+    }
+
+    pub(super) fn charge(&self, sites: u64) -> f64 {
+        let kept = self
+            .noise
+            .map_or(BASIS_POINTS, |noise| BASIS_POINTS.saturating_sub(u64::from(noise)));
+        let weighted = sites.saturating_mul(tier_weight(self.tier));
+        weighted as f64 * kept as f64 / BASIS_POINTS as f64
+    }
+
+    /// What this rule adds to its dimension's density: its charge over production kilolines
+    /// for a rule counted against the code, and for one counted against the workspace, what
+    /// the workspace itself carries whole plus what its members claim averaged over them.
+    fn density(&self, scale: Scale) -> f64 {
+        match self.scope {
+            DensityScope::PerKiloline => self.charged() / scale.divisor(self.scope),
+            DensityScope::Workspace => {
+                let owned = self.owned.min(self.numerator);
+                self.charge(self.numerator - owned) + self.charge(owned) / scale.members()
+            }
+        }
+    }
+}
 
 /// Smallest denominator a per-site density is ever divided by, in kilolines.
 ///

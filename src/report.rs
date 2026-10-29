@@ -43,7 +43,7 @@ pub(crate) use assembly::{
     interrupted_failure, policy_failure, preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 23;
+pub const SCHEMA_VERSION: u8 = 24;
 
 /// The error code every stage a passed `--max-duration` stopped or skipped
 /// reports under.

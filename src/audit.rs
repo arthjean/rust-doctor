@@ -11,6 +11,7 @@ use crate::policy::{CorpusMeasurement, RuleTier};
 use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceMeasurement;
 
+mod ceilings;
 mod density;
 mod ranking;
 mod packages;
@@ -18,11 +19,14 @@ mod reason;
 mod share;
 mod source_inventory;
 
+pub use ceilings::ScoreCeiling;
 pub use packages::PackageAudit;
 pub use reason::ScoreReason;
 pub use share::ShareError;
 
-use density::{DensityScope, Scale, calculate_dimensions, contributions, tier_weight};
+pub(crate) use ceilings::OVERALL;
+use ceilings::{capped, tier_overall_ceiling, worse_tier};
+use density::{DensityScope, Scale, calculate_dimensions, contributions};
 
 /// The workspace the score is computed against: how much of it there is, and
 /// whether that is the workspace or a floor on it.
@@ -128,6 +132,11 @@ pub struct AuditCategory {
     pub name: AuditCategoryName,
     pub distinct: SeverityCounts,
     pub occurrences: SeverityCounts,
+    /// The occurrences the score weighs: neither outside production code nor
+    /// unscored. `occurrences` keeps counting everything the report publishes,
+    /// which `summary` has to equal, so this is the count to act on: this
+    /// crate's own Maintainability published 138 warnings of which one weighed.
+    pub production: SeverityCounts,
 }
 
 /// The categories the report publishes, and the order it publishes them in.
@@ -157,13 +166,17 @@ pub struct AuditScore {
     /// Every cause that makes the score non-authoritative, empty exactly when it is.
     pub reasons: Vec<ScoreReason>,
     pub dimensions: ScoreDimensions,
-    /// Worst tier observed across all dimensions, or `null` when no scored
-    /// rule is catalogued.
+    /// The worst tier that caps, across all dimensions, or `null` when no
+    /// scored rule caps: an uncatalogued rule and a withheld one cap nothing.
     pub worst_tier: Option<RuleTier>,
     /// Global cap effectively applied to `value`, or `null` when the worst tier
     /// imposes none. Published so that a score drop can be explained without
     /// recomputation.
     pub applied_ceiling: Option<u8>,
+    /// Every ceiling a tier imposes, per dimension and then on the score as
+    /// `overall`, each with the rules holding its tier. Empty when no tier
+    /// caps; the `overall` entry is `applied_ceiling` with its cause.
+    pub ceilings: Vec<ScoreCeiling>,
     pub projected_after_top_three: Option<u8>,
     pub projected_rule_ids: Vec<String>,
     /// Rules that fired here and that the corpus adjudicated at no true
@@ -215,6 +228,17 @@ impl ScoreDimension {
         Self::Performance,
         Self::Dependencies,
     ];
+
+    /// The name the report publishes the dimension under.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Security => "security",
+            Self::Reliability => "reliability",
+            Self::Maintainability => "maintainability",
+            Self::Performance => "performance",
+            Self::Dependencies => "dependencies",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -421,6 +445,16 @@ impl Audit {
             && self.packages.iter().all(PackageAudit::is_valid)
     }
 
+    /// The occurrences the score weighs, aggregated over every category of the block.
+    pub fn production_totals(&self) -> SeverityCounts {
+        self.categories
+            .iter()
+            .fold(SeverityCounts::default(), |mut production, category| {
+                production.merge(category.production);
+                production
+            })
+    }
+
     /// Both quantities aggregated over every category of the block.
     pub fn totals(&self) -> (SeverityCounts, SeverityCounts) {
         self.categories.iter().fold(
@@ -464,6 +498,7 @@ impl AuditCategory {
             name,
             distinct: SeverityCounts::default(),
             occurrences: SeverityCounts::default(),
+            production: SeverityCounts::default(),
         }
     }
 
@@ -472,6 +507,8 @@ impl AuditCategory {
             && self.distinct.is_coherent()
             && self.occurrences.is_coherent()
             && self.occurrences.covers(self.distinct)
+            && self.production.is_coherent()
+            && self.occurrences.covers(self.production)
     }
 }
 
@@ -486,7 +523,7 @@ impl Serialize for AuditCategory {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("AuditCategory", 7)?;
+        let mut state = serializer.serialize_struct("AuditCategory", 8)?;
         state.serialize_field("name", &self.name)?;
         state.serialize_field("errors", &self.occurrences.errors)?;
         state.serialize_field("warnings", &self.occurrences.warnings)?;
@@ -494,6 +531,7 @@ impl Serialize for AuditCategory {
         state.serialize_field("unknown", &self.occurrences.unknown)?;
         state.serialize_field("distinct", &self.distinct)?;
         state.serialize_field("occurrences", &self.occurrences)?;
+        state.serialize_field("production", &self.production)?;
         state.end()
     }
 }
@@ -513,6 +551,18 @@ impl AuditScore {
             return false;
         }
         if self.applied_ceiling != self.worst_tier.and_then(tier_overall_ceiling) {
+            return false;
+        }
+        // The published overall ceiling is `applied_ceiling` with its cause, and every
+        // ceiling names at least one rule holding it.
+        let overall = self
+            .ceilings
+            .iter()
+            .find(|ceiling| ceiling.dimension == OVERALL)
+            .map(|ceiling| (ceiling.tier, ceiling.ceiling));
+        if overall != self.worst_tier.zip(self.applied_ceiling)
+            || self.ceilings.iter().any(|ceiling| ceiling.rule_ids.is_empty())
+        {
             return false;
         }
         if self.value != capped(weighted_score(self.dimensions), self.applied_ceiling) {
@@ -651,25 +701,6 @@ fn category_bucket(category: Option<&str>) -> AuditCategoryName {
         .map_or(AuditCategoryName::Other, |(name, _)| name)
 }
 
-/// Cap imposed on a dimension by the worst tier it contains.
-const fn tier_dimension_ceiling(tier: RuleTier) -> Option<u8> {
-    match tier {
-        RuleTier::P0 => Some(20),
-        RuleTier::P1 => Some(50),
-        RuleTier::P2 => Some(75),
-        RuleTier::P3 => None,
-    }
-}
-
-/// Cap imposed on the overall score by the worst tier across all dimensions.
-const fn tier_overall_ceiling(tier: RuleTier) -> Option<u8> {
-    match tier {
-        RuleTier::P0 => Some(40),
-        RuleTier::P1 => Some(65),
-        RuleTier::P2 | RuleTier::P3 => None,
-    }
-}
-
 /// Full scale of an adjudicated rate, matching the basis points the corpus
 /// publishes.
 const BASIS_POINTS: u64 = 10_000;
@@ -681,21 +712,6 @@ const BASIS_POINTS: u64 = 10_000;
 /// refuses to serialize instead of publishing a hundred over nothing.
 const fn is_scorable_workspace(source_files: usize, production_lines: usize) -> bool {
     source_files > 0 && production_lines > 0
-}
-
-const fn capped(value: u8, ceiling: Option<u8>) -> u8 {
-    match ceiling {
-        Some(ceiling) if ceiling < value => ceiling,
-        _ => value,
-    }
-}
-
-/// The worst tier is the minimum, `P0` being declared first.
-fn worse_tier(current: Option<RuleTier>, candidate: Option<RuleTier>) -> Option<RuleTier> {
-    match (current, candidate) {
-        (Some(current), Some(candidate)) => Some(current.min(candidate)),
-        (current, candidate) => current.or(candidate),
-    }
 }
 
 const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
@@ -721,47 +737,6 @@ impl RuleAggregate {
         self.contribution
     }
 
-    /// What this rule adds to its dimension's density before the denominator:
-    /// its severity-weighted sites, weighed by its tier and discounted by the
-    /// rate the corpus measured it wrong.
-    ///
-    /// Only a measured rule is discounted here. The ranking reads an unmeasured
-    /// rule at the middle because no measurement is not evidence of
-    /// correctness; the score charges it whole because a workspace's value
-    /// must not depend on which rules the corpus happened to adjudicate, and
-    /// a discount that appears with the first adjudicated site can only lower
-    /// a charge, never raise one.
-    pub(super) fn charged(&self) -> f64 {
-        self.charge(self.numerator)
-    }
-
-    fn charge(&self, sites: u64) -> f64 {
-        let kept = self
-            .noise
-            .map_or(BASIS_POINTS, |noise| BASIS_POINTS.saturating_sub(u64::from(noise)));
-        let weighted = sites.saturating_mul(tier_weight(self.tier));
-        weighted as f64 * kept as f64 / BASIS_POINTS as f64
-    }
-
-    /// What this rule adds to its dimension's density: its charge over production kilolines
-    /// for a rule counted against the code, and for one counted against the workspace, what
-    /// the workspace itself carries whole plus what its members claim averaged over them.
-    fn density(&self, scale: Scale) -> f64 {
-        match self.scope {
-            DensityScope::PerKiloline => self.charged() / scale.divisor(self.scope),
-            DensityScope::Workspace => {
-                let owned = self.owned.min(self.numerator);
-                self.charge(self.numerator - owned) + self.charge(owned) / scale.members()
-            }
-        }
-    }
-
-    /// A non-scorable rule caps nothing: a tier cannot act without a retained
-    /// dimension and severity.
-    const fn scoring_tier(&self) -> Option<RuleTier> {
-        if self.is_scorable() { self.tier } else { None }
-    }
-
     const fn is_scorable(&self) -> bool {
         self.numerator > 0 && self.dimension.is_some()
     }
@@ -783,6 +758,11 @@ fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
         tally
             .occurrences
             .add(diagnostic.severity, diagnostic.occurrences);
+        if crate::report::DiagnosticContext::weighs(diagnostic) {
+            tally
+                .production
+                .add(diagnostic.severity, diagnostic.occurrences);
+        }
     }
 
     tallies.into_values().collect()
@@ -817,6 +797,7 @@ fn score(aggregation: &RuleAggregation, reasons: Vec<ScoreReason>) -> AuditScore
         dimensions: scored.dimensions,
         worst_tier: scored.worst_tier,
         applied_ceiling: scored.applied_ceiling,
+        ceilings: ceilings::ceilings(&aggregation.rules),
         projected_after_top_three,
         projected_rule_ids,
         withheld_rule_ids,

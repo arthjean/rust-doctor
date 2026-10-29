@@ -2,7 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{DuplicateMajor, LockedPackage, Requirement, duplicate_major_versions, major_of};
+use super::{
+    DuplicateMajor, LockedPackage, Requirement, compatibility_class, duplicate_major_versions,
+};
 
 fn locked(entries: &[(&str, &str, &[&str])]) -> Vec<LockedPackage> {
     entries
@@ -44,8 +46,49 @@ fn major_comparison_is_order_independent_and_ignores_prerelease_metadata() {
     // An unreadable version cannot be compared, so it cannot ground a
     // duplication verdict.
     assert!(duplicates(&[("a", "x.0.0", &[]), ("a", "1.0.0", &[])]).is_empty());
-    assert_eq!(major_of("10.2.3"), Some("10"));
-    assert_eq!(major_of(""), None);
+    assert_eq!(compatibility_class("10.2.3"), Some("10"));
+    assert_eq!(compatibility_class(""), None);
+}
+
+/// Versions compare by Cargo's compatibility class, the left-most non-zero component: `0.59`
+/// and `0.61` are two classes and `0.0.3` and `0.0.4` are two, while `1.4` and `1.9` are one.
+/// Reading the first number alone called every `0.x` one class, so a `0.x` crate compiled twice
+/// was never reported.
+#[test]
+fn versions_compare_by_cargo_compatibility_class() {
+    assert_eq!(compatibility_class("1.4.0"), Some("1"));
+    assert_eq!(compatibility_class("0.59.0"), Some("0.59"));
+    assert_eq!(compatibility_class("0.61.2"), Some("0.61"));
+    assert_eq!(compatibility_class("0.0.3"), Some("0.0.3"));
+    assert_eq!(compatibility_class("0.0.0"), Some("0.0.0"));
+    assert_eq!(compatibility_class("1.0.0-rc.1+abc"), Some("1"));
+    assert_eq!(compatibility_class("0.7.0-alpha.2"), Some("0.7"));
+    assert_eq!(compatibility_class("1.0"), None, "a lockfile version is three numbers");
+    assert_eq!(compatibility_class("1.x.0"), None);
+
+    assert_eq!(duplicates(&[("winsys", "0.59.0", &[]), ("winsys", "0.61.2", &[])]).len(), 1);
+    assert_eq!(duplicates(&[("tiny", "0.0.3", &[]), ("tiny", "0.0.4", &[])]).len(), 1);
+    assert!(duplicates(&[("same", "1.4.0", &[]), ("same", "1.9.2", &[])]).is_empty());
+    assert!(duplicates(&[("same", "0.7.1", &[]), ("same", "0.7.15", &[])]).is_empty());
+    assert!(duplicates(&[("rc", "1.0.0-rc.1+abc", &[]), ("rc", "1.2.0", &[])]).is_empty());
+}
+
+/// A duplicate whose every version arrives through a dependency is a fact no manifest here
+/// controls, and is published at `Info`. One version a member requires directly, or one no
+/// member reaches, keeps the warning.
+#[test]
+fn only_a_duplicate_every_version_of_which_arrives_through_a_dependency_is_transitive() {
+    let duplicate = |requirements: [Requirement; 2]| DuplicateMajor {
+        name: "hb".to_owned(),
+        versions: vec![
+            ("1.0.0".to_owned(), requirements[0].clone()),
+            ("2.0.0".to_owned(), requirements[1].clone()),
+        ],
+    };
+    let through = || Requirement::Through("dep".to_owned());
+    assert!(duplicate([through(), through()]).is_transitive_only());
+    assert!(!duplicate([Requirement::Direct("app".to_owned()), through()]).is_transitive_only());
+    assert!(!duplicate([Requirement::Unreached, through()]).is_transitive_only());
 }
 
 /// Each version of a duplicated crate is attributed to the member that requires it or to the
@@ -82,7 +125,7 @@ fn a_duplicate_is_attributed_to_who_requires_it() {
     );
     assert_eq!(
         serde.message(),
-        "Crate \"serde\" is resolved with incompatible major versions 1.0.0, 2.0.0 (required by app)."
+        "Crate \"serde\" is resolved with incompatible versions 1.0.0, 2.0.0 (required by app)."
     );
 
     let winnow = &found[1];
@@ -96,6 +139,6 @@ fn a_duplicate_is_attributed_to_who_requires_it() {
     );
     assert_eq!(
         winnow.message(),
-        "Crate \"winnow\" is resolved with incompatible major versions 0.7.15 (through syntax), 1.0.4 (through toml)."
+        "Crate \"winnow\" is resolved with incompatible versions 0.7.15 (through syntax), 1.0.4 (through toml)."
     );
 }

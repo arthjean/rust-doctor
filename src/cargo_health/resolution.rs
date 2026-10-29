@@ -117,6 +117,7 @@ pub(super) fn inspect_resolution(
                         .map(|path| path.as_str().to_owned()),
                     span: None,
                     key: None,
+                    informational: false,
                 });
             }
         }
@@ -137,6 +138,7 @@ pub(super) fn inspect_resolution(
                         manifest_path: Some(LOCKFILE.to_owned()),
                         span: None,
                         key: None,
+                        informational: duplicate.is_transitive_only(),
                     });
                 }
             }
@@ -247,7 +249,7 @@ pub(super) enum Requirement {
     Unreached,
 }
 
-/// One crate resolved at two incompatible majors, each version with the way
+/// One crate resolved at two incompatible versions, each with the way
 /// it reaches the workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DuplicateMajor {
@@ -261,8 +263,7 @@ impl DuplicateMajor {
     /// Under the old message a reader was told two majors were resolved and
     /// nothing about who asked for either, which on this crate's own scan
     /// named `winnow` twice through two crates no manifest here mentions. The
-    /// binary still embeds both copies whoever asked, so every duplicate is
-    /// charged alike: the provenance says which dependency to bump.
+    /// provenance says which requirement to align or which dependency to bump.
     pub(super) fn message(&self) -> String {
         let versions: Vec<String> = self
             .versions
@@ -274,18 +275,34 @@ impl DuplicateMajor {
             })
             .collect();
         format!(
-            "Crate \"{}\" is resolved with incompatible major versions {}.",
+            "Crate \"{}\" is resolved with incompatible versions {}.",
             self.name,
             versions.join(", ")
         )
     }
+
+    /// Whether every version arrives through a dependency, so no manifest of
+    /// the workspace holds a requirement it could align.
+    ///
+    /// Such a duplicate is published at `Info` and weighs nothing. Charged
+    /// alike under core-v5, `winnow` and `rustc-hash`, which reach this crate
+    /// only through `ra_ap_syntax` and `toml`, held its dependencies at 64 and
+    /// topped the advice to repair. A version a member requires directly, or
+    /// one no member reaches, keeps the warning: the first is a requirement
+    /// the workspace moves, and the second is a lockfile the scan cannot
+    /// attribute.
+    pub(super) fn is_transitive_only(&self) -> bool {
+        self.versions
+            .iter()
+            .all(|(_, requirement)| matches!(requirement, Requirement::Through(_)))
+    }
 }
 
-/// Two versions of the same crate whose major number differs are not
-/// interchangeable: their types do not unify and the binary embeds both copies.
-/// Pre-releases and build metadata are ignored, only the major part of the
-/// triplet is compared. Each version is attributed to the member requiring it
-/// or to the member's dependency it arrives under.
+/// Two versions of the same crate in different Cargo compatibility classes
+/// are not interchangeable: their types do not unify and the binary embeds
+/// both copies. Pre-releases and build metadata are ignored. Each version is
+/// attributed to the member requiring it or to the member's dependency it
+/// arrives under.
 pub(super) fn duplicate_major_versions(
     packages: &[LockedPackage],
     members: &BTreeSet<String>,
@@ -305,7 +322,7 @@ pub(super) fn duplicate_major_versions(
             versions.sort_unstable();
             let mut unique: Vec<_> = versions
                 .iter()
-                .filter_map(|version| major_of(version))
+                .filter_map(|version| compatibility_class(version))
                 .collect();
             unique.sort_unstable();
             unique.dedup();
@@ -429,12 +446,26 @@ impl<'a> Graph<'a> {
     }
 }
 
-pub(super) fn major_of(version: &str) -> Option<&str> {
-    let major = version
-        .split(['+', '-'])
-        .next()?
-        .split('.')
-        .next()
-        .filter(|major| !major.is_empty() && major.bytes().all(|byte| byte.is_ascii_digit()))?;
-    Some(major)
+/// The Cargo compatibility class of a version: its left-most non-zero
+/// component and every zero before it, `M` for `M.x.y`, `0.m` for `0.m.y` and
+/// `0.0.p` for `0.0.p`. Cargo considers only a change there incompatible, so
+/// `0.59` and `0.61` are two classes, which reading the first number alone
+/// called one. Pre-release and build metadata are ignored, and a version that
+/// is not three numbers has no class.
+pub(super) fn compatibility_class(version: &str) -> Option<&str> {
+    let core = version.split(['+', '-']).next()?;
+    let mut end = 0;
+    let mut settled = false;
+    let mut components = 0;
+    for component in core.split('.') {
+        if component.is_empty() || !component.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        if !settled {
+            end += component.len() + usize::from(components > 0);
+            settled = component.bytes().any(|byte| byte != b'0');
+        }
+        components += 1;
+    }
+    if components == 3 { core.get(..end) } else { None }
 }

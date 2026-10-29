@@ -58,7 +58,7 @@ function expectOneDocument(stdout: string): Report {
   expect(stdout.endsWith("}\n")).toBe(true);
   expect(stdout.indexOf("\n")).toBe(stdout.length - 1);
   const report = JSON.parse(stdout) as Report;
-  expect(report.schema_version).toBe(23);
+  expect(report.schema_version).toBe(24);
   return report;
 }
 

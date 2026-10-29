@@ -1102,10 +1102,9 @@ fn tier_weight(tier: Option<RuleTier>) -> u64 {
     }
 }
 
-/// The share of a measured rule's sites the score charges, in basis points:
-/// the complement of the smoothed rate the report publishes beside the rule.
-/// An unmeasured rule is charged whole.
-fn kept_basis_points(report: &Value, rule: &str) -> u64 {
+/// The smoothed rate the report publishes beside a measured rule, or `None`
+/// for a rule the corpus never adjudicated.
+fn noise_basis_points(report: &Value, rule: &str) -> Option<u64> {
     report["policy"]["rules"]
         .as_array()
         .map(Vec::as_slice)
@@ -1113,7 +1112,19 @@ fn kept_basis_points(report: &Value, rule: &str) -> u64 {
         .iter()
         .find(|entry| entry["id"].as_str() == Some(rule))
         .and_then(|entry| entry["corpus_noise_basis_points"].as_u64())
-        .map_or(10_000, |noise| 10_000u64.saturating_sub(noise))
+}
+
+/// The share of a measured rule's sites the score charges, in basis points:
+/// the complement of the smoothed rate. An unmeasured rule is charged whole.
+fn kept_basis_points(report: &Value, rule: &str) -> u64 {
+    noise_basis_points(report, rule).map_or(10_000, |noise| 10_000u64.saturating_sub(noise))
+}
+
+/// Whether the corpus found a rule wrong more often than right, past the
+/// threshold that withholds it: its sites are charged at the discount and its
+/// tier caps nothing.
+fn is_withheld(report: &Value, rule: &str) -> bool {
+    noise_basis_points(report, rule).is_some_and(|noise| noise > 5_000)
 }
 
 /// Denominator the producer that raised a rule divides by, read off the rule's
@@ -1214,7 +1225,8 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
                 } else {
                     charge(*numerator) / divisor
                 };
-                worst = match (worst, *tier) {
+                let caps = if is_withheld(report, rule) { None } else { *tier };
+                worst = match (worst, caps) {
                     (Some(current), Some(candidate)) => Some(current.min(candidate)),
                     (current, candidate) => current.or(candidate),
                 };

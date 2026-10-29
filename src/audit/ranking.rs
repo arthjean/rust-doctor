@@ -8,22 +8,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::policy::UNMEASURED_NOISE_BASIS_POINTS;
+use crate::policy::{UNMEASURED_NOISE_BASIS_POINTS, WITHHOLD_NOISE_BASIS_POINTS};
 
 use super::density::capped_score_micro;
 use super::{BASIS_POINTS, RuleAggregate, RuleAggregation, worse_tier};
-
-/// The smoothed rate past which a rule is more often wrong than right on
-/// healthy code, and is withheld from the projection whatever it would recover.
-///
-/// It is strictly above the middle so that an unmeasured rule, which sits
-/// exactly there, is ranked and not withheld. The threshold used to be an
-/// expected repair value rounding to zero millionths of a point, which no
-/// rule ever reached: one site of `indexing_slicing` on five million lines
-/// still carried a value, and the report recommended fixing `print_stderr`,
-/// adjudicated wrong on every site it showed, in the entry point of a binary.
-const WITHHOLD_NOISE_BASIS_POINTS: u16 = 5_000;
-
 
 impl RuleAggregate {
     /// What repairing this rule is expected to be worth, which is what it costs
@@ -36,31 +24,39 @@ impl RuleAggregate {
     /// is not the same question and, on a rule measured wrong almost
     /// everywhere, is advice to change correct code.
     ///
+    /// A measured rule's contribution is already discounted, since it is read
+    /// through `charged`, so it is kept whole here. Under core-v5 it was
+    /// discounted a second time, and a rule the corpus confirmed at 3333 basis
+    /// points ranked below an unmeasured one of equal relief.
+    ///
     /// An unmeasured rule is discounted at `UNMEASURED_NOISE_BASIS_POINTS`, the
     /// middle of the interval, rather than kept whole. No measurement is not
-    /// evidence of correctness either, and the corpus has adjudicated 24 of the
-    /// 62 catalogued rules: keeping the other 38 undiscounted put every one of
-    /// them ahead of every rule the corpus ever confirmed, so the ranking read
-    /// as a list of what nobody has checked. It is the same smoothing at no
-    /// observations rather than a threshold of its own, so the first site the
-    /// corpus adjudicates moves the rule off the middle in whichever direction
-    /// it was adjudicated.
+    /// evidence of correctness either: keeping every unmeasured rule
+    /// undiscounted put each of them ahead of every rule the corpus ever
+    /// confirmed, so the ranking read as a list of what nobody has checked. It
+    /// is the same smoothing at no observations rather than a threshold of its
+    /// own, so the first site the corpus adjudicates moves the rule off the
+    /// middle in whichever direction it was adjudicated.
     pub(crate) fn expected_repair_value(&self) -> u64 {
         self.contribution()
             .saturating_mul(self.kept_basis_points())
             / BASIS_POINTS
     }
 
-    /// The share of a repair's value the corpus expects to be real, in basis
-    /// points: the complement of the smoothed rate, read at the middle for a
-    /// rule nobody measured.
+    /// The share of a repair's value the ranking keeps on top of what the
+    /// score already charges, in basis points: all of it for a measured rule,
+    /// whose charge carries its discount, and the middle for a rule nobody
+    /// measured.
     pub(super) fn kept_basis_points(&self) -> u64 {
-        let noise = self.noise.unwrap_or(UNMEASURED_NOISE_BASIS_POINTS);
-        BASIS_POINTS.saturating_sub(u64::from(noise))
+        if self.noise.is_some() {
+            BASIS_POINTS
+        } else {
+            BASIS_POINTS.saturating_sub(u64::from(UNMEASURED_NOISE_BASIS_POINTS))
+        }
     }
 
     /// Whether the corpus found this rule wrong more often than right, which
-    /// is what keeps it out of the projection.
+    /// keeps it out of the projection and keeps its tier from capping anything.
     pub(super) fn is_withheld(&self) -> bool {
         self.noise
             .is_some_and(|noise| noise > WITHHOLD_NOISE_BASIS_POINTS)
@@ -76,8 +72,8 @@ impl RuleAggregation {
     ///
     /// The projection is climbed rather than sorted. Each of its three places goes to the rule
     /// whose repair, on top of the ones already named, gives the most points back through the
-    /// same ceilings the published value takes, discounted by the rate the corpus adjudicated it
-    /// wrong. A static key could not answer that: under a `P1` ceiling every `P3` repair is worth
+    /// same ceilings the published value takes, which already carry a measured rule's discount,
+    /// and kept at the middle for a rule nobody measured. A static key could not answer that: under a `P1` ceiling every `P3` repair is worth
     /// zero points and the relief of its dimension is the only thing that separates it from the
     /// rule holding the ceiling, so a ranking read from relief alone named three `P3` rules on a
     /// workspace capped at 65 and promised 65. Where no ceiling moves, the marginal gain is the

@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::*;
+use super::ceilings::tier_dimension_ceiling;
 use super::share::build_share_url;
 use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
@@ -548,6 +549,7 @@ fn invalid_score_state_is_rejected_before_sharing() {
             },
             worst_tier: None,
             applied_ceiling: None,
+            ceilings: Vec::new(),
             projected_after_top_three: None,
             projected_rule_ids: Vec::new(),
             withheld_rule_ids: Vec::new(),
