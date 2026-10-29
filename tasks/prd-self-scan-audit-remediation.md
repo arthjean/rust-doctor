@@ -7,6 +7,7 @@
 |---------|------|--------|---------|
 | 1.0 | 2026-10-28 | Arthur Jean | Initial draft from the 0.9.0 self-scan audit (`bunx -y rust-doctor@latest .`, score 89, core-v5, schema 23) |
 | 1.1 | 2026-10-29 | Arthur Jean | Move the `delta-pairing/verdicts.json` replay from US-022 to US-028, so the detector changes are scanned and adjudicated in one corpus window |
+| 1.2 | 2026-10-29 | Arthur Jean | US-028: a lone direct duplicate scores 72, not 75. The replay leaves `duplicate_major_versions` without a corpus rate (five findings on two span-less `Cargo.lock` sites), so its site is charged whole under the P2 ceiling |
 
 ## Problem Statement
 
@@ -781,7 +782,7 @@ Release 0.11.0. The corpus measures the new model once, the two rules the corpus
 - [ ] Given the replayed record, when `cargo test --test corpus_precision` runs offline from the clone cache, then it passes, and the score distribution gate keeps a positive separation.
 - [ ] `docs/subsystems/audit.md`, `skills/rust-doctor/SKILL.md` and the AGENTS.md schema mention state core-v6 and schema 24:
   - "a withheld rule caps nothing";
-  - a lone direct duplicate scores 75 under the P2 ceiling, and a transitive-only one weighs nothing.
+  - a lone direct duplicate scores 72 under the P2 ceiling, and a transitive-only one weighs nothing.
 
   Each file stays within its word budget.
 - [ ] Given a subject whose score moves by more than 10 points, when the replay completes, then the move is explained in the release note by the story that caused it.
