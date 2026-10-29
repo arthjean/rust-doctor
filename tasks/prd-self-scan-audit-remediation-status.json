@@ -33,10 +33,10 @@
     {
       "id": "EP-004",
       "title": "Detectors flag what a reviewer would act on",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5
     },
     {
       "id": "EP-005",
@@ -305,63 +305,63 @@
       "id": "US-021",
       "title": "Skip test-case-only duplicate families and nested items",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-022",
       "title": "Fingerprint macro arguments and publish the lowest pairwise similarity",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-021"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-023",
       "title": "Honor a manifest [lints] allow and charge it once at P3",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-024",
       "title": "Narrow crate_level_allow to allows that hide catalogued or dead code",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-025",
       "title": "Count a unit's lines from its keyword",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-10-29",
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-026",
