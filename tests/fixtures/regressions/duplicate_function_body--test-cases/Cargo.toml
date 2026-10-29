@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::duplicate_function_body
+# weakness: test-case
+# source: US-021, self-scan 0.9.0, 28 of 50 duplicate families held only #[test] functions
+# verdict: quiet
+
+[package]
+name = "seed-duplicate-function-body-test-cases"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

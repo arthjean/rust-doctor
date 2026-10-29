@@ -386,6 +386,10 @@ struct Member {
     path: String,
     span: SourceSpan,
     context: Option<DiagnosticContext>,
+    /// Is this a test case, a function an attribute ending in `test` marks
+    /// (`#[test]`, `#[tokio::test]`, `#[rstest]`)? Test cases are written to
+    /// look alike, so a duplicate family made only of them is not reported.
+    test_case: bool,
 }
 
 /// The wall clock the pass is running against.
@@ -551,6 +555,7 @@ fn record(
         path: path.to_owned(),
         span: observation.span,
         context: observation.context,
+        test_case: false,
     };
     record_family(
         families,

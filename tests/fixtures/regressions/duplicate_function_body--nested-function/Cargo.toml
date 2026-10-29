@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::duplicate_function_body
+# weakness: nested-item
+# source: US-021, self-scan 0.9.0, a helper nested in two copies was reported again as a family of its own
+# verdict: fires
+
+[package]
+name = "seed-duplicate-function-body-nested-function"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

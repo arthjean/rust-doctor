@@ -683,12 +683,12 @@
       "test": "tests/suppression_audit.rs::a_crate_level_allow_is_reported_with_its_scope"
     },
     {
-      "catches": "two or more functions whose bodies are identical once names and literals are set aside",
+      "catches": "two or more functions whose bodies are identical once names, literals and macro arguments are normalized, test cases alone excepted",
       "id": "rust_doctor::structure::duplicate_function_body",
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
     },
     {
-      "catches": "two or more functions whose bodies are alike above a similarity threshold once names and literals are set aside",
+      "catches": "two or more functions every pair of which is alike above a similarity threshold once names, literals and macro arguments are normalized, test cases alone excepted",
       "id": "rust_doctor::structure::near_duplicate_function_body",
       "test": "tests/structure_kernel.rs::the_duplication_pass_publishes_one_family_per_shape"
     },

@@ -6,8 +6,9 @@
 //! identifier becomes a positional placeholder, numbered by first appearance so
 //! that `a + a` and `x + y` stay apart; a literal is erased down to its type,
 //! because the value is what an agent varies between two copies; and a macro is
-//! opaque below its own name, because expanding it would need a second
-//! compilation.
+//! never expanded, because that would need a second compilation, but the
+//! tokens it is called with are code the author wrote and are read the same
+//! way: an identifier is a placeholder, a literal its type, punctuation stays.
 //!
 //! Everything else is kept exactly: the node kinds, the operators, the
 //! keywords, the arity. `if/else` and `match` are different kinds and stay
@@ -29,7 +30,7 @@ use ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode};
 
 use crate::source_text::compact;
 
-const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-normalized-v1";
+const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-normalized-v2";
 
 /// Seed of the subtree hashes. Any odd constant works; this one is the FNV
 /// offset basis, kept for no reason other than being a published one.
@@ -145,6 +146,9 @@ struct Canonical {
     placeholders: HashMap<String, usize>,
     shingles: Vec<u64>,
     poisoned: bool,
+    /// Has the walk passed the function it started from? Every item met after
+    /// that is nested in its body.
+    entered: bool,
 }
 
 impl Canonical {
@@ -165,10 +169,24 @@ impl Canonical {
             SyntaxKind::ATTR => return None,
             _ => {}
         }
+        // An item nested in the body is a unit the pass compares on its own,
+        // so it stands here as one node of its kind. Walking it would make two
+        // functions alike for holding the same helper, and report the helper's
+        // pair a second time through the functions that hold it. `asm!` and a
+        // macro call parse as items too, but in a body they are expressions.
+        let nested = self.entered
+            && ast::Item::can_cast(kind)
+            && !matches!(kind, SyntaxKind::MACRO_CALL | SyntaxKind::ASM_EXPR);
+        self.entered = true;
 
         self.text.push('(');
         let _ = write!(self.text, "{kind:?}");
         let mut hash = mix(SEED, u64::from(u16::from(kind)));
+        if nested {
+            self.text.push(')');
+            self.shingles.push(hash);
+            return Some(hash);
+        }
 
         if let Some(literal) = ast::Literal::cast(node.clone()) {
             let tag = literal_tag(&literal.kind());
@@ -181,14 +199,19 @@ impl Canonical {
         ) {
             hash = self.placeholder(&compact(node), hash);
         } else if let Some(call) = ast::MacroCall::cast(node.clone()) {
-            // Opaque below the name: `println!("a")` and `println!("b")` are
-            // the same invocation, and `println!` and `unreachable!` are not.
+            // The name, then the arguments as tokens: `println!("a")` and
+            // `println!("b")` are the same invocation, `println!` and
+            // `unreachable!` are not, and neither are `assert!(a == b)` and
+            // `assert!(a != b)`.
             let path = call.path().map(|path| compact(path.syntax()));
             let path = path.as_deref().unwrap_or("?");
             self.text.push(' ');
             self.text.push_str(path);
             self.text.push('!');
             hash = mix_text(hash, path);
+            if let Some(tree) = call.token_tree() {
+                hash = mix(hash, self.token_tree(tree.syntax()));
+            }
         } else {
             for child in node.children_with_tokens() {
                 hash = match child {
@@ -214,6 +237,38 @@ impl Canonical {
         self.text.push(')');
         self.shingles.push(hash);
         Some(hash)
+    }
+
+    /// Canonical form of a macro's token tree, with its hash returned and
+    /// recorded. The tokens are unparsed, so each nested tree stands for the
+    /// node a parse would have made, and adds the one shingle that keeps a
+    /// macro's arguments weighing on a near-duplicate score.
+    fn token_tree(&mut self, tree: &SyntaxNode) -> u64 {
+        self.text.push('(');
+        let _ = write!(self.text, "{:?}", tree.kind());
+        let mut hash = mix(SEED, u64::from(u16::from(tree.kind())));
+        for child in tree.children_with_tokens() {
+            hash = match child {
+                NodeOrToken::Node(child) => mix(hash, self.token_tree(&child)),
+                NodeOrToken::Token(token) => {
+                    let kind = token.kind();
+                    if kind.is_trivia() {
+                        continue;
+                    }
+                    self.text.push(' ');
+                    if matches!(kind, SyntaxKind::IDENT | SyntaxKind::LIFETIME_IDENT) {
+                        self.placeholder(token.text(), hash)
+                    } else {
+                        let text = token_tag(kind).unwrap_or_else(|| token.text());
+                        self.text.push_str(text);
+                        mix_text(hash, text)
+                    }
+                }
+            };
+        }
+        self.text.push(')');
+        self.shingles.push(hash);
+        hash
     }
 
     fn placeholder(&mut self, text: &str, hash: u64) -> u64 {
@@ -253,6 +308,23 @@ const fn literal_tag(kind: &LiteralKind) -> &'static str {
         LiteralKind::Char(_) => "#char",
         LiteralKind::Byte(_) => "#byte",
         LiteralKind::Bool(_) => "#bool",
+    }
+}
+
+/// Type of a literal token inside a macro's arguments, which the parser never
+/// turned into a literal node. The same tags as `literal_tag`, so `1` reads
+/// the same inside `assert_eq!` as outside it.
+const fn token_tag(kind: SyntaxKind) -> Option<&'static str> {
+    match kind {
+        SyntaxKind::STRING => Some("#str"),
+        SyntaxKind::BYTE_STRING => Some("#bstr"),
+        SyntaxKind::C_STRING => Some("#cstr"),
+        SyntaxKind::INT_NUMBER => Some("#int"),
+        SyntaxKind::FLOAT_NUMBER => Some("#float"),
+        SyntaxKind::CHAR => Some("#char"),
+        SyntaxKind::BYTE => Some("#byte"),
+        SyntaxKind::TRUE_KW | SyntaxKind::FALSE_KW => Some("#bool"),
+        _ => None,
     }
 }
 
@@ -340,14 +412,20 @@ mod tests {
         );
     }
 
-    /// US-005: a macro is opaque below its own name.
+    /// US-005, US-022: a macro keeps its name and reads its arguments as the
+    /// rest of the function is read, names and literals erased, everything
+    /// else kept.
     #[test]
-    fn a_macro_hides_its_arguments_and_keeps_its_name() {
+    fn a_macro_reads_its_arguments_and_keeps_its_name() {
         assert_eq!(
             digest("fn one() { println!(\"a\"); }"),
             digest("fn two() { println!(\"b\"); }")
         );
         assert_eq!(
+            digest("fn one(total: u32) { assert_eq!(total, 3); }"),
+            digest("fn two(count: u32) { assert_eq!(count, 40); }")
+        );
+        assert_ne!(
             digest("fn one() { println!(\"a {}\", 1); }"),
             digest("fn two() { println!(\"b\"); }")
         );
@@ -355,6 +433,42 @@ mod tests {
             digest("fn one() { println!(\"a\"); }"),
             digest("fn two() { unreachable!(\"a\"); }")
         );
+        assert_ne!(
+            digest("fn one(a: u32, b: u32) { assert!(a == b); }"),
+            digest("fn two(a: u32, b: u32) { assert!(a != b); }")
+        );
+        // A placeholder is shared with the body: the argument naming the
+        // binding is not the argument naming the parameter.
+        assert_ne!(
+            digest("fn one(a: u32) { let b = a; assert_eq!(a, 1); }"),
+            digest("fn two(a: u32) { let b = a; assert_eq!(b, 1); }")
+        );
+        // A literal reads the same inside the arguments as outside them.
+        assert_ne!(
+            digest("fn one() { assert!(true); }"),
+            digest("fn two() { assert!(1); }")
+        );
+        // Each nested tree is one more node of the form.
+        let flat = form("fn one(a: u32) { assert!(a); }").expect("it should normalize");
+        let nested = form("fn one(a: u32) { assert!((a)); }").expect("it should normalize");
+        assert_eq!(nested.nodes(), flat.nodes() + 1);
+    }
+
+    /// US-021: an item nested in a body is one node of its kind, so what it
+    /// holds never moves the function holding it, and its kind still does.
+    #[test]
+    fn a_nested_item_is_opaque_and_keeps_its_kind() {
+        assert_eq!(
+            digest("fn one() -> u32 { fn inner() -> u32 { 1 } inner() }"),
+            digest("fn two() -> u32 { fn inner() -> u32 { let x = 2; x * x + 1 } inner() }")
+        );
+        assert_ne!(
+            digest("fn one() -> u32 { fn inner() {} 1 }"),
+            digest("fn two() -> u32 { struct Inner; 1 }")
+        );
+        let opaque = form("fn one() { fn inner() { let x = 1; let y = x; } }").expect("it should normalize");
+        let empty = form("fn one() { fn inner() {} }").expect("it should normalize");
+        assert_eq!(opaque.nodes(), empty.nodes());
     }
 
     /// US-005: a recovered region is not code, so the function carrying it is

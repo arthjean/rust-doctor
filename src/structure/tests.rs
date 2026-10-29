@@ -298,6 +298,7 @@ fn member(path: &str) -> Member {
             column_end: 2,
         },
         context: None,
+        test_case: false,
     }
 }
 

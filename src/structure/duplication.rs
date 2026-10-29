@@ -33,12 +33,14 @@
 use std::collections::{BTreeMap, HashMap};
 
 use ra_ap_syntax::AstNode;
+use ra_ap_syntax::ast::{self, HasAttrs};
 
 use super::normalize::{self, Normalized};
 use super::{Deadline, Member, Summary, Unit, test_context};
 use crate::policy::{ActiveRules, 
     RuleDefinition, STRUCTURE_DUPLICATE_FUNCTION_BODY, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
 };
+use crate::source_text::SourceSpan;
 
 /// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] = [
@@ -146,11 +148,28 @@ pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
                         // the family it forms is marked and stops weighing on the
                         // score. It stays published: the repetition is still real.
                         context: test_context(function.syntax()).or(unit.context),
+                        test_case: is_test_case(function),
                     },
                     normalized,
                 })
         })
         .collect()
+}
+
+/// Does an attribute whose path ends in `test` mark this function a test case?
+/// The last segment is read, so `#[tokio::test]` counts, and its suffix, so
+/// `#[rstest]` does.
+fn is_test_case(function: &ast::Fn) -> bool {
+    function.attrs().any(|attribute| {
+        let path = match attribute.meta() {
+            Some(ast::Meta::PathMeta(meta)) => meta.path(),
+            Some(ast::Meta::TokenTreeMeta(meta)) => meta.path(),
+            _ => None,
+        };
+        path.and_then(|path| path.segment())
+            .and_then(|segment| segment.name_ref())
+            .is_some_and(|name| name.text().ends_with("test"))
+    })
 }
 
 /// Families the collected functions form, and what finding them cost.
@@ -201,7 +220,11 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
     for (digest, mut family) in by_digest {
         family.sort_by(|left, right| left.member.cmp(&right.member));
         let occurrences = family.len();
-        let duplicated = exact && occurrences > 1;
+        // Test cases are written to look alike: a family of them only is the
+        // shape of a test suite, not a function to merge. It still stands in
+        // the near pass, where it may match a helper that ships.
+        let test_cases = family.iter().all(|function| function.member.test_case);
+        let duplicated = exact && occurrences > 1 && !test_cases;
         let members: Vec<Member> = if duplicated {
             family.iter().map(|function| function.member.clone()).collect()
         } else {
@@ -218,7 +241,7 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
                 definition: &STRUCTURE_DUPLICATE_FUNCTION_BODY,
                 key: normalize::hex(&digest),
                 summary: Summary::of(format!(
-                    "{occurrences} functions share the same {}-node body once names and literals are set aside.",
+                    "{occurrences} functions share the same {}-node body once names, literals and macro arguments are normalized.",
                     first.normalized.nodes()
                 )),
                 members,
@@ -229,6 +252,7 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
                 digest,
                 member: first.member,
                 shingles: first.normalized.shingles,
+                test_cases,
             });
         }
     }
@@ -242,7 +266,7 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
         stopped = scoring.stopped;
     }
     Grouping {
-        groups,
+        groups: without_repeats(groups),
         functions: counted,
         shapes,
         comparisons,
@@ -260,12 +284,59 @@ fn retained(function: &Function) -> usize {
         + function.normalized.shingles.len() * size_of::<u64>()
 }
 
+/// Families that are not the repeat of another, in their order.
+///
+/// A family repeats another when each of its members is nested inside a member
+/// of the other: two copies of a function holding a helper also hold two
+/// copies of the helper, and merging the outer pair merges the inner one with
+/// it. A nested function matching one that stands outside every family member
+/// still forms a family, because that pair is a decision of its own.
+fn without_repeats(groups: Vec<Group>) -> Vec<Group> {
+    let mut spans = BTreeMap::<&str, Vec<(usize, SourceSpan)>>::new();
+    for (index, group) in groups.iter().enumerate() {
+        for member in &group.members {
+            spans
+                .entry(member.path.as_str())
+                .or_default()
+                .push((index, member.span));
+        }
+    }
+    let repeats: Vec<bool> = groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            group.members.iter().all(|member| {
+                spans.get(member.path.as_str()).is_some_and(|enclosing| {
+                    enclosing
+                        .iter()
+                        .any(|(other, span)| *other != index && encloses(span, &member.span))
+                })
+            })
+        })
+        .collect();
+    groups
+        .into_iter()
+        .zip(repeats)
+        .filter_map(|(group, repeat)| (!repeat).then_some(group))
+        .collect()
+}
+
+/// Does `outer` strictly contain `inner`? Equal spans are the same function,
+/// which an exact family and a near one both name through its representative.
+fn encloses(outer: &SourceSpan, inner: &SourceSpan) -> bool {
+    outer != inner
+        && (outer.line_start, outer.column_start) <= (inner.line_start, inner.column_start)
+        && (inner.line_end, inner.column_end) <= (outer.line_end, outer.column_end)
+}
+
 /// One exact family, standing for every member it has, in the near-duplicate
 /// pass.
 struct Representative {
     digest: [u8; 32],
     member: Member,
     shingles: Vec<u64>,
+    /// Is every member of the exact family a test case?
+    test_cases: bool,
 }
 
 /// What the scoring loop produced and what it cost.
@@ -302,7 +373,7 @@ fn near_duplicates(mut representatives: Vec<Representative>, deadline: &Deadline
             comparisons += 1;
             let score = normalize::similarity(&representative.shingles, &other.shingles);
             if score >= NEAR_DUPLICATE_THRESHOLD {
-                components.link(position, *candidate, score);
+                components.link(position, *candidate);
             }
         }
     }
@@ -312,32 +383,44 @@ fn near_duplicates(mut representatives: Vec<Representative>, deadline: &Deadline
         grouped.entry(components.root(index)).or_default().push(index);
     }
     let groups = grouped
-        .into_iter()
-        .filter(|(_, members)| members.len() > 1)
-        .map(|(root, members)| {
-            let shapes = || members.iter().filter_map(|index| representatives.get(*index));
+        .into_values()
+        .filter(|members| members.len() > 1)
+        .flat_map(|component| refine(&representatives, &component))
+        .filter(|cluster| {
+            !cluster.members.iter().all(|index| {
+                representatives
+                    .get(*index)
+                    .is_some_and(|representative| representative.test_cases)
+            })
+        })
+        .map(|cluster| {
+            let shapes = || {
+                cluster
+                    .members
+                    .iter()
+                    .filter_map(|index| representatives.get(*index))
+            };
             // The identity of a near family is the smallest digest it holds,
-            // not the list of all of them. Single linkage puts every shape in
-            // exactly one component, so the smallest names the family
-            // uniquely; and a family that gains a member keeps its identity,
-            // where a joined list would change whenever any member is edited
-            // and make an old family read as a new finding.
+            // not the list of all of them. The refinement puts every shape in
+            // at most one family, so the smallest names the family uniquely;
+            // and a family that gains a member keeps its identity, where a
+            // joined list would change whenever any member is edited and make
+            // an old family read as a new finding.
             let key = shapes()
                 .map(|representative| representative.digest)
                 .min()
                 .map(|digest| normalize::hex(&digest))
                 .unwrap_or_default();
-            let similarity = components.weakest(root);
             Group {
                 definition: &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
                 key,
                 summary: Summary {
                     subject: format!(
-                        "{} functions are at least {}% alike once names and literals are set aside.",
-                        members.len(),
-                        similarity / 100
+                        "{} functions are at least {}% alike once names, literals and macro arguments are normalized.",
+                        cluster.members.len(),
+                        cluster.weakest / 100
                     ),
-                    similarity: Some(similarity),
+                    similarity: Some(cluster.weakest),
                     complexity: None,
                 },
                 members: shapes()
@@ -491,6 +574,7 @@ pub(super) fn nomination_recall(functions: Vec<Function>) -> (usize, usize) {
         .into_values()
         .map(|function| Representative {
             digest: function.normalized.digest,
+            test_cases: function.member.test_case,
             member: function.member,
             shingles: function.normalized.shingles,
         })
@@ -531,19 +615,132 @@ pub(super) fn nomination_recall(functions: Vec<Function>) -> (usize, usize) {
     (linked.len(), kept)
 }
 
-/// Single-linkage grouping of the pairs that scored above the threshold, with
-/// the weakest link of each family kept: it is the claim the finding publishes,
-/// and it is the only one every member is known to meet.
+/// Members of one single-linkage component that complete linkage refines at
+/// once. A component is cut into runs of this many, in its sorted order, before
+/// it is refined: the refinement scores every pair of a run, so the cap is what
+/// keeps a workspace of a thousand near-identical functions from paying for a
+/// million pairs, and the order is what makes the cut the same on every run.
+const REFINED_MEMBERS: usize = 64;
+
+/// One family the refinement kept, with the lowest score of any of its pairs.
+struct Cluster {
+    members: Vec<usize>,
+    weakest: u16,
+}
+
+/// The families of one single-linkage component in which every pair meets the
+/// threshold.
+///
+/// Single linkage only proves that each member meets one other: a chain A-B-C
+/// joins A and C at 66 % when each meets B at 80 %. The finding claims every
+/// member is at least as alike as the score it publishes, so the component is
+/// refined until that claim holds for every pair, and the score published is
+/// the lowest of them.
+fn refine(representatives: &[Representative], component: &[usize]) -> Vec<Cluster> {
+    component
+        .chunks(REFINED_MEMBERS)
+        .flat_map(|run| complete_linkage(representatives, run))
+        .collect()
+}
+
+/// Agglomerative complete linkage over one run: the two clusters whose weakest
+/// cross pair is strongest merge, until no two clusters have every cross pair
+/// above the threshold. A tie goes to the lowest positions, so the same run
+/// always splits the same way.
+fn complete_linkage(representatives: &[Representative], run: &[usize]) -> Vec<Cluster> {
+    let shingles: Vec<&[u64]> = run
+        .iter()
+        .map(|index| {
+            representatives
+                .get(*index)
+                .map_or(&[][..], |representative| representative.shingles.as_slice())
+        })
+        .collect();
+    // The link of two clusters is their weakest cross pair. It starts as the
+    // pair score and, on a merge, becomes the weaker of the two links it
+    // replaces, which is what complete linkage means.
+    let mut links: Vec<Vec<u16>> = shingles
+        .iter()
+        .map(|left| {
+            shingles
+                .iter()
+                .map(|right| normalize::similarity(left, right))
+                .collect()
+        })
+        .collect();
+    let mut clusters: Vec<Option<Cluster>> = run
+        .iter()
+        .map(|index| {
+            Some(Cluster {
+                members: vec![*index],
+                weakest: u16::MAX,
+            })
+        })
+        .collect();
+    let alive = |clusters: &[Option<Cluster>], position: usize| {
+        clusters.get(position).is_some_and(Option::is_some)
+    };
+    loop {
+        let mut best: Option<(u16, usize, usize)> = None;
+        for (left, row) in links.iter().enumerate() {
+            if !alive(&clusters, left) {
+                continue;
+            }
+            for (right, link) in row.iter().enumerate().skip(left + 1) {
+                if *link >= NEAR_DUPLICATE_THRESHOLD
+                    && alive(&clusters, right)
+                    && best.is_none_or(|(strongest, _, _)| *link > strongest)
+                {
+                    best = Some((*link, left, right));
+                }
+            }
+        }
+        let Some((link, left, right)) = best else {
+            break;
+        };
+        let Some(absorbed) = clusters.get_mut(right).and_then(Option::take) else {
+            break;
+        };
+        if let Some(Some(kept)) = clusters.get_mut(left) {
+            kept.members.extend(absorbed.members);
+            kept.weakest = kept.weakest.min(absorbed.weakest).min(link);
+        }
+        let merged: Vec<u16> = links
+            .get(left)
+            .zip(links.get(right))
+            .map(|(kept, absorbed)| {
+                kept.iter()
+                    .zip(absorbed)
+                    .map(|(kept, absorbed)| (*kept).min(*absorbed))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (other, score) in merged.iter().enumerate() {
+            if let Some(slot) = links.get_mut(other).and_then(|row| row.get_mut(left)) {
+                *slot = *score;
+            }
+        }
+        if let Some(row) = links.get_mut(left) {
+            *row = merged;
+        }
+    }
+    clusters
+        .into_iter()
+        .flatten()
+        .filter(|cluster| cluster.members.len() > 1)
+        .collect()
+}
+
+/// Single-linkage grouping of the pairs that scored above the threshold: the
+/// components the refinement then splits into families.
 struct Components {
     parents: Vec<usize>,
-    weakest: Vec<u16>,
 }
 
 impl Components {
     fn new(size: usize) -> Self {
         Self {
             parents: (0..size).collect(),
-            weakest: vec![u16::MAX; size],
         }
     }
 
@@ -564,12 +761,8 @@ impl Components {
         index
     }
 
-    fn link(&mut self, left: usize, right: usize, score: u16) {
+    fn link(&mut self, left: usize, right: usize) {
         let (left, right) = (self.root(left), self.root(right));
-        let weakest = self
-            .weakest(left)
-            .min(self.weakest(right))
-            .min(score);
         let (kept, merged) = if left <= right {
             (left, right)
         } else {
@@ -578,13 +771,6 @@ impl Components {
         if let Some(parent) = self.parents.get_mut(merged) {
             *parent = kept;
         }
-        if let Some(slot) = self.weakest.get_mut(kept) {
-            *slot = weakest;
-        }
-    }
-
-    fn weakest(&self, index: usize) -> u16 {
-        self.weakest.get(index).copied().unwrap_or(u16::MAX)
     }
 }
 

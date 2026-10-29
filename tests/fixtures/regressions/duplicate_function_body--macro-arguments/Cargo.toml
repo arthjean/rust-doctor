@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::duplicate_function_body
+# weakness: macro-argument
+# source: US-022, self-scan 0.9.0, tests/corpus_agreement.rs cases differing only inside their assertions
+# verdict: quiet
+
+[package]
+name = "seed-duplicate-function-body-macro-arguments"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

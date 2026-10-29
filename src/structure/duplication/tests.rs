@@ -176,9 +176,12 @@ fn a_near_family_keeps_its_key_when_it_gains_a_member() {
         branched("first", "total", "0"),
         sizeable("second", "sum", "1")
     );
+    // The third copy meets both members, not only the one it was edited from:
+    // a family claims every pair, so a copy reaching it through one member
+    // starts a family of its own.
     let grown = format!(
         "{pair}{}",
-        branched("third", "amount", "2").replace("*value;", "*value + 1;")
+        branched("third", "amount", "2").replace("amount = limit;", "amount = 0;")
     );
     let before = families(&pair, &both());
     let after = families(&grown, &both());
@@ -324,17 +327,126 @@ fn the_exact_head_is_never_narrower_than_the_indexed_one() {
     }
 }
 
-/// Single linkage publishes the weakest edge, never the strongest: it is
-/// the only claim every member of the family is known to meet.
+/// A shape standing for its own family, made of the tokens in `range`.
+fn shape(position: usize, tokens: impl Iterator<Item = u64>) -> Representative {
+    let mut shingles: Vec<u64> = tokens.collect();
+    shingles.sort_unstable();
+    let mut digest = [0_u8; 32];
+    digest[0] = u8::try_from(position).unwrap();
+    Representative {
+        digest,
+        member: Member {
+            path: format!("src/shape_{position}.rs"),
+            span: crate::source_text::SourceSpan {
+                line_start: 1,
+                column_start: 1,
+                line_end: 1,
+                column_end: 2,
+            },
+            context: None,
+            test_case: false,
+        },
+        shingles,
+        test_cases: false,
+    }
+}
+
+/// US-022: single linkage joins A and C through B; the family published claims
+/// every pair, so A and C are never one family at 80 %.
 #[test]
-fn a_family_publishes_its_weakest_link() {
-    let mut components = Components::new(3);
-    components.link(0, 1, 9_800);
-    components.link(1, 2, 8_700);
-    assert_eq!(components.root(2), components.root(0));
-    let root = components.root(0);
-    assert_eq!(components.weakest(root), 8_700);
-    assert_eq!(Components::new(2).weakest(0), u16::MAX);
+fn a_chain_is_refined_until_every_pair_meets_the_threshold() {
+    let chain = [shape(0, 0..100), shape(1, 17..117), shape(2, 34..134)];
+    assert_eq!(normalize::similarity(&chain[0].shingles, &chain[1].shingles), 8_300);
+    assert_eq!(normalize::similarity(&chain[1].shingles, &chain[2].shingles), 8_300);
+    assert_eq!(normalize::similarity(&chain[0].shingles, &chain[2].shingles), 6_600);
+
+    let clusters = refine(&chain, &[0, 1, 2]);
+    assert_eq!(clusters.len(), 1);
+    assert_eq!(clusters[0].members, [0, 1], "the tie goes to the lowest positions");
+    assert_eq!(clusters[0].weakest, 8_300);
+
+    // A triangle whose every pair meets the threshold stays one family, and
+    // publishes its lowest pair rather than the strongest.
+    let triangle = [shape(0, 0..100), shape(1, 5..105), shape(2, 12..112)];
+    let clusters = refine(&triangle, &[0, 1, 2]);
+    assert_eq!(clusters.len(), 1);
+    assert_eq!(clusters[0].members.len(), 3);
+    assert_eq!(
+        clusters[0].weakest,
+        normalize::similarity(&triangle[0].shingles, &triangle[2].shingles)
+    );
+}
+
+/// US-022: a component past the cap is cut into runs before it is refined, so
+/// the refinement completes, and the same input always splits the same way.
+#[test]
+fn a_component_past_the_cap_splits_the_same_way_every_time() {
+    let shapes: Vec<Representative> = (0..70)
+        .map(|position| shape(position, (0..100).chain([1_000 + position as u64])))
+        .collect();
+    let component: Vec<usize> = (0..70).collect();
+
+    let started = std::time::Instant::now();
+    let first = refine(&shapes, &component);
+    let elapsed = started.elapsed();
+    let second = refine(&shapes, &component);
+
+    let sizes: Vec<usize> = first.iter().map(|cluster| cluster.members.len()).collect();
+    assert_eq!(sizes, [REFINED_MEMBERS, 70 - REFINED_MEMBERS]);
+    let members = |clusters: &[Cluster]| -> Vec<Vec<usize>> {
+        clusters.iter().map(|cluster| cluster.members.clone()).collect()
+    };
+    assert_eq!(members(&first), members(&second));
+    // The NFR: a 64-member run in under 50 ms, for the binary that ships. An
+    // unoptimized test binary is allowed the multiple the benchmark allows it.
+    let allowance = if cfg!(debug_assertions) { 14 } else { 1 };
+    assert!(
+        elapsed <= Duration::from_millis(50) * allowance * crate::test_clock::machine_allowance(),
+        "refining {} members took {elapsed:?}",
+        component.len()
+    );
+}
+
+/// US-022: two functions differing only inside their `assert!` arguments are
+/// not the same body.
+#[test]
+fn functions_differing_inside_their_assertions_are_not_one_body() {
+    let asserting = |name: &str, assertion: &str| {
+        format!(
+            "fn {name}(input: &[u32], limit: u32) -> u32 {{
+                 let mut total = 0;
+                 for value in input {{
+                     if *value > limit {{
+                         total += *value;
+                     }}
+                 }}
+                 {assertion};
+                 total
+             }}\n"
+        )
+    };
+    let source = format!(
+        "{}{}",
+        asserting("first", "assert!(total > limit, \"too small\")"),
+        asserting("second", "assert_eq!(total, limit + 1)")
+    );
+    assert!(families(&source, &exact()).is_empty(), "{source}");
+
+    let renamed = format!(
+        "{}{}",
+        asserting("first", "assert!(total > limit, \"too small\")"),
+        asserting("second", "assert!(total > limit, \"far too small\")")
+    );
+    let groups = families(&renamed, &exact());
+    assert_eq!(groups.len(), 1, "{renamed}");
+    assert!(
+        groups[0]
+            .summary
+            .subject
+            .ends_with("once names, literals and macro arguments are normalized."),
+        "{}",
+        groups[0].summary.subject
+    );
 }
 
 /// The grouping shortens the paths it walks, so a chain of links stays a
@@ -343,10 +455,10 @@ fn a_family_publishes_its_weakest_link() {
 fn a_chain_of_links_is_flattened_as_it_is_read() {
     let mut components = Components::new(8);
     for pair in [(6, 7), (4, 5), (2, 3), (0, 1)] {
-        components.link(pair.0, pair.1, 9_000);
+        components.link(pair.0, pair.1);
     }
     for pair in [(5, 7), (3, 5), (1, 3)] {
-        components.link(pair.0, pair.1, 9_000);
+        components.link(pair.0, pair.1);
     }
     for index in 0..8 {
         assert_eq!(components.root(index), 0, "index {index}");
@@ -394,4 +506,122 @@ fn the_observation_reads_the_shared_inventory() {
     let parsed = SourceFile::parse(&source, Edition::Edition2024).tree();
     assert_eq!(Inventory::of(&parsed).functions.len(), 1);
     assert_eq!(observe(&unit(&source)).len(), 1);
+}
+
+/// US-021: test cases are written to look alike, so a family made only of them
+/// is not reported, whichever attribute marks them.
+#[test]
+fn a_family_of_test_cases_only_is_not_reported() {
+    for attribute in [
+        "#[test]",
+        "#[tokio::test]",
+        "#[rstest]",
+        "#[tokio::test(flavor = \"current_thread\")]",
+    ] {
+        let source = format!(
+            "{attribute}\n{}{attribute}\n{}",
+            sizeable("first_case", "total", "0"),
+            sizeable("second_case", "sum", "1")
+        );
+        assert!(families(&source, &both()).is_empty(), "{source}");
+    }
+    let edited = format!(
+        "#[test]\n{}#[test]\n{}",
+        sizeable("first_case", "total", "0"),
+        branched("second_case", "sum", "1")
+    );
+    assert!(families(&edited, &both()).is_empty(), "{edited}");
+}
+
+/// US-021: a test case sharing its body with a helper is a family, exact or
+/// near, because the helper is a function someone could call instead.
+#[test]
+fn a_test_case_and_a_helper_sharing_a_body_are_a_family() {
+    let exact_pair = format!(
+        "#[test]\n{}{}",
+        sizeable("one_case", "total", "0"),
+        sizeable("helper", "sum", "1")
+    );
+    let groups = families(&exact_pair, &both());
+    assert_eq!(groups.len(), 1, "{exact_pair}");
+    assert_eq!(groups[0].members.len(), 2);
+
+    let near_pair = format!(
+        "#[test]\n{}#[test]\n{}{}",
+        sizeable("one_case", "total", "0"),
+        sizeable("other_case", "count", "2"),
+        branched("helper", "sum", "1")
+    );
+    let groups = families(&near_pair, &both());
+    assert_eq!(groups.len(), 1, "{near_pair}");
+    assert_eq!(groups[0].definition.id, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY.id);
+}
+
+/// A function holding `nested` ahead of a loop that calls it.
+fn holding(name: &str, nested: &str) -> String {
+    format!(
+        "fn {name}(input: &[u32], limit: u32) -> u32 {{
+             {nested}
+             let mut total = 0;
+             for value in input {{
+                 if *value > limit {{
+                     total += visit(input, *value);
+                 }}
+             }}
+             total
+         }}\n"
+    )
+}
+
+/// US-021: two copies of a function holding the same helper are one family,
+/// the outer pair, and not a second one for the helper they both hold.
+#[test]
+fn a_nested_repeat_of_a_family_is_not_reported_twice() {
+    let source = format!(
+        "{}{}",
+        holding("first", &sizeable("visit", "acc", "0")),
+        holding("second", &sizeable("visit", "acc", "0"))
+    );
+    let groups = families(&source, &both());
+    let subjects: Vec<&String> = groups.iter().map(|group| &group.summary.subject).collect();
+    assert_eq!(groups.len(), 1, "{subjects:?}");
+    let lines: Vec<usize> = groups[0]
+        .members
+        .iter()
+        .map(|member| member.span.line_start)
+        .collect();
+    assert_eq!(lines, [1, 22], "the family is not the outer pair");
+}
+
+/// US-021: a nested function matching one that stands on its own is still a
+/// pair, since no family holds the function it is nested in.
+#[test]
+fn a_nested_function_matching_a_top_level_one_is_still_a_pair() {
+    let source = format!(
+        "{}{}",
+        holding("outer", &sizeable("visit", "acc", "0")),
+        sizeable("standalone", "total", "1")
+    );
+    let groups = families(&source, &exact());
+    assert_eq!(groups.len(), 1, "{source}");
+    assert_eq!(groups[0].members.len(), 2);
+}
+
+/// US-021: the outer form holds a nested item as one node of its kind, so two
+/// functions differing only inside the helper they hold are the same body.
+#[test]
+fn a_nested_item_is_one_node_of_the_function_holding_it() {
+    let source = format!(
+        "{}{}",
+        holding("first", &sizeable("visit", "acc", "0")),
+        holding("second", &branched("visit", "acc", "0"))
+    );
+    let groups = families(&source, &exact());
+    assert_eq!(groups.len(), 1, "{source}");
+    let lines: Vec<usize> = groups[0]
+        .members
+        .iter()
+        .map(|member| member.span.line_start)
+        .collect();
+    assert_eq!(lines, [1, 22]);
 }

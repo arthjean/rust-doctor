@@ -29,7 +29,7 @@ mod support;
 
 /// The ways a native rule has been measured to be wrong, closed so that a
 /// seed's weakness is a class two seeds can share and a count can be taken of.
-const WEAKNESSES: [&str; 12] = [
+const WEAKNESSES: [&str; 15] = [
     "allow-by-default-lint",
     "api-variant",
     "conditional-module",
@@ -37,8 +37,11 @@ const WEAKNESSES: [&str; 12] = [
     "glob-import",
     "helper-call",
     "library-name",
+    "macro-argument",
+    "nested-item",
     "path-attribute",
     "placeholder-credential",
+    "test-case",
     "test-support",
     "toolchain-compatibility",
     "typed-number",
@@ -305,6 +308,7 @@ fn every_rule_a_native_fix_touched_holds_both_verdicts() {
         "rust_doctor::source::dynamic_shell_command",
         "rust_doctor::repo::hardcoded_credential",
         "rust_doctor::structure::orphan_module_file",
+        "rust_doctor::structure::duplicate_function_body",
     ] {
         let verdicts: BTreeSet<bool> = seeds
             .iter()
