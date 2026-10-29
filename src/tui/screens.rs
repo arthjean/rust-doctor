@@ -10,6 +10,7 @@
 
 use rust_doctor::AuditScore;
 use rust_doctor::score_block;
+use rust_doctor::terminal_text::display_width;
 
 use super::model::{HORIZONTAL_PADDING_COLUMNS, pluralize, score_color};
 use super::text::{self, Color, Line, Span, Style};
@@ -116,6 +117,23 @@ pub fn score_header(
         })
         .collect();
 
+    // The line the linear report prints under its block, on the landing, since the viewer's
+    // header has a fixed height. Only where it fits whole on one row: cut, it could drop the
+    // dimension holding the score down, and wrapped, it pushed the menu off a 40x10 terminal.
+    // The full names need ninety-one columns, so an eighty-column terminal reads them short.
+    let dimensions = [
+        score_block::dimensions_line(score.dimensions),
+        short_dimensions_line(score.dimensions),
+    ]
+    .into_iter()
+    .map(|dimensions| format!("  {dimensions}"))
+    .find(|dimensions| display_width(dimensions) <= box_width);
+    if variant == ScoreVariant::Landing
+        && score.authoritative
+        && let Some(dimensions) = dimensions
+    {
+        lines.push(Line::text(dimensions, Style::DIM));
+    }
     if variant == ScoreVariant::Landing
         && let Some(projection) = score
             .projected_after_top_three
@@ -147,6 +165,19 @@ pub fn score_header(
     lines
 }
 
+/// The five dimensions under abbreviated names, in the same order and with the
+/// same values as [`score_block::dimensions_line`].
+fn short_dimensions_line(dimensions: rust_doctor::ScoreDimensions) -> String {
+    format!(
+        "Sec {} · Rel {} · Maint {} · Perf {} · Deps {}",
+        dimensions.security,
+        dimensions.reliability,
+        dimensions.maintainability,
+        dimensions.performance,
+        dimensions.dependencies
+    )
+}
+
 fn branding_line() -> Line {
     Line::blank()
         .with(Span::linked(
@@ -164,7 +195,6 @@ fn branding_line() -> Line {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_doctor::terminal_text::display_width;
     use rust_doctor::{ScoreDimensions, ScoreLabel};
 
     fn score(value: u8, label: ScoreLabel) -> AuditScore {
@@ -227,12 +257,55 @@ mod tests {
             90,
             None,
         ));
-        assert_eq!(rendered.len(), 4);
         assert!(rendered[0].starts_with("  ┌─────┐  90 / 100 Great  ·  delgres-ceramique"));
         assert!(rendered[1].starts_with("  │ ◠ ◠ │  █"));
         assert!(rendered[1].ends_with('░'));
         assert!(rendered[2].contains("Rust Doctor (https://rust-doctor.com)"));
         assert_eq!(rendered[3], "  └─────┘  ");
+        // EP-002 US-008: sixty columns cannot hold the full dimension names, so the line comes
+        // short rather than wrapped or cut.
+        assert_eq!(rendered.len(), 5);
+        assert_eq!(rendered[4], "  Sec 100 · Rel 100 · Maint 100 · Perf 100 · Deps 100");
+    }
+
+    /// EP-002 US-008: an eighty-column terminal cannot hold the full names, so
+    /// the landing prints the same five values under short ones.
+    #[test]
+    fn an_eighty_column_landing_prints_the_dimensions_short() {
+        let rendered = visible(&score_header(
+            ScoreVariant::Landing,
+            Ok(&score(70, ScoreLabel::NeedsWork)),
+            "w",
+            1,
+            80,
+            70,
+            None,
+        ));
+        assert!(
+            rendered.iter().any(|row| row == "  Sec 100 · Rel 100 · Maint 100 · Perf 100 · Deps 100"),
+            "{rendered:?}"
+        );
+    }
+
+    /// EP-002 US-008: a partial score prints no dimension line, since its
+    /// dimensions are as partial as its value, and the viewer's fixed-height
+    /// header keeps its four rows.
+    #[test]
+    fn the_dimensions_are_printed_on_the_landing_for_an_authoritative_score_only() {
+        let mut partial = score(70, ScoreLabel::NeedsWork);
+        partial.authoritative = false;
+        partial.reasons = vec![rust_doctor::ScoreReason::StageFailed];
+        for (variant, shown) in [
+            (ScoreVariant::Landing, score(70, ScoreLabel::NeedsWork)),
+            (ScoreVariant::Landing, partial.clone()),
+            (ScoreVariant::Viewer, score(70, ScoreLabel::NeedsWork)),
+        ] {
+            let rendered = visible(&score_header(variant, Ok(&shown), "w", 1, 200, 70, None));
+            let expected = variant == ScoreVariant::Landing && shown.authoritative;
+            let line = "  Security 100 · Reliability 100 · Maintainability 100 · Performance 100 · \
+                        Dependencies 100";
+            assert_eq!(rendered.iter().any(|row| row == line), expected, "{rendered:?}");
+        }
     }
 
     /// The block keeps the guard column [`score_block`] budgets for, at every
@@ -274,13 +347,17 @@ mod tests {
             60,
             Some(90),
         ));
-        assert_eq!(rendered.len(), 5);
         let bar_width = score_block::bar_width(60).unwrap();
         assert_eq!(
             rendered[1].matches('▓').count(),
             score_block::bar_fill(90, bar_width) - score_block::bar_fill(60, bar_width)
         );
-        assert!(rendered[4].contains("Potential score 90 after priority fixes +30"));
+        assert!(
+            rendered
+                .last()
+                .unwrap()
+                .contains("Potential score 90 after priority fixes +30")
+        );
     }
 
     #[test]

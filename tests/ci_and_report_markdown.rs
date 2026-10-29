@@ -347,6 +347,70 @@ fn rendering_a_report_starts_no_process() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// EP-002 US-008 of the self-scan remediation: an authoritative score prints
+/// its five dimensions under the score line, and a partial one does not.
+#[test]
+fn the_markdown_report_prints_the_dimensions_of_an_authoritative_score() {
+    let root = workspace("dimensions");
+    let mut report: Value =
+        serde_json::from_str(&fs::read_to_string(fixture("baseline.json")).unwrap()).unwrap();
+    let line = "Security 5 · Reliability 90 · Maintainability 72 · Performance 100 · Dependencies 51";
+    let partial = text(&render(&fixture("baseline.json"), &[]).stdout);
+    assert!(!partial.contains("Security "), "{partial}");
+
+    report["audit"]["score"]["authoritative"] = json!(true);
+    report["audit"]["score"]["reasons"] = json!([]);
+    let path = root.join("authoritative.json");
+    fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+    let rendered = render(&path, &[]);
+    assert!(rendered.status.success(), "{}", text(&rendered.stderr));
+    let markdown = text(&rendered.stdout);
+    assert!(
+        markdown.contains(&format!("**Score: 40/100 (Critical)**, authoritative.\n\n{line}\n")),
+        "{markdown}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// EP-002 of the self-scan remediation: the Markdown report states the scope
+/// the linear one does, names the members a `--package` scan selected and the
+/// rules a crate version left unevaluated, and says when Clippy did not run.
+#[test]
+fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
+    let root = workspace("disclosure");
+    let mut report: Value =
+        serde_json::from_str(&fs::read_to_string(fixture("baseline.json")).unwrap()).unwrap();
+    report["project"]["packages"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "name": "other-member" }));
+    report["scan"]["command"] = Value::Null;
+    report["policy"]["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "rust_doctor::source::disabled_tls_verification", "not_evaluated": "crate-version-unsupported" }));
+    let path = root.join("disclosure.json");
+    fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+    let rendered = render(&path, &[]);
+    assert!(rendered.status.success(), "{}", text(&rendered.stderr));
+    let markdown = text(&rendered.stdout);
+    assert!(
+        markdown.contains(
+            "\nScored 1 production files (18 lines) of member policy-gate-product-loop; Clippy \
+             did not run, native rules also read tests.\n"
+        ),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains(
+            "\nNot evaluated, the crate version is outside the range the rule was validated \
+             against: `rust_doctor::source::disabled_tls_verification`.\n"
+        ),
+        "{markdown}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A 10,000-diagnostic report reads and renders inside the 500 ms the PRD
 /// holds it to, times the machine allowance a slower runner declares.
 #[test]

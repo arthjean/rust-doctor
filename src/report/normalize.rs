@@ -418,9 +418,12 @@ fn normalize_diagnostic(
 /// kind answers, not the file name, so a `println!` in a library the binary
 /// wraps stays a warning.
 fn is_the_channel_of_a_binary(code: Option<&str>, kinds: &[String]) -> bool {
-    matches!(code, Some("clippy::print_stdout" | "clippy::print_stderr"))
+    code.is_some_and(|code| BINARY_CHANNEL_RULES.contains(&code))
         && kinds.iter().any(|kind| kind == "bin")
 }
+
+/// The rules whose sites inside a `bin` target are published at `Info`.
+pub(crate) const BINARY_CHANNEL_RULES: [&str; 2] = ["clippy::print_stdout", "clippy::print_stderr"];
 
 /// What one replacement may carry. A suggestion past it is not a line a
 /// reader pastes, and a stream that carries one is a `RUSTC_WRAPPER` writing

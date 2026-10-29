@@ -107,7 +107,7 @@ fn command(path: &Path, json: bool, cargo_home: &Path, target: &Path) -> Command
 fn without_elapsed(stdout: &[u8]) -> String {
     String::from_utf8_lossy(stdout)
         .lines()
-        .filter(|line| !line.starts_with("Scanned "))
+        .filter(|line| !line.starts_with("Scored "))
         .collect::<Vec<_>>()
         .join("\n")
 }

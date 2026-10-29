@@ -23,16 +23,50 @@ function lines(text: string): string[] {
   return text.split("\n");
 }
 
+// The audit category a diagnostic is tallied under, as `category_mapping` buckets it.
+function bucket(category: string | null): string {
+  switch (category) {
+    case "security": return "Security";
+    case "correctness": case "reliability": return "Bugs";
+    case "performance": return "Performance";
+    case "cargo": case "dependencies": return "Dependencies";
+    case "maintainability": return "Maintainability";
+    default: return "Other";
+  }
+}
+
+// A category line counts what weighs and sets the rest apart (EP-002 US-010
+// of the self-scan remediation), so it is rebuilt from the diagnostics.
+function categoryLine(scan: Report, name: string): string {
+  const counts = { error: 0, warning: 0, info: 0, unknown: 0 } as Record<string, number>;
+  let outside = 0;
+  let notScored = 0;
+  for (const diagnostic of scan.diagnostics.filter((diagnostic) => bucket(diagnostic.category) === name)) {
+    if (diagnostic.context) outside += diagnostic.occurrences;
+    else if (diagnostic.unscored) notScored += diagnostic.occurrences;
+    else counts[diagnostic.severity] = (counts[diagnostic.severity] ?? 0) + diagnostic.occurrences;
+  }
+  const apart = [[outside, "outside production code"], [notScored, "not scored"]]
+    .filter(([count]) => (count as number) > 0)
+    .map(([count, what]) => `+${count} ${what}`);
+  const suffix = apart.length > 0 ? ` (${apart.join(", ")})` : "";
+  return `${name}: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info, ${counts.unknown} unknown (occurrences)${suffix}`;
+}
+
 describe("this repository: human, Markdown and JSON parity", () => {
   test("INV-08 the human report states the counts, score and share link of the JSON, and --verbose lists every finding", async () => {
     const scan = await jsonScan();
     const human = await scanSelf(clone, [], { target });
     expect(human.exitCode).toBe(0);
     const out = human.stdout;
-    expect(out).toContain(`Scanned ${scan.audit.source_files} files in `);
+    // The report wraps at 80 columns, on spaces, so a long sentence is read
+    // back with its rows joined.
+    const flat = out.replace(/\n/g, " ");
+    expect(flat).toContain(`Scored ${scan.audit.source_files} production files (${scan.audit.production_lines} lines) in `);
+    expect(flat).toContain("Clippy linted library and binary targets, native rules also read tests");
     expect(out).toContain(`All ${scan.summary.occurrences.total} occurrences across ${scan.summary.total} findings`);
     for (const category of scan.audit.categories) {
-      expect(lines(out)).toContain(`${category.name}: ${category.errors} errors, ${category.warnings} warnings, ${category.info} info, ${category.unknown} unknown (occurrences)`);
+      expect(flat).toContain(categoryLine(scan, category.name));
     }
     const score = scan.audit.score!;
     expect(out).toContain(`${score.value} / 100 ${score.label}`);

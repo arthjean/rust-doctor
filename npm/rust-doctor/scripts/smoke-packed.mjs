@@ -164,7 +164,7 @@ async function repositoryState() {
 function normalizeTerminal(value) {
   return value
     .replace(/\u001b\[[0-9;]*[A-Za-z]/gu, "")
-    .replace(/Scanned (\d+) files in \d+\.\d+s/gu, "Scanned $1 files in <elapsed>");
+    .replace(/(Scored \d+ production files \(\d+ lines\)[^\n]*? in )\d+\.\d+s/gu, "$1<elapsed>");
 }
 
 // Read back from the source rather than pinned here. A hard-coded number turns
@@ -184,7 +184,7 @@ function shippedSchemaVersion() {
 // rule out, so the section is matched by what both spellings have in common.
 const SECTIONS = [
   { name: "Scope", match: "Scope: full codebase" },
-  { name: "Scanned", match: "Scanned " },
+  { name: "Scored", match: "Scored " },
   { name: "All", match: "All " },
   { name: "Categories", match: /^(?:Categories: none|\w[\w ]*: \d+ errors, )/mu },
   { name: "Score", match: "┌─────┐" },
@@ -448,7 +448,7 @@ function proveCli(installed) {
   );
   assert(progress.includes("Running native passes..."), "human progress is missing");
   const sections = sectionOrder(human.stdout);
-  const scan = human.stdout.match(/Scanned (\d+) files in (\d+\.\d)s/u);
+  const scan = human.stdout.match(/Scored (\d+) production files \(\d+ lines\)(?: of members? [^\n]*?)? in (\d+\.\d)s/u);
   const terminalScore = human.stdout.match(/(\d+) \/ 100 ([A-Za-z ]+)/u);
   assert(scan, "human scan count or one-decimal duration is missing");
   assert(terminalScore, "human score is missing");

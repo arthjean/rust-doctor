@@ -12,7 +12,7 @@ import { installedLauncher, runLauncher, shellStatus, spawnLauncher } from "./la
 
 // The linear report states its own duration, the JSON one its timings.
 function stable(run: DoctorRun): { status: number | null; stdout: unknown; stderr: string } {
-  const stdout = run.json !== undefined ? normalizeReport(run.json) : run.stdout.replace(/ in \d+(?:\.\d+)?s$/m, " in <duration>");
+  const stdout = run.json !== undefined ? normalizeReport(run.json) : run.stdout.replace(/ in \d+(?:\.\d+)?s(;|$)/m, " in <duration>$1");
   return { status: shellStatus(run), stdout, stderr: run.stderr };
 }
 

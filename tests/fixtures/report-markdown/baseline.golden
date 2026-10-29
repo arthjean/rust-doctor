@@ -2,6 +2,8 @@
 
 **Score: 40/100 (Critical)**, not authoritative: stage-failed.
 
+Scored 1 production files (18 lines); Clippy linted library and binary targets, native rules also read tests.
+
 **The scan reported 2 errors:**
 
 - execution build-finished-missing: Cargo did not emit build-finished

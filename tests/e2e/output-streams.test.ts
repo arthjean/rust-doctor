@@ -264,7 +264,7 @@ describe("output contracts", () => {
   test("OC-10 the complete linear report keeps its section order", async () => {
     const run = await scan(copyWorkspace("projects/clippy-warning"), []);
     const sections = [
-      "Scope: full codebase\n", "Scanned 1 files", "Top warning: Unwrap used", "Rule ID: clippy::unwrap_used",
+      "Scope: full codebase\n", "Scored 1 production files", "Top warning: Unwrap used", "Rule ID: clippy::unwrap_used",
       "All 1 occurrences across 1 findings", "Bugs: 0 errors, 1 warnings", "Configuration: none loaded",
       "No local RustSec database", "Gate passed: blocking error", " 100 / 100 Great", "is left out",
       "Share: https://rust-doctor.com/share?", "Docs: https://rust-doctor.com/docs", "GitHub: https://github.com/",

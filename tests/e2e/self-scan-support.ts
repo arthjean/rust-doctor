@@ -73,6 +73,8 @@ export type Diagnostic = {
   path: string | null;
   span: { line_start: number; column_start: number } | null;
   message: string;
+  context?: string;
+  unscored?: string;
   occurrences: number;
 };
 

@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use crate::ScoreLabel;
+use crate::{ScoreDimensions, ScoreLabel};
 
 pub const PERFECT_SCORE: u8 = 100;
 
@@ -86,6 +86,20 @@ pub const fn label_text(label: ScoreLabel, authoritative: bool) -> &'static str 
     } else {
         "Core partial"
     }
+}
+
+/// The five dimension scores on one line, in the order every report prints
+/// them, so the linear report, the Markdown report and the interactive one name
+/// the dimension holding a score down in the same words.
+pub fn dimensions_line(dimensions: ScoreDimensions) -> String {
+    format!(
+        "Security {} · Reliability {} · Maintainability {} · Performance {} · Dependencies {}",
+        dimensions.security,
+        dimensions.reliability,
+        dimensions.maintainability,
+        dimensions.performance,
+        dimensions.dependencies
+    )
 }
 
 /// The bands the audit publishes, applied to a projected value the audit does

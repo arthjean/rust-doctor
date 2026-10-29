@@ -14,9 +14,10 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
+use serde::Deserialize;
 use serde_json::Value;
 
-use crate::SCHEMA_VERSION;
+use crate::{SCHEMA_VERSION, ScoreDimensions};
 
 /// The oldest report this renders. Schema 21 added only the `contextual` scope
 /// mode and 22 only optional fields, so a report a 20 binary saved reads the
@@ -126,6 +127,12 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
     let _ = write!(out, "**Score: {}**", score_text(score));
     if score.get("authoritative").and_then(Value::as_bool) == Some(true) {
         out.push_str(", authoritative.\n");
+        if let Some(dimensions) = score
+            .get("dimensions")
+            .and_then(|dimensions| ScoreDimensions::deserialize(dimensions).ok())
+        {
+            let _ = writeln!(out, "\n{}", crate::score_block::dimensions_line(dimensions));
+        }
     } else {
         let reasons: Vec<String> = score
             .get("reasons")
@@ -139,6 +146,10 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
         }
     }
 
+    let collected = report.get("status").and_then(Value::as_str) != Some("failed");
+    if collected {
+        render_scope(&mut out, report);
+    }
     render_errors(&mut out, report);
 
     let baseline = report.pointer("/scope/mode").and_then(Value::as_str) == Some("baseline");
@@ -178,9 +189,75 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
         }
         (false, _) => diagnostics.iter().collect(),
     };
-    let collected = report.get("status").and_then(Value::as_str) != Some("failed");
     render_table(&mut out, findings, limit, baseline, collected);
     Ok(out)
+}
+
+/// What the score was computed over and what each producer read, then the
+/// rules a crate version outside their validated range left unevaluated, as
+/// the linear report states them. A failed scan scored nothing, so it states
+/// neither.
+fn render_scope(out: &mut String, report: &Value) {
+    let count = |pointer: &str| {
+        report
+            .pointer(pointer)
+            .and_then(Value::as_u64)
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or(0)
+    };
+    let names = |pointer: &str| -> Vec<String> {
+        report
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .map(|packages| {
+                packages
+                    .iter()
+                    .filter_map(|package| package.get("name").and_then(Value::as_str))
+                    .map(escape)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let scanned = names("/audit/packages");
+    let workspace = names("/project/packages").len();
+    let selected: Option<Vec<&str>> = (!scanned.is_empty() && scanned.len() < workspace)
+        .then(|| scanned.iter().map(String::as_str).collect());
+    let clippy_ran = report
+        .pointer("/scan/command")
+        .is_some_and(|command| !command.is_null());
+    let _ = writeln!(
+        out,
+        "\n{}; {}.",
+        super::scope::scored_clause(
+            count("/audit/source_files"),
+            count("/audit/production_lines"),
+            selected.as_deref()
+        ),
+        super::scope::read_clause(clippy_ran)
+    );
+    let unsupported: Vec<String> = report
+        .pointer("/policy/rules")
+        .and_then(Value::as_array)
+        .map(|rules| {
+            rules
+                .iter()
+                .filter(|rule| {
+                    rule.get("not_evaluated").and_then(Value::as_str)
+                        == Some("crate-version-unsupported")
+                })
+                .filter_map(|rule| rule.get("id").and_then(Value::as_str))
+                .map(|id| format!("`{}`", id.replace('`', "")))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !unsupported.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n{}: {}.",
+            super::scope::VERSION_UNSUPPORTED,
+            unsupported.join(", ")
+        );
+    }
 }
 
 /// The error codes a checkout without the base's history produces, each of

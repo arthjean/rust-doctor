@@ -34,6 +34,7 @@ mod assembly;
 mod exclusion;
 pub(crate) use exclusion::edit_distance;
 mod normalize;
+pub(crate) use normalize::BINARY_CHANNEL_RULES;
 mod sanitize;
 pub(crate) use sanitize::{home_directory, replace_path};
 

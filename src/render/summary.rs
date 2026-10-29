@@ -63,8 +63,11 @@ fn render_group_row<W: Write>(
     line(
         writer,
         &format!(
-            "{}  {}  x{}  {}{site}",
-            group.severity, group.title, group.occurrences, group.rule_id
+            "{}  {}  {}  {}{site}",
+            group.severity,
+            group.title,
+            super::tally::summary_occurrences(group),
+            group.rule_id
         ),
         options,
         severity_style(group.severity),

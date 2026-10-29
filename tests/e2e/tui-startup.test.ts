@@ -50,7 +50,9 @@ describe.skipIf(!requireTmux())("interactive report landing", () => {
       expect(pane).toContain("❯ Review 1 issue");
       expect(pane).toContain("› Hand off to an agent");
       expect(pane).not.toContain("GitHub Actions");
-      expect(rows(pane)).toHaveLength(11);
+      // Self-scan remediation EP-002 US-008: the five dimensions follow the block.
+      expect(pane).toMatch(/Security \d+ · Reliability \d+ · Maintainability \d+ · Performance \d+ · Dependencies \d+/);
+      expect(rows(pane)).toHaveLength(12);
       expect(rows(pane).at(-1)).toBe(MENU_HINT);
     } finally {
       session.kill();

@@ -21,10 +21,14 @@ fn the_report_holds_the_size_bound_it_reports_for() {
     for own in [
         include_str!("../render.rs"),
         include_str!("markdown.rs"),
-        include_str!("scope.rs"),
         include_str!("score_header.rs"),
         include_str!("score_header/tests.rs"),
+        include_str!("score.rs"),
+        include_str!("scope.rs"),
+        include_str!("summary.rs"),
+        include_str!("tally.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/disclosure.rs"),
     ] {
         let lines = own.lines().count();
         assert!(
@@ -188,7 +192,7 @@ fn terminal_sections_follow_the_normative_order() {
     let output = rendered(&report(), 100, false, false);
     let labels = [
         "Scope:",
-        "Scanned ",
+        "Scored ",
         "Top warning:",
         "All 1 occurrences across 1 findings",
         "Bugs:",
@@ -322,7 +326,7 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     // Under its ceiling the score is held by its dimensions, and the line says
     // so rather than naming the ceiling as the value it never reached.
     assert_eq!(
-        super::ceiling_sentence(54, 65, "P1", "rust_doctor::repo::hardcoded_credential"),
+        score::ceiling_sentence(54, 65, "P1", "rust_doctor::repo::hardcoded_credential"),
         "A P1 finding caps the score at 65/100, and the dimensions already hold it lower: rust_doctor::repo::hardcoded_credential"
     );
 }
@@ -359,7 +363,7 @@ fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
         "/ 100",
         "Rust Doctor",
         "No issues found.",
-        "Scanned",
+        "Scored",
         "occurrences",
         "Categories:",
         "Gate",
@@ -375,7 +379,7 @@ fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
 #[test]
 fn verbose_lists_all_groups_without_the_cta() {
     let output = rendered(&report(), 100, false, true);
-    assert!(output.contains("Warning: Todo (1 occurrences)"));
+    assert!(output.contains("Warning: Todo (1 occurrence)"));
     assert!(output.contains("Rule ID: clippy::todo"));
     assert!(!output.contains("Run with --verbose"));
 }
@@ -428,9 +432,9 @@ fn baseline_hides_pre_existing_details_and_keeps_introduced_and_fixed() {
 /// recognised and counts the rest.
 #[test]
 fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
-    assert_eq!(withheld_sentence(&[]), None);
+    assert_eq!(score::withheld_sentence(&[]), None);
 
-    let one = withheld_sentence(&["clippy::indexing_slicing".to_owned()])
+    let one = score::withheld_sentence(&["clippy::indexing_slicing".to_owned()])
         .expect("one withheld rule is a sentence");
     assert!(
         one.contains("clippy::indexing_slicing (98% noise on 40 sites) reports here but is left \
@@ -438,7 +442,7 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
         "{one}"
     );
 
-    let two = withheld_sentence(&[
+    let two = score::withheld_sentence(&[
         "clippy::indexing_slicing".to_owned(),
         "clippy::string_slice".to_owned(),
     ])
@@ -451,7 +455,7 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
         "{two}"
     );
 
-    let many = withheld_sentence(&[
+    let many = score::withheld_sentence(&[
         "clippy::indexing_slicing".to_owned(),
         "clippy::string_slice".to_owned(),
         "clippy::print_stderr".to_owned(),
@@ -469,6 +473,30 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
         !many.contains("clippy::print_stderr"),
         "past two names the sentence counts rather than enumerates: {many}"
     );
+}
+
+/// EP-002 US-007: every form states the criterion the ranking applies, and none
+/// claims the repair is worth nothing, since a withheld rule still weighs.
+#[test]
+fn the_withheld_sentence_states_the_criterion_in_every_form() {
+    let ids = |count: usize| -> Vec<String> {
+        ["clippy::indexing_slicing", "clippy::string_slice", "clippy::print_stderr"]
+            .iter()
+            .take(count)
+            .map(|id| (*id).to_owned())
+            .collect()
+    };
+    for (count, found) in [(1, "it"), (2, "each"), (3, "each")] {
+        let sentence = score::withheld_sentence(&ids(count)).unwrap();
+        assert!(
+            sentence.ends_with(&format!(
+                "left out of what to fix first: the corpus found {found} wrong on most of the \
+                 sites it reviewed."
+            )),
+            "{sentence}"
+        );
+        assert!(!sentence.contains("nothing worth"), "{sentence}");
+    }
 }
 
 /// A reader can weigh the ranking, because every rule it names carries the
@@ -868,3 +896,5 @@ fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
     assert!(markdown.contains("unnecessary_to_owned"), "{markdown}");
     assert!(!markdown.contains(&body), "{markdown}");
 }
+
+mod disclosure;

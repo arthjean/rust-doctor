@@ -104,7 +104,7 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     let standard = terminal(&["--yes"], &kernel("todo"));
     let ordered = [
         "Scope: full codebase",
-        "Scanned 1 files in ",
+        "Scored 1 production files (",
         "Top warning:",
         "All 3 occurrences across 3 findings",
         "Run with --verbose",
