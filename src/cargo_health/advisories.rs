@@ -2,8 +2,8 @@
 //! machine already holds.
 //!
 //! The tool never reaches the network, so it never fetches the database: it
-//! reads the copy `cargo audit` or `cargo deny` left under `$CARGO_HOME`, or
-//! the directory `--advisory-db` names. Discovery accepts only a clone of the
+//! reads the copy `cargo audit` or `cargo deny` fetched last under
+//! `$CARGO_HOME`, or the directory `--advisory-db` names. Discovery accepts only a clone of the
 //! RustSec remote: `cargo deny` clones whatever database a `deny.toml` names
 //! into the same directory, and one of those deciding the verdicts in silence
 //! would be another authority than the one the rules cite. Without one, both
@@ -58,7 +58,7 @@ pub enum AdvisorySource {
     /// `$CARGO_HOME/advisory-db`, where `cargo audit` fetches.
     CargoAudit,
     /// The newest directory under `$CARGO_HOME/advisory-dbs`, where `cargo
-    /// deny` fetches.
+    /// deny` fetches, when it was fetched after `cargo audit`'s.
     CargoDeny,
     /// The directory `--advisory-db` named.
     Explicit,
@@ -96,30 +96,47 @@ impl AdvisoryDatabase {
     }
 
     /// The RustSec clone `cargo audit` or `cargo deny` left under
-    /// `cargo_home`, in that order, or none. A directory counts when it holds
-    /// `crates/`, which is where every advisory of the database lives, and
-    /// its `.git/config` names the RustSec remote and no other. Of the
-    /// `cargo deny` clones, the one fetched last is read.
+    /// `cargo_home` that was fetched last, or none. A directory counts when it
+    /// holds `crates/`, which is where every advisory of the database lives,
+    /// and its `.git/config` names the RustSec remote and no other.
+    ///
+    /// Freshness is the modification time of `.git/FETCH_HEAD`, which every
+    /// fetch rewrites. `cargo audit`'s clone used to win whenever it existed,
+    /// so a copy left 88 days ago hid the advisories a `cargo deny` clone
+    /// fetched the same day knew. It still wins a tie, and when neither clone
+    /// records a fetch, since it is the one the missing-database notice tells
+    /// the reader to create. Of the `cargo deny` clones, the one fetched last
+    /// is the candidate.
     pub fn discover(cargo_home: &Path) -> Option<Self> {
-        let audit = cargo_home.join("advisory-db");
-        if rustsec_clone(&audit) {
-            return Some(Self {
-                source: AdvisorySource::CargoAudit,
-                path: audit,
-            });
-        }
-        let newest = fs::read_dir(cargo_home.join("advisory-dbs"))
-            .ok()?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| rustsec_clone(path))
-            .filter_map(|path| Some((last_fetch(&path)?, path)))
-            .max()?;
-        Some(Self {
-            source: AdvisorySource::CargoDeny,
-            path: newest.1,
-        })
+        let audit = Some(cargo_home.join("advisory-db")).filter(|path| rustsec_clone(path));
+        let deny = fs::read_dir(cargo_home.join("advisory-dbs"))
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| rustsec_clone(path))
+                    .filter_map(|path| Some((last_fetch(&path)?, path)))
+                    .max()
+            })
+            .map(|(_, path)| path);
+        let (source, path) = match (audit, deny) {
+            (Some(audit), Some(deny)) if fetched(&deny) > fetched(&audit) => {
+                (AdvisorySource::CargoDeny, deny)
+            }
+            (Some(audit), _) => (AdvisorySource::CargoAudit, audit),
+            (None, Some(deny)) => (AdvisorySource::CargoDeny, deny),
+            (None, None) => return None,
+        };
+        Some(Self { source, path })
     }
+}
+
+/// When a clone was last fetched, absent when it records no fetch.
+fn fetched(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path.join(".git").join("FETCH_HEAD"))
+        .and_then(|metadata| metadata.modified())
+        .ok()
 }
 
 /// Whether `path` holds advisories and is a git clone whose every remote is
@@ -165,13 +182,14 @@ fn is_rustsec_remote(url: &str) -> bool {
     url.strip_suffix(".git").unwrap_or(url).trim_end_matches('/') == RUSTSEC_REMOTE
 }
 
-/// When a clone was last fetched: the modification time of `.git/FETCH_HEAD`,
-/// or of `.git/HEAD` for a clone never fetched since.
+/// When a clone was last fetched, or cloned: the modification time of
+/// `.git/FETCH_HEAD`, or of `.git/HEAD` for a clone never fetched since.
 fn last_fetch(path: &Path) -> Option<SystemTime> {
-    let git = path.join(".git");
-    ["FETCH_HEAD", "HEAD"]
-        .into_iter()
-        .find_map(|name| fs::metadata(git.join(name)).and_then(|metadata| metadata.modified()).ok())
+    fetched(path).or_else(|| {
+        fs::metadata(path.join(".git").join("HEAD"))
+            .and_then(|metadata| metadata.modified())
+            .ok()
+    })
 }
 
 /// What the report publishes about the database it read.

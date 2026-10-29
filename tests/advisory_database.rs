@@ -197,6 +197,65 @@ fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Writes `.git/FETCH_HEAD` in a clone, dated `days_ago` days before `now`.
+fn fetched(clone: &Path, now: std::time::SystemTime, days_ago: u64) {
+    let path = clone.join(".git/FETCH_HEAD");
+    fs::write(&path, "").unwrap();
+    let when = now - std::time::Duration::from_secs(days_ago * 86_400);
+    fs::File::options().write(true).open(&path).unwrap().set_modified(when).unwrap();
+}
+
+/// Self-scan remediation EP-002 US-011: discovery reads the RustSec clone
+/// fetched last, cargo audit's on a tie or when neither records a fetch, never
+/// a clone of another remote, and never over `--advisory-db`.
+#[test]
+fn discovery_reads_the_most_recently_fetched_rustsec_clone() {
+    let root = scratch("freshest");
+    let audit = root.join("cargo-home/advisory-db");
+    let deny = root.join("cargo-home/advisory-dbs/advisory-db-1111111111111111");
+    clone_at(&audit, RUSTSEC);
+    clone_at(&deny, RUSTSEC);
+    // The cargo deny clone knows one advisory more, published after the rest,
+    // so the date the report names says which clone was read.
+    fs::write(
+        deny.join("crates/unrelated-crate/RUSTSEC-2026-9009.md"),
+        "```toml\n[advisory]\nid = \"RUSTSEC-2026-9009\"\npackage = \"unrelated-crate\"\ndate = \"2026-10-28\"\n\n[versions]\npatched = []\n```\n\n# Newer\n",
+    )
+    .unwrap();
+    let read = |arguments: &[&str]| {
+        let report = json(&root, arguments);
+        let database = &report["scan"]["advisory_db"];
+        (database["source"].clone(), database["date"].clone())
+    };
+    let audit_read = (Value::from("cargo-audit"), Value::from("2020-01-20"));
+    let deny_read = (Value::from("cargo-deny"), Value::from("2026-10-28"));
+
+    // Neither records a fetch: cargo audit's is read, as before.
+    assert_eq!(read(&[]), audit_read);
+    // Fetched 88 days ago against today: the fresher cargo deny clone wins.
+    let now = std::time::SystemTime::now();
+    fetched(&audit, now, 88);
+    fetched(&deny, now, 0);
+    assert_eq!(read(&[]), deny_read);
+    // The same fetch time is a tie, and cargo audit's wins it.
+    fetched(&audit, now, 3);
+    fetched(&deny, now, 3);
+    assert_eq!(read(&[]), audit_read);
+    // The explicit path wins over discovery whatever was fetched.
+    fetched(&deny, now, 0);
+    let named = database();
+    let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
+    assert_eq!(report["scan"]["advisory_db"]["source"], "explicit");
+    // A fresher clone of another remote is ignored.
+    fs::write(
+        deny.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://example.invalid/advisory-db\n",
+    )
+    .unwrap();
+    assert_eq!(read(&[]), audit_read);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// EP-003 US-013: a database cargo deny cloned from a remote other than
 /// RustSec's is never discovered, even fetched after the RustSec clone, and
 /// on its own it leaves both rules without a database. `--advisory-db` still
