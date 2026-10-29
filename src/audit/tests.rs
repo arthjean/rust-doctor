@@ -624,7 +624,8 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-    assert_eq!(score.value, 20);
+    // 21 since `permissive_lint_table` moved to P3 (US-023), which weighs less.
+    assert_eq!(score.value, 21);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
@@ -637,9 +638,10 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     // at twenty if the curve had not already taken it below. Reliability sits under the 34 it sat
     // at when every site weighed one, because its `P1` and `P2` rules now weigh four and two and
     // only five of its twenty-one rules are discounted by a measured rate. The sixty-four members
-    // of Clippy's `correctness` group, all `P1` and unmeasured, then took it down to 8.
+    // of Clippy's `correctness` group, all `P1` and unmeasured, then took it down to 8, and
+    // `permissive_lint_table` leaving `P2` for `P3` (US-023) gives two of them back.
     assert_eq!(score.dimensions.security, 0);
-    assert_eq!(score.dimensions.reliability, 8);
+    assert_eq!(score.dimensions.reliability, 10);
     assert_eq!(score.dimensions.maintainability, 45);
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.

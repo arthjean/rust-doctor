@@ -32,8 +32,8 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
-    tier: RuleTier::P2,
-    help: "Remove the allow entry from [lints] and fix what it silences; a manifest-level allow hides the rule from every scan of this workspace.",
+    tier: RuleTier::P3,
+    help: "The allow hides the rule's sites from this scan. Remove the entry and fix what it silences, switch the rule off in rust-doctor.toml, or add `# rust-doctor: allow(rust_doctor::cargo::permissive_lint_table) -- reason` above the key.",
     diff_scope: DiffScope::Line,
     title: "Manifest [lints] entry allowing an active catalogued rule",
     not_a_defect_when: "The allowed lint contradicts the crate's documented purpose, such as print_stdout allowed in a CLI crate whose job is terminal output, and the reason is recorded beside the entry.",
@@ -41,9 +41,10 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
 };
 pub(crate) static CARGO_PERMISSIVE_RUSTFLAGS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::permissive_rustflags",
-    // Reliability at P2, like the manifest lint table: a flag that caps or
-    // silences lints neutralizes the scan itself for every build of the
-    // workspace, which is graver than weakening the shipped artifact.
+    // Reliability at P2: a flag that caps or silences lints neutralizes the
+    // scan itself for every build of the workspace, which is graver than
+    // weakening the shipped artifact. The manifest lint table is a P3 since
+    // the scan honors its allows and reports each one once, as a choice.
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,

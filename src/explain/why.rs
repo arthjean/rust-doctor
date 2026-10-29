@@ -25,6 +25,9 @@ use crate::DiagnosticSpan;
 /// for it: an attribute over a short item, or a comment over a line.
 const DIRECTIVE_REACH: usize = 3;
 
+/// The finding that names a manifest allow.
+const PERMISSIVE_LINT_TABLE: &str = "rust_doctor::cargo::permissive_lint_table";
+
 /// What a generator header check reads of a file: its opening lines.
 const HEADER_BYTES: u64 = 4096;
 
@@ -68,6 +71,10 @@ pub struct SiteExplanation {
     /// Why nothing is reported there, when nothing is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub absence: Option<Absence>,
+    /// The rules a `[lints]` table over the path allows, whose Clippy sites
+    /// the scan hides there, when nothing is reported.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allowed_by_lints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +110,8 @@ pub enum Absence {
     Ignored,
     /// `.gitattributes` or a generator header marks it.
     GeneratedOrVendored,
+    /// A manifest `[lints]` table over the path allows a catalogued rule.
+    AllowedByLints,
     NothingReported,
 }
 
@@ -119,6 +128,11 @@ pub fn explain_site(
         .filter(|diagnostic| covers(diagnostic, &location))
         .filter_map(|diagnostic| hit(report, diagnostic, &location))
         .collect();
+    let allowed_by_lints = if hits.is_empty() {
+        allowed_by_lints(report, &location.path)
+    } else {
+        Vec::new()
+    };
     let absence = hits.is_empty().then(|| {
         let ignored = array(report, "/policy/ignore")
             .filter_map(Value::as_str)
@@ -128,6 +142,8 @@ pub fn explain_site(
             Absence::Ignored
         } else if declared.contains(&location.path) || header_marks(workspace_root, &location.path) {
             Absence::GeneratedOrVendored
+        } else if !allowed_by_lints.is_empty() {
+            Absence::AllowedByLints
         } else {
             Absence::NothingReported
         }
@@ -136,7 +152,27 @@ pub fn explain_site(
         location,
         hits,
         absence,
+        allowed_by_lints,
     }
+}
+
+/// The rules the `[lints]` tables over `path` allow, read off the report's
+/// `permissive_lint_table` findings: the scan drops a member's Clippy sites
+/// its manifest allows, and that finding is what is left to say so. A root
+/// manifest covers every path, a member's covers its own directory.
+fn allowed_by_lints(report: &Value, path: &str) -> Vec<String> {
+    let mut rules: Vec<String> = array(report, "diagnostics")
+        .filter(|diagnostic| text(diagnostic, "code") == Some(PERMISSIVE_LINT_TABLE))
+        .filter(|diagnostic| {
+            text(diagnostic, "path")
+                .and_then(|manifest| manifest.strip_suffix("Cargo.toml"))
+                .is_some_and(|directory| path.starts_with(directory))
+        })
+        .filter_map(|diagnostic| text(diagnostic, "message")?.split('"').nth(1).map(sanitize))
+        .collect();
+    rules.sort();
+    rules.dedup();
+    rules
 }
 
 fn array<'a>(report: &'a Value, pointer: &str) -> impl Iterator<Item = &'a Value> {
@@ -268,6 +304,14 @@ impl SiteExplanation {
             }
             Some(Absence::GeneratedOrVendored) => {
                 let _ = writeln!(out, "{path} is declared generated or vendored: nothing there is graded.");
+            }
+            Some(Absence::AllowedByLints) => {
+                let _ = writeln!(
+                    out,
+                    "Nothing is reported at {path}:{}: a [lints] table allows {}, so the scan hides those sites there.",
+                    location.line,
+                    self.allowed_by_lints.join(", ")
+                );
             }
             Some(Absence::NothingReported) => {
                 let _ = writeln!(out, "Nothing is reported at {path}:{}.", location.line);

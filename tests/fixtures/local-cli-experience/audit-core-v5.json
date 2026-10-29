@@ -287,7 +287,7 @@
     "rust_doctor::cargo::duplicate_major_versions": "P2",
     "rust_doctor::cargo::missing_lockfile": "P2",
     "rust_doctor::cargo::path_dependency_outside_workspace": "P1",
-    "rust_doctor::cargo::permissive_lint_table": "P2",
+    "rust_doctor::cargo::permissive_lint_table": "P3",
     "rust_doctor::cargo::permissive_rustflags": "P2",
     "rust_doctor::cargo::release_debug_symbols": "P3",
     "rust_doctor::cargo::test_only_dependency": "P2",

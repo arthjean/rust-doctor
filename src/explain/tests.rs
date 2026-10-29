@@ -151,6 +151,32 @@ fn a_line_with_no_finding_says_whether_it_is_ignored_generated_or_clean() {
     assert_eq!(site.text(&root), "Nothing is reported at src/lib.rs:40.\n");
 }
 
+/// US-023: a line with nothing reported, under a manifest whose `[lints]`
+/// table allows a rule, names the allow that hides its sites.
+#[test]
+fn a_line_under_a_lints_allow_names_the_allow() {
+    let root = scratch("explain", "why-lints");
+    let mut report = report();
+    report["diagnostics"].as_array_mut().unwrap().push(serde_json::json!({
+        "code": "rust_doctor::cargo::permissive_lint_table", "severity": "warning",
+        "message": "Manifest lint table sets catalogued rule \"clippy::print_stdout\" to \"allow\".",
+        "path": "crates/cli/Cargo.toml",
+        "span": { "line_start": 8, "column_start": 1, "line_end": 8, "column_end": 13 },
+    }));
+    let none = BTreeSet::new();
+    let site = explain_site(&report, "crates/cli/src/main.rs:3".parse().unwrap(), &root, &none);
+    assert_eq!(site.absence, Some(Absence::AllowedByLints));
+    assert_eq!(site.allowed_by_lints, ["clippy::print_stdout"]);
+    assert_eq!(
+        site.text(&root),
+        "Nothing is reported at crates/cli/src/main.rs:3: a [lints] table allows clippy::print_stdout, so the scan hides those sites there.\n"
+    );
+    // Another member's directory is not under that manifest.
+    let site = explain_site(&report, "crates/core/src/lib.rs:3".parse().unwrap(), &root, &none);
+    assert_eq!(site.absence, Some(Absence::NothingReported));
+    assert!(site.allowed_by_lints.is_empty());
+}
+
 /// A saved report is any file the reader names: an escape sequence or a
 /// control character in one of its strings never reaches the terminal.
 #[test]

@@ -52,6 +52,7 @@ mod exclusions;
 pub(crate) mod interrupt;
 mod lint_list;
 mod lockfile;
+mod manifest_allows;
 mod members;
 mod messages;
 mod probes;
@@ -558,7 +559,12 @@ impl ExecutionContext<'_> {
         });
         let (source, structure, deadline_skipped) = natives.unwrap_or_default();
         let scan = match clippy {
-            Some(Some(Ok(scan))) => ClippyExecution::from_scan(scan),
+            Some(Some(Ok(mut scan))) => {
+                if let Some(health) = &cargo_health {
+                    manifest_allows::honor(&mut scan, &metadata, self.plan, &health.allows);
+                }
+                ClippyExecution::from_scan(scan)
+            }
             Some(None) => ClippyExecution::Panicked,
             None => ClippyExecution::Disabled,
             // Clippy could not be started, so this result has already failed
@@ -614,7 +620,9 @@ impl ExecutionContext<'_> {
         // It runs before Clippy: `cargo clippy` creates or rewrites
         // `Cargo.lock`, so reading it afterwards would measure the graph the
         // tool just wrote instead of the one the repository commits.
-        let cargo_health = self.active(Producer::CargoHealth).then(|| {
+        // It also runs when only Clippy does, since it reads the `[lints]`
+        // allows the Clippy findings are filtered by.
+        let cargo_health = (self.active(Producer::CargoHealth) || self.active(Producer::Clippy)).then(|| {
             panicked.contain(containment::CARGO_HEALTH, || {
                 timed(timings, Phase::CargoHealth, || {
                     cargo_health::inspect(metadata, self.plan, self.options.advisory_db.as_ref())

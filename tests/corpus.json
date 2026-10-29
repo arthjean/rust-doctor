@@ -13730,7 +13730,7 @@
         "reviewed": 0,
         "separation": null,
         "status": "unobserved",
-        "tier": "P2",
+        "tier": "P3",
         "true_positives": null
       },
       {
@@ -15188,7 +15188,7 @@
     {
       "default_level": "warn",
       "id": "rust_doctor::cargo::permissive_lint_table",
-      "tier": "P2"
+      "tier": "P3"
     },
     {
       "default_level": "warn",
@@ -18701,7 +18701,7 @@
       "reviewed": 0,
       "separation": null,
       "status": "unobserved",
-      "tier": "P2",
+      "tier": "P3",
       "true_positives": null
     },
     {

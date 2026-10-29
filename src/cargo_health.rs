@@ -79,6 +79,9 @@ pub(crate) struct CargoHealthScan {
     pub(crate) advisory: AdvisoryOutcome,
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: CargoHealthCounters,
+    /// Every (package, rule) pair a `[lints]` table sets to `allow`, inherited
+    /// entries included: the Clippy findings the project already declined.
+    pub(crate) allows: BTreeSet<(String, String)>,
 }
 
 #[derive(Debug, Default)]
@@ -98,13 +101,16 @@ pub(crate) fn inspect(
     database: Option<&AdvisoryDatabase>,
 ) -> CargoHealthScan {
     let active = ActiveRules::of(plan, Producer::CargoHealth);
-    if !active.any() {
-        return CargoHealthScan::default();
-    }
-
     let mut scan = CargoHealthScan::default();
-    if active.on(&CARGO_PERMISSIVE_LINT_TABLE) {
-        inspect_lint_tables(metadata, plan, &mut scan);
+    // The allows are read whenever Clippy runs, whichever rule of this pack is
+    // on: switching `permissive_lint_table` off is one of the exits its help
+    // names, and it must not bring back every site the allow hides.
+    let reported = active.on(&CARGO_PERMISSIVE_LINT_TABLE);
+    if reported || plan.active_rules(Producer::Clippy).next().is_some() {
+        inspect_lint_tables(metadata, plan, reported, &mut scan);
+    }
+    if !active.any() {
+        return scan;
     }
     if active.any_of(&PROFILE_RULES) {
         inspect_release_profile(metadata, &active, &mut scan);
@@ -369,16 +375,23 @@ impl LintSetting {
     }
 }
 
-/// Reports every `[lints.clippy]` entry that sets a catalogued, active rule to
-/// `allow`. The tool only judges what it would otherwise have said: a lint the
-/// catalog does not carry is not this rule's subject, and neither is a `deny`
-/// or a `warn`, which silence nothing.
+/// Records every `[lints.clippy]` entry that sets a catalogued, active rule to
+/// `allow`, as the allows of the members it applies to, and, when `reported`,
+/// as a finding. The tool only judges what it would otherwise have said: a
+/// lint the catalog does not carry is not this rule's subject, and neither is a
+/// `deny` or a `warn`, which silence nothing.
 ///
 /// A member declaring `[lints] workspace = true` points at the workspace
 /// root's `[workspace.lints]`, which is judged once and attributed to the root
-/// manifest rather than once per inheriting member.
-fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoHealthScan) {
-    let mut judge_root = false;
+/// manifest rather than once per inheriting member, and allows for each of
+/// them.
+fn inspect_lint_tables(
+    metadata: &Metadata,
+    plan: &PolicyPlan,
+    reported: bool,
+    scan: &mut CargoHealthScan,
+) {
+    let mut inheriting = Vec::new();
     for package in workspace_packages(metadata) {
         let document = match read_manifest::<ManifestLintDocument>(
             package.manifest_path.as_std_path(),
@@ -386,7 +399,9 @@ fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoH
         ) {
             Ok(document) => document,
             Err(error) => {
-                scan.errors.push(error);
+                if reported {
+                    scan.errors.push(error);
+                }
                 continue;
             }
         };
@@ -397,7 +412,7 @@ fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoH
             continue;
         };
         if lints.workspace == Some(true) {
-            judge_root = true;
+            inheriting.push(package.name.to_string());
             continue;
         }
         let manifest_path = package
@@ -405,45 +420,55 @@ fn inspect_lint_tables(metadata: &Metadata, plan: &PolicyPlan, scan: &mut CargoH
             .strip_prefix(&metadata.workspace_root)
             .ok()
             .map(|path| path.as_str().to_owned());
-        permissive_entries(
-            &lints,
-            &source,
-            plan,
-            Some(package.name.as_ref()),
+        let finding = reported.then(|| Finding {
+            package: Some(package.name.as_ref()),
             manifest_path,
-            scan,
-        );
+        });
+        let members = [package.name.to_string()];
+        permissive_entries(&lints, &source, plan, &members, finding, scan);
     }
 
-    if !judge_root {
+    if inheriting.is_empty() {
         return;
     }
     let root_manifest = metadata.workspace_root.as_std_path().join("Cargo.toml");
     match read_manifest::<ManifestLintDocument>(&root_manifest, LINT_TABLE_UNPARSEABLE) {
-        Err(error) => scan.errors.push(error),
+        Err(error) => {
+            if reported {
+                scan.errors.push(error);
+            }
+        }
         Ok(None) => {}
         Ok(Some((source, manifest))) => {
             let Some(lints) = manifest.workspace.and_then(|workspace| workspace.lints) else {
                 return;
             };
-            permissive_entries(
-                &lints,
-                &source,
-                plan,
-                resolution_owner(metadata).as_deref(),
-                Some("Cargo.toml".to_owned()),
-                scan,
-            );
+            let owner = resolution_owner(metadata);
+            let finding = reported.then(|| Finding {
+                package: owner.as_deref(),
+                manifest_path: Some("Cargo.toml".to_owned()),
+            });
+            permissive_entries(&lints, &source, plan, &inheriting, finding, scan);
         }
     }
 }
 
+/// Where a permissive entry is reported: the package it is attributed to and
+/// the manifest holding it.
+struct Finding<'a> {
+    package: Option<&'a str>,
+    manifest_path: Option<String>,
+}
+
+/// Records each entry of one table that allows an active catalogued rule, as
+/// an allow of every member in `members` and, given a `finding`, as one
+/// candidate.
 fn permissive_entries(
     lints: &LintsSection,
     source: &str,
     plan: &PolicyPlan,
-    package: Option<&str>,
-    manifest_path: Option<String>,
+    members: &[String],
+    finding: Option<Finding<'_>>,
     scan: &mut CargoHealthScan,
 ) {
     let Some(clippy) = lints.clippy.as_ref() else {
@@ -461,15 +486,24 @@ fn permissive_entries(
         if !plan.is_active(&rule) {
             continue;
         }
-        scan.candidates.push(Candidate {
-            definition: &CARGO_PERMISSIVE_LINT_TABLE,
-            message: format!("Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"."),
-            package: package.map(str::to_owned),
-            manifest_path: manifest_path.clone(),
-            span: Some(byte_range_span(key.span(), &starts, source)),
-            key: None,
-            informational: false,
-        });
+        if let Some(finding) = &finding {
+            scan.candidates.push(Candidate {
+                definition: &CARGO_PERMISSIVE_LINT_TABLE,
+                message: format!(
+                    "Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"."
+                ),
+                package: finding.package.map(str::to_owned),
+                manifest_path: finding.manifest_path.clone(),
+                span: Some(byte_range_span(key.span(), &starts, source)),
+                key: None,
+                informational: false,
+            });
+        }
+        scan.allows.extend(
+            members
+                .iter()
+                .map(|member| (member.clone(), rule.clone())),
+        );
     }
 }
 
