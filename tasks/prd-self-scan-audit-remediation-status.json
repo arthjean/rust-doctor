@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "Re-baseline, catalog defaults and public claims",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 4
     }
   ],
   "stories": [
@@ -367,33 +367,33 @@
       "id": "US-026",
       "title": "Validate assumption: making indexing_slicing and string_slice opt-in loses no corpus true positive",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-10-29",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-027",
       "title": "Make indexing_slicing and string_slice opt-in",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [
         "US-026"
       ],
       "started_at": "2026-10-29",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29"
     },
     {
       "id": "US-028",
       "title": "Replay the corpus once under core-v6 and re-baseline",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
@@ -411,23 +411,23 @@
         "US-027"
       ],
       "started_at": "2026-10-29",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29",
       "notes": "Replayed 2026-10-29 under core-v6, toolchain 1.99.1: no subject moved more than 10 points (largest coda 88->83), the distribution gate passes with an 8-point separation. duplicate_major_versions has no corpus rate (5 findings on 2 span-less Cargo.lock sites), so a lone direct duplicate scores 72 under the P2 ceiling, as PRD 1.2 records. Two oversized_unit escalations are open for a human verdict: claudes-c-compiler src/backend/x86/codegen/intrinsics.rs:22 and vibesql crates/vibesql-ast/src/identifier.rs:1."
     },
     {
       "id": "US-029",
       "title": "Bring rust-doctor.com and the release skill in line with core-v6",
       "epic": "EP-005",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-028"
       ],
       "started_at": "2026-10-29",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-10-29",
+      "reviewed_at": "2026-10-29",
       "notes": "rust-doctor-web 91ee1fd: catalog and corpus regenerated from 5cd4592, build:verified green."
     }
   ]
