@@ -78,7 +78,7 @@ editing the module.
 | Module | Home |
 |---|---|
 | `src/policy/`: the level algebra, the catalog, the noise rate, the candidate queue | [docs/subsystems/policy.md](docs/subsystems/policy.md) |
-| `src/audit/`: the score, the category tallies, the core-v3 density penalty | [docs/subsystems/audit.md](docs/subsystems/audit.md) |
+| `src/audit/`: the score, the category tallies, the core-v6 density penalty | [docs/subsystems/audit.md](docs/subsystems/audit.md) |
 | `src/report/`, `src/render/`, `src/tui/`, `src/presentation/code_frame.rs` | [docs/subsystems/reporting.md](docs/subsystems/reporting.md) |
 | `src/source_kernel/`, `src/source_text.rs`: the one workspace walk | [docs/subsystems/source-kernel.md](docs/subsystems/source-kernel.md) |
 | `src/execution/`: the five producers, the toolchain probe, the Clippy stream | [docs/subsystems/execution.md](docs/subsystems/execution.md) |

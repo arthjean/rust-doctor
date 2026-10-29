@@ -25,9 +25,13 @@ clean the rest is:
 | P3 | uncapped | uncapped |
 
 One P0 finding makes a hundred P3 repairs worth nothing. Read `audit.score.worst_tier`
-and `audit.score.applied_ceiling` first, and repair what sets the ceiling.
+and `audit.score.applied_ceiling` first, and repair what sets the ceiling;
+`audit.score.ceilings[]`, new in report schema 24, names the rules holding
+each one. A withheld rule caps nothing. A lone direct duplicate major scores
+72, under the P2 ceiling, and one that only dependencies require publishes at
+`info` and weighs nothing.
 
-Under the ceiling the score is a density, not a tally. The model is `core-v5`,
+Under the ceiling the score is a density, not a tally. The model is `core-v6`,
 published as `audit.score.model`, and each dimension scores
 `round(100 * exp(-D / lambda))`. D counts one distinct site per diagnostic, an
 error weighing two, a warning one and an info nothing, each site weighed by the

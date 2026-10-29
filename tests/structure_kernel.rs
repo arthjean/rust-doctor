@@ -558,10 +558,11 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
 
     // US-008: the family inside `#[cfg(test)]` and the one inside the build
     // script are marked, stay published, and stay counted. Only the two shipped
-    // families weigh, which is what leaves maintainability at 85 with four findings published:
+    // families weigh, which is what leaves maintainability at 84 with four findings published:
     // two weighing sites over the two-kiloline floor this fixture is far below, discounted by the
-    // rate the corpus adjudicated the rule wrong. Four would have scored lower, and that gap is
-    // the mark being observable rather than declarative.
+    // rate the corpus adjudicated the rule wrong (85 until the core-v6 replay measured it at 6 of
+    // 18 rather than 8 of 20). Four would have scored lower, and that gap is the mark being
+    // observable rather than declarative.
     let marks: Vec<&str> = exact
         .iter()
         .map(|finding| finding["context"].as_str().unwrap_or("shipped"))
@@ -570,7 +571,7 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
     assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 8);
     assert_eq!(report["audit"]["score"]["value"], 98);
-    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 85);
+    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 84);
 
     // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();

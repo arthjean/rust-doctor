@@ -145,24 +145,25 @@ fn a_measured_rule_is_discounted_once_and_ranks_above_an_unmeasured_peer() {
 
 /// A measured rule holding a ceiling is projected for the ceiling it releases, whole.
 ///
-/// One duplicate major holds dependencies at 75. The gain of repairing it is the ceiling it
-/// lifts, read through the published value, and the rate the corpus measured it at discounts
-/// none of that: the promise is a hundred.
+/// One undocumented `unsafe` block holds reliability at 75. The gain of repairing it is the
+/// ceiling it lifts, read through the published value, and the rate the corpus measured it at
+/// discounts none of that: the promise is a hundred. This used a duplicate major until the
+/// core-v6 replay left that rule without a rate.
 #[test]
 fn the_ceiling_a_measured_rule_holds_is_released_whole() {
     let score = scored(&[
         (
-            "rust_doctor::cargo::duplicate_major_versions",
-            "dependencies",
+            "clippy::undocumented_unsafe_blocks",
+            "correctness",
             Severity::Warning,
             1,
         ),
         ("clippy::useless_vec", "performance", Severity::Warning, 1),
     ]);
-    assert_eq!(score.dimensions.dependencies, 75);
+    assert_eq!(score.dimensions.reliability, 75);
     assert_eq!(
         score.projected_rule_ids.first().map(String::as_str),
-        Some("rust_doctor::cargo::duplicate_major_versions")
+        Some("clippy::undocumented_unsafe_blocks")
     );
     assert_eq!(score.projected_after_top_three, Some(100));
 }

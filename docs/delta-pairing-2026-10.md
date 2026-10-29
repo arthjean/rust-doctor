@@ -116,3 +116,39 @@ It reads the clone cache at `RUST_DOCTOR_CORPUS_DIR`, else
 scans with `RUST_DOCTOR_PAIRING_BINARY`, else the binary the build made, only
 the commits whose report is not already under `target/delta-pairing/reports`,
 and writes `target/delta-pairing/results.json`.
+
+## Replay under core-v6 (2026-10-29)
+
+US-028 of the self-scan remediation replayed the same pairs with the release
+binary of the 0.11.0 candidate (score model core-v6, schema 24, toolchain
+1.99.1), with the baseline pairing the crate ships today and duplicate
+families fingerprinted on their macro arguments, into a fresh reports
+directory so no report of the 0.7.0 run was reused:
+
+```bash
+RUST_DOCTOR_PAIRING_DIR=<fresh directory> \
+cargo test --release --test delta_pairing -- --ignored --nocapture
+```
+
+| Repository | Pairs | (a) | (b) | (c) | (d) | (a) fixed | (a) cross-file |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| rust-doctor | 50 | 41 | 41 | 44 | 41 | 22 | 3 |
+| artifexprocal | 10 | 32 | 32 | 32 | 32 | 9 | 0 |
+| claudes-c-compiler | 10 | 113 | 113 | 113 | 113 | 7 | 0 |
+| coda | 10 | 2 | 2 | 2 | 2 | 0 | 0 |
+| mdr | 10 | 11 | 11 | 11 | 11 | 1 | 0 |
+| ostendo | 10 | 12 | 12 | 13 | 12 | 11 | 1 |
+| ralph-os | 10 | 6 | 6 | 6 | 6 | 0 | 0 |
+| syncvibe | 8 | 12 | 12 | 13 | 12 | 29 | 1 |
+| vibesql | 10 | 3 | 3 | 3 | 3 | 1 | 0 |
+| **Total** | **128** | **232** | **232** | **237** | **232** | 80 | 5 |
+
+128 pairs were measured and 2 excluded, both syncvibe pairs whose sides carry
+different build errors. vibesql's three pairs no longer exceed the structure
+time budget, so they are back in the measurement.
+
+(a) now makes no introduction that (b) or (d) removes: the shipped pairing
+already does what the two candidate policies did on this history, so there is
+no candidate to classify and `tests/fixtures/delta-pairing/verdicts.json` is
+unchanged. (c) still adds 5 false introductions, the cross-file moves (a)
+follows by fingerprint, and no pair shows a hidden swap.

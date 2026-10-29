@@ -1321,7 +1321,14 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// production subpopulation a structural rate is drawn from. Four sites cannot
 /// publish a rate, so both are `incomplete`, and both are ranked at the
 /// unmeasured half weight rather than at a rate measured over a population they
-/// are no longer in.
+/// are no longer in. On 2026-10-29 `crate_level_allow` stopped reporting an
+/// allow that hides nothing catalogued or dead (US-024 of the self-scan
+/// remediation), and none of its four sites survived, so it is `unobserved`
+/// on the healthy population. `duplicate_major_versions` entered the same day
+/// for the reason the 2026-08-22 entries did: comparing versions by Cargo
+/// compatibility class grew its population from one finding to five on two
+/// span-less `Cargo.lock` sites, and the one site reviewed before cannot carry
+/// a rate over five findings.
 ///
 /// The 64 members of Clippy's `correctness` group entered on 2026-09-25 with
 /// EP-001 of the react-doctor parity PRD, admitted as one pack on trigger
@@ -1345,7 +1352,7 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
 /// `crate-absent`, and the repositories that do never trigger them; nor does
 /// any of them fall back on a secret, ignore its lockfile or compile with a
 /// secret in a workflow step.
-const ADMISSION_DEBT: [&str; 119] = [
+const ADMISSION_DEBT: [&str; 120] = [
     "clippy::absurd_extreme_comparisons",
     "clippy::almost_swapped",
     "clippy::approx_constant",
@@ -1434,6 +1441,7 @@ const ADMISSION_DEBT: [&str; 119] = [
     "clippy::wrong_transmute",
     "clippy::zombie_processes",
     "clippy::zst_offset",
+    "rust_doctor::cargo::duplicate_major_versions",
     "rust_doctor::cargo::missing_lockfile",
     "rust_doctor::cargo::path_dependency_outside_workspace",
     "rust_doctor::cargo::permissive_lint_table",

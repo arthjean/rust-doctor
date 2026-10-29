@@ -34,12 +34,16 @@ use support::corpus::{
 /// sample was deepened is a measurement, and a rule entering it is a rate
 /// published on a sample that cannot carry it. Both deserve to move an
 /// assertion rather than a number.
-const CLEARED_BLIND: [&str; 5] = [
+///
+/// `duplicate_major_versions` left on 2026-10-29 without being deepened: once
+/// versions compared by Cargo compatibility class, fd and hexyl hold five
+/// findings on two span-less `Cargo.lock` sites, and one reviewed site no
+/// longer covers its population, so the rule publishes no rate at all.
+const CLEARED_BLIND: [&str; 4] = [
     "clippy::missing_safety_doc",
     "clippy::ptr_arg",
     "clippy::rc_buffer",
     "clippy::stable_sort_primitive",
-    "rust_doctor::cargo::duplicate_major_versions",
 ];
 
 fn defect_naming(defects: &[String], needle: &str) -> String {
@@ -490,7 +494,7 @@ fn the_sampling_prose_states_no_agreement_quantity() {
     assert_eq!(
         numbers(&prose),
         BTreeSet::from([
-            "0", "08", "09", "11", "20", "2026", "241", "30", "31", "34", "40", "46", "5"
+            "0", "08", "09", "10", "11", "20", "2026", "241", "29", "31", "34", "40", "46", "5", "6"
         ]),
         "the sampling prose carries a number this field is not allowed to state"
     );
@@ -775,8 +779,10 @@ fn no_published_rate_is_withheld_by_what_its_interval_settles() {
 /// took their only two `anyhow` sites out of the reviewed population: a rule
 /// with neither rate is ranked by the smoothed default and nothing else, which
 /// is the state this column exists to make visible rather than infer.
+/// `crate_level_allow` then lost its healthy population on 2026-10-29, when
+/// it stopped reporting an allow that hides nothing catalogued or dead.
 const UNJUDGED_ON_AGENT_CODE: [(&str, PrecisionStatus); 3] = [
-    ("rust_doctor::structure::crate_level_allow", PrecisionStatus::Incomplete),
+    ("rust_doctor::structure::crate_level_allow", PrecisionStatus::Unobserved),
     (
         "rust_doctor::structure::unreasoned_allow_attribute",
         PrecisionStatus::Incomplete,

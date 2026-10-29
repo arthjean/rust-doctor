@@ -47,7 +47,7 @@ pub(crate) fn source_file_inventory(
     source_inventory::collect(metadata, scan, measurement)
 }
 
-pub const SCORE_MODEL: &str = "core-v5";
+pub const SCORE_MODEL: &str = "core-v6";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {

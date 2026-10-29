@@ -1,4 +1,4 @@
-//! The core-v5 penalty: how much of a workspace a dimension's findings cover, and what that
+//! The core-v6 penalty: how much of a workspace a dimension's findings cover, and what that
 //! coverage is worth out of a hundred.
 //!
 //! A dimension carries a density rather than a count: its distinct scored sites, weighted by

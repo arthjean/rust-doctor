@@ -1,6 +1,6 @@
 //! One score per workspace member, beside the workspace's.
 //!
-//! A member's score is the core-v5 model run over that member's production
+//! A member's score is the core-v6 model run over that member's production
 //! lines and the findings attributed to it, nothing else: the formula is the
 //! workspace's, and so are the reasons the scan gives against it. A finding no
 //! member claims, a manifest-level or repository finding, or one in a file two

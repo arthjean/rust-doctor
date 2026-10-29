@@ -204,7 +204,9 @@ fn a_measured_rule_is_discounted_once_in_the_ranking() {
     );
     let score = &report["audit"]["score"];
     assert_eq!(score["projected_rule_ids"][0], DUPLICATE, "{report:#}");
-    assert_eq!(score["dimensions"]["dependencies"], 75);
+    // Under the 75 the P2 ceiling allows: since the core-v6 replay the corpus
+    // publishes no rate for the rule, so its one site is charged whole.
+    assert_eq!(score["dimensions"]["dependencies"], 72);
     assert_eq!(
         score["projected_after_top_three"], 100,
         "the ceiling the duplicate holds is released whole, not discounted: {score:#}"

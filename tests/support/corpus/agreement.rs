@@ -54,8 +54,10 @@ pub(crate) const SCHEMA_VERSION: u64 = 8;
 /// nor a citation. They are grandfathered by count rather than re-judged:
 /// inventing the citation a pass never made is worse evidence than none, and a
 /// count that can only fall is what keeps a new undated pair out. 239 at the
-/// cutoff, less the orphan pair whose site US-020 fixed out of the population.
-pub(crate) const UNDATED_PAIRS: usize = 238;
+/// cutoff, less the orphan pair whose site US-020 fixed out of the population,
+/// less the fifteen the core-v6 replay of 2026-10-29 dropped or re-judged
+/// after the detector changes of the self-scan remediation.
+pub(crate) const UNDATED_PAIRS: usize = 223;
 
 /// How the two passes of a pair were kept apart.
 ///

@@ -114,7 +114,14 @@ fn a_new_undated_pair_is_refused() {
     let mut adjudication = artifact().adjudication;
     let mut extra = adjudication.agreement.pairs[0].clone();
     extra.line += 100_000;
-    while adjudication.agreement.pairs.len() <= UNDATED_PAIRS {
+    // Counted on the undated pairs, not on every pair: the dated ones are
+    // the record's, and a pair past the grandfathered count is what is
+    // refused.
+    extra.adjudicated_on = None;
+    let undated = |pairs: &[AdjudicatedPair]| {
+        pairs.iter().filter(|pair| pair.adjudicated_on.is_none()).count()
+    };
+    while undated(&adjudication.agreement.pairs) <= UNDATED_PAIRS {
         adjudication.agreement.pairs.push(extra.clone());
         extra.line += 1;
     }

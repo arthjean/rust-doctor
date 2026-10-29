@@ -82,6 +82,13 @@ const ESCALATED_AGENT: [(&str, &str, u64); 2] = [
     ),
 ];
 
+/// The two agent `oversized_unit` sites the passes of the core-v6 replay split
+/// on, 2026-10-29: the first escalations whose passes quote their evidence.
+const ESCALATED_OVERSIZED_AGENT: [(&str, &str, u64); 2] = [
+    ("claudes-c-compiler", "src/backend/x86/codegen/intrinsics.rs", 22),
+    ("vibesql", "crates/vibesql-ast/src/identifier.rs", 1),
+];
+
 /// The five sites of `clippy::undocumented_unsafe_blocks` its two passes split
 /// on, the first Clippy scope judged under the protocol. Named by position for
 /// the reason the lists above are.
@@ -505,14 +512,48 @@ fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
     assert_eq!(agreement.escalations_open, escalations_open(agreement));
     assert_eq!(
         agreement.escalations_open,
-        (ESCALATED.len() + ESCALATED_OVERSIZED.len() + ESCALATED_AGENT.len() + ESCALATED_UNSAFE.len())
-            as u64
+        (ESCALATED.len()
+            + ESCALATED_OVERSIZED.len()
+            + ESCALATED_AGENT.len()
+            + ESCALATED_OVERSIZED_AGENT.len()
+            + ESCALATED_UNSAFE.len()) as u64
     );
 
     let mut forged = adjudication(vec![site(7, Verdict::TruePositive)], vec![disagreeing(9)]);
     forged.agreement.escalations_open = 0;
     let named = defect_naming(&agreement_defects(&forged), "escalations_open published");
     assert!(named.contains('0'), "{named}");
+}
+
+/// The escalations of the core-v6 replay are findable, split, dated, cited and
+/// unpublished.
+#[test]
+fn the_escalations_of_the_core_v6_replay_are_findable_and_unpublished() {
+    let artifact = artifact();
+    for (repository, path, line) in ESCALATED_OVERSIZED_AGENT {
+        let found = artifact
+            .adjudication
+            .agreement
+            .pairs
+            .iter()
+            .find(|pair| pair.repository == repository && pair.path == path && pair.line == line);
+        assert!(found.is_some(), "escalation absent: {repository}/{path}:{line}");
+        let Some(found) = found else { continue };
+        assert_eq!(found.rule, "rust_doctor::structure::oversized_unit");
+        assert_eq!(found.population, Population::Agent);
+        assert_eq!(found.adjudicated_on.as_deref(), Some("2026-10-29"));
+        assert_eq!(found.verdict(), None);
+        for judged in &found.passes {
+            assert_eq!(judged.judge, PROTOCOL_JUDGES[1]);
+            assert!(!judged.justification.trim().is_empty());
+        }
+        assert!(
+            !artifact.adjudication.reviewed.iter().any(|site| {
+                site.repository == repository && site.path == path && site.line == line
+            }),
+            "{repository}/{path}:{line} is escalated and published"
+        );
+    }
 }
 
 /// The escalations of the undocumented-unsafe scope are findable, split, judged
@@ -670,11 +711,15 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
         *counts.entry(site.provenance).or_default() += 1;
     }
     // 369 until US-020 fixed the walk behind the one false positive of the
-    // orphan census, whose site the rule no longer produces.
-    assert_eq!(counts.get(&Provenance::Agent), Some(&368));
-    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&98));
+    // orphan census, whose site the rule no longer produces. The core-v6
+    // replay of 2026-10-29 then dropped the sites whose family or allow the
+    // detector changes of the self-scan remediation took away, four of them
+    // unrecorded `crate_level_allow` verdicts and two unrecorded duplicate
+    // families, and added the agreeing pairs of its redrawn strides.
+    assert_eq!(counts.get(&Provenance::Agent), Some(&399));
+    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&92));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 466);
+    assert_eq!(artifact.adjudication.reviewed.len(), 491);
 }
 
 /// A verdict produced under the protocol has a pair behind it, or the suite
@@ -750,8 +795,14 @@ fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
         for rate in precision {
             if enrolled(population, rate.id.as_str()) {
                 assert_eq!(rate.doubly_judged, rate.reviewed, "{}", rate.id);
-                assert_eq!(rate.judges.len(), 1, "{}", rate.id);
-                assert!(PROTOCOL_JUDGES.contains(&rate.judges[0].as_str()), "{}", rate.id);
+                // A scope re-drawn after a detector change carries the sites
+                // each run judged, so it may name one judge per run.
+                assert!(!rate.judges.is_empty(), "{}", rate.id);
+                assert!(
+                    rate.judges.iter().all(|judge| PROTOCOL_JUDGES.contains(&judge.as_str())),
+                    "{}",
+                    rate.id
+                );
             } else {
                 assert_eq!(rate.doubly_judged, 0, "{}", rate.id);
             }

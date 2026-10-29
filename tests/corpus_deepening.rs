@@ -77,7 +77,10 @@ fn width(rule: &RulePrecision) -> u64 {
 #[test]
 fn the_two_deepened_healthy_scopes_draw_their_whole_production_subpopulation() {
     let artifact = artifact();
-    for (rule, observed) in [(OVERSIZED, 46u64), (NEAR_DUPLICATE, 30)] {
+    // `near_duplicate_function_body` held thirty until the core-v6 replay of
+    // 2026-10-29, where the family changes of the self-scan remediation took
+    // four away and brought three in.
+    for (rule, observed) in [(OVERSIZED, 46u64), (NEAR_DUPLICATE, 29)] {
         let plan = artifact
             .adjudication
             .sampling_plan
@@ -108,7 +111,7 @@ fn the_two_deepened_healthy_scopes_draw_their_whole_production_subpopulation() {
 #[test]
 fn every_drawn_site_is_judged_twice_and_a_disagreement_publishes_no_verdict() {
     let artifact = artifact();
-    for (rule, drawn, reviewed) in [(OVERSIZED, 46u64, 39u64), (NEAR_DUPLICATE, 30, 30)] {
+    for (rule, drawn, reviewed) in [(OVERSIZED, 46u64, 39u64), (NEAR_DUPLICATE, 29, 29)] {
         let measure = healthy(rule);
         assert_eq!(measure.status, PrecisionStatus::Measured, "{rule}");
         assert_eq!(measure.reviewed, reviewed, "{rule}");
@@ -175,7 +178,7 @@ fn the_five_sites_each_scope_already_carried_are_retained() {
 /// precision, and precision is the width. Each bound is the widest a Wilson
 /// interval gets at that scope's own denominator, which is the interval at
 /// `x = n / 2`: 2993 over the thirty-nine verdicts `oversized_unit` publishes
-/// and 3370 over the thirty of `near_duplicate_function_body`. The story fixed
+/// and 3418 over the twenty-nine of `near_duplicate_function_body`. The story fixed
 /// 2748, the same bound at the forty-seven sites the population held before the
 /// out-of-line `#[cfg(test)]` correction of August 2026 shrank it to forty-six,
 /// and before the seven disagreements that scope escalated left thirty-nine
@@ -190,7 +193,7 @@ fn each_deepened_scope_publishes_a_narrower_interval_than_its_five_site_sample()
     let before = high - low;
     assert_eq!(before, 5883);
 
-    for (rule, bound) in [(OVERSIZED, 2993u64), (NEAR_DUPLICATE, 3370)] {
+    for (rule, bound) in [(OVERSIZED, 2993u64), (NEAR_DUPLICATE, 3418)] {
         let measure = healthy(rule);
         let (low, high) = wilson_95(measure.false_positives.unwrap(), measure.reviewed);
         assert_eq!(Some(low), measure.interval_low_basis_points, "{rule}");
@@ -207,7 +210,7 @@ fn each_deepened_scope_publishes_a_narrower_interval_than_its_five_site_sample()
 /// `near_duplicate_function_body` cannot be deepened further, and the record
 /// says the limit is the corpus.
 ///
-/// The whole production subpopulation of that scope is thirty sites, under the
+/// The whole production subpopulation of that scope is twenty-nine sites, under the
 /// forty per arm the difference interval names as its nominal coverage floor.
 /// No sampling decision moves that number: the draw already takes everything.
 /// The record states it in prose and publishes it on the row, and this is where
@@ -249,17 +252,17 @@ const KNOWN: [(&str, i64, i64, ComparisonVerdict); 4] = [
     ),
     (
         "rust_doctor::structure::duplicate_function_body",
-        -3966,
-        683,
+        -3282,
+        1383,
         ComparisonVerdict::Indistinguishable,
     ),
     (
         NEAR_DUPLICATE,
-        -3935,
-        396,
+        -4076,
+        110,
         ComparisonVerdict::Indistinguishable,
     ),
-    (OVERSIZED, -3725, -57, ComparisonVerdict::Separated),
+    (OVERSIZED, -3882, -504, ComparisonVerdict::Separated),
 ];
 
 /// Every comparison row publishes an interval, its method, and what it settles.

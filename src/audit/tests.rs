@@ -317,7 +317,7 @@ struct ShareCase {
 
 fn oracle() -> Oracle {
     serde_json::from_str(include_str!(
-        "../../tests/fixtures/local-cli-experience/audit-core-v5.json"
+        "../../tests/fixtures/local-cli-experience/audit-core-v6.json"
     ))
     .expect("audit oracle should be valid")
 }
@@ -577,7 +577,7 @@ fn the_share_url_carries_the_production_line_count() {
 
     assert_eq!(
         audit.share_url(),
-        Ok("https://rust-doctor.com/share?s=100&m=core-v5&f=3&l=420".to_owned())
+        Ok("https://rust-doctor.com/share?s=100&m=core-v6&f=3&l=420".to_owned())
     );
 }
 
@@ -646,7 +646,9 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     // EP-024 opens `performance` and `dependencies`: no dimension stays
     // frozen at 100, so no weight of the scale is inert any more.
     assert_eq!(score.dimensions.performance, 75);
-    assert_eq!(score.dimensions.dependencies, 1);
+    // 1 until the core-v6 replay left `duplicate_major_versions` without a
+    // corpus rate, so its site is charged whole.
+    assert_eq!(score.dimensions.dependencies, 0);
     assert!(
         score
             .dimensions

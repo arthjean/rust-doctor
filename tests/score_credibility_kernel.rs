@@ -42,7 +42,7 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert!(score.authoritative);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
-    assert_eq!(score.model, "core-v5");
+    assert_eq!(score.model, "core-v6");
 
     // The dimension of the P0 finding is capped, so is the P1 one, and the
     // dimension carrying only a P3 keeps its additive score.
@@ -355,8 +355,8 @@ fn an_inconsistent_model_is_rejected_before_publication() {
 
     // A stored report from a previous model is refused rather than reinterpreted. There is no
     // dual-model path: the value beside the name was computed by a penalty this binary no longer
-    // has, so reading it as core-v5 would publish a number nothing here can reproduce.
-    for previous in ["core-v2", "core-v3", "core-v4"] {
+    // has, so reading it as core-v6 would publish a number nothing here can reproduce.
+    for previous in ["core-v2", "core-v3", "core-v4", "core-v5"] {
         let score = report.audit.score.as_mut().unwrap();
         score.model = previous.to_owned();
         assert!(!report.audit.is_valid(), "{previous}");
@@ -364,7 +364,7 @@ fn an_inconsistent_model_is_rejected_before_publication() {
     }
 
     let score = report.audit.score.as_mut().unwrap();
-    score.model = "core-v5".to_owned();
+    score.model = "core-v6".to_owned();
     assert!(report.audit.is_valid());
     assert!(report.is_valid());
 }
@@ -388,12 +388,12 @@ fn the_current_oracle_preserves_every_historical_field() {
     ))
     .expect("the frozen migration oracle should stay readable");
     let current: Value = serde_json::from_str(include_str!(
-        "fixtures/local-cli-experience/audit-core-v5.json"
+        "fixtures/local-cli-experience/audit-core-v6.json"
     ))
-    .expect("the core-v5 oracle should be valid");
+    .expect("the core-v6 oracle should be valid");
 
     assert_eq!(previous["model"], "core-v1");
-    assert_eq!(current["model"], "core-v5");
+    assert_eq!(current["model"], "core-v6");
     for section in previous.as_object().unwrap().keys() {
         if section == "rounding_cases" {
             continue;

@@ -121,7 +121,7 @@ impl CorpusMeasurement {
 }
 
 /// The sample the pinned corpus adjudicated per rule, sorted by id.
-pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 23] = [
+pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
     CorpusMeasurement::new("clippy::exit", 5, 5),
     CorpusMeasurement::new("clippy::expect_used", 4, 5),
     CorpusMeasurement::new("clippy::indexing_slicing", 40, 40),
@@ -138,14 +138,13 @@ pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 23] = [
     CorpusMeasurement::new("clippy::undocumented_unsafe_blocks", 3, 15),
     CorpusMeasurement::new("clippy::unreachable", 4, 5),
     CorpusMeasurement::new("clippy::unwrap_used", 5, 5),
-    CorpusMeasurement::new("rust_doctor::cargo::duplicate_major_versions", 0, 1),
     CorpusMeasurement::new("rust_doctor::cargo::unchecked_release_overflow", 1, 3),
     CorpusMeasurement::new("rust_doctor::structure::complex_function", 27, 31),
-    CorpusMeasurement::new("rust_doctor::structure::duplicate_function_body", 8, 20),
+    CorpusMeasurement::new("rust_doctor::structure::duplicate_function_body", 6, 18),
     CorpusMeasurement::new(
         "rust_doctor::structure::near_duplicate_function_body",
-        19,
-        30,
+        18,
+        29,
     ),
     CorpusMeasurement::new("rust_doctor::structure::oversized_unit", 13, 39),
     CorpusMeasurement::new("rust_doctor::structure::unreferenced_feature", 5, 5),
@@ -276,7 +275,7 @@ mod tests {
         assert_eq!(SMOOTHING.rate(0, 1), 3333);
         assert_eq!(SMOOTHING.rate(0, 5), 1429);
         assert_eq!(
-            corpus_measurement("rust_doctor::cargo::duplicate_major_versions")
+            corpus_measurement("clippy::ptr_arg")
                 .map(CorpusMeasurement::noise_basis_points),
             Some(3333)
         );

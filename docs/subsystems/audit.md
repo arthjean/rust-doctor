@@ -2,8 +2,8 @@
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
-and what a rule is charged. `src/audit/density.rs` is the core-v5 penalty
-itself, the severity and tier weights, the per-producer denominators, the
+and what a rule is charged, under score model core-v6 and report schema 24.
+`src/audit/density.rs` is the penalty itself, the severity and tier weights, the per-producer denominators, the
 kiloline floor and the exponential the density is read through.
 `src/audit/ranking.rs` is what to repair first: the projection, the rules it
 withholds and the discount both read.
@@ -38,6 +38,15 @@ the level a producer publishes a fact the workspace cannot act on at, a
 `println!` in a binary target. An uncatalogued note weighs nothing and voids
 nothing. What still drops `authoritative` is published as `score.reasons`, a
 closed `ScoreReason` set, and the flag is true exactly when it is empty.
+
+What core-v6 changed. A withheld rule caps nothing: `scoring_tier` in
+`src/audit/ceilings.rs` skips a rule smoothed above 5000 basis points, since
+one correct `process::exit` on such a rule held reliability at 75. The ranking
+discounts a measured rule once. A lone direct duplicate major scores 72, under
+the 75 of the P2 ceiling since the corpus publishes no rate for the rule, and a
+transitive-only one publishes at `Info` and weighs nothing. Versions compare by Cargo compatibility class, inline `#[cfg(test)]`
+items leave the denominator, and schema 24 publishes `audit.score.ceilings[]`
+and `audit.categories[].production`.
 
 One climb for what to repair first. `RuleAggregation::projection` fills its
 three places one at a time with the rule whose repair, on top of the ones
@@ -79,7 +88,7 @@ inventory its completeness. The dep-info walk consumes its slice rather than
 indexing it, so where the cursor may land is bounded by the slice and not by
 arithmetic a reader has to replay.
 
-One model, per member too. `packages.rs` runs the same core-v5 build over each
+One model, per member too. `packages.rs` runs the same build over each
 scanned member's production lines and the findings attributed to it, with the
 workspace's reasons, and a narrower scope rebuilds them the way it rebuilds the
 workspace. A finding no member claims, a repository finding or one in a file two
@@ -95,7 +104,7 @@ a signal stopped publishes no score at all.
 `the_audit_holds_the_size_bound_it_scores_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included: the block that
 computes the score has to pass the rule it scores. `density.rs` and
-`tests/scale.rs` came out of the same bound, since core-v5 carries a curve, a
+`tests/scale.rs` came out of the same bound, since the model carries a curve, a
 lambda table and its own denominators, and the pair of them would have taken
 `src/audit.rs` back over the thousand lines it reports at; `ranking.rs` and
 `tests/ranking.rs` followed for the same reason.

@@ -546,7 +546,7 @@ mod tests {
             .collect();
         // The three errors lead the warning, and among them the order is the projection's: what
         // repairing each is expected to be worth, climbed one rule at a time through the
-        // ceilings. Under core-v5 that is not the same as how loud each one is, and not the
+        // ceilings. Under core-v6 that is not the same as how loud each one is, and not the
         // same as the static relief either: security weighs four in the score, so the rule
         // holding most of its sites is worth the most to repair first, the lone site of
         // `security_error` is worth more on the dimension the first repair just opened than the
