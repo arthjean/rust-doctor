@@ -3,8 +3,9 @@
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
 and what a rule is charged, under score model core-v6 and report schema 24.
-`src/audit/density.rs` is the penalty itself, the severity and tier weights, the per-producer denominators, the
-kiloline floor and the exponential the density is read through.
+`src/audit/density.rs` is the penalty itself, the severity and tier weights,
+the per-producer denominators, the kiloline floor and the exponential the
+density is read through.
 `src/audit/ranking.rs` is what to repair first: the projection, the rules it
 withholds and the discount both read.
 `src/audit/source_inventory.rs` is the source-file count the score is computed
@@ -44,9 +45,10 @@ What core-v6 changed. A withheld rule caps nothing: `scoring_tier` in
 one correct `process::exit` on such a rule held reliability at 75. The ranking
 discounts a measured rule once. A lone direct duplicate major scores 72, under
 the 75 of the P2 ceiling since the corpus publishes no rate for the rule, and a
-transitive-only one publishes at `Info` and weighs nothing. Versions compare by Cargo compatibility class, inline `#[cfg(test)]`
-items leave the denominator, and schema 24 publishes `audit.score.ceilings[]`
-and `audit.categories[].production`.
+transitive-only one publishes at `Info` and weighs nothing. Versions compare
+by Cargo compatibility class, inline `#[cfg(test)]` items leave the
+denominator, and schema 24 publishes `audit.score.ceilings[]` and
+`audit.categories[].production`.
 
 One climb for what to repair first. `RuleAggregation::projection` fills its
 three places one at a time with the rule whose repair, on top of the ones
