@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cargo_metadata::Metadata;
 
@@ -186,18 +186,17 @@ pub(super) fn run(
         progress.report(Progress::Dependencies);
     }
     let mut linted = BTreeSet::new();
-    // The first member Cargo checked ends the dependencies: what came before
-    // it compiled what the workspace depends on, what comes after lints it.
+    // The last artifact of a package outside the members ends the
+    // dependencies: what came before it compiled what the workspace depends
+    // on, what comes after lints it.
     let spawned = Instant::now();
-    let mut first_member = None;
+    let mut last_dependency = None;
     // Dropped when this function returns, however the pass ended.
     let _lockfile = LockfileGuard::capture(workspace_root);
     let finished = process::run(command, context.options.deadline, |stdout| {
         messages::collect_observed(std::io::BufReader::new(stdout), &mut |message| {
             members.observe(message, &mut linted, context.options.progress.as_ref());
-            if first_member.is_none() && !linted.is_empty() {
-                first_member = Some(Instant::now());
-            }
+            members.observe_dependency(message, &mut last_dependency);
             containment::observe_stream(message);
         })
     })
@@ -210,12 +209,9 @@ pub(super) fn run(
     })?;
 
     if let Some(timings) = timings {
-        let linting_from = first_member.unwrap_or_else(Instant::now);
-        timings.record(
-            Phase::ClippyDependencies,
-            linting_from.saturating_duration_since(spawned),
-        );
-        timings.record(Phase::ClippyLinting, linting_from.elapsed());
+        let (dependencies, linting) = split_phases(spawned, last_dependency, Instant::now());
+        timings.record(Phase::ClippyDependencies, dependencies);
+        timings.record(Phase::ClippyLinting, linting);
     }
 
     let Some(mut stream) = finished.output else {
@@ -275,6 +271,21 @@ pub(super) fn run(
         removed_lint_flags: rustflags.removed,
         unlinted,
     })
+}
+
+/// The Clippy run cut at the last dependency artifact: the time spent compiling
+/// what the members depend on, then the time spent linting them. A run with no
+/// dependency spends none before the linting, and the two always sum to the run.
+fn split_phases(
+    spawned: Instant,
+    last_dependency: Option<Instant>,
+    ended: Instant,
+) -> (Duration, Duration) {
+    let boundary = last_dependency.unwrap_or(spawned).clamp(spawned, ended);
+    (
+        boundary.duration_since(spawned),
+        ended.duration_since(boundary),
+    )
 }
 
 /// Why the pass ended before linting everything, when it did: the deadline

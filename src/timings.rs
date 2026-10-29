@@ -25,10 +25,11 @@ pub struct Timings {
     /// `clippy-driver -W help`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lint_list: Option<u64>,
-    /// Clippy until the first workspace member was checked: the dependencies.
+    /// Clippy until the last artifact of a package outside the members it lints
+    /// arrived: the dependencies. Zero when the members depend on nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clippy_dependencies: Option<u64>,
-    /// Clippy from the first workspace member checked to its exit.
+    /// Clippy from that last dependency artifact to its exit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clippy_linting: Option<u64>,
     /// The workspace walk, its narrowing and the exclusions gathered from it.

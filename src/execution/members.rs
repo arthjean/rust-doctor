@@ -11,6 +11,7 @@
 //! The same records drive the progress line while the run is still going.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 
 use cargo_metadata::{Message, Metadata};
 
@@ -61,6 +62,20 @@ impl Members {
                 done: linted.len(),
                 total: self.names.len(),
             });
+        }
+    }
+
+    /// Records when an artifact of a package outside the members arrived, so the
+    /// last one marks where Cargo finished compiling what the members depend on.
+    ///
+    /// The first member's artifact used to mark it, and Cargo checks a member as
+    /// soon as its own dependencies are ready, so every dependency of a later
+    /// member that arrived after it was counted as the workspace's own linting.
+    pub(super) fn observe_dependency(&self, message: &Message, last: &mut Option<Instant>) {
+        if let Message::CompilerArtifact(artifact) = message
+            && !self.names.contains_key(&artifact.package_id.repr)
+        {
+            *last = Some(Instant::now());
         }
     }
 

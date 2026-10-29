@@ -157,3 +157,26 @@ fn a_deadline_names_the_lock_cargo_actually_waited_on() {
     assert!(!build_directory.contains("package cache"), "{build_directory}");
     assert!(!message("   Compiling sleeper v0.1.0\n").contains("lock"));
 }
+
+/// Self-scan remediation EP-002 US-012: the run is cut at the last dependency
+/// artifact, a run with none spends nothing on dependencies, and the two
+/// phases always sum to the run.
+#[test]
+fn the_clippy_run_is_split_at_the_last_dependency_artifact() {
+    use std::time::Duration;
+    let spawned = Instant::now();
+    let ended = spawned + Duration::from_millis(900);
+    let last = spawned + Duration::from_millis(250);
+    assert_eq!(
+        split_phases(spawned, Some(last), ended),
+        (Duration::from_millis(250), Duration::from_millis(650))
+    );
+    assert_eq!(
+        split_phases(spawned, None, ended),
+        (Duration::ZERO, Duration::from_millis(900))
+    );
+    for last in [None, Some(spawned), Some(last), Some(ended)] {
+        let (dependencies, linting) = split_phases(spawned, last, ended);
+        assert_eq!(dependencies + linting, ended - spawned);
+    }
+}
