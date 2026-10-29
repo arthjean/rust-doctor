@@ -264,12 +264,13 @@ fn observe_unit(
     analysed: &Unit<'_>,
     settings: &StructureSettings,
     active: &ActiveRules,
+    clippy: &ActiveRules,
     families: &mut BTreeMap<(&'static str, String), Family>,
     functions: &mut Vec<duplication::Function>,
     uses: &mut manifest::Uses,
 ) {
     if active.any_of(&suppression::RULES) {
-        for (definition, observation) in suppression::observe(analysed, active) {
+        for (definition, observation) in suppression::observe(analysed, active, clippy) {
             record(families, definition.id, analysed.path, observation);
         }
     }
@@ -450,6 +451,9 @@ fn analyze_within(
     if !active.any() {
         return StructureScan::default();
     }
+    // What a file-wide allow can hide from this scan, which is what makes it
+    // worth a `crate_level_allow` finding.
+    let clippy = ActiveRules::of(plan, Producer::Clippy);
 
     let deadline = Deadline::new(budget);
     let mut stopped = false;
@@ -474,6 +478,7 @@ fn analyze_within(
             &Unit::of(unit, enumeration),
             settings,
             &active,
+            &clippy,
             &mut families,
             &mut functions,
             &mut uses,

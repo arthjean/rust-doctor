@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::crate_level_allow
+# weakness: toolchain-compatibility
+# source: US-024, self-scan 0.9.0, a pair allowing a lint one supported toolchain does not know
+# verdict: quiet
+
+[package]
+name = "seed-crate-level-allow-toolchain-compat"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

@@ -32,10 +32,12 @@ pub(super) const RULES: [&RuleDefinition; 3] = [
     &STRUCTURE_UNREASONED_ALLOW,
 ];
 
-/// Every suppression finding of one unit.
+/// Every suppression finding of one unit. `clippy` holds the Clippy rules the
+/// scan runs, which is what a file-wide allow can hide from it.
 pub(super) fn observe(
     unit: &Unit<'_>,
     active: &ActiveRules,
+    clippy: &ActiveRules,
 ) -> Vec<(&'static RuleDefinition, Observation)> {
     let mut observations = Vec::new();
     if active.on(&STRUCTURE_UNREASONED_ALLOW) {
@@ -47,7 +49,7 @@ pub(super) fn observe(
     }
     if active.on(&STRUCTURE_CRATE_LEVEL_ALLOW) {
         observations.extend(
-            crate_level(unit)
+            crate_level(unit, clippy)
                 .into_iter()
                 .map(|observation| (&STRUCTURE_CRATE_LEVEL_ALLOW, observation)),
         );
@@ -102,7 +104,14 @@ fn unreasoned(unit: &Unit<'_>) -> Vec<Observation> {
 /// An outer `#[allow]` on a single item belongs to the stacked and unreasoned
 /// detectors, and an inner attribute in any narrower position, a function body
 /// for instance, exempts one item and is left to them too.
-fn crate_level(unit: &Unit<'_>) -> Vec<Observation> {
+///
+/// Only an allow that hides something is reported: one naming a lint the scan
+/// runs, a group holding one, or dead code. An allow of a lint nothing here
+/// reports (`unsafe_code` in a crate that writes none) costs the reader
+/// nothing, and a pair naming `unknown_lints` is how a crate builds on two
+/// toolchains, one of which lacks the lint. Test code is left out: a support
+/// module shared by test crates allows the dead code each crate leaves.
+fn crate_level(unit: &Unit<'_>, clippy: &ActiveRules) -> Vec<Observation> {
     let mut observations = Vec::new();
     for attribute in &unit.inventory.attributes {
         if attribute.excl_token().is_none() {
@@ -111,7 +120,12 @@ fn crate_level(unit: &Unit<'_>) -> Vec<Observation> {
         let Some(reading) = allow_arguments(attribute) else {
             continue;
         };
-        if reading.lints.is_empty() {
+        if reading.lints.iter().any(|lint| lint == "unknown_lints")
+            || !reading.lints.iter().any(|lint| hides(lint, clippy))
+        {
+            continue;
+        }
+        if test_context(attribute.syntax()).or(unit.context).is_some() {
             continue;
         }
         let Some(parent) = attribute.syntax().parent() else {
@@ -144,11 +158,37 @@ fn crate_level(unit: &Unit<'_>) -> Vec<Observation> {
             key: format!("{scope}|{}", reading.lints.join(",")),
             subject,
             span: unit.span(attribute.syntax()),
-            context: test_context(attribute.syntax()).or(unit.context),
+            context: None,
             complexity: None,
         });
     }
     observations
+}
+
+/// Clippy's lint groups, each holding rules the catalog runs.
+const CLIPPY_GROUPS: [&str; 10] = [
+    "clippy::all",
+    "clippy::cargo",
+    "clippy::complexity",
+    "clippy::correctness",
+    "clippy::nursery",
+    "clippy::pedantic",
+    "clippy::perf",
+    "clippy::restriction",
+    "clippy::style",
+    "clippy::suspicious",
+];
+
+/// Does a file-wide allow of `lint` hide something this scan or rustc would
+/// report? A catalogued Clippy rule the scan runs, a group, which is assumed to
+/// hold one whenever any runs rather than resolved against the toolchain's lint
+/// list, or dead and unused code, which rustc reports.
+fn hides(lint: &str, clippy: &ActiveRules) -> bool {
+    clippy.names(lint)
+        || ((lint == "warnings" || CLIPPY_GROUPS.contains(&lint)) && clippy.any())
+        || lint == "dead_code"
+        || lint == "unused"
+        || lint.starts_with("unused_")
 }
 
 /// Accumulated allows on one item, before the stacked detector judges them.
@@ -322,10 +362,19 @@ mod tests {
     ) -> Vec<Observation> {
         let mut unit = Unit::probe(source, "src/lib.rs");
         unit.context = context;
-        observe(&unit, &ActiveRules::from_rules([rule]))
+        observe(&unit, &ActiveRules::from_rules([rule]), &clippy())
             .into_iter()
             .map(|(_, observation)| observation)
             .collect()
+    }
+
+    /// The Clippy rules the scan runs in these tests: one catalogued lint.
+    fn clippy() -> ActiveRules {
+        ActiveRules::from_rules(crate::policy::find("clippy::unwrap_used"))
+    }
+
+    fn crate_level_on(source: &str) -> Vec<Observation> {
+        observed(&STRUCTURE_CRATE_LEVEL_ALLOW, source, None)
     }
 
     fn unreasoned_on(source: &str, context: Option<DiagnosticContext>) -> Vec<Observation> {
@@ -393,16 +442,62 @@ mod tests {
             "#[cfg(test)]\nmod tests {\n    #![allow(dead_code)]\n    fn helper() {}\n}",
             None,
         );
-        assert_eq!(gated.len(), 1);
-        assert_eq!(gated[0].context, Some(DiagnosticContext::Tests));
+        assert!(gated.is_empty(), "test code is not this rule's subject");
+    }
+
+    /// US-024: only an allow that hides something is reported: a lint the scan
+    /// runs, a group, or dead code. A toolchain-compatibility pair and a lint
+    /// nothing reports stay quiet, reasoned or not.
+    #[test]
+    fn a_crate_level_allow_is_reported_only_when_it_hides_something() {
+        for reported in [
+            "#![allow(clippy::unwrap_used)]\n",
+            "#![allow(clippy::all, reason = \"x\")]\n",
+            "#![allow(clippy::pedantic)]\n",
+            "#![allow(warnings)]\n",
+            "#![allow(dead_code)]\n",
+            "#![allow(unused)]\n",
+            "#![allow(unused_imports)]\n",
+            "#![allow(unsafe_code, dead_code)]\n",
+        ] {
+            assert_eq!(crate_level_on(reported).len(), 1, "{reported}");
+        }
+        for quiet in [
+            "#![allow(unsafe_code)]\n",
+            "#![allow(mismatched_lifetime_syntaxes, unknown_lints)]\n",
+            "#![allow(dead_code, unknown_lints)]\n",
+            "#![allow(clippy::print_stdout)]\n",
+        ] {
+            assert!(crate_level_on(quiet).is_empty(), "{quiet}");
+        }
+        // A group hides nothing when no Clippy rule runs.
+        let unit = Unit::probe("#![allow(clippy::all)]\n", "src/lib.rs");
+        let none = ActiveRules::from_rules([]);
+        let crate_level = ActiveRules::from_rules([&STRUCTURE_CRATE_LEVEL_ALLOW]);
+        assert!(observe(&unit, &crate_level, &none).is_empty());
+    }
+
+    /// US-024: a shared test support module allowing dead code is not reported,
+    /// so it can never join a production site's family and leave it unmarked.
+    #[test]
+    fn a_test_support_allow_is_not_reported() {
+        let support = observed(
+            &STRUCTURE_CRATE_LEVEL_ALLOW,
+            "#![allow(dead_code)]\npub fn helper() {}",
+            Some(DiagnosticContext::Tests),
+        );
+        assert!(support.is_empty(), "a test support allow was reported");
+        let production = crate_level_on("#![allow(dead_code)]\npub fn helper() {}");
+        assert_eq!(production.len(), 1);
+        assert_eq!(production[0].context, None);
     }
 
     /// US-001: the key carries the scope and the lint set, never a position or
     /// a path, so an insertion above the attribute moves nothing.
     #[test]
     fn the_crate_level_key_ignores_position() {
-        let first = observed(&STRUCTURE_CRATE_LEVEL_ALLOW, "#![allow(b, a)]\n", None);
-        let second = observed(&STRUCTURE_CRATE_LEVEL_ALLOW, "\n\n\n#![allow(a, b)]\n", None);
+        let first = crate_level_on("#![allow(unused_imports, dead_code)]\n");
+        let second = crate_level_on("\n\n\n#![allow(dead_code, unused_imports)]\n");
         assert_eq!(first.len(), 1);
         assert_eq!(second.len(), 1);
         assert_eq!(first[0].key, second[0].key);
@@ -516,11 +611,11 @@ mod tests {
     fn each_rule_answers_only_for_itself() {
         let source = "#![allow(dead_code)]\n#[allow(a)]\n#[allow(b)]\nfn stacked() {}";
         let unit = Unit::probe(source, "src/lib.rs");
-        let all = observe(&unit, &ActiveRules::from_rules(RULES));
+        let all = observe(&unit, &ActiveRules::from_rules(RULES), &clippy());
         let mut named: Vec<&str> = all.iter().map(|(rule, _)| rule.id).collect();
         named.sort_unstable();
         named.dedup();
         assert_eq!(named.len(), 3, "{named:?}");
-        assert!(observe(&unit, &ActiveRules::default()).is_empty());
+        assert!(observe(&unit, &ActiveRules::default(), &clippy()).is_empty());
     }
 }

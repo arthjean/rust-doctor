@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::crate_level_allow
+# weakness: allow-by-default-lint
+# source: US-024, self-scan 0.9.0, an allow of a lint nothing in the scan reports
+# verdict: quiet
+
+[package]
+name = "seed-crate-level-allow-allow-by-default-lint"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]

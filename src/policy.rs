@@ -414,6 +414,12 @@ impl ActiveRules {
         self.on.contains(rule.id)
     }
 
+    /// Is the rule this id names on? For an id read out of source text, which
+    /// no static definition stands for.
+    pub(crate) fn names(&self, id: &str) -> bool {
+        self.on.contains(id)
+    }
+
     pub(crate) fn any_of(&self, rules: &[&'static RuleDefinition]) -> bool {
         rules.iter().any(|rule| self.on(rule))
     }

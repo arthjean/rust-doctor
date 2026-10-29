@@ -29,7 +29,8 @@ mod support;
 
 /// The ways a native rule has been measured to be wrong, closed so that a
 /// seed's weakness is a class two seeds can share and a count can be taken of.
-const WEAKNESSES: [&str; 9] = [
+const WEAKNESSES: [&str; 12] = [
+    "allow-by-default-lint",
     "api-variant",
     "conditional-module",
     "doc-comment",
@@ -38,6 +39,8 @@ const WEAKNESSES: [&str; 9] = [
     "library-name",
     "path-attribute",
     "placeholder-credential",
+    "test-support",
+    "toolchain-compatibility",
     "typed-number",
 ];
 

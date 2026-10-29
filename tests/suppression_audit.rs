@@ -75,7 +75,7 @@ fn a_crate_level_allow_is_reported_with_its_scope() {
         .iter()
         .filter_map(|diagnostic| diagnostic["message"].as_str())
         .collect();
-    assert_eq!(observed.len(), 4, "{subjects:?}");
+    assert_eq!(observed.len(), 3, "{subjects:?}");
 
     let file_wide = observed
         .iter()
@@ -103,11 +103,14 @@ fn a_crate_level_allow_is_reported_with_its_scope() {
         );
     }
 
-    let tested = observed
-        .iter()
-        .find(|diagnostic| diagnostic["path"] == "tests/probe.rs")
-        .expect("the allow inside the test target should be reported");
-    assert_eq!(tested["context"], "tests", "{tested}");
+    // US-024: the allow inside the test target is test code, which this rule
+    // leaves out, so it cannot join a production family either.
+    assert!(
+        observed
+            .iter()
+            .all(|diagnostic| diagnostic["path"] != "tests/probe.rs"),
+        "the allow inside the test target was reported: {subjects:?}"
+    );
 
     // The outer `#[allow]` items belong to the stacked and unreasoned rules:
     // nothing here points at them.

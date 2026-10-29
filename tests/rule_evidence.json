@@ -678,7 +678,7 @@
       "test": "tests/structure_kernel.rs::the_complexity_pass_names_the_functions_too_tangled_to_review"
     },
     {
-      "catches": "an inner #![allow(...)] whose scope is a whole file or a whole inline module",
+      "catches": "an inner #![allow(...)] whose scope is a whole file or a whole inline module of production code and that hides a lint the scan runs, a lint group or dead code, toolchain-compatibility pairs naming unknown_lints excepted",
       "id": "rust_doctor::structure::crate_level_allow",
       "test": "tests/suppression_audit.rs::a_crate_level_allow_is_reported_with_its_scope"
     },

@@ -1,0 +1,12 @@
+# rule: rust_doctor::structure::crate_level_allow
+# weakness: test-support
+# source: US-024, self-scan 0.9.0, tests/support/mod.rs shared by test crates that each use part of it
+# verdict: quiet
+
+[package]
+name = "seed-crate-level-allow-test-support-dead-code"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
