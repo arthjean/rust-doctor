@@ -45,8 +45,26 @@ fn oracle(pack: &str) -> Value {
 /// than a defect, on every pack, forever. They are proven on their own fixture
 /// and measured on the pinned corpus; here they would only stand between the
 /// oracle and what it freezes.
+///
+/// The packs prove every catalogued lint reaches the report, so the opt-in
+/// ones are switched on here the way a user would switch them on.
 fn pack_request(root: impl Into<PathBuf>) -> InspectRequest {
-    InspectRequest::new(root)
+    pack_request_without(root, None)
+}
+
+/// `pack_request` with `off` switched off instead of left at its level.
+fn pack_request_without(root: impl Into<PathBuf>, off: Option<&str>) -> InspectRequest {
+    let request = rust_doctor::catalog()
+        .iter()
+        .filter(|rule| rule.default_level == RuleLevel::Off && Some(rule.id) != off)
+        .fold(InspectRequest::new(root), |request, rule| {
+            request.with_rule_override(RuleOverride::new(rule.id, RuleLevel::Warn))
+        });
+    let request = match off {
+        Some(code) => request.with_rule_override(RuleOverride::new(code, RuleLevel::Off)),
+        None => request,
+    };
+    request
         .with_rule_override(RuleOverride::new(
             "rust_doctor::structure::duplicate_function_body",
             RuleLevel::Off,
@@ -279,7 +297,7 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
         for case in oracle["positive"].as_array().unwrap() {
             let code = case["code"].as_str().unwrap();
             let report = report(
-                pack_request(&root).with_rule_override(RuleOverride::new(code, RuleLevel::Off)),
+                pack_request_without(&root, Some(code)),
             );
             let command: Vec<String> = report["scan"]["command"]
                 .as_array()
@@ -437,6 +455,68 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
         .filter(|code| pack_codes.contains(*code))
         .collect();
     assert!(observed.is_empty(), "self-scan produced {observed:?}");
+}
+
+/// The binary's JSON report for `root`, under its own target directory.
+fn cli_report(root: &Path, arguments: &[&str]) -> Value {
+    let output = support::rust_doctor()
+        .arg(root)
+        .args(["--json", "--yes"])
+        .args(support::NO_ADVISORY_DB)
+        .args(arguments)
+        .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .output()
+        .unwrap();
+    serde_json::from_slice(&output.stdout).expect("the scan should print a JSON report")
+}
+
+fn command_of(report: &Value) -> Vec<&str> {
+    report["scan"]["command"]
+        .as_array()
+        .expect("a complete scan should publish its command")
+        .iter()
+        .map(|argument| argument.as_str().unwrap())
+        .collect()
+}
+
+/// EP-005 US-027: the two rules the corpus adjudicated wrong on all forty
+/// reviewed sites each stay out of a default scan, of this repository as of
+/// the pack that triggers them, and a `--rule` switch reports one as before.
+#[test]
+fn the_opt_in_rules_report_only_when_switched_on() {
+    const OPT_IN: [&str; 2] = ["clippy::indexing_slicing", "clippy::string_slice"];
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = isolated_pack("panic", "opt-in");
+    for report in [cli_report(repository, &[]), cli_report(&root, &[])] {
+        assert_eq!(report["status"], "complete", "{}", report["errors"]);
+        let command = command_of(&report);
+        let codes: BTreeSet<_> = curated(&report)
+            .into_iter()
+            .filter_map(|diagnostic| diagnostic["code"].as_str())
+            .collect();
+        for rule in OPT_IN {
+            assert!(!command.contains(&rule), "{rule} reached the Clippy command");
+            assert!(!codes.contains(rule), "{rule} reached the report");
+        }
+    }
+
+    let switched = cli_report(&root, &["--rule", "clippy::string_slice=warn"]);
+    assert!(command_of(&switched).contains(&"clippy::string_slice"));
+    assert!(!command_of(&switched).contains(&"clippy::indexing_slicing"));
+    let sites: Vec<_> = curated(&switched)
+        .into_iter()
+        .filter(|diagnostic| diagnostic["code"] == "clippy::string_slice")
+        .map(|diagnostic| (diagnostic["path"].clone(), diagnostic["span"]["line_start"].clone()))
+        .collect();
+    let expected: Vec<_> = oracle("panic")["positive"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| case["code"] == "clippy::string_slice")
+        .map(|case| (case["path"].clone(), case["line"].clone()))
+        .collect();
+    assert_eq!(sites, expected);
+    fs::remove_dir_all(&root).unwrap();
 }
 
 /// US-002: a catalogued rule the toolchain denies by default is switched off

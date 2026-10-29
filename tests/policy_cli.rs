@@ -234,9 +234,10 @@ fn rules_list_publishes_the_shipped_catalog() {
         assert_eq!(entry["not_a_defect_when"], rule.not_a_defect_when);
         assert!(!rule.not_a_defect_when.is_empty());
         assert_eq!(entry["requires"], serde_json::to_value(rule.requires).unwrap());
-        // Every catalogued rule ships at warn: an error by default would be a
-        // policy the reader never chose.
-        assert_eq!(entry["default_level"], "warn");
+        // A catalogued rule ships at warn or opt-in at off: an error by
+        // default would be a policy the reader never chose.
+        assert_eq!(entry["default_level"], serde_json::to_value(rule.default_level).unwrap());
+        assert_ne!(entry["default_level"], "error", "{}", rule.id);
     }
 
     let tls = entries
@@ -245,6 +246,15 @@ fn rules_list_publishes_the_shipped_catalog() {
         .unwrap();
     assert!(tls["not_a_defect_when"].as_str().unwrap().contains("self-signed certificate"));
     assert_eq!(tls["requires"], serde_json::json!([{ "crate": "reqwest", "versions": "*" }]));
+
+    // EP-005 US-027: the two rules the corpus found wrong on every reviewed
+    // site are published opt-in, and they are the only ones.
+    let opt_in: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry["default_level"] == "off")
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(opt_in, ["clippy::indexing_slicing", "clippy::string_slice"]);
 
     // US-004: the rules whose cause can sit above their site reach their
     // function under `--scope contextual`; the span-less lockfile rules reach

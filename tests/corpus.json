@@ -14781,7 +14781,7 @@
       "tier": "P1"
     },
     {
-      "default_level": "warn",
+      "default_level": "off",
       "id": "clippy::indexing_slicing",
       "tier": "P3"
     },
@@ -15026,7 +15026,7 @@
       "tier": "P3"
     },
     {
-      "default_level": "warn",
+      "default_level": "off",
       "id": "clippy::string_slice",
       "tier": "P3"
     },
@@ -15390,7 +15390,6 @@
       "clippy::ifs_same_cond",
       "clippy::impl_hash_borrow_with_str_and_bytes",
       "clippy::impossible_comparisons",
-      "clippy::indexing_slicing",
       "clippy::ineffective_bit_mask",
       "clippy::infinite_iter",
       "clippy::inherent_to_string_shadow_display",
@@ -15439,7 +15438,6 @@
       "clippy::self_assignment",
       "clippy::size_of_in_element_count",
       "clippy::stable_sort_primitive",
-      "clippy::string_slice",
       "clippy::suspicious_command_arg_space",
       "clippy::suspicious_splitn",
       "clippy::todo",
@@ -15517,12 +15515,10 @@
     "noisy_on_healthy_code": [
       "clippy::exit",
       "clippy::expect_used",
-      "clippy::indexing_slicing",
       "clippy::mem_forget",
       "clippy::panic",
       "clippy::panic_in_result_fn",
       "clippy::print_stderr",
-      "clippy::string_slice",
       "clippy::too_many_arguments",
       "clippy::undocumented_unsafe_blocks",
       "clippy::unreachable",
@@ -15669,7 +15665,11 @@
       "--json",
       "--yes",
       "--advisory-db",
-      "/dev/null"
+      "/dev/null",
+      "--rule",
+      "clippy::indexing_slicing=warn",
+      "--rule",
+      "clippy::string_slice=warn"
     ],
     "skipped": 0
   },

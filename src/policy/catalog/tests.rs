@@ -127,7 +127,9 @@ fn exact_lookup_and_producer_subsets_use_canonical_definitions() {
     }
 
     let plan = PolicyPlan::default();
-    assert_eq!(plan.active_rules(Producer::Clippy).count(), 104);
+    // Two of the 104 Clippy rules are catalogued opt-in, so a default plan
+    // runs 102 of them.
+    assert_eq!(plan.active_rules(Producer::Clippy).count(), 102);
     assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 13);
     assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 11);
     assert_eq!(plan.active_rules(Producer::Structure).count(), 9);
@@ -291,14 +293,22 @@ fn an_absent_or_unknown_published_tier_fails_with_a_closed_error() {
 
 /// The tier neither copies the default level nor replaces it.
 ///
-/// The twelve rules share `RuleLevel::Warn` but cover four tiers, so no
-/// score function can deduce one from the other.
+/// Every rule but the two opt-in ones defaults to `RuleLevel::Warn` across
+/// four tiers, so no score function can deduce one from the other. The two
+/// are the rules the corpus adjudicated wrong on all forty reviewed sites each.
 #[test]
 fn the_tier_is_independent_from_the_default_level() {
-    assert!(
-        CATALOG
-            .iter()
-            .all(|definition| definition.default_level == RuleLevel::Warn)
+    let opt_in: Vec<_> = CATALOG
+        .iter()
+        .filter(|definition| definition.default_level != RuleLevel::Warn)
+        .map(|definition| (definition.id, definition.default_level))
+        .collect();
+    assert_eq!(
+        opt_in,
+        [
+            ("clippy::indexing_slicing", RuleLevel::Off),
+            ("clippy::string_slice", RuleLevel::Off),
+        ]
     );
     let tiers: BTreeSet<_> = CATALOG.iter().map(|definition| definition.tier).collect();
     assert_eq!(tiers.len(), 4);
@@ -401,7 +411,8 @@ fn a_category_override_reaches_every_rule_of_an_opened_category() {
             rules
                 .iter()
                 .filter(|rule| rule.definition.category != category)
-                .all(|rule| rule.level == RuleLevel::Warn),
+                .all(|rule| rule.level == rule.definition.default_level
+                    && rule.source == RuleLevelSource::Default),
             "{category}"
         );
     }

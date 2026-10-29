@@ -40,7 +40,39 @@ static NEXT_SCOPE: AtomicUsize = AtomicUsize::new(0);
 /// report differently on every machine and every day, and a record has to
 /// replay. A path holding no `crates/` directory is how a scan is told to read
 /// none; both advisory rules then publish `not_evaluated`.
-const SCAN_ARGUMENTS: [&str; 4] = ["--json", "--yes", "--advisory-db", "/dev/null"];
+const BASE_ARGUMENTS: [&str; 4] = ["--json", "--yes", "--advisory-db", "/dev/null"];
+
+/// The rules catalogued opt-in are switched on: the corpus measures every rule
+/// the catalog publishes, so a user who enables one is charged at its measured
+/// rate. They are withheld P3 rules discounted by that rate, which caps nothing
+/// and moves a recorded score by at most a point.
+const SCAN_ARGUMENTS: [&str; 8] = [
+    "--json",
+    "--yes",
+    "--advisory-db",
+    "/dev/null",
+    "--rule",
+    "clippy::indexing_slicing=warn",
+    "--rule",
+    "clippy::string_slice=warn",
+];
+
+/// A rule turned opt-in keeps its measurement only if the corpus switches it
+/// back on, so the scan arguments name exactly the catalog's opt-in rules.
+#[test]
+fn the_corpus_scan_switches_on_every_opt_in_rule() {
+    let switched: Vec<String> = SCAN_ARGUMENTS
+        .iter()
+        .filter_map(|argument| argument.strip_suffix("=warn"))
+        .map(str::to_owned)
+        .collect();
+    let opt_in: Vec<String> = rust_doctor::catalog()
+        .iter()
+        .filter(|rule| rule.default_level == rust_doctor::RuleLevel::Off)
+        .map(|rule| rule.id.to_owned())
+        .collect();
+    assert_eq!(switched, opt_in);
+}
 
 fn binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_rust-doctor"))
@@ -396,14 +428,14 @@ fn arm_beta(cache: &Path, mut manifest: Manifest) -> Manifest {
 fn native_detectors_never_compile_or_execute_corpus_build_code() {
     let (cache, artifacts, manifest) = synthetic_corpus("native-only");
     let binary = binary();
-    let probe = run(&paths(&cache, &artifacts, &binary), &manifest, &SCAN_ARGUMENTS).unwrap();
+    let probe = run(&paths(&cache, &artifacts, &binary), &manifest, &BASE_ARGUMENTS).unwrap();
     let catalog = catalog_from_report(&report_of(&artifacts, "alpha-lib"));
     assert!(probe.processed.contains(&"beta-bin".to_owned()));
     assert!(artifacts.join("work/beta-bin/build-code-ran").is_file());
 
     #[cfg(target_os = "linux")]
     let manifest = arm_beta(&cache, manifest);
-    let mut arguments: Vec<String> = SCAN_ARGUMENTS.iter().map(|value| (*value).to_owned()).collect();
+    let mut arguments: Vec<String> = BASE_ARGUMENTS.iter().map(|value| (*value).to_owned()).collect();
     for rule in catalog.iter().filter(|rule| rule.id.starts_with("clippy::")) {
         arguments.push("--rule".to_owned());
         arguments.push(format!("{}=off", rule.id));
@@ -1526,7 +1558,9 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
 fn the_published_catalog_matches_the_shipped_policy() {
     let (cache, artifacts, manifest) = synthetic_corpus("catalog");
     let binary = binary();
-    run(&paths(&cache, &artifacts, &binary), &manifest, &SCAN_ARGUMENTS).unwrap();
+    // Scanned under the default policy, which is what the report's levels
+    // then publish: the opt-in switches would read as their defaults.
+    run(&paths(&cache, &artifacts, &binary), &manifest, &BASE_ARGUMENTS).unwrap();
     let shipped = catalog_from_report(&report_of(&artifacts, "alpha-lib"));
     assert_eq!(shipped, artifact().catalog);
 }

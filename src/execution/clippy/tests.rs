@@ -74,7 +74,8 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
 
     assert_eq!(built.get_program(), OsStr::new("cargo"));
     // The catalog is the only source of the list: the command must carry every
-    // active Clippy rule, in catalog order, under `-W`.
+    // Clippy rule on by default, in catalog order, under `-W`, and none of the
+    // opt-in ones.
     let expected: Vec<String> = [
         "clippy",
         "--workspace",
@@ -90,11 +91,16 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
     .chain(
         crate::policy::CATALOG
             .iter()
-            .filter(|definition| definition.producer == Producer::Clippy)
+            .filter(|definition| {
+                definition.producer == Producer::Clippy && definition.default_level != RuleLevel::Off
+            })
             .flat_map(|definition| ["-W".to_owned(), definition.id.to_owned()]),
     )
     .chain(["-W".to_owned(), "warnings".to_owned()])
     .collect();
+    for opt_in in ["clippy::indexing_slicing", "clippy::string_slice"] {
+        assert!(!arguments.contains(&OsStr::new(opt_in)), "{opt_in}");
+    }
     assert_eq!(
         arguments,
         expected

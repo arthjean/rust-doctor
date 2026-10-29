@@ -681,8 +681,9 @@ mod tests {
         assert!(
             CATALOG
                 .iter()
-                .all(|definition| default.level(definition.id) == Some(RuleLevel::Warn))
+                .all(|definition| default.level(definition.id) == Some(definition.default_level))
         );
+        assert_eq!(default.level("clippy::string_slice"), Some(RuleLevel::Off));
 
         let category = PolicyInput::default().with_category("security", RuleLevel::Off);
         let category = PolicyPlan::compile(&category).expect("category policy should compile");

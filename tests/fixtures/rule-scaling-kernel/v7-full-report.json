@@ -168,7 +168,7 @@
       {
         "id": "clippy::indexing_slicing",
         "category": "reliability",
-        "level": "warn",
+        "level": "off",
         "source": "default"
       },
       {
@@ -462,7 +462,7 @@
       {
         "id": "clippy::string_slice",
         "category": "reliability",
-        "level": "warn",
+        "level": "off",
         "source": "default"
       },
       {

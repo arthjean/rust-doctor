@@ -3,7 +3,7 @@
   "budgets": {
     "AGENTS.md": 1182,
     "docs/agent-skill.md": 304,
-    "docs/catalog-and-corpus.md": 1700,
+    "docs/catalog-and-corpus.md": 2024,
     "docs/ci-workflows.md": 1093,
     "docs/doc-gates.md": 580,
     "docs/e2e.md": 783,
@@ -24,6 +24,7 @@
     "docs/correctness-group-2026-09.md",
     "docs/delta-pairing-2026-10.md",
     "docs/native-rules-remeasure-2026-10.md",
+    "docs/opt-in-rules-2026-10.md",
     "docs/parity-release-1-2026-10.md",
     "docs/parity-release-3-2026-10.md",
     "docs/resampling-containment-2026-08.md",

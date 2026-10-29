@@ -86,7 +86,11 @@ fn every_published_rule_carries_a_closed_tier() {
             ["P0", "P1", "P2", "P3"].contains(&tier),
             "unexpected tier {tier}"
         );
-        assert_eq!(rule["level"], "warn", "{}", rule["id"]);
+        // Two rules the corpus adjudicated wrong on every reviewed site are
+        // catalogued opt-in; every other one is on at warn.
+        let opt_in = ["clippy::indexing_slicing", "clippy::string_slice"]
+            .contains(&rule["id"].as_str().unwrap());
+        assert_eq!(rule["level"], if opt_in { "off" } else { "warn" }, "{}", rule["id"]);
         if tier == "P0" {
             blocking.push(rule["id"].as_str().unwrap().to_owned());
         }
