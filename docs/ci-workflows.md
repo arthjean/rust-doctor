@@ -4,14 +4,15 @@
 |---|---|---|
 | `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
 | `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself); a second job posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails, from the default branch only |
-| `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares, then the six npm packages, the crate on crates.io and the GitHub Release. A tag publishes; a manual run stops at the two dry runs |
+| `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares and their archives, which cargo-binstall resolves for every target before anything publishes, then the six npm packages, the crate on crates.io and the immutable GitHub Release carrying the archives, then cargo-binstall again against what shipped. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | weekly, manual, pull request touching the record, its harness, a producer or the score | One job fills the clone cache with every pinned revision and its history; then, in parallel, one reproduces the measurement of `tests/corpus.json` in process and writes the position proof that anchors every published site, and one scans the 18 subjects offline through the CLI and the installed launcher: each matches its record, a rerun is identical, the copy is untouched |
 | `install.yml` | daily, manual, pull request touching `Cargo.toml` | `cargo install` without `--locked` still compiles against what the registry serves today, for the latest release and for this commit. The exact pins bind the direct dependencies only, and every other workflow builds `--locked` |
 
 Every program a `release.yml` job starts is bound by content, since those jobs
 publish with this repository's OIDC identity. Each non-local `uses:` names a
 40-hex commit followed by `# <ref>`, the tag or branch that commit was read
-from, and the publish job installs one exact npm and one exact Node.
+from, the publish job installs one exact npm and one exact Node, and
+`scripts/binstall-proof.sh` runs one cargo-binstall it checks by SHA-256.
 `release_yml_binds_every_program_by_commit_or_exact_version` in
 `tests/docs_contract.rs` fails on a tag, a branch, a pin without its comment or
 a version range. To move a pin, read the commit the ref names now

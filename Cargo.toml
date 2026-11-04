@@ -55,6 +55,17 @@ libc = "=0.2.189"
 [profile.release]
 overflow-checks = true
 
+# `cargo binstall rust-doctor` installs the archive the GitHub Release of this
+# version carries instead of compiling, and never a binary QuickInstall built
+# elsewhere. A target the release does not ship still falls back to
+# `cargo install`. scripts/pack-github-release.sh lays the archives out, and
+# docs/publishing.md holds the reasoning.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+disabled-strategies = ["quick-install"]
+
 [lints.clippy]
 panic = "deny"
 unimplemented = "deny"
