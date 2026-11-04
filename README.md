@@ -23,6 +23,14 @@ Run this at your workspace root to get an audit.
 npx rust-doctor@latest
 ```
 
+Or build it from crates.io:
+
+```bash
+cargo install rust-doctor --locked
+```
+
+`--locked` builds against the `Cargo.lock` the release shipped. Without it, Cargo picks the newest compatible version of every dependency that day, which has failed to compile before ([#40](https://github.com/arthjean/rust-doctor/issues/40)).
+
 ### 2. Install for agents
 
 Once you have an audit, set up the loop so your coding agent fixes what it found. The skill teaches it which finding to repair first, how the score is capped, and what to look for in a file the scan already flagged; the hooks rescan each commit and each agent turn.

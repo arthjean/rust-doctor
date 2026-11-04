@@ -833,3 +833,103 @@ fn release_yml_restores_no_cache() {
     assert!(restores_a_cache("      - uses: actions/cache@v4"));
     assert!(!restores_a_cache("# No job here restores a rust-cache entry"));
 }
+
+/// The lines of a markdown text that sit inside a fenced code block, each with
+/// its trailing shell comment dropped: what a reader copies and runs.
+fn fenced_lines(text: &str) -> Vec<&str> {
+    let mut inside = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            inside = !inside;
+        } else if inside {
+            lines.push(line.split(" #").next().unwrap_or_default());
+        }
+    }
+    lines
+}
+
+/// The release note of the highest version under `.github/releases/`, which is
+/// the one the next note is written from.
+fn newest_release_note() -> String {
+    let directory = repo().join(".github/releases");
+    fs::read_dir(&directory)
+        .expect("the release notes should be readable")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|name| {
+            let version: Vec<u64> = name
+                .strip_prefix('v')?
+                .strip_suffix(".md")?
+                .split('.')
+                .map(str::parse)
+                .collect::<Result<_, _>>()
+                .ok()?;
+            Some((version, name))
+        })
+        .max()
+        .map(|(_, name)| format!(".github/releases/{name}"))
+        .expect("there should be a release note")
+}
+
+/// Issue #40: `cargo install` without `--locked` ignores the shipped
+/// Cargo.lock and resolves every dependency afresh, and on 2026-10-29 that
+/// graph did not compile. The install a reader copies is locked; the newest
+/// release note is checked with the README since the next note copies its
+/// install block. `.github/workflows/install.yml` holds the reasoning.
+#[test]
+fn every_advertised_cargo_install_is_locked() {
+    let newest = newest_release_note();
+    let mut advertised = 0;
+    for (path, text) in [
+        ("README.md".to_owned(), read("README.md")),
+        (newest.clone(), read(&newest)),
+    ] {
+        for line in fenced_lines(&text) {
+            for command in cargo_commands(line) {
+                if !command.starts_with("cargo install rust-doctor") {
+                    continue;
+                }
+                advertised += 1;
+                assert!(
+                    command.split_whitespace().any(|word| word == "--locked"),
+                    "{path} advertises `{command}` without `--locked`"
+                );
+            }
+        }
+    }
+    assert!(
+        advertised >= 2,
+        "README.md and {newest} should each advertise `cargo install rust-doctor --locked`"
+    );
+    assert_eq!(
+        fenced_lines("```bash\ncargo install rust-doctor # --locked\n```"),
+        ["cargo install rust-doctor"],
+        "a trailing comment does not lock an install"
+    );
+}
+
+/// The unlocked install is the whole point of `install.yml`: a `--locked`
+/// added there would turn it into one more locked build, green through the
+/// next skew like every other workflow was through #40.
+#[test]
+fn install_yml_installs_unlocked_from_the_registry_and_from_this_commit() {
+    let workflow = read(".github/workflows/install.yml");
+    let installs: Vec<String> = workflow.lines().flat_map(cargo_commands).collect();
+    for expected in [
+        "cargo install rust-doctor --root \"$RUNNER_TEMP/published\"",
+        "cargo install --path . --root \"$RUNNER_TEMP/head\"",
+    ] {
+        assert!(
+            installs.iter().any(|command| command == expected),
+            "install.yml should run `{expected}`, found {installs:?}"
+        );
+    }
+    assert!(
+        !installs.iter().any(|command| command.contains("--locked")),
+        "install.yml should install without `--locked`, found {installs:?}"
+    );
+    assert!(
+        workflow.contains("CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow"),
+        "install.yml should resolve `head` the way a registry install does"
+    );
+}
