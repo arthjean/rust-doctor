@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicUsize;
 
-use rust_doctor::{InspectRequest, RuleLevel, RuleOverride, Status, catalog, inspect};
+use rust_doctor::{InspectRequest, RuleLevel, RuleOverride, Status, inspect};
 use serde_json::Value;
 
 mod support;
@@ -657,13 +657,7 @@ fn a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line() {
 /// it alone, so no compilation runs.
 #[test]
 fn this_repository_carries_no_repository_finding() {
-    let mut request = InspectRequest::new(Path::new(env!("CARGO_MANIFEST_DIR")));
-    for entry in catalog() {
-        if !entry.id.starts_with("rust_doctor::repo::") {
-            request = request.with_rule_override(RuleOverride::new(entry.id, RuleLevel::Off));
-        }
-    }
-    let report = inspect(request);
+    let report = support::self_scan(|id| id.starts_with("rust_doctor::repo::"));
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     let found: Vec<String> = report
         .diagnostics

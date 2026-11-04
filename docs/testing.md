@@ -15,6 +15,11 @@
   dependency pack, the handoff and the interactive report all carried files over
   the bound with no test naming them, and `src/cargo_health.rs` and
   `src/handoff.rs` were over it only because their tests were still inline.
+- **A self-scan runs no clock it does not judge** (`support::self_scan`). An
+  in-process scan of this repository keeps only the rules it judges, a CLI one
+  raises `RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS`, and a structure gate runs
+  unbounded: a test build spends most of the pass's ten seconds here, and a
+  loaded runner returned partial reports.
 - **The documents state what the binary computes**
   (`tests/docs_contract.rs`). The catalog size, the schema version, the bounds
   and the counts are recomputed rather than reread.

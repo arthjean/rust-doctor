@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rust_doctor::{InspectRequest, RuleLevel, RuleOverride, Status, inspect};
+use rust_doctor::{InspectReport, InspectRequest, RuleLevel, RuleOverride, Status, inspect};
 use serde_json::Value;
 
 mod support;
@@ -76,7 +76,11 @@ fn pack_request_without(root: impl Into<PathBuf>, off: Option<&str>) -> InspectR
 }
 
 fn report(request: InspectRequest) -> Value {
-    let report = inspect(request);
+    judged(inspect(request))
+}
+
+/// A report that must be complete, as JSON.
+fn judged(report: InspectReport) -> Value {
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
@@ -448,7 +452,7 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
         "the concurrency pack fired where it does not apply"
     );
 
-    let repository = report(InspectRequest::new(Path::new(env!("CARGO_MANIFEST_DIR"))));
+    let repository = judged(support::self_scan(|id| pack_codes.contains(id)));
     let observed: BTreeSet<_> = curated(&repository)
         .into_iter()
         .filter_map(|diagnostic| diagnostic["code"].as_str())
@@ -458,6 +462,10 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
 }
 
 /// The binary's JSON report for `root`, under its own target directory.
+///
+/// The structure pass runs under a budget it cannot exceed: a default scan of
+/// this repository spends most of its ten wall-clock seconds there in a test
+/// build, and a loaded runner would return it partial (`support::self_scan`).
 fn cli_report(root: &Path, arguments: &[&str]) -> Value {
     let output = support::rust_doctor()
         .arg(root)
@@ -465,6 +473,7 @@ fn cli_report(root: &Path, arguments: &[&str]) -> Value {
         .args(support::NO_ADVISORY_DB)
         .args(arguments)
         .env("CARGO_TARGET_DIR", support::scan_target(root))
+        .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600")
         .output()
         .unwrap();
     serde_json::from_slice(&output.stdout).expect("the scan should print a JSON report")

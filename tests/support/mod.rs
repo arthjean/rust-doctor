@@ -167,6 +167,28 @@ pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
     base.canonicalize().unwrap_or(base).join(key.get(..16).unwrap_or_default())
 }
 
+/// A scan of this repository that judges the rules `keep` admits and switches
+/// every other catalogued rule off.
+///
+/// At its defaults a self-scan also runs the structure pass over the whole
+/// repository, which an unoptimized test build finished in about six of the
+/// ten wall-clock seconds `TIME_BUDGET` grants it on an idle sixteen-core
+/// machine. A loaded macOS runner crossed the budget, the report came back
+/// partial, and a test of Clippy lints failed on a clock. With no structure
+/// rule kept, the pass returns before it starts its deadline.
+pub(crate) fn self_scan(keep: impl Fn(&str) -> bool) -> rust_doctor::InspectReport {
+    let mut request = rust_doctor::InspectRequest::new(Path::new(env!("CARGO_MANIFEST_DIR")));
+    for entry in rust_doctor::catalog() {
+        if !keep(entry.id) {
+            request = request.with_rule_override(rust_doctor::RuleOverride::new(
+                entry.id,
+                rust_doctor::RuleLevel::Off,
+            ));
+        }
+    }
+    rust_doctor::inspect(request)
+}
+
 /// Projects a current report back onto the frozen bytes of v7.
 ///
 /// v8 had added the `audit` block, v9 the `tier` of every policy rule and the

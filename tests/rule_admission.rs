@@ -20,6 +20,8 @@ use std::process::Command;
 use rust_doctor::{InspectRequest, Status, inspect};
 use serde_json::Value;
 
+mod support;
+
 /// Arrays of a frozen oracle that list observed diagnostics.
 const OBSERVED_ARRAYS: [&str; 4] = ["positive", "rules", "historical_rules", "findings"];
 
@@ -364,7 +366,7 @@ fn a_workspace_whose_unsafe_is_documented_fires_no_unsafe_lint() {
         "unsafe code left the signal and process-group boundary"
     );
 
-    let report = inspect(InspectRequest::new(repository()));
+    let report = support::self_scan(|id| UNSAFE_LINTS.contains(&id));
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     let fired: Vec<&str> = report
         .diagnostics

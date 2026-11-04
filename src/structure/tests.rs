@@ -439,6 +439,22 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
     assert_eq!(unit.inventory.macro_calls.len(), 1);
 }
 
+/// The pass over this repository under a budget it cannot exceed.
+///
+/// `analyze` grants a scan the ten wall-clock seconds `TIME_BUDGET` sets, and
+/// an unoptimized test build spends about six of them here on an idle machine.
+/// Past the budget the pass publishes what it reached, so a gate over its
+/// findings went green on a loaded runner without reading the whole crate.
+fn whole_repository(metadata: &Metadata) -> StructureScan {
+    analyze_within(
+        metadata,
+        &enumerate(metadata),
+        &PolicyPlan::default(),
+        &StructureSettings::default(),
+        Duration::from_secs(3_600),
+    )
+}
+
 /// EP-003, definition of done, inverted: a scan of this repository names no
 /// oversized unit and no complexity hotspot anywhere under `src/`, through the
 /// same pass `inspect` runs.
@@ -456,13 +472,7 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
 #[test]
 fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
     let metadata = repository();
-    let scan = analyze(
-        &metadata,
-        &enumerate(&metadata),
-        &PolicyPlan::default(),
-        &StructureSettings::default(),
-        None,
-    );
+    let scan = whole_repository(&metadata);
 
     let named = |rule: &str| -> Vec<String> {
         scan.findings
@@ -510,13 +520,7 @@ fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
 #[test]
 fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
     let metadata = repository();
-    let scan = analyze(
-        &metadata,
-        &enumerate(&metadata),
-        &PolicyPlan::default(),
-        &StructureSettings::default(),
-        None,
-    );
+    let scan = whole_repository(&metadata);
 
     /// Is this path test material by its position alone? Read here from the
     /// path and nowhere else, so the assertion cannot agree with the scan by
