@@ -117,13 +117,16 @@ describe("rules list", () => {
         "category", "default_level", "diff_scope", "help", "id", "not_a_defect_when", "producer", "requires", "tier", "title",
       ]);
       expect(["P0", "P1", "P2", "P3"]).toContain(entry.tier);
-      expect(entry.default_level).toBe("warn");
+      // A rule defaults to warn, or to off when the corpus made it opt-in
+      // (docs/catalog-and-corpus.md, "Opt-in rules").
+      expect(["warn", "off"]).toContain(entry.default_level);
       expect(["line", "item", "file"]).toContain(entry.diff_scope);
       expect(Object.values(PRODUCERS)).toContain(entry.producer);
     }
     for (const tier of ["P0", "P1", "P2", "P3"]) {
       expect(catalog.some((entry) => entry.tier === tier)).toBe(true);
     }
+    expect(catalog.some((entry) => entry.default_level === "warn")).toBe(true);
   });
 
   test("RL-04 the README and the shipped skill state the count the binary publishes", () => {
