@@ -16,7 +16,10 @@ cost.
 One walk, one enumeration. `enumerate` loads and parses each reachable file
 once, and every source-reading producer works off that single `Enumeration`.
 That is why `references::collect` and `references::mentioned` take the
-enumeration rather than a path: nothing here reads the disk twice.
+enumeration rather than a path: nothing here reads the disk twice. What it
+parses is the text rustc compiles (`source_text::as_compiled`), with no byte
+order mark and LF endings: a CRLF checkout read raw made every string literal
+spanning lines a parse error, and a Windows scan withheld those files.
 
 One answer to unanimity. A file several targets reach publishes only what all of
 them agree on: its package, its target, its non-production context, the crate

@@ -23,6 +23,26 @@ pub(crate) struct SourceSpan {
     pub(crate) column_end: usize,
 }
 
+/// The text rustc compiles from a file: a leading byte order mark dropped and
+/// each CRLF pair turned into LF in one pass, as the Reference's input format
+/// reads a source file before lexing. A lone CR stays.
+///
+/// `ra_ap_syntax` parses the text it is handed. The raw text of a CRLF
+/// checkout, Git for Windows' default, held a bare `\r` in every string
+/// literal spanning lines, so the parser reported an error there that rustc
+/// never sees, and the walk withheld the file. Lines keep their numbers and
+/// columns their count: each dropped CR ends a line, and rustc does not count
+/// the mark either.
+pub(crate) fn as_compiled(mut source: String) -> String {
+    if source.starts_with('\u{feff}') {
+        source.replace_range(..'\u{feff}'.len_utf8(), "");
+    }
+    if source.contains("\r\n") {
+        source = source.replace("\r\n", "\n");
+    }
+    source
+}
+
 /// Byte offset of every line start, the index `source_position` bisects.
 pub(crate) fn line_starts(source: &str) -> Vec<usize> {
     std::iter::once(0)

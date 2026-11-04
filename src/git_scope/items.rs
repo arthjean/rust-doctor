@@ -11,7 +11,7 @@ use ra_ap_syntax::ast::{self, AstNode};
 use ra_ap_syntax::{Edition, SourceFile, SyntaxNode};
 
 use super::lines::FileChanges;
-use crate::source_text::line_starts;
+use crate::source_text::{as_compiled, line_starts};
 
 /// The lines of one function, less the nested bodies that are not its own.
 #[derive(Debug, PartialEq, Eq)]
@@ -47,11 +47,12 @@ impl ItemLines {
 /// parse cleanly or no function holds it: the caller then judges the finding
 /// on its own line, as a lines scope would.
 pub(super) fn enclosing_fn(source: &str, line: usize) -> Option<ItemLines> {
-    let parse = SourceFile::parse(source, Edition::Edition2024);
+    let source = as_compiled(source.to_owned());
+    let parse = SourceFile::parse(&source, Edition::Edition2024);
     if !parse.errors().is_empty() {
         return None;
     }
-    let starts = line_starts(source);
+    let starts = line_starts(&source);
     let lines_of = |node: &SyntaxNode| {
         let range = node.text_range();
         let line_at = |offset: usize| starts.partition_point(|start| *start <= offset);
@@ -129,6 +130,16 @@ fn elsewhere() {
         let nested = enclosing_fn(SOURCE, 5).expect("line 5 sits in `nested`");
         assert_eq!((nested.first, nested.last), (4, 6));
         assert_eq!(enclosing_fn(SOURCE, 12), None);
+    }
+
+    /// A CRLF checkout once left every function holding a string literal that
+    /// spans lines unparseable here, so a contextual scope judged its finding
+    /// on its own line.
+    #[test]
+    fn a_crlf_source_holds_the_same_function_as_its_lf_twin() {
+        let lf = "fn banner() -> &'static str {\n    let text = \"first\nsecond\";\n    text\n}\n";
+        let item = enclosing_fn(lf, 4).expect("line 4 sits in `banner`");
+        assert_eq!(enclosing_fn(&lf.replace('\n', "\r\n"), 4), Some(item));
     }
 
     #[test]

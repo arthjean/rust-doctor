@@ -22,7 +22,7 @@ use ra_ap_syntax::ast::{self, HasAttrs, HasName};
 use ra_ap_syntax::{AstNode, Edition, SourceFile};
 
 use crate::report::DiagnosticContext;
-use crate::source_text::intersects_errors;
+use crate::source_text::{as_compiled, intersects_errors};
 
 use super::detectors::{self, CrateAliases};
 use super::{
@@ -363,6 +363,7 @@ fn load_unit(
     };
     counters.files_read += 1;
 
+    let source = as_compiled(source);
     let parse = SourceFile::parse(&source, identity.edition);
     let parse_errors = parse.errors();
     if !parse_errors.is_empty() {
