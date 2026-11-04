@@ -67,7 +67,7 @@ Scenario count: 337 (CL 13, RL 33, WY 35, RM 22, HG 30, HA 32, HR 27, SK 28, SU 
 |---|---|---|---|---|---|
 | RL-01 | empty dir | `rules list` | 142 lines, each 4 TAB-separated fields `id, category, tier, help`; first line `clippy::absurd_extreme_comparisons\tcorrectness\tP1\t...`; exit 0 | PC `rules_list_without_json_stays_line_oriented` | yes |
 | RL-02 | none | `rules list` prefixes | 104 `clippy`, 13 `rust_doctor::cargo`, 5 `rust_doctor::repo`, 11 `rust_doctor::source`, 9 `rust_doctor::structure` | PC (catalog) | yes |
-| RL-03 | none | `rules list --json` | array of 142; keys exactly `category, default_level, diff_scope, help, id, not_a_defect_when, producer, requires, tier, title`; tiers P0 3 / P1 81 / P2 25 / P3 33; every `default_level` `warn`; `diff_scope` line 126 / item 14 / file 2; producers `clippy` 104, `cargo-health` 13, `source-kernel` 11, `structure` 9, `repo` 5 | PC `rules_list_publishes_the_shipped_catalog` | yes |
+| RL-03 | none | `rules list --json` | array of 142; keys exactly `category, default_level, diff_scope, help, id, not_a_defect_when, producer, requires, tier, title`; tiers P0 3 / P1 81 / P2 24 / P3 34; every `default_level` `warn`, or `off` for an opt-in rule (`warn` 140 / `off` 2); `diff_scope` line 126 / item 14 / file 2; producers `clippy` 104, `cargo-health` 13, `source-kernel` 11, `structure` 9, `repo` 5 | PC `rules_list_publishes_the_shipped_catalog` | yes |
 | RL-04 | none | `rules list --json` vs README count and `skills/rust-doctor/SKILL.md` "142 curated rules" | the three numbers agree | SKC (skill) | yes (142) |
 | RL-05 | none | `rules list extra` | "unexpected argument 'extra' found", exit 2 | none | yes |
 | RL-06 | none | `rules list --json --json` | "cannot be used multiple times", exit 2 | none | yes |
