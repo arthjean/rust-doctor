@@ -1,12 +1,3 @@
-//! The dual run a `--scope baseline` comparison needs: the same plan, the same
-//! configuration and the same toolchain applied to a snapshot of the comparison
-//! base and to the working tree, in that order.
-//!
-//! The order is the whole point. A baseline side that did not complete cannot
-//! be subtracted from anything, so the current side is never even scanned when
-//! it fails: a delta computed against a partial baseline reports findings older
-//! than the branch as introduced by it.
-
 use std::path::Path;
 
 use crate::git::GitView;
@@ -25,12 +16,10 @@ use super::{
 pub(crate) struct BaselineExecution {
     baseline: BaseSide,
     current: ExecutionResult,
-    /// Where a complete base side this run computed is stored.
     cache: Option<SideCache>,
     outcome: CacheOutcome,
 }
 
-/// The base side: scanned now, or read back from the side cache.
 #[derive(Debug)]
 pub(crate) enum BaseSide {
     Ran(Box<ExecutionResult>),
@@ -59,18 +48,13 @@ impl BaselineExecution {
     }
 }
 
-/// Where one side of the comparison reads its sources and builds.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Side<'a> {
     pub(crate) workspace: &'a Path,
     pub(crate) target_dir: &'a Path,
-    /// How git sees `workspace`, a snapshot with no `.git` of its own.
     pub(crate) view: &'a GitView,
 }
 
-/// What a comparison settles before either side runs: the toolchain both are
-/// pinned to, and whether the base side is already in the cache, which is what
-/// decides whether a snapshot is needed at all.
 #[derive(Debug)]
 pub(crate) struct BaselineSetup {
     environment: CommandEnvironment,
@@ -81,7 +65,6 @@ pub(crate) struct BaselineSetup {
 }
 
 impl BaselineSetup {
-    /// Whether the base side has to be scanned, and so materialized.
     pub(crate) const fn needs_snapshot(&self) -> bool {
         !matches!(self.cache, Lookup::Hit(_))
     }
@@ -103,8 +86,6 @@ pub(crate) fn setup(
         options,
         lint_list,
     )?;
-    // Both sides are measured under the current configuration: a threshold
-    // moved between the two commits must not report the move as a finding.
     let declared = crate::generated::declared(workspace_root, options.deadline);
     let cache = side_cache::lookup(
         &KeyInputs {
@@ -130,9 +111,6 @@ pub(crate) fn setup(
     })
 }
 
-/// Runs the base side, then the current one: the working tree, or, when
-/// `staged` names one, the tree the index was written into. A base side the
-/// cache holds is not run, and `base` is then never read.
 pub(crate) fn execute(
     prepared: PreparedInspection,
     setup: BaselineSetup,
@@ -222,8 +200,6 @@ pub(crate) fn execute(
     })
 }
 
-/// The toolchain both sides are pinned to, or the refusal to compare at all:
-/// a comparison runs both sides under one named toolchain or not at all.
 fn command_environment(workspace_root: &Path) -> Result<CommandEnvironment, InternalError> {
     match toolchain::name_only_pin(workspace_root) {
         NameOnlyPin::Named(rustup_toolchain) => Ok(CommandEnvironment {

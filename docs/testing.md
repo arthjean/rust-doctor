@@ -108,6 +108,20 @@
   calls: the probes run it concurrently, and the uutils `mkdir` of Ubuntu
   26.04 lets two concurrent calls on one path both succeed. Change what the
   run is handed between two calls in Rust instead.
+- A comment a rule under test reads is data, never a comment in the tree: a
+  directive, an `@generated` header, the `// SAFETY:` that keeps
+  `undocumented_unsafe_blocks` quiet, a pack's `/// negative_*` marker, or code
+  quoted in a comment to prove it is not code. `tests/fixtures/comment-inputs.toml`
+  maps a fixture file and a line to that whole line, and `support::fixture_dir`
+  copies the fixture under `target/fixtures-with-comments/` and writes the lines
+  back, so a scan reads the bytes its oracle froze. The tracked line keeps only
+  its code, which `comment_free.rs` checks; a fixture with no input is read in
+  place. Blanking these lines without the data had left tests green and empty:
+  a matrix case that quotes `std::mem::forget` in a comment tested a blank line.
+- Generated files carry what their generator writes. Cargo writes the
+  `Cargo.lock` header back on any command not run `--locked`, `stageWrapper`
+  gives the npm bin its shebang when it packs it, and `fakes.ts` writes each
+  end-to-end stand-in from `fakes/record.sh` under a shebang.
 - Shared helpers live in `tests/support/` and are pulled in with `mod support;`.
   Fixtures live under `tests/fixtures/<domain>/`, where frozen JSON oracles are
   compared field by field.

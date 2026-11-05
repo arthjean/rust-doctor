@@ -1,11 +1,3 @@
-//! One score per workspace member, beside the workspace's.
-//!
-//! A member's score is the core-v6 model run over that member's production
-//! lines and the findings attributed to it, nothing else: the formula is the
-//! workspace's, and so are the reasons the scan gives against it. A finding no
-//! member claims, a manifest-level or repository finding, or one in a file two
-//! members reach, weighs on the workspace score alone.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
@@ -19,11 +11,8 @@ pub struct PackageAudit {
     pub source_files: usize,
     pub production_lines: usize,
     pub score: Option<AuditScore>,
-    /// Clippy never linted this member, so it carries no score: its silence
-    /// would read as clean. Absent when the member was linted.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unlinted: bool,
-    /// Carried for a narrower scope to rebuild from, never published.
     #[serde(skip)]
     inventory_is_complete: bool,
 }
@@ -44,8 +33,6 @@ impl PackageAudit {
     }
 }
 
-/// Scores every member over its own findings, except the ones Clippy never
-/// linted.
 pub(super) fn score(
     members: impl IntoIterator<Item = (String, SourceFileInventory)>,
     unlinted: &BTreeSet<String>,
@@ -77,7 +64,6 @@ pub(super) fn score(
         .collect()
 }
 
-/// The same members, scored again over a narrower set of findings.
 pub(super) fn rescore(
     packages: &[PackageAudit],
     status: Status,
@@ -163,8 +149,6 @@ mod tests {
         );
         let value = |audit: &Audit| audit.score.as_ref().map(|score| score.value);
         let member = |package: &PackageAudit| package.score.as_ref().map(|score| score.value);
-        // alpha is charged its one finding, beta nothing, and the unattributed
-        // finding moves the workspace score only.
         assert_eq!(member(alpha), value(&one));
         assert_eq!(member(beta), value(&clean));
         assert_eq!(audit.totals().0.total, 2);
@@ -184,11 +168,6 @@ mod tests {
         }
     }
 
-    /// core-v5: a manifest fact a member claims is averaged over the members,
-    /// so the workspace answers for them as their mean and lands between its
-    /// worst and its best member. Added up, two members with one and two
-    /// unused dependencies put the workspace under both of them. A fact no
-    /// member claims is still the workspace's whole.
     #[test]
     fn the_workspace_answers_for_its_members_manifests_as_their_mean() {
         let inventory = SourceFileInventory {

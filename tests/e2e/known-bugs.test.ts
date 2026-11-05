@@ -1,7 +1,3 @@
-// Holds the defect ledger exact: `known-bugs.json` mirrors the table of
-// `tasks/e2e-catalog/README.md`, every open entry is referenced by at least one
-// `test.failing` row, and no `test.failing` row names an entry the ledger
-// lacks or one already fixed (its fixing commit turns the row into a test).
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,8 +7,6 @@ type Entry = { id: string; severity: string; status: "open" | "fixed"; fixed_by?
 
 const IDENTIFIER = /\b(?:tui|scopes|subcommands|failures|real)\/[A-Za-z0-9-]+/g;
 
-// `tui/BUG-01 to tui/BUG-05, tui/BUG-07` expands to six identifiers; a bare
-// `BUG-12` inherits the catalog of the identifier before it.
 export function expandIdentifiers(cell: string): string[] {
   const ids: string[] = [];
   let catalog = "";
@@ -87,7 +81,6 @@ const ledger = parseLedger(readFileSync(join(REPO_ROOT, "tasks/e2e-catalog/READM
 
 function suiteTitles(): string[] {
   return readdirSync(import.meta.dir)
-    // This file's own fixtures are strings, not defect rows.
     .filter((name) => name.endsWith(".test.ts") && name !== "known-bugs.test.ts")
     .flatMap((name) => failingTitles(readFileSync(join(import.meta.dir, name), "utf8")));
 }

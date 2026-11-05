@@ -1,8 +1,3 @@
-// The binary inside a network namespace of its own (`unshare -rn`), the
-// strongest proof that a scan needs no network. Hosted Ubuntu has refused
-// unprivileged user namespaces since 24.04 until the job lifts the AppArmor
-// restriction, so a machine without them skips these scenarios with one stated reason,
-// unless E2E_REQUIRE_NETNS=1 (CI), where their absence fails the file.
 import {
   BIN,
   defaultTarget,
@@ -25,7 +20,6 @@ function probe(): boolean {
   return run.exitCode === 0;
 }
 
-// Whether namespace scenarios can run here.
 export function requireNetns(): boolean {
   probed ??= probe();
   if (probed) return true;
@@ -39,9 +33,6 @@ export function requireNetns(): boolean {
   return false;
 }
 
-// `runDoctor` with the binary started under `unshare -rn`: the same sealed
-// environment, target directory and advisory default, and no network
-// interface but a loopback that is down.
 export function runDoctorOffline(args: string[], options: DoctorOptions = {}): Promise<DoctorRun> {
   if (!UNSHARE) throw new Error("unshare is not installed");
   const box = options.sandbox ?? sandbox("netns");

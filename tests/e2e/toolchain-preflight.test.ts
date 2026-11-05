@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section TC: toolchain problems. Each row
-// builds the toolchain it needs out of what is installed: a PATH directory of
-// links into one toolchain's own binaries, or a scratch RUSTUP_HOME, so a
-// missing cargo, rustc or Clippy is a fact of the test and not of the machine.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -31,7 +27,6 @@ function error(report: Report, code: string): ScanError {
   return found;
 }
 
-// The installed toolchains that ship Clippy, by directory name.
 function toolchainsWithClippy(): string[] {
   return readdirSync(join(RUSTUP_HOME, "toolchains"))
     .filter((name) => existsSync(join(RUSTUP_HOME, "toolchains", name, "bin", "cargo-clippy")))
@@ -53,16 +48,12 @@ const DEFAULT_RUSTC = version(join(CARGO_HOME, "bin", "rustc"));
 const HOST = Bun.spawnSync([join(CARGO_HOME, "bin", "rustc"), "-vV"], { env: { PATH: "/usr/bin:/bin", RUSTUP_HOME, CARGO_HOME } })
   .stdout.toString().match(/^host: (\S+)$/m)?.[1] ?? "";
 
-// An installed toolchain other than the default, preferring a numbered
-// release, for TC-06's directory pin.
 const OTHER = toolchainsWithClippy()
   .map((name) => ({ name, channel: name.endsWith(`-${HOST}`) ? name.slice(0, -HOST.length - 1) : name, rustc: version(toolchainBinary(name, "rustc")) }))
   .filter((toolchain) => toolchain.rustc !== "" && toolchain.rustc !== DEFAULT_RUSTC)
   .sort((left, right) => Number(/^\d/.test(right.channel)) - Number(/^\d/.test(left.channel)))[0];
 if (!OTHER) console.warn("only one toolchain with Clippy is installed: TC-06 skipped");
 
-// A PATH holding the suite's system tools and exactly `links`, none of the
-// rustup proxies.
 function pathWith(label: string, links: Record<string, string>): string {
   const dir = join(scratchDir(label), "bin");
   mkdirSync(dir);
@@ -73,8 +64,6 @@ function pathWith(label: string, links: Record<string, string>): string {
   return dir;
 }
 
-// A scratch RUSTUP_HOME whose default is a custom toolchain linking the real
-// rustc, cargo and rustdoc of an installed one, and no Clippy.
 function rustupWithoutClippy(): string {
   const root = scratchDir("noclippy");
   mkdirSync(join(root, "toolchain", "bin"), { recursive: true });
@@ -88,8 +77,6 @@ function rustupWithoutClippy(): string {
   return home;
 }
 
-// A crate pinned to `channel` by a `rust-toolchain.toml`, holding one
-// `todo!()`.
 function pinned(channel: string, manifestExtra = ""): string {
   const dir = join(scratchDir("pinned"), "pinned");
   mkdirSync(join(dir, "src"), { recursive: true });
@@ -99,7 +86,6 @@ function pinned(channel: string, manifestExtra = ""): string {
   return dir;
 }
 
-// A `clippy-driver` in front of the real one, answering `-W help` with `help`.
 function fakeDriver(label: string, help: string): string {
   const dir = join(scratchDir(label), "bin");
   mkdirSync(dir);
@@ -122,8 +108,6 @@ describe("toolchain preflight", () => {
     expect(error?.message).toContain("https://rustup.rs");
   });
 
-  // Cargo looks for `cargo-clippy` under CARGO_HOME/bin as well as on PATH,
-  // so the rows that withhold a tool also withhold the real CARGO_HOME.
   test("TC-02 cargo without rustc names rustc, the remedy, and publishes no half toolchain", async () => {
     const { exitCode, report } = await scan(copyWorkspace("projects/clippy-warning"), {
       PATH: pathWith("tc02", { cargo: toolchainBinary(INSTALLED, "cargo") }),
@@ -175,9 +159,6 @@ describe("toolchain preflight", () => {
     expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toContain("clippy::todo");
   });
 
-  // A scratch RUSTUP_HOME keeps whatever rustup would write out of the
-  // machine's own, and the namespace keeps a rustup that ignores
-  // RUSTUP_AUTO_INSTALL off the network.
   test("TC-07 a pinned toolchain that is not installed fails before Clippy with rustup's remedy", async () => {
     const workspace = pinned("1.80.0");
     const env = { RUSTUP_HOME: scratchDir("tc07-rustup"), RUSTUP_AUTO_INSTALL: "0" };
@@ -236,9 +217,6 @@ describe("toolchain preflight", () => {
     ["TC-14", { CARGO_BUILD_RUSTFLAGS: "-Dwarnings" }, []],
   ];
 
-  // Whatever the caller exports, the `todo!()` of the fixture stays one
-  // warning: a lint flag that would raise or silence it is removed where the
-  // scan can see it, and outweighed where it cannot.
   test.each(flagRows)("%s caller rustflags never change a verdict", async (_id, variables, removed) => {
     const { exitCode, report } = await scan(copyWorkspace("scan-failures/lint-flags"), variables);
     expect(exitCode).toBe(0);

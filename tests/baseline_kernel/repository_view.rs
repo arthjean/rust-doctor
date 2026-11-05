@@ -1,13 +1,3 @@
-//! EP-001 US-002: the base side of a baseline runs the repository pass
-//! through a git view of its snapshot, the repository's own `.git` with the
-//! snapshot's index and the snapshot as work tree, so the five
-//! `rust_doctor::repo::*` rules pair across the two sides. Before it, the
-//! snapshot had no `.git`, the base side held no repository finding, and a
-//! branch that changed nothing introduced every one of them.
-//!
-//! Key-shaped values are assembled at runtime so no source file of this
-//! repository carries one.
-
 use super::*;
 
 static NEXT_REPOSITORY: AtomicUsize = AtomicUsize::new(0);
@@ -15,13 +5,10 @@ static NEXT_REPOSITORY: AtomicUsize = AtomicUsize::new(0);
 const CREDENTIAL: &str = "rust_doctor::repo::hardcoded_credential";
 const WORKFLOW: &str = "name: release\non: push\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - env:\n          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}\n        run: cargo publish --locked\n";
 
-/// Not the key AWS documents, which the rule rightly reads as an example.
 fn key(tail: &str) -> String {
     format!("AKIA{tail}")
 }
 
-/// A binary whose base commit tracks a key in `src/key.rs`, under `repository`,
-/// with a scan target beside it that every run starts without.
 fn repository() -> (PathBuf, PathBuf) {
     let root = support::temporary_target("baseline-repository-view", &NEXT_REPOSITORY);
     let _ = fs::remove_dir_all(&root);
@@ -60,7 +47,6 @@ fn scan(repository: &Path, target: &Path, arguments: &[&str]) -> (Option<i32>, V
     (output.status.code(), report(&output))
 }
 
-/// `(code, path, line)` of every repository finding in `diagnostics`.
 fn repository_findings(diagnostics: &Value) -> BTreeSet<(String, String, Option<u64>)> {
     diagnostics
         .as_array()
@@ -81,7 +67,6 @@ fn repository_findings(diagnostics: &Value) -> BTreeSet<(String, String, Option<
 
 #[test]
 fn a_branch_with_no_change_introduces_no_repository_finding() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     let (code, report) = scan(
@@ -110,7 +95,6 @@ fn a_branch_with_no_change_introduces_no_repository_finding() {
 
 #[test]
 fn a_removed_key_is_fixed_and_an_added_one_introduced() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     write(repository.join("src/key.rs"), "pub const KEY: &str = \"\";\n");
@@ -139,14 +123,8 @@ fn a_removed_key_is_fixed_and_an_added_one_introduced() {
     assert_eq!(introduced[0]["path"], "src/second.rs");
 }
 
-/// The view answers what a real checkout of the base commit answers: every
-/// repository rule fires on the base side, and a scan of a clone checked out
-/// at that commit names the same codes, paths and lines. The clone is built
-/// once, as the working tree was, since an ignored lockfile is in no commit
-/// and only a build writes it.
 #[test]
 fn the_base_side_finds_what_a_checkout_of_the_base_commit_finds() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     write(repository.join(".gitignore"), "Cargo.lock\n");
@@ -176,7 +154,6 @@ fn the_base_side_finds_what_a_checkout_of_the_base_commit_finds() {
         "{full:#}"
     );
 
-    // The branch repairs all of it, so every base-side finding is fixed.
     write(repository.join(".gitignore"), "/target\n");
     write(repository.join("src/key.rs"), "pub const KEY: &str = \"\";\n");
     git(&repository, &["rm", "--quiet", ".env", ".github/workflows/release.yml"]);
@@ -189,7 +166,6 @@ fn the_base_side_finds_what_a_checkout_of_the_base_commit_finds() {
 
 #[test]
 fn an_unreadable_snapshot_index_fails_the_comparison_instead_of_blaming_the_branch() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, target) = repository();
     let processes = support::ProcessHarness::install_with_git(repository.parent().unwrap());

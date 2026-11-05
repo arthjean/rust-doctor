@@ -1,6 +1,3 @@
-// The CI planner and the per-file runner: deterministic weighted shards that
-// refuse a file without a weight, and a retry that passes only with a visible
-// warning.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

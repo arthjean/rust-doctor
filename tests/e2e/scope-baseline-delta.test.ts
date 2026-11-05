@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` section E with L02, L03, H08 and F03d: what a
-// baseline comparison calls new, fixed and pre-existing, its base-side cache,
-// and the base trees it refuses. Every `scopes/BUG-A` expectation is plain:
-// US-002 gave the base side a git view, so a repository finding the branch
-// did not touch is pre-existing and one it deleted is fixed.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,7 +32,6 @@ async function baseline(path: string, args: string[], options: Parameters<typeof
   return { run, report: report as DeltaReport };
 }
 
-// `mini` on `main` and a branch `feature` holding NEWFN.
 function newFn(name: string) {
   return gitScenario(name).template("mini").commit("base").branch("feature").append("src/lib.rs", NEW_FN).commit("feature").build();
 }
@@ -108,8 +102,6 @@ describe("what the branch introduced", () => {
     expect(deltaSummary(report)).toEqual([1, 2, 0, 0, 0]);
   });
 
-  // `one.rs` becomes `two.rs` with most of its lines rewritten, so git sees
-  // no rename: the todo pairs on evidence alone.
   test("H08 a todo moved to a rewritten file pairs across files", async () => {
     const repo = await gitScenario("h08")
       .template("mini")
@@ -129,8 +121,6 @@ describe("what the branch introduced", () => {
     expect(deltaSummary(report)).toEqual([0, 3, 0, 1, 0]);
   });
 
-  // A patch past the line map's bound: the comparison still runs and says
-  // it could not map lines.
   test("F03d a diff too large to map still compares and says so", async () => {
     const big = Array.from({ length: 40_000 }, (_, line) => `// filler line ${String(line).padStart(6, "0")} of a very large generated file\n`).join("");
     const repo = await gitScenario("f03d").template("mini").commit("base").stage({ write: { "src/big.rs": big } }).build();
@@ -154,8 +144,6 @@ describe("what the branch introduced", () => {
     expect(report.scope?.files).toEqual(["src/lib.rs"]);
   });
 
-  // The catalog's scope line was `Scope: full codebase` (scopes/BUG-B, fixed
-  // by US-008).
   test("E10c an unknown --package fails and names the scope it never resolved", async () => {
     const repo = await newFn("e10c");
     const args = ["--scope", "files", "--package", "nope"];
@@ -179,7 +167,6 @@ describe("the base-side cache", () => {
     expect(statSync(join(target, "rust-doctor/baseline")).isDirectory()).toBe(true);
   });
 
-  // A TMPDIR nobody can write proves the hit materializes no snapshot.
   test("E02b an unchanged base hits the cache, gives the same delta and creates no snapshot", async () => {
     const repo = await newFn("e02b");
     const target = join(repo.sandbox.dir, "target");
@@ -212,7 +199,6 @@ describe("the base-side cache", () => {
 });
 
 describe("base trees the baseline refuses or cannot read", () => {
-  // `vendor/sub` is a submodule committed on `main`.
   async function e06() {
     const sub = await gitScenario("e06-sub").template("mini").commit("base").build();
     return gitScenario("e06")
@@ -242,8 +228,6 @@ describe("base trees the baseline refuses or cannot read", () => {
     expect(report.errors).toEqual([]);
   });
 
-  // `src/s.rs -> ../shared/s.rs`: relative, through `..`, and inside the
-  // repository.
   function e07() {
     return gitScenario("e07")
       .template("mini")
@@ -295,7 +279,6 @@ describe("base trees the baseline refuses or cannot read", () => {
     expect(errorCodes(report)).toEqual(["baseline/baseline-entry-invalid"]);
   });
 
-  // The base commit holds a README and no Cargo workspace.
   function e08() {
     return gitScenario("e08").write({ "README.md": "# e08\n" }).commit("base").branch("feature").template("mini").commit("workspace").build();
   }
@@ -314,7 +297,6 @@ describe("base trees the baseline refuses or cannot read", () => {
     expect(report.scope?.files).toEqual([".gitignore", "Cargo.lock", "Cargo.toml", "src/creds.rs", "src/lib.rs"]);
   });
 
-  // The base commit does not compile; the branch repairs it.
   function e09() {
     return gitScenario("e09")
       .template("mini").append("src/lib.rs", "pub fn broken( {\n").commit("base")
@@ -355,8 +337,6 @@ describe("base trees the baseline refuses or cannot read", () => {
     expect((await absent()).exitCode).not.toBe(0);
   });
 
-  // No `rustup` on PATH: `rustup show active-toolchain` cannot answer, and
-  // the base side would otherwise run under a toolchain nobody named.
   test("E13 an unresolvable active toolchain fails the baseline closed before any scan", async () => {
     const repo = await newFn("e13");
     const { run, report } = await baseline(repo.path, [], { sandbox: repo.sandbox, env: { PATH: pathWithout("rustup") } });
@@ -380,8 +360,6 @@ describe("base trees the baseline refuses or cannot read", () => {
 });
 
 describe("--max-duration", () => {
-  // A warm target and side cache, so the measured run never nears the limit
-  // on a loaded machine.
   test("F04 a fast baseline completes well inside --max-duration 1", async () => {
     const repo = await newFn("f04");
     const target = join(repo.sandbox.dir, "target");
@@ -391,9 +369,6 @@ describe("--max-duration", () => {
     expect(report.errors).toEqual([]);
   });
 
-  // `docs/subsystems/execution.md`: a child still running at the deadline
-  // is killed with `deadline-exceeded` at its own stage, as a full or staged
-  // scan reports it.
   test.failing("L03 scopes/BUG-L a base side cut by --max-duration names the deadline", async () => {
     const repo = await slowRepo("l03");
     const { run, report } = await baseline(repo.path, ["--max-duration", "2"], { sandbox: repo.sandbox, env: repo.env });

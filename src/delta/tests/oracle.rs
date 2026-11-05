@@ -1,9 +1,3 @@
-//! The frozen adversarial oracle: thirty-two cases replayed twenty times.
-//!
-//! It sits in a file of its own for the reason the rest of the crate splits its
-//! tests, `the_delta_holds_the_size_bound_it_matches_for`: the module that
-//! decides what a branch introduced has to pass the size rule it publishes.
-
 use super::*;
 use serde_json::{Value, json};
 
@@ -12,12 +6,6 @@ fn line_span(line: usize, source: &str) -> DiagnosticSpan {
     span(line, 1, content.chars().count() + 1)
 }
 
-/// One adversarial case: the two trees it writes, the diagnostics it names and
-/// the feature it stands for.
-///
-/// The thirty-two cases sit in six families rather than in one `match`. A single
-/// dispatcher over all of them reached 181 lines and cyclomatic complexity 23,
-/// over both bounds the structural pass of this very crate reports at.
 fn oracle_case(
     index: usize,
     baseline_parent: &Path,
@@ -48,8 +36,6 @@ fn oracle_case(
     (name, delta)
 }
 
-/// The two sides written from two spellings of one line, each span covering its
-/// own.
 fn opposed_lines(scenario: &mut Scenario, baseline_source: &str, current_source: &str) {
     scenario.write_baseline("src/original.rs", baseline_source);
     scenario.write_current("src/original.rs", current_source);
@@ -57,8 +43,6 @@ fn opposed_lines(scenario: &mut Scenario, baseline_source: &str, current_source:
     scenario.current[0].span = Some(line_span(1, current_source));
 }
 
-/// Whitespace, encoding and multi-line spans: what the normalized excerpt has to
-/// see through to call two spellings one finding.
 fn whitespace_case(index: usize, scenario: &mut Scenario) -> String {
     match index {
         0 => {
@@ -97,7 +81,6 @@ fn whitespace_case(index: usize, scenario: &mut Scenario) -> String {
     }
 }
 
-/// What the identity is made of, and what it deliberately leaves out.
 fn identity_case(index: usize, scenario: &mut Scenario) -> String {
     match index {
         4 => {
@@ -134,8 +117,6 @@ fn identity_case(index: usize, scenario: &mut Scenario) -> String {
     }
 }
 
-/// The same proof in another file, eight times over, which is what the moved
-/// pass exists for.
 fn moved_case(index: usize, scenario: &mut Scenario) -> String {
     let moved_path = format!("src/moved-{:02}.rs", index - 8);
     scenario.write_current(&moved_path, " todo!();\n");
@@ -144,7 +125,6 @@ fn moved_case(index: usize, scenario: &mut Scenario) -> String {
     format!("cross-file-stable-{:02}", index - 8)
 }
 
-/// No proof on one side or the other, so the message is all that is left.
 fn unproven_case(index: usize, scenario: &mut Scenario) -> String {
     match index {
         16 => {
@@ -176,11 +156,6 @@ fn unproven_case(index: usize, scenario: &mut Scenario) -> String {
     }
 }
 
-/// One member of the identity changed. A changed rule or source is a
-/// different finding; a changed excerpt or message at the same place and rule
-/// is the same finding edited, which the count pass pairs. Case 23 shares a
-/// long prefix on purpose, since a prefix is what a cheap comparison would
-/// stop at.
 fn changed_case(index: usize, scenario: &mut Scenario) -> String {
     match index {
         20..=23 => {
@@ -217,8 +192,6 @@ fn changed_case(index: usize, scenario: &mut Scenario) -> String {
     }
 }
 
-/// One side empty, which is what a first scan and a wholly repaired branch look
-/// like.
 fn one_sided_case(index: usize, scenario: &mut Scenario) -> String {
     if index <= 29 {
         scenario.baseline.clear();

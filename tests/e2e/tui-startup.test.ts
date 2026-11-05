@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.2: the landing per workspace kind, and
-// the count-up. Every workspace's git state is set by tui-support.ts, since
-// the same fixture scores differently inside and outside a repository. The
-// clone of this repository is asserted by shape only: its score, label,
-// counts and findings move with every commit.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { targetDir } from "./e2e-helpers";
@@ -13,7 +8,6 @@ import { tuiWorkspace, type TuiKind } from "./tui-support";
 
 type Open = { session: TmuxSession; pane: string };
 
-// The landing of `kind` once it has stopped changing.
 async function landing(kind: TuiKind, options: { args?: string[]; color?: boolean; sub?: string; env?: Record<string, string> } = {}): Promise<Open> {
   const workspace = await tuiWorkspace(kind);
   const session = openReport(options.sub ? join(workspace.path, options.sub) : workspace.path, {
@@ -50,7 +44,6 @@ describe.skipIf(!requireTmux())("interactive report landing", () => {
       expect(pane).toContain("❯ Review 1 issue");
       expect(pane).toContain("› Hand off to an agent");
       expect(pane).not.toContain("GitHub Actions");
-      // Self-scan remediation EP-002 US-008: the five dimensions follow the block.
       expect(pane).toMatch(/Security \d+ · Reliability \d+ · Maintainability \d+ · Performance \d+ · Dependencies \d+/);
       expect(rows(pane)).toHaveLength(12);
       expect(rows(pane).at(-1)).toBe(MENU_HINT);

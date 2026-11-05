@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/failures.md` sections EX and AR: the exit status matrix
-// and argument validation. The precedence 2, then 1, then the warning code,
-// then 0 is one table; an argument error stops before Cargo starts, which an
-// empty CARGO_TARGET_DIR proves.
 import { describe, expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,7 +29,6 @@ type Report = {
   gate: { blocking: string; status: string; blocking_diagnostics: number | null };
 };
 
-// A scan of `workspace` that must leave it exactly as it found it.
 async function scan(workspace: string, args: string[], options: DoctorOptions = {}): Promise<DoctorRun & { report: Report }> {
   const before = treeFingerprint(workspace);
   const run = await runDoctor([workspace, "--yes", ...args], options);
@@ -174,7 +169,6 @@ describe("exit status matrix", () => {
   });
 });
 
-// An argument error: exit 2, nothing on stdout, and no Cargo started.
 async function refused(args: string[], fixture = "projects/clean"): Promise<DoctorRun> {
   const workspace = copyWorkspace(fixture);
   const target = scratchDir("target");
@@ -261,8 +255,6 @@ describe("argument validation", () => {
   });
 
   const unresolved: Array<[id: string, fixture: string, args: string[], error: ScanError]> = [
-    // Outside git the hint to pass --base cannot help (AR-14); the catalog
-    // records the wording, scopes C14 asserts the same code.
     ["AR-13", "projects/clean", ["--scope", "files"], { stage: "scope", code: "base-undetected", message: "No base branch found: pass --base <REF>." }],
     ["AR-14", "projects/clean", ["--scope", "files", "--base", "HEAD"], { stage: "scope", code: "base-unavailable", message: "Git base commit is unavailable." }],
     ["AR-15", "projects/clean", ["--package", "nope"], { stage: "policy", code: "unknown-package", message: "--package names no workspace member. Members: clean." }],

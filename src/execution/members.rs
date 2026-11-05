@@ -1,15 +1,3 @@
-//! The workspace members a Clippy run was asked to lint, and which of them it
-//! did.
-//!
-//! Under `--keep-going` Cargo lints every member that compiles and skips the
-//! rest, including every member that only failed because a dependency did.
-//! Cargo announces what it checked with one `compiler-artifact` record per
-//! target, so a member with no record, or with an error of its own, is a
-//! member the report must name: its silence is not a clean bill of health.
-//! A build script's record does not count: it compiles without waiting on the
-//! member's dependencies, so a member that failed only through one still has it.
-//! The same records drive the progress line while the run is still going.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
@@ -19,12 +7,10 @@ use super::messages::CapturedMessage;
 use crate::progress::{Progress, ProgressSink};
 
 pub(super) struct Members {
-    /// Package id to package name, for workspace members only.
     names: BTreeMap<String, String>,
 }
 
 impl Members {
-    /// The members a run lints: every one, or the ones `--package` selected.
     pub(super) fn of(metadata: &Metadata, selected: Option<&BTreeSet<String>>) -> Self {
         let names = metadata
             .packages
@@ -38,7 +24,6 @@ impl Members {
         Self { names }
     }
 
-    /// Records a member Cargo just finished checking, and reports it.
     pub(super) fn observe(
         &self,
         message: &Message,
@@ -65,12 +50,6 @@ impl Members {
         }
     }
 
-    /// Records when an artifact of a package outside the members arrived, so the
-    /// last one marks where Cargo finished compiling what the members depend on.
-    ///
-    /// The first member's artifact used to mark it, and Cargo checks a member as
-    /// soon as its own dependencies are ready, so every dependency of a later
-    /// member that arrived after it was counted as the workspace's own linting.
     pub(super) fn observe_dependency(&self, message: &Message, last: &mut Option<Instant>) {
         if let Message::CompilerArtifact(artifact) = message
             && !self.names.contains_key(&artifact.package_id.repr)
@@ -79,8 +58,6 @@ impl Members {
         }
     }
 
-    /// Package names, sorted, of the members with no artifact or with an
-    /// error of their own. Names only: a path would carry the machine.
     pub(super) fn unlinted(&self, messages: &[CapturedMessage]) -> Vec<String> {
         let mut checked = BTreeSet::new();
         let mut failed = BTreeSet::new();

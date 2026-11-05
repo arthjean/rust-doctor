@@ -1,13 +1,3 @@
-//! The screens of the interactive report, each one a list of rendered rows.
-//!
-//! Every function here transposes one Ink component. The two that carry weight
-//! have their own file: [`menu`] is the shape the landing, the agent handoff
-//! and the two GitHub Actions screens all take, and [`viewer`] is the split
-//! review. What stays here is the score block, which both of them show.
-//!
-//! Margins are the same rows and paddings the same columns as the reference,
-//! so a frame lands on the geometry it renders.
-
 use rust_doctor::AuditScore;
 use rust_doctor::score_block;
 use rust_doctor::terminal_text::display_width;
@@ -31,14 +21,6 @@ pub enum ScoreVariant {
     Viewer,
 }
 
-/// The two-column score block: face on the left, value, bar and branding on the
-/// right. `displayed` is the counted-up value of the current animation frame,
-/// `displayed_projection` the head of the projected gain. A report without a
-/// score passes the line saying why, the one the linear report prints.
-///
-/// `width` is the room the block may occupy, its guard column included. The
-/// geometry and the tables come from [`score_block`], shared with the linear
-/// report so a score reads the same in both.
 pub fn score_header(
     variant: ScoreVariant,
     score: Result<&AuditScore, &str>,
@@ -53,8 +35,6 @@ pub fn score_header(
         Ok(score) => score,
         Err(unscored) => {
             let inner = box_width.saturating_sub(HORIZONTAL_PADDING_COLUMNS);
-            // The reason wraps rather than truncates: cut, it no longer says
-            // why.
             let reason = text::wrap_spans(&[Span::new(unscored, Style::color(Color::Yellow))], inner);
             return std::iter::once(branding_line())
                 .chain(reason)
@@ -117,10 +97,6 @@ pub fn score_header(
         })
         .collect();
 
-    // The line the linear report prints under its block, on the landing, since the viewer's
-    // header has a fixed height. Only where it fits whole on one row: cut, it could drop the
-    // dimension holding the score down, and wrapped, it pushed the menu off a 40x10 terminal.
-    // The full names need ninety-one columns, so an eighty-column terminal reads them short.
     let dimensions = [
         score_block::dimensions_line(score.dimensions),
         short_dimensions_line(score.dimensions),
@@ -155,7 +131,6 @@ pub fn score_header(
                 .truncate_end(box_width),
         );
     }
-    // The landing screen says why a score is partial, in the lines the linear report prints.
     if variant == ScoreVariant::Landing {
         lines.extend(score.reasons.iter().map(|reason| {
             Line::text(format!("  {}", reason.explanation()), Style::color(Color::Yellow))
@@ -165,8 +140,6 @@ pub fn score_header(
     lines
 }
 
-/// The five dimensions under abbreviated names, in the same order and with the
-/// same values as [`score_block::dimensions_line`].
 fn short_dimensions_line(dimensions: rust_doctor::ScoreDimensions) -> String {
     format!(
         "Sec {} · Rel {} · Maint {} · Perf {} · Deps {}",
@@ -224,8 +197,6 @@ mod tests {
         lines.iter().map(|line| line.render(false, false)).collect()
     }
 
-    /// US-005 AC-5: the landing screen prints one line per reason, the same
-    /// line the linear report prints.
     #[test]
     fn the_landing_screen_says_why_a_score_is_partial() {
         let mut partial = score(70, ScoreLabel::NeedsWork);
@@ -263,14 +234,10 @@ mod tests {
         assert!(rendered[1].ends_with('░'));
         assert!(rendered[2].contains("Rust Doctor (https://rust-doctor.com)"));
         assert_eq!(rendered[3], "  └─────┘  ");
-        // EP-002 US-008: sixty columns cannot hold the full dimension names, so the line comes
-        // short rather than wrapped or cut.
         assert_eq!(rendered.len(), 5);
         assert_eq!(rendered[4], "  Sec 100 · Rel 100 · Maint 100 · Perf 100 · Deps 100");
     }
 
-    /// EP-002 US-008: an eighty-column terminal cannot hold the full names, so
-    /// the landing prints the same five values under short ones.
     #[test]
     fn an_eighty_column_landing_prints_the_dimensions_short() {
         let rendered = visible(&score_header(
@@ -288,9 +255,6 @@ mod tests {
         );
     }
 
-    /// EP-002 US-008: a partial score prints no dimension line, since its
-    /// dimensions are as partial as its value, and the viewer's fixed-height
-    /// header keeps its four rows.
     #[test]
     fn the_dimensions_are_printed_on_the_landing_for_an_authoritative_score_only() {
         let mut partial = score(70, ScoreLabel::NeedsWork);
@@ -309,8 +273,6 @@ mod tests {
         }
     }
 
-    /// The block keeps the guard column [`score_block`] budgets for, at every
-    /// width it accepts.
     #[test]
     fn no_row_of_the_block_reaches_the_last_column_it_was_given() {
         for width in [22usize, 40, 61, 80, 120, 200] {

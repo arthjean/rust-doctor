@@ -1,16 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! Issue #41: `cargo binstall rust-doctor` installs the archive the GitHub
-//! Release of a version carries instead of compiling. That holds while four
-//! files agree. The build matrix of `.github/workflows/release.yml` decides
-//! which binaries exist, the launcher's `PLATFORM_PACKAGES` names their npm
-//! platforms, the table of `scripts/pack-github-release.sh` names the archive
-//! of each one, and the `[package.metadata.binstall]` table of `Cargo.toml`
-//! tells binstall where that archive is and where the binary sits inside it.
-//! None of them reads the others, so a target added to one alone ships an
-//! archive binstall never asks for, or sends binstall after one that does not
-//! exist. Whether binstall can read the archives is judged by binstall itself,
-//! in the `archives` job, through `scripts/binstall-proof.sh`.
-//! `docs/publishing.md` holds the reasoning.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -22,8 +10,6 @@ fn read(path: &str) -> String {
     text.unwrap()
 }
 
-/// The jobs of a workflow, each with its id and the lines it spans. A job is
-/// a two-space key under the top-level `jobs:`.
 fn jobs(text: &str) -> Vec<(String, Vec<&str>)> {
     let mut jobs: Vec<(String, Vec<&str>)> = Vec::new();
     let mut inside = false;
@@ -57,10 +43,6 @@ fn pair(platform: &str, target: &str) -> (String, String) {
     (platform.trim().to_owned(), target.trim().to_owned())
 }
 
-/// Every (platform, target) pair release.yml builds: each leg of the `build`
-/// matrix, a `- platform:` line followed by its `target:` line, and the
-/// `build-windows` job, whose artifact names the platform and whose toolchain
-/// step names the target.
 fn built_pairs() -> BTreeSet<(String, String)> {
     let release = read(".github/workflows/release.yml");
     let jobs = jobs(&release);
@@ -94,8 +76,6 @@ fn built_pairs() -> BTreeSet<(String, String)> {
     pairs
 }
 
-/// The (platform, target) table of the packing script, one quoted pair per
-/// line of its `PLATFORMS=(...)` array.
 fn packed_pairs() -> BTreeSet<(String, String)> {
     read("scripts/pack-github-release.sh")
         .lines()
@@ -109,7 +89,6 @@ fn packed_pairs() -> BTreeSet<(String, String)> {
         .collect()
 }
 
-/// The keys of `PLATFORM_PACKAGES` in the Node launcher.
 fn launcher_platforms() -> BTreeSet<String> {
     read("npm/rust-doctor/lib/launcher.js")
         .lines()

@@ -1,13 +1,3 @@
-//! `rust-doctor setup`: the skill and the end-of-turn hooks for the agents
-//! this machine and this workspace actually have, and the git pre-commit
-//! hook, in one command.
-//!
-//! An agent is detected by its command on `PATH`, the one the handoff
-//! launches, or by its project directory in the workspace. Every step reuses
-//! its own installer and that installer's refusals, and every step is checked
-//! as a dry run before any is written, so a refusal of the last leaves the
-//! first unwritten.
-
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -17,11 +7,9 @@ use crate::handoff::{AvailableAgent, available_agents};
 use crate::hook::{AgentHook, ClippyArgs, WriteArgs, install_agent, install_git};
 use crate::skill::{self, Agent, AgentSelection, InstallOptions};
 
-/// What detection looks at, named when it finds nothing.
 pub const PROBED: &str = "the `claude`, `codex` and `cursor-agent` commands on PATH, and the \
                           .claude/, .agents/, .codex/ and .cursor/ directories of the workspace";
 
-/// The project directory each agent reads.
 const PROJECT_DIRECTORIES: [(&str, Agent); 4] = [
     (".claude", Agent::Claude),
     (".agents", Agent::Codex),
@@ -33,13 +21,10 @@ const PROJECT_DIRECTORIES: [(&str, Agent); 4] = [
 pub struct SetupArgs {
     #[arg(default_value = ".", value_name = "PATH")]
     path: PathBuf,
-    /// Print the plan, and write nothing.
-    #[arg(long)]
+    #[arg(long, help = "Print the plan, and write nothing")]
     dry_run: bool,
 }
 
-/// The agents whose command is on `PATH` or whose project directory exists,
-/// in the order the skill table lists them.
 pub fn detected_agents(workspace_root: &Path) -> Vec<Agent> {
     let on_path: Vec<Agent> = available_agents()
         .iter()
@@ -68,8 +53,6 @@ pub fn run(arguments: &SetupArgs) -> ExitCode {
     }
     let names: Vec<&str> = agents.iter().map(|agent| agent.name()).collect();
     println!("Detected: {}.", names.join(", "));
-    // Checked, then written: the first pass is every installer's dry run,
-    // which is also the plan this prints.
     println!("Plan:");
     let checked = step_all(root, &agents, true);
     if checked != 0 || arguments.dry_run {
@@ -85,7 +68,6 @@ pub fn run(arguments: &SetupArgs) -> ExitCode {
 const NO_CI: &str =
     "setup never adds a CI workflow: run `rust-doctor ci install` for GitHub Actions.";
 
-/// Every step in order, stopping at the first that does not succeed.
 fn step_all(root: &Path, agents: &[Agent], dry_run: bool) -> u8 {
     let write = WriteArgs {
         update: true,

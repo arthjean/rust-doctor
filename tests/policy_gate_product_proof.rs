@@ -222,10 +222,6 @@ fn id_hash(report: &Value) -> String {
 }
 
 fn legacy_v3_id(diagnostic: &Value) -> String {
-    // A dependency finding's identity never read its span: it had none until
-    // US-002 anchored it at its key, and `normalize_cargo_health_candidate`
-    // still fingerprints it without one so a baseline survives lines inserted
-    // above the key.
     let manifest_level = diagnostic["code"]
         .as_str()
         .is_some_and(|code| code.starts_with("rust_doctor::cargo::"));
@@ -338,10 +334,6 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
     assert_eq!(*default_exit, 0);
     assert_eq!(default["schema_version"], 24);
     assert_eq!(default["status"], "complete");
-    // Nine warnings since EP-002 of the suppression PRD: the two decoy
-    // dependencies this fixture declares and never references, the unbounded
-    // registry alias and the local git alias, are now `unused_dependency`
-    // findings on top of the historical seven.
     assert_eq!(default["summary"]["warnings"], 9);
     assert_eq!(default["summary"]["total"], 9);
     assert_eq!(default["gate"]["status"], "passed");
@@ -803,8 +795,6 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
             )
         })
         .collect();
-    // The command of the default policy is the living reference: every other
-    // policy must be exactly that command minus the rules it turns off.
     let default_command = scan_commands
         .get("default")
         .expect("the default policy should publish its command")

@@ -1,8 +1,3 @@
-// Git histories declared in a few chained calls. Every commit carries a fixed
-// identity and date, so the same declaration yields the same hashes on every
-// machine, and git runs with hooks off under the environment of `runDoctor`.
-// The steps are recorded and run by `build()`, which first refuses a step the
-// history cannot hold yet (staging before any commit) and names it.
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { copyWorkspace, runCommand, sandbox, scratchDir, targetDir, type Sandbox } from "./e2e-helpers";
@@ -26,13 +21,10 @@ function identity(date?: string): Record<string, string> {
   };
 }
 
-// The n-th commit of a history is dated 2026-01-01 plus n days.
 function commitDate(index: number): string {
   return new Date(Date.UTC(2026, 0, 1 + index)).toISOString().replace(".000", "");
 }
 
-// Credential-shaped values built at runtime: a literal of one under
-// `tests/e2e/` would be reported by this repository's own scan.
 export type CredentialKind = "access-key" | "token" | "database-url";
 
 export function credential(kind: CredentialKind): string {
@@ -46,8 +38,6 @@ export function credential(kind: CredentialKind): string {
   }
 }
 
-// `mini` of `tasks/e2e-catalog/scopes.md`: one crate holding a pre-existing
-// `todo!()` at `src/lib.rs:4` and an access key at `src/creds.rs:2`.
 export function miniTemplate(): Record<string, string> {
   return {
     "Cargo.toml": '[package]\nname = "mini"\nversion = "0.1.0"\nedition = "2024"\npublish = false\n\n[workspace]\n',
@@ -58,7 +48,6 @@ export function miniTemplate(): Record<string, string> {
   };
 }
 
-// `NEWFN`: a second `todo!()`, at line 12 once appended to the `mini` lib.
 export const NEW_FN = "\npub fn new_debt() -> u8 {\n    todo!()\n}\n";
 
 export type FileContent = string | { restoreFrom: string };
@@ -73,12 +62,10 @@ export type Repo = {
   name: string;
   path: string;
   sandbox: Sandbox;
-  // The repository this one was cloned from, when the history holds a clone.
   origin?: Repo;
   worktrees: Record<string, string>;
   git(args: string[]): Promise<string>;
   sha(rev?: string): Promise<string>;
-  // A named scan target for this repository, kept across runs.
   target(key: string): string;
 };
 
@@ -88,8 +75,6 @@ type Step = {
   name: string;
   requires?: "content" | "commit" | "clone";
   adds?: "files" | "commit" | "clone";
-  // Returns the repository the history continues in when it changes, as a
-  // clone does.
   run(repo: Repo, history: History): Promise<Repo | void>;
 };
 
@@ -141,8 +126,6 @@ export class GitScenario {
     return this.step({ name: `template(${template})`, adds: "files", run: (repo) => writeInto(repo, miniTemplate()) });
   }
 
-  // `nested` of the catalog: the repository root holds a README and a stray
-  // `top.rs`, and the `mini` workspace sits at `dir`.
   nested(dir: string, template: "mini"): this {
     const files: Record<string, string> = { "README.md": "# nested\n", "top.rs": "fn top() {}\n" };
     for (const [path, body] of Object.entries(miniTemplate())) files[join(dir, path)] = body;
@@ -192,7 +175,6 @@ export class GitScenario {
     return this.step({ name: `switch(${name})`, requires: "commit", run: async (repo) => void (await repo.git(["switch", "-q", name])) });
   }
 
-  // Changes written and added to the index, `remove` paths deleted from both.
   stage(change: { write?: Record<string, FileContent>; remove?: string[] }): this {
     return this.step({
       name: "stage",
@@ -206,7 +188,6 @@ export class GitScenario {
     });
   }
 
-  // Changes to tracked files left out of the index.
   unstaged(files: Record<string, FileContent>): this {
     return this.step({ name: "unstaged", requires: "commit", run: (repo) => writeInto(repo, files) });
   }
@@ -234,8 +215,6 @@ export class GitScenario {
     });
   }
 
-  // Clones the history built so far and continues on the clone, the way
-  // `actions/checkout` hands a workflow its repository.
   clone(options: CloneOptions = {}): this {
     return this.step({
       name: "clone",
@@ -281,8 +260,6 @@ export class GitScenario {
     return this.step({ name: `orphan(${name})`, requires: "commit", run: async (repo) => void (await repo.git(["switch", "-q", "--orphan", name])) });
   }
 
-  // From the current commit, `left` and `right` each commit once and then
-  // merge each other's first commit, so the two tips have two merge bases.
   crissCross(left = "left", right = "right"): this {
     return this.step({
       name: `crissCross(${left}, ${right})`,
@@ -305,10 +282,6 @@ export class GitScenario {
     });
   }
 
-  // A racily clean index: `path` is staged, then written again with the same
-  // bytes, so its modification time is no older than the index's and its
-  // stat data no longer proves it unchanged. Git has to read the file again,
-  // finds it clean, and a command that refreshes the index rewrites it.
   racyIndex(path: string): this {
     return this.step({
       name: `racyIndex(${path})`,
@@ -348,8 +321,6 @@ export function gitScenario(name: string): GitScenario {
   return new GitScenario(name);
 }
 
-// Resolves once a scan has materialized its snapshot under `tmp`, the moment a
-// signal test can interrupt a baseline or staged run.
 export async function waitForSnapshot(tmp: string, timeoutMs = 15_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

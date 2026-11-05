@@ -1,11 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! `rust-doctor ci install` and `rust-doctor report markdown` from the binary's
-//! entry point: the workflow written into a real repository and refused over
-//! one it did not write, and a saved report rendered without a scan, pinned
-//! against a golden file and refused whole when it cannot be trusted.
-
 mod support;
 
 use std::fs;
@@ -46,7 +41,6 @@ fn git(root: &Path, arguments: &[&str]) {
     assert!(output.status.success(), "git {arguments:?}");
 }
 
-/// A repository whose default branch is `trunk`, with one commit on it.
 fn repository(name: &str) -> PathBuf {
     let root = workspace(name);
     git(&root, &["init", "--quiet", "--initial-branch=trunk"]);
@@ -66,8 +60,6 @@ fn repository(name: &str) -> PathBuf {
             "initial",
         ],
     );
-    // A remote whose HEAD names trunk: the first candidate the base resolution
-    // of a changed-work scope trusts.
     git(&root, &["remote", "add", "origin", "."]);
     git(&root, &["fetch", "--quiet", "origin"]);
     git(&root, &["remote", "set-head", "origin", "trunk"]);
@@ -99,13 +91,10 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
     assert!(workflow.contains("persist-credentials: false"));
     assert!(workflow.contains("permissions:\n  contents: read\n"));
     assert!(workflow.contains("--scope full --blocking none"));
-    // The base is checked out into a snapshot under the temporary directory,
-    // never a git worktree.
     assert!(workflow.contains("checks the base out into a temporary snapshot"));
     assert!(!workflow.contains("worktree"), "{workflow}");
     assert!(!root.join(".github/workflows/rust-doctor-comment.yml").exists());
 
-    // An existing workflow is left alone without --update.
     let again = install(&root, &["--blocking", "warning"]);
     assert_eq!(again.status.code(), Some(1));
     assert!(text(&again.stderr).contains("--update"), "{}", text(&again.stderr));
@@ -114,8 +103,6 @@ fn ci_install_writes_the_workflow_on_the_branch_the_repository_answers_for() {
         workflow
     );
 
-    // With it, the file rust-doctor wrote is rewritten, and --comment adds
-    // the sticky comment as a second job, the only one that writes.
     let updated = install(
         &root,
         &["--update", "--blocking", "warning", "--branch", "main", "--toolchain", "1.98.0", "--comment"],
@@ -147,7 +134,6 @@ fn ci_install_never_writes_over_a_workflow_it_did_not_write() {
     }
     assert!(text(&install(&root, &["--update"]).stderr).contains("not written by rust-doctor"));
 
-    // Nothing is written through a symlink either.
     fs::remove_dir_all(root.join(".github")).unwrap();
     let elsewhere = workspace("foreign-target");
     std::os::unix::fs::symlink(&elsewhere, root.join(".github")).unwrap();
@@ -174,9 +160,6 @@ fn ci_install_without_a_branch_names_the_flag_and_writes_nothing() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A Tauri-shaped repository: the Cargo workspace sits in `src-tauri/`, and
-/// GitHub reads workflows only at the repository's top. Pointed at either
-/// directory, the install writes at the top and scans the workspace.
 #[test]
 fn ci_install_writes_at_the_git_root_and_scans_the_nested_workspace() {
     let root = repository("nested");
@@ -205,8 +188,6 @@ fn ci_install_writes_at_the_git_root_and_scans_the_nested_workspace() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Outside a repository there is nowhere GitHub would read a workflow, and a
-/// workflow that already runs rust-doctor under another name is the install.
 #[test]
 fn ci_install_refuses_outside_a_repository_and_beside_an_existing_install() {
     let outside = std::env::temp_dir().canonicalize().unwrap().join(format!(
@@ -252,9 +233,6 @@ fn render(path: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// The baseline report carries execution errors beside its findings; the
-/// scope failure is a real baseline scan of a depth-1 clone, which failed
-/// before it collected anything and must say so rather than "No finding."
 #[test]
 fn a_saved_report_renders_to_the_golden_markdown() {
     for name in ["baseline", "scope-failure"] {
@@ -311,9 +289,6 @@ fn a_report_that_cannot_be_trusted_is_refused_with_nothing_on_stdout() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Every tool a scan would start is on `PATH` as a script that leaves a mark,
-/// and the render runs from a directory holding a Cargo workspace. Nothing is
-/// marked.
 #[test]
 fn rendering_a_report_starts_no_process() {
     let root = workspace("no-process");
@@ -347,8 +322,6 @@ fn rendering_a_report_starts_no_process() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-008 of the self-scan remediation: an authoritative score prints
-/// its five dimensions under the score line, and a partial one does not.
 #[test]
 fn the_markdown_report_prints_the_dimensions_of_an_authoritative_score() {
     let root = workspace("dimensions");
@@ -372,9 +345,6 @@ fn the_markdown_report_prints_the_dimensions_of_an_authoritative_score() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 of the self-scan remediation: the Markdown report states the scope
-/// the linear one does, names the members a `--package` scan selected and the
-/// rules a crate version left unevaluated, and says when Clippy did not run.
 #[test]
 fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
     let root = workspace("disclosure");
@@ -389,8 +359,6 @@ fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
         .as_array_mut()
         .unwrap()
         .push(json!({ "id": "rust_doctor::source::disabled_tls_verification", "not_evaluated": "crate-version-unsupported" }));
-    // A saved report is text someone else may have written: an id that is not
-    // a catalogued one cannot close the paragraph or open markup.
     report["policy"]["rules"]
         .as_array_mut()
         .unwrap()
@@ -419,8 +387,6 @@ fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A 10,000-diagnostic report reads and renders inside the 500 ms the PRD
-/// holds it to, times the machine allowance a slower runner declares.
 #[test]
 fn a_ten_thousand_diagnostic_report_renders_inside_its_budget() {
     let mut report: Value =
@@ -459,9 +425,6 @@ fn a_ten_thousand_diagnostic_report_renders_inside_its_budget() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-008: `why --report` refuses a document `report markdown`
-/// refuses for its schema, with the same line and the same exit code, rather
-/// than explaining a site from a report it cannot read.
 #[test]
 fn why_refuses_a_saved_report_of_another_schema_as_report_markdown_does() {
     let root = workspace("why-schema");
@@ -488,9 +451,6 @@ fn why_refuses_a_saved_report_of_another_schema_as_report_markdown_does() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `why --report` writes a suppression directive only for a well-formed lint
-/// path: a saved report whose `code` closes the attribute hands the reader no
-/// Rust to paste, and its suppression fields reach the terminal as text.
 #[test]
 fn why_writes_a_directive_only_for_a_lint_path_from_a_saved_report() {
     let root = workspace("why-directive");

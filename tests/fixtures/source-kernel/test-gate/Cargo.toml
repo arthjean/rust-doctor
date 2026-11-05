@@ -2,7 +2,7 @@
 name = "source-kernel-test-gate"
 version = "0.1.0"
 edition = "2024"
-# `benches/tests.rs` is a module of the bench target, not a bench of its own.
+
 autobenches = false
 
 [features]

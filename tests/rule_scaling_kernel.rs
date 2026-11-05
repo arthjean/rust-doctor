@@ -420,11 +420,6 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
         baseline.scan.command.as_deref().unwrap(),
         support::expected_clippy_command(&published["policy"])
     );
-    // The frozen command of EP-018 stays an ordered subsequence of the current
-    // command, minus one argument: no widening of the catalog removed or moved
-    // a rule already admitted, and the single withdrawal is named here rather
-    // than erased from the oracle. `--all-targets` compiled tests, benches,
-    // examples and build scripts, and the scope is now Cargo's default targets.
     const WITHDRAWN: &str = "--all-targets";
     let mut current = baseline.scan.command.as_deref().unwrap().iter();
     for historical in &oracle.clippy_command {
@@ -464,25 +459,6 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
     );
 
     assert_eq!(oracle.historical_rules.len(), 7);
-    // Rules admitted after EP-018 that find something on this fixture, with
-    // the number of findings each contributes. The `expect()` of the
-    // `zombie_processes` case is one of them since EP-024. Of the two families
-    // `duplicate_function_body` reported since EP-002, one remains: the
-    // fixture repeats the same pair of cases three times over, once per
-    // written form of the same call, and `spaced_argument` is the only member
-    // whose body carries the three top-level statements the admission floor
-    // requires since the EP-005 design revision. The single-statement chains
-    // fell under `MINIMUM_STATEMENTS`, which is that revision working as
-    // measured.
-    // The two suppression-audit rules of EP-001 both fire on this fixture by
-    // design: its crate-level `#![allow(dead_code, reason = ...)]` is exactly
-    // the file-wide scope `crate_level_allow` reports whatever the reason, and
-    // its quiet counterpart carries one attribute naming four lints, which is
-    // the accumulation `stacked_allow_attribute` reports.
-    // Since EP-002 of the same PRD, the two decoy dependencies the fixture
-    // declares to trigger the pinning rules, `fixture_git_dep` and
-    // `fixture_registry_dep`, are also what they look like: declared and
-    // referenced by nothing, so `unused_dependency` reports both.
     const ADMITTED_AFTER_EP018: [(&str, usize); 6] = [
         ("clippy::expect_used", 1),
         ("clippy::undocumented_unsafe_blocks", 1),

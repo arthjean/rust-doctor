@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::orphan_module_file"
+weakness = "conditional-module"
+source = "audit Z4-N03, fixed by US-020"
+verdict = "quiet"

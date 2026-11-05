@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.3: menus and every key. Escape is
-// always sent alone and the next frame awaited before another key, since an
-// Escape and the byte after it in one read are swallowed whole (KEY-10).
 import { describe, expect, test } from "bun:test";
 import { copyWorkspace, targetDir } from "./e2e-helpers";
 import { CI_SETUP, MENU_HINT, openReport, requireTmux, VIEWER_HINT, type TmuxSession } from "./tmux-helpers";
@@ -16,7 +13,6 @@ function open(workspace: TuiWorkspace | string, args: string[] = [], size = { wi
   return openReport(path, { ...size, args, ...(typeof workspace === "string" ? {} : { sandbox: workspace.sandbox }) });
 }
 
-// Sends `key` and returns the frame it produced.
 async function press(session: TmuxSession, ...keys: string[]): Promise<string> {
   session.sendKeys(...keys);
   return session.waitForStable(200);
@@ -69,8 +65,6 @@ describe.skipIf(!requireTmux())("interactive report keys", () => {
     }
   });
 
-  // How each screen is reached from the landing of a repository that can
-  // take the workflow.
   const SCREENS: Array<[string, string[], string]> = [
     ["landing", [], MENU_HINT],
     ["viewer", ["Enter"], VIEWER_HINT],

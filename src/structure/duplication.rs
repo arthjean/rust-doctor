@@ -1,35 +1,3 @@
-//! Functions that are the same function under another name.
-//!
-//! The unit reported is the family, never the member. A helper cloned six
-//! times is one finding naming six places, because the decision a reviewer
-//! makes is "merge these six", once. Reporting six findings would put the same
-//! decision six times at the top of a report that ranks by count.
-//!
-//! Two passes, one cheap and one bounded. Functions sharing a canonical form
-//! are exact clones, found by grouping on a digest, which costs a sort. Near
-//! clones need a score, and scoring every pair is quadratic, so a pair is
-//! nominated before it is scored, on two conditions.
-//!
-//! The first is size, and it is exact. Dice is bounded above by
-//! `2 * min / (min + max)`, so a function half the size of another can never be
-//! 85 % alike whatever it contains. That bound is a ratio though, not a bound on
-//! work: at the shipped threshold a partner may still be half again as large,
-//! and a workspace whose functions cluster around one length gets no help from
-//! it.
-//!
-//! The second is the one that does the work, and it is not exact: a shape is
-//! indexed by a constant number of its rarest subtrees, so it probes the handful
-//! of shapes carrying one of them rather than every shape of its size. What that
-//! costs in recall is measured rather than argued, by
-//! `the_nomination_keeps_what_an_exhaustive_score_finds`, and it is measured on
-//! the nomination that ships: `Nomination::propose` is the only place a
-//! candidate is ever put forward.
-//!
-//! Near-duplicate scoring compares one representative per exact family rather
-//! than every member. A pair already published as an exact clone is therefore
-//! never published again as a near one, and a family of forty does not drag
-//! forty identical comparisons through the scoring loop.
-
 use std::collections::{BTreeMap, HashMap};
 
 use ra_ap_syntax::AstNode;
@@ -42,85 +10,24 @@ use crate::policy::{ActiveRules,
 };
 use crate::source_text::SourceSpan;
 
-/// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] = [
     &STRUCTURE_DUPLICATE_FUNCTION_BODY,
     &STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY,
 ];
 
-/// Smallest canonical form a family is built from, counted in normalized
-/// nodes rather than in source lines, so reformatting cannot move it.
-///
-/// Measured over the 895 functions this repository held on 2026-08-08: the
-/// smallest function normalized to 8 nodes, the median to 88. Grouping with no
-/// floor produced 42 families; at 30 nodes it produced 20, and everything the
-/// floor removed between those two numbers was a pair of functions whose whole
-/// body was two calls. At 30 and above, every family on the repository then
-/// named functions a reviewer recognized as one function. This is the empirical
-/// answer to the PRD's open question, and it is a floor rather than a
-/// certainty: a smaller clone is still a clone, it is simply not worth a line
-/// of a report.
 pub(super) const MINIMUM_NODES: usize = 30;
 
-/// Smallest statement count a family is built from, counted at the top level
-/// of the function body: its statements plus its tail expression.
-///
-/// Measured by the 2026-08 corpus adjudication
-/// (`docs/structural-precision-2026-08.md`): every confirmed true positive
-/// repeated a scaffold of at least three top-level statements, and every
-/// erased-name false positive, the delegation one-liners and two-statement
-/// boilerplate whose whole meaning lived in the names normalization erases,
-/// stopped at two. A one- or two-statement body cannot carry a shape apart
-/// from its names, so grouping it reports the naming, not a duplication.
 pub(super) const MINIMUM_STATEMENTS: usize = 3;
 
-/// Similarity two shapes reach before they are called the same shape, in basis
-/// points of a Sørensen-Dice score over their subtree multisets.
-///
-/// Measured over the 787 distinct shapes this repository held on 2026-08-08:
-/// 8000 nominated 17 pairs and every one of them was two functions a reviewer
-/// would recognize as one, 7500 nominated 38 and started linking shapes that
-/// only met through a third, 8500 nominated 9 and missed pairs that differed by
-/// a single added statement.
-///
-/// That last number is the reason the threshold is not higher. A subtree hash
-/// covers everything below it, so one edited statement also changes the hash of
-/// every node above it up to the function itself. A single added branch on an
-/// eighty-node function therefore scores 8415, not the 9200 the added nodes
-/// alone would suggest. The score is systematically conservative by about the
-/// depth of the edit, and the threshold is set knowing it.
 pub(super) const NEAR_DUPLICATE_THRESHOLD: u16 = 8_000;
 
-/// Rarest subtrees of a shape that are indexed, whatever its size.
-///
-/// An exact head is derivable: two multisets scoring above the threshold share
-/// at least `threshold * min / 10000` tokens, and the size bound pins `min` from
-/// either length alone, so ordering both the same way puts a shared token inside
-/// the first `size - overlap + 1` of each. At the shipped threshold that head is
-/// 47 % of a shape, and a head that long is not an index: a function is mostly
-/// made of small subtrees every other function also has, so half of it is tokens
-/// the whole workspace carries and a posting list on them names the whole
-/// workspace. Measured on 10,000 generated functions, the exact head left the
-/// pass at 27 s, which is the same quadratic it was meant to remove. It is also
-/// wider than this constant for every shape the floor above admits: it reaches
-/// 16 tokens at 31 normalized nodes, so keeping both would compute a bound that
-/// binds on one single input size.
-///
-/// So the head is a constant, and the nomination is not exact. What it can miss
-/// is a pair whose every rarest subtree was edited while the common half was
-/// left alone. On this repository on 2026-08-08 it reached 43 of the 46 pairs an
-/// exhaustive score links, and
-/// `the_nomination_keeps_what_an_exhaustive_score_finds` holds that number to
-/// 85 % so the cost is recorded rather than argued.
 const HEAD_TOKENS: usize = 16;
 
-/// One function the pass keeps, with the canonical form it will be compared on.
 pub(super) struct Function {
     member: Member,
     normalized: Normalized,
 }
 
-/// One family, before the pass turns it into a diagnostic.
 pub(super) struct Group {
     pub(super) definition: &'static RuleDefinition,
     pub(super) key: String,
@@ -128,10 +35,6 @@ pub(super) struct Group {
     pub(super) members: Vec<Member>,
 }
 
-/// Every function of one unit worth comparing, with its canonical form.
-///
-/// The functions are the ones the unit's single traversal already collected: a
-/// walk of its own here would be the third over the same tree.
 pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
     unit.inventory
         .functions
@@ -144,9 +47,6 @@ pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
                     member: Member {
                         path: unit.path.to_owned(),
                         span: unit.span(function.syntax()),
-                        // A test helper repeated per case is often deliberate, so
-                        // the family it forms is marked and stops weighing on the
-                        // score. It stays published: the repetition is still real.
                         context: test_context(function.syntax()).or(unit.context),
                         test_case: is_test_case(function),
                     },
@@ -156,9 +56,6 @@ pub(super) fn observe(unit: &Unit<'_>) -> Vec<Function> {
         .collect()
 }
 
-/// Does an attribute whose path ends in `test` mark this function a test case?
-/// The last segment is read, so `#[tokio::test]` counts, and its suffix, so
-/// `#[rstest]` does.
 fn is_test_case(function: &ast::Fn) -> bool {
     function.attrs().any(|attribute| {
         let path = match attribute.meta() {
@@ -172,33 +69,15 @@ fn is_test_case(function: &ast::Fn) -> bool {
     })
 }
 
-/// Families the collected functions form, and what finding them cost.
 pub(super) struct Grouping {
     pub(super) groups: Vec<Group>,
-    /// Functions the pass kept, above the node floor.
     pub(super) functions: usize,
-    /// Distinct canonical forms among them. This is what the near-duplicate
-    /// pass compares, and it is the number a workload has to present: a
-    /// benchmark of ten thousand functions sharing five forms measures the
-    /// walk and nothing else.
     pub(super) shapes: usize,
-    /// Pairs the near-duplicate pass scored. The bound the NFR sets is on this
-    /// number rather than on a wall clock: a machine can be slow, but a pass
-    /// that scores every pair of a workspace is quadratic wherever it runs.
     pub(super) comparisons: usize,
-    /// Bytes the pass held for those functions at its peak: one canonical
-    /// digest and one subtree hash per node, never the tree they were read
-    /// from. This is the quantity the memory bound is written against, and it
-    /// grows with the code, not with the number of comparisons.
     pub(super) retained_bytes: usize,
-    /// Did the scoring loop stop at the deadline rather than finish? The pass
-    /// reports its own partiality instead of leaving a clock to be read after
-    /// the fact, because a clock cannot tell a loop that stopped from a loop
-    /// that merely ended late.
     pub(super) stopped: bool,
 }
 
-/// Families the collected functions form, exact ones first.
 pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &Deadline) -> Grouping {
     let exact = active.on(&STRUCTURE_DUPLICATE_FUNCTION_BODY);
     let near = active.on(&STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY);
@@ -220,9 +99,6 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
     for (digest, mut family) in by_digest {
         family.sort_by(|left, right| left.member.cmp(&right.member));
         let occurrences = family.len();
-        // Test cases are written to look alike: a family of them only is the
-        // shape of a test suite, not a function to merge. It still stands in
-        // the near pass, where it may match a helper that ships.
         let test_cases = family.iter().all(|function| function.member.test_case);
         let duplicated = exact && occurrences > 1 && !test_cases;
         let members: Vec<Member> = if duplicated {
@@ -230,9 +106,6 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
         } else {
             Vec::new()
         };
-        // The first member of the sorted family stands for it, and it is moved
-        // out rather than cloned: its subtree hashes are the largest thing the
-        // pass holds per function.
         let Some(first) = family.into_iter().next() else {
             continue;
         };
@@ -275,22 +148,12 @@ pub(super) fn groups(functions: Vec<Function>, active: &ActiveRules, deadline: &
     }
 }
 
-/// Bytes one kept function holds while the pass runs. It is the canonical
-/// digest and one hash per node, which is what makes the pass linear in the
-/// size of the code rather than in the number of comparisons it will make.
 fn retained(function: &Function) -> usize {
     function.member.path.len()
         + size_of_val(&function.normalized.digest)
         + function.normalized.shingles.len() * size_of::<u64>()
 }
 
-/// Families that are not the repeat of another, in their order.
-///
-/// A family repeats another when each of its members is nested inside a member
-/// of the other: two copies of a function holding a helper also hold two
-/// copies of the helper, and merging the outer pair merges the inner one with
-/// it. A nested function matching one that stands outside every family member
-/// still forms a family, because that pair is a decision of its own.
 fn without_repeats(groups: Vec<Group>) -> Vec<Group> {
     let mut spans = BTreeMap::<&str, Vec<(usize, SourceSpan)>>::new();
     for (index, group) in groups.iter().enumerate() {
@@ -321,25 +184,19 @@ fn without_repeats(groups: Vec<Group>) -> Vec<Group> {
         .collect()
 }
 
-/// Does `outer` strictly contain `inner`? Equal spans are the same function,
-/// which an exact family and a near one both name through its representative.
 fn encloses(outer: &SourceSpan, inner: &SourceSpan) -> bool {
     outer != inner
         && (outer.line_start, outer.column_start) <= (inner.line_start, inner.column_start)
         && (inner.line_end, inner.column_end) <= (outer.line_end, outer.column_end)
 }
 
-/// One exact family, standing for every member it has, in the near-duplicate
-/// pass.
 struct Representative {
     digest: [u8; 32],
     member: Member,
     shingles: Vec<u64>,
-    /// Is every member of the exact family a test case?
     test_cases: bool,
 }
 
-/// What the scoring loop produced and what it cost.
 struct Scoring {
     groups: Vec<Group>,
     comparisons: usize,
@@ -347,8 +204,6 @@ struct Scoring {
 }
 
 fn near_duplicates(mut representatives: Vec<Representative>, deadline: &Deadline) -> Scoring {
-    // Ascending size makes the size bound a break rather than a filter: once a
-    // candidate is too large, every candidate after it is too.
     representatives.sort_by(|left, right| {
         (left.shingles.len(), &left.digest).cmp(&(right.shingles.len(), &right.digest))
     });
@@ -400,12 +255,6 @@ fn near_duplicates(mut representatives: Vec<Representative>, deadline: &Deadline
                     .iter()
                     .filter_map(|index| representatives.get(*index))
             };
-            // The identity of a near family is the smallest digest it holds,
-            // not the list of all of them. The refinement puts every shape in
-            // at most one family, so the smallest names the family uniquely;
-            // and a family that gains a member keeps its identity, where a
-            // joined list would change whenever any member is edited and make
-            // an old family read as a new finding.
             let key = shapes()
                 .map(|representative| representative.digest)
                 .min()
@@ -436,18 +285,9 @@ fn near_duplicates(mut representatives: Vec<Representative>, deadline: &Deadline
     }
 }
 
-/// Which shapes are worth scoring against which.
-///
-/// One object rather than two tables and a nested loop, because the recall
-/// measurement has to measure the nomination that ships: `propose` is the only
-/// place a candidate is ever put forward, so a change to the head, to the index
-/// or to the size break changes both the pass and its published recall.
 struct Nomination {
     heads: Vec<Vec<u64>>,
     index: Index,
-    /// Stamp per shape rather than a set: a candidate reached through five
-    /// shared tokens is proposed once, and starting the next probe costs
-    /// nothing.
     nominated: Vec<usize>,
 }
 
@@ -462,9 +302,6 @@ impl Nomination {
         }
     }
 
-    /// Shapes worth scoring against the one at `position`: those sharing a
-    /// token of its head, ordered after it, and small enough to still reach
-    /// the threshold.
     fn propose(
         &mut self,
         representatives: &[Representative],
@@ -497,14 +334,6 @@ impl Nomination {
     }
 }
 
-/// The head of every shape, rarest token first.
-///
-/// The order is chosen so the index built over the heads stays useful: ordering
-/// by how many functions carry a token puts the tokens almost nobody carries at
-/// the front, which is what makes a posting list a handful of candidates instead
-/// of the whole workspace. A subtree hash covers everything below it, so the
-/// tokens that tell two functions apart are the deepest ones they carry, and
-/// they are exactly the ones this order brings to the front.
 fn heads(representatives: &[Representative]) -> Vec<Vec<u64>> {
     let mut frequencies = HashMap::<u64, u32>::new();
     for representative in representatives {
@@ -527,12 +356,6 @@ fn heads(representatives: &[Representative]) -> Vec<Vec<u64>> {
         .collect()
 }
 
-/// Which shapes carry a token in their head.
-///
-/// One sorted vector rather than a map of vectors: a token's postings are
-/// contiguous, and they are in ascending representative order, which is
-/// ascending size order, so the size bound still ends a scan instead of
-/// filtering it.
 struct Index {
     postings: Vec<(u64, usize)>,
 }
@@ -559,9 +382,6 @@ impl Index {
     }
 }
 
-/// Pairs an exhaustive score links, and how many of them the nomination also
-/// reaches. This is the recall the bounded head costs, measured rather than
-/// argued: see `the_nomination_keeps_what_an_exhaustive_score_finds`.
 #[cfg(test)]
 pub(super) fn nomination_recall(functions: Vec<Function>) -> (usize, usize) {
     let mut by_digest = BTreeMap::<[u8; 32], Function>::new();
@@ -599,7 +419,6 @@ pub(super) fn nomination_recall(functions: Vec<Function>) -> (usize, usize) {
         }
     }
 
-    // The nomination the pass ships, not a second copy of it.
     let mut nomination = Nomination::of(&representatives);
     let mut partners = Vec::new();
     let mut kept = 0;
@@ -615,27 +434,13 @@ pub(super) fn nomination_recall(functions: Vec<Function>) -> (usize, usize) {
     (linked.len(), kept)
 }
 
-/// Members of one single-linkage component that complete linkage refines at
-/// once. A component is cut into runs of this many, in its sorted order, before
-/// it is refined: the refinement scores every pair of a run, so the cap is what
-/// keeps a workspace of a thousand near-identical functions from paying for a
-/// million pairs, and the order is what makes the cut the same on every run.
 const REFINED_MEMBERS: usize = 64;
 
-/// One family the refinement kept, with the lowest score of any of its pairs.
 struct Cluster {
     members: Vec<usize>,
     weakest: u16,
 }
 
-/// The families of one single-linkage component in which every pair meets the
-/// threshold.
-///
-/// Single linkage only proves that each member meets one other: a chain A-B-C
-/// joins A and C at 66 % when each meets B at 80 %. The finding claims every
-/// member is at least as alike as the score it publishes, so the component is
-/// refined until that claim holds for every pair, and the score published is
-/// the lowest of them.
 fn refine(representatives: &[Representative], component: &[usize]) -> Vec<Cluster> {
     component
         .chunks(REFINED_MEMBERS)
@@ -643,10 +448,6 @@ fn refine(representatives: &[Representative], component: &[usize]) -> Vec<Cluste
         .collect()
 }
 
-/// Agglomerative complete linkage over one run: the two clusters whose weakest
-/// cross pair is strongest merge, until no two clusters have every cross pair
-/// above the threshold. A tie goes to the lowest positions, so the same run
-/// always splits the same way.
 fn complete_linkage(representatives: &[Representative], run: &[usize]) -> Vec<Cluster> {
     let shingles: Vec<&[u64]> = run
         .iter()
@@ -656,9 +457,6 @@ fn complete_linkage(representatives: &[Representative], run: &[usize]) -> Vec<Cl
                 .map_or(&[][..], |representative| representative.shingles.as_slice())
         })
         .collect();
-    // The link of two clusters is their weakest cross pair. It starts as the
-    // pair score and, on a merge, becomes the weaker of the two links it
-    // replaces, which is what complete linkage means.
     let mut links: Vec<Vec<u16>> = shingles
         .iter()
         .map(|left| {
@@ -731,8 +529,6 @@ fn complete_linkage(representatives: &[Representative], run: &[usize]) -> Vec<Cl
         .collect()
 }
 
-/// Single-linkage grouping of the pairs that scored above the threshold: the
-/// components the refinement then splits into families.
 struct Components {
     parents: Vec<usize>,
 }
@@ -749,9 +545,6 @@ impl Components {
             if parent == index {
                 break;
             }
-            // The walk that finds a root also halves the path to it, so a long
-            // chain of near duplicates cannot turn the grouping into the
-            // quadratic the nomination exists to keep out.
             let grandparent = self.parents.get(parent).copied().unwrap_or(parent);
             if let Some(slot) = self.parents.get_mut(index) {
                 *slot = grandparent;

@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 2, invariants 5, 11 and 12:
-// a scan of this repository depends on nothing but its tracked tree. Two
-// clones in two places agree, ignored files change nothing, a scan writes
-// nothing into the repository, and a scan without a network agrees with one
-// that has it.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,7 +18,6 @@ import {
 const clone = await sharedClone();
 const target = clone.target("scan");
 
-// A Rust file under `dir`, which this repository's .gitignore excludes.
 function plantIgnored(root: string, dir: string): void {
   mkdirSync(join(root, dir), { recursive: true });
   writeFileSync(join(root, dir, "junk.rs"), "pub fn junk() -> u8 {\n    todo!()\n}\n");
@@ -42,9 +36,6 @@ describe("this repository: isolation", () => {
     expect(withoutTimings(moved)).toEqual(withoutTimings(reference));
   }, TEST_TIMEOUT_MS);
 
-  // The orphan walk lists the directories under a target's root without
-  // asking git, so a Rust file .gitignore excludes, here under the suite's
-  // own dependencies, is reported as a module nothing declares.
   test.failing("real/B4 an ignored Rust file beside the module tree changes nothing in the report (INV-05)", async () => {
     const reference = await fullScan();
     const elsewhere = await cloneThisRepository("ignored-rust");

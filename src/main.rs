@@ -159,11 +159,11 @@ enum CliCommand {
     Report(report_command::ReportArgs),
 }
 
-/// The skill an agent reads to drive the tool, written into the workspace.
-///
-/// It ships inside the binary, so this reaches no network and installs the
-/// skill of the running version rather than whatever the latest branch holds.
 #[derive(Debug, Clone, Args)]
+#[command(
+    about = "The skill an agent reads to drive the tool, written into the workspace",
+    long_about = "The skill an agent reads to drive the tool, written into the workspace.\n\nIt ships inside the binary, so this reaches no network and installs the skill of the running version rather than whatever the latest branch holds."
+)]
 struct SkillArgs {
     #[command(subcommand)]
     command: SkillCommand,
@@ -175,16 +175,19 @@ enum SkillCommand {
     Install {
         #[arg(default_value = ".", value_name = "PATH")]
         path: PathBuf,
-        /// The agent to install for: its project skill directory is
-        /// .claude/skills, .agents/skills or .cursor/skills.
-        #[arg(long, value_enum, default_value = "claude")]
+        #[arg(
+            long,
+            value_enum,
+            default_value = "claude",
+            help = "The agent to install for: its project skill directory is .claude/skills, .agents/skills or .cursor/skills"
+        )]
         agent: skill::AgentSelection,
-        /// Rewrite an installed copy of this skill with the one this binary
-        /// ships.
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Rewrite an installed copy of this skill with the one this binary ships"
+        )]
         update: bool,
-        /// Print what would be written, and write nothing.
-        #[arg(long)]
+        #[arg(long, help = "Print what would be written, and write nothing")]
         dry_run: bool,
     },
 }
@@ -213,53 +216,51 @@ struct InspectArgs {
     category: Vec<CategoryOverride>,
     #[arg(long, value_enum)]
     blocking: Option<BlockingLevel>,
-    /// What to judge: the whole workspace, the files or the lines changed
-    /// since a base, those lines plus the functions holding them for a rule
-    /// whose cause can sit above its site (contextual), or what the change
-    /// introduced against a scan of the base.
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "What to judge: the whole workspace, the files or the lines changed since a base, those lines plus the functions holding them for a rule whose cause can sit above its site (contextual), or what the change introduced against a scan of the base"
+    )]
     scope: Option<ScopeArgument>,
-    /// The ref a files, lines or baseline scope compares against: a branch,
-    /// tag or remote-tracking name (`main`, `origin/main`, `v1.2.0`) or a full
-    /// commit id. A revision expression such as `HEAD~1` is refused; name a
-    /// relative commit with `--base "$(git rev-parse HEAD~1)"`. Without it,
-    /// the default branch the repository answers for (`origin/HEAD`, then
-    /// `origin/main`, `origin/master`, `main`, `master`), or `HEAD` when that
-    /// branch is checked out or the scan is `--staged`.
-    #[arg(long, value_name = "REF")]
+    #[arg(
+        long,
+        value_name = "REF",
+        help = "The ref a files, lines or baseline scope compares against: a branch, tag or remote-tracking name (`main`, `origin/main`, `v1.2.0`) or a full commit id. A revision expression such as `HEAD~1` is refused; name a relative commit with `--base \"$(git rev-parse HEAD~1)\"`. Without it, the default branch the repository answers for (`origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`), or `HEAD` when that branch is checked out or the scan is `--staged`"
+    )]
     base: Option<String>,
-    /// Judge the index rather than the working tree: what `git commit` would
-    /// record. Takes a files, lines or baseline scope.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Judge the index rather than the working tree: what `git commit` would record. Takes a files, lines or baseline scope"
+    )]
     staged: bool,
-    /// Add untracked files to a files or lines scope, as changed whole.
-    #[arg(long)]
+    #[arg(long, help = "Add untracked files to a files or lines scope, as changed whole")]
     include_untracked: bool,
-    /// Stop the scan after SECONDS of wall-clock time, killing every process
-    /// it started. Without it the scan has no deadline.
     #[arg(
         long,
         value_name = "SECONDS",
-        value_parser = clap::value_parser!(u64).range(1..=86_400)
+        value_parser = clap::value_parser!(u64).range(1..=86_400),
+        help = "Stop the scan after SECONDS of wall-clock time, killing every process it started. Without it the scan has no deadline"
     )]
     max_duration: Option<u64>,
-    /// Scan and score this workspace member only. Repeat it to select several.
-    #[arg(long, value_name = "NAME")]
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Scan and score this workspace member only. Repeat it to select several"
+    )]
     package: Vec<String>,
-    /// RustSec database to read, else the one cargo audit or cargo deny left;
-    /// never fetched. A path that does not exist is refused; /dev/null turns
-    /// the advisory check off.
-    #[arg(long, value_name = "PATH")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "RustSec database to read, else the one cargo audit or cargo deny left; never fetched. A path that does not exist is refused; /dev/null turns the advisory check off"
+    )]
     advisory_db: Option<PathBuf>,
-    /// Publish the milliseconds of each phase as `timings` in --json.
-    #[arg(long)]
+    #[arg(long, help = "Publish the milliseconds of each phase as `timings` in --json")]
     timings: bool,
-    /// Exit with CODE when the gate passed but a finding `--blocking warning`
-    /// would block; ignored under `--blocking none`.
     #[arg(
         long,
         value_name = "CODE",
-        value_parser = clap::value_parser!(u8).range(3..=125)
+        value_parser = clap::value_parser!(u8).range(3..=125),
+        help = "Exit with CODE when the gate passed but a finding `--blocking warning` would block; ignored under `--blocking none`"
     )]
     warning_exit_code: Option<u8>,
 }
@@ -319,14 +320,9 @@ impl InspectArgs {
     }
 }
 
-/// What a panic no pass contained prints, in place of its message: the
-/// message can quote the scanned tree, and the abort it would cause, exit
-/// 101, is no status the documentation names.
 const INTERNAL_ERROR: &str = "rust-doctor: internal error, please report it";
 
 fn main() -> ExitCode {
-    // Silent: the one line below says what happened, and a contained pass
-    // already says it at its stage.
     std::panic::set_hook(Box::new(|_| {}));
     std::panic::catch_unwind(run).unwrap_or_else(|_| {
         eprintln!("{INTERNAL_ERROR}");
@@ -377,15 +373,10 @@ fn run_skill(arguments: &SkillArgs) -> ExitCode {
     }
 }
 
-/// The scan's paths, checked before anything runs.
 fn resolve_inspect_paths(arguments: &mut InspectArgs) -> Result<(), ExitCode> {
-    // A mistyped database used to switch the advisory check off without a
-    // word. `/dev/null` reads as empty, and stays the way to turn it off.
     if let Some(database) = &arguments.advisory_db {
         path_argument::readable("--advisory-db", database).map_err(ExitCode::from)?;
     }
-    // Resolved before discovery and any git call. A PATH that does not exist
-    // still reaches discovery, whose failed report says so as JSON too.
     if let Ok(absolute) = std::path::absolute(&arguments.path) {
         arguments.path = absolute;
     }
@@ -401,14 +392,7 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
         Err((kind, message)) => return clap_error(kind, message),
     };
     let profile = TerminalProfile::detect(arguments.json, arguments.yes);
-    // The phases replace the static line this used to print. A JSON reader
-    // gets none of them, only where discovery found the workspace.
     let progress = ProgressLine::new(profile.rewrite_progress);
-    // The scope is what the invocation asked for, nothing else. A run that
-    // names no scope scans the whole workspace rather than opening a menu:
-    // narrowing to what changed is what `--scope files` and `--scope baseline`
-    // are for, and a question asked before the scan is a question asked before
-    // the reader has seen a single finding.
     let request = arguments
         .request(selection.as_ref())
         .with_progress(progress.sink(!arguments.json));
@@ -420,8 +404,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
     let (report, workspace_root, frames) = match session {
         Ok(session) => {
             let workspace_root = session.workspace_root().to_path_buf();
-            // A JSON report draws no frame, so the staged tree goes with the
-            // scan and a tree left behind fails the document itself.
             if arguments.json {
                 (session.inspect(), workspace_root, None)
             } else {
@@ -442,9 +424,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
         report.exit_code_with_warning(arguments.warning_exit_code)
     };
     let presentation = ReportPresentation::derive_terminal(&report);
-    // `--verbose` means print everything, so it keeps the linear report; a
-    // failed scan does too, because its errors are the only thing worth
-    // reading and the interactive report has no room to carry them.
     let interactive_report =
         profile.interactive && !arguments.verbose && report.status != Status::Failed;
     rust_doctor::inject_fault("render");
@@ -469,9 +448,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
             },
         )
     };
-    // An agent told its skill is missing or stale never follows instructions
-    // for flags this binary no longer has. Nothing is written, and a JSON
-    // reader's stderr stays clean.
     if !arguments.json
         && let Some(notice) = skill::running_agent(|name| env::var_os(name))
             .and_then(|agent| skill::stale_or_missing(&workspace_root, agent))
@@ -497,8 +473,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
             return closing_status(2);
         }
     }
-    // The staged tree the frames were drawn from goes once nothing draws from
-    // it, and a tree left behind fails the run.
     if let Some(Err(error)) = frames.map(rust_doctor::FrameSource::close) {
         bounded_stderr(&error);
         return ExitCode::from(2);
@@ -506,14 +480,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
     closing_status(scan_exit)
 }
 
-/// The status a run that got past its report ends with: `status`, unless a
-/// signal stopped it on the way.
-///
-/// A signal that lands while the interactive report blocks on a key ends that
-/// read, and the key reader hands it back as a Ctrl-C, so the report leaves as
-/// if its reader quit. The flag the handler set, not the way the report ended,
-/// says the run was stopped: the watcher thread exits with the same status, so
-/// whichever thread gets there first, the run ends with it.
 fn closing_status(status: u8) -> ExitCode {
     if rust_doctor::interrupted() {
         return ExitCode::from(rust_doctor::INTERRUPTED_EXIT_STATUS);
@@ -521,9 +487,6 @@ fn closing_status(status: u8) -> ExitCode {
     ExitCode::from(status)
 }
 
-/// The exit status of a run whose report could not be written. A closed
-/// pipe, or the terminal a SIGHUP took away, leaves the report nowhere to go:
-/// the status still says what ended the scan.
 fn unwritten_report(error: &rust_doctor::render::RenderError, scan_exit: u8) -> ExitCode {
     if error.is_broken_pipe() || rust_doctor::interrupted() {
         return ExitCode::from(scan_exit);
@@ -532,9 +495,6 @@ fn unwritten_report(error: &rust_doctor::render::RenderError, scan_exit: u8) -> 
     ExitCode::from(2)
 }
 
-/// Draws the interactive report and carries out whatever the reader chose on
-/// the way out. An agent is launched only once the loop has given the terminal
-/// back, so it inherits a screen nothing else is writing to.
 fn run_interactive_report(
     report: &InspectReport,
     presentation: &ReportPresentation,
@@ -563,7 +523,6 @@ fn run_interactive_report(
     if let Some(path) = &completed.installed_workflow {
         eprintln!("Added {}.", path.display());
     }
-    // A run a signal stopped carries out nothing its reader chose.
     if rust_doctor::interrupted() {
         return Ok(());
     }

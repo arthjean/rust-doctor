@@ -1,17 +1,3 @@
-//! A shell command string assembled from a runtime value.
-//!
-//! `Command::new("sh").arg("-c").arg(script)` hands `script` to a shell, which
-//! parses it: a value interpolated into it can end the command and start
-//! another. The same holds for `cmd /C`, `powershell -Command` and the shell
-//! named by its path, and for the argv written as one `.args([..])` array. A
-//! program name assembled from a runtime value is the other way in, since it
-//! chooses what runs. A dynamic argument of a fixed program that is not a shell
-//! is one argv element, which nothing parses as a command, and stays silent.
-//!
-//! The rule carries no test-code exemption on purpose, because an interpolated
-//! shell command is a finding wherever it is written, and a test harness is a
-//! place it runs.
-
 use ra_ap_syntax::ast::{self, HasArgList};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -39,10 +25,6 @@ static COMMAND: Item = Item {
     segments: &["process", "Command"],
 };
 
-/// Programs that parse their command argument as a script, by lowercase file
-/// name, so `/bin/sh` and `C:\Windows\System32\CMD.EXE` name one, each with
-/// the flags after which it reads the next argument as that script. A flag
-/// another shell family uses is not one: `cmd` takes `/C`, never `-c`.
 const SHELLS: [(&str, &[&str]); 10] = [
     ("bash", POSIX_FLAGS),
     ("cmd", CMD_FLAGS),
@@ -58,8 +40,6 @@ const SHELLS: [(&str, &[&str]); 10] = [
 
 const POSIX_FLAGS: &[&str] = &["-c"];
 const CMD_FLAGS: &[&str] = &["/C", "/c"];
-/// PowerShell accepts any unambiguous prefix of a parameter name, and `-c` is
-/// the one its own help documents for `-Command`.
 const POWERSHELL_FLAGS: &[&str] = &["-Command", "-c"];
 
 #[cfg(test)]
@@ -149,13 +129,9 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
     ],
 };
 
-/// `.arg(x)` or `.args([.., x, ..])` where `x` is dynamic text that follows a
-/// script flag on a command whose program is a shell.
 fn dynamic_shell(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     let call = ast::MethodCallExpr::cast(node.clone())?;
     let own = arguments(&call)?;
-    // The arguments first: a call adding no dynamic text never pays for
-    // reading the chain behind it.
     if !own.iter().any(|element| dynamic_text(context, element)) {
         return None;
     }
@@ -177,11 +153,8 @@ fn dynamic_shell(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> 
     })
 }
 
-/// `Command::new(x)` where `x` is dynamic text: the program itself.
 fn tainted_program(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     let call = ast::CallExpr::cast(node.clone())?;
-    // The name, then the argument: most calls are not a constructor taking
-    // one assembled string, and those never pay for resolving their path.
     let ast::Expr::PathExpr(callee) = call.expr()? else {
         return None;
     };
@@ -201,8 +174,6 @@ fn tainted_program(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection
     })
 }
 
-/// The argv elements one `.arg(..)` or `.args([..])` call adds, in order.
-/// An `args` of anything but an array literal cannot be read.
 fn arguments(call: &ast::MethodCallExpr) -> Option<Vec<ast::Expr>> {
     let list = call.arg_list()?;
     match call.name_ref()?.text().as_str() {
@@ -215,11 +186,6 @@ fn arguments(call: &ast::MethodCallExpr) -> Option<Vec<ast::Expr>> {
     }
 }
 
-/// The script flags of the shell a command chain starts from,
-/// `Command::new(<shell>)`, and the argv the chain holds up to `receiver`,
-/// read through the bindings it was stored in. Methods that add no argument,
-/// `env` or `current_dir`, are passed over; an `args` that cannot be read, or a
-/// program that is not a shell, is `None`.
 fn argv(context: &Context<'_>, receiver: ast::Expr) -> Option<(&'static [&'static str], Vec<ast::Expr>)> {
     let mut calls = Vec::new();
     let mut expression = receiver;

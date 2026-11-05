@@ -1,8 +1,3 @@
-// CF-01 to CF-44 of `tasks/e2e-catalog/subcommands.md` section 11:
-// `rust-doctor.toml`. Every row scans its own copy of the catalog's `cfg`
-// workspace (a `todo!()` in `src/lib.rs`, `src/generated/mod.rs` and
-// `src/quiet/mod.rs`, and `x > u8::MAX` in `src/quiet/mod.rs`) and reads the
-// policy, the gate and the diagnostics from `--json`.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -48,7 +43,6 @@ function cfg(config?: string | Uint8Array): string {
   return dir;
 }
 
-// A scan that must leave the workspace as it found it.
 async function scan(workspace: string, flags: string[] = [], json = true): Promise<DoctorRun & { report: Report }> {
   const before = treeFingerprint(workspace);
   const run = await runDoctor([workspace, "--yes", ...(json ? ["--json"] : []), ...flags]);
@@ -58,7 +52,6 @@ async function scan(workspace: string, flags: string[] = [], json = true): Promi
 
 const rule = (report: Report, id: string) => report.policy?.rules.find((entry) => entry.id === id);
 
-// `code@path:line=severity` of every diagnostic, sorted.
 const sites = (report: Report) =>
   report.diagnostics.map((d) => `${d.code.replace("clippy::", "")}@${d.path}:${d.span.line_start}=${d.severity}`).sort();
 
@@ -76,7 +69,6 @@ type Applied = {
   config?: string;
   flags?: string[];
   exit: number;
-  // A line the terminal report of the same scan prints.
   terminal?: string;
   check: (report: Report) => void;
 };
@@ -242,16 +234,13 @@ const applied: Array<[string, string, Applied]> = [
 ];
 
 type Failure = {
-  // One file per case; every one fails the same way.
   configs: Array<string | Uint8Array>;
   flags?: string[];
   stage: "configuration" | "policy";
   code: string;
-  // The message of each case, in order, when the row pins it.
   messages?: string[];
 };
 
-// 65 536 bytes, the documented ceiling, holding a blocking key.
 function sized(bytes: number): string {
   const head = 'blocking = "warning"\n';
   return head + "#".repeat(bytes - head.length - 1) + "\n";
@@ -474,8 +463,6 @@ describe("rust-doctor.toml", () => {
     expect(unreadable.report.errors[0]!.message).toBe("Could not read rust-doctor.toml.");
   });
 
-  // The acceptance criterion of US-026: oversized, invalid and non-UTF-8 files
-  // exit 2 and name the file, in the JSON report and in the terminal one.
   const broken: Array<[string, string | Uint8Array, string, string]> = [
     ["invalid", "blockng = 1\n", "config-invalid", "Invalid rust-doctor.toml at line 1, column 1."],
     ["oversized", sized(65_537), "config-too-large", "rust-doctor.toml exceeds 65536 bytes."],
@@ -490,7 +477,6 @@ describe("rust-doctor.toml", () => {
       expect(run.report.diagnostics).toEqual([]);
       const text = await scan(workspace, [], false);
       expect(text.exitCode).toBe(2);
-      // The terminal report wraps at 80 columns, so the line break moves.
       expect(text.stdout.replace(/\s+/g, " ")).toContain(`Scan failed: ${message} (configuration/${code})`);
     }
   });

@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.7: Enter in the viewer copies one
-// rule. The payload is read from what the fake clipboard received on stdin,
-// never from the wrapped pane, and no test reaches the machine's clipboard.
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +11,6 @@ const COPIED = "✓ Copied issue context";
 const COPY_FAILED_SPLIT = "Couldn't copy issue context. Press Enter to try again.";
 const COPY_FAILED_COMPACT = "Copy failed";
 
-// The viewer of `workspace` under `env`, at its first issue.
 async function viewer(workspace: string, box: Sandbox, options: { width: number; height: number; env?: Record<string, string>; target?: string }): Promise<TmuxSession> {
   const session = openReport(workspace, {
     width: options.width,
@@ -36,8 +32,6 @@ async function todoViewer(label: string, width: number, height: number, env: Rec
 
 let clone: SelfClone | undefined;
 
-// The clone of this repository, warmed once for the file. Its report is
-// asserted by shape only: never its score, its counts or a rule it carries.
 async function repo(): Promise<SelfClone> {
   if (!clone) {
     clone = await cloneThisRepository("clipboard");
@@ -85,7 +79,6 @@ describe.skipIf(!requireTmux())("interactive report clipboard", () => {
         session.sendKeys("Enter");
         const pane = await session.waitForPane(COPIED);
         const row = pane.split("\n").find((line) => line.includes("issue 1/1")) ?? "";
-        // At 80 columns the hints after the feedback are cut, never the feedback.
         expect(row).toContain(width === 80 ? `·  ${COPIED}` : `${COPIED} · esc back · q to quit`);
         expect(fakeCalls(box, "wl-copy")).toHaveLength(1);
       } finally {
@@ -149,7 +142,6 @@ describe.skipIf(!requireTmux())("interactive report clipboard", () => {
       const elapsed = Date.now() - started;
       expect(elapsed).toBeGreaterThanOrEqual(1_900);
       expect(elapsed).toBeLessThan(4_500);
-      // The fake records its call before it hangs; its shell is gone.
       expect(fakeCalls(box, "wl-copy")).toHaveLength(1);
       expect(processesMentioning("profiles/custom-wl-copy/wl-copy")).toEqual([]);
     } finally {

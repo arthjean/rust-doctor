@@ -1,12 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! EP-003: the settings under which the code is compiled are part of the scan.
-//!
-//! Three rules read what no other pass reads: a release profile compiled
-//! without overflow checks, a release profile shipping full debug info
-//! unstripped, and a `.cargo/config.toml` whose rustflags switch a check off
-//! for every build. Each test here scans a fixture through the same `inspect`
-//! a user runs, and is the pointer its rule's `tests/rule_evidence.json` entry
-//! names.
 
 use std::path::{Path, PathBuf};
 
@@ -38,9 +30,6 @@ fn diagnostics_of<'a>(report: &'a Value, code: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// US-009: a binary workspace whose `[profile.release]` does not enable
-/// overflow checks is reported once, at the section that omits the setting,
-/// and the help names the measured cost so the reader can decline the advice.
 #[test]
 fn an_unchecked_release_profile_is_reported_for_a_binary_workspace() {
     let report = report("unchecked");
@@ -48,7 +37,6 @@ fn an_unchecked_release_profile_is_reported_for_a_binary_workspace() {
     assert_eq!(observed.len(), 1, "{report}");
     let finding = observed[0];
     assert_eq!(finding["path"], "Cargo.toml");
-    // The fixture writes `[profile.release]` on line 7 of its manifest.
     assert_eq!(finding["span"]["line_start"], 7, "{finding}");
     assert!(
         finding["help"]
@@ -59,10 +47,6 @@ fn an_unchecked_release_profile_is_reported_for_a_binary_workspace() {
     assert!(diagnostics_of(&report, DEBUG_SYMBOLS).is_empty());
 }
 
-/// US-009: `overflow-checks = true` silences the overflow rule, `strip`
-/// silences the debug rule even with `debug = true`, a profile inheriting
-/// from release is not judged, and benign rustflags are not this family's
-/// subject.
 #[test]
 fn a_hardened_release_profile_and_benign_rustflags_stay_silent() {
     let report = report("checked");
@@ -74,10 +58,6 @@ fn a_hardened_release_profile_and_benign_rustflags_stay_silent() {
     }
 }
 
-/// US-009: with no `[profile.release]` at all, the overflow rule still fires,
-/// because Cargo's release default is `overflow-checks = false`, and the
-/// debug rule does not, because Cargo's release default ships no debug info.
-/// The finding carries no span: no manifest line is the defect.
 #[test]
 fn a_missing_release_section_reports_overflow_and_nothing_else() {
     let report = report("default-profile");
@@ -88,11 +68,6 @@ fn a_missing_release_section_reports_overflow_and_nothing_else() {
     assert!(diagnostics_of(&report, DEBUG_SYMBOLS).is_empty());
 }
 
-/// US-008 and US-009: a virtual workspace manifest with no `[package]` is
-/// still the manifest the profiles are read from. Its `debug = true` with no
-/// `strip` ships symbols, and its binary member makes the overflow rule fire;
-/// both findings name the root manifest, and the debug finding points at the
-/// line that carries the setting.
 #[test]
 fn a_virtual_workspace_manifest_carries_both_profile_findings() {
     let report = report("virtual");
@@ -104,7 +79,6 @@ fn a_virtual_workspace_manifest_carries_both_profile_findings() {
     assert_eq!(symbols.len(), 1, "{report}");
     let finding = symbols[0];
     assert_eq!(finding["path"], "Cargo.toml");
-    // The fixture writes `debug = true` on line 6 of the root manifest.
     assert_eq!(finding["span"]["line_start"], 6, "{finding}");
     assert!(
         finding["message"]
@@ -113,9 +87,6 @@ fn a_virtual_workspace_manifest_carries_both_profile_findings() {
         "the finding does not state what ships in the binary: {finding}"
     );
 
-    // The fixture has one member, so the root manifest answers for it: both
-    // findings name that member, and its score is the workspace's. With two
-    // members or more they would name none and weigh as the members' mean.
     let packages = report["audit"]["packages"].as_array().unwrap();
     assert_eq!(packages.len(), 1, "{report}");
     let member = &packages[0]["name"];
@@ -127,15 +98,9 @@ fn a_virtual_workspace_manifest_carries_both_profile_findings() {
     );
 }
 
-/// US-010: each flag of the closed list is reported under its canonical
-/// spelling, wherever it was written: the separated and joined forms in
-/// `[build]`, and the joined string spelling under a `[target.*]` table. The
-/// findings name the configuration file, never the workspace path.
 #[test]
 fn neutralizing_rustflags_are_reported_in_both_spellings() {
     let report = report("rustflags");
-    // The fixture ships no binary target: the overflow rule judges only a
-    // workspace that produces one (US-009).
     assert!(diagnostics_of(&report, OVERFLOW).is_empty(), "{report}");
     let observed = diagnostics_of(&report, RUSTFLAGS);
     assert_eq!(observed.len(), 3, "{report}");
@@ -160,8 +125,6 @@ fn neutralizing_rustflags_are_reported_in_both_spellings() {
     }
 }
 
-/// FR-15: all three rules stay switchable off through the same override
-/// surface as every other rule.
 #[test]
 fn the_three_rules_are_switchable_off() {
     for (name, codes) in [

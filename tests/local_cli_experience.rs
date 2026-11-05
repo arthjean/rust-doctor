@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::string_slice))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::string_slice, clippy::undocumented_unsafe_blocks))]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -45,7 +45,6 @@ fn terminal(arguments: &[&str], path: &Path) -> String {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The first phase line replaced the static `Scanning Rust files...`.
     assert!(String::from_utf8_lossy(&output.stderr).contains("Compiling dependencies..."));
     String::from_utf8(output.stdout).expect("terminal output should be UTF-8")
 }
@@ -84,9 +83,6 @@ fn json_is_one_clean_v8_document_and_invalid_scope_stops_before_scan() {
     assert_eq!(report["schema_version"], 24);
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Scanning Rust files"));
 
-    // A changed scope needs no `--base` since the repository answers for its
-    // default branch; judging the index of the whole codebase is still no
-    // scope at all.
     let rejected = binary()
         .args(["--scope", "full", "--staged"])
         .arg("/path/that/must/not/be-inspected")
@@ -127,7 +123,6 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
 
     let verbose = terminal(&["--verbose", "--yes"], &kernel("dbg-macro"));
     assert_eq!(verbose.matches("src/lib.rs:").count(), 3);
-    // One help line per rule, whatever the number of sites under it.
     assert_eq!(verbose.matches("Help: Remove dbg!").count(), 1);
     assert!(!verbose.contains("Run with --verbose"));
 
@@ -137,7 +132,6 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     assert!(clean.contains("100 / 100 Great"));
     assert!(!clean.contains("Hand off to an agent"));
 
-    // EP-002 US-009: the one member did not compile, so no number is shown.
     let partial = run(&["--yes"], &project("compile-error"));
     assert_eq!(partial.status.code(), Some(1));
     let partial = String::from_utf8(partial.stdout).unwrap();
@@ -206,8 +200,6 @@ mod tty {
 
     static TEMPORARY: AtomicUsize = AtomicUsize::new(0);
 
-    /// The variables `src/terminal_profile.rs` reads as "nobody can drive a
-    /// menu here".
     const NON_INTERACTIVE_MARKERS: [&str; 26] = [
         "CLAUDECODE",
         "CODEX_SANDBOX",
@@ -252,7 +244,6 @@ mod tty {
             Self::spawn_with_stderr(&mut command, false, None)
         }
 
-        /// Spawns with one variable set after the harness cleared the rest.
         fn spawn_with_variable(mut command: Command, variable: (&str, &str)) -> Self {
             Self::spawn_with_stderr(&mut command, true, Some(variable))
         }
@@ -264,10 +255,6 @@ mod tty {
         ) -> Self {
             let mut master = 0;
             let mut slave = 0;
-            // SAFETY: openpty initializes both descriptors, which are immediately owned by File.
-            // The trailing termios and winsize arguments are `*const` on glibc and `*mut` on the
-            // BSD platforms Apple derives from, so they are spelled `*mut` here: Rust weakens a
-            // `*mut` to a `*const` on its own, and the reverse would not compile on macOS.
             let result = unsafe {
                 libc::openpty(
                     &mut master,
@@ -278,13 +265,10 @@ mod tty {
                 )
             };
             assert_eq!(result, 0, "{}", io::Error::last_os_error());
-            // SAFETY: openpty returned unique owned descriptors on success.
             let terminal = unsafe { File::from_raw_fd(master) };
-            // SAFETY: openpty returned unique owned descriptors on success.
             let slave = unsafe { File::from_raw_fd(slave) };
             let flags = unsafe { libc::fcntl(terminal.as_raw_fd(), libc::F_GETFL) };
             assert!(flags >= 0, "{}", io::Error::last_os_error());
-            // SAFETY: terminal is a valid open descriptor and F_SETFL only updates its flags.
             let result = unsafe {
                 libc::fcntl(
                     terminal.as_raw_fd(),
@@ -308,23 +292,17 @@ mod tty {
                 .env("COLUMNS", "100")
                 .env_remove("CI")
                 .env_remove("NO_COLOR");
-            // The markers that keep the interactive report closed are what the
-            // harness itself runs under, in an agent's shell or on a CI runner.
             for marker in NON_INTERACTIVE_MARKERS {
                 command.env_remove(marker);
             }
             if let Some((name, value)) = variable {
                 command.env(name, value);
             }
-            // SAFETY: the closure only invokes async-signal-safe libc calls before exec.
             unsafe {
                 command.pre_exec(move || {
                     if libc::setsid() < 0 {
                         return Err(io::Error::last_os_error());
                     }
-                    // TIOCSCTTY is a `c_ulong` on glibc and a `c_uint` on Apple, while `ioctl`
-                    // takes a `c_ulong` on both. The inferred cast is what keeps one spelling
-                    // compiling on either platform.
                     if libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
                         return Err(io::Error::last_os_error());
                     }
@@ -360,10 +338,6 @@ mod tty {
             }
         }
 
-        /// Waits without leaving the output unread. On macOS, the key reader's
-        /// `tcsetattr(TCSADRAIN)` blocks until the master has read every byte
-        /// the report wrote, so a bare sleep holds the report out of its read
-        /// and the next key lands in the same read as the one before it.
         fn settle(&mut self, duration: Duration) {
             let deadline = Instant::now() + duration;
             while Instant::now() < deadline {
@@ -478,16 +452,12 @@ mod tty {
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
-    /// A terminal run opens the interactive report rather than the linear one,
-    /// and leaves on `q` with the scan's own exit code.
     #[test]
     fn a_terminal_run_opens_the_interactive_report_on_its_score_and_its_menu() {
         let mut command = binary();
         command.arg(kernel("todo")).args(["--scope", "full"]);
         let mut process = PtyProcess::spawn(command);
         process.wait_for("Hand off to an agent");
-        // Every marker has to survive the styling: a span boundary splits the
-        // stream, so only text one span carries whole can be matched here.
         let frame = String::from_utf8_lossy(&process.output).into_owned();
         for marker in [
             "┌─────┐",
@@ -507,43 +477,29 @@ mod tty {
         );
     }
 
-    /// EP-002 US-010: a signal that ends the process while the interactive
-    /// report waits on a key, the terminal raw for the read, gives the
-    /// terminal back: its mode restored and the cursor shown again.
     #[test]
     fn a_signal_during_the_interactive_report_gives_the_terminal_back() {
         let mut command = binary();
         command.arg(kernel("todo")).args(["--scope", "full"]);
         let mut process = PtyProcess::spawn(command);
         process.wait_for("Hand off to an agent");
-        // The key reader turns the terminal raw for each read it starts.
         process.settle(Duration::from_millis(200));
-        // SAFETY: an all-zero `termios` is a valid value for `tcgetattr` to
-        // fill, and the descriptor is the PTY master this test owns.
         let mut mode: libc::termios = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::tcgetattr(process.terminal.as_raw_fd(), &raw mut mode) }, 0);
         assert_eq!(mode.c_lflag & libc::ICANON, 0, "the report is not reading a key");
         let pid = i32::try_from(process.child.id()).unwrap();
-        // SAFETY: `kill` takes plain integers and the pid is this test's child.
         assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
         let terminal = process.terminal.try_clone().unwrap();
         let (status, output) = process.wait();
         assert_eq!(status.code(), Some(130), "{output}");
         let hidden = output.rfind("\u{1b}[?25l").expect("the report hid the cursor");
         assert!(output[hidden..].contains("\u{1b}[?25h"), "the cursor stayed hidden");
-        // SAFETY: as above, on a clone of the same master.
         let mut mode: libc::termios = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::tcgetattr(terminal.as_raw_fd(), &raw mut mode) }, 0);
         assert_ne!(mode.c_lflag & libc::ICANON, 0, "the terminal was left raw");
         assert_ne!(mode.c_lflag & libc::ECHO, 0, "the terminal was left without echo");
     }
 
-    /// A signal that lands while the report blocks on a key ends that read, and
-    /// the key reader hands the interrupted read back as a Ctrl-C, so the
-    /// report leaves as if its reader quit. The run still ends with 130. The
-    /// watcher thread that exits with 130 is held back here, so the main thread
-    /// reaches its own exit first: the race macOS runners lost about one run in
-    /// six, and the main thread used to answer it with the scan's exit code.
     #[test]
     fn a_signal_the_main_thread_outruns_still_ends_the_run_with_130() {
         let mut command = binary();
@@ -555,7 +511,6 @@ mod tty {
         process.wait_for("Hand off to an agent");
         process.settle(Duration::from_millis(200));
         let pid = i32::try_from(process.child.id()).unwrap();
-        // SAFETY: `kill` takes plain integers and the pid is this test's child.
         assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
         let signaled = Instant::now();
         let (status, output) = process.wait();
@@ -566,8 +521,6 @@ mod tty {
         assert_eq!(status.code(), Some(130), "{output}");
     }
 
-    /// The review is one `esc` deep: leaving it comes back to the landing with
-    /// the menu moved on to what to do next, rather than quitting.
     #[test]
     fn reviewing_the_issues_shows_a_detail_and_esc_returns_to_the_next_action() {
         let mut command = binary();
@@ -581,8 +534,6 @@ mod tty {
             assert!(frame.contains(marker), "{marker} missing from\n{frame}");
         }
         process.send(b"\x1b");
-        // A lone Esc is only an Esc once nothing follows it inside the window
-        // the key reader gives an escape sequence, so the next key waits.
         process.settle(Duration::from_millis(250));
         process.send(b"\r");
         process.wait_for("Choose how to continue");
@@ -591,8 +542,6 @@ mod tty {
         assert_eq!(status.code(), Some(0), "{output}");
     }
 
-    /// `--verbose` means print everything, so it keeps the linear report even
-    /// on a terminal and never opens a menu.
     #[test]
     fn verbose_keeps_the_linear_report_on_a_terminal() {
         let mut command = binary();
@@ -608,8 +557,6 @@ mod tty {
         assert!(!output.contains("↑/↓ move"), "{output}");
     }
 
-    /// `--yes` is a script's run: under a PTY it prints the final report once,
-    /// with no count-up frame and no line rewritten above it.
     #[test]
     fn yes_under_a_terminal_prints_no_animation_frames() {
         let mut command = binary();
@@ -628,8 +575,6 @@ mod tty {
         assert!(!cursor_up, "a --yes run moved the cursor up: {output:?}");
     }
 
-    /// no-color.org turns color off only for a non-empty `NO_COLOR`: an empty
-    /// one leaves the report colored, and `0` uncolors it like any value.
     #[test]
     fn an_empty_no_color_keeps_color_and_any_value_removes_it() {
         let colored = |output: &str| {
@@ -651,9 +596,6 @@ mod tty {
         }
     }
 
-    /// An agent may hold a PTY, so two terminals are not a reader who can
-    /// drive a menu: under `CLAUDECODE=1` the same run prints the linear report
-    /// and exits on its own, where the run above waits for `q`.
     #[test]
     fn an_agent_marker_keeps_the_linear_report_on_a_terminal() {
         for variable in [("CLAUDECODE", "1"), ("GITHUB_ACTIONS", "true"), ("CI", "yes")] {
@@ -666,9 +608,6 @@ mod tty {
         }
     }
 
-    /// Walks the interactive report from its landing to the agent it hands
-    /// off to. `selection` is what the agent screen itself receives, so a
-    /// caller only has to say which agent it wants.
     fn assert_handoff_contract(
         command: Command,
         selection: &[u8],
@@ -678,8 +617,6 @@ mod tty {
         let mut process = PtyProcess::spawn(command);
         process.wait_for("Hand off to an agent");
         assert!(!String::from_utf8_lossy(&process.output).contains("Choose what to scan"));
-        // The landing opens on the review; the handoff is the entry under it,
-        // and this workspace carries no `.git`, so no CI entry sits between.
         process.send(b"\x1b[B\r");
         process.wait_for("Choose how to continue");
         process.send(selection);
@@ -689,8 +626,6 @@ mod tty {
         let payload = fs::read(capture.join("payload")).unwrap();
         assert!(payload.len() <= 12 * 1024);
         assert!(String::from_utf8_lossy(&payload).contains("Validate with:"));
-        // The fixture carries no `.agents/skills`, so the prompt opens on the
-        // line that installs it.
         assert!(
             String::from_utf8_lossy(&payload)
                 .starts_with("The rust-doctor skill is not installed for this agent: run `rust-doctor skill install --agent codex` first.\n"),
@@ -704,9 +639,6 @@ mod tty {
         );
     }
 
-    /// Nothing is asked before the scan. A workspace with uncommitted Rust
-    /// files used to open a scope menu; the run now goes straight to the full
-    /// codebase, and narrowing to what changed is what `--scope` is for.
     #[test]
     fn a_workspace_with_uncommitted_changes_scans_the_full_codebase_without_asking() {
         let root = changed_project();
@@ -725,8 +657,6 @@ mod tty {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Every key that leaves the report leaves it, whatever the terminal did
-    /// with Ctrl-C. The scan already ran, so the exit code is the scan's.
     #[test]
     fn q_escape_and_ctrl_c_all_leave_the_report_with_the_scan_exit_code() {
         for (name, input) in [
@@ -740,12 +670,6 @@ mod tty {
             process.wait_for("↑/↓ move · enter select · q quit");
             process.send(input);
             let (status, output) = process.wait();
-            // Ctrl-C reaches the report as the byte 0x03 once the CLI has put
-            // the terminal in raw mode, and as a SIGINT from the line
-            // discipline before that, which ends the run with 130 like any
-            // signal during the report. Which one happens is a race between
-            // this write and the child's tcsetattr, and macOS loses it where
-            // Linux wins. Either way the report is gone and nothing else ran.
             let accepted: &[i32] = if name == "ctrl-c" { &[0, 130] } else { &[0] };
             assert!(
                 status.code().is_some_and(|code| accepted.contains(&code)),
@@ -755,8 +679,6 @@ mod tty {
         }
     }
 
-    /// The report belongs to stdin and stdout. A run whose stderr goes
-    /// somewhere else still draws it and still reads its keys.
     #[test]
     fn the_report_uses_stdin_and_stdout_when_stderr_is_redirected() {
         let mut command = binary();
@@ -769,9 +691,6 @@ mod tty {
         assert!(output.contains("┌─────┐"), "{output}");
     }
 
-    /// A `PATH` that holds the toolchain and git and nothing else: no agent
-    /// and no clipboard command, as over SSH. Each tool is linked under its
-    /// own name, which is what a rustup proxy dispatches on.
     fn toolchain_only_path(root: &Path) -> std::ffi::OsString {
         let bin = root.join("bin");
         fs::create_dir_all(&bin).unwrap();
@@ -787,8 +706,6 @@ mod tty {
         bin.into_os_string()
     }
 
-    /// Copying the prompt with no clipboard command prints it between two
-    /// rulers on stdout, and the process keeps the scan's exit code.
     #[test]
     fn a_prompt_no_clipboard_takes_is_printed_and_the_scan_exit_code_holds() {
         let root = temporary_root("no-clipboard");
@@ -813,7 +730,6 @@ mod tty {
         let printed = output.split(PROMPT_RULER).nth(1).unwrap_or_default();
         assert!(printed.contains("Validate with: rust-doctor"), "{output}");
 
-        // An agent found on `PATH` that cannot start prints the same prompt.
         let agents = root.join("agents");
         fs::create_dir_all(&agents).unwrap();
         fs::write(agents.join("codex"), "#!/nonexistent/interpreter\n").unwrap();

@@ -15,7 +15,7 @@ text a scan produced, and the tests sit in `report/tests.rs` and
 
 Any change to that shape bumps `SCHEMA_VERSION`, and the frozen v7 archive keeps
 projecting from it. `project_current_wire_to_v7` in `tests/support/mod.rs` is
-that projection, and its doc comment is the ledger of what each version added:
+that projection, and this paragraph is the ledger of what each version added:
 v8 the `audit` block, v9 the `tier` of every policy rule and the two named
 quantities of `summary`, v10 a diagnostic's `context`, v11 its `related`
 locations, v12 `similarity_basis_points`, v13 `complexity`, v14
@@ -169,9 +169,8 @@ applied through a `Box<dyn Iterator>` allocated to choose between `iter()` and
 One row, built from its pieces. A `Row` carries the segments it paints
 differently, so the score line is never formatted and split back apart on
 `/ 100` to find its denominator, nor the branding on `" ("` to find its URL. A
-cut now lands inside one piece and leaves the pieces before it whole, which is
-what the comment on that code already claimed and what the string round-trip
-could not do.
+cut now lands inside one piece and leaves the pieces before it whole, which the
+string round-trip could not do.
 
 A failed scan is two sections, not twelve. `render_failure` is the scope the
 scan was attempted under and the stage that failed, and nothing else, because

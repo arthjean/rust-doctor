@@ -1,4 +1,4 @@
-//! The surface of actix-cors the fixture calls, with none of its behavior.
+
 
 pub struct Cors;
 

@@ -64,10 +64,6 @@ fn write(path: impl AsRef<Path>, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
-/// Whether the filesystem the fixtures are built on tells `x` from `X`.
-///
-/// Probed rather than inferred from the target: a case-sensitive volume on
-/// macOS and a case-insensitive one on Linux are both things people have.
 fn filesystem_distinguishes_case() -> bool {
     let root = support::temporary_target("git-scope-case-probe", &NEXT_REPOSITORY);
     let _ = fs::remove_dir_all(&root);
@@ -109,9 +105,6 @@ fn repository() -> OracleRepository {
     successful_git(&root, &["init", "--quiet"]);
     successful_git(&root, &["config", "user.name", AUTHOR_NAME]);
     successful_git(&root, &["config", "user.email", AUTHOR_EMAIL]);
-    // The oracle pins commit hashes, so a commit object has to be exactly what
-    // its inputs say. A machine that signs commits by default writes the
-    // signature into the object and moves every hash below.
     successful_git(&root, &["config", "commit.gpgsign", "false"]);
     successful_git(&root, &["add", "."]);
     let base_commit = commit(&root, "base", "2000-01-01T00:00:00Z");
@@ -286,14 +279,6 @@ fn commit_tree(root: &Path, tree: &str, parents: &[&str], message: &str, day: u8
 
 #[test]
 fn git_2_55_oracle_covers_the_twenty_four_normative_cases() {
-    // The fixture names its default branch `head`, which is the point: a
-    // selector that reads like `HEAD` but is a branch is exactly the case the
-    // scope resolver has to get right. That repository cannot exist on a
-    // case-insensitive filesystem, where git resolves `head` to both
-    // `refs/heads/head` and `$GIT_DIR/HEAD` and refuses the ambiguity outright.
-    // macOS formats APFS case-insensitively by default, so the oracle is
-    // unreachable there. It says so and stops, rather than renaming the branch
-    // and pinning twenty-four cases that no longer include the interesting one.
     if !filesystem_distinguishes_case() {
         eprintln!(
             "skipped: this filesystem does not distinguish case, so a branch named `head` is ambiguous to git"
@@ -312,9 +297,6 @@ fn git_2_55_oracle_covers_the_twenty_four_normative_cases() {
             .collect::<Vec<_>>(),
         (1..=24).collect::<Vec<_>>()
     );
-    // Provenance, not an expectation of the machine: see the same reasoning in
-    // tests/baseline_oracle.rs. The twenty-four cases below are what this
-    // oracle pins, and they do not move with a git patch release.
     let recorded_git = oracle["git_version"].as_str().unwrap();
     assert!(
         recorded_git.starts_with("git version "),

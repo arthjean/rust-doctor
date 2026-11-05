@@ -1,14 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! What a `--scope baseline` run calls introduced once the pairing reads the
-//! diff: a refactor inside a flagged line, a file moved with `git mv`, a
-//! duplicate inserted above an old finding, a diff too large to map, and a
-//! build script that prints.
-//!
-//! Every case is a real repository scanned twice by the binary, its base at
-//! `HEAD` and its working tree as the current side.
-
 mod support;
 
 use std::fs;
@@ -39,7 +31,6 @@ fn git(root: &Path, arguments: &[&str]) {
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
 }
 
-/// A one-package repository whose `HEAD` holds `files`.
 fn repository(files: &[(&str, &str)]) -> PathBuf {
     let root = support::fresh_workspace("delta-correspondence", &COUNTER);
     write(
@@ -63,7 +54,6 @@ fn write(root: &Path, path: &str, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
-/// The baseline report of the working tree against `HEAD`.
 fn compare(root: &Path, blocking: &str) -> Value {
     let output = support::rust_doctor()
         .arg(root)
@@ -91,7 +81,6 @@ fn summary(report: &Value) -> (u64, u64, u64, u64) {
     )
 }
 
-/// The introduced diagnostics, as `(rule, path, line)`.
 fn introduced(report: &Value) -> Vec<(String, String, u64)> {
     let ids = report["delta"]["introduced"].as_array().unwrap();
     report["diagnostics"]
@@ -127,8 +116,6 @@ fn a_variable_renamed_inside_a_flagged_line_introduces_and_fixes_nothing() {
 
 #[test]
 fn a_finding_carried_to_another_file_pairs_on_evidence_or_along_a_rename() {
-    // Fixed in one file and added, identical, in another: evidence follows
-    // the code across files, the blind spot the pairing accepts.
     let root = repository(&[
         ("src/lib.rs", "pub mod a;\npub mod b;\n"),
         ("src/a.rs", "pub fn a() -> u8 {\n    todo!()\n}\n"),
@@ -139,8 +126,6 @@ fn a_finding_carried_to_another_file_pairs_on_evidence_or_along_a_rename() {
     let report = compare(&root, "warning");
     assert_eq!(summary(&report), (0, 0, 1, 0), "{}", report["delta"]);
 
-    // Moved with `git mv` and edited inside the flagged span: no evidence
-    // matches, and the rename alone places the base finding in the new file.
     let root = repository(&[
         ("src/lib.rs", "pub mod a;\n"),
         ("src/a.rs", "pub fn a() -> u8 {\n    todo!(\"before\")\n}\n"),
@@ -194,9 +179,6 @@ fn a_diff_too_large_to_map_still_compares_and_says_so() {
     assert_eq!(report["audit"]["score"]["authoritative"], true, "{}", report["audit"]);
 }
 
-/// The PRD's example is a `println!`, but Clippy exempts build scripts from
-/// `print_stdout`; an `unwrap` is the same case, a finding of the channel
-/// Cargo imposes, marked `build-script` and weighing nothing.
 #[test]
 fn a_finding_added_to_a_build_script_is_introduced_and_does_not_block() {
     let root = repository(&[

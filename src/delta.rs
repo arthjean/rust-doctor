@@ -1,58 +1,3 @@
-//! Which findings a branch introduced, which it inherited, and which it fixed.
-//!
-//! A baseline comparison is a multiset pairing between two independent
-//! scans, and the only thing it may not do is guess. Two diagnostics are the
-//! same finding when the code under them is the same code, so the identity this
-//! module builds is evidence first: the normalized source excerpt the span
-//! covers, hashed with the rule and the message. What a report publishes is not
-//! enough on its own, since a line number moves on every edit above it and a
-//! message states counts that the next commit changes.
-//!
-//! Five rules hold it together.
-//!
-//! A candidate is a diagnostic, not a row beside one. `Candidate` borrows the
-//! `Diagnostic` it speaks for, so the pairing cannot drift out of step with
-//! the report it is computed from. The two index-parallel slices it replaced
-//! were passed to the matcher as four separate arguments, kept aligned by
-//! nothing but the reader's attention, and every one of the ten places that
-//! walked them indexed a slice a length mismatch would have panicked on, in a
-//! crate that denies `panic`.
-//!
-//! Every pass is named, and the pass says what a match on it means. The four
-//! passes used to be four calls carrying six anonymous closures, two of them
-//! identical word for word, and a trailing positional `bool` announcing that the
-//! match was a move. Nothing tied that flag to the key: the key of the last
-//! pass omits the path, and `cross_file` said so a second time, so the count
-//! the report publishes could disagree with the pairing that produced it.
-//! The count is now the length of what the moved pass returned.
-//!
-//! A bound is a budget on work, never a filter on meaning. `SOURCE_BYTES_BUDGET`
-//! bounds what one comparison may read, `PROOF_BYTES_BUDGET` what it may
-//! normalize, `SOURCE_FILE_BYTES_LIMIT` and `PROOF_BYTES_LIMIT` what one file
-//! and one excerpt may contribute, and none of them decides which finding is
-//! matchable: a diagnostic whose evidence is out of budget falls back to its
-//! message rather than disappearing. The two budgets used to share one constant
-//! named for neither.
-//!
-//! A pairing is decided by what the diff did, never by arrival order. Before
-//! any pass, `diff_map` maps every base path through Git's renames and every
-//! base line through the patch's hunks, and among candidates of one key the
-//! current finding nearest the mapped base line is paired. A duplicate
-//! inserted above an old finding is then the one reported introduced, where
-//! first-in, first-out used to report the old one. Once evidence has paired
-//! all it can, the findings left over in one (renamed path, rule) pair by
-//! count, which is what keeps an edit inside a flagged line, a renamed
-//! variable or a rewrapped call, from reading as a fix and an introduction.
-//! US-028 measured the alternatives on 125 real commit pairs
-//! (`docs/delta-pairing-2026-10.md`). The accepted blind spot is a fix and an
-//! addition of one rule in one file, which offset each other.
-//!
-//! The stage a failure names is this one. Refusing a comparison over
-//! `DIAGNOSTIC_LIMIT` diagnostics used to be reported with the git baseline's
-//! own failure, so a run that hit the diagnostic ceiling published
-//! `stage: "baseline"` and told the reader their snapshot exceeded a limit,
-//! which was true of nothing.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Read;
@@ -101,19 +46,12 @@ pub struct DeltaSummary {
     pub pre_existing: usize,
     pub fixed: usize,
     pub cross_file_matches: usize,
-    /// Pairs made by count within one (renamed path, rule) once evidence was
-    /// spent: a finding whose line the commit edited without fixing it.
     pub rule_count_matches: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct DeltaFingerprintV1([u8; 32]);
 
-/// What identifies a diagnostic when no proof could be read for it.
-///
-/// It borrows the diagnostic rather than copying it: a key lives for one pass
-/// and the diagnostics outlive every pass, so the four passes used to clone the
-/// message of every finding on both sides for nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct FallbackKey<'a> {
     source: DiagnosticSource,
@@ -121,9 +59,6 @@ struct FallbackKey<'a> {
     message: &'a str,
 }
 
-/// One diagnostic, the strongest identity that could be built for it, and
-/// where it sits in the current side's coordinates: a base finding is placed
-/// through the diff map, a current one where it is.
 #[derive(Debug)]
 struct Candidate<'a> {
     diagnostic: &'a Diagnostic,
@@ -142,12 +77,10 @@ impl<'a> Candidate<'a> {
         }
     }
 
-    /// The path the scan published, which is where its evidence is read.
     fn path(&self) -> Option<&'a str> {
         self.diagnostic.path.as_deref()
     }
 
-    /// Moves a base candidate to where the diff says it now is.
     fn place_through(&mut self, map: &'a DiffMap) {
         if let Some(path) = self.path() {
             let current = map.current_path(path);
@@ -171,13 +104,6 @@ struct SourcePosition {
     column: usize,
 }
 
-/// Where every line of a source file starts.
-///
-/// A span reports a 1-based line and a 1-based character column, and turning
-/// that into a byte offset is the only arithmetic the evidence needs. Building
-/// the index once per file answers every span of that file, which is what the
-/// sorted, deduplicated position set and the peekable state machine it replaced
-/// did at three functions and a helper mutating two collections at once.
 struct LineIndex(Vec<usize>);
 
 impl LineIndex {
@@ -189,13 +115,6 @@ impl LineIndex {
         )
     }
 
-    /// Byte offset of a reported position, absent when the file does not reach
-    /// it.
-    ///
-    /// A line owns its terminator, so the column of the `\n` is the last one a
-    /// line answers. The position one past the final character of the file is
-    /// answered too, because that is what a span covering the last line of a
-    /// file with no trailing newline reports.
     fn offset(&self, source: &str, position: SourcePosition) -> Option<usize> {
         let start = *self.0.get(position.line.checked_sub(1)?)?;
         let next_line = self.0.get(position.line).copied();
@@ -209,8 +128,6 @@ impl LineIndex {
     }
 }
 
-/// Reads the scanned sources one comparison is allowed to read, and stamps the
-/// candidates it could build a proof for.
 struct EvidenceLoader {
     root: Option<PathBuf>,
     source_bytes_read: usize,
@@ -232,9 +149,6 @@ impl EvidenceLoader {
         };
         let mut by_path = BTreeMap::<&'a str, Vec<usize>>::new();
         for (index, candidate) in candidates.iter().enumerate() {
-            // A diagnostic that already carries an identity of its own needs no
-            // excerpt, and reading one for it would spend the evidence budget on
-            // a fingerprint it is not going to use.
             if candidate.fingerprint.is_none()
                 && candidate.diagnostic.span.is_some()
                 && let Some(path) = candidate.path()
@@ -273,9 +187,6 @@ impl EvidenceLoader {
         if !path.starts_with(root) {
             return None;
         }
-        // Opening a path that is not a regular file is not merely useless:
-        // opening a named pipe blocks in the call itself, before any check on
-        // the handle could reject it.
         let metadata = fs::symlink_metadata(&path).ok()?;
         let length = usize::try_from(metadata.len()).ok()?;
         if !metadata.is_file()
@@ -286,9 +197,6 @@ impl EvidenceLoader {
         }
         self.source_bytes_read = self.source_bytes_read.checked_add(length)?;
 
-        // Canonicalizing and then opening has a replacement race, and the code
-        // frame closes it the same way: open the checked path, then confirm the
-        // handle and the live path still identify one file inside the workspace.
         let file = File::open(&path).ok()?;
         let opened = file.metadata().ok()?;
         let revalidated = path.canonicalize().ok()?;
@@ -317,9 +225,6 @@ impl EvidenceLoader {
     }
 }
 
-/// The identity each diagnostic's evidence gives it, read from the sources
-/// under `root`: what a side cache stores so a later comparison needs neither
-/// the snapshot nor a second read of it.
 pub(crate) type Evidence = Vec<Option<[u8; 32]>>;
 
 #[cfg(test)]
@@ -336,7 +241,6 @@ pub(crate) fn compute(
     compute_with(baseline, &evidence, current, current_root, &DiffMap::default())
 }
 
-/// Reads the evidence of one side, in the order of its diagnostics.
 pub(crate) fn evidence(diagnostics: &[Diagnostic], root: &Path) -> Evidence {
     if diagnostics.len() > DIAGNOSTIC_LIMIT {
         return vec![None; diagnostics.len()];
@@ -347,9 +251,6 @@ pub(crate) fn evidence(diagnostics: &[Diagnostic], root: &Path) -> Evidence {
         .collect()
 }
 
-/// Pairs the current side against a base side whose evidence was read
-/// already, by [`evidence`] now or by an earlier run that cached it, placing
-/// the base side through `map`.
 pub(crate) fn compute_with<'a>(
     baseline: &'a [Diagnostic],
     baseline_evidence: &[Option<[u8; 32]>],
@@ -388,17 +289,6 @@ fn candidates<'a>(diagnostics: &'a [Diagnostic], root: &Path) -> Vec<Candidate<'
     candidates
 }
 
-/// The identity a structural finding already publishes, when the diagnostic is
-/// one.
-///
-/// A structural finding is a family, and the identity the structural pass
-/// computes for it is the normalized content of that family: no span, no path,
-/// no measured count. That is what a pairing needs here, and it is what the
-/// message and the source excerpt below cannot give, because every structural
-/// message states a number the next edit moves: the line count of a file, the
-/// occurrence count of a clone family, the two complexity figures of a hotspot.
-/// Matched on those, a finding older than the branch reads as introduced by it,
-/// and the one it replaced reads as fixed.
 fn structural_identity(diagnostic: &Diagnostic) -> Option<&str> {
     let definition = crate::policy::find(diagnostic.code.as_deref()?)?;
     matches!(definition.producer, Producer::Structure).then_some(diagnostic.id.as_str())
@@ -461,12 +351,6 @@ fn extract_proof(
     normalize_proof(source.get(start..end)?, remaining_budget)
 }
 
-/// The excerpt reduced to its words, so reindenting a block does not read as
-/// rewriting it.
-///
-/// The budget is checked as the excerpt is built rather than measured first and
-/// built again: an excerpt that overruns answers `None` either way, and the
-/// caller has already bounded the input at `PROOF_BYTES_LIMIT`.
 fn normalize_proof(source: &str, remaining_budget: usize) -> Option<String> {
     let bound = remaining_budget.min(PROOF_BYTES_LIMIT);
     let mut normalized = String::with_capacity(source.len().min(bound));
@@ -483,15 +367,12 @@ fn normalize_proof(source: &str, remaining_budget: usize) -> Option<String> {
     (!normalized.is_empty()).then_some(normalized)
 }
 
-/// Same file, same proof: the finding did not move and the code under it did
-/// not change.
 fn same_path_stable<'a>(
     candidate: &Candidate<'a>,
 ) -> Option<(Option<&'a str>, DeltaFingerprintV1)> {
     Some((candidate.place, candidate.fingerprint?))
 }
 
-/// Same file, same message, from a side that has no proof to offer.
 fn same_path_unproven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, FallbackKey<'a>)> {
     candidate
         .fingerprint
@@ -499,7 +380,6 @@ fn same_path_unproven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>,
         .then(|| (candidate.place, candidate.fallback()))
 }
 
-/// Same file, same message, from a side that does carry a proof.
 fn same_path_proven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, FallbackKey<'a>)> {
     candidate
         .fingerprint
@@ -507,13 +387,10 @@ fn same_path_proven<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, F
         .then(|| (candidate.place, candidate.fallback()))
 }
 
-/// Same file, same message, whatever proof the side carries.
 fn same_path_fallback<'a>(candidate: &Candidate<'a>) -> Option<(Option<&'a str>, FallbackKey<'a>)> {
     Some((candidate.place, candidate.fallback()))
 }
 
-/// Same place, same rule, whatever the evidence: what evidence left unpaired
-/// in one file pairs by count.
 fn same_rule<'a>(
     candidate: &Candidate<'a>,
 ) -> Option<(Option<&'a str>, DiagnosticSource, Option<&'a str>)> {
@@ -524,7 +401,6 @@ fn same_rule<'a>(
     ))
 }
 
-/// Same proof, any file: the finding moved.
 fn moved_stable(candidate: &Candidate<'_>) -> Option<DeltaFingerprintV1> {
     candidate.fingerprint
 }
@@ -532,20 +408,9 @@ fn moved_stable(candidate: &Candidate<'_>) -> Option<DeltaFingerprintV1> {
 fn match_candidates(baseline: &[Candidate<'_>], current: &[Candidate<'_>]) -> DeltaReport {
     let mut matching = Matching::new(baseline, current);
 
-    // A finding whose file and whose proof are both unchanged is the same
-    // finding. Nothing weaker is consulted while a pairing this strong is
-    // available, which is what keeps a copied line from consuming the original.
     matching.pass(same_path_stable, same_path_stable);
-    // From here at least one side has no proof, so the message is all there is.
-    // The proofless baselines are spent first, which reserves a baseline that
-    // does carry a proof for a current that carries one too.
     matching.pass(same_path_unproven, same_path_proven);
     matching.pass(same_path_fallback, same_path_unproven);
-    // Same proof in another file: the finding moved. It runs last, so a message
-    // match on the original file wins over a proof match elsewhere. That is a
-    // product decision rather than a consequence, and
-    // `a_message_match_on_the_original_file_wins_over_a_moved_proof` is the
-    // input that puts the two in competition.
     let moved = matching.pass(moved_stable, moved_stable);
     debug_assert!(
         moved.iter().all(|&(baseline_index, current_index)| {
@@ -554,15 +419,10 @@ fn match_candidates(baseline: &[Candidate<'_>], current: &[Candidate<'_>]) -> De
         }),
         "same-place stable candidates must be exhausted before cross-file matching"
     );
-    // What evidence left in one file and one rule is the same finding under
-    // an edit: a renamed variable inside the flagged expression, a rewrapped
-    // call. Paired by count, nearest line first.
     let counted = matching.pass(same_rule, same_rule);
     matching.into_report(counted.len())
 }
 
-/// The state of one pairing: which baseline candidates are spent, and which
-/// baseline each current candidate was paired with.
 struct Matching<'a, 'd> {
     baseline: &'a [Candidate<'d>],
     current: &'a [Candidate<'d>],
@@ -580,13 +440,6 @@ impl<'a, 'd> Matching<'a, 'd> {
         }
     }
 
-    /// Pairs what is still free on the key the two sides answer on and
-    /// returns the pairs it made.
-    ///
-    /// A side that answers `None` sits the pass out. Within one key, each
-    /// base candidate, in the order of its mapped line, takes the free current
-    /// candidate nearest that line, the earlier line on a tie, so the same two
-    /// scans always produce the same pairing.
     fn pass<Key: Ord>(
         &mut self,
         baseline_key: impl Fn(&Candidate<'d>) -> Option<Key>,
@@ -632,8 +485,6 @@ impl<'a, 'd> Matching<'a, 'd> {
     }
 
     fn into_report(self, rule_count_matches: usize) -> DeltaReport {
-        // A pair whose two published paths differ crossed files: along a
-        // rename, or on evidence that followed code out of its file.
         let cross_file_matches = self
             .current
             .iter()
@@ -688,7 +539,6 @@ impl<'a, 'd> Matching<'a, 'd> {
     }
 }
 
-/// The free current candidate nearest `line`, the earlier line on a tie.
 fn nearest(free: &BTreeSet<(usize, usize)>, line: usize) -> Option<(usize, usize)> {
     let below = free.range(..(line, 0)).next_back().copied();
     let above = free.range((line, 0)..).next().copied();

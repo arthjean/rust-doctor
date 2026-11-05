@@ -1,12 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![cfg(unix)]
 
-//! EP-005 US-018: a baseline or staged snapshot is created only under a parent
-//! no other user can write. `/tmp` at mode 1777 is refused, since another user
-//! could plant a `.cargo/config.toml` or a `rust-toolchain.toml` there that
-//! Cargo would apply to the snapshot, and with no other candidate passing the
-//! scan reports why instead of creating anything.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -20,8 +14,6 @@ mod support;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-/// A committed one-crate repository with one more change staged, and a home
-/// its group can write, both under a scratch directory.
 fn repository() -> (PathBuf, PathBuf) {
     let scratch = support::temporary_target("snapshot-parent", &NEXT);
     let _ = fs::remove_dir_all(&scratch);
@@ -105,8 +97,6 @@ fn a_world_writable_tmp_and_no_private_candidate_create_no_snapshot() {
         let errors = report["errors"].as_array().unwrap();
         assert_eq!(errors.len(), 1, "{arguments:?}: {report:#}");
         assert_eq!(errors[0]["code"], "baseline-temp-unavailable");
-        // macOS links /tmp to /private/tmp, and the report externalizes the
-        // canonical path the refusal names.
         let refused = if cfg!(target_os = "macos") {
             "<external>/private/tmp"
         } else {
@@ -127,8 +117,6 @@ fn a_world_writable_tmp_and_no_private_candidate_create_no_snapshot() {
     }
 }
 
-/// The same run with a private runtime directory takes it, completes, and
-/// leaves no snapshot behind in it.
 #[test]
 fn a_private_runtime_directory_takes_the_snapshot_a_world_writable_tmp_refuses() {
     let (root, home) = repository();

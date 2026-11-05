@@ -594,9 +594,6 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
         reports["absent"]["policy"]["rules"],
         reports["empty"]["policy"]["rules"]
     );
-    // Eight distinct codes since EP-002 of the suppression PRD: the two decoy
-    // dependencies this fixture declares and never references both land under
-    // the one `unused_dependency` code.
     assert_eq!(diagnostic_ids(&reports["absent"]).len(), 8);
     let rule_scaling = oracle();
     let absent = &reports["absent"];
@@ -610,12 +607,6 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             .collect::<Vec<_>>(),
         support::expected_clippy_command(&absent["policy"])
     );
-    // The frozen command of EP-018 stays an ordered subsequence of the current
-    // command: no widening of the catalog removed or moved a rule already
-    // admitted.
-    // A single argument left, named here rather than erased from the oracle:
-    // `--all-targets` compiled tests, benches, examples and build scripts, now
-    // outside the scanned scope.
     const WITHDRAWN: &str = "--all-targets";
     assert!(
         !absent["scan"]["command"]
@@ -634,8 +625,6 @@ fn persistent_configuration_matrix_is_deterministic_private_and_non_mutating() {
             "{historical_argument} left the command"
         );
     }
-    // The `summary` publishes both named quantities on top of its historical
-    // fields.
     let summary = absent["summary"]
         .as_object()
         .expect("a result should carry a summary");

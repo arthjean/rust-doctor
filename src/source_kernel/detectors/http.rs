@@ -1,17 +1,3 @@
-//! A reqwest response body read before its status is checked.
-//!
-//! reqwest resolves a request to a `Response` whatever the status, so a 4xx or
-//! 5xx error payload reaches `.json()` and is parsed as data. The rule follows
-//! the chain the body read sits on, through `?`, `.await` and the bindings it
-//! was stored in, down to a reqwest constructor: `reqwest::get`, or a client
-//! from `Client::new` or `Client::builder` whose request was sent. A link that
-//! checks the status, `error_for_status` or `error_for_status_ref`, silences
-//! it, and so does one handing that check to a combinator,
-//! `and_then(|r| r.error_for_status())`. A response stored in a `let` silences it when the body reads `status`,
-//! `is_success` or `error_for_status` on that binding before the body, or
-//! hands the binding to another function, which may check it. A client whose
-//! origin the file does not show, a parameter or a field, abstains.
-
 use ra_ap_syntax::ast::{self, HasArgList};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -27,17 +13,12 @@ pub(in crate::source_kernel) static UNCHECKED_STATUS: Detector = Detector {
     crates: &["reqwest"],
 };
 
-/// The `Response` methods that consume the body.
 const BODY_READS: [&str; 5] = ["bytes", "bytes_stream", "chunk", "json", "text"];
 
-/// The links that turn an error status into an error.
 const STATUS_CHECKS: [&str; 2] = ["error_for_status", "error_for_status_ref"];
 
-/// What a binding holding the response may be asked before its body is read.
 const STATUS_READS: [&str; 4] = ["error_for_status", "error_for_status_ref", "is_success", "status"];
 
-/// The reqwest calls a chain may start from, and whether the call already
-/// yields a response (`get`) or a client whose request still has to be sent.
 const ROOTS: [(&[&str], bool); 6] = [
     (&["reqwest", "get"], true),
     (&["reqwest", "blocking", "get"], true),
@@ -133,9 +114,6 @@ fn unchecked_status(context: &Context<'_>, node: &SyntaxNode) -> Option<Detectio
     })
 }
 
-/// The call the response's chain starts from, and whether a link of it sent
-/// the request, followed through `?`, `.await` and the bindings the response
-/// was stored in. `None` when a link checks the status, or a binding abstains.
 fn response_root(context: &Context<'_>, receiver: ast::Expr, read: &SyntaxNode) -> Option<(ast::CallExpr, bool)> {
     let mut expression = receiver;
     let mut sent = false;
@@ -154,8 +132,6 @@ fn response_root(context: &Context<'_>, receiver: ast::Expr, read: &SyntaxNode) 
     None
 }
 
-/// `None` for a link that checks the status, itself or through a combinator
-/// it is handed to, else whether it sends the request.
 fn unchecked_link(link: &ast::MethodCallExpr) -> Option<bool> {
     let name = link.name_ref()?;
     let checks = |name: &ast::NameRef| STATUS_CHECKS.contains(&name.text().as_str());
@@ -165,8 +141,6 @@ fn unchecked_link(link: &ast::MethodCallExpr) -> Option<bool> {
     (!checks(&name) && !checked_inside).then(|| name.text() == "send")
 }
 
-/// Does this call start a chain that yields a reqwest response: `get`, or a
-/// client whose request was sent?
 fn reqwest_response(context: &Context<'_>, root: &ast::CallExpr, sent: bool) -> bool {
     let Some(ast::Expr::PathExpr(callee)) = root.expr() else {
         return false;
@@ -179,8 +153,6 @@ fn reqwest_response(context: &Context<'_>, root: &ast::CallExpr, sent: bool) -> 
     })
 }
 
-/// The value a response binding was initialized to, unless the body checks
-/// its status first, hands it over, or the binding cannot be read.
 fn unchecked_binding(context: &Context<'_>, bound: &ast::Expr, read: &SyntaxNode) -> Option<ast::Expr> {
     let binding = identifier(bound)?;
     if checked_or_handed_over(&binding, bound, read) {
@@ -192,9 +164,6 @@ fn unchecked_binding(context: &Context<'_>, bound: &ast::Expr, read: &SyntaxNode
     }
 }
 
-/// Does the body around `read` read the status of `binding` before `read`,
-/// or hand `binding` to a function? A use of the name anywhere in the body
-/// counts, shadowing aside, which only ever makes the rule abstain.
 fn checked_or_handed_over(binding: &str, used: &ast::Expr, read: &SyntaxNode) -> bool {
     let Some(body) = used
         .syntax()

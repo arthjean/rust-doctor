@@ -1,14 +1,5 @@
 name: Rust Doctor
 
-# The analogue of React Doctor's react-doctor.yml: this repository scans itself
-# with the binary built from the commit under review, never from a published
-# release. A rule that regresses shows up on the pull request that caused it.
-#
-# On a pull request the scan runs in baseline mode, which is the mode the tool
-# exists for in CI: it materializes the comparison ref in a temporary snapshot,
-# scans both sides, and reports only what the change introduced. The existing
-# backlog is not the contributor's problem.
-
 on:
   push:
     branches: [main]
@@ -19,9 +10,6 @@ concurrency:
   group: rust-doctor-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The scan job builds and runs the pull request's code, so it holds
-# `contents: read` alone. The sticky comment is posted by the `comment` job,
-# the only one granted `pull-requests: write`, which runs no pull request code.
 permissions:
   contents: read
 
@@ -38,26 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # The default depth-1 checkout, on purpose: the path a user's first
-      # workflow takes. On a pull request the Action fetches the base and its
-      # history itself before the baseline scan; a push scans in full scope,
-      # which needs none.
       - uses: actions/checkout@v5
         with:
-          # The pull request's build scripts run in this job: leave no token
-          # in .git/config for them to find.
           persist-credentials: false
 
-      # rust-doctor shells out to `cargo clippy` inside the scanned workspace.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
           components: clippy
 
-      # Saved even when the gate fails the job, so the retry is warm, and
-      # only from the default branch, so a pull request's build scripts write
-      # no entry a later run restores. This step caches the scanner's build
-      # and the scan's both, so the Action's own cache is turned off below.
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
@@ -71,11 +48,6 @@ jobs:
           cargo build --release --locked --bin rust-doctor
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
-      # The Action from this checkout, driving the binary just built: its
-      # outputs, its job summary and the `rust-doctor-report` artifact the
-      # comment is posted from, all rendered by the code under review. A pull
-      # request is scanned in baseline scope against its base, a push in full
-      # scope.
       - name: Scan
         id: scan
         uses: ./
@@ -83,9 +55,6 @@ jobs:
           version: preinstalled
           cache: "false"
 
-  # The comment action as the pull request's base commit holds it, never as
-  # the pull request rewrites it: this job holds the write token, so the code
-  # it runs is code already reviewed. It checks out `comment/` alone.
   comment:
     name: Comment
     needs: scan

@@ -1,15 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Proofs of EP-003 of the self-scan remediation, from the binary a user runs:
-//! a withheld rule caps nothing, the ranking discounts a measured rule once, a
-//! duplicate no member requires weighs nothing, versions compare by Cargo
-//! compatibility class, inline tests leave the denominator, and schema 24
-//! publishes the binding ceilings and the production tallies.
-//!
-//! Every crate is written fresh under `target/score-model-v6/`, path
-//! dependencies only, so each scan runs offline against its own target
-//! directory.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,8 +20,6 @@ fn manifest(name: &str, version: &str, dependencies: &str) -> String {
     )
 }
 
-/// A fresh workspace holding `files`, its lockfile resolved offline when the
-/// root manifest declares dependencies.
 fn workspace<P: AsRef<Path>>(files: &[(P, String)]) -> PathBuf {
     let root = support::fresh_workspace("score-model-v6", &NEXT_WORKSPACE);
     for (path, contents) in files {
@@ -69,7 +57,6 @@ fn json(root: &Path, arguments: &[&str]) -> Value {
     serde_json::from_slice(&run(root, &arguments)).unwrap()
 }
 
-/// The linear report, its 80-column wrapping joined back.
 fn text(root: &Path) -> String {
     String::from_utf8(run(root, &[])).unwrap().replace('\n', " ")
 }
@@ -90,10 +77,6 @@ fn single_crate(lib: &str) -> PathBuf {
     ])
 }
 
-/// A library `app` whose manifest declares `dependencies` and whose source is
-/// `lib`, beside path crates `(directory, name, version, dependencies)`, each
-/// exporting `ID` and excluded from the workspace so that two of them may share
-/// a name.
 fn with_dependencies(
     dependencies: &str,
     lib: &str,
@@ -124,15 +107,9 @@ fn with_dependencies(
     files
 }
 
-/// US-015: one `std::process::exit` in a library function, a rule the corpus
-/// judged wrong on every site it showed, caps nothing; one site of an
-/// unmeasured `P2` rule still holds reliability at 75.
 #[test]
 fn a_withheld_rule_caps_nothing_and_an_unmeasured_p2_rule_still_caps() {
     let stop = "pub fn stop(code: i32) {\n    std::process::exit(code);\n}\n";
-    // The withheld rule's sites are still charged at the discount, so on the
-    // two-kiloline floor a lone site costs a point of density and no ceiling;
-    // over eight thousand lines the charge rounds away and reliability is 100.
     let small = single_crate(stop);
     let mut files = vec![
         ("Cargo.toml".to_owned(), manifest("probe", "0.1.0", "\n[workspace]\n")),
@@ -173,11 +150,6 @@ fn a_withheld_rule_caps_nothing_and_an_unmeasured_p2_rule_still_caps() {
     );
 }
 
-/// US-016: two rules of equal raw relief, `ptr_arg` measured at 3333 basis
-/// points and `useless_vec` nobody measured, both `P3` performance. The
-/// measured one's charge already carries its discount, so it ranks first;
-/// under core-v5 the discount applied twice and the unmeasured rule led. A rule
-/// holding a ceiling is still projected for the ceiling it releases.
 #[test]
 fn a_measured_rule_is_discounted_once_in_the_ranking() {
     let report = json(
@@ -204,8 +176,6 @@ fn a_measured_rule_is_discounted_once_in_the_ranking() {
     );
     let score = &report["audit"]["score"];
     assert_eq!(score["projected_rule_ids"][0], DUPLICATE, "{report:#}");
-    // Under the 75 the P2 ceiling allows: since the core-v6 replay the corpus
-    // publishes no rate for the rule, so its one site is charged whole.
     assert_eq!(score["dimensions"]["dependencies"], 72);
     assert_eq!(
         score["projected_after_top_three"], 100,
@@ -213,9 +183,6 @@ fn a_measured_rule_is_discounted_once_in_the_ranking() {
     );
 }
 
-/// US-017: a duplicate whose every version arrives through a dependency is
-/// published at `Info`, weighs nothing, is not projected, and keeps the id it
-/// had as a warning.
 #[test]
 fn a_duplicate_no_member_requires_publishes_at_info_and_keeps_its_id() {
     let root = workspace(&with_dependencies(
@@ -251,8 +218,6 @@ fn a_duplicate_no_member_requires_publishes_at_info_and_keeps_its_id() {
             .contains(&Value::from(DUPLICATE))
     );
 
-    // Asked for at its level, the same finding is a warning under the same id:
-    // the identity hashes the base severity, never the published one.
     let restamped = json(&root, &["--rule", &format!("{DUPLICATE}=warn")]);
     let warned = diagnostics(&restamped, DUPLICATE);
     assert_eq!(warned.len(), 1);
@@ -260,9 +225,6 @@ fn a_duplicate_no_member_requires_publishes_at_info_and_keeps_its_id() {
     assert_eq!(warned[0]["id"], duplicate["id"]);
 }
 
-/// US-017 and US-018: a duplicate a member requires directly stays a warning
-/// naming the requirement, and `0.59` beside `0.61`, or `0.0.3` beside
-/// `0.0.4`, are incompatible, as Cargo compiles them.
 #[test]
 fn a_direct_duplicate_stays_a_warning_and_zero_dot_versions_compare_by_class() {
     let root = workspace(&with_dependencies(
@@ -311,13 +273,9 @@ fn a_direct_duplicate_stays_a_warning_and_zero_dot_versions_compare_by_class() {
     );
 }
 
-/// US-019: the lines of an outermost test-gated item are not production lines,
-/// for the workspace and for each member, and a crate holding nothing else has
-/// no score.
 #[test]
 fn inline_test_gated_items_leave_the_production_lines() {
     let tests = "#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn adds() {\n        assert_eq!(add(1, 2), 3);\n    }\n\n    #[test]\n    fn zero() {\n        assert_eq!(add(0, 0), 0);\n    }\n}\n";
-    // Nine lines, then a twelve-line test module: twenty-one in all.
     let production = "//! A probe.\n\n/// Adds.\npub fn add(left: u64, right: u64) -> u64 {\n    left + right\n}\n\npub const ONE: u64 = 1;\n\n";
     let lib = format!("{production}#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn adds() {{\n        assert_eq!(add(1, 2), 3);\n    }}\n\n    // The module spans\n    // twelve lines.\n}}\n");
     assert_eq!(lib.lines().count(), 21, "{lib}");
@@ -361,9 +319,6 @@ fn inline_test_gated_items_leave_the_production_lines() {
     assert_eq!(report["audit"]["production_lines"], 4);
 }
 
-/// US-020: the text names each binding ceiling from `ceilings[]`, the overall
-/// one and every dimension's, and the share link carries the production
-/// counts rather than every occurrence.
 #[test]
 fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
     let adversarial = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -411,9 +366,6 @@ fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
         assert!(rendered.contains(&line), "{line} missing from {rendered}");
     }
 
-    // A production `todo!` beside a shell command built in an integration
-    // test: the test-context finding is published and counted in
-    // `occurrences`, and the link counts what weighs.
     let root = workspace(&[
         ("Cargo.toml", manifest("probe", "0.1.0", "\n[workspace]\n")),
         ("src/lib.rs", "pub fn later() {\n    todo!()\n}\n".to_owned()),

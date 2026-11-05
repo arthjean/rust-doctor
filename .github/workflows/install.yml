@@ -1,35 +1,6 @@
 name: Install
 
-# What a stranger's `cargo install rust-doctor` builds. That command ignores
-# the Cargo.lock the crate ships unless `--locked` is passed, and resolves every
-# dependency to the newest compatible release the registry serves that day.
-# Cargo.toml pins the direct dependencies exactly, not the ninety or so below
-# them, and every other workflow builds with `--locked`, so none of them sees
-# that graph.
-#
-# Issue #40 is the case. From 2026-09-16 (unicode-ident 1.0.25) to 2026-10-31
-# (unicode-properties 0.1.5), unicode-ident declared Unicode 18 while
-# unicode-properties still declared 17. ra-ap-rustc_lexer, under ra_ap_syntax,
-# refuses to compile on that skew with a const assertion, and its caret
-# requirements cannot keep the pair in step, so an unlocked install of 0.9.0
-# failed on every platform while every locked build stayed green. A daily run
-# fails on the first day of such a window; the report came six weeks in. The
-# lexer still asks for `^1.0.22` and `^0.1.4`, so the next Unicode release can
-# open another one.
-#
-# `published` runs the reader's command against the latest release. `head`
-# installs this commit the same way, so the next release is known to survive
-# the same resolution. `cargo install --path` resolves for the declared
-# rust-version and a registry install does not (cargo 1.98 prints "latest
-# Rust 1.95 compatible versions" for one, "latest compatible versions" for the
-# other), and CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow makes `head`
-# resolve like the registry. Both start cold, with no cache: the run is the
-# build a stranger starts from nothing.
-
 on:
-  # Daily, since the registry moves without a commit here. A pull request
-  # touching the manifest runs it too, since a new requirement can admit a
-  # skewed pair before any release is cut from it.
   schedule:
     - cron: "41 5 * * *"
   workflow_dispatch:

@@ -1,15 +1,9 @@
-//! The changed-work scope an invocation asked for, checked before any process
-//! starts. It lives outside `main.rs` so that file stays under the size bound
-//! its own scan reports.
-
 use clap::ValueEnum;
 use clap::error::ErrorKind;
 use rust_doctor::ScopeMode;
 
 use crate::InspectArgs;
 
-/// A changed-work scope the invocation asked for, checked for combinations
-/// that mean nothing before any process starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScopeSelection {
     pub(crate) mode: ScopeMode,

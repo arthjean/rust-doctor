@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 2, invariant 7: the catalog
-// the binary publishes is closed. Every catalogued finding a scan of this
-// repository carries is a rule `rules list` names, the list agrees with the
-// measured record, and `rules explain` answers for every rule it lists.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

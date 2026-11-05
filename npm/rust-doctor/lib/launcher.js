@@ -22,11 +22,6 @@ export function platformKey(platform = process.platform, arch = process.arch) {
   return `${platform}-${arch}`;
 }
 
-// The two places an installer puts the native package beside this wrapper:
-// nested under it, or as its sibling in the `node_modules` that holds it (the
-// npm and bun flat layouts, and pnpm's `.pnpm/<wrapper>/node_modules`). Node's
-// resolver would also climb to every ancestor `node_modules`, where a
-// same-named package this install never placed would run.
 function candidateRoots(wrapperRoot, packageName) {
   const roots = [join(wrapperRoot, "node_modules", packageName)];
   const parent = dirname(wrapperRoot);
@@ -57,9 +52,7 @@ export function resolveNativeBinary({
       manifestSource = readFileSync(join(root, "package.json"), "utf8");
       nativeRoot = root;
       break;
-    } catch {
-      // Not installed at this root; the next candidate is the only other one.
-    }
+    } catch {}
   }
   if (nativeRoot === undefined) {
     throw new LauncherError(

@@ -1,9 +1,9 @@
-//! Trigger and silence of the complexity rule.
-//!
-//! `schedule` buries its branches five levels deep and crosses the cognitive
-//! threshold. `apply` is the neighbouring form the rule must leave alone: it
-//! branches once and reads in one pass, which is what proves the rule was
-//! checked for over-reach.
+
+
+
+
+
+
 
 pub fn schedule(mut pending: u32, weights: &[u32], bound: u32) -> u32 {
     let mut total = 0;

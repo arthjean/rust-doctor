@@ -1,14 +1,3 @@
-//! The configuration calls that switch off a web security control: a CORS
-//! layer letting any origin send credentials, an auth cookie page scripts can
-//! read, and a JWT decoded without its signature checked.
-//!
-//! Each call names the crate whose control it switches off, `tower_http`,
-//! `actix_cors`, `cookie` or `jsonwebtoken`, through the path of the call or
-//! of the constructor its chain starts from, read through the bindings it was
-//! stored in. Booleans are read through `Context::value`, like
-//! `disabled_tls_verification`, and all three rules are silent in test code,
-//! where a permissive configuration is the fixture.
-
 use ra_ap_syntax::ast::{self, HasArgList};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -59,32 +48,26 @@ pub(in crate::source_kernel) static JWT_CALL: Detector = Detector {
     crates: &["jsonwebtoken"],
 };
 
-/// The constructors that are a permissive CORS policy on their own.
 const PERMISSIVE_CONSTRUCTORS: [&[&str]; 2] = [
     &["tower_http", "cors", "CorsLayer", "very_permissive"],
     &["actix_cors", "Cors", "permissive"],
 ];
 
-/// The origin policies that accept any origin.
 const ANY_ORIGIN: [&[&str]; 3] = [
     &["tower_http", "cors", "Any"],
     &["tower_http", "cors", "AllowOrigin", "any"],
     &["tower_http", "cors", "AllowOrigin", "mirror_request"],
 ];
 
-/// The cookie constructors whose first argument is the cookie's name.
 const COOKIE_CONSTRUCTORS: [&[&str]; 3] = [
     &["cookie", "Cookie", "build"],
     &["cookie", "Cookie", "new"],
     &["cookie", "CookieBuilder", "new"],
 ];
 
-/// The words of an auth cookie's name, and of the CSRF cookie that only looks
-/// like one: a bare `token` names a CSRF cookie as often as a session.
 const AUTH_COOKIE_WORDS: [&str; 4] = ["access_token", "auth", "jwt", "session"];
 const CSRF_WORDS: [&str; 2] = ["csrf", "xsrf"];
 
-/// The calls that decode a JWT without checking its signature.
 const INSECURE_DECODES: [&[&str]; 2] = [
     &["jsonwebtoken", "dangerous", "insecure_decode"],
     &["jsonwebtoken", "dangerous_insecure_decode"],
@@ -120,9 +103,6 @@ fn permissive_constructor(context: &Context<'_>, node: &SyntaxNode) -> Option<De
     reported(context, node, "The CORS policy accepts any origin, method and header, credentials included.", node)
 }
 
-/// `allow_credentials(true)` in a chain that also allows any origin, read
-/// across the whole chain: the links after the call and the links before it,
-/// through the bindings the layer was stored in.
 fn credentials_from_any_origin(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     let call = ast::MethodCallExpr::cast(node.clone())?;
     (call.name_ref()?.text() == "allow_credentials").then_some(())?;
@@ -177,9 +157,6 @@ fn readable_auth_cookie(context: &Context<'_>, node: &SyntaxNode) -> Option<Dete
     reported(context, node, "An auth cookie is readable by page scripts.", argument.syntax())
 }
 
-/// The literal name, lowercased, of the cookie a chain builds, read off the
-/// `cookie` constructor it starts from: `Cookie::new(name, value)` or
-/// `Cookie::build((name, value))`.
 fn cookie_name(context: &Context<'_>, receiver: ast::Expr) -> Option<String> {
     let ast::Expr::CallExpr(constructor) = context.chain_root(receiver)? else {
         return None;

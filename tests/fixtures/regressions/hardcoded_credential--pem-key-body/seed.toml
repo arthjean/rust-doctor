@@ -1,0 +1,5 @@
+rule = "rust_doctor::repo::hardcoded_credential"
+weakness = "placeholder-credential"
+source = "US-019, a header with a key body under it"
+verdict = "fires"
+split = "@@"

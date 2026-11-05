@@ -1,9 +1,3 @@
-//! Tests of the linear report.
-//!
-//! They live in their own file for the reason the report itself checks: the
-//! crate passes its own `oversized_unit` rule, and a module carrying its eight
-//! section renderers and their tests in one file would not.
-
 use super::*;
 use crate::terminal_text::display_width;
 use crate::{
@@ -12,10 +6,6 @@ use crate::{
     Summary, ToolchainReport,
 };
 
-/// The report passes the rule it publishes. `oversized_unit` reports a file at
-/// a thousand lines, and this module holds that bound: the score block and
-/// these tests have files of their own for that reason, and a file that grows
-/// back past it fails here rather than on a self-scan nobody reads.
 #[test]
 fn the_report_holds_the_size_bound_it_reports_for() {
     for own in [
@@ -81,13 +71,6 @@ fn report() -> InspectReport {
     report_of(diagnostics, 1, 100)
 }
 
-/// The report a set of diagnostics produces over a workspace of `source_files`
-/// files and `production_lines` lines of production Rust.
-///
-/// The audit is built from the diagnostics rather than written down beside
-/// them, because every entry point of this report replays
-/// `InspectReport::is_valid`, which recomputes the whole block: a score poked
-/// into a fixture never reaches a renderer.
 fn report_of(
     diagnostics: Vec<Diagnostic>,
     source_files: usize,
@@ -197,8 +180,6 @@ fn terminal_sections_follow_the_normative_order() {
         "All 1 occurrences across 1 findings",
         "Bugs:",
         "Run with --verbose",
-        // Top border of the score block: the stable marker of the section
-        // since the value reads `N / 100 Label`.
         "┌─────┐",
         "Share:",
         "Docs:",
@@ -228,9 +209,6 @@ fn widths_and_color_policy_are_stable() {
         let colored = rendered(&report(), width, true, false);
         assert!(colored.contains("\u{1b}["));
         for line in colored.lines().filter(|line| !is_link_row(line)) {
-            // `sanitize` strips every escape sequence, including the
-            // truecolor of a perfect score's bar, which the original
-            // hard-coded code list did not cover.
             let visible = sanitize(line);
             assert!(display_width(&visible) <= width, "{visible}");
         }
@@ -250,13 +228,10 @@ fn wide_dynamic_text_respects_terminal_columns() {
     );
 }
 
-/// A row carrying a URL is the one row the width does not bound: a link cut in two is two
-/// strings no terminal opens, so the renderer writes it whole and the terminal soft-wraps it.
 fn is_link_row(row: &str) -> bool {
     sanitize(row).contains("https://")
 }
 
-/// The rule link is written whole whatever the width, and never cut mid-way.
 #[test]
 fn a_rule_link_is_never_wrapped() {
     let mut report = report();
@@ -271,8 +246,6 @@ fn a_rule_link_is_never_wrapped() {
 
 #[test]
 fn partial_and_missing_scores_suppress_share_and_projection() {
-    // The score is made partial by the scan that produced it, not by poking the flag: the audit
-    // has to stay reproducible from its own diagnostics or the report refuses to render.
     let mut partial = report();
     partial.status = Status::Incomplete;
     partial.complete = false;
@@ -298,8 +271,6 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     let mut flat = report();
     flat.diagnostics[0].code = Some("clippy::dbg_macro".to_owned());
     flat.diagnostics[0].category = Some("maintainability".to_owned());
-    // Five hundred kilolines: one `dbg!` in a workspace that size is a density the exponential
-    // cannot round away from a hundred, which is what makes the projection flat.
     flat.audit = Audit::build(5_000, 500_000, Status::Complete, &flat.diagnostics);
     let score = flat.audit.score.as_ref().unwrap();
     assert_eq!(score.projected_after_top_three, Some(score.value));
@@ -323,23 +294,12 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
         )
     );
 
-    // Under its ceiling the score is held by its dimensions, and the line says
-    // so rather than naming the ceiling as the value it never reached.
     assert_eq!(
         score::ceiling_sentence(54, 65, "P1", "rust_doctor::repo::hardcoded_credential"),
         "A P1 finding caps the score at 65/100, and the dimensions already hold it lower: rust_doctor::repo::hardcoded_credential"
     );
 }
 
-/// A failed scan publishes what it attempted and what failed, and nothing it
-/// did not measure.
-///
-/// The failure used to be followed by a `100 / 100` face and `No issues
-/// found.`, because a run ending in the toolchain preflight still carries an
-/// inventory of the workspace it never scanned: the score is built from that
-/// count against zero diagnostics, and zero findings score 100. The old test
-/// missed it by building the audit over zero files, which is the one input for
-/// which no score exists at all.
 #[test]
 fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
     let mut failed = report();
@@ -428,8 +388,6 @@ fn baseline_hides_pre_existing_details_and_keeps_introduced_and_fixed() {
     assert!(!output.contains("must stay hidden"));
 }
 
-/// The sentence exists to explain an absence, so it names enough to be
-/// recognised and counts the rest.
 #[test]
 fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     assert_eq!(score::withheld_sentence(&[]), None);
@@ -475,8 +433,6 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     );
 }
 
-/// EP-002 US-007: every form states the criterion the ranking applies, and none
-/// claims the repair is worth nothing, since a withheld rule still weighs.
 #[test]
 fn the_withheld_sentence_states_the_criterion_in_every_form() {
     let ids = |count: usize| -> Vec<String> {
@@ -499,15 +455,6 @@ fn the_withheld_sentence_states_the_criterion_in_every_form() {
     }
 }
 
-/// A reader can weigh the ranking, because every rule it names carries the
-/// sample its rate rests on.
-///
-/// The loud rule is measured wrong on all forty sites the corpus reviewed and
-/// the quiet one right on the one site it showed, so the quiet one leads
-/// despite thirty times fewer findings. Without the two samples printed beside
-/// the two rates, that order reads as a defect of the tool: a reader who sees
-/// the rule with sixty findings ranked second has no way to tell a measurement
-/// from a bug.
 #[test]
 fn the_terminal_names_the_sample_behind_every_rate_it_ranks_by() {
     let mut report = report();
@@ -524,8 +471,6 @@ fn the_terminal_names_the_sample_behind_every_rate_it_ranks_by() {
 
     let output = rendered(&report, 100, false, false);
 
-    // The report wraps at the terminal width, so the two names are looked for in
-    // the whole frame rather than on the line the projection starts on.
     let unwrapped = output.replace('\n', " ");
     assert!(
         unwrapped.find("rust_doctor::cargo::duplicate_major_versions (33% noise on 1 site)")
@@ -534,11 +479,6 @@ fn the_terminal_names_the_sample_behind_every_rate_it_ranks_by() {
     );
 }
 
-/// A rule the corpus never adjudicated is named as unmeasured, never as a rate.
-///
-/// It is ranked at the middle of the interval, and printing that middle as a
-/// percentage would publish an assumption as an observation. `clippy::todo` is
-/// catalogued and carries no entry in the shipped table.
 #[test]
 fn the_terminal_names_an_unmeasured_rule_as_unmeasured() {
     let mut report = report();
@@ -558,12 +498,6 @@ fn the_terminal_names_an_unmeasured_rule_as_unmeasured() {
     );
 }
 
-/// The added text is bounded by the terminal like every other line.
-///
-/// Forty columns is the narrowest the interactive report ever draws at, and the
-/// linear one normalizes to `MIN_WIDTH` below it. Either way no row may pass the
-/// width the writer was given: the rule ids the ranking names are long, and the
-/// sample note lengthens each of them.
 #[test]
 fn the_measurement_note_never_pushes_a_row_past_the_width() {
     let mut report = report();
@@ -615,14 +549,6 @@ fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
     }
 }
 
-// -------------------------------------------- the four values of the block
-
-/// The five rules the search fires, one per dimension the score reads, each
-/// catalogued so the block stays authoritative: an uncatalogued rule drops the
-/// flag and the label reads `Core partial` instead of its band.
-// Unmeasured rules, so the search reads the curve and not a discount: `expect_used` used to
-// stand for reliability, and the corpus adjudicated it wrong on four sites out of five, which
-// leaves the dimension at 28 however many sites fire.
 const PER_KILOLINE_RULES: [(&str, &str); 3] = [
     ("clippy::todo", "correctness"),
     ("clippy::dbg_macro", "maintainability"),
@@ -634,8 +560,6 @@ const SECURITY_RULE: (&str, &str) = (
     "security",
 );
 
-/// `count` distinct sites of one rule. One diagnostic is one site, so the
-/// numerator of its dimension is the count itself at warning severity.
 fn sites(rule: (&str, &str), count: usize) -> impl Iterator<Item = Diagnostic> {
     let (code, category) = rule;
     (0..count).map(move |index| Diagnostic {
@@ -645,9 +569,6 @@ fn sites(rule: (&str, &str), count: usize) -> impl Iterator<Item = Diagnostic> {
     })
 }
 
-/// A workspace of `production_lines` lines holding `count` sites in each of the
-/// four dimensions with no ceiling below the top band, and `security` sites in
-/// the one that caps the whole score at forty.
 fn scored(count: usize, security: usize, production_lines: usize) -> InspectReport {
     let diagnostics: Vec<Diagnostic> = PER_KILOLINE_RULES
         .into_iter()
@@ -662,16 +583,6 @@ fn value_of(report: &InspectReport) -> u8 {
     report.audit.score.as_ref().map_or(0, |score| score.value)
 }
 
-/// A report whose audit really scores `target`, found rather than declared.
-///
-/// The value cannot be written into the block: every entry point of this
-/// report replays `InspectReport::is_valid`, which recomputes the score from
-/// the diagnostics and the line count. So the four values the block has to
-/// draw are searched for over the two knobs core-v3 reads, how many sites
-/// fired and how large the workspace is. A density only falls as its
-/// denominator grows, so the score is monotonic in the line count and a
-/// bisection lands on the smallest workspace reaching the target; the helper
-/// answers nothing rather than a neighbor.
 fn scoring(target: u8) -> Option<InspectReport> {
     const COUNTS: [usize; 11] = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
     const SECURITY: [usize; 3] = [0, 12, 60];
@@ -695,7 +606,6 @@ fn scoring(target: u8) -> Option<InspectReport> {
     None
 }
 
-/// The rows of the block, at the width every entry point normalizes to.
 fn block_rows(report: &InspectReport) -> Vec<String> {
     let output = rendered(report, MIN_WIDTH, false, false);
     let label = crate::score_block::label_text(
@@ -714,9 +624,6 @@ fn block_rows(report: &InspectReport) -> Vec<String> {
         .collect()
 }
 
-/// The four values of the story, drawn through the report itself at the width
-/// it guarantees. Each one is a workspace the audit really scored: the bar, the
-/// face and the band are what core-v3 produced, not what a fixture claimed.
 #[test]
 fn the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes() {
     for target in [0u8, 37, 73, 100] {
@@ -764,8 +671,6 @@ fn the_block_draws_the_bar_the_face_and_the_band_of_every_score_it_publishes() {
     }
 }
 
-/// The help is the rule's and is printed once under the rule, not once under each of its
-/// sites: on this crate's own scan it was the same sentence twenty-two times.
 #[test]
 fn verbose_prints_the_help_once_per_group() {
     let mut report = report();
@@ -782,8 +687,6 @@ fn verbose_prints_the_help_once_per_group() {
     assert_eq!(output.matches("src/other.rs:2:3").count(), 1);
 }
 
-/// The toolchain's replacement is printed under its site, on one row, and qualified whenever
-/// the toolchain does not vouch for it outright.
 #[test]
 fn a_replacement_is_printed_under_its_site() {
     let mut report = report();
@@ -802,8 +705,6 @@ fn a_replacement_is_printed_under_its_site() {
     assert!(output.contains("Replace with: todo!() (maybe-incorrect)"), "{output}");
 }
 
-/// A group every site of which sits outside production code is one line of the verbose
-/// report, since it is shown and weighs nothing, and `--json` carries every site.
 #[test]
 fn an_unscored_group_is_folded_onto_one_line() {
     let mut report = report();
@@ -822,10 +723,6 @@ fn an_unscored_group_is_folded_onto_one_line() {
 
 mod summary;
 
-/// EP-001 US-001: a Clippy fix replacing a credential literal is withheld at
-/// normalization, so the verbose report prints no `Replace with:` for it at
-/// any width and the Markdown a CI job posts never carries the key, while the
-/// same fix over a plain literal is published unchanged.
 #[test]
 fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
     let root = crate::test_scratch::scratch("render-tests", "suggested-credential");

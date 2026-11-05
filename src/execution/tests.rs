@@ -1,6 +1,3 @@
-//! Tests of the orchestration, in a file of their own so that every file of the
-//! module stays under the size bound `oversized_unit` reports at.
-
 use std::ffi::OsStr;
 
 use super::*;
@@ -11,12 +8,6 @@ use crate::structure::{StructureError, StructureScan};
 
 mod toolchain;
 
-/// One artifact cache per scanned fixture, keyed by its path.
-///
-/// Every scan here really runs `cargo clippy`. Two fixtures never share a
-/// cache, one fixture scanned twice always does, and none of them inherits the
-/// harness's own `CARGO_TARGET_DIR`, under which an already compiled fixture
-/// replays with no diagnostic at all.
 fn scan_target_dir(path: &Path) -> PathBuf {
     let key = blake3::hash(path.as_os_str().as_encoded_bytes()).to_hex();
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -55,8 +46,6 @@ fn compiler_message_count(scan: &ScanExecution) -> usize {
         .count()
 }
 
-/// A result whose Clippy pass went perfectly, so that the only thing a test can
-/// make incomplete is the producer it puts an error in.
 fn clean_result() -> ExecutionResult {
     ExecutionResult {
         manifest_path: None,
@@ -85,19 +74,10 @@ fn clean_result() -> ExecutionResult {
     }
 }
 
-/// Every producer that degrades rather than aborts costs the scan its
-/// authoritative flag, and publishes at its own stage.
-///
-/// `cargo_health` used to be in `report::errors` and out of `is_complete`, so a
-/// workspace whose `.cargo/config.toml` could not be read published a
-/// `dependencies` error under `"status": "complete"`. The four are asserted
-/// together because the defect was never the missing clause, it was that the
-/// list of producers was written twice.
 #[test]
 fn every_producer_error_drops_the_authoritative_flag_at_its_own_stage() {
     assert!(clean_result().is_complete());
 
-    /// One way of degrading a clean result, and the stage it must publish at.
     type Degradation = (&'static str, fn(&mut ExecutionResult));
 
     let cases: [Degradation; 4] = [
@@ -157,8 +137,6 @@ fn every_producer_error_drops_the_authoritative_flag_at_its_own_stage() {
     }
 }
 
-/// A producer that raised nothing publishes nothing, whether the plan ran it or
-/// left it out.
 #[test]
 fn a_producer_that_ran_clean_adds_no_error() {
     let mut result = clean_result();
@@ -215,11 +193,6 @@ fn cargo_spawn_failure_is_classified_before_versions_or_scan() {
     assert!(result.scan.finished().is_none());
 }
 
-/// A preflight failure says what the toolchain said and what to do about it.
-///
-/// The message was `Clippy exited with status exit status: 101` and nothing
-/// else, with cargo's own line, the one naming the missing component, sent to
-/// `/dev/null` by the probe itself.
 #[cfg(unix)]
 #[test]
 fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
@@ -249,8 +222,6 @@ fn a_failed_preflight_quotes_the_toolchain_and_names_the_remedy() {
     );
 }
 
-/// A probe that says nothing still names its remedy, so the sentence closes
-/// either way.
 #[cfg(unix)]
 #[test]
 fn a_silent_preflight_failure_still_names_its_remedy() {
@@ -312,8 +283,6 @@ fn valid_scan_collects_provenance_and_clippy_diagnostics() {
     assert!(toolchain.rustc.starts_with("rustc "));
     assert!(toolchain.clippy.starts_with("clippy "));
     let scan = result.scan.into_finished().unwrap();
-    // The catalog is the only source of the list, here as in the command test:
-    // a frozen count would have to be moved by every rule admission.
     assert_eq!(
         scan.command,
         std::iter::once("cargo".to_owned())
@@ -345,10 +314,6 @@ fn nonzero_scan_preserves_prior_diagnostics() {
     assert!(compiler_message_count(&scan) >= 1);
 }
 
-/// Every file of the module stays under the bound `oversized_unit` reports at,
-/// tests included: the layer that starts the scan has to pass the rule it
-/// raises. The module used to be one file of 977 lines with no such test, which
-/// is the only module of the crate that was both near the bound and unguarded.
 #[test]
 fn the_execution_holds_the_size_bound_it_scans_for() {
     for own in [

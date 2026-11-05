@@ -1,11 +1,3 @@
-//! A report assembled from what an execution came back with.
-//!
-//! Nothing here asks the execution back for what it was given: the metadata,
-//! the toolchain and the scan are read once, in the order the published shape
-//! declares them. The three entry points are a planned run, a baseline
-//! comparison and a failure that happened before either existed, and [`Origin`]
-//! is what tells them apart.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -34,14 +26,6 @@ use crate::internal_error::InternalError;
 use crate::policy::{BlockingLevel, DiffScope, PolicyError, PolicyPlan, Producer};
 use crate::workspace_path;
 
-/// What the run that produced a report got as far as.
-///
-/// A run either compiled a plan and resolved a scope, or it failed before
-/// either existed. The two used to reach `from_origin` as an
-/// `Option<&PolicyPlan>`, a `BlockingLevel` and an `Option<ScopeReport>` side
-/// by side, three parameters naming eight combinations for the two that can
-/// occur: every caller holding a plan passed that plan's own blocking level,
-/// and the single caller without a plan was also the one without a scope.
 enum Origin<'a> {
     Planned(&'a PolicyPlan, ScopeReport),
     Unplanned(BlockingLevel),
@@ -79,14 +63,9 @@ pub(super) struct BaselineAnalysis {
     pub(super) baseline: BaseReport,
     pub(super) current: InspectReport,
     pub(super) current_root: Option<PathBuf>,
-    /// Where to store the base side once its evidence is read, with the base
-    /// workspace's members.
     store: Option<(SideCache, Vec<(String, String)>)>,
 }
 
-/// What a comparison needs of its base side: whether it completed, its
-/// diagnostics, and the evidence they pair on, read back from the cache or
-/// still to read under `root`.
 pub(super) struct BaseReport {
     pub(super) status: Status,
     pub(super) diagnostics: Vec<Diagnostic>,
@@ -95,7 +74,6 @@ pub(super) struct BaseReport {
 }
 
 impl BaselineAnalysis {
-    /// The comparison, its base side placed through `map`.
     pub(super) fn into_report(self, map: &DiffMap) -> InspectReport {
         let Self {
             baseline,
@@ -111,8 +89,6 @@ impl BaselineAnalysis {
             (None, Some(root)) => Some(crate::delta::evidence(&baseline.diagnostics, root)),
             (None, None) => None,
         };
-        // A complete base side is stored whatever became of the current one:
-        // an edit that does not compile yet is when the next run comes soonest.
         if let (Some((cache, members)), Some(evidence)) = (store, &evidence) {
             cache.store(members, &baseline.diagnostics, evidence);
         }
@@ -132,8 +108,6 @@ impl BaselineAnalysis {
             Ok(delta) => delta,
             Err(error) => return baseline_report_failure(current, error),
         };
-        // A comparison without the full line map still completes: it pairs
-        // on line distance and says so, as a notice that weighs nothing.
         if let Some(notice) = map.notice() {
             current.errors.push(ReportError {
                 stage: notice.stage.to_owned(),
@@ -209,10 +183,6 @@ pub(super) fn analyze_baseline_execution(
     }
 }
 
-/// A baseline comparison that could not be published, whether the snapshot
-/// failed to build, the delta failed to compute or the cleanup failed
-/// afterwards: the report keeps its shape, drops what it can no longer vouch
-/// for, and names the failure.
 pub(crate) fn baseline_report_failure(
     mut report: InspectReport,
     error: InternalError,
@@ -238,9 +208,6 @@ pub(crate) fn baseline_report_failure(
     force_baseline_gate(report)
 }
 
-/// A run a handled SIGINT or SIGTERM stopped: one failed report, at the stage
-/// the signal stopped, since what the run had found is no longer a judgment of
-/// anything.
 pub(crate) fn interrupted_failure(report: InspectReport) -> InspectReport {
     let clippy = report
         .errors
@@ -301,8 +268,6 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
                 )
             });
     let not_evaluated = not_evaluated(&result, plan);
-    // A rule no local database could answer leaves the score its authority:
-    // the tool never fetches one, so its absence says nothing about the scan.
     let unevaluated = not_evaluated.iter().any(|(_, reason)| {
         !matches!(
             reason,
@@ -340,9 +305,6 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         scope,
         project,
         toolchain: {
-            // Three versions or none: the shape the result carries is unfolded
-            // here, at the boundary whose schema publishes three nullable
-            // fields.
             let toolchain = result.toolchain.as_ref();
             let published = |value: &str| sanitize_text(value, workspace_root, &home);
             ToolchainReport {
@@ -369,9 +331,6 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
     }
 }
 
-/// Every scanned workspace member, with what the walk measured of it: the
-/// selected ones under `--package`, every one otherwise. A member the walk
-/// read nothing of is still listed, with nothing to score.
 fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, SourceFileInventory)> {
     let Some(metadata) = result.metadata.as_ref().filter(|_| result.error.is_none()) else {
         return Vec::new();
@@ -410,10 +369,6 @@ fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, 
         .collect()
 }
 
-/// Every active rule the run did not evaluate, and why: a Clippy lint the
-/// installed toolchain does not list, a repository rule a `--package` scan
-/// has no member to judge with, an advisory rule no local database answers,
-/// or a gated source rule whose crate no unit resolves inside its range.
 fn not_evaluated(
     result: &ExecutionResult,
     plan: Option<&PolicyPlan>,
@@ -449,27 +404,12 @@ fn not_evaluated(
         .collect()
 }
 
-/// Every diagnostic the five producers published, merged on identity, ordered
-/// once.
-///
-/// The map stays open across all five. `merge_diagnostic` pairs on the
-/// content-derived identity and `merge_optional_context` keeps a field only
-/// when every occurrence agrees on it, so merging is commutative and a
-/// producer costs one insertion per finding. Closing the map between producers
-/// is what used to make three word-for-word `merge_*` functions necessary,
-/// each rebuilding the map it had just been handed and re-sorting behind it:
-/// the vector was sorted five times per scan, and the guard that skipped them
-/// on a failed scan was spelled three more times after the `match` above had
-/// already answered it.
 fn diagnostics_from_execution(
     result: &ExecutionResult,
     plan: &PolicyPlan,
     scope: Option<&ScopeReport>,
     home: &HomePaths,
 ) -> (Vec<Diagnostic>, Exclusion) {
-    // A failed scan publishes no finding, and nothing is published relative to
-    // a workspace root the run never resolved. Both are answered once, here,
-    // rather than by every producer below.
     if classify(result) == Status::Failed {
         return (Vec::new(), Exclusion::default());
     }
@@ -482,8 +422,6 @@ fn diagnostics_from_execution(
     };
 
     let mut merged = BTreeMap::<String, Diagnostic>::new();
-    // The dependency key of each declaration finding, by identity: what a
-    // manifest directive names it by, since it publishes no line.
     let mut dependency_keys = BTreeMap::<String, String>::new();
     for candidate in result.cargo_health.iter().flat_map(|scan| &scan.candidates) {
         let diagnostic = normalize_cargo_health_candidate(candidate, workspace_root, home);
@@ -595,17 +533,6 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
     }
 }
 
-/// Keeps what the scope judges. A structural finding is a family, and it is
-/// kept when any member meets the scope: a copy the change wrote next to old
-/// code is the change's finding, whichever of the two sorts first. The first
-/// member that meets the scope becomes the primary site, so the report points
-/// at the copy, and the previous primary joins the related sites. The family's
-/// identity ignores which member is primary, so the swap renames nothing.
-///
-/// Under a contextual scope a finding is also kept by its rule's reach: an
-/// item-reach rule when the function around its site changed, read from the
-/// judged tree under `workspace_root`, and a file-reach rule when its file
-/// changed.
 pub(super) fn project_diagnostics(
     diagnostics: &mut Vec<Diagnostic>,
     scope: &ScopeReport,
@@ -654,9 +581,6 @@ pub(super) fn project_diagnostics(
     });
 }
 
-/// A file of the judged tree, for the enclosing-function test: bounded like
-/// the source walk, and refused when its path does not decode to one inside
-/// the workspace.
 fn judged_source(workspace_root: &Path, path: &str) -> Option<String> {
     const SOURCE_LIMIT: u64 = 8 * 1024 * 1024;
     let file = workspace_root.join(workspace_path::decode_normalized_relative(path)?);
@@ -756,8 +680,6 @@ fn report_errors(
                 .chain(&scan.notices)
                 .map(|error| normalize_error(error, workspace_root, home)),
         );
-        // Killed at the deadline, the pass has no exit of its own to report:
-        // its `deadline-exceeded` error already says what ended it.
         if !scan.deadline_exceeded {
             push_exit_errors(&mut errors, scan, workspace_root, home);
         }
@@ -769,10 +691,6 @@ fn report_errors(
             });
         }
     }
-    // One list of the producers, shared with `ExecutionResult::is_complete`: a
-    // pass cannot publish an error here and still let the report call itself
-    // authoritative, which is what four hand-written blocks let `cargo_health`
-    // do.
     errors.extend(result.producer_errors().map(|error| ReportError {
         stage: error.stage.to_owned(),
         code: error.code.to_owned(),
@@ -785,12 +703,6 @@ fn report_errors(
     errors
 }
 
-/// What the Clippy pass's own exit says went wrong. The exit error ends with
-/// what Cargo wrote on stderr, which is the only place its cause is: a
-/// lockfile it could not parse, a crate that did not compile, a lock it waited
-/// on. That text is a build script's or a linker's, so it is sanitized like
-/// any other message: a key a build script echoed is masked, and a path
-/// outside the workspace keeps only its last two components.
 fn push_exit_errors(
     errors: &mut Vec<ReportError>,
     scan: &ScanExecution,
@@ -890,9 +802,6 @@ fn evaluate_baseline_gate(
         };
     }
     let introduced = delta.introduced.iter().collect::<BTreeSet<_>>();
-    // A compiler note, or a finding of a build script or a test, is introduced
-    // like any finding and blocks nothing: one surface decides blocking, the
-    // full gate's.
     let blocking_diagnostics = diagnostics
         .iter()
         .filter(|diagnostic| {

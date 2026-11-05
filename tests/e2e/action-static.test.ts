@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 4, its static checks:
-// action.yml pins every action it uses to a commit, interpolates nothing into
-// a script, installs the crate's own version by default, and the workflow
-// `ci install` writes into users' repositories agrees with it.
 import { describe, expect, test } from "bun:test";
 import { cargoVersion, runDoctor } from "./e2e-helpers";
 import { gitScenario } from "./git-scenario";
@@ -43,8 +39,6 @@ describe("action.yml", () => {
     expect(actionYaml().inputs.version!.default).toBe(cargoVersion());
   });
 
-  // US-019: only the default branch saves the cache, `~/.cargo/bin` is never
-  // cached, and the launcher runs by the absolute path npm installed it at.
   test("the cache saves from the default branch only, and the launcher runs by its absolute path", () => {
     const cache = steps().find((step) => step.uses?.startsWith("Swatinem/rust-cache@"));
     expect(cache?.with).toMatchObject({ "cache-on-failure": true, "cache-bin": false, "save-if": SAVE_IF });
@@ -59,7 +53,6 @@ describe("action.yml", () => {
     }
   });
 
-  // US-020: action.yml posts nothing; it uploads what the comment job reads.
   test("action.yml posts no comment and uploads the report, the summary and the clean flag", () => {
     expect(Object.keys(actionYaml().inputs)).not.toContain("comment");
     expect(Object.keys(actionYaml().inputs)).not.toContain("comment-on-clean");

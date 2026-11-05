@@ -1,6 +1,3 @@
-// The pseudo-terminal helper, proven on a shell and then on the binary: the
-// child sees a terminal of the requested size on both streams, reads the
-// input, and its exit code comes back.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { BIN, copyWorkspace, runDoctor, scratchDir } from "./e2e-helpers";

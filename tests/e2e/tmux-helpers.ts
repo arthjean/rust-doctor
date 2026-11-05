@@ -1,9 +1,3 @@
-// A person at a terminal, played by tmux. Ported from pf's `TmuxSession`
-// (/home/arthur/dev/pf/tests/e2e/tmux-helpers.ts) and cut to what the
-// interactive report needs: one server per session on a short relative
-// socket, a pane of an explicit size whose program starts only once the byte
-// log is attached, keys, captures, polling waits, resize and an idempotent
-// kill. Every wait polls every 25 ms and never sleeps blind.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,8 +18,6 @@ export const TMUX = Bun.which("tmux");
 
 let warned = false;
 
-// Whether a TUI file can run. Without tmux it skips with one visible reason,
-// unless E2E_REQUIRE_TMUX=1 (CI), where a missing tmux fails the file.
 export function requireTmux(): boolean {
   if (TMUX) return true;
   if (process.env.E2E_REQUIRE_TMUX === "1") {
@@ -42,8 +34,6 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-// The directory holding the sockets: ci-run-files.sh gives each file its own
-// through TMUX_TMPDIR, so resetting a file's servers reaches no other file.
 function socketDir(): string {
   const dir = process.env.TMUX_TMPDIR ?? join(RUN_ROOT, "tmux");
   mkdirSync(dir, { recursive: true });
@@ -60,14 +50,10 @@ export type SessionOptions = {
   height?: number;
 };
 
-// The stable text markers of `tasks/e2e-catalog/tui.md` section 1.4.
 export const MENU_HINT = "↑/↓ move · enter select · q quit";
 export const VIEWER_HINT = "esc back · q to quit";
 export const CI_SETUP = "Add Rust Doctor to GitHub Actions?";
 
-// The interactive report on `workspace`, without color unless asked: the
-// count-up then draws no frame, which removes two seconds from every test
-// whose subject is not the animation.
 export function openReport(
   workspace: string,
   options: SessionOptions & { color?: boolean; args?: string[] } = {},
@@ -82,9 +68,6 @@ export function openReport(
 
 export type PaneStatus = { dead: boolean; status: number | null };
 
-// How a zombie ended, from field 52 of /proc/<pid>/stat (Linux 3.5 and
-// later), in waitpid's encoding: an exit status, or null for a signal. Null
-// when the process still runs, is gone, or the field is unreadable.
 export function zombieExit(pid: number): { status: number | null } | null {
   let stat: string;
   try {
@@ -92,7 +75,6 @@ export function zombieExit(pid: number): { status: number | null } | null {
   } catch {
     return null;
   }
-  // Field 2, the command, may hold spaces: the fields after it start at 3.
   const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(" ");
   if (fields[0] !== "Z") return null;
   const raw = Number(fields[52 - 3]);
@@ -110,8 +92,6 @@ export class TmuxSession {
     readonly sandbox: Sandbox,
   ) {}
 
-  // Starts `argv` in a fresh server, under the sealed environment of
-  // `runDoctor` with TERM=xterm-256color, and returns once it runs.
   static create(argv: string[], options: SessionOptions = {}): TmuxSession {
     if (!TMUX) throw new Error("tmux is not installed");
     const box = options.sandbox ?? sandbox("tmux");
@@ -137,8 +117,6 @@ export class TmuxSession {
       "set", "-g", "default-terminal", "xterm-256color", ";",
       "new-session", "-d", "-s", "main",
       "-x", String(options.width ?? 80), "-y", String(options.height ?? 24), pane, ";",
-      // After the session: tmux 3.4, the one ubuntu-24.04 ships, kills a
-      // server that sets `window-size` before it holds a session.
       "set", "-g", "window-size", "manual", ";",
       "pipe-pane", "-t", "main", "-o", `cat >> ${shellQuote(logPath)}`, ";",
       "wait-for", "-S", gate,
@@ -146,8 +124,6 @@ export class TmuxSession {
     return session;
   }
 
-  // The binary in a pane, with the defaults of `runDoctor`: the advisory
-  // database off and a target directory per workspace.
   static doctor(args: string[], options: SessionOptions = {}): TmuxSession {
     const box = options.sandbox ?? sandbox("tmux-doctor");
     const cwd = options.cwd ?? box.dir;
@@ -168,7 +144,6 @@ export class TmuxSession {
     });
   }
 
-  // tmux key names: `Down`, `Enter`, `Escape`, `C-c`, `q`.
   sendKeys(...keys: string[]): void {
     this.tmux(["send-keys", "-t", "main", ...keys]);
   }
@@ -199,7 +174,6 @@ export class TmuxSession {
     throw new Error(`timed out after ${timeoutMs} ms waiting for ${String(match)} in tmux ${this.socket}; last pane:\n${last}`);
   }
 
-  // Resolves once the pane has not changed for `quietMs`.
   async waitForStable(quietMs = 400, timeoutMs = 15_000): Promise<string> {
     const deadline = Date.now() + timeoutMs;
     let last = this.capturePane();
@@ -226,8 +200,6 @@ export class TmuxSession {
     return { cols: Number(cols), rows: Number(rows) };
   }
 
-  // Every byte the program wrote, escapes included: the place to assert
-  // cursor restore, since a dead pane's cursor flag means nothing.
   byteLog(): string {
     return existsSync(this.logPath) ? readFileSync(this.logPath, "latin1") : "";
   }
@@ -237,9 +209,6 @@ export class TmuxSession {
     if (dead !== "1") return { dead: false, status: null };
     if (status) return { dead: true, status: Number(status) };
     if (signal) return { dead: true, status: null };
-    // tmux 3.4 marks the pane dead a moment before it records how the program
-    // ended, and sometimes never reaps it at all: a program that exited is then
-    // a zombie whose status the kernel still holds.
     const ended = zombieExit(Number(pid));
     return ended ? { dead: true, status: ended.status } : { dead: false, status: null };
   }
@@ -255,7 +224,6 @@ export class TmuxSession {
     throw new Error(`the program in tmux ${this.socket} did not exit within ${timeoutMs} ms (pane ${raw}); last pane:\n${this.capturePane()}`);
   }
 
-  // The pid of the program in the pane, for a test that signals it.
   panePid(): number {
     return Number(this.tmux(["display", "-p", "-t", "main", "#{pane_pid}"]).trim());
   }

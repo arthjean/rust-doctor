@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` section C with H02, H03 and L01: how a scope
-// finds its base on every repository shape, and how it fails when it cannot.
-// Each shape is built once and shared by its rows, which never write it.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { sandbox, scratchDir } from "./e2e-helpers";
@@ -34,8 +31,6 @@ async function failsWith(repo: PlainRepo, args: string[], code: string): Promise
 
 const FILES = ["--scope", "files"];
 
-// A clone under the origin's sandbox, for the shapes `clone()` has no option
-// for (`--no-single-branch`).
 async function cloneOf(origin: Repo, name: string, args: string[]): Promise<PlainRepo> {
   const path = join(scratchDir(name), name);
   await origin.git(["clone", "-q", "--no-hardlinks", ...args, `file://${origin.path}`, path]);
@@ -299,8 +294,6 @@ describe("detached HEAD", () => {
 });
 
 describe("shallow clones", () => {
-  // main holds four commits; feature adds NEWFN on top of them, and the
-  // origin keeps main checked out.
   const origin = once(() =>
     gitScenario("c08")
       .template("mini").commit("base")
@@ -473,9 +466,6 @@ describe("outside git", () => {
     await failsWith(await plain(), ["--scope", "baseline", "--base", "main"], "scope/base-unavailable");
   });
 
-  // Outside git the repository rules judge the files present, so the mini
-  // template's credential is reported as it is in every committed scenario:
-  // the same code scores the same with or without a repository around it.
   test("C14e a full scan outside git judges the files the workspace holds", async () => {
     const repo = await plain();
     const { run, report } = await scan(repo.path, [], { sandbox: repo.sandbox });

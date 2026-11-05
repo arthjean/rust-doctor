@@ -1,5 +1,5 @@
-//! Two copies of one function, each holding the same helper. The outer pair
-//! is the family; the helpers merge with it and are not a second one.
+
+
 
 pub fn above(input: &[u32], limit: u32) -> u32 {
     fn visit(input: &[u32], limit: u32) -> u32 {

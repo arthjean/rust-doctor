@@ -1,7 +1,3 @@
-// The `twoMember` workspace of `tasks/e2e-catalog/subcommands.md` section 0,
-// shared by the files of `rules`, `why` and `report markdown`: a virtual
-// workspace whose root configuration raises `clippy::todo` to error, turns
-// correctness off, and overrides both under `b/**` and `a/src/*.rs`.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { scratchDir } from "./e2e-helpers";
@@ -45,7 +41,6 @@ export function writeTree(dir: string, files: Record<string, string | Uint8Array
   return dir;
 }
 
-// A fresh copy of `twoMember` outside git, for the commands that compile nothing.
 export function twoMember(label = "two-member"): string {
   return writeTree(join(scratchDir(label), "two-member"), twoMemberFiles());
 }

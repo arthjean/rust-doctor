@@ -1,9 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 3, item 1: signals through the
-// installed launcher. A signal to the launcher's pid is what a supervisor
-// sends; one to its process group is a terminal's Ctrl-C, which reaches the
-// native binary twice, from the terminal and from the launcher's forward
-// (real/B2, fixed by US-010). Every case runs a baseline scan held in a
-// sleeping build script, so a leftover snapshot or Cargo group shows.
 import { describe, expect, test } from "bun:test";
 import { installedLauncher, shellStatus, spawnLauncher } from "./launcher-support";
 import { alive, buildGroup, gone, slowRepo, snapshots, waitForBuildScript, type SlowRepo } from "./scope-snapshot-support";
@@ -30,9 +24,6 @@ async function groupGone(pgid: number, timeoutMs = 5_000): Promise<boolean> {
   return !groupAlive(pgid);
 }
 
-// Starts the launcher on a baseline scan of a fresh slow repository, in a
-// session of its own when `group` is set, and resolves once Cargo runs the
-// build script.
 async function heldScan(name: string, group = false) {
   const repo: SlowRepo = await slowRepo(name);
   const launcher = await installedLauncher();
@@ -80,9 +71,6 @@ describe("signals through the launcher", () => {
     } catch {}
     const run = await held.spawned.result;
     expect(shellStatus(run)).toBe(130);
-    // The first press may already have published the report; the second
-    // either finds the run over or takes the immediate exit, which prints
-    // nothing.
     if (run.stdout.length > 0) expect((JSON.parse(run.stdout) as Report).status).toBe("failed");
     expect(await gone(held.pids)).toEqual([]);
     expect(await groupGone(held.pgid)).toBe(true);
@@ -100,8 +88,6 @@ describe("signals through the launcher", () => {
     expect(alive(held.spawned.pid)).toBe(false);
   });
 
-  // The binary documents 130 for a SIGINT, SIGTERM or SIGHUP; the launcher
-  // ends itself by the signal it forwarded, so a shell reads 143 for SIGTERM.
   test.failing("real/B7 a SIGTERM through the launcher exits 130, the status the binary documents", async () => {
     const held = await heldScan("launcher-sigterm-status");
     held.spawned.proc.kill("SIGTERM");

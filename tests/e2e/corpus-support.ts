@@ -1,12 +1,3 @@
-// The pinned corpus of `tests/corpus.json`, scanned end to end through the
-// shipped CLI. A subject is materialized from the clone cache into a scratch
-// clone checked out at its pinned commit, as the Rust harness does
-// (`materialise` in tests/support/corpus.rs): the repository pass enumerates
-// through git, so a bare tree would score a subject as no clone of it scores.
-// `--shared` borrows the cache's objects, so the cache is never scanned in
-// place and never written. The files that
-// use it run only where RUST_DOCTOR_E2E_CORPUS_DIR names that cache, which
-// the corpus job restores; anywhere else they skip with one stated reason.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { REPO_ROOT, runCommand, sandbox, scratchDir, toolchainBin, type Sandbox } from "./e2e-helpers";
@@ -39,7 +30,6 @@ export type Subject = {
   name: string;
   population: "healthy" | "agent";
   commit: string;
-  // The arguments after the materialized path, exactly as the record's run.
   args: string[];
   record: Observation;
 };
@@ -58,16 +48,8 @@ type Record_ = {
 
 const RECORD: Record_ = JSON.parse(readFileSync(join(REPO_ROOT, "tests/corpus.json"), "utf8"));
 
-// The toolchain the record was measured under, `1.99.1` out of
-// `rustc 1.99.1 (... )`: every scan pins it, so a machine whose default is
-// newer replays the record rather than its own Clippy.
 export const RECORD_TOOLCHAIN = RECORD.toolchain.rustc.split(" ")[1]!;
 
-// The environment of the record's run beside the sealed one. A wall-clock
-// cutoff would make a large subject's findings depend on machine load, and a
-// third-party build script reaches for more of the system than the suite's
-// tool directory links (jemalloc's configure under fd runs `expr` and
-// `make`), so the system directories follow it, as they did for the record.
 export function recordEnv(): Record<string, string> {
   return {
     PATH: `${toolchainBin()}:/usr/local/bin:/usr/bin:/bin`,
@@ -106,8 +88,6 @@ export const CORPUS_DIR = process.env.RUST_DOCTOR_E2E_CORPUS_DIR
 
 let warned = false;
 
-// Whether the corpus files run. Unset, they skip with one reason; set to a
-// directory that does not exist, every test fails naming it.
 export function requireCorpus(): boolean {
   if (CORPUS_DIR) return true;
   if (!warned) {
@@ -119,8 +99,6 @@ export function requireCorpus(): boolean {
 
 export type Materialized = { path: string; sandbox: Sandbox };
 
-// A fresh copy of `subject` at its pinned commit. A cache that lacks the
-// subject or its commit fails naming both, rather than reaching for a clone.
 export async function materialize(entry: Subject): Promise<Materialized> {
   if (!CORPUS_DIR) throw new Error("RUST_DOCTOR_E2E_CORPUS_DIR is not set");
   const repository = join(CORPUS_DIR, entry.name);
@@ -143,10 +121,6 @@ export async function materialize(entry: Subject): Promise<Materialized> {
   return { path, sandbox: box };
 }
 
-// What the record keeps of a report, computed as `observation` does in
-// tests/support/corpus.rs: the categorized diagnostics are the findings,
-// counted per rule, beside the score, the status and the exit code. The
-// dimension densities and the findings digest stay with the Rust harness.
 export function observe(exitCode: number | null, report: unknown): Omit<Observation, "name" | "commit"> {
   const value = report as {
     status?: string;
@@ -181,7 +155,6 @@ export function observe(exitCode: number | null, report: unknown): Omit<Observat
   };
 }
 
-// The record of `entry` in the shape `observe` returns.
 export function recorded(entry: Subject): Omit<Observation, "name" | "commit"> {
   const { name: _name, commit: _commit, ...rest } = entry.record;
   const score = rest.score && {

@@ -1,6 +1,3 @@
-//! Tests of the stream reader, in a file of their own so that both halves of
-//! the module stay under the size bound `oversized_unit` reports at.
-
 use std::io::Cursor;
 
 use super::*;
@@ -15,7 +12,6 @@ const COMPILER_MESSAGE: &str = concat!(
     "\"code\":null,\"level\":\"warning\",\"spans\":[]}}\n",
 );
 
-/// What the reader answered, in the four counts a line is judged on.
 #[derive(Debug, PartialEq, Eq)]
 struct Counts {
     noise: usize,
@@ -35,11 +31,6 @@ fn counts(input: impl Into<Vec<u8>>) -> Counts {
     }
 }
 
-/// Every kind of line the stream can carry, and the count it lands in.
-///
-/// One table rather than one test each: the cases it replaced were six copies
-/// of the same four assertions, which is exactly what this crate's own
-/// `duplicate_function_body` rule reports on.
 #[test]
 fn every_kind_of_line_lands_in_its_own_count() {
     let whitespace_prefixed: String = [' ', '\t', '\n', '\r', '\u{000c}']
@@ -119,8 +110,6 @@ fn every_kind_of_line_lands_in_its_own_count() {
     }
 }
 
-/// A reason the toolchain has not published yet is kept whole rather than
-/// dropped, and a truncated object is not.
 #[test]
 fn a_future_reason_is_kept_and_a_cut_object_is_not() {
     let input = format!(
@@ -141,8 +130,6 @@ fn a_future_reason_is_kept_and_a_cut_object_is_not() {
     assert!(matches!(collected.messages[1], CapturedMessage::Unknown));
 }
 
-/// A severity the toolchain has not published yet reaches the report as it was
-/// written: the reader classifies the record, never the diagnostic.
 #[test]
 fn a_future_diagnostic_severity_is_preserved() {
     let input = concat!(
@@ -161,10 +148,6 @@ fn a_future_diagnostic_severity_is_preserved() {
     ));
 }
 
-/// A workspace whose procedural macros emit without end stops the scan at a
-/// published bound and says so, rather than growing until the allocator gives
-/// up. The error lands at the `parsing` stage, which is what drops the
-/// authoritative flag.
 #[test]
 fn a_flood_of_messages_stops_at_the_published_bound() {
     let collected = collect(Cursor::new(COMPILER_MESSAGE.repeat(MESSAGE_MAX_COUNT + 16)));

@@ -1,9 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! `rust-doctor setup`: the loop for the agents detected, and nothing for the
-//! others.
-
 mod support;
 
 use std::ffi::OsString;
@@ -15,7 +12,6 @@ use std::sync::atomic::AtomicUsize;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A git repository holding no agent directory.
 fn repository() -> PathBuf {
     let root = support::fresh_workspace("setup-cli", &COUNTER);
     let status = Command::new("git")
@@ -29,7 +25,6 @@ fn repository() -> PathBuf {
     root
 }
 
-/// A `PATH` holding git and, when asked, a fake `codex`, and no other agent.
 fn path_with(root: &Path, codex: bool) -> OsString {
     let bin = root.join(".test-bin");
     fs::create_dir_all(&bin).unwrap();
@@ -51,7 +46,6 @@ fn setup(root: &Path, path: &OsString, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// What the workspace holds, the test's own `PATH` directory aside.
 fn tree(root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -101,8 +95,6 @@ fn a_fake_codex_on_path_gets_its_skill_and_the_git_hook_and_nothing_else() {
         Some("setup never adds a CI workflow: run `rust-doctor ci install` for GitHub Actions.")
     );
 
-    // Codex has no end-of-turn hook, so the pre-commit hook is its gate, and
-    // it blocks on a warning as the Stop hook does.
     let hook = root.join(".git/hooks/pre-commit");
     assert!(
         fs::read_to_string(&hook)
@@ -110,8 +102,6 @@ fn a_fake_codex_on_path_gets_its_skill_and_the_git_hook_and_nothing_else() {
             .contains("\nrust-doctor . --yes --staged --scope lines --blocking warning\n")
     );
 
-    // A second run refreshes in place rather than refusing, rewriting the hook
-    // an earlier release wrote.
     fs::write(
         &hook,
         "#!/bin/sh\n# rust-doctor pre-commit hook: judges what this commit records.\nif command -v rust-doctor >/dev/null 2>&1; then\n  exec rust-doctor . --yes --staged --scope lines\nfi\n",
@@ -134,8 +124,6 @@ fn no_agent_detected_exits_two_and_names_what_it_probed() {
     }
     assert!(tree(&root).is_empty());
 
-    // A project directory is a detection of its own, and `skill install
-    // --agent detected` reads the same one.
     fs::create_dir(root.join(".cursor")).unwrap();
     let output = support::rust_doctor()
         .args(["skill", "install"])
@@ -149,7 +137,6 @@ fn no_agent_detected_exits_two_and_names_what_it_probed() {
     assert!(!root.join(".claude").exists() && !root.join(".agents").exists());
 }
 
-/// EP-002 US-007: a repository whose one Cargo package sits at `member`.
 fn repository_with_member(member: &str) -> PathBuf {
     let root = repository();
     let crate_root = root.join(member);
@@ -163,7 +150,6 @@ fn repository_with_member(member: &str) -> PathBuf {
     root
 }
 
-/// `arguments`, then `path`, then `tail`, run from `directory`.
 fn run_in(directory: &Path, path: &OsString, arguments: &[&str], target: &Path, tail: &[&str]) -> Output {
     support::rust_doctor()
         .args(arguments)
@@ -175,9 +161,6 @@ fn run_in(directory: &Path, path: &OsString, arguments: &[&str], target: &Path, 
         .unwrap()
 }
 
-/// EP-002 US-007: `crates/x` from the repository's root is `<root>/crates/x`.
-/// Git used to receive the relative path twice, as its directory and as
-/// `-C`, and looked for `crates/x/crates/x`.
 #[test]
 fn a_relative_member_path_behaves_like_its_absolute_form() {
     let root = repository_with_member("crates/x");
@@ -201,8 +184,6 @@ fn a_relative_member_path_behaves_like_its_absolute_form() {
     assert!(hook.contains("rust-doctor crates/x --yes"), "{hook}");
 }
 
-/// EP-005 US-021: an end-of-turn hook installed through `setup` says what it
-/// runs and with whose authority, once per hook, and a dry run says nothing.
 #[test]
 fn setup_states_the_compile_authority_of_the_hooks_it_installs() {
     let root = repository();
@@ -225,8 +206,6 @@ fn setup_states_the_compile_authority_of_the_hooks_it_installs() {
     assert!(root.join(".cursor/hooks.json").is_file());
 }
 
-/// EP-002 US-007: a PATH that names nothing is refused before anything is
-/// created for it.
 #[test]
 fn a_missing_path_is_refused_by_every_installer_and_creates_nothing() {
     let root = repository_with_member("crates/x");
@@ -255,9 +234,6 @@ fn a_missing_path_is_refused_by_every_installer_and_creates_nothing() {
     assert!(!root.join("crates/y").exists());
 }
 
-/// EP-002 US-007: a path holding spaces and non-ASCII characters reaches every
-/// installer intact. `ci install` is left out: its workflow carries the path
-/// as a bare YAML scalar and shell word, so it refuses one by design.
 #[test]
 fn a_path_with_spaces_and_non_ascii_characters_installs() {
     let member = "crates/caf\u{e9} au lait";
@@ -278,7 +254,6 @@ fn a_path_with_spaces_and_non_ascii_characters_installs() {
     assert!(root.join(member).join(".claude/skills/rust-doctor/SKILL.md").is_file());
 }
 
-/// Every byte of `output` a terminal could act on, `\n` aside.
 fn controls(output: &Output) -> Vec<char> {
     let text = format!(
         "{}{}",
@@ -301,10 +276,6 @@ fn git(root: &Path, arguments: &[&str]) {
     assert!(status.success(), "git {arguments:?}");
 }
 
-/// A clone of a repository that commits a terminal escape everywhere an
-/// installer prints from: the directory `.cargo-husky/hooks` links to, the
-/// `rust-doctor` line of the marker hook in it, a workflow's file name, and C1
-/// controls in the Claude settings' hook.
 fn hostile_clone() -> PathBuf {
     let origin = repository();
     let directory = "\u{1b}[2Jhooks\u{1b}]0;title\u{7}";
@@ -328,7 +299,6 @@ fn hostile_clone() -> PathBuf {
         r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"rust-doctor hook run claude","timeout":7777,"note":"\u009b2J\u009d0;title\u009c"}]}]}}"#,
     )
     .unwrap();
-    // Forced: a global excludes file commonly ignores `settings.local.json`.
     git(&origin, &["add", "-A", "-f"]);
     git(
         &origin,
@@ -351,8 +321,6 @@ fn hostile_clone() -> PathBuf {
     clone
 }
 
-/// No name, line or settings value a cloned repository commits reaches the
-/// terminal as anything but text, through any installer that prints it.
 #[test]
 fn the_installers_print_no_control_character_a_clone_commits() {
     let clone = hostile_clone();
@@ -372,9 +340,7 @@ fn the_installers_print_no_control_character_a_clone_commits() {
     let text = |output: &Output| {
         format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
     };
-    // Each sink is reached, so the absence below is the gate's doing.
     assert!(text(&setup).contains("becomes"), "{}", text(&setup));
-    // The gate drops each escape sequence whole, so the names print bare.
     assert!(
         text(&git_hook).contains("Would update hooks/pre-commit: `rust-doctor  . --yes` becomes"),
         "{}",
@@ -387,8 +353,6 @@ fn the_installers_print_no_control_character_a_clone_commits() {
     }
 }
 
-/// A workspace whose path from the repository's top holds a control
-/// character is refused before the hook that would carry it is written.
 #[test]
 fn a_workspace_path_holding_a_control_character_installs_no_hook() {
     let root = repository();

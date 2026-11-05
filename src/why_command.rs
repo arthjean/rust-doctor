@@ -1,10 +1,3 @@
-//! `rust-doctor why PATH:LINE[:COLUMN]`: the findings at one line, how each
-//! is set, and what would silence it.
-//!
-//! Without `--report` it scans the one member owning the file, the way
-//! `--package` does; with `--report` it reads that saved JSON and spawns
-//! nothing. Both answer from the same JSON document.
-
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -18,11 +11,16 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Args)]
 pub struct WhyArgs {
-    /// The site, as a report prints it: `src/lib.rs:12` or `src/lib.rs:12:5`.
-    #[arg(value_name = "PATH:LINE[:COLUMN]")]
+    #[arg(
+        value_name = "PATH:LINE[:COLUMN]",
+        help = "The site, as a report prints it: `src/lib.rs:12` or `src/lib.rs:12:5`"
+    )]
     location: String,
-    /// A report `rust-doctor --json` saved, read instead of scanning.
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "A report `rust-doctor --json` saved, read instead of scanning"
+    )]
     report: Option<PathBuf>,
     #[arg(long)]
     json: bool,
@@ -72,8 +70,6 @@ pub fn run(arguments: &WhyArgs) -> ExitCode {
     }
 }
 
-/// Scans the member whose manifest is the nearest above `file`, and answers
-/// the report as JSON with the workspace root its paths are relative to.
 fn scan_owner(file: &Path) -> Result<(Value, PathBuf), String> {
     let absolute = file
         .canonicalize()
@@ -98,7 +94,6 @@ fn manifest(directory: &Path) -> Option<toml::Table> {
     std::fs::read_to_string(directory.join("Cargo.toml")).ok()?.parse().ok()
 }
 
-/// The `[package] name` of the manifest in `directory`, when it declares one.
 fn package_name(directory: &Path) -> Option<String> {
     manifest(directory)?
         .get("package")?
@@ -107,12 +102,6 @@ fn package_name(directory: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The root a saved report's paths are relative to, found without a
-/// process: the nearest directory above the file whose manifest declares a
-/// `[workspace]`, else the nearest holding a manifest, else the current
-/// directory. It used to look for `Cargo.lock` first, which a library
-/// commits nowhere and a scan no longer leaves behind, and found the
-/// lockfile of whatever repository held the workspace.
 fn saved_root(file: &Path) -> PathBuf {
     let Ok(absolute) = file.canonicalize() else {
         return PathBuf::from(".");
@@ -129,7 +118,6 @@ fn saved_root(file: &Path) -> PathBuf {
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
-/// `file` relative to `root` with `/` separators, as a report spells it.
 fn relative_to(file: &Path, root: &Path) -> Option<String> {
     let relative = file
         .canonicalize()

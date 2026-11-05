@@ -1,5 +1,5 @@
 #![allow(unsafe_code, reason = "the measurement installs its own global allocator")]
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::undocumented_unsafe_blocks))]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
@@ -16,11 +16,6 @@ use rust_doctor::{
 };
 
 const DIAGNOSTICS: usize = 10_000;
-/// The latency the pipeline is held to on the machine the bound was measured
-/// on, at 28 ms here. A shared runner declares itself slower through
-/// `RUST_DOCTOR_BENCHMARK_ALLOWANCE`, the multiple every clock assertion of
-/// this repository reads: the macOS runner measured 131 ms with three test
-/// crates compiling beside it, which was the load and not the pipeline.
 const LATENCY_BUDGET: Duration = Duration::from_millis(100);
 
 fn machine_allowance() -> u32 {
@@ -175,7 +170,6 @@ fn presentation_pipeline(report: &mut InspectReport) {
     )
     .expect("static rendering should succeed");
 
-    // Reserve the complete allowed handoff payload while the presentation is still live.
     let handoff_payload = vec![b'x'; HANDOFF_BYTES];
     black_box((&presentation, handoff_payload));
 }

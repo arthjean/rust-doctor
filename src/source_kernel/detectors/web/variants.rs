@@ -1,5 +1,3 @@
-//! The variant tables of the three web hardening rules.
-
 use super::super::{Case, Semantic, Variants};
 use crate::policy::{SOURCE_DISABLED_JWT_VALIDATION, SOURCE_INSECURE_AUTH_COOKIE, SOURCE_PERMISSIVE_CORS};
 

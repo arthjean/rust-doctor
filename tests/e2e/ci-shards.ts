@@ -1,7 +1,3 @@
-// The CI shard planner, ported from pf (/home/arthur/dev/pf/tests/e2e/ci-shards.ts):
-// every test file carries a checked-in weight in ci-shard-weights.json, the
-// heaviest go first to the lightest shard, and a file without a weight, a
-// weight without a file or a duplicate fails the plan naming it.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -83,8 +79,6 @@ export function discoverTestFiles(dir: string): string[] {
     .map((entry) => entry.name);
 }
 
-// `bun ci-shards.ts --shard-count 3 --shard-index 0` prints the shard's files,
-// one per line, and every shard's weight on stderr.
 function run(args: string[]): void {
   const shardCount = integerArgument(args, "--shard-count");
   const shardIndex = integerArgument(args, "--shard-index");

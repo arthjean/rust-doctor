@@ -1,20 +1,3 @@
-//! The base side of a baseline comparison, judged once per base.
-//!
-//! An agent rescanning with `--scope baseline` after every edit used to
-//! materialize and lint the unchanged base on every run. A complete base side
-//! is a function of its git tree, the toolchain, the policy and what Cargo
-//! reads from the environment and from outside the repository, so it is
-//! stored under a digest of exactly those, as the normalized diagnostics and
-//! the evidence the delta pairs them on. A hit then needs no snapshot, no
-//! Cargo process and no read of the base's sources.
-//!
-//! The cache can only ever cost a rescan. A file that does not decode, an
-//! entry whose workspace members differ from the current ones, or an
-//! unreadable key ingredient is a miss, never an error, and
-//! `RUST_DOCTOR_NO_CACHE=1` turns it off. It writes only under Cargo's target
-//! directory, through a temporary file and a rename, merged with what another
-//! run stored meanwhile and pruned to [`ENTRY_LIMIT`] entries.
-
 use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsString;
@@ -34,34 +17,25 @@ use crate::report::{Diagnostic, SCHEMA_VERSION};
 use crate::structure::StructureSettings;
 use crate::workspace_write::{create_new, symlinked_component};
 
-/// Base sides kept per target directory: a few branches, each a few edits
-/// apart from where it started.
 const ENTRY_LIMIT: usize = 20;
-/// Version 2: a base side scanned before the repository pass had a git view
-/// of its snapshot holds no repository finding, and is never read back.
 const FILE_VERSION: u32 = 2;
-/// The largest cache file read back; past it the cache is a miss.
 const FILE_BYTES_LIMIT: u64 = 256 * 1024 * 1024;
-/// Where the cache lives under the target directory, and its one file.
 const CACHE_DIRECTORY: &str = "rust-doctor/cache";
 const CACHE_FILE: &str = "base-sides.json";
 const ENVIRONMENT_PREFIXES: [&str; 5] = ["CARGO", "RUST", "CC", "CFLAGS", "CXX"];
 
-/// A base side read back from the cache.
 #[derive(Debug)]
 pub(crate) struct CachedSide {
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) evidence: Evidence,
 }
 
-/// Where a miss stores the base side it is about to compute.
 #[derive(Debug)]
 pub(crate) struct SideCache {
     target_directory: PathBuf,
     key: String,
 }
 
-/// What the lookup answered, published under `--verbose` and nowhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheOutcome {
     Hit,
@@ -105,19 +79,15 @@ struct CacheFile {
 #[derive(Debug, Serialize, Deserialize)]
 struct Entry {
     key: String,
-    /// Every workspace member of the base, with its manifest relative to the
-    /// workspace root.
     members: Vec<(String, String)>,
     diagnostics: Vec<Diagnostic>,
     evidence: Vec<Option<String>>,
 }
 
-/// Everything the base side's findings depend on besides the base's tree.
 pub(crate) struct KeyInputs<'a> {
     pub(crate) workspace_root: &'a Path,
     pub(crate) target_directory: &'a Path,
     pub(crate) comparison_base: &'a str,
-    /// `None` when the plan probed no version, hashed as three empty fields.
     pub(crate) toolchain: Option<&'a Toolchain>,
     pub(crate) environment: &'a CommandEnvironment,
     pub(crate) lints: Option<&'a KnownLints>,
@@ -127,7 +97,6 @@ pub(crate) struct KeyInputs<'a> {
     pub(crate) options: &'a RunOptions,
 }
 
-/// Looks the base side up, and says where to store it on a miss.
 pub(crate) fn lookup(inputs: &KeyInputs<'_>, current: &Metadata) -> Lookup {
     if env::var_os("RUST_DOCTOR_NO_CACHE").is_some_and(|value| value == "1") {
         return Lookup::Disabled;
@@ -154,8 +123,6 @@ pub(crate) fn lookup(inputs: &KeyInputs<'_>, current: &Metadata) -> Lookup {
 }
 
 impl SideCache {
-    /// Stores a complete base side, merged with what is on disk. A failure
-    /// to write costs the next run a rescan and nothing else.
     pub(crate) fn store(
         self,
         members: Vec<(String, String)>,
@@ -190,12 +157,6 @@ fn read(path: &Path) -> CacheFile {
         .unwrap_or_default()
 }
 
-/// Writes the file through a staging sibling created only where nothing sits,
-/// then renamed over the old file, under a cache directory none of whose
-/// components is a symlink: a committed target directory must not turn a
-/// store into a write elsewhere. A staging file already there, a stale one
-/// whose PID came round again, is left alone, and a later run, under another
-/// `pid`, stores the side.
 fn write(target_directory: &Path, file: &CacheFile, pid: u32) -> Option<()> {
     if symlinked_component(target_directory, Path::new(CACHE_DIRECTORY)).is_some() {
         return None;
@@ -226,8 +187,6 @@ fn decode_evidence(evidence: &[Option<String>]) -> Option<Evidence> {
         .collect()
 }
 
-/// Every workspace member, with its manifest relative to the workspace root:
-/// what an entry must agree with the current metadata on.
 pub(crate) fn members(metadata: &Metadata) -> Vec<(String, String)> {
     let root = metadata.workspace_root.as_std_path();
     let mut members: Vec<(String, String)> = metadata
@@ -244,8 +203,6 @@ pub(crate) fn members(metadata: &Metadata) -> Vec<(String, String)> {
     members
 }
 
-/// The digest of every key ingredient, length-prefixed so no two lists of
-/// fields hash alike. `None` when the base's tree cannot be named.
 fn key(inputs: &KeyInputs<'_>) -> Option<String> {
     let tree = tree(inputs)?;
     let repository = inputs
@@ -297,7 +254,6 @@ fn key(inputs: &KeyInputs<'_>) -> Option<String> {
     Some(hasher.finalize().to_hex().to_string())
 }
 
-/// `git rev-parse <base>^{tree}`: what the base side is a scan of.
 fn tree(inputs: &KeyInputs<'_>) -> Option<String> {
     let failure = GitFailure::new("tree-unavailable", "The base tree could not be named.");
     let call = GitCall {
@@ -321,9 +277,6 @@ fn tree(inputs: &KeyInputs<'_>) -> Option<String> {
     (!tree.is_empty() && tree.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(tree)
 }
 
-/// The variables Cargo, rustc and the C toolchains a build script drives
-/// read, sorted. rust-cache keys its own caches on the same prefixes. This
-/// tool's own `RUST_DOCTOR_*` switches change no compiler input and stay out.
 fn environment() -> Vec<(OsString, OsString)> {
     let mut variables: Vec<(OsString, OsString)> = env::vars_os()
         .filter(|(name, _)| {
@@ -339,8 +292,6 @@ fn environment() -> Vec<(OsString, OsString)> {
     variables
 }
 
-/// The Cargo configuration files outside the repository, the only ones its
-/// tree does not already pin: every ancestor's, then `$CARGO_HOME`'s.
 fn outside_configs(repository: &Path) -> Vec<PathBuf> {
     let home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
@@ -355,7 +306,6 @@ fn outside_configs(repository: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Which RustSec database the advisory rules read, and how recently it moved.
 fn advisory_identity(options: &RunOptions) -> String {
     let Some(database) = &options.advisory_db else {
         return String::new();
@@ -395,8 +345,6 @@ mod tests {
         }
     }
 
-    /// The outside file a planted link points at: its bytes and its
-    /// modification time, which a truncating open would both change.
     fn outside(root: &Path) -> (PathBuf, Vec<u8>, std::time::SystemTime) {
         let file = root.join("outside.txt");
         fs::write(&file, b"not the cache's to touch").unwrap();
@@ -438,9 +386,6 @@ mod tests {
         }
     }
 
-    /// A staging file left by a crashed run whose PID came round again is
-    /// refused, not truncated, the stored file stays readable, and the next
-    /// run, under another PID, stores the side.
     #[test]
     fn a_stale_staging_file_refuses_the_write_until_a_later_run() {
         let root = crate::test_scratch::scratch("side-cache", "stale-staging");

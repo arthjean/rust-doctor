@@ -33,8 +33,6 @@ fn an_explanation_carries_the_catalog_and_the_corpus_measurement() {
     }
 }
 
-/// A one-package Cargo workspace of its own, so a scan's discovery stops at
-/// it rather than at the repository holding the scratch directory.
 fn package(name: &str) -> std::path::PathBuf {
     let root = scratch("explain", name);
     std::fs::create_dir_all(root.join("src")).unwrap();
@@ -47,9 +45,6 @@ fn package(name: &str) -> std::path::PathBuf {
     root
 }
 
-/// The effective level comes from the workspace root's `rust-doctor.toml`
-/// alone, with every `[[overrides]]` table that sets the rule or its
-/// category.
 #[test]
 fn a_workspace_names_the_effective_level_its_source_and_its_overrides() {
     let root = package("effective-level");
@@ -125,8 +120,6 @@ fn a_hit_carries_its_level_source_its_suppressions_and_the_directive_to_write() 
     assert!(text.contains("> 2 |     todo!()"), "{text}");
     assert!(text.contains("To suppress this site: #[expect(clippy::todo"), "{text}");
 
-    // A related location covers the line, and the directive above it is
-    // shown with its status instead of a directive to write.
     let site = explain_site(&report(), "src/lib.rs:10".parse().unwrap(), &root, &BTreeSet::new());
     assert_eq!(site.hits.len(), 1);
     assert_eq!(site.hits[0].suppressions[0].status, "missing-reason");
@@ -151,8 +144,6 @@ fn a_line_with_no_finding_says_whether_it_is_ignored_generated_or_clean() {
     assert_eq!(site.text(&root), "Nothing is reported at src/lib.rs:40.\n");
 }
 
-/// US-023: a line with nothing reported, under a manifest whose `[lints]`
-/// table allows a rule, names the allow that hides its sites.
 #[test]
 fn a_line_under_a_lints_allow_names_the_allow() {
     let root = scratch("explain", "why-lints");
@@ -171,14 +162,11 @@ fn a_line_under_a_lints_allow_names_the_allow() {
         site.text(&root),
         "Nothing is reported at crates/cli/src/main.rs:3: a [lints] table allows clippy::print_stdout, so the scan hides those sites there.\n"
     );
-    // Another member's directory is not under that manifest.
     let site = explain_site(&report, "crates/core/src/lib.rs:3".parse().unwrap(), &root, &none);
     assert_eq!(site.absence, Some(Absence::NothingReported));
     assert!(site.allowed_by_lints.is_empty());
 }
 
-/// A saved report is any file the reader names: an escape sequence or a
-/// control character in one of its strings never reaches the terminal.
 #[test]
 fn a_saved_report_cannot_write_an_escape_sequence_to_the_terminal() {
     let root = scratch("explain", "why-escapes");

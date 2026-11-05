@@ -1,14 +1,3 @@
-//! CI steps that compile the workspace with a secret in scope.
-//!
-//! Compiling runs every dependency's `build.rs` and procedural macros, which
-//! read the environment they run in. A GitHub Actions secret placed in the
-//! `env` of the step, of its job or of the whole workflow is in that
-//! environment. The rule reads each tracked `.github/workflows/*.yml` with an
-//! indentation walk, which is enough for the keys it needs: `env`, `jobs`,
-//! `steps`, `run` and `uses`. It never pulls in a YAML parser. A file with an
-//! anchor or a merge key abstains, since the walk cannot follow them, and so
-//! does a job that calls a reusable workflow, whose steps live elsewhere.
-
 use std::path::Path;
 
 use super::{MAX_FILE_BYTES, RepoFinding, RepoScan, path_context, read_bounded};
@@ -16,11 +5,8 @@ use crate::policy::REPO_SECRET_IN_BUILD_STEP;
 use crate::source_text::SourceSpan;
 use crate::workspace_path;
 
-/// The cargo subcommands that compile the workspace. `publish` verifies the
-/// package by building it unless `--no-verify` says otherwise.
 const COMPILING: [&str; 9] = ["bench", "build", "check", "clippy", "doc", "install", "publish", "run", "test"];
 
-/// Is this tracked path a workflow file GitHub runs?
 pub(super) fn is_workflow(path: &str) -> bool {
     path.strip_prefix(".github/workflows/")
         .is_some_and(|name| !name.contains('/') && (name.ends_with(".yml") || name.ends_with(".yaml")))
@@ -55,29 +41,22 @@ pub(super) fn scan_workflow(workspace_root: &Path, path: &str, scan: &mut RepoSc
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct BuildWithSecret {
     pub(super) subcommand: String,
-    /// `step`, `job` or `workflow`: the narrowest env the secret sits in.
     pub(super) scope: &'static str,
-    /// The env variable's name. Its value is never read into the report.
     pub(super) variable: String,
     pub(super) line: usize,
     pub(super) column: usize,
     pub(super) end: usize,
 }
 
-/// One `key:` line of the file, at the column its key starts.
 struct Entry<'a> {
     line: usize,
     column: usize,
     key: &'a str,
     value: &'a str,
-    /// Does the line open a list item (`- key: value`)?
     item: bool,
-    /// The lines of a block scalar (`key: |`), with their line numbers.
     block: Vec<(usize, &'a str)>,
 }
 
-/// Every `key:` line of the file, block scalars folded into their key, or
-/// `None` when an anchor, an alias or a merge key makes the walk unreliable.
 fn entries(source: &str) -> Option<Vec<Entry<'_>>> {
     let lines: Vec<&str> = source.lines().collect();
     let mut entries: Vec<Entry<'_>> = Vec::new();
@@ -96,8 +75,6 @@ fn entries(source: &str) -> Option<Vec<Entry<'_>>> {
             }
             None => (false, indent, trimmed),
         };
-        // `- &build` or `- *build` anchors or aliases a whole list item, and
-        // carries no key of its own for the check below to see.
         if anchored(text) {
             return None;
         }
@@ -130,8 +107,6 @@ fn entries(source: &str) -> Option<Vec<Entry<'_>>> {
     Some(entries)
 }
 
-/// `key: value` or `key:`, the key unquoted. A list scalar or a line without
-/// a key is not an entry.
 fn split_key(text: &str) -> Option<(&str, &str)> {
     let (key, value) = match text.split_once(": ") {
         Some((key, value)) => (key, value.trim()),
@@ -147,7 +122,6 @@ fn anchored(value: &str) -> bool {
         && characters.next().is_some_and(|next| next.is_ascii_alphanumeric() || next == '_')
 }
 
-/// Does this env entry put a secret in scope?
 fn secret_variable(key: &str, value: &str) -> bool {
     value.contains("secrets.")
         || key == "CARGO_REGISTRY_TOKEN"
@@ -160,8 +134,6 @@ struct Step {
     runs: Vec<Run>,
 }
 
-/// One shell command line of a step's `run`, its `\` continuations joined.
-/// The span covers the physical line it starts on.
 struct Run {
     line: usize,
     column: usize,
@@ -193,7 +165,6 @@ pub(super) fn compiling_steps_with_secrets(source: &str) -> Vec<BuildWithSecret>
     walk.findings()
 }
 
-/// What the walk learned: the workflow's secret, and each job's.
 #[derive(Default)]
 struct Walk {
     workflow_secret: Option<String>,
@@ -201,7 +172,6 @@ struct Walk {
 }
 
 impl Walk {
-    /// One entry, at the path of keys above it.
     fn record(&mut self, source: &str, path: &[&str], entry: &Entry<'_>) {
         let secret = |key: &str| secret_variable(key, entry.value).then(|| key.to_owned());
         match path {
@@ -231,7 +201,6 @@ impl Walk {
         }
     }
 
-    /// A key of a step: a list item opens the next step.
     fn record_step(&mut self, source: &str, entry: &Entry<'_>) {
         let Some(job) = self.jobs.last_mut() else {
             return;
@@ -256,8 +225,6 @@ impl Walk {
                 command: entry.value.to_owned(),
             });
         }
-        // A line ending in `\` continues on the next, so a flag written below
-        // its command, `--no-verify` most often, is read with it.
         let mut continued: Option<Run> = None;
         for (line, text) in &entry.block {
             let trimmed = text.trim_start();
@@ -284,8 +251,6 @@ impl Walk {
         step.runs.extend(continued);
     }
 
-    /// Every compiling command of a step with a secret in scope, the
-    /// narrowest scope named.
     fn findings(&self) -> Vec<BuildWithSecret> {
         let mut findings = Vec::new();
         for job in self.jobs.iter().filter(|job| !job.reusable) {
@@ -315,14 +280,12 @@ impl Walk {
     }
 }
 
-/// Keeps the first secret a scope names.
 fn remember(slot: &mut Option<String>, secret: Option<String>) {
     if slot.is_none() {
         *slot = secret;
     }
 }
 
-/// The 1-based column a single-line `run:` value starts at.
 fn value_column(source: &str, entry: &Entry<'_>) -> usize {
     source
         .lines()
@@ -331,10 +294,6 @@ fn value_column(source: &str, entry: &Entry<'_>) -> usize {
         .map_or(entry.column + 1, |offset| offset + 1)
 }
 
-/// The first compiling cargo subcommand a shell line runs, if any. Every
-/// command of the line is read, `cargo fmt --check && cargo build` included,
-/// up to a `#` comment; quotes are dropped, and so are the toolchain and the
-/// global flags written before the subcommand.
 pub(super) fn compiling_command(line: &str) -> Option<String> {
     let comment = line
         .char_indices()
@@ -354,10 +313,6 @@ pub(super) fn compiling_command(line: &str) -> Option<String> {
     })
 }
 
-/// Does a tracked Cargo credentials file hold a registry token? Only a
-/// non-empty `token` string of `registry` or of a `registries.*` table counts,
-/// however the TOML spells it, so an empty template stays silent. A file that
-/// is not TOML is one Cargo refuses too, and abstains.
 pub(super) fn holds_registry_token(source: &str) -> bool {
     let Ok(credentials) = toml::from_str::<toml::Table>(source) else {
         return false;
@@ -375,7 +330,6 @@ pub(super) fn holds_registry_token(source: &str) -> bool {
             .is_some_and(|registries| registries.values().any(holds_token))
 }
 
-/// Is this path a Cargo credentials file?
 pub(super) fn is_cargo_credentials(path: &str) -> bool {
     let mut segments = path.rsplit('/');
     matches!(segments.next(), Some("credentials" | "credentials.toml")) && segments.next() == Some(".cargo")

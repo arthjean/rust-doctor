@@ -1,10 +1,3 @@
-//! The index a `--staged` scan judges, written out as the tree every producer
-//! reads in place of the working tree.
-//!
-//! It is the baseline snapshot with a different source: a commit there, the
-//! index here, both checked out by `checkout-index` into a private temporary
-//! root, so the two share the checks on what that tree may hold.
-
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,14 +11,6 @@ use super::{
     repository_root, temp_unavailable, validate_inventory_path, validate_materialized_symlinks,
 };
 
-/// The index a `--staged` scan judges, read and checked once.
-///
-/// Git hands a hook the index it is about to commit in `GIT_INDEX_FILE`, which
-/// is `.git/index`, or a lock file of its own when the commit names paths or
-/// passes `-a`. That one is honored; otherwise the repository's own index is
-/// read, and refused while another git process holds its lock, since what it
-/// holds then is a write half done. The variable is still removed from every
-/// other git call, which is what keeps it from redirecting those.
 #[derive(Debug)]
 pub(crate) struct StagedIndex {
     path: PathBuf,
@@ -51,8 +36,6 @@ pub(crate) fn locate_index(
 ) -> Result<StagedIndex, InternalError> {
     let unavailable = || INDEX_UNAVAILABLE.error(INDEX_STAGE);
     let path = match env::var_os("GIT_INDEX_FILE").filter(|file| !file.is_empty()) {
-        // Git resolves a relative index against the directory it runs in,
-        // which is also the one it started the hook in.
         Some(file) => env::current_dir().map_err(|_| unavailable())?.join(file),
         None => {
             let answer = git::run_git(
@@ -106,9 +89,6 @@ fn index_call<const N: usize>(root: &Path, operation: [&str; N], limit: usize) -
     }
 }
 
-/// Reads `ls-files --stage -z`, answering the symlinks to check once the tree
-/// is written. An entry at any stage but 0 is half of a merge conflict, and a
-/// scan of one side of it would judge code nobody wrote.
 fn parse_index_listing(output: &[u8]) -> Result<Vec<PathBuf>, InternalError> {
     let unavailable = || INDEX_UNAVAILABLE.error(INDEX_STAGE);
     let Some((&0, entries)) = output.split_last() else {
@@ -143,7 +123,6 @@ fn parse_index_listing(output: &[u8]) -> Result<Vec<PathBuf>, InternalError> {
         match *mode {
             b"100644" | b"100755" => {}
             b"120000" => symlinks.push(PathBuf::from(path)),
-            // A submodule is a commit, not a file, and checkout writes none.
             b"160000" => {}
             _ => return Err(unavailable()),
         }
@@ -151,9 +130,6 @@ fn parse_index_listing(output: &[u8]) -> Result<Vec<PathBuf>, InternalError> {
     Ok(symlinks)
 }
 
-/// Writes the index into a private temporary tree, the way [`materialize`]
-/// writes a commit, and answers the snapshot every producer then reads in
-/// place of the working tree.
 pub(crate) fn materialize_index(
     workspace_root: &Path,
     index: &StagedIndex,

@@ -1,37 +1,5 @@
 name: Release
 
-# Builds the five platform binaries the Node launcher declares in
-# npm/rust-doctor/lib/launcher.js and publishes them to npm, so that
-# `npx rust-doctor@latest` resolves to the binary for the machine that ran it.
-# The same five binaries ship as archives on the GitHub Release, which is what
-# `cargo binstall rust-doctor` installs instead of compiling.
-#
-# A tag publishes; anything else stops at a dry run, so the candidate stays
-# validated between releases. The same tag publishes both channels, npm and
-# crates.io, from one commit: the two registries drifted apart once, npm
-# restarting at 0.3.0 while crates.io stayed on the 0.2.0 written before this
-# rewrite, and a version number that means one thing on one registry and
-# another elsewhere is what a single publishing commit prevents. The GitHub
-# Release goes out from the same tag, carrying the note written for it under
-# `.github/releases/`.
-#
-# The npm names are not the ones the retired account used. `@rust-doctor/*` was
-# transferred to npm-support when that account went away and cannot be
-# reclaimed, so the native packages live under `@rustdoctor/*`. Versions 0.1.1
-# through 0.2.0 of the unscoped `rust-doctor` were unpublished and are burned
-# for good: npm never lets a name@version be reused. That is why the line
-# restarts at 0.3.0.
-#
-# React Doctor's publish.yml is driven by Changesets, which has no analogue for
-# a single Rust crate: the version lives in Cargo.toml and the launcher's
-# package.json mirrors it (pack-local.mjs fails the build when they disagree),
-# so a release is one version bump, not a changeset graph.
-#
-# No job here restores a cache. A rust-cache entry is written by whichever run
-# on the default branch saved it last, corpus and CI runs included, and a
-# restored `target/` or `~/.cargo` would carry what those runs compiled into a
-# shipped binary. Every release build starts cold.
-
 on:
   workflow_dispatch:
   push:
@@ -60,9 +28,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ubuntu-22.04 rather than ubuntu-latest: the glibc the binary links
-          # against is the oldest one it will run on, and `latest` silently
-          # moves that floor when GitHub rolls the label forward.
           - platform: linux-x64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -75,20 +40,16 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             native: true
-          # Cross-compiled from the Apple Silicon runner: Xcode ships both
-          # slices, and GitHub's Intel macOS images are on their way out. The
-          # tradeoff is that this leg cannot run the binary it produces, so its
-          # smoke step is skipped rather than faked.
           - platform: darwin-x64
             os: macos-latest
             target: x86_64-apple-darwin
             native: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
           targets: ${{ matrix.target }}
@@ -96,9 +57,6 @@ jobs:
       - name: Build
         run: cargo build --release --locked --bin rust-doctor --target ${{ matrix.target }}
 
-      # Proves the artifact starts and reports the version Cargo.toml declares,
-      # which is the one invariant pack-local.mjs later checks the wrapper
-      # manifest against.
       - name: Verify the binary runs
         if: matrix.native
         run: ./target/${{ matrix.target }}/release/rust-doctor --version
@@ -108,17 +66,13 @@ jobs:
           mkdir -p staging
           cp "target/${{ matrix.target }}/release/rust-doctor" staging/
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rust-doctor-${{ matrix.platform }}
           path: staging
           if-no-files-found: error
           retention-days: 7
 
-  # Separate from the matrix above rather than a fifth leg with a conditional
-  # shell. Every cargo step here must run under pwsh: Git Bash prepends its
-  # coreutils `link.exe` to PATH, which shadows the MSVC linker and breaks the
-  # link step of any build script in the graph (blake3 carries one).
   build-windows:
     name: win32-x64
     runs-on: windows-latest
@@ -127,11 +81,11 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
           targets: x86_64-pc-windows-msvc
@@ -147,30 +101,24 @@ jobs:
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           Copy-Item target\x86_64-pc-windows-msvc\release\rust-doctor.exe staging\
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rust-doctor-win32-x64
           path: staging
           if-no-files-found: error
           retention-days: 7
 
-  # The archives `cargo binstall rust-doctor` installs, packed from the five
-  # binaries npm ships and proven through cargo-binstall itself before anything
-  # is published: the proof serves them on 127.0.0.1 and resolves this commit's
-  # `[package.metadata.binstall]` against them for every target, then installs
-  # the Linux one and runs it. Both registries need this job, so a tag whose
-  # archives binstall cannot read publishes nothing anywhere.
   archives:
     name: Release archives
     needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: rust-doctor-*
           path: artifacts
@@ -181,43 +129,32 @@ jobs:
       - name: Resolve every target through cargo-binstall
         run: bash scripts/binstall-proof.sh local github-release
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: github-release-archives
           path: github-release
           if-no-files-found: error
           retention-days: 7
 
-  # The launcher contract, proven against a real install rather than asserted.
-  # pack-local.mjs refuses any platform but linux-x64, so this covers one of the
-  # five packages end to end, on the only platform this runner can both build
-  # and execute. The other four are proven by construction: publish stages every
-  # package through the same nativeManifest this smoke test installs from.
   launcher:
     name: Packed launcher proof
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      # Clippy is required, not optional, for the same reason ci.yml states it:
-      # the smoke drives a full scan of this repository, and without the
-      # component the scan fails, the score loses its authoritative flag, and
-      # the report drops the share line the proof reads.
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
           components: clippy
 
-      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
+      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7
         with:
           bun-version: 1.3.14
 
-      # The smoke's npm leg installs the packed tarballs the way `npm install
-      # -g` and the Action do. Node 22.13.0 ships npm 10.9.2, the npm it runs.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22.13.0"
 
@@ -225,16 +162,6 @@ jobs:
         working-directory: npm/rust-doctor
         run: bun run smoke:packed
 
-  # Publishes six packages: the five native ones, then the unscoped wrapper that
-  # depends on them. That order is the contract. The wrapper's
-  # optionalDependencies name all five at an exact version, so a wrapper that
-  # reached the registry first would be installable for a window in which no
-  # binary exists to satisfy it.
-  #
-  # Nothing here is idempotent by npm's design, since a published name@version
-  # can never be replaced, so the job skips what the registry already serves
-  # rather than failing. That is what makes a re-run after a partial failure
-  # safe: it publishes the remainder instead of burning the version.
   publish:
     name: Publish to npm
     needs: [build, build-windows, launcher, archives]
@@ -242,40 +169,28 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      # npm provenance: the attestation is signed with the workflow's OIDC
-      # identity, which is what lets a reader tie the tarball to this commit.
       id-token: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1.2.2
+      - uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7
         with:
           bun-version: 1.3.14
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22.13.0"
           registry-url: "https://registry.npmjs.org"
 
-      # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships npm 10.
-      # The install names one exact npm, as every `uses:` above names a commit:
-      # this job holds publish authority, so a new upstream release reaches it
-      # only through a reviewed change to this file.
-      # The registry authenticates this job by the OIDC identity the six
-      # packages each name as their trusted publisher, so no token is stored:
-      # a leaked secret cannot publish, and a workflow renamed or moved to
-      # another repository stops being trusted rather than staying authorized.
       - name: Upgrade npm to a trusted-publishing build
         run: npm install -g npm@11.21.1
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: artifacts
 
-      # A tag names the version it ships, and disagreeing with the manifest is a
-      # release built from the wrong commit rather than a detail to reconcile.
       - name: Resolve the release version
         id: version
         env:
@@ -289,10 +204,6 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      # All six, the wrapper included: what npm uploads is then exactly what the
-      # packed smoke test installs, and the dual license text reaches every
-      # tarball rather than staying at the repository root where npm cannot see
-      # it.
       - name: Stage the six packages
         working-directory: npm/rust-doctor
         env:
@@ -308,15 +219,6 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           RELEASING: ${{ github.ref_type == 'tag' }}
         run: |
-          # Absolute directories, never `release-packages/<key>`: npm resolves a
-          # bare `a/b` argument as the GitHub shorthand owner/repo and goes
-          # looking for a repository instead of publishing the folder.
-          # The skip guards the dry-run too, and it has to: `npm publish
-          # --dry-run` still asks the registry and refuses a version already
-          # published, so a manual run between releases would go red for saying
-          # something true. The validation that matters happens on the run
-          # after a version bump, where nothing is published yet and every
-          # dry-run really executes.
           publish() {
             directory="$1"
             name="$2"
@@ -335,13 +237,6 @@ jobs:
           done
           publish "$GITHUB_WORKSPACE/release-packages/wrapper" rust-doctor
 
-  # The verification build runs in its own job, which holds no OIDC
-  # permission: `id-token: write` is granted to a whole job, never to one step,
-  # and `cargo publish` compiles the packaged crate, build scripts and
-  # procedural macros included, so nothing it compiles may share the identity
-  # the `crates` job exchanges for a registry token. `cargo publish --dry-run`
-  # never asks the registry, which is where this differs from the npm job, so it
-  # stays a real check of the tarball and its build between releases too.
   crates-verify:
     name: Verify the crate package
     runs-on: ubuntu-latest
@@ -349,11 +244,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
 
@@ -367,26 +262,16 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      # Trusted publishing, the same arrangement the six npm packages use: the
-      # registry authenticates this job by its OIDC identity and mints a token
-      # that lives for one run, so nothing is stored and a workflow renamed or
-      # moved to another repository stops being trusted rather than staying
-      # authorized. It has to be enabled once in the crate settings on
-      # crates.io, naming this repository and this workflow file.
       id-token: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
 
-      # Cargo.toml is where the version lives; npm/rust-doctor/package.json
-      # mirrors it, and the npm job checks the mirror. Both jobs refuse a tag
-      # that names something else, so a release built from the wrong commit
-      # fails on either side rather than shipping half of itself.
       - name: Resolve the release version
         id: version
         env:
@@ -398,14 +283,6 @@ jobs:
             echo "tag $REF_NAME does not name version $version" >&2
             exit 1
           fi
-          # crates.io answers 404 for a version it does not serve, and refuses
-          # a request carrying no user agent. A version already on the registry
-          # is skipped rather than failed, so a re-run after a partial release
-          # finishes it: crates.io never lets a version be republished, and
-          # yanking does not free the number either. Anything other than the
-          # two expected answers stops the job, because a transport failure
-          # read as "not published" is how a release talks itself into an
-          # upload the registry is about to refuse.
           status="$(curl -sSL -o /dev/null -w '%{http_code}' \
             -H "user-agent: rust-doctor release workflow (https://github.com/arthjean/rust-doctor)" \
             "https://crates.io/api/v1/crates/rust-doctor/$version")"
@@ -419,7 +296,7 @@ jobs:
             echo "published=$published"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
         id: auth
         if: github.ref_type == 'tag' && steps.version.outputs.published != 'true'
 
@@ -434,24 +311,8 @@ jobs:
             echo "rust-doctor@$VERSION is already on the registry, skipping"
             exit 0
           fi
-          # Verified by the crates-verify job: the upload compiles nothing.
           cargo publish --locked --no-verify
 
-  # The GitHub Release is published from a note written before the tag, not from
-  # the commit subjects. `.github/releases/v<version>.md` is where it lives, and
-  # a tag whose note is missing fails this job rather than shipping a release
-  # body assembled out of `git log`: the note is part of the release.
-  #
-  # It runs after both registries, because a release page announcing a version
-  # npm or crates.io refused is a claim with nothing behind it. Re-running edits
-  # the existing release instead of failing, so a partial run finishes.
-  #
-  # The repository has immutable releases on: once published, a release's tag
-  # and archives can never change, and GitHub signs an attestation of them that
-  # `gh release verify-asset` checks. So the release is created as a draft,
-  # given its five archives, and only then published. A re-run finds either
-  # the draft, which it completes, or the published release, whose archives it
-  # never replaces and whose note it still edits, which immutability allows.
   github-release:
     name: GitHub Release
     needs: [publish, crates, archives]
@@ -460,11 +321,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: github-release-archives
           path: github-release
@@ -489,9 +350,6 @@ jobs:
           RELEASING: ${{ github.ref_type == 'tag' }}
         run: |
           notes=".github/releases/v$VERSION.md"
-          # Checked on every run, tag or not, so a missing note is caught by the
-          # candidate build rather than by the release it was supposed to
-          # describe.
           if [ ! -s "$notes" ]; then
             echo "$notes is missing or empty; write the release note before tagging" >&2
             exit 1
@@ -510,8 +368,6 @@ jobs:
           tag="v$VERSION"
           if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$draft" = "false" ]; then
-              # Published, so immutable: an archive it already carries is never
-              # replaced, and uploading one it lacks fails, which is the answer.
               present="$(gh release view "$tag" --json assets --jq '.assets[].name')"
               for archive in "${archives[@]}"; do
                 if ! grep -qxF "$(basename "$archive")" <<<"$present"; then
@@ -529,11 +385,6 @@ jobs:
           fi
           gh release edit "$tag" --draft=false --latest
 
-  # What a user runs, once everything is out: `cargo binstall rust-doctor` for
-  # the version this tag released, every target resolved from crates.io and the
-  # GitHub Release with none compiled, the Linux one installed and run. The
-  # crates.io index can trail an upload by a minute or two, so a failure is
-  # retried before it counts. Only a tag has a release to resolve.
   binstall:
     name: cargo-binstall proof
     needs: [github-release]
@@ -541,15 +392,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
       - name: Install the release through cargo-binstall
         env:
-          # Read-only. binstall asks the GitHub API whether an archive exists,
-          # and an anonymous request shares its rate limit with every job on
-          # the runner's address.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -561,14 +409,13 @@ jobs:
           done
           exit 1
 
-  # What the run shipped, or would have shipped.
   summary:
     name: Release summary
     needs: [build, build-windows, launcher, publish, crates-verify, crates, github-release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: artifacts
 

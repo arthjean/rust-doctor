@@ -65,8 +65,6 @@ fn anchors_and_reusable_workflow_calls_abstain() {
     assert!(compiling_steps_with_secrets(aliased_step).is_empty());
 }
 
-/// A `\` continuation is read with its command: `--no-verify` written on the
-/// next line exempts the publish, and the span stays on the line it starts on.
 #[test]
 fn a_continued_command_is_read_whole_and_a_comment_is_not_a_command() {
     let continued = RELEASE.replace("cargo publish --locked", "cargo publish \\\n            --locked --no-verify");
@@ -130,8 +128,6 @@ fn a_credentials_file_counts_only_with_a_registry_token() {
     assert!(!holds_registry_token("[registry]\ntoken = \"\" # fill in\n"));
 }
 
-/// Self-scan audit US-006: the step reader returns on every line of the
-/// non-ASCII table.
 #[test]
 fn the_step_reader_returns_on_every_line_of_the_non_ascii_table() {
     let compiling = crate::boundary_table::lines()

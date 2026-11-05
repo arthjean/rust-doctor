@@ -14,8 +14,10 @@ import { join } from "node:path";
 import {
   archiveInventory,
   cargoVersion,
+  NODE_SHEBANG,
   packLocal,
   packageRoot,
+  stageWrapper,
   validateWrapperManifest,
 } from "../scripts/pack-local.mjs";
 
@@ -50,8 +52,11 @@ describe("local package contract", () => {
       bin: { "rust-doctor": "bin/rust-doctor.js" },
       engines: { node: "^20.19.0 || >=22.13.0" },
     });
-    expect(readFileSync(join(packageRoot, manifest.bin["rust-doctor"]), "utf8"))
-      .toStartWith("#!/usr/bin/env node\n");
+    const staged = temporary("staged-wrapper");
+    stageWrapper(staged);
+    expect(readFileSync(join(staged, manifest.bin["rust-doctor"]), "utf8")).toBe(
+      NODE_SHEBANG + readFileSync(join(packageRoot, manifest.bin["rust-doctor"]), "utf8"),
+    );
     expect(Object.keys(manifest.optionalDependencies)).toEqual([
       "@rustdoctor/darwin-x64",
       "@rustdoctor/darwin-arm64",

@@ -1,12 +1,3 @@
-//! The menu screens, and the keys they all answer to.
-//!
-//! The landing, the agent handoff and the two GitHub Actions screens are the
-//! same shape: a title block, a list of actions with a cursor, a key hint, and
-//! sometimes a notice under the actions. [`menu`] draws that shape once and
-//! [`input`] reads it once, so a screen contributes only its title and what
-//! selecting means. Four copies of the same six-line key match, each with its
-//! own hard-coded upper bound, is how a menu ends up pointing past its actions.
-
 use console::Key;
 
 use crate::tui::model::{ACTION_MENU_ITEM_GAP_ROWS, ACTION_MENU_MARGIN_ROWS, HORIZONTAL_PADDING_COLUMNS};
@@ -22,8 +13,6 @@ pub const HINT_MENU_SKIP: &str = "↑/↓ move · enter select · esc skip · q 
 const POINTER: &str = "❯";
 const POINTER_SMALL: &str = "›";
 
-/// One entry of an action menu, with the block of description lines the
-/// reference only reveals under the selected entry.
 pub struct Action {
     pub label: String,
     pub description: Vec<Line>,
@@ -45,16 +34,11 @@ impl Action {
     }
 }
 
-/// A notice a menu shows under its actions: what became of the workflow the
-/// GitHub Actions screens offered to write.
 pub struct Notice {
     pub succeeded: bool,
     pub message: String,
 }
 
-// ------------------------------------------------------------------- input
-
-/// What a key did to a menu.
 pub enum MenuInput {
     Moved,
     Selected(usize),
@@ -62,10 +46,6 @@ pub enum MenuInput {
     Ignored,
 }
 
-/// Reads one key against a cursor over `count` entries.
-///
-/// `Selected` always names an entry that exists, and an empty menu selects
-/// nothing at all, so no caller has to guard an index it was handed.
 pub fn input(key: Key, selected: &mut usize, count: usize) -> MenuInput {
     match key {
         Key::Escape => MenuInput::Back,
@@ -85,11 +65,6 @@ pub fn input(key: Key, selected: &mut usize, count: usize) -> MenuInput {
     }
 }
 
-// ------------------------------------------------------------------ drawing
-
-/// `width` is the hard bound on a row, not a suggestion: an action label is
-/// written by this crate and can be longer than a narrow terminal, and a row
-/// that wraps desynchronizes the cursor rewind for every frame after it.
 pub struct Menu<'a> {
     pub title: Vec<Line>,
     pub actions: &'a [Action],
@@ -139,16 +114,11 @@ fn action_menu(actions: &[Action], selected: usize) -> Vec<Line> {
     lines
 }
 
-// ------------------------------------------------------------------- titles
-
 pub struct LandingNotices {
     pub issue_count: usize,
     pub incomplete: Option<String>,
 }
 
-/// The score block, then at most one line about the scan itself. An incomplete
-/// scan says so and nothing else: a workspace whose checks did not all run has
-/// not earned "no issues found".
 pub fn landing_title(header: Vec<Line>, notices: &LandingNotices) -> Vec<Line> {
     let mut lines = header;
     let notice = notices.incomplete.as_ref().map_or_else(
@@ -175,16 +145,12 @@ pub fn handoff_title() -> Vec<Line> {
     vec![Line::text("Choose how to continue", Style::BOLD).indented(HORIZONTAL_PADDING_COLUMNS)]
 }
 
-/// Either GitHub Actions screen: its own heading, then the justification both
-/// of them carry. The two used to be two functions identical but for the
-/// heading, which the tool's own `duplicate_function_body` named.
 fn ci_title(heading: Line, width: usize) -> Vec<Line> {
     let mut lines = vec![heading];
     lines.extend(ci_justification(width));
     lines
 }
 
-/// The recommendation screen, reached before the reader has chosen anything.
 pub fn ci_recommendation_title(width: usize) -> Vec<Line> {
     ci_title(
         Line::text("Add Rust Doctor to GitHub Actions first", Style::BOLD)
@@ -193,7 +159,6 @@ pub fn ci_recommendation_title(width: usize) -> Vec<Line> {
     )
 }
 
-/// The setup screen, which asks rather than recommends.
 pub fn ci_setup_title(width: usize) -> Vec<Line> {
     ci_title(
         Line::blank()
@@ -238,8 +203,6 @@ mod tests {
         lines.iter().map(|line| line.render(false, false)).collect()
     }
 
-    /// Every menu answers to the same keys, and none of them can be pushed past
-    /// the entries it shows or before its first one.
     #[test]
     fn a_menu_cursor_never_leaves_the_entries_it_indexes() {
         let mut selected = 0usize;
@@ -256,13 +219,11 @@ mod tests {
             input(Key::Enter, &mut selected, 3),
             MenuInput::Selected(2)
         ));
-        // A cursor left over from a longer list still selects a real entry.
         let mut stale = 7usize;
         assert!(matches!(
             input(Key::Enter, &mut stale, 2),
             MenuInput::Selected(1)
         ));
-        // An empty menu selects nothing rather than an index that is not there.
         let mut empty = 0usize;
         assert!(matches!(input(Key::Enter, &mut empty, 0), MenuInput::Ignored));
         assert!(matches!(
@@ -305,8 +266,6 @@ mod tests {
         );
     }
 
-    /// A notice sits between the actions and the hint, so the reader sees what
-    /// happened without leaving the screen that offered it.
     #[test]
     fn a_menu_notice_lands_under_the_actions_and_above_the_hint() {
         let actions = [Action::new("Yes, add the workflow")];
@@ -333,8 +292,6 @@ mod tests {
         );
     }
 
-    /// An action label is written by this crate and can outrun a narrow
-    /// terminal, so the menu cuts it rather than letting the row wrap.
     #[test]
     fn a_label_longer_than_the_terminal_is_cut_rather_than_wrapped() {
         let actions = [Action::new("Add to GitHub Actions first (Recommended)")];
@@ -373,8 +330,6 @@ mod tests {
         );
     }
 
-    /// A scan that did not finish has not earned "no issues found", so it says
-    /// what did not run instead.
     #[test]
     fn an_incomplete_scan_replaces_the_clean_report_rather_than_joining_it() {
         let notices = LandingNotices {

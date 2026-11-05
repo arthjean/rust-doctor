@@ -1,10 +1,3 @@
-//! `why`: the findings a report holds at one line, how each is set, and what
-//! silences it.
-//!
-//! It reads a report as JSON, the one a scan just produced or one saved with
-//! `--json`, so the two paths answer from the same document. Nothing here
-//! spawns a process: whether a path is declared generated is handed in.
-
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs::File;
@@ -21,17 +14,12 @@ use crate::presentation::{GroupLocation, code_frame, rule_url};
 use crate::terminal_text::{sanitize, sanitize_multiline};
 use crate::DiagnosticSpan;
 
-/// How far above a finding a directive can sit and still be the one meant
-/// for it: an attribute over a short item, or a comment over a line.
 const DIRECTIVE_REACH: usize = 3;
 
-/// The finding that names a manifest allow.
 const PERMISSIVE_LINT_TABLE: &str = "rust_doctor::cargo::permissive_lint_table";
 
-/// What a generator header check reads of a file: its opening lines.
 const HEADER_BYTES: u64 = 4096;
 
-/// `path:line[:column]`, split from the right so a path may hold a colon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WhyLocation {
     pub path: String,
@@ -68,11 +56,8 @@ impl FromStr for WhyLocation {
 pub struct SiteExplanation {
     pub location: WhyLocation,
     pub hits: Vec<WhyHit>,
-    /// Why nothing is reported there, when nothing is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub absence: Option<Absence>,
-    /// The rules a `[lints]` table over the path allows, whose Clippy sites
-    /// the scan hides there, when nothing is reported.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed_by_lints: Vec<String>,
 }
@@ -81,16 +66,13 @@ pub struct SiteExplanation {
 pub struct WhyHit {
     pub rule_id: String,
     pub severity: String,
-    /// Where the rule's level came from, as the report's policy published it.
     pub level_source: Option<String>,
     pub message: String,
     pub help: Option<String>,
     pub url: String,
     pub path: String,
     pub span: DiagnosticSpan,
-    /// The directives near the site, and what became of each.
     pub suppressions: Vec<WhySuppression>,
-    /// The directive to write, when no directive names the rule.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directive: Option<String>,
 }
@@ -106,18 +88,12 @@ pub struct WhySuppression {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Absence {
-    /// `[ignore] paths` covers the file.
     Ignored,
-    /// `.gitattributes` or a generator header marks it.
     GeneratedOrVendored,
-    /// A manifest `[lints]` table over the path allows a catalogued rule.
     AllowedByLints,
     NothingReported,
 }
 
-/// The diagnostics of `report` whose primary span or related location covers
-/// the line, or why there is none. `declared` holds the paths the repository
-/// declares generated or vendored.
 pub fn explain_site(
     report: &Value,
     location: WhyLocation,
@@ -156,10 +132,6 @@ pub fn explain_site(
     }
 }
 
-/// The rules the `[lints]` tables over `path` allow, read off the report's
-/// `permissive_lint_table` findings: the scan drops a member's Clippy sites
-/// its manifest allows, and that finding is what is left to say so. A root
-/// manifest covers every path, a member's covers its own directory.
 fn allowed_by_lints(report: &Value, path: &str) -> Vec<String> {
     let mut rules: Vec<String> = array(report, "diagnostics")
         .filter(|diagnostic| text(diagnostic, "code") == Some(PERMISSIVE_LINT_TABLE))
@@ -202,15 +174,10 @@ fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-/// A string field of the report, through the gate every renderer draws
-/// workspace text through: a saved report is any file the reader names, so
-/// nothing it holds may reach the terminal as an escape sequence.
 fn field(value: &Value, key: &str) -> Option<String> {
     text(value, key).map(sanitize)
 }
 
-/// A directive counts as near when it sits within reach above the finding's
-/// own span, or above the line asked about when a related location covers it.
 fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<WhyHit> {
     let rule_id = field(diagnostic, "code")?;
     let path = field(diagnostic, "path")?;
@@ -257,13 +224,6 @@ fn hit(report: &Value, diagnostic: &Value, location: &WhyLocation) -> Option<Why
     })
 }
 
-/// The suppression a site of `rule_id` takes: a native rule's comment, a
-/// manifest's `#` comment, or an `#[expect]` for a Clippy or rustc lint.
-///
-/// `None` unless the id is a lint path: `::`-separated, non-empty segments of
-/// ASCII letters, digits and `_`, the charset the Markdown report trusts. A
-/// saved report is any file the reader names, and a code holding `)]` would
-/// otherwise close the attribute and hand the reader Rust to paste.
 fn directive_for(rule_id: &str, path: &str) -> Option<String> {
     let lint_path = rule_id.split("::").all(|segment| {
         !segment.is_empty()
@@ -292,8 +252,6 @@ fn header_marks(workspace_root: &Path, path: &str) -> bool {
 }
 
 impl SiteExplanation {
-    /// The answer as `why` prints it: every hit with its code frame, read
-    /// under `workspace_root` and masked like every frame the reports draw.
     pub fn text(&self, workspace_root: &Path) -> String {
         let location = &self.location;
         let path = sanitize(&location.path);

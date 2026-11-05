@@ -1,17 +1,17 @@
-# Exemption contract of the panic pack, governed by the fixture itself.
-#
-# Clippy walks up the parent directories until it finds a configuration.
-# Without this file the fixture would inherit the one at the root of the Rust
-# Doctor repository, and the oracle would freeze a property of its location
-# instead of the behaviour of the lints. Measured: the same fixture copied
-# outside the repository emits `unwrap_used` and `expect_used` in
-# `tests/exemptions.rs`.
-#
-# The four options are declared explicitly, including those at their default
-# value, because each one is the origin of a verdict of the oracle. The scan
-# no longer compiles Cargo test targets, so none of them decides anything about
-# the report any more: they are what the file would produce if it were in
-# scope, and the oracle asserts that it is not.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = false

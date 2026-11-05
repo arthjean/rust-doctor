@@ -1,14 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-
-//! US-031: known-vulnerable and unmaintained crates, read from a RustSec
-//! database the machine already holds and never fetched.
-//!
-//! Every run here points `CARGO_HOME` at a scratch directory of its own, so no
-//! test reads the database of the machine it runs on, and the one database
-//! any of them reads is `tests/fixtures/advisory-db`, copied where discovery
-//! looks or named with `--advisory-db`. The workspace is the offline-registry
-//! fixture, whose one crates.io package, `fixture-registry-dep 1.0.0`, is
-//! vendored, so Cargo reaches no network either.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::undocumented_unsafe_blocks))]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,8 +20,6 @@ fn database() -> PathBuf {
     repository().join("tests/fixtures/advisory-db")
 }
 
-/// A scratch root holding a copy of the offline-registry workspace, an empty
-/// `CARGO_HOME` and a target directory.
 fn scratch(label: &str) -> PathBuf {
     let root = repository().join("target/advisory-database").join(format!(
         "{}-{}-{label}",
@@ -62,8 +50,6 @@ fn copy_tree(source: &Path, destination: &Path) {
     }
 }
 
-/// A copy of the fixture database at `at`, made a clone of `remote` the way
-/// cargo audit and cargo deny leave one: discovery reads its `.git/config`.
 fn clone_at(at: &Path, remote: &str) {
     copy_tree(&database(), at);
     fs::create_dir_all(at.join(".git")).unwrap();
@@ -123,9 +109,6 @@ fn a_named_database_reports_the_affected_package_at_its_lockfile_entry() {
     let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
     assert_eq!(report["status"], "complete", "{}", report["errors"]);
 
-    // 9001 names a patched release the resolved 1.0.0 predates; 9003 is
-    // unsound, which feeds the vulnerable rule. 9006 is patched against
-    // 1.0.0, 9004 is a notice and 9005 was withdrawn: none of them reports.
     let vulnerable = findings(&report, VULNERABLE);
     let mut messages: Vec<&str> = vulnerable.iter().map(|finding| finding["message"].as_str().unwrap()).collect();
     messages.sort_unstable();
@@ -143,7 +126,6 @@ fn a_named_database_reports_the_affected_package_at_its_lockfile_entry() {
         "Cargo.lock resolves fixture-registry-dep 1.0.0, which RUSTSEC-2020-9002 reports unmaintained."
     );
 
-    // Each finding points at the package's entry in the lockfile.
     let lockfile = fs::read_to_string(root.join("project/Cargo.lock")).unwrap();
     let entry = lockfile
         .lines()
@@ -160,8 +142,6 @@ fn a_named_database_reports_the_affected_package_at_its_lockfile_entry() {
     assert_eq!(rule(&report, UNMAINTAINED)["category"], "dependencies");
     assert_eq!(rule(&report, UNMAINTAINED)["tier"], "P2");
 
-    // The database is published by the tool that left it and its date, and
-    // the malformed advisory 9007 is skipped and counted. Its path is not.
     assert_eq!(
         report["scan"]["advisory_db"],
         serde_json::json!({"source": "explicit", "date": "2020-01-20", "advisories": 7, "skipped": 1})
@@ -181,7 +161,6 @@ fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     assert_eq!(findings(&report, VULNERABLE).len(), 2);
     fs::remove_dir_all(root).unwrap();
 
-    // cargo-deny keeps one directory per database, and the newest is read.
     let root = scratch("cargo-deny");
     let stale = root.join("cargo-home/advisory-dbs/advisory-db-0000000000000000");
     fs::create_dir_all(stale.join("crates")).unwrap();
@@ -197,7 +176,6 @@ fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Writes `.git/FETCH_HEAD` in a clone, dated `days_ago` days before `now`.
 fn fetched(clone: &Path, now: std::time::SystemTime, days_ago: u64) {
     let path = clone.join(".git/FETCH_HEAD");
     fs::write(&path, "").unwrap();
@@ -205,9 +183,6 @@ fn fetched(clone: &Path, now: std::time::SystemTime, days_ago: u64) {
     fs::File::options().write(true).open(&path).unwrap().set_modified(when).unwrap();
 }
 
-/// Self-scan remediation EP-002 US-011: discovery reads the RustSec clone
-/// fetched last, cargo audit's on a tie or when neither records a fetch, never
-/// a clone of another remote, and never over `--advisory-db`.
 #[test]
 fn discovery_reads_the_most_recently_fetched_rustsec_clone() {
     let root = scratch("freshest");
@@ -215,8 +190,6 @@ fn discovery_reads_the_most_recently_fetched_rustsec_clone() {
     let deny = root.join("cargo-home/advisory-dbs/advisory-db-1111111111111111");
     clone_at(&audit, RUSTSEC);
     clone_at(&deny, RUSTSEC);
-    // The cargo deny clone knows one advisory more, published after the rest,
-    // so the date the report names says which clone was read.
     fs::write(
         deny.join("crates/unrelated-crate/RUSTSEC-2026-9009.md"),
         "```toml\n[advisory]\nid = \"RUSTSEC-2026-9009\"\npackage = \"unrelated-crate\"\ndate = \"2026-10-28\"\n\n[versions]\npatched = []\n```\n\n# Newer\n",
@@ -230,23 +203,18 @@ fn discovery_reads_the_most_recently_fetched_rustsec_clone() {
     let audit_read = (Value::from("cargo-audit"), Value::from("2020-01-20"));
     let deny_read = (Value::from("cargo-deny"), Value::from("2026-10-28"));
 
-    // Neither records a fetch: cargo audit's is read, as before.
     assert_eq!(read(&[]), audit_read);
-    // Fetched 88 days ago against today: the fresher cargo deny clone wins.
     let now = std::time::SystemTime::now();
     fetched(&audit, now, 88);
     fetched(&deny, now, 0);
     assert_eq!(read(&[]), deny_read);
-    // The same fetch time is a tie, and cargo audit's wins it.
     fetched(&audit, now, 3);
     fetched(&deny, now, 3);
     assert_eq!(read(&[]), audit_read);
-    // The explicit path wins over discovery whatever was fetched.
     fetched(&deny, now, 0);
     let named = database();
     let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
     assert_eq!(report["scan"]["advisory_db"]["source"], "explicit");
-    // A fresher clone of another remote is ignored.
     fs::write(
         deny.join(".git/config"),
         "[remote \"origin\"]\n\turl = https://example.invalid/advisory-db\n",
@@ -256,10 +224,6 @@ fn discovery_reads_the_most_recently_fetched_rustsec_clone() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-003 US-013: a database cargo deny cloned from a remote other than
-/// RustSec's is never discovered, even fetched after the RustSec clone, and
-/// on its own it leaves both rules without a database. `--advisory-db` still
-/// reads it, since the user named it.
 #[test]
 fn discovery_reads_only_a_clone_of_the_rustsec_remote() {
     let root = scratch("impostor");
@@ -332,14 +296,10 @@ fn a_stale_database_is_read_and_its_age_is_stated() {
         .trim_end_matches(" days old.")
         .parse()
         .unwrap();
-    // The newest fixture advisory is dated 2020-01-20.
     assert!(days > 2_400, "{notice}");
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-006: a database path that names nothing is refused before any
-/// scan, with one line naming the flag and the path as typed, and nothing on
-/// stdout even under `--json`.
 #[test]
 fn a_missing_database_path_is_refused_before_any_scan() {
     let root = scratch("mistyped");
@@ -356,13 +316,11 @@ fn a_missing_database_path_is_refused_before_any_scan() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-006: a database the scan could not read is refused the same way.
 #[cfg(unix)]
 #[test]
 fn an_unreadable_database_path_is_refused_before_any_scan() {
     use std::os::unix::fs::PermissionsExt;
 
-    // SAFETY: `geteuid` reads the effective user id and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         return;
     }
@@ -385,8 +343,6 @@ fn an_unreadable_database_path_is_refused_before_any_scan() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-006: `/dev/null` stays the documented way to switch the check
-/// off, and the help says so.
 #[test]
 fn dev_null_turns_the_advisory_check_off_as_the_help_says() {
     let root = scratch("dev-null");

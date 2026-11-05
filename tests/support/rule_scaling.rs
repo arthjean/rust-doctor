@@ -344,8 +344,7 @@ pub(crate) fn observe_precision(
     target_root: &Path,
 ) -> PrecisionObservation {
     let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let matrix_manifest =
-        manifest_root.join("tests/fixtures/rule-scaling-kernel/matrix/Cargo.toml");
+    let matrix_manifest = super::fixture_dir("rule-scaling-kernel/matrix").join("Cargo.toml");
     let mut arguments = vec!["--lib", "--no-deps", "--message-format=json", "--"];
     arguments.extend(evidence.catalog.explicit_flags());
     let output = run_clippy(&matrix_manifest, &arguments, &target_root.join("matrix"));
@@ -474,10 +473,6 @@ pub(crate) fn clippy_command_without_rules(
     projected
 }
 
-/// Identifiers of the historical EP-017 catalog, the only ones the frozen v7
-/// and v6 reports carry. Everything the following slices admitted is removed by
-/// the projection, without which every widening of the catalog would move a
-/// frozen byte.
 pub(crate) const HISTORICAL_RULE_IDS: [&str; 7] = [
     "clippy::dbg_macro",
     "clippy::todo",

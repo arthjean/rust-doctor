@@ -1,6 +1,3 @@
-//! The public share link: the score and the counts it rests on, in a URL the
-//! rust-doctor.com page reads, and nothing else.
-
 use std::fmt;
 use std::fmt::Write as _;
 
@@ -38,9 +35,6 @@ impl Audit {
             return Err(ShareError::InvalidPayload);
         }
 
-        // The production counts the block already publishes, not a third summation over the
-        // same diagnostics. The link used to carry every occurrence, and on this crate's own
-        // scan 140 of its 192 warnings weighed nothing.
         let production = self.production_totals();
         build_share_url(
             score.value,
@@ -69,10 +63,6 @@ pub(super) fn build_share_url(
         return Err(ShareError::InvalidPayload);
     }
 
-    // The model comes first and is never omitted: every number after it is a
-    // reading of one scale, and a payload that names none is a score the page
-    // it opens has to guess the meaning of. `core-v2` and `core-v3` publish
-    // the same shape over the same rules for very different values.
     let mut url = format!("{SHARE_BASE_URL}?s={score}&m={SCORE_MODEL}");
     for (key, count) in [
         ("e", errors),

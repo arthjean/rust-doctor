@@ -1,31 +1,10 @@
-//! What Cargo said on stderr when it failed, in the words a report may publish.
-//!
-//! Cargo writes its cause there, "failed to parse lock file", "could not
-//! compile", "Blocking waiting for file lock", and the report used to publish
-//! the exit status alone because the stream went to `/dev/null`. Every Cargo
-//! child whose failure ends a stage is now drained through
-//! [`crate::bounded_read::collect_bounded`] under [`STDERR_LIMIT`], and its
-//! failure quotes the tail of what it said through [`excerpt`]: masked of the
-//! credentials it echoed, bounded, stripped of control characters, and with the
-//! paths that would name the machine replaced by names that do not.
-
 use std::env;
 use std::path::{Path, PathBuf};
 
-/// How much of a Cargo child's stderr this process keeps.
-///
-/// A cold build prints one status line per crate, and two hundred members fit
-/// in a fraction of this. The read continues past it, so a verbose build can
-/// never block Cargo on a full pipe.
 pub(crate) const STDERR_LIMIT: usize = 65_536;
 
-/// How much of it reaches the published message, the bound `bounded_stderr`
-/// sets on everything the binary prints on its own stderr.
 const EXCERPT_BYTES: usize = 1_020;
 
-/// The status lines Cargo prints while it works. They say what it did, never
-/// why it stopped, and a failing build's last kilobyte is otherwise mostly
-/// them.
 const PROGRESS_VERBS: [&str; 12] = [
     "Adding",
     "Blocking",
@@ -41,14 +20,6 @@ const PROGRESS_VERBS: [&str; 12] = [
     "Updating",
 ];
 
-/// The last lines of `stderr` that fit the published bound, on one line, with
-/// the workspace root, the target directory, `CARGO_HOME`, `RUSTUP_HOME` and
-/// `HOME` replaced by `.`, `$CARGO_TARGET_DIR`, `$CARGO_HOME`, `$RUSTUP_HOME`
-/// and `~`. `None` when Cargo said nothing but progress.
-///
-/// The target directory is named apart from the root because it need not sit
-/// under it: a `CARGO_TARGET_DIR` elsewhere, or the base side of a baseline,
-/// which builds from a snapshot into the real workspace's target directory.
 pub(crate) fn excerpt(
     stderr: &[u8],
     workspace_root: &Path,
@@ -72,9 +43,6 @@ pub(crate) fn excerpt(
             (home, "~"),
         ],
     );
-    // Masked whole and before anything is cut: a key a build script echoed
-    // spans lines, and the excerpt's bound can start the kept text on a body
-    // line no header above it is left to mark.
     let text = crate::repo_hygiene::mask_credentials(&text);
     let lines: Vec<String> = text
         .lines()
@@ -86,17 +54,11 @@ pub(crate) fn excerpt(
     tail(&lines)
 }
 
-/// `line` without its terminal escapes or control characters. Cargo colors
-/// its stderr when `CARGO_TERM_COLOR` or `term.color` says `always`, as CI
-/// runners often do, and dropping the escape character alone would publish
-/// the `[1m[91m` that followed it and hide a colored status line from
-/// [`is_progress`].
 fn plain(line: &str) -> String {
     let mut plain = String::with_capacity(line.len());
     let mut characters = line.chars().peekable();
     while let Some(character) = characters.next() {
         if character == '\u{1b}' {
-            // A control sequence runs from `[` to its final byte, `@` to `~`.
             if characters.next_if_eq(&'[').is_some() {
                 for next in characters.by_ref() {
                     if ('@'..='~').contains(&next) {
@@ -111,9 +73,6 @@ fn plain(line: &str) -> String {
     plain
 }
 
-/// Replaces every prefix, in the order given, in both its lexical and its
-/// canonical spelling: a workspace reached through a symlink is printed by
-/// Cargo under the path it resolved.
 fn scrub(text: &str, prefixes: &[(Option<PathBuf>, &str)]) -> String {
     let mut text = text.to_owned();
     for (path, replacement) in prefixes {
@@ -139,8 +98,6 @@ fn is_progress(line: &str) -> bool {
             .is_some_and(|verb| PROGRESS_VERBS.contains(&verb))
 }
 
-/// The longest suffix of `lines` whose joined form fits [`EXCERPT_BYTES`], cut
-/// at a character boundary when the last line alone does not.
 fn tail(lines: &[String]) -> Option<String> {
     let mut kept: Vec<&str> = Vec::new();
     let mut length = 0_usize;
@@ -167,8 +124,6 @@ fn tail(lines: &[String]) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Self-scan audit US-006: the excerpt returns on every line of the
-    /// non-ASCII table, as Cargo's stderr would carry it.
     #[test]
     fn the_excerpt_returns_on_every_line_of_the_non_ascii_table() {
         for line in crate::boundary_table::lines() {
@@ -194,7 +149,6 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
         );
     }
 
-    /// What Cargo prints under `CARGO_TERM_COLOR=always`.
     #[test]
     fn a_colored_stderr_publishes_the_same_words() {
         let stderr = b"\x1b[1m\x1b[92m    Checking\x1b[0m a v0.1.0 (/work/a)\n\
@@ -218,8 +172,6 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
 
     #[test]
     fn a_target_directory_outside_the_workspace_is_named_not_published() {
-        // The base side of a baseline: a snapshot root, and the real
-        // workspace's target directory, neither under the other.
         let published = excerpt(
             b"error: failed to write /srv/repo/target/rust-doctor/baseline/debug/x.rmeta\n",
             Path::new("/tmp/snapshot"),
@@ -232,9 +184,6 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
         );
     }
 
-    /// EP-003 US-011: a key a build script echoed is masked before the bound
-    /// cuts the stream, so a tail that starts on a body line, past the header
-    /// that marked it, publishes no character of it.
     #[test]
     fn a_key_a_build_script_echoed_is_masked_before_the_excerpt_cuts_it() {
         let body = "Q+/Z9".repeat(13);
@@ -274,8 +223,6 @@ TOML parse error at line 1, column 6\n\x1b[1mbold\x1b[0m\n";
         assert_eq!(scrubbed, "./src $CARGO_HOME/registry ~/x");
     }
 
-    /// A directory whose name only starts with a home's is not under it: a
-    /// target directory at `~/.cargo-target` was published `$CARGO_HOME-target`.
     #[test]
     fn a_prefix_is_replaced_only_where_a_path_component_ends() {
         let scrubbed = scrub(

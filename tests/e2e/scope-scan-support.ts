@@ -1,13 +1,9 @@
-// What the scope files of US-021 share: a JSON scan that must leave the tree
-// as it found it, the human scope line, and the few projections of a report
-// the catalog's expectations are written in.
 import { expect } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runCommand, runDoctor, sandbox, scratchDir, treeFingerprint, type DoctorOptions, type DoctorRun, type Sandbox } from "./e2e-helpers";
 import { miniTemplate } from "./git-scenario";
 
-// The base commit of `mini`, fixed by the scenario's identity and date.
 export const MINI_BASE = "af441c9b9f96faa3f098b61e401b7475f31e56d7";
 
 export type Scope = {
@@ -38,12 +34,9 @@ export type Report = {
 export type Scan = { run: DoctorRun; report: Report };
 
 export type ScanOptions = DoctorOptions & {
-  // The tree whose fingerprint must not change, when it is not the scanned
-  // path itself.
   tree?: string;
 };
 
-// A JSON scan of `path` that leaves the tree it inspects untouched.
 export async function scan(path: string, args: string[], options: ScanOptions = {}): Promise<Scan> {
   const tree = options.tree ?? path;
   const before = treeFingerprint(tree);
@@ -53,7 +46,6 @@ export async function scan(path: string, args: string[], options: ScanOptions = 
   return { run, report: run.json as Report };
 }
 
-// The human report of `path`, which leaves the tree it inspects untouched.
 export async function human(path: string, args: string[], options: ScanOptions = {}): Promise<DoctorRun> {
   const tree = options.tree ?? path;
   const before = treeFingerprint(tree);
@@ -62,15 +54,10 @@ export async function human(path: string, args: string[], options: ScanOptions =
   return run;
 }
 
-// Text with every run of whitespace folded to one space, so a sentence the
-// 80-column layout wrapped still reads as one.
 export function unwrapped(text: string): string {
   return text.replace(/\s+/g, " ");
 }
 
-// The line of the human report that names the scope, unwrapped: off a
-// terminal the report is laid out at 80 columns, and a scope line always ends
-// with its closing parenthesis unless it names the full codebase.
 export async function scopeLine(path: string, args: string[], options: ScanOptions = {}): Promise<string> {
   const lines = (await human(path, args, options)).stdout.split("\n");
   let line = lines.shift() ?? "";
@@ -84,7 +71,6 @@ export function errorCodes(report: Report): string[] {
   return report.errors.map((error) => `${error.stage}/${error.code}`);
 }
 
-// `path:line` of every finding of `code`, sorted.
 export function sites(report: Report, code = "clippy::todo"): string[] {
   return report.diagnostics
     .filter((diagnostic) => diagnostic.code === code)
@@ -96,14 +82,12 @@ export function count(report: Report, code: string): number {
   return report.diagnostics.filter((diagnostic) => diagnostic.code === code).length;
 }
 
-// The catalog's `D[i,p,f,x,r]`.
 export function deltaSummary(report: Report): number[] {
   const summary = report.delta?.summary;
   if (!summary) throw new Error("the report carries no delta");
   return [summary.introduced, summary.pre_existing, summary.fixed, summary.cross_file_matches, summary.rule_count_matches];
 }
 
-// `code@path:line` of every introduced finding, sorted.
 export function introduced(report: Report): string[] {
   const ids = new Set(report.delta?.introduced ?? []);
   return report.diagnostics
@@ -121,8 +105,6 @@ export function writeFiles(root: string, files: Record<string, string>): void {
 
 export type PlainRepo = { path: string; sandbox: Sandbox; git(args: string[]): Promise<string> };
 
-// `mini` in a SHA-256 repository, which `gitScenario` cannot initialize; with
-// `extra`, a branch `feature` holding one commit that appends it to the lib.
 export async function sha256Mini(name: string, extra?: string): Promise<PlainRepo> {
   const box = sandbox(`git-${name}`);
   const path = join(scratchDir(name), name);

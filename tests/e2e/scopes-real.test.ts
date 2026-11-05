@@ -1,9 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 2, invariant 13, and section R
-// of `tasks/e2e-catalog/scopes.md`: every scope on a clone of this repository,
-// clean and with one seeded change. The clone's `origin/main` is pinned to the
-// commit it was cloned at, so a detected base is the same on every machine and
-// whatever branch the working copy is on. Only the seeded findings are named:
-// what this repository already holds is compared, never counted.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,8 +27,6 @@ beforeAll(async () => {
 
 const branches = new Map<string, Promise<void>>();
 
-// Checks out `name`, creating it from the base commit with `change` the first
-// time it is asked for.
 async function onBranch(name: string, change?: () => Promise<void>): Promise<void> {
   await clone.git(["switch", "-q", "e2e-base"]);
   if (name === "e2e-base") return;
@@ -54,8 +46,6 @@ async function scan(args: string[], env?: Record<string, string>): Promise<{ exi
   return { exitCode: run.exitCode, report: report(run), stdout: run.stdout };
 }
 
-// R04's change: a private function holding a `todo!()` appended to
-// `src/git.rs`, which rustc also reports as dead code.
 const TODO_PATH = "src/git.rs";
 let todoLine = 0;
 
@@ -70,7 +60,6 @@ async function todoBranch(): Promise<void> {
   });
 }
 
-// The findings a scan places on the seeded function.
 function seeded(value: Report, path: string, from: number): Array<[string, number]> {
   return value.diagnostics
     .filter((diagnostic) => diagnostic.path === path && (diagnostic.span?.line_start ?? 0) >= from - 1)
@@ -167,7 +156,6 @@ describe("scopes on this repository", () => {
       .toEqual(TODO_FINDINGS());
   }, TEST_TIMEOUT_MS);
 
-  // A shallow checkout carries no tag: CI checks out with full history.
   const hasTag = () => clone.git(["tag", "--list", "v0.7.0"]).then((out) => out.trim() === "v0.7.0");
 
   test("R04e a baseline against the v0.7.0 tag completes and counts the seeded todo!() as introduced", async () => {
@@ -194,8 +182,6 @@ describe("scopes on this repository", () => {
     expect(files).toEqual(changed);
   }, TEST_TIMEOUT_MS);
 
-  // A pub function in a public module: the staged todo!() is the only
-  // finding the staged change can carry.
   test.each([
     ["R05", "lines"],
     ["R05b", "baseline"],

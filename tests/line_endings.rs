@@ -1,11 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! A file checked out with CRLF line endings, Git for Windows' default, or
-//! saved behind a UTF-8 byte order mark is still the file rustc compiles: the
-//! Reference's input format drops the mark and turns every CRLF into LF before
-//! lexing. The walk once handed the raw text to the parser instead, so every
-//! string literal spanning lines held a bare `\r` and became a parse error. A
-//! scan of this repository from a Windows checkout came back incomplete with 92
-//! of them, and every file carrying one lost its findings.
 
 use std::fs;
 use std::path::PathBuf;
@@ -19,9 +12,6 @@ static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
 const SHELL: &str = "rust_doctor::source::dynamic_shell_command";
 
-/// A string literal spanning two lines, then a function the source kernel
-/// reports, so a file the walk refuses loses a finding as well as gaining an
-/// error.
 const LIB: &str = "//! Probe.\n\n/// Text whose literal spans two lines.\npub fn banner() -> &'static str {\n    \"first\nsecond\"\n}\n\n/// Runs `user` through a shell.\npub fn run(user: &str) {\n    let _ = std::process::Command::new(\"sh\")\n        .arg(\"-c\")\n        .arg(format!(\"run {user}\"));\n}\n";
 
 fn workspace(lib: &str) -> PathBuf {
@@ -36,8 +26,6 @@ fn workspace(lib: &str) -> PathBuf {
     root
 }
 
-/// The diagnostics of a complete scan of `lib` that compiles nothing: every
-/// Clippy rule is off, so only the passes that parse the text judge it.
 fn diagnostics(lib: &str) -> Vec<Diagnostic> {
     let request = catalog()
         .iter()

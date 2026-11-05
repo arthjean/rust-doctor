@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::orphan_module_file"
+weakness = "path-attribute"
+source = "US-020 corpus re-measure, ostendo src/markdown/parser_tests.rs and vibesql tests/common, adjudicated false positive"
+verdict = "quiet"

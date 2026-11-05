@@ -1,8 +1,3 @@
-// HR-01 to HR-27 of `tasks/e2e-catalog/subcommands.md` section 7: `hook run
-// claude|cursor` fed the payloads Claude Code and Cursor send at the end of a
-// turn, on the `mini` history, whose pre-existing `todo!()` the lines scope
-// never judges. Every run gets its own CARGO_TARGET_DIR outside the repository
-// so HR-25's claim, the hook writes nothing in the tree, holds for every row.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -41,7 +36,6 @@ function cursorPayload(repo: { path: string }, extra: Record<string, unknown> = 
   });
 }
 
-// `mini` with the turn's change: NEW_FN appended to the tracked lib, unstaged.
 async function changed(name: string): Promise<Repo> {
   const repo = await gitScenario(name).template("mini").commit("base").build();
   const lib = join(repo.path, "src/lib.rs");
@@ -49,7 +43,6 @@ async function changed(name: string): Promise<Repo> {
   return repo;
 }
 
-// `mini` with an untracked module of twelve `todo!()`, declared from the lib.
 async function many(name: string): Promise<Repo> {
   const repo = await gitScenario(name).template("mini").commit("base").build();
   const lib = join(repo.path, "src/lib.rs");
@@ -61,8 +54,6 @@ async function many(name: string): Promise<Repo> {
 
 type HookOptions = { cwd?: string; env?: Record<string, string | undefined>; stdin?: string; target?: string };
 
-// One hook run under the repository's sandbox, asserting it wrote nothing in
-// the tree it judged.
 async function hook(agent: "claude" | "cursor", repo: { path: string; sandbox: Sandbox }, options: HookOptions = {}): Promise<DoctorRun> {
   const before = treeFingerprint(repo.path);
   const run = await runDoctor(["hook", "run", agent], {
@@ -116,8 +107,6 @@ describe("hook run claude", () => {
   test("HR-07 from / without CLAUDE_PROJECT_DIR the hook cannot scan and lets the turn end", async () => {
     const repo = await changed("hr-07");
     const run = await hook("claude", repo, { cwd: "/", env: { CLAUDE_PROJECT_DIR: undefined } });
-    // What discovery finds under `/` is the machine's: several workspaces
-    // here, none on a hosted runner. Either way the turn ends unscanned.
     expect([unscanned("discovery: ambiguous-workspace"), unscanned("discovery: no-manifest")]).toContain(run.stderr);
     expect(outcome(run)).toEqual({ exitCode: 0, stdout: "", stderr: run.stderr });
   });

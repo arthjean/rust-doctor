@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/failures.md` sections NW and FS: the scan needs no
-// network, and writes nothing outside the workspace's target directory and
-// its own temporary root. The network rows run the binary inside a namespace
-// with no interface (netns.ts) or under strace; the filesystem rows list
-// HOME, TMPDIR and a private CARGO_HOME before and after.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -35,7 +30,6 @@ type Report = {
   delta?: { summary: { introduced: number; fixed: number } };
 };
 
-// Every path under `dir`, relative, directories marked with a trailing slash.
 function listing(dir: string): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
@@ -51,8 +45,6 @@ function listing(dir: string): string[] {
   return out;
 }
 
-// A build script that holds Cargo until the test creates `$E2E_GATE`, so a
-// baseline run's snapshot can be looked at before the run ends normally.
 const GATED_BUILD = `fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     if let Ok(gate) = std::env::var("E2E_GATE") {
@@ -78,7 +70,6 @@ describe("network", () => {
     },
   );
 
-  // E2E_REQUIRE_NETNS=1 requires the socket trace with the namespaces.
   test.skipIf(!STRACE && process.env.E2E_REQUIRE_NETNS !== "1")("NW-02 no process of the scan opens a socket", async () => {
     if (!STRACE) throw new Error("strace is not installed and E2E_REQUIRE_NETNS=1 requires the socket trace");
     const workspace = copyWorkspace("projects/clippy-warning");
@@ -166,7 +157,6 @@ describe("network", () => {
 });
 
 describe("filesystem side effects", () => {
-  // A private CARGO_HOME the test can list, beside the machine's toolchain.
   function privateCargoHome(): string {
     const dir = join(scratchDir("cargo-home"), "cargo");
     mkdirSync(dir);

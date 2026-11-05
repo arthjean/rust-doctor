@@ -1,7 +1,3 @@
-// This repository as a real codebase: a `git clone --local --no-hardlinks` of
-// HEAD in the test's scratch root, never the working tree, so a scan judges
-// what is committed and can write nothing into the live checkout. A test that
-// only reads shares one clone per process; a test that commits takes its own.
 import { join } from "node:path";
 import { REPO_ROOT, runCommand, sandbox, scratchDir, targetDir, type Sandbox } from "./e2e-helpers";
 
@@ -10,7 +6,6 @@ export type SelfClone = {
   sandbox: Sandbox;
   git(args: string[]): Promise<string>;
   sha(rev?: string): Promise<string>;
-  // A named scan target, kept across runs, so only the first run is cold.
   target(key: string): string;
 };
 
@@ -46,8 +41,6 @@ export async function cloneThisRepository(label = "self"): Promise<SelfClone> {
 
 let shared: Promise<SelfClone> | undefined;
 
-// One read-only clone for every test of the file: a test that writes into it,
-// commits or switches branch takes its own with `cloneThisRepository`.
 export function sharedClone(): Promise<SelfClone> {
   shared ??= cloneThisRepository("shared");
   return shared;

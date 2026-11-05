@@ -1,11 +1,3 @@
-//! What `rules explain` and `why` answer: what a rule does and how this
-//! workspace sets it, and why a line is reported.
-//!
-//! Explaining a rule reads the catalog and, given a path, the
-//! `rust-doctor.toml` of the workspace root a scan of that path would judge,
-//! which `cargo metadata` names as it does for the scan. The site half lives
-//! in `why.rs`.
-
 use std::fmt::{self, Write as _};
 use std::path::Path;
 
@@ -22,8 +14,6 @@ mod why;
 
 pub use why::{Absence, SiteExplanation, WhyHit, WhyLocation, WhySuppression, explain_site};
 
-/// The furthest a misspelled id may be from a catalogued one, or from its last
-/// segment, to be named as the closest.
 const CLOSEST_DISTANCE: usize = 3;
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,11 +21,8 @@ pub struct RuleExplanation {
     #[serde(flatten)]
     pub rule: CatalogEntry,
     pub url: String,
-    /// Smoothed false-positive rate on the pinned corpus, in basis points,
-    /// absent when the corpus never adjudicated the rule.
     pub corpus_noise_basis_points: Option<u16>,
     pub corpus_reviewed_sites: Option<u64>,
-    /// How the workspace named by `PATH` sets the rule.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effective: Option<EffectiveLevel>,
 }
@@ -44,18 +31,13 @@ pub struct RuleExplanation {
 pub struct EffectiveLevel {
     pub level: RuleLevel,
     pub source: RuleLevelSource,
-    /// Every `[[overrides]]` table that sets this rule or its category, in
-    /// the order the later one wins in.
     pub overrides: Vec<PathOverrideReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExplainError {
-    /// No catalogued id matches, with the nearest one when any is close.
     Unknown { query: String, closest: Option<&'static str> },
-    /// The suffix names several rules.
     Ambiguous { query: String, candidates: Vec<&'static str> },
-    /// The workspace's `rust-doctor.toml` could not be read.
     Configuration(String),
 }
 
@@ -81,15 +63,10 @@ impl fmt::Display for ExplainError {
 
 impl std::error::Error for ExplainError {}
 
-/// The paths the repository at `workspace_root` declares generated or
-/// vendored in `.gitattributes`, read through `git check-attr`: what a scan
-/// excludes before any producer grades a file.
 pub fn declared_generated(workspace_root: &Path) -> std::collections::BTreeSet<String> {
     crate::generated::declared(workspace_root, None)
 }
 
-/// The catalogued rule an exact id or an unambiguous last segment names:
-/// `todo` is `clippy::todo`.
 pub fn resolve_rule(query: &str) -> Result<CatalogEntry, ExplainError> {
     let rules = catalog();
     if let Some(rule) = rules.iter().find(|rule| rule.id == query) {
@@ -126,8 +103,6 @@ fn closest(rules: &[CatalogEntry], query: &str) -> Option<&'static str> {
         .map(|(_, id)| id)
 }
 
-/// The rule `query` names, and, given `workspace`, the level its
-/// `rust-doctor.toml` sets and where that level comes from.
 pub fn explain_rule(query: &str, workspace: Option<&Path>) -> Result<RuleExplanation, ExplainError> {
     let rule = resolve_rule(query)?;
     let measurement = corpus_measurement(rule.id);
@@ -142,10 +117,6 @@ pub fn explain_rule(query: &str, workspace: Option<&Path>) -> Result<RuleExplana
 }
 
 fn effective_level(rule: &CatalogEntry, path: &Path) -> Result<EffectiveLevel, ExplainError> {
-    // The configuration a scan of `path` reads: its workspace root's, found
-    // from the manifests without starting Cargo. A member's own file, which
-    // scans ignore, used to answer here. Outside a workspace, `path` is taken
-    // as the root it was given as.
     let root = crate::manifest_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
     let configuration = load_path(&root.join(CONFIG_FILE_NAME))
         .map_err(|error| ExplainError::Configuration(error.message))?;
@@ -176,7 +147,6 @@ fn effective_level(rule: &CatalogEntry, path: &Path) -> Result<EffectiveLevel, E
 }
 
 impl RuleExplanation {
-    /// The explanation as `rules explain` prints it, one fact per line.
     pub fn text(&self) -> String {
         let rule = &self.rule;
         let mut text = String::new();

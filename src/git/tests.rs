@@ -82,8 +82,6 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
             assert_eq!(environment.get(OsStr::new(variable)), Some(&None));
         }
     }
-    // US-002: the inherited count never survives; the pairs replace it, and
-    // they are never spelled as `-c`, which splits `p=q` at its `=`.
     assert_eq!(
         environment.get(OsStr::new("GIT_CONFIG_COUNT")),
         Some(&Some(OsStr::new("8")))
@@ -121,8 +119,6 @@ fn git_command_fixes_cwd_stdio_and_hostile_environment() {
     assert!(arguments.contains(&OsString::from("core.hooksPath=/dev/null")));
 }
 
-/// US-002: the enumeration runs first, under the call's own `-C`, carrying
-/// the canary alone; the call then carries a blanked key set per name read.
 #[cfg(unix)]
 #[test]
 fn the_enumeration_precedes_the_call_and_feeds_its_pairs() {
@@ -137,15 +133,11 @@ fn the_enumeration_precedes_the_call_and_feeds_its_pairs() {
     let call = call("scope", git_arguments(&workspace, ["status"]));
     let output = run_git(&script, &workspace, &call, None).unwrap();
     assert_eq!(String::from_utf8(output).unwrap(), "8:filter.p=q.process:false");
-    // A second call of the same location reads no configuration again.
     run_git(&script, &workspace, &call, None).unwrap();
     let log = fs::read_to_string(script.with_extension("log")).unwrap();
     assert_eq!(log, "rust-doctor.canary=1|");
 }
 
-/// US-002: a git that ignores the pairs (before 2.31) still runs the calls
-/// of a repository that configures no driver, as it did before the
-/// enumeration: only the `-c` sentinel matches, and nothing needs blanking.
 #[cfg(unix)]
 #[test]
 fn a_git_without_pairs_still_reads_a_repository_with_no_driver() {
@@ -161,7 +153,6 @@ fn a_git_without_pairs_still_reads_a_repository_with_no_driver() {
     assert!(script.with_extension("ran").exists());
 }
 
-/// US-002: a call whose drivers cannot be read never runs.
 #[cfg(unix)]
 #[test]
 fn an_unreadable_or_oversized_configuration_fails_the_call_closed() {
@@ -189,8 +180,6 @@ fn an_unreadable_or_oversized_configuration_fails_the_call_closed() {
     }
 }
 
-/// EP-002 US-007: git runs in the workspace and is told `-C` of it, so a
-/// relative workspace reaches `-C` absolute rather than resolved twice.
 #[test]
 fn a_relative_workspace_reaches_git_once() {
     let arguments = git_arguments(Path::new("crates/x"), ["status"]);
@@ -201,7 +190,6 @@ fn a_relative_workspace_reaches_git_once() {
     assert_eq!(directory, std::env::current_dir().unwrap().join("crates/x"));
 }
 
-/// The operation is written in whatever string type the call site holds.
 #[test]
 fn arguments_accept_a_literal_and_an_owned_operation_alike() {
     let literal = git_arguments(Path::new("/workspace"), ["diff", "--name-only"]);
@@ -227,11 +215,6 @@ fn missing_git_has_the_single_closed_error() {
     assert_eq!((error.stage, error.code), ("scope", "git-unavailable"));
 }
 
-/// Every outcome of a call is reported at the stage the call named.
-///
-/// The two outcomes the caller does not name, a git that could not start and a
-/// stream that overflowed, used to be stamped `scope` whoever ran them, which
-/// published a baseline failure at another pass's stage.
 #[test]
 fn every_outcome_is_reported_at_the_stage_of_its_call() {
     let error = run_git(
@@ -331,9 +314,6 @@ fn real_process_output_limits_and_stderr_are_closed() {
     .unwrap();
     assert!(output.is_empty());
 
-    // The stderr bound answers at the stage of its own call, which is the
-    // regression `every_outcome_is_reported_at_the_stage_of_its_call` states
-    // for a git that never started and this one states through a real process.
     let (workspace, oversized_stderr) = git_script(concat!(
         "#!/bin/sh\n",
         "i=0\n",
@@ -357,14 +337,11 @@ fn real_process_output_limits_and_stderr_are_closed() {
     );
 }
 
-/// A call that answers with its exit code buys no unbounded read.
 #[cfg(unix)]
 #[test]
 fn a_status_call_answers_its_code_and_discards_both_streams() {
     let (workspace, script) = git_script(concat!(
         "#!/bin/sh\n",
-        // The filter driver enumeration that precedes every call answers
-        // nothing; the flood is the status call's own.
         "case \" $* \" in *\" config \"*) exit 0 ;; esac\n",
         "i=0\n",
         "while [ \"$i\" -lt 65536 ]; do printf 12345678; printf 12345678 >&2; i=$((i + 1)); done\n",
@@ -385,8 +362,6 @@ fn a_status_call_answers_its_code_and_discards_both_streams() {
     );
 }
 
-/// Every file of the module stays under the bound `oversized_unit` reports at,
-/// tests included: the layer that runs the scan has to pass the rule it raises.
 #[test]
 fn the_git_layer_holds_the_size_bound_it_scans_for() {
     for own in [
@@ -403,9 +378,6 @@ fn the_git_layer_holds_the_size_bound_it_scans_for() {
     }
 }
 
-/// A git that hangs inside a scan is killed at the run's deadline and answers
-/// `deadline-exceeded` at its call's stage, rather than holding the scan past
-/// `--max-duration`.
 #[cfg(unix)]
 #[test]
 fn a_git_still_running_at_the_deadline_is_killed_at_its_stage() {

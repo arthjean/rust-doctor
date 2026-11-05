@@ -1,35 +1,18 @@
-//! What a running scan is doing, for a caller that wants to show it.
-//!
-//! A cold scan spends minutes compiling, and a static "Scanning Rust files..."
-//! line read as a hang for all of them. The library draws nothing: it hands
-//! each phase to the sink the request carries, and the binary decides how to
-//! show it, a line rewritten in place on a terminal, a few plain lines
-//! anywhere else.
-
 use std::fmt;
 use std::sync::Arc;
 
-/// One phase of a scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress<'a> {
-    /// No workspace sat at or above the requested path, and the only one below
-    /// it, in `directory` relative to it, is what the scan judges.
     Discovered { directory: &'a str },
-    /// Cargo is compiling what the workspace depends on.
     Dependencies,
-    /// Clippy has linted `done` of the `total` workspace members, `package`
-    /// last.
     Linting {
         package: &'a str,
         done: usize,
         total: usize,
     },
-    /// The native passes read the source, the manifests and git.
     NativePasses,
 }
 
-/// Where a scan reports its phases. Cheap to clone, shared across both sides
-/// of a baseline comparison.
 #[derive(Clone)]
 pub struct ProgressSink(Arc<dyn Fn(Progress<'_>) + Send + Sync>);
 

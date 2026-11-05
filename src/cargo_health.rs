@@ -17,54 +17,30 @@ use crate::source_kernel::references::{self, CrateReferences, Mention};
 use crate::source_kernel::Enumeration;
 use crate::source_text::{SourceSpan, byte_range_span, line_starts};
 
-/// The two dependency-truth rules, named once: the entry point asks whether
-/// either is on, and `dependency_truth_required` asks the same question before
-/// the source walk that only they need is started.
 const TRUTH_RULES: [&RuleDefinition; 2] =
     [&CARGO_UNUSED_DEPENDENCY, &CARGO_TEST_ONLY_DEPENDENCY];
 
-/// The two rules the local RustSec database answers, named once: the
-/// resolution pass asks whether either is on before looking for a database.
 pub(crate) const ADVISORY_RULES: [&RuleDefinition; 2] =
     [&CARGO_VULNERABLE_DEPENDENCY, &CARGO_UNMAINTAINED_DEPENDENCY];
 
-/// The two rules the release profile carries, named once: the entry point asks
-/// whether either is on before reading the root manifest, and
-/// `inspect_release_profile` asks per rule from the same set.
 const PROFILE_RULES: [&RuleDefinition; 2] = [
     &CARGO_UNCHECKED_RELEASE_OVERFLOW,
     &CARGO_RELEASE_DEBUG_SYMBOLS,
 ];
 
-
-
-/// Same bound for a manifest the lint-table reader re-parses from disk.
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
     pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: String,
-    /// The member the finding belongs to, `None` for a fact about a virtual
-    /// workspace that no member holds.
     pub(crate) package: Option<String>,
     pub(crate) manifest_path: Option<String>,
-    /// Position of the offending manifest key, when the pack re-read the
-    /// manifest itself; the metadata-derived predicates carry none.
     pub(crate) span: Option<SourceSpan>,
-    /// The dependency key a declaration finding is about. Its published
-    /// identity must not gain the key's span, and an inherited entry has
-    /// none, so a suppression directive written above the key finds them by
-    /// this name.
     pub(crate) key: Option<String>,
-    /// Published at `Info` rather than at the rule's level, which stays its
-    /// base severity and its identity: a fact the workspace's manifests do not
-    /// control, such as a duplicate no member requires directly.
     pub(crate) informational: bool,
 }
 
-/// Bounded error of the pack: a closed code and a frozen message, with no
-/// path, no environment variable and no escape sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CargoHealthError {
     pub(crate) code: &'static str,
@@ -75,12 +51,9 @@ pub(crate) struct CargoHealthError {
 pub(crate) struct CargoHealthScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<CargoHealthError>,
-    /// Whether a RustSec database was read, and what it was.
     pub(crate) advisory: AdvisoryOutcome,
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: CargoHealthCounters,
-    /// Every (package, rule) pair a `[lints]` table sets to `allow`, inherited
-    /// entries included: the Clippy findings the project already declined.
     pub(crate) allows: BTreeSet<(String, String)>,
 }
 
@@ -102,9 +75,6 @@ pub(crate) fn inspect(
 ) -> CargoHealthScan {
     let active = ActiveRules::of(plan, Producer::CargoHealth);
     let mut scan = CargoHealthScan::default();
-    // The allows are read whenever Clippy runs, whichever rule of this pack is
-    // on: switching `permissive_lint_table` off is one of the exits its help
-    // names, and it must not bring back every site the allow hides.
     let reported = active.on(&CARGO_PERMISSIVE_LINT_TABLE);
     if reported || plan.active_rules(Producer::Clippy).next().is_some() {
         inspect_lint_tables(metadata, plan, reported, &mut scan);
@@ -123,8 +93,6 @@ pub(crate) fn inspect(
     scan
 }
 
-/// Every `[dependencies]` entry of every workspace member, judged on what the
-/// manifest declares rather than on what the graph resolved to.
 fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut CargoHealthScan) {
     let workspace_root = metadata.workspace_root.as_std_path();
     for package in workspace_packages(metadata) {
@@ -186,25 +154,10 @@ fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut Ca
     }
 }
 
-
-/// Do the dependency-truth rules need the source enumeration? The walk is the
-/// expensive part of the scan, so execution asks before starting it for these
-/// rules alone.
 pub(crate) fn dependency_truth_required(plan: &PolicyPlan) -> bool {
     ActiveRules::of(plan, Producer::CargoHealth).any_of(&TRUTH_RULES)
 }
 
-/// Judges every `[dependencies]` entry of every workspace member against the
-/// references its sources actually make (US-006 and US-007).
-///
-/// The candidate set is deliberately narrow: only `kind = Normal` entries are
-/// judged, never `[dev-dependencies]` or `[build-dependencies]`, an optional
-/// entry sits behind a feature the scan cannot evaluate, and a target-gated
-/// entry belongs to a platform the scan may not be on. A package whose
-/// reference collection is incomplete is skipped entirely, so a parse failure
-/// never converts into a wall of wrong findings. Before either rule reports,
-/// the textual fallback scans the package's sources for the crate name, which
-/// silences the doctest, macro-token and attribute-argument classes.
 pub(crate) fn inspect_dependency_truth(
     metadata: &Metadata,
     enumeration: &Enumeration,
@@ -218,9 +171,6 @@ pub(crate) fn inspect_dependency_truth(
     }
 
     for package in workspace_packages(metadata) {
-        // A package whose reference collection is incomplete is skipped
-        // entirely, so a parse failure never converts into a wall of wrong
-        // findings.
         if collected.incomplete(&package.id.repr) {
             continue;
         }
@@ -230,7 +180,6 @@ pub(crate) fn inspect_dependency_truth(
             if let Some((definition, message)) =
                 judge_dependency(dependency, &judged, enumeration, collected, &active)
             {
-                // Read on the first finding only: most packages earn none.
                 let keys = declared.get_or_insert_with(|| DeclaredKeys::read(package));
                 scan.candidates.push(Candidate {
                     definition,
@@ -252,14 +201,9 @@ pub(crate) fn inspect_dependency_truth(
     }
 }
 
-/// What the two rules need to know about the package a dependency is declared
-/// in, read once per package rather than once per entry.
 struct Judged<'a> {
     id: &'a str,
     manifest_path: Option<String>,
-    /// The names it also declares under `[dev-dependencies]`. An entry present
-    /// in both tables is not test-only: the normal one is what production
-    /// resolves against.
     development: BTreeSet<&'a str>,
 }
 
@@ -282,14 +226,6 @@ impl<'a> Judged<'a> {
     }
 }
 
-/// The finding one `[dependencies]` entry earns, if either rule reaches it.
-///
-/// The candidate set is deliberately narrow: only `kind = Normal` entries are
-/// judged, an optional entry sits behind a feature the scan cannot evaluate,
-/// and a target-gated entry belongs to a platform the scan may not be on.
-/// Before either rule reports, the textual fallback scans the package's sources
-/// for the crate name, which silences the doctest, macro-token and
-/// attribute-argument classes.
 fn judge_dependency(
     dependency: &Dependency,
     judged: &Judged<'_>,
@@ -319,8 +255,6 @@ fn judge_dependency(
         });
     }
 
-    // A dependency referenced nowhere belongs to the unused rule above, so one
-    // manifest entry never produces two findings.
     if !active.on(&CARGO_TEST_ONLY_DEPENDENCY)
         || sites.production
         || judged.development.contains(dependency.name.as_str())
@@ -336,9 +270,6 @@ fn judge_dependency(
     Some((&CARGO_TEST_ONLY_DEPENDENCY, message))
 }
 
-/// Shape of the manifest the lint-table reader needs: the `[lints]` table of a
-/// member, and the `[workspace.lints]` table a member can inherit. Everything
-/// else in the document is ignored without making it invalid.
 #[derive(Debug, Default, Deserialize)]
 struct ManifestLintDocument {
     lints: Option<LintsSection>,
@@ -350,15 +281,12 @@ struct WorkspaceLintSection {
     lints: Option<LintsSection>,
 }
 
-/// A `[lints]` table is either an inheritance marker or per-tool tables. Only
-/// the `clippy` tool can name a catalogued rule, so the others are not read.
 #[derive(Debug, Default, Deserialize)]
 struct LintsSection {
     workspace: Option<bool>,
     clippy: Option<BTreeMap<toml::Spanned<String>, LintSetting>>,
 }
 
-/// The two spellings Cargo accepts for a lint level.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum LintSetting {
@@ -375,16 +303,6 @@ impl LintSetting {
     }
 }
 
-/// Records every `[lints.clippy]` entry that sets a catalogued, active rule to
-/// `allow`, as the allows of the members it applies to, and, when `reported`,
-/// as a finding. The tool only judges what it would otherwise have said: a
-/// lint the catalog does not carry is not this rule's subject, and neither is a
-/// `deny` or a `warn`, which silence nothing.
-///
-/// A member declaring `[lints] workspace = true` points at the workspace
-/// root's `[workspace.lints]`, which is judged once and attributed to the root
-/// manifest rather than once per inheriting member, and allows for each of
-/// them.
 fn inspect_lint_tables(
     metadata: &Metadata,
     plan: &PolicyPlan,
@@ -453,16 +371,11 @@ fn inspect_lint_tables(
     }
 }
 
-/// Where a permissive entry is reported: the package it is attributed to and
-/// the manifest holding it.
 struct Finding<'a> {
     package: Option<&'a str>,
     manifest_path: Option<String>,
 }
 
-/// Records each entry of one table that allows an active catalogued rule, as
-/// an allow of every member in `members` and, given a `finding`, as one
-/// candidate.
 fn permissive_entries(
     lints: &LintsSection,
     source: &str,
@@ -480,9 +393,6 @@ fn permissive_entries(
             continue;
         }
         let rule = format!("clippy::{}", key.get_ref());
-        // Catalogued and active in one check: the plan only knows catalogued
-        // identifiers, and an off rule was switched off by the user, not by
-        // the manifest.
         if !plan.is_active(&rule) {
             continue;
         }
@@ -507,14 +417,6 @@ fn permissive_entries(
     }
 }
 
-/// Reads one shape out of a manifest, bounded exactly like the lockfile: an
-/// oversized, unreadable or unparseable file is a closed error, never a partial
-/// read. The source comes back with the document because every span the rules
-/// publish is a byte range into it.
-///
-/// The two shapes the pack reads used to have a reader each, identical to the
-/// character but for the type they deserialized and one word of the error
-/// message. `table` is that word.
 fn read_manifest<D: serde::de::DeserializeOwned>(
     path: &Path,
     table: &'static str,
@@ -534,10 +436,6 @@ fn read_manifest<D: serde::de::DeserializeOwned>(
 const LINT_TABLE_UNPARSEABLE: &str = "a manifest lint table could not be parsed";
 const PROFILE_TABLE_UNPARSEABLE: &str = "a manifest profile table could not be parsed";
 
-/// Bounded read shared by every TOML file the pack opens itself: an absent
-/// file is an observed fact, an oversized or unreadable one is a closed error,
-/// never a partial read. The code distinguishes the manifest from the cargo
-/// configuration so the report says which file failed without naming a path.
 fn read_bounded_toml(code: &'static str, path: &Path) -> Result<Option<String>, CargoHealthError> {
     let Ok(file) = fs::metadata(path) else {
         return Ok(None);
@@ -557,23 +455,11 @@ fn read_bounded_toml(code: &'static str, path: &Path) -> Result<Option<String>, 
     }
 }
 
-/// Shape of the manifest the profile rules need (US-008): the `[profile.*]`
-/// tables of the workspace root, with the byte span of each judged setting.
-/// `cargo metadata` publishes no profile, so the root manifest is re-read from
-/// disk under the same bound as the lint reader. A virtual workspace manifest
-/// with no `[package]` still parses: profiles are all this shape reads.
-///
-/// `Spanned` yields byte ranges over the read source; the span of a setting is
-/// the span of its value, which sits on the line that carries the key, and
-/// `byte_range_span` converts it with the same line index the other readers
-/// use.
 #[derive(Debug, Default, Deserialize)]
 struct ManifestProfileDocument {
     profile: Option<BTreeMap<toml::Spanned<String>, ProfileSettings>>,
 }
 
-/// The three settings the release-profile rules judge. Every other profile key
-/// is ignored without making the document invalid.
 #[derive(Debug, Default, Deserialize)]
 struct ProfileSettings {
     #[serde(rename = "overflow-checks")]
@@ -582,9 +468,6 @@ struct ProfileSettings {
     strip: Option<toml::Spanned<TomlScalar>>,
 }
 
-/// The scalar spellings Cargo accepts for profile settings: `debug` is a
-/// boolean, an integer level or a named level, `strip` a boolean or a named
-/// mode.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum TomlScalar {
@@ -593,17 +476,6 @@ enum TomlScalar {
     Name(String),
 }
 
-/// Judges `[profile.release]` of the workspace root (US-009). Only that table
-/// is read: Cargo honors profiles from the root manifest alone, and a profile
-/// inheriting from release through `inherits` is not resolved, which the rule
-/// help states.
-///
-/// `unchecked_release_overflow` fires when the workspace produces a binary and
-/// the release profile does not set `overflow-checks = true`, including when
-/// the manifest carries no `[profile.release]` at all, because Cargo's release
-/// default is `false`. `release_debug_symbols` fires only on an explicit
-/// `debug = true`, `2` or `"full"` left unstripped, because Cargo's release
-/// default is no debug info.
 fn inspect_release_profile(
     metadata: &Metadata,
     active: &ActiveRules,
@@ -638,9 +510,6 @@ fn inspect_release_profile(
                 .is_some_and(|checks| matches!(checks.get_ref(), TomlScalar::Truth(true)))
         });
         if !enabled {
-            // The span points at the explicit `overflow-checks` value when one
-            // is written, at the `[profile.release]` header when the section
-            // exists without it, and nowhere when the default is what fires.
             let span = release.map(|(key, settings)| {
                 settings
                     .overflow_checks
@@ -691,28 +560,17 @@ fn inspect_release_profile(
     }
 }
 
-/// Shape of `.cargo/config.toml` the rustflags rule reads: the `[build]` table
-/// and every `[target.*]` table, because both apply their flags to every build
-/// they cover. Everything else in the document is ignored.
 #[derive(Debug, Default, Deserialize)]
 struct CargoConfigDocument {
     build: Option<RustflagsCarrier>,
     target: Option<BTreeMap<String, RustflagsCarrier>>,
 }
 
-/// The setting is kept as a spanned raw value because cargo accepts two
-/// spellings, a list of arguments or one space-separated string, and an
-/// untagged enum would lose the span: serde buffers untagged content through a
-/// deserializer that cannot carry it. Every argument shares the span of the
-/// setting that declares it, which is the line the finding points at.
 #[derive(Debug, Default, Deserialize)]
 struct RustflagsCarrier {
     rustflags: Option<toml::Spanned<toml::Value>>,
 }
 
-/// The flags of one rustflags setting as (argument, byte span) pairs. A shape
-/// cargo does not accept, an integer for instance, yields no argument rather
-/// than an error: it is cargo's to refuse, not this rule's.
 fn rustflag_arguments(setting: &toml::Spanned<toml::Value>) -> Vec<(&str, std::ops::Range<usize>)> {
     let span = setting.span();
     match setting.get_ref() {
@@ -729,11 +587,6 @@ fn rustflag_arguments(setting: &toml::Spanned<toml::Value>) -> Vec<(&str, std::o
     }
 }
 
-/// Reports every workspace-wide rustflag drawn from the closed list of
-/// checks-disabling flags (US-010): `--cap-lints allow`, `-A warnings` and
-/// `-C overflow-checks=off`, in their separated and joined spellings. Flags
-/// outside that list are not this rule's subject. Only the workspace root's
-/// `.cargo/config.toml` is read; its absence is silence, not an error.
 fn inspect_rustflags(metadata: &Metadata, scan: &mut CargoHealthScan) {
     let path = metadata
         .workspace_root
@@ -779,9 +632,6 @@ fn inspect_rustflags(metadata: &Metadata, scan: &mut CargoHealthScan) {
     }
 }
 
-/// The closed list of neutralizing flags, matched over an argument sequence.
-/// Each hit is returned under its canonical separated spelling so the finding
-/// names one flag however it was written.
 fn neutralizing_rustflags(
     arguments: &[(&str, std::ops::Range<usize>)],
 ) -> Vec<(&'static str, std::ops::Range<usize>)> {
@@ -821,8 +671,6 @@ fn neutralizing_rustflags(
     matched
 }
 
-/// `overflow-checks` accepts the codegen spellings of false: `off`, `false`,
-/// `no`, `n` and `0`.
 fn disables_overflow_checks(setting: &str) -> bool {
     setting
         .split_once('=')
@@ -838,8 +686,6 @@ fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
         .filter(|package| metadata.workspace_members.contains(&package.id))
 }
 
-/// Does any workspace member produce a binary? The repository pass asks it of
-/// the lockfile it finds ignored.
 pub(crate) fn workspace_produces_a_binary(metadata: &Metadata) -> bool {
     workspace_packages(metadata).any(produces_a_binary)
 }

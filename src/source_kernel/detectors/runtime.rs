@@ -1,16 +1,3 @@
-//! The two tokio calls that panic at run time where tokio documents they
-//! panic.
-//!
-//! `tokio::task::block_in_place` panics on a current-thread runtime: there is
-//! no other worker to hand the executor to. The runtime a function runs on is
-//! written on it, `#[tokio::test]` defaulting to current-thread and
-//! `#[tokio::main]` to multi-thread, so the rule reads the attribute of the
-//! function holding the call and nothing else; outside such a function tokio
-//! runs the closure inline and nothing panics. `block_on` called from code an
-//! executor polls panics with "Cannot start a runtime from within a runtime"
-//! for tokio's two forms and deadlocks for the `futures` executor, whichever
-//! runtime polls it.
-
 use ra_ap_syntax::ast::{self, HasAttrs};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -153,7 +140,6 @@ const BLOCK_IN_PLACE_MESSAGE: &str =
 const BLOCK_ON_MESSAGE: &str =
     "block_on inside async code panics under tokio and deadlocks the futures executor.";
 
-/// The calls that build or reach a tokio runtime a `block_on` can be called on.
 const RUNTIME_ROOTS: [&[&str]; 4] = [
     &["tokio", "runtime", "Runtime", "new"],
     &["tokio", "runtime", "Builder", "new_current_thread"],
@@ -179,9 +165,6 @@ fn block_in_place(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection>
     })
 }
 
-/// Does the function holding `node` run on a current-thread runtime, as its
-/// own attribute writes it? `#[tokio::test]` is current-thread unless its
-/// flavor says otherwise, `#[tokio::main]` only when its flavor says so.
 pub(in crate::source_kernel) fn current_thread(node: &SyntaxNode) -> bool {
     let Some(function) = node.ancestors().find_map(ast::Fn::cast) else {
         return false;

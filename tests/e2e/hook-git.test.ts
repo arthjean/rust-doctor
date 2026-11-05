@@ -1,11 +1,3 @@
-// HG-01 to HG-30 of `tasks/e2e-catalog/subcommands.md` section 5: `hook
-// install git` in every hook layout git and the hook managers know, and a
-// real `git commit` through the hook it writes. US-011 changed the hook body
-// (`--blocking warning`, a failed scan lets the commit through) and US-007
-// made relative and missing paths behave, so HG-02, HG-07, HG-22, HG-26 and
-// HG-27 assert that behavior rather than the catalog's 0.7.0 one. HG-31 to
-// HG-34 hold every installer to the `.git` entry on disk when the tree's own
-// git configuration moves the toplevel git reports.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -382,8 +374,6 @@ describe("hook install git", () => {
   });
 });
 
-// US-011: the hook git runs on `git commit`, with hooks on (git-scenario
-// turns them off for its own calls), PATH holding the `rust-doctor` link.
 describe("a commit through the installed hook", () => {
   test("US-011 a staged warning is refused by git commit, and --no-verify lets it through", async () => {
     const repo = await clean("hg-commit");
@@ -417,9 +407,6 @@ describe("a commit through the installed hook", () => {
   }, 150_000);
 });
 
-// Every installer that confines its writes to git's toplevel, run on a
-// workspace whose own git configuration moved that toplevel: each refuses,
-// and the neighbor the configuration names is left as it was.
 const INSTALLERS = [["hook", "install", "git"], ["setup"], ["ci", "install", "--branch", "main"]];
 
 async function refusedByEveryInstaller(workspace: string, box: Sandbox, neighbor: Repo): Promise<string[]> {

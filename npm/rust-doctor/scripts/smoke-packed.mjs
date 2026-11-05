@@ -25,9 +25,6 @@ import {
 
 const artifactPath = join(repositoryRoot, "target/local-cli-dogfood.json");
 
-// The proof replays a user's run. An agent marker inherited from the shell
-// that started it adds the line an agent reads about its skill to stderr,
-// which is a different run from the one a user makes.
 for (const marker of ["CLAUDECODE", "CODEX_SANDBOX", "CURSOR_AGENT"]) {
   delete process.env[marker];
 }
@@ -167,9 +164,6 @@ function normalizeTerminal(value) {
     .replace(/(Scored \d+ production files \(\d+ lines\)[^\n]*? in )\d+\.\d+s/gu, "$1<elapsed>");
 }
 
-// Read back from the source rather than pinned here. A hard-coded number turns
-// every schema bump into a silent lie in this proof: it sat at 8 while the
-// product shipped 14, and nothing said so because nothing ran this script.
 function shippedSchemaVersion() {
   const source = readFileSync(join(repositoryRoot, "src/report.rs"), "utf8");
   const found = source.match(/pub const SCHEMA_VERSION: u8 = (\d+);/u);
@@ -177,11 +171,6 @@ function shippedSchemaVersion() {
   return Number(found[1]);
 }
 
-// The category tally is the one section with two spellings: the renderer names
-// every category it counted ("Bugs: 0 errors, ...") and falls back to
-// "Categories: none" only when there are none at all. Matching the literal
-// "Categories:" asserted the empty scan, which is the shape this proof exists to
-// rule out, so the section is matched by what both spellings have in common.
 const SECTIONS = [
   { name: "Scope", match: "Scope: full codebase" },
   { name: "Scored", match: "Scored " },
@@ -342,15 +331,6 @@ function installPacked(temporary, packed) {
   };
 }
 
-// The path `npm install -g` and the Action take, beside the bun leg above:
-// npm's global layout and its optional-dependency selection, offline.
-//
-// npm applies `overrides` only from a root project, never to a global
-// install, and offline it cannot resolve the wrapper's exact-version
-// optional dependencies from a registry: it skips them as optional, without
-// a word. So the local native tarball goes into the same global install, as a
-// sibling package the launcher resolves through the prefix's node_modules,
-// which is the layout a user's registry install produces.
 function installWithNpm(temporary, packed) {
   const prefix = join(temporary, "npm-prefix");
   const cache = join(prefix, "npm-cache");
@@ -439,7 +419,6 @@ function proveCli(installed) {
     { cwd: installed.install, env: installed.environment },
   ));
   assert(human.code === direct.code, "packed and direct scan exit codes differ");
-  // Off a terminal each phase prints once, on its own line (src/progress_line.rs).
   const progress = human.stderr.trim().split("\n");
   assert(
     progress.every((line) =>
@@ -768,9 +747,6 @@ function buildArtifact({ evidence, installed, npm, cli, deterministic, handoff, 
 }
 
 function writeArtifact(artifact) {
-  // The build this proof drives goes to a temporary target directory, so
-  // `target/` need not exist at all: it does on a machine that has built the
-  // crate before, and does not on a fresh runner.
   mkdirSync(dirname(artifactPath), { recursive: true });
   const temporaryPath = `${artifactPath}.${process.pid}-${Date.now()}.tmp`;
   try {
@@ -785,8 +761,6 @@ const temporary = mkdtempSync(join(tmpdir(), "rust-doctor-packed-smoke-"));
 let packed;
 try {
   const before = await repositoryState();
-  // CI hands the proof the release artifact every other job judges, so it
-  // packs those bytes rather than building a second binary.
   packed = packLocal({ binaryPath: process.env.RUST_DOCTOR_BINARY || undefined });
   const installed = installPacked(temporary, packed);
   const npm = installWithNpm(temporary, packed);

@@ -1,9 +1,3 @@
-//! Tests for the audit block.
-//!
-//! They live beside the module rather than inside it so that every file of the module stays
-//! under the thousand lines `oversized_unit` reports, which is what
-//! `the_audit_holds_the_size_bound_it_scores_for` keeps true.
-
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -17,10 +11,6 @@ mod lambda_freeze;
 mod ranking;
 mod scale;
 
-/// The block passes the rule the score it computes ranks. `oversized_unit` reports a file at a
-/// thousand lines, and this module holds that bound: these tests and the source inventory have
-/// files of their own for that reason, and a file that grows back past it fails here rather than
-/// on a self-scan nobody reads.
 #[test]
 fn the_audit_holds_the_size_bound_it_scores_for() {
     for own in [
@@ -42,10 +32,6 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
     }
 }
 
-/// The categories are published in their declaration order, and nothing restates that order.
-///
-/// `Ord` derives from the declaration, the tally map is keyed by it and `Audit::is_valid` checks
-/// it, so this is the one place the sequence itself is written down and frozen.
 #[test]
 fn the_categories_are_published_in_their_declaration_order() {
     let declared = [
@@ -78,10 +64,6 @@ fn the_categories_are_published_in_their_declaration_order() {
     );
 }
 
-/// `ScoreDimension::ALL` names every dimension exactly once.
-///
-/// The match is exhaustive on purpose: a dimension declared and forgotten in `ALL` stops this
-/// file compiling, which no assertion over a length could catch.
 #[test]
 fn every_dimension_is_listed_once() {
     for dimension in ScoreDimension::ALL {
@@ -97,10 +79,6 @@ fn every_dimension_is_listed_once() {
     assert_eq!(distinct.len(), ScoreDimension::ALL.len());
 }
 
-/// A rule that only ever fired outside production code is counted and shown, and costs nothing.
-///
-/// The two used to be separated by which population each caller aggregated over, so the cost the
-/// report ranked by was not the cost the score charged.
 #[test]
 fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
     let mut in_tests = diagnostic_with_category(Some("security"));
@@ -124,8 +102,6 @@ fn a_finding_outside_production_code_is_counted_and_charged_nothing() {
     assert!(score.projected_rule_ids.is_empty());
 }
 
-/// US-005 AC-4: one rule reaching two dimensions is published as its reason,
-/// and the scan status adds none of its own.
 #[test]
 fn a_category_mapping_conflict_is_the_reason_published() {
     let mut security = diagnostic_with_category(Some("security"));
@@ -145,7 +121,6 @@ fn a_category_mapping_conflict_is_the_reason_published() {
     assert!(clean.reasons.is_empty());
 }
 
-/// US-005 AC-1: the closed vocabulary, spelled as the report publishes it.
 #[test]
 fn every_score_reason_serializes_kebab_case() {
     let reasons = [
@@ -169,7 +144,6 @@ fn every_score_reason_serializes_kebab_case() {
     );
 }
 
-/// FR-04: a flag that disagrees with its reasons is refused before sharing.
 #[test]
 fn a_flag_that_disagrees_with_its_reasons_is_invalid() {
     let mut audit = Audit::build(1, 100, Status::Complete, &[]);
@@ -209,7 +183,6 @@ fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
     }
 }
 
-/// The producer names the oracle spells, paired with the enum they name.
 const PRODUCERS: [(&str, Producer); 5] = [
     ("cargo-health", Producer::CargoHealth),
     ("clippy", Producer::Clippy),
@@ -218,7 +191,6 @@ const PRODUCERS: [(&str, Producer); 5] = [
     ("structure", Producer::Structure),
 ];
 
-/// The dimension names the oracle spells, paired with the enum they name.
 const DIMENSIONS: [(&str, ScoreDimension); 5] = [
     ("dependencies", ScoreDimension::Dependencies),
     ("maintainability", ScoreDimension::Maintainability),
@@ -280,9 +252,6 @@ struct DensityExpectation {
 #[derive(Debug, Deserialize)]
 struct ScoreCase {
     name: String,
-    /// Denominator the case is scored against, recorded rather than derived
-    /// from the file count: core-v3 reads a density, so a case whose line count
-    /// is inferred by the test is a case the record cannot be replayed from.
     production_lines: usize,
     source_files: usize,
     complete: bool,
@@ -306,10 +275,6 @@ struct ShareCase {
     warnings: usize,
     info: usize,
     files: usize,
-    /// Production lines, absent from the two frozen oracles: they were taken
-    /// before the count existed, and a count of zero is omitted from the
-    /// query, so their expected URLs still hold. What the new key does is
-    /// asserted by `the_share_url_carries_the_production_line_count`.
     #[serde(default)]
     lines: usize,
     expected: Option<String>,
@@ -563,14 +528,12 @@ fn invalid_score_state_is_rejected_before_sharing() {
         build_share_url(100, 1_000_001, 0, 0, 1, 100),
         Err(ShareError::InvalidPayload)
     );
-    // The line count is bounded like every other published count.
     assert_eq!(
         build_share_url(100, 0, 0, 0, 1, 1_000_001),
         Err(ShareError::InvalidPayload)
     );
 }
 
-/// The denominator the score is computed against travels with the score.
 #[test]
 fn the_share_url_carries_the_production_line_count() {
     let audit = Audit::build(3, 420, Status::Complete, &[]);
@@ -609,45 +572,21 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
         .collect()
 }
 
-/// What the real catalog produces, as opposed to the injected dimensions
-/// of the oracle.
-///
-/// Under `core-v1`, saturating the twelve rules left the score at 96,
-/// label `Great`: the additive scale was structurally unable to go down.
-/// Under `core-v2` the worst observed tier caps the score, so the same
-/// catalog reaches the `Critical` band. Under `core-v3` the workspace has to be named for the
-/// question to mean anything: every catalogued rule firing once is a catastrophe in a hundred lines
-/// and an ordinary Tuesday in a hundred thousand, so this fires them across fifty kilolines,
-/// which is a workspace the corpus would recognize.
 #[test]
 fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-    // 21 since `permissive_lint_table` moved to P3 (US-023), which weighs less.
     assert_eq!(score.value, 21);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
     assert!(score.authoritative);
 
-    // Two of the five are the density and three are not, which is the whole model in one score.
-    // `security` and `dependencies` fall on their own: two `P0` sites weigh sixteen against a
-    // lambda of four, and the thirteen manifest rules are charged per workspace, so neither is
-    // diluted by fifty kilolines. `performance` is its `P2` ceiling and `security` would be capped
-    // at twenty if the curve had not already taken it below. Reliability sits under the 34 it sat
-    // at when every site weighed one, because its `P1` and `P2` rules now weigh four and two and
-    // only five of its twenty-one rules are discounted by a measured rate. The sixty-four members
-    // of Clippy's `correctness` group, all `P1` and unmeasured, then took it down to 8, and
-    // `permissive_lint_table` leaving `P2` for `P3` (US-023) gives two of them back.
     assert_eq!(score.dimensions.security, 0);
     assert_eq!(score.dimensions.reliability, 10);
     assert_eq!(score.dimensions.maintainability, 45);
-    // EP-024 opens `performance` and `dependencies`: no dimension stays
-    // frozen at 100, so no weight of the scale is inert any more.
     assert_eq!(score.dimensions.performance, 75);
-    // 1 until the core-v6 replay left `duplicate_major_versions` without a
-    // corpus rate, so its site is charged whole.
     assert_eq!(score.dimensions.dependencies, 0);
     assert!(
         score
@@ -660,11 +599,6 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     );
 }
 
-/// One diagnostic per distinct site, which is what a core-v3 numerator counts.
-///
-/// The last member of a tuple is a number of sites and not a number of occurrences: the score
-/// charges a rule for the places a reader has to go and look at, so a rule firing sixty times
-/// is sixty diagnostics here, each in a file of its own.
 fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for (rule, (code, category, severity, sites)) in rules.iter().enumerate() {
@@ -696,11 +630,6 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// An incomplete scan still scores and still caps, and it names neither what to fix next nor
-/// what the ranking withheld, because it ranked nothing.
-///
-/// The two inputs are the two ways of asking: a rule the corpus adjudicated wrong is the one
-/// that would be withheld, and a `P0` rule is the one that would cap.
 #[test]
 fn an_incomplete_scan_caps_and_names_neither_a_projection_nor_a_withholding() {
     let noisy = scored_at(
@@ -732,13 +661,6 @@ fn an_incomplete_scan_caps_and_names_neither_a_projection_nor_a_withholding() {
     }
 }
 
-/// The promise the report makes is the score with those three rules gone, not an estimate of it.
-///
-/// The projection is rescored through the same path the published value takes, ceilings
-/// included, which is what this replays: score once, drop every diagnostic the three named rules
-/// raised, score again, and the two numbers have to be the same. It is the one claim a reader
-/// acts on, and the contribution the ranking orders by is deliberately computed without the
-/// ceilings, so the two are separate facts and only this one is published.
 #[test]
 fn the_projection_is_the_score_the_named_repairs_actually_reach() {
     let profile = [
@@ -798,8 +720,6 @@ fn scored_at(status: Status, rules: &[(&str, &str, Severity, usize)]) -> AuditSc
         .expect("a scored audit should exist")
 }
 
-/// A clean codebase takes no cap, and a cap is not invented out of a rule
-/// outside the catalog.
 #[test]
 fn a_clean_codebase_scores_one_hundred_without_any_ceiling() {
     let clean = Audit::build(1, 100, Status::Complete, &[])
@@ -814,8 +734,6 @@ fn a_clean_codebase_scores_one_hundred_without_any_ceiling() {
     assert_eq!(uncatalogued.applied_ceiling, None);
 }
 
-/// A tier only caps when it acts: a rule switched off by the policy carries
-/// an unknown severity, hence neither penalty nor cap.
 #[test]
 fn a_disabled_rule_neither_penalizes_nor_caps() {
     let disabled = scored(&[(
@@ -830,8 +748,6 @@ fn a_disabled_rule_neither_penalizes_nor_caps() {
     assert_eq!(disabled.dimensions.security, 100);
 }
 
-/// The worst tier of a dimension overrides the others, and a graver tier in
-/// another dimension still brings the overall score down.
 #[test]
 fn only_the_worst_tier_applies_per_dimension_and_overall() {
     let mixed = scored(&[
@@ -854,8 +770,6 @@ fn only_the_worst_tier_applies_per_dimension_and_overall() {
     assert_eq!(mixed.value, 40);
 }
 
-/// A diagnostic with no catalog category stays counted: both quantities of
-/// the categories reconstitute the report population exactly.
 #[test]
 fn every_diagnostic_lands_in_exactly_one_bucket() {
     let mut diagnostics = diagnostics_for(&[
@@ -928,13 +842,6 @@ fn incomplete_source_inventory_never_emits_an_authoritative_score() {
     );
 }
 
-
-
-/// One band table for the score and for both reports. `score_label` is what
-/// the audit publishes and `score_block::label_for` is what the two reports
-/// label a value the audit did not label itself, the projected gain among
-/// them: a second set of thresholds is how a projection could read `Great`
-/// under a score the block called `Needs work`.
 #[test]
 fn the_bands_the_score_publishes_are_the_bands_the_reports_label_by() {
     for value in 0..=100u8 {

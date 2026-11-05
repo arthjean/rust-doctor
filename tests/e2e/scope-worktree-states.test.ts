@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` section D with F03, F05, H05 and H07:
-// working-tree states under the files, lines and contextual scopes, and the
-// baseline of the same states. Each state is built once and shared by its
-// rows, which never write it.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,7 +29,6 @@ function run(repo: Repo, args: string[]) {
   return scan(repo.path, args, { sandbox: repo.sandbox });
 }
 
-// The report of a run that may change the index, which `scan` would refuse.
 function jsonReport(result: DoctorRun): Report {
   if (result.json === undefined) throw new Error(`no JSON report (exit ${result.exitCode}): ${result.stderr}`);
   return result.json as Report;
@@ -101,8 +96,6 @@ describe("uncommitted and staged work", () => {
       .unstaged({ "src/lib.rs": restoreFrom("HEAD") })
       .build();
 
-  // The index half of D04 is the open defect, kept apart so it cannot hide a
-  // regression of the scope.
   test("D04 a lines scan of a worktree restored under a staged change lists no file and reports nothing", async () => {
     const repo = await restored();
     const report = jsonReport(await runDoctor([repo.path, "--yes", "--json", "--scope", "lines"], { sandbox: repo.sandbox }));
@@ -194,8 +187,6 @@ describe("untracked files", () => {
 });
 
 describe("deletions, renames and modes", () => {
-  // Long enough that a one-line edit keeps the file above git's rename
-  // similarity threshold.
   const BEFORE = `${TODO_FN("before")}\npub fn one() -> u8 {\n    1\n}\n\npub fn two() -> u8 {\n    2\n}\n\npub fn three() -> u8 {\n    3\n}\n`;
   const withModules = () =>
     gitScenario("d07")
@@ -283,8 +274,6 @@ describe("deletions, renames and modes", () => {
 
   const binary = () => gitScenario("d14").template("mini").commit("base").stage({ write: { "blob.bin": "\u0000\u0001bin\u0000" } });
 
-  // A stat change on a file still equal to HEAD: porcelain `git diff` drops
-  // the pair and writes the refreshed index back, `git diff-index` does not.
   const touchedBinary = async () => {
     const repo = await binary().build();
     const past = new Date(Date.UTC(2025, 0, 1));
@@ -292,8 +281,6 @@ describe("deletions, renames and modes", () => {
     return repo;
   };
 
-  // The index half of D14 is the open defect, kept apart so it cannot hide a
-  // regression of the scope.
   test("D14 a files scan of a staged binary lists the binary", async () => {
     const repo = await touchedBinary();
     const report = jsonReport(await runDoctor([repo.path, "--yes", "--json", "--scope", "files", "--base", "HEAD"], { sandbox: repo.sandbox }));
@@ -467,8 +454,6 @@ describe("contextual reach", () => {
   const HELD = "    let value = guarded.lock().unwrap();\n    *value\n";
   const AWAITED = "    let value = guarded.lock().unwrap();\n    ready(*value).await\n";
   const fixture = readFileSync(join(FIXTURES, "score-credibility/packs/concurrency/src/lib.rs"), "utf8");
-  // The concurrency pack committed with the guard held but not awaited on,
-  // then the worktree awaiting under it again.
   const awaited = once(() =>
     gitScenario("f05")
       .fixture("score-credibility/packs/concurrency")
@@ -533,8 +518,6 @@ describe("nested workspaces", () => {
 });
 
 describe("symlinked modules", () => {
-  // `src/alias.rs` is a tracked link to `impls/real.rs`; the worktree adds a
-  // todo to the target, which rustc reports at the link.
   const linked = () =>
     gitScenario("h07")
       .template("mini")
@@ -544,8 +527,6 @@ describe("symlinked modules", () => {
       .commit("base")
       .unstaged({ "src/impls/real.rs": "pub fn real() -> u8 {\n    3\n}\n\npub fn more() -> u8 {\n    todo!()\n}\n" });
 
-  // What the scan does today, apart from the dropped finding of the open
-  // defect, so the defect cannot hide a regression of the scope.
   test.each([
     ["H07", "files"],
     ["H07b", "lines"],

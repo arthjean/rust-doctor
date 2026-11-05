@@ -1,14 +1,3 @@
-#!/usr/bin/env bash
-# Fails on a documentation reference that no longer resolves.
-#
-# Two kinds are checked. A path under `docs/` named anywhere in the repository,
-# source comments and skills and workflows included, has to be a file on disk.
-# A relative markdown link between two documents has to resolve, and so does the
-# `#fragment` of one, against the headings of the document it points into.
-#
-# Renaming a document breaks every citation of it in silence: the reader follows
-# a path, opens nothing, and falls back to the map. docs/doc-gates.md holds the
-# reasoning.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,15 +6,11 @@ cd "$root"
 status=0
 checked=0
 
-# Tracked files plus new ones, minus anything gitignored, so a document added in
-# the working tree is checked before it is committed.
 mapfile -t files < <(git ls-files --cached --others --exclude-standard \
   | grep -E '\.(md|rs|sh|json|ya?ml|toml|ts|js)$')
 
 [ "${#files[@]}" -gt 0 ] || { echo "FAIL: no text file to check" >&2; exit 1; }
 
-# The heading anchors of a markdown file, slugged the way a markdown renderer
-# slugs them: lowercased, punctuation dropped, spaces hyphenated.
 slugs_of() {
   sed -n 's/^#\{1,6\}[[:space:]]\{1,\}//p' "$1" \
     | tr '[:upper:]' '[:lower:]' \

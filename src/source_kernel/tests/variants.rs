@@ -1,26 +1,3 @@
-//! US-033: every native source detector keeps its verdict under the rewrites
-//! that do not change what the code does, and on the real forms of its defect.
-//!
-//! A detector is written against the form its author had in mind, and the
-//! first user writes another: the import renamed, the path spelled out, the
-//! builder stored in a `let`, the call moved into a helper. Each rule declares
-//! a canonical positive and a canonical negative next to its detector, and the
-//! gate renders both under every rewrite below. The positive must still fire,
-//! or the rewrite is listed in the rule's `known_misses` with its reason; the
-//! negative must stay silent under all of them. `numeric-parameter` turns the
-//! positive into a negative, for the rules a parameter's text injects into.
-//! A rule without a table fails.
-//!
-//! The rewrites only move one form around. The semantic cases are the other
-//! forms of the defect, written whole: each must fire, or stay silent with the
-//! carve-out that says why, and a carved case that fires is a stale carve-out.
-//! The advisory rewrites are forms a rule may legitimately not chase, a macro's
-//! token tree or an import through the crate's own modules: what they do is
-//! printed, never failed on.
-//!
-//! Everything here parses text and compiles nothing, so the gate touches
-//! neither the disk nor the network.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -33,9 +10,6 @@ use crate::source_kernel::detectors::{
 };
 use crate::source_kernel::{Enumeration, Findings, Identity, LIMITS, Registry, analyze_unit};
 
-/// The rewrites held to a verdict, by the name a `known_misses` entry cites.
-/// Each keeps the positive's verdict except `numeric-parameter`, which is
-/// negative-only.
 const REWRITES: [&str; 12] = [
     "canonical",
     "rename-bindings",
@@ -51,15 +25,10 @@ const REWRITES: [&str; 12] = [
     NUMERIC_PARAMETER,
 ];
 
-/// Every parameter typed `i64`: the positive of a rule whose sink a
-/// parameter's text reaches has to go silent.
 const NUMERIC_PARAMETER: &str = "numeric-parameter";
 
-/// Forms a rule may legitimately not chase. Their positive is reported, never
-/// failed on; their negative is still held silent.
 const ADVISORY: [&str; 2] = ["inside-macro", "crate-relative-import"];
 
-/// The crates the cases import from, each under its own name.
 const CRATES: [&str; 12] = [
     "actix_cors",
     "cookie",
@@ -75,7 +44,6 @@ const CRATES: [&str; 12] = [
     "tower_http",
 ];
 
-/// One case under one rewrite, as the text of a whole unit.
 fn render(case: &Case, rewrite: &str) -> String {
     let short = case.import.rsplit("::").next().unwrap_or(case.import);
     let (import, item) = match rewrite {
@@ -137,8 +105,6 @@ fn render(case: &Case, rewrite: &str) -> String {
     }
 }
 
-/// The chain with every run of `.arg(a).arg(b)` written `.args([a, b])`, the
-/// other spelling `Command` offers for the same argv.
 fn merged_arguments(chain: &str) -> String {
     let mut calls: Vec<(String, String)> = Vec::new();
     let mut rest = chain;
@@ -189,7 +155,6 @@ fn merged_arguments(chain: &str) -> String {
     out + rest
 }
 
-/// The parameter list with every type written `i64`.
 fn numeric(parameters: &str) -> String {
     parameters
         .split(',')
@@ -201,7 +166,6 @@ fn numeric(parameters: &str) -> String {
         .join(", ")
 }
 
-/// The names a parameter list binds, as the arguments of a call.
 fn names(parameters: &str) -> String {
     parameters
         .split(',')
@@ -212,14 +176,10 @@ fn names(parameters: &str) -> String {
         .join(", ")
 }
 
-/// Every `$name` becomes `{prefix}name`, in code and inside format strings
-/// alike, which is what a rename does to a captured identifier.
 fn rename(text: &str, prefix: &str) -> String {
     text.replace('$', prefix)
 }
 
-/// Breaks every argument list and every method chain over lines, with a
-/// comment at each break, and leaves string literals alone.
 fn reformat(text: &str) -> String {
     let mut out = String::new();
     let mut in_string = false;
@@ -257,8 +217,6 @@ fn reformat(text: &str) -> String {
     out
 }
 
-/// Does `rule` report anything in this unit? Only the rule's own detectors
-/// are solicited, and the unit's dependencies are the crates the cases name.
 fn fires(detectors: &[&'static Detector], rule: &str, source: &str) -> bool {
     let enumeration = Enumeration {
         units: BTreeMap::from([(
@@ -290,8 +248,6 @@ fn fires(detectors: &[&'static Detector], rule: &str, source: &str) -> bool {
     !findings.candidates.is_empty()
 }
 
-/// What the tables say: every verdict they break, one line each, and what the
-/// advisory forms did.
 #[derive(Default)]
 struct Gate {
     failures: Vec<String>,
@@ -328,8 +284,6 @@ fn gate(tables: &[&Variants], detectors: &[&'static Detector]) -> Gate {
     Gate { failures, advisories }
 }
 
-/// Holds the positive and the negative of `table` under every rewrite that
-/// must keep the verdict.
 fn rewrites(table: &Variants, detectors: &[&'static Detector], failures: &mut Vec<String>) {
     for rewrite in REWRITES {
         let known = table.known_misses.iter().any(|(missed, _)| *missed == rewrite);
@@ -353,7 +307,6 @@ fn rewrites(table: &Variants, detectors: &[&'static Detector], failures: &mut Ve
     }
 }
 
-/// The negative of `table` stays silent under `rewrite`.
 fn negative_holds(table: &Variants, detectors: &[&'static Detector], rewrite: &str, failures: &mut Vec<String>) {
     let negative = render(&table.negative, rewrite);
     if fires(detectors, table.rule, &negative) {
@@ -361,7 +314,6 @@ fn negative_holds(table: &Variants, detectors: &[&'static Detector], rewrite: &s
     }
 }
 
-/// Holds every semantic case of `table` to the verdict it declares.
 fn semantic(table: &Variants, detectors: &[&'static Detector], failures: &mut Vec<String>) {
     for case in table.semantic {
         let fired = fires(detectors, table.rule, case.source);
@@ -397,14 +349,12 @@ fn every_native_detector_keeps_its_verdict_under_every_rewrite() {
 
 #[test]
 fn the_gate_refuses_a_missing_table_a_silent_positive_and_a_stale_miss() {
-    // A registry whose rule declares nothing.
     let missing = gate(&VARIANTS[1..], &DETECTORS).failures;
     assert!(
         missing.iter().any(|failure| failure.ends_with("declares no variant table")),
         "{missing:?}"
     );
 
-    // A positive that cannot fire, with no miss declared for it.
     let silent = Variants {
         rule: VARIANTS[1].rule,
         positive: Case {
@@ -418,7 +368,6 @@ fn the_gate_refuses_a_missing_table_a_silent_positive_and_a_stale_miss() {
     };
     assert!(gate(&[&silent], &DETECTORS[2..3]).failures.iter().any(|failure| failure.contains("goes silent")));
 
-    // A miss declared for a rewrite that fires.
     let stale = Variants {
         rule: VARIANTS[1].rule,
         positive: copy(&VARIANTS[1].positive),

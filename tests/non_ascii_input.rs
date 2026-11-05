@@ -1,16 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! EP-001 US-001: a typographic quote or any other multibyte character in
-//! front of `://` once made the credential scanner slice inside it, and the
-//! scan died with exit 101 on the three paths that read such a line: the
-//! repository pass over a tracked README, the code frame `--verbose` prints,
-//! and the excerpt of what a failed build script wrote to stderr.
-//!
-//! Every proof runs the binary a user runs, inside a fresh git repository.
-//! The credential each workspace carries is spelled with its `://` split, by
-//! `@@` in the README fixture and by a format argument here, so no file of
-//! this repository holds a value the rule matches.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -30,7 +19,6 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// A fresh one-crate workspace named `name`, holding `files`.
 fn workspace(name: &str, files: &[(&str, String)]) -> PathBuf {
     let root = support::fresh_workspace("non-ascii-input", &NEXT_WORKSPACE);
     fs::write(
@@ -81,8 +69,6 @@ fn run(root: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// The run did not panic: no exit 101, no panic message on stderr, and not
-/// the exit 2 `main` turns a panic no pass contained into.
 fn assert_survived(output: &Output) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_ne!(output.status.code(), Some(101), "{stderr}");
@@ -111,7 +97,6 @@ fn a_tracked_readme_with_a_quote_before_the_scheme_is_reported_not_crashed_on() 
     assert_survived(&output);
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["status"], "complete", "{}", report["errors"]);
-    // The exit status is the gate's: a warning passes the default gate.
     let gate = if report["gate"]["status"] == "passed" { 0 } else { 1 };
     assert_eq!(output.status.code(), Some(gate), "{}", report["gate"]);
     let found: Vec<&Value> = report["diagnostics"]
@@ -141,7 +126,6 @@ fn a_verbose_code_frame_over_a_quoted_url_renders() {
     assert_survived(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("println!(\"hello\")"), "{stdout}");
-    // The frame escapes the quotes it prints and masks the password.
     let masked = format!("// docs: \\u{{201C}}postgres:/{}/u:<redacted>@h.example.com/x", "");
     assert!(stdout.contains(&masked), "{stdout}");
 }

@@ -7,6 +7,8 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 
+mod support;
+
 const DUPLICATE_FUNCTION_BODY: &str = "rust_doctor::structure::duplicate_function_body";
 const CRATE_LEVEL_ALLOW: &str = "rust_doctor::structure::crate_level_allow";
 
@@ -14,19 +16,6 @@ fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
 
-/// One artifact cache per scanned workspace.
-///
-/// Every scan below shells out to `cargo clippy` inside a fixture. A fixture
-/// already compiled under an inherited `CARGO_TARGET_DIR` replays with no
-/// warning at all, and the oracles then read as a regression in the report
-/// rather than as a cache hit: that is what
-/// `precision_matrix_matches_all_positive_and_negative_oracles_without_mutation`
-/// did whenever the suite ran under one shared directory.
-///
-/// The key is the workspace path rather than the test, because the rescan test
-/// edits a workspace and scans it twice and has to see Cargo rebuild it. Two
-/// tests running at once on two different fixtures never share a cache, and one
-/// test scanning one workspace twice always does.
 fn target_directory(workspace: &Path) -> PathBuf {
     let key = blake3::hash(workspace.as_os_str().as_encoded_bytes()).to_hex();
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -35,9 +24,7 @@ fn target_directory(workspace: &Path) -> PathBuf {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/kernel-contract")
-        .join(name)
+    support::fixture_dir(&format!("kernel-contract/{name}"))
 }
 
 fn inspect_json(path: &Path) -> Output {
@@ -125,10 +112,6 @@ fn copy_fixture(source: &Path, destination: &Path) {
         fs::copy(&source_path, destination_path).expect("fixture file should copy");
     }
 
-    // `collect_fixture_files` keeps the lockfile out of the fingerprint, but
-    // the copy must carry it: without it, the copied workspace produces a
-    // binary with no resolved graph and the dependency pack rightly reports it,
-    // which is not what this test measures.
     let lockfile = source.join("Cargo.lock");
     if lockfile.is_file() {
         fs::copy(lockfile, destination.join("Cargo.lock")).expect("lockfile should copy");
@@ -141,11 +124,6 @@ fn temporary_fixture(label: &str) -> PathBuf {
         .join(format!("{label}-{}", std::process::id()))
 }
 
-/// Silences the three targeted lints at crate level.
-///
-/// The exemption states its reason, because since schema 11 an unreasoned one
-/// is itself a finding: what this test measures is which identifiers a
-/// suppression removes, not what the census makes of the suppression.
 fn prepend_crate_allow(path: &Path) {
     let source = fs::read_to_string(path).expect("copied fixture source should be readable");
     let allow = concat!(
@@ -163,8 +141,6 @@ fn replace_in_file(path: &Path, replacements: &[(&str, &str)]) {
     fs::write(path, source).expect("copied fixture source should be writable");
 }
 
-/// Identities of the curated diagnostics a Clippy lint produced. They are the
-/// ones an exemption or a rewrite of the flagged site can remove.
 fn clippy_ids(report: &Value) -> BTreeSet<String> {
     report["diagnostics"]
         .as_array()
@@ -257,11 +233,6 @@ fn precision_matrix_matches_all_positive_and_negative_oracles_without_mutation()
     assert_eq!(observed, expected);
     assert_eq!(observed.len(), 7);
 
-    // The three aliased forms are written in a Cargo test target, which the
-    // scan no longer compiles. The oracle keeps them rather than erasing them:
-    // they are the proof that a catalogued lint firing outside what the
-    // workspace ships produces nothing, not the proof that the alias escapes
-    // detection.
     let out_of_scope = oracle["out_of_scope"]
         .as_array()
         .expect("out of scope oracle should be an array");
@@ -371,14 +342,6 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     let allowed_output = inspect_json(&allowed);
     let allowed_report = parse_report(&allowed_output);
     assert_eq!(allowed_output.status.code(), Some(0));
-    // The exemption names three Clippy lints and removes exactly those three.
-    // What it leaves is the structural family, and that is not an oversight: a
-    // native rule is not a lint the compiler carries, so no attribute written
-    // in the source reaches it. Switching one off goes through `--rule` or
-    // through `rust-doctor.toml`, and nowhere else. Since EP-001 of the
-    // suppression PRD, the crate-level exemption is itself a finding: the
-    // suppression that removed the three lints is exactly what the report now
-    // shows in their place.
     assert_eq!(
         curated(&allowed_report)
             .iter()
@@ -395,10 +358,6 @@ fn allow_and_correction_rescans_remove_only_the_targeted_ids() {
     let initial_output = inspect_json(&corrected);
     let initial = parse_report(&initial_output);
     assert_eq!(initial_output.status.code(), Some(0));
-    // Targeted means "removable by the corrections below": the six macro
-    // sites. The structural family is not one of them, because rewriting a
-    // macro body leaves the two functions the same two functions, so it joins
-    // the diagnostics the rescan must preserve.
     let targeted_ids = clippy_ids(&initial);
     let untargeted_ids: BTreeSet<_> = diagnostic_ids(&initial, false)
         .difference(&targeted_ids)

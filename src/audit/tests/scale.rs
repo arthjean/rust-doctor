@@ -1,23 +1,8 @@
-//! What the score does when the workspace changes size.
-//!
-//! core-v3 reads a rate, so every claim here is a pair: the same findings over a different number
-//! of lines, or a different number of findings over the same lines. The tests that do not depend
-//! on the denominator stay in the parent file.
-
 use super::*;
 
-/// More sites of one rule never raise a dimension, and no count is dense enough to panic.
-///
-/// core-v2 saturated at four occurrences, so a rule firing a thousand times cost exactly what it
-/// cost at twenty. core-v3 has no such step: the density keeps growing and the dimension keeps
-/// falling, until the exponential has nowhere left to fall to.
 #[test]
 fn more_sites_of_one_rule_never_raise_its_dimension() {
     let mut previous = 101;
-    // An unmeasured `P3` rule, so the ladder reads the curve and neither the discount nor a
-    // ceiling: the corpus found `indexing_slicing` wrong on forty sites out of forty, so a
-    // thousand sites of it on ten kilolines are charged as two dozen, and a `P2` rule pins its
-    // dimension at 75 from the first site.
     for sites in [1, 5, 20, 50, 1_000] {
         let rules = [("clippy::type_complexity", "maintainability", Severity::Warning, sites)];
         let audit = Audit::build(100, 10_000, Status::Complete, &diagnostics_for(&rules))
@@ -33,10 +18,6 @@ fn more_sites_of_one_rule_never_raise_its_dimension() {
     assert_eq!(previous, 0, "a hundred sites per kiloline is a zero");
 }
 
-/// Duplicating a workspace, sites and lines together, moves the score by zero points.
-///
-/// This is the defect core-v3 exists to repair: the same code copied ten times is the same code,
-/// and core-v2 scored the copy strictly worse because it counted findings and never divided.
 #[test]
 fn the_score_is_invariant_to_duplicating_the_workspace() {
     let profile = [
@@ -57,8 +38,6 @@ fn the_score_is_invariant_to_duplicating_the_workspace() {
     );
 }
 
-/// Growing the workspace without growing the findings raises the score, which is the other half
-/// of the same statement: the score reads a rate, not a total.
 #[test]
 fn the_same_findings_over_more_lines_score_better() {
     let profile = [("clippy::todo", "correctness", Severity::Warning, 12)];
@@ -69,8 +48,6 @@ fn the_same_findings_over_more_lines_score_better() {
     let dense = dense.score.expect("five kilolines is scorable");
     let doubled = doubled.score.expect("ten kilolines is scorable");
     let sparse = sparse.score.expect("fifty kilolines is scorable");
-    // Doubling the lines alone never lowers the score, which is the weak form; ten times over is
-    // the same statement with room for the rounding to show.
     assert!(
         doubled.value >= dense.value,
         "{} should not fall below {}",
@@ -85,10 +62,6 @@ fn the_same_findings_over_more_lines_score_better() {
     );
 }
 
-/// Repairing nine sites in ten raises the score wherever there was anything to repair.
-///
-/// The ladder below walks the whole density range one step at a time; this is the single claim
-/// the model is sold on, stated once and at the size a reader would actually repair.
 #[test]
 fn repairing_nine_sites_in_ten_raises_the_score() {
     for lines in [2_000, 20_000, 200_000] {
@@ -121,14 +94,8 @@ fn repairing_nine_sites_in_ten_raises_the_score() {
     }
 }
 
-/// Every tier publishes the ceiling it published before core-v3, and nothing else caps.
-///
-/// The penalty changed; the ceilings did not. This walks the four tiers through a real audit
-/// rather than reading the two tables back, so a ceiling that stopped being applied fails here
-/// even though both tables still hold the right numbers.
 #[test]
 fn every_tier_caps_at_the_value_it_capped_at_before() {
-    /// One catalogued rule and the two ceilings its tier is expected to still impose.
     struct Case {
         code: &'static str,
         category: &'static str,
@@ -137,8 +104,6 @@ fn every_tier_caps_at_the_value_it_capped_at_before() {
         overall_ceiling: Option<u8>,
     }
 
-    // One catalogued rule per tier, each in a dimension of its own, fired densely enough that the
-    // curve alone would leave the dimension well above every ceiling.
     const CASES: [Case; 4] = [
         Case {
             code: "rust_doctor::source::dynamic_shell_command",
@@ -208,13 +173,6 @@ fn every_tier_caps_at_the_value_it_capped_at_before() {
     }
 }
 
-/// A report at the ceiling the baseline comparison refuses past still scores, in range.
-///
-/// `DIAGNOSTIC_LIMIT` is the largest population any pass of this crate will carry, so it is the
-/// size at which the numerator has to stay finite and the conversion out of the curve total. Both
-/// dimensions here sit at fifty error-weighted sites per kiloline, and the two lambdas separate
-/// them: maintainability decays to a flat zero, reliability to `100 · exp(-5)`, which rounds to
-/// one. What is being proved is that the curve arrives somewhere rather than at a panic.
 #[test]
 fn a_report_at_the_diagnostic_limit_still_scores_in_range() {
     let sites = crate::delta::DIAGNOSTIC_LIMIT / 2;
@@ -232,11 +190,8 @@ fn a_report_at_the_diagnostic_limit_still_scores_in_range() {
     assert_eq!(score.label, ScoreLabel::NeedsWork);
 }
 
-/// Repairing sites raises the score at every density the corpus spans.
 #[test]
 fn repairing_sites_raises_the_score_at_every_density() {
-    // One `P3` rule and nothing else: a tier ceiling pins a dimension flat, so a repair under one
-    // is worth nothing by design and would refute a monotonicity this test is not claiming.
     for lines in [2_000, 20_000, 200_000] {
         let files = lines / 100;
         let mut previous = None;
@@ -262,7 +217,6 @@ fn repairing_sites_raises_the_score_at_every_density() {
     }
 }
 
-/// A rule that no source file can dilute is charged per workspace, not per kiloline.
 #[test]
 fn a_manifest_finding_is_charged_whatever_the_workspace_measures() {
     let rules = [(
@@ -282,7 +236,6 @@ fn a_manifest_finding_is_charged_whatever_the_workspace_measures() {
     );
 }
 
-/// A rule's numerator recomputes from the published fields alone: one severity weight per site.
 #[test]
 fn a_rule_weighs_one_severity_per_site() {
     let rules = [
@@ -310,7 +263,6 @@ fn a_rule_weighs_one_severity_per_site() {
     }
 }
 
-/// An uncatalogued severity weighs nothing and costs the report its authoritative flag.
 #[test]
 fn a_finding_of_unknown_severity_scores_nothing() {
     let mut diagnostics = diagnostics_for(&[("clippy::todo", "correctness", Severity::Warning, 1)]);
@@ -326,14 +278,6 @@ fn a_finding_of_unknown_severity_scores_nothing() {
     assert!(scorable.is_empty(), "an unknown severity weighs nothing");
 }
 
-/// A hundred and twenty lines are scored against the floor, not against their own twelve
-/// hundredths of a kiloline.
-///
-/// This is the case the floor exists for. Three sites divided by the workspace's real size is a
-/// density of twenty-five, which the curve reads as a flat zero and which would tell the author of
-/// a small crate that three findings are a catastrophe. Divided by the floor it is 1.5, and the
-/// dimension lands where the model puts it. The absolute value is provisional: `US-014` freezes the
-/// lambda table against the measured corpus spread, and what is asserted here is the contrast.
 #[test]
 fn a_hundred_and_twenty_line_crate_is_scored_against_the_floor() {
     let rules = [("clippy::dbg_macro", "maintainability", Severity::Warning, 3)];

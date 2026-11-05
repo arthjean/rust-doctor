@@ -1,9 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! `--warning-exit-code`: a passing run that carries a warning exits with the
-//! code the caller chose, and nothing else moves.
-
 mod support;
 
 use std::path::{Path, PathBuf};
@@ -12,7 +9,6 @@ use std::sync::atomic::AtomicUsize;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Three `todo!()` sites, each a warning.
 fn warning_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kernel-contract/todo")
 }
@@ -59,8 +55,6 @@ fn git(root: &Path, arguments: &[&str]) {
     assert!(status.success(), "git {arguments:?}");
 }
 
-/// In a baseline scope only what the change introduced counts: a warning the
-/// base already carried keeps the run at 0.
 #[test]
 fn a_baseline_run_with_only_pre_existing_warnings_exits_zero() {
     let root = support::fresh_workspace("warning-exit-code", &COUNTER);

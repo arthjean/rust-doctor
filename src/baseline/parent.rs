@@ -1,13 +1,3 @@
-//! Where snapshot roots are created.
-//!
-//! A snapshot is a tree Cargo then reads, and Cargo walks up from it: a
-//! `.cargo/config.toml`, a `rust-toolchain.toml` or a manifest in any ancestor
-//! applies to the scan. Under a parent other users can write, `/tmp` at mode
-//! 1777 first of all, another user plants one of those before the snapshot
-//! exists and chooses what the scan runs. So the parent is the first candidate
-//! whose canonical path and every ancestor are owned by this user or root and
-//! writable by neither group nor others.
-
 use std::env;
 use std::fs;
 use std::io;
@@ -16,19 +6,12 @@ use std::path::{Path, PathBuf};
 use super::{STAGE, temp_unavailable};
 use crate::internal_error::InternalError;
 
-/// One place a snapshot root may be created under. `create_under` marks the
-/// one rust-doctor makes itself, owner-only, once the earlier ones failed, and
-/// names the directory that must already exist for it to be made: a home that
-/// is not there is not one to create.
 #[derive(Debug)]
 pub(super) struct Candidate {
     pub(super) path: PathBuf,
     pub(super) create_under: Option<PathBuf>,
 }
 
-/// The candidates, in order: the temporary directory, then on Unix
-/// `$XDG_RUNTIME_DIR`, then `rust-doctor` under the cache home. A variable that
-/// is unset or not absolute names no candidate.
 pub(super) fn candidates() -> Vec<Candidate> {
     let mut candidates = vec![Candidate {
         path: env::temp_dir(),
@@ -59,8 +42,6 @@ pub(super) fn candidates() -> Vec<Candidate> {
     candidates
 }
 
-/// The canonical path of the first candidate that is private and outside
-/// `repository`, or the error naming why the first one was refused.
 pub(super) fn choose(
     repository: &Path,
     candidates: impl IntoIterator<Item = Candidate>,
@@ -85,9 +66,6 @@ pub(super) fn choose(
     ))
 }
 
-/// The candidate's canonical path when it passes. One rust-doctor creates is
-/// created only under its existing base, once that base passes, so a refused
-/// candidate leaves nothing behind.
 fn accept(repository: &Path, candidate: &Candidate) -> Result<PathBuf, String> {
     let unavailable = || format!("{} is unavailable", candidate.path.display());
     let canonical = |path: &Path| path.canonicalize().map_err(|_| unavailable());
@@ -126,7 +104,6 @@ fn create_owner_only(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
-/// Why `canonical` or one of its ancestors could be written by another user.
 #[cfg(unix)]
 fn refusal(canonical: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
@@ -146,7 +123,6 @@ fn refusal(canonical: &Path) -> Option<String> {
     None
 }
 
-/// Windows takes the temporary directory as it always has: it is per user.
 #[cfg(not(unix))]
 fn refusal(_canonical: &Path) -> Option<String> {
     None
@@ -161,8 +137,6 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    /// A scratch directory at `mode` under this crate's `target/`, whose
-    /// ancestors are the developer's own, and a repository beside it.
     fn scratch() -> (PathBuf, PathBuf) {
         let base = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target/baseline-parent")
@@ -208,8 +182,6 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
-    /// A private leaf under a writable ancestor is refused: whoever writes the
-    /// ancestor can swap the leaf.
     #[test]
     fn a_private_directory_under_a_writable_ancestor_is_refused() {
         let (base, repository) = scratch();
@@ -221,9 +193,6 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
-    /// The check runs on the canonical path: a link from a private directory
-    /// into a writable one is refused, and a link to a private one is taken as
-    /// its target.
     #[test]
     fn a_symlinked_ancestor_is_resolved_before_the_check() {
         let (base, repository) = scratch();
@@ -248,8 +217,6 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
-    /// A refused, a missing and an inside-the-repository candidate are each
-    /// skipped, and the cache candidate is created owner-only once reached.
     #[test]
     fn the_first_private_candidate_wins_and_the_cache_home_is_created_owner_only() {
         let (base, repository) = scratch();
@@ -276,7 +243,6 @@ mod tests {
         fs::remove_dir_all(base).unwrap();
     }
 
-    /// The cache home is not created under a parent other users can write.
     #[test]
     fn a_cache_home_under_a_writable_parent_is_refused_uncreated() {
         let (base, repository) = scratch();
@@ -293,7 +259,6 @@ mod tests {
         assert!(error.message.ends_with(&format!("{} is writable by other users", home.path.display())));
         assert!(!home.path.join(".cache").exists());
 
-        // A home that does not exist is not created to hold one.
         let missing = base.join("missing-home");
         let error = choose(
             &repository,

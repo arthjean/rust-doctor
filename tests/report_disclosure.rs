@@ -1,10 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Proofs of EP-002 of the self-scan remediation, from the binary a user runs:
-//! the linear report names the workspace's five dimensions, says what it
-//! scored and what Clippy read, and names the members a `--package` scan
-//! selected.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -44,15 +39,10 @@ fn dimensions_line(dimensions: &Value) -> String {
     )
 }
 
-/// US-008 and US-009 on a two-member workspace: the dimension line is the
-/// workspace score's, not a member's, and the scope line counts what was scored
-/// and says Clippy linted the library and binary targets.
 #[test]
 fn a_workspace_scan_prints_the_workspace_dimensions_and_its_scope() {
     let root = members();
     let report: Value = serde_json::from_slice(&run(&root, &["--json"])).unwrap();
-    // The linear report wraps at 80 columns on a captured stdout, and wraps on
-    // spaces, so the rows are joined back before a sentence is looked for.
     let text = String::from_utf8(run(&root, &[])).unwrap().replace('\n', " ");
 
     let workspace = dimensions_line(&report["audit"]["score"]["dimensions"]);
@@ -78,7 +68,6 @@ fn a_workspace_scan_prints_the_workspace_dimensions_and_its_scope() {
     );
 }
 
-/// US-009: a `--package` scan names the member it selected in the scope line.
 #[test]
 fn a_package_scan_names_the_selected_member() {
     let text = String::from_utf8(run(&members(), &["--package", "alpha"]))
@@ -102,9 +91,6 @@ fn clippy_phases(fixture: &str) -> (u64, u64) {
     )
 }
 
-/// US-012: `clippy_dependencies` ends at the last artifact of a package
-/// outside the members, so a workspace with no dependency spends none there,
-/// and one with a path dependency spends Cargo's start and that crate there.
 #[test]
 fn the_clippy_dependencies_phase_ends_at_the_last_dependency_artifact() {
     let (dependencies, linting) = clippy_phases("todo");

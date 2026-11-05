@@ -1,16 +1,3 @@
-//! What the report tells the reader to repair first.
-//!
-//! The ranking is the whole subject: the points a repair gives back through the ceilings the
-//! published value takes, discounted by how often the pinned corpus adjudicated the rule wrong,
-//! and the rules that discount withholds. It has a file of its own so that every file of the
-//! module stays under the thousand lines `oversized_unit` reports, which is what
-//! `the_audit_holds_the_size_bound_it_scores_for` keeps true.
-//!
-//! Every case here is written against a real catalogued rule and the rate the shipped table
-//! carries for it, except the ones that put two samples of the same rate in competition: those
-//! are the one question no pair of real rules asks, since no two catalogued rules share a rate
-//! across two sample sizes.
-
 use crate::audit::{DensityScope, RuleAggregate, ScoreDimension};
 use crate::policy::{RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::Severity;
@@ -19,16 +6,12 @@ use super::{diagnostics_for, scored};
 use crate::audit::{Audit, AuditScore};
 use crate::report::Status;
 
-/// The same profile over twenty kilolines, the size at which a handful of sites is a density
-/// rather than a catastrophe: on the hundred-line floor sixty sites saturate every dimension and
-/// the ceiling is not what holds the score.
 fn scored_over_twenty_kilolines(rules: &[(&str, &str, Severity, usize)]) -> AuditScore {
     Audit::build(20, 20_000, Status::Complete, &diagnostics_for(rules))
         .score
         .expect("twenty kilolines is a scorable workspace")
 }
 
-/// One aggregate carrying nothing but what the ranking key reads.
 fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
     RuleAggregate {
         id: id.to_owned(),
@@ -45,12 +28,6 @@ fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
     }
 }
 
-/// The rule that fires most is not the rule worth fixing first.
-///
-/// `clippy::indexing_slicing` is adjudicated wrong on all forty sites the pinned corpus reviewed,
-/// while `rust_doctor::cargo::duplicate_major_versions` was right on the one it showed. Ranking
-/// by contribution alone put the noisy rule first because volume is exactly what it has the most
-/// of, which is advice to go and change correct code.
 #[test]
 fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
     let score = scored(&[
@@ -74,12 +51,6 @@ fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
     );
 }
 
-/// An unmeasured rule is ranked as unknown, not as perfect.
-///
-/// It keeps half its contribution, which is the same smoothing read at no observations. Under the
-/// raw rate it kept all of it, so the 38 rules the corpus has never adjudicated all ranked ahead
-/// of every rule it ever confirmed, and withholding a rate promoted the rule instead of demoting
-/// it.
 #[test]
 fn an_unmeasured_rule_is_ranked_at_half_its_contribution() {
     let unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 1_000_000, None);
@@ -94,13 +65,6 @@ fn an_unmeasured_rule_is_ranked_at_half_its_contribution() {
     );
 }
 
-/// The same rate on more sites is a stronger claim, and the charge says so.
-///
-/// Five sites all adjudicated wrong and forty sites all adjudicated wrong are the same raw rate
-/// and not the same evidence. The smoothing is what separates them: both sit above the
-/// unmeasured middle, and the larger sample sits further from it, in the direction its data
-/// indicates. The discount lives in the charge, which is what a contribution is read from, so
-/// the ranking does not apply it a second time.
 #[test]
 fn the_same_rate_on_more_sites_moves_further_from_the_default() {
     let mut five = ranked("clippy::panic", 0, Some(8571));
@@ -119,13 +83,6 @@ fn the_same_rate_on_more_sites_moves_further_from_the_default() {
     );
 }
 
-/// A measured rule is discounted once, in its charge, and an unmeasured one at the middle.
-///
-/// Two `P3` performance rules of equal raw relief, one site each: `ptr_arg`, which the corpus
-/// confirmed at 3333 basis points, and `useless_vec`, which it never measured. Under core-v5 the
-/// ranking applied the measured rule's discount on top of the charge that already carried it,
-/// kept 4444 of its relief against the unmeasured rule's 5000, and ranked the confirmed rule
-/// second.
 #[test]
 fn a_measured_rule_is_discounted_once_and_ranks_above_an_unmeasured_peer() {
     let score = scored(&[
@@ -143,12 +100,6 @@ fn a_measured_rule_is_discounted_once_and_ranks_above_an_unmeasured_peer() {
     assert_eq!(unmeasured.expected_repair_value(), 500_000);
 }
 
-/// A measured rule holding a ceiling is projected for the ceiling it releases, whole.
-///
-/// One undocumented `unsafe` block holds reliability at 75. The gain of repairing it is the
-/// ceiling it lifts, read through the published value, and the rate the corpus measured it at
-/// discounts none of that: the promise is a hundred. This used a duplicate major until the
-/// core-v6 replay left that rule without a rate.
 #[test]
 fn the_ceiling_a_measured_rule_holds_is_released_whole() {
     let score = scored(&[
@@ -168,12 +119,6 @@ fn the_ceiling_a_measured_rule_holds_is_released_whole() {
     assert_eq!(score.projected_after_top_three, Some(100));
 }
 
-/// A rule the corpus found wrong more often than right is withheld, and still named.
-///
-/// The threshold is the rate, not the value left after the discount: under the value no rule
-/// was ever withheld, since no smoothed rate reaches ten thousand and a millionth of a point
-/// survives any discount. Two such rules are published loudest first, so the absence from the
-/// projection reads as a measurement and not as a defect.
 #[test]
 fn a_rule_wrong_more_often_than_right_is_withheld_and_still_named() {
     let worst = ranked("clippy::panic", 1_000_000, Some(8571));
@@ -202,12 +147,6 @@ fn a_rule_wrong_more_often_than_right_is_withheld_and_still_named() {
     );
 }
 
-/// The rule holding the ceiling is named first, whatever the others' volume.
-///
-/// One `P1` site holds the score at 65. Read from the density relief alone, three `P3` rules
-/// with dozens of sites each led the projection and the projection promised the 65 the reader
-/// already had. The marginal gain through the ceilings is what puts the `P1` rule first, and
-/// the promise moves.
 #[test]
 fn the_rule_holding_the_ceiling_is_named_first() {
     let score = scored_over_twenty_kilolines(&[
@@ -230,8 +169,6 @@ fn the_rule_holding_the_ceiling_is_named_first() {
     assert!(projected > 65, "the promise moves once the ceiling is named: {projected}");
 }
 
-/// Two rules sharing the ceiling are both named: the first lifts nothing alone, the second lifts
-/// it on top of the first.
 #[test]
 fn two_rules_sharing_a_ceiling_are_both_named() {
     let score = scored_over_twenty_kilolines(&[
@@ -253,12 +190,6 @@ fn two_rules_sharing_a_ceiling_are_both_named() {
     );
 }
 
-/// The rate discounts the charge of a measured rule, and never invents one.
-///
-/// Two workspaces differing only in which rule fired, both rules of the same tier and dimension,
-/// no longer score the same: the one the corpus found wrong on forty sites out of forty costs a
-/// fortieth of the one it found wrong on five out of five. Neither is free, since the smoothing
-/// keeps a share of every measured rule, and the sample is printed wherever the rule is named.
 #[test]
 fn the_rate_discounts_the_charge_of_a_measured_rule() {
     let forty = scored(&[(
@@ -281,7 +212,6 @@ fn the_rate_discounts_the_charge_of_a_measured_rule() {
     assert_eq!(unreachable.charged(), 2857.0);
 }
 
-/// An unmeasured rule is charged whole: a measurement can only lower a charge.
 #[test]
 fn an_unmeasured_rule_is_charged_whole() {
     let mut rule = ranked("rust_doctor::repo::tracked_secret_file", 0, None);

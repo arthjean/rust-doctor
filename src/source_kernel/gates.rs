@@ -1,14 +1,3 @@
-//! Whether a gated rule's detectors read a unit: the version each gated crate
-//! resolves to for the packages that reach it.
-//!
-//! A rule written against one crate's API is only as good as the versions it
-//! was checked on. The version a unit sees is the lowest, over the packages
-//! reaching it, of the `Cargo.lock` entry their direct dependency resolves to;
-//! without a lockfile entry it is the lower bound of the manifest's
-//! requirement, and unknown for `*`. An unknown version opens the gate: the
-//! detectors still resolve every path through the manifest's own dependency
-//! names, so a crate the unit cannot name is never matched.
-
 use std::collections::BTreeMap;
 
 use cargo_metadata::Metadata;
@@ -16,8 +5,6 @@ use cargo_metadata::semver::{Op, Version, VersionReq};
 
 use crate::policy::{CrateGate, RuleDefinition};
 
-/// Per package id, the version of each direct dependency, by crate name with
-/// `-` read as `_`.
 pub(super) type DependencyVersions = BTreeMap<String, BTreeMap<String, Option<Version>>>;
 
 pub(super) fn dependency_versions(metadata: &Metadata) -> DependencyVersions {
@@ -44,8 +31,6 @@ pub(super) fn dependency_versions(metadata: &Metadata) -> DependencyVersions {
         .collect()
 }
 
-/// The smallest version a requirement admits, read from its first
-/// comparator; `None` for `*`.
 fn lower_bound(requirement: &VersionReq) -> Option<Version> {
     let comparator = requirement.comparators.first()?;
     matches!(
@@ -65,25 +50,19 @@ fn crate_name(name: &str) -> String {
     name.replace('-', "_")
 }
 
-/// What a unit's gate answered for one rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Gate {
     Open,
-    /// No gated crate reaches the unit.
     Absent,
-    /// A gated crate reaches it at a version outside the rule's range.
     Unsupported,
 }
 
-/// One rule's gates, their ranges parsed once per scan.
 pub(super) struct ParsedGates {
     pub(super) rule: &'static str,
     gates: Vec<(String, VersionReq)>,
 }
 
 impl ParsedGates {
-    /// `None` for an ungated rule. A range that does not parse is left out,
-    /// which `validate_catalog` makes unreachable for a shipped rule.
     pub(super) fn of(definition: &'static RuleDefinition) -> Option<Self> {
         (!definition.requires.is_empty()).then(|| Self {
             rule: definition.id,
@@ -97,7 +76,6 @@ impl ParsedGates {
         })
     }
 
-    /// The gate of a unit the packages `reaching` reach.
     pub(super) fn evaluate(&self, reaching: &[Option<&BTreeMap<String, Option<Version>>>]) -> Gate {
         let mut present = false;
         for (krate, range) in &self.gates {

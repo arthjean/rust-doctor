@@ -1,11 +1,3 @@
-//! The registry: one traversal whatever it holds, and each detector asked
-//! about the nodes of its own kind and no other.
-//!
-//! A rule may register several detectors, one per node kind it reads, as the
-//! blocking and SQL families do for the call and the method form. What a rule
-//! is solicited on is therefore the sum of the kinds its detectors declared,
-//! which is what these tests compute rather than assume.
-
 use ra_ap_syntax::{AstNode, Edition, SourceFile, SyntaxKind};
 
 use super::{REGISTERED, SILENT, SILENT_RULE, analyze, solicitations};
@@ -21,8 +13,6 @@ fn nodes(source: &str, kind: Option<SyntaxKind>) -> usize {
         .count()
 }
 
-/// How often `rule` is asked about `source` when `detectors` are registered:
-/// once per node of each kind one of its detectors declared.
 fn expected_solicitations(source: &str, detectors: &[&Detector], rule: &str) -> usize {
     detectors
         .iter()
@@ -31,7 +21,6 @@ fn expected_solicitations(source: &str, detectors: &[&Detector], rule: &str) -> 
         .sum()
 }
 
-/// The registered detector of a rule on one node kind, when it has exactly one.
 fn only(rule: &str, kind: SyntaxKind) -> &'static Detector {
     let mut found = REGISTERED
         .iter()
@@ -42,9 +31,6 @@ fn only(rule: &str, kind: SyntaxKind) -> &'static Detector {
     detector
 }
 
-/// The walk is single and independent of the registry: the number of
-/// visited nodes depends neither on the number of detectors nor on their
-/// order, and a silent detector does not change the result.
 #[test]
 fn the_registry_shares_one_traversal_and_stays_order_independent() {
     let source = "use std::process::Command;
@@ -78,16 +64,12 @@ fn run(user: &str) {
     assert_eq!(single.1.nodes_visited, all);
     assert_eq!(solicitations(&single.1, SOURCE_DYNAMIC_SHELL.id), 0);
 
-    // A registered detector that emits nothing leaves the result unchanged.
     let with_silent = analyze(source, &[tls, &SILENT, shell]);
     assert_eq!(with_silent.0, expected);
     assert_eq!(with_silent.1.nodes_visited, all);
     assert_eq!(solicitations(&with_silent.1, SILENT_RULE.id), 1);
 }
 
-/// Grouping the registry by node kind may not change what a detector is
-/// asked: a detector is solicited on every node of its kind and on no other,
-/// whichever kinds its neighbours declared.
 #[test]
 fn a_detector_is_solicited_on_its_own_kind_and_never_on_another() {
     let source = "fn run(user: &str) { let _ = Command::new(\"sh\").arg(user); }";
@@ -107,10 +89,6 @@ fn a_detector_is_solicited_on_its_own_kind_and_never_on_another() {
     }
 }
 
-/// A rule whose detector matches a crate outside the sysroot declares a gate
-/// on that crate, and a gate names a crate one of its detectors matches: a
-/// rule written for one crate's API never reads another version of it
-/// unannounced, and no gate closes a rule over a crate it never reads.
 #[test]
 fn every_crate_a_detector_matches_is_gated_on_its_rule() {
     let normalized = |name: &str| name.replace('-', "_");
@@ -140,8 +118,6 @@ fn every_crate_a_detector_matches_is_gated_on_its_rule() {
             );
         }
     }
-    // The crates a detector's own tables name, read from its source, are the
-    // crates it declares: a table that gains a crate gains its gate.
     let sources = [
         include_str!("../detectors.rs"),
         include_str!("../detectors/blocking.rs"),
@@ -168,8 +144,6 @@ fn every_crate_a_detector_matches_is_gated_on_its_rule() {
     }
 }
 
-/// Library crates a detector table can name. A table entry that is not one
-/// of them, a method or a shell name, is not a crate.
 const KNOWN_LIBRARY_CRATES: [&str; 13] = [
     "actix_cors",
     "cookie",

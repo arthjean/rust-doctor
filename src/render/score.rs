@@ -1,21 +1,9 @@
-//! The score section closing the linear report: the ceiling that binds, the
-//! block, the five dimensions, the projection and the rules it withholds.
-//!
-//! It lives beside the report rather than inside it so that every file of the
-//! module stays under the thousand lines `oversized_unit` reports.
-
 use std::io::Write;
 
 use crate::InspectReport;
 
 use super::{RenderError, Style, TerminalOptions, line, score_header};
 
-/// The rules a published ceiling names, bounded to fit on one line. A cap with
-/// no named cause cannot be explained.
-///
-/// They are read from `ceilings[]` rather than gathered from the diagnostics:
-/// the text used to name every rule of the worst tier the report carried, a
-/// test-context finding or a withheld rule included, and neither caps anything.
 fn named_rules(ceiling: &crate::ScoreCeiling) -> String {
     const MAX_NAMED_RULES: usize = 3;
     let mut named: Vec<&str> = ceiling
@@ -32,9 +20,6 @@ fn named_rules(ceiling: &crate::ScoreCeiling) -> String {
     named.join(", ")
 }
 
-/// One dimension a tier caps, its value and the rules holding the ceiling:
-/// `Reliability 75 (P2 ceiling: clippy::todo)`. `None` for the score's own
-/// ceiling, which the sentence above the block names.
 fn dimension_ceiling_line(
     dimensions: crate::ScoreDimensions,
     ceiling: &crate::ScoreCeiling,
@@ -54,9 +39,6 @@ fn dimension_ceiling_line(
     ))
 }
 
-/// The ceiling holds the score only when the dimensions alone would have
-/// scored above it. Under it, "Capped at 65" above a 54 named the wrong cause:
-/// the dimensions are what hold the score there, and the ceiling is still owed.
 pub(super) fn ceiling_sentence(value: u8, ceiling: u8, tier: &str, blocking: &str) -> String {
     if value < ceiling {
         format!(
@@ -94,9 +76,6 @@ pub(super) fn render_score<W: Write>(
         line(writer, &sentence, options, Style::Warning)?;
     }
     score_header::render(writer, score, options, score_header::Cadence::DEFAULT)?;
-    // The dimensions are what a reader compares to find the one holding the
-    // score down, and a partial scan's dimensions are as partial as its value:
-    // its reasons say why instead.
     if score.authoritative {
         line(
             writer,
@@ -130,17 +109,6 @@ pub(super) fn render_score<W: Write>(
     Ok(())
 }
 
-/// How a rule's rate is qualified wherever the ranking names the rule.
-///
-/// A rate published alone cannot be weighed. Thirty-three percent measured on
-/// one adjudicated site and thirty-three measured on forty are the same number
-/// and not the same claim, and the difference is exactly what the ranking's
-/// smoothing acts on, invisibly, in the rate it produces. So the sample is
-/// printed beside the rate wherever a rule is named.
-///
-/// A rule the corpus never adjudicated is named as unmeasured rather than shown
-/// as a number. It is ranked at the middle of the interval, and printing that
-/// middle as a measurement would publish an assumption as an observation.
 pub(super) fn measurement_note(id: &str) -> String {
     match crate::policy::corpus_measurement(id) {
         Some(measurement) => {
@@ -160,18 +128,6 @@ fn named_with_measurement(ids: &[String]) -> String {
         .join(", ")
 }
 
-/// Why the loudest rule is missing from what to fix.
-///
-/// The rule with the most findings is often the one the corpus found most often
-/// wrong, so a list that drops it without a word reads as a defect of the tool.
-/// Two names carry the point; past that a count does, because the sentence is
-/// there to explain an absence, not to enumerate one.
-///
-/// The sentence states the criterion the ranking applies, a smoothed rate past
-/// the middle, which is the corpus finding the rule wrong more often than right.
-/// It used to claim that nothing worth repairing was left once the rate was
-/// applied, and a withheld rule still costs the score what its findings weigh:
-/// repairing it moves the value, which is exactly what that claim denied.
 pub(super) fn withheld_sentence(withheld: &[String]) -> Option<String> {
     let named: Vec<String> = withheld
         .iter()

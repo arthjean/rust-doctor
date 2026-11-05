@@ -1,11 +1,3 @@
-//! The line a scan draws on stderr while it runs.
-//!
-//! A cold scan compiles for minutes, and the static `Scanning Rust files...`
-//! it used to print read as a hang for all of them. On a terminal one line is
-//! rewritten in place, at most every 100 ms, and cleared before anything else
-//! is printed. Anywhere else, an agent, a CI log, a git hook, nothing is
-//! rewritten: each phase prints once, so a log carries three lines at most.
-
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -15,7 +7,6 @@ use rust_doctor::progress::{Progress, ProgressSink};
 
 const REDRAW_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Erases the current terminal line and returns to its start.
 const ERASE_LINE: &str = "\r\x1b[2K";
 
 #[derive(Debug)]
@@ -33,8 +24,6 @@ struct State {
 }
 
 impl ProgressLine {
-    /// `rewrite` is whether stderr is a terminal that understands the erase
-    /// sequence.
     pub(crate) fn new(rewrite: bool) -> Arc<Self> {
         Arc::new(Self {
             rewrite,
@@ -42,9 +31,6 @@ impl ProgressLine {
         })
     }
 
-    /// The sink a scan reports to. Without `phases` it shows only where
-    /// discovery found the workspace, which a JSON reader still needs to hear:
-    /// the report names files relative to a directory it did not pass.
     pub(crate) fn sink(self: &Arc<Self>, phases: bool) -> ProgressSink {
         let line = Arc::clone(self);
         ProgressSink::new(move |progress| {
@@ -58,8 +44,6 @@ impl ProgressLine {
         let (phase, text) = describe(progress);
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let mut stderr = io::stderr().lock();
-        // Where the workspace was found is a fact the reader keeps, not a
-        // phase the next one overwrites: it gets a line of its own.
         if let Progress::Discovered { .. } = progress {
             let erase = if state.on_screen { ERASE_LINE } else { "" };
             let _ = writeln!(stderr, "{erase}{text}");
@@ -86,7 +70,6 @@ impl ProgressLine {
         }
     }
 
-    /// Erases the line, so the report or an error starts on a clean one.
     pub(crate) fn clear(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.on_screen {

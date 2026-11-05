@@ -22,8 +22,6 @@ fn exact() -> ActiveRules {
     ActiveRules::from_rules([&STRUCTURE_DUPLICATE_FUNCTION_BODY])
 }
 
-/// A function long enough to pass the floor, parameterized by the names and
-/// the literal so a caller can write a clone of it.
 fn sizeable(name: &str, binding: &str, literal: &str) -> String {
     format!(
         "fn {name}(input: &[u32], limit: u32) -> u32 {{
@@ -40,8 +38,6 @@ fn sizeable(name: &str, binding: &str, literal: &str) -> String {
     )
 }
 
-/// US-006: N functions sharing a form make one finding of N occurrences,
-/// pointing at the first in sorted order and naming the rest.
 #[test]
 fn one_family_is_one_group_naming_every_member_once() {
     let source = format!(
@@ -63,9 +59,7 @@ fn one_family_is_one_group_naming_every_member_once() {
         "{}",
         groups[0].summary.subject
     );
-    // The key is the digest of the shared form, and nothing else.
     assert_eq!(groups[0].key.len(), 64);
-    // The members are distinct sites of the one file, in source order.
     let lines: Vec<usize> = groups[0]
         .members
         .iter()
@@ -74,8 +68,6 @@ fn one_family_is_one_group_naming_every_member_once() {
     assert!(lines.windows(2).all(|pair| pair[0] < pair[1]), "{lines:?}");
 }
 
-/// US-006: below the floor nothing is grouped, and a workspace with no
-/// clone produces no finding at all.
 #[test]
 fn a_form_below_the_floor_and_a_workspace_without_clones_report_nothing() {
     assert!(families("fn one() -> u32 { 1 }\nfn two() -> u32 { 2 }", &both()).is_empty());
@@ -87,8 +79,6 @@ fn a_form_below_the_floor_and_a_workspace_without_clones_report_nothing() {
     assert!(families(&unique, &both()).is_empty(), "{unique}");
 }
 
-/// US-006: the signature participates, so the same body under two arities
-/// is two functions.
 #[test]
 fn two_arities_are_never_one_family() {
     let source = "fn one(a: u32) -> u32 { let mut total = 0; for value in 0..a { total += value * a; } total }\n\
@@ -96,8 +86,6 @@ fn two_arities_are_never_one_family() {
     assert!(families(source, &exact()).is_empty(), "{source}");
 }
 
-/// The same function with one branch added, which is the shape a near
-/// duplicate takes when a copy is edited after the fact.
 fn branched(name: &str, binding: &str, literal: &str) -> String {
     format!(
         "fn {name}(input: &[u32], limit: u32) -> u32 {{
@@ -117,8 +105,6 @@ fn branched(name: &str, binding: &str, literal: &str) -> String {
     )
 }
 
-/// US-007: one added branch is a near duplicate, two unrelated functions of
-/// the same size are not, and a pair already exact is not reported twice.
 #[test]
 fn a_near_duplicate_is_a_family_and_an_exact_pair_is_not_reported_twice() {
     let source = format!(
@@ -149,11 +135,8 @@ fn a_near_duplicate_is_a_family_and_an_exact_pair_is_not_reported_twice() {
         (NEAR_DUPLICATE_THRESHOLD..10_000).contains(&similarity),
         "{similarity}"
     );
-    // The identity of the family is one digest, the smallest it holds.
     assert_eq!(groups[0].key.len(), 64);
 
-    // Three exact clones and nothing else: the near pass sees one
-    // representative and reports nothing on top of the exact family.
     let exact_source = format!(
         "{}{}{}",
         sizeable("first", "total", "0"),
@@ -165,10 +148,6 @@ fn a_near_duplicate_is_a_family_and_an_exact_pair_is_not_reported_twice() {
     assert_eq!(groups[0].definition.id, STRUCTURE_DUPLICATE_FUNCTION_BODY.id);
 }
 
-/// US-003: a near family keeps its identity when it gains a member, which
-/// is what a baseline comparison matches on. The joined list of every
-/// member's digest would not: adding a copy would retire the family and
-/// publish a new one in its place.
 #[test]
 fn a_near_family_keeps_its_key_when_it_gains_a_member() {
     let pair = format!(
@@ -176,9 +155,6 @@ fn a_near_family_keeps_its_key_when_it_gains_a_member() {
         branched("first", "total", "0"),
         sizeable("second", "sum", "1")
     );
-    // The third copy meets both members, not only the one it was edited from:
-    // a family claims every pair, so a copy reaching it through one member
-    // starts a family of its own.
     let grown = format!(
         "{pair}{}",
         branched("third", "amount", "2").replace("amount = limit;", "amount = 0;")
@@ -191,8 +167,6 @@ fn a_near_family_keeps_its_key_when_it_gains_a_member() {
     assert_eq!(before[0].key, after[0].key);
 }
 
-/// US-007: two functions of comparable size that do different things are
-/// not a family.
 #[test]
 fn two_unrelated_functions_of_one_size_stay_apart() {
     let source = format!(
@@ -212,8 +186,6 @@ fn two_unrelated_functions_of_one_size_stay_apart() {
     assert!(families(&source, &both()).is_empty(), "{source}");
 }
 
-/// US-008: a family entirely inside `#[cfg(test)]` is marked, one that
-/// straddles production and tests is not.
 #[test]
 fn a_family_is_marked_only_when_no_member_ships() {
     let tested = format!(
@@ -248,9 +220,6 @@ fn a_family_is_marked_only_when_no_member_ships() {
     );
 }
 
-/// US-009: an exhausted budget stops the scoring loop instead of running it
-/// to completion, says so, and the exact families collected before it
-/// survive.
 #[test]
 fn an_exhausted_budget_stops_the_scoring_and_keeps_what_was_found() {
     let source = format!(
@@ -269,8 +238,6 @@ fn an_exhausted_budget_stops_the_scoring_and_keeps_what_was_found() {
     );
 }
 
-/// A pass that finishes reports no stop, whatever the clock says
-/// afterwards.
 #[test]
 fn a_scoring_loop_that_finishes_reports_no_stop() {
     let source = format!(
@@ -286,8 +253,6 @@ fn a_scoring_loop_that_finishes_reports_no_stop() {
     assert!(grouping.retained_bytes > 0);
 }
 
-/// The nomination step never compares a pair the bound rules out, which is
-/// what keeps the scoring off the quadratic path.
 #[test]
 fn the_nomination_bound_matches_what_the_score_can_reach() {
     for size in [10_usize, 40, 200, 1_000] {
@@ -301,13 +266,8 @@ fn the_nomination_bound_matches_what_the_score_can_reach() {
     }
 }
 
-/// The head is a constant, and the exact bound it replaces is wider than it
-/// for every shape the node floor admits. This is the measurement that
-/// says so, so a change to either constant has to face it.
 #[test]
 fn the_exact_head_is_never_narrower_than_the_indexed_one() {
-    // The exact head of a shape of `size` tokens is
-    // `size - threshold^2 * size / (10000 * (20000 - threshold)) + 1`.
     let exact_head = |size: usize| -> usize {
         let threshold = u64::from(NEAR_DUPLICATE_THRESHOLD);
         let overlap = threshold * threshold * size as u64
@@ -327,7 +287,6 @@ fn the_exact_head_is_never_narrower_than_the_indexed_one() {
     }
 }
 
-/// A shape standing for its own family, made of the tokens in `range`.
 fn shape(position: usize, tokens: impl Iterator<Item = u64>) -> Representative {
     let mut shingles: Vec<u64> = tokens.collect();
     shingles.sort_unstable();
@@ -351,8 +310,6 @@ fn shape(position: usize, tokens: impl Iterator<Item = u64>) -> Representative {
     }
 }
 
-/// US-022: single linkage joins A and C through B; the family published claims
-/// every pair, so A and C are never one family at 80 %.
 #[test]
 fn a_chain_is_refined_until_every_pair_meets_the_threshold() {
     let chain = [shape(0, 0..100), shape(1, 17..117), shape(2, 34..134)];
@@ -365,8 +322,6 @@ fn a_chain_is_refined_until_every_pair_meets_the_threshold() {
     assert_eq!(clusters[0].members, [0, 1], "the tie goes to the lowest positions");
     assert_eq!(clusters[0].weakest, 8_300);
 
-    // A triangle whose every pair meets the threshold stays one family, and
-    // publishes its lowest pair rather than the strongest.
     let triangle = [shape(0, 0..100), shape(1, 5..105), shape(2, 12..112)];
     let clusters = refine(&triangle, &[0, 1, 2]);
     assert_eq!(clusters.len(), 1);
@@ -377,8 +332,6 @@ fn a_chain_is_refined_until_every_pair_meets_the_threshold() {
     );
 }
 
-/// US-022: a component past the cap is cut into runs before it is refined, so
-/// the refinement completes, and the same input always splits the same way.
 #[test]
 fn a_component_past_the_cap_splits_the_same_way_every_time() {
     let shapes: Vec<Representative> = (0..70)
@@ -397,8 +350,6 @@ fn a_component_past_the_cap_splits_the_same_way_every_time() {
         clusters.iter().map(|cluster| cluster.members.clone()).collect()
     };
     assert_eq!(members(&first), members(&second));
-    // The NFR: a 64-member run in under 50 ms, for the binary that ships. An
-    // unoptimized test binary is allowed the multiple the benchmark allows it.
     let allowance = if cfg!(debug_assertions) { 14 } else { 1 };
     assert!(
         elapsed <= Duration::from_millis(50) * allowance * crate::test_clock::machine_allowance(),
@@ -407,8 +358,6 @@ fn a_component_past_the_cap_splits_the_same_way_every_time() {
     );
 }
 
-/// US-022: two functions differing only inside their `assert!` arguments are
-/// not the same body.
 #[test]
 fn functions_differing_inside_their_assertions_are_not_one_body() {
     let asserting = |name: &str, assertion: &str| {
@@ -449,8 +398,6 @@ fn functions_differing_inside_their_assertions_are_not_one_body() {
     );
 }
 
-/// The grouping shortens the paths it walks, so a chain of links stays a
-/// lookup rather than a walk.
 #[test]
 fn a_chain_of_links_is_flattened_as_it_is_read() {
     let mut components = Components::new(8);
@@ -470,14 +417,6 @@ fn a_chain_of_links_is_flattened_as_it_is_read() {
     );
 }
 
-/// US-007: what the bounded nomination drops, recorded rather than asserted
-/// away.
-///
-/// The head an exact overlap bound asks for is half of a shape, which is no
-/// index at all, so the head that ships is a constant and the nomination
-/// stops being exact. The corpus below is this repository, because the
-/// number worth publishing is what the step costs on real Rust and not on a
-/// generator written to flatter it.
 #[test]
 fn the_nomination_keeps_what_an_exhaustive_score_finds() {
     let repository = crate::structure::tests::repository();
@@ -498,8 +437,6 @@ fn the_nomination_keeps_what_an_exhaustive_score_finds() {
     );
 }
 
-/// The inventory the observation reads is the one traversal the unit gets,
-/// so a function the walk did not collect is a function nothing compares.
 #[test]
 fn the_observation_reads_the_shared_inventory() {
     let source = sizeable("only", "total", "0");
@@ -508,8 +445,6 @@ fn the_observation_reads_the_shared_inventory() {
     assert_eq!(observe(&unit(&source)).len(), 1);
 }
 
-/// US-021: test cases are written to look alike, so a family made only of them
-/// is not reported, whichever attribute marks them.
 #[test]
 fn a_family_of_test_cases_only_is_not_reported() {
     for attribute in [
@@ -533,8 +468,6 @@ fn a_family_of_test_cases_only_is_not_reported() {
     assert!(families(&edited, &both()).is_empty(), "{edited}");
 }
 
-/// US-021: a test case sharing its body with a helper is a family, exact or
-/// near, because the helper is a function someone could call instead.
 #[test]
 fn a_test_case_and_a_helper_sharing_a_body_are_a_family() {
     let exact_pair = format!(
@@ -557,7 +490,6 @@ fn a_test_case_and_a_helper_sharing_a_body_are_a_family() {
     assert_eq!(groups[0].definition.id, STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY.id);
 }
 
-/// A function holding `nested` ahead of a loop that calls it.
 fn holding(name: &str, nested: &str) -> String {
     format!(
         "fn {name}(input: &[u32], limit: u32) -> u32 {{
@@ -573,8 +505,6 @@ fn holding(name: &str, nested: &str) -> String {
     )
 }
 
-/// US-021: two copies of a function holding the same helper are one family,
-/// the outer pair, and not a second one for the helper they both hold.
 #[test]
 fn a_nested_repeat_of_a_family_is_not_reported_twice() {
     let source = format!(
@@ -593,8 +523,6 @@ fn a_nested_repeat_of_a_family_is_not_reported_twice() {
     assert_eq!(lines, [1, 22], "the family is not the outer pair");
 }
 
-/// US-021: a nested function matching one that stands on its own is still a
-/// pair, since no family holds the function it is nested in.
 #[test]
 fn a_nested_function_matching_a_top_level_one_is_still_a_pair() {
     let source = format!(
@@ -607,8 +535,6 @@ fn a_nested_function_matching_a_top_level_one_is_still_a_pair() {
     assert_eq!(groups[0].members.len(), 2);
 }
 
-/// US-021: the outer form holds a nested item as one node of its kind, so two
-/// functions differing only inside the helper they hold are the same body.
 #[test]
 fn a_nested_item_is_one_node_of_the_function_holding_it() {
     let source = format!(

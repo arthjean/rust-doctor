@@ -1,23 +1,11 @@
-//! Snapshots a killed run left behind.
-//!
-//! A snapshot is removed by its `Drop`, and a run a handled signal stops
-//! drops it too. SIGKILL runs nothing, so every baseline or staged scan a
-//! killed process started left one more `rust-doctor-baseline-<pid>-<n>`
-//! directory in the temporary root, a full copy of the base tree each time.
-//! The first snapshot a run creates sweeps the ones whose process is gone.
-
 use std::fs;
 use std::path::Path;
 use std::sync::Once;
 
-/// What every snapshot directory is named, followed by `<pid>-<sequence>`.
 pub(super) const PREFIX: &str = "rust-doctor-baseline-";
 
 static SWEPT: Once = Once::new();
 
-/// Removes, once per process, every snapshot under `temporary_root` that this
-/// user owns and whose process no longer runs. A directory it cannot remove
-/// is left where it is: the sweep never fails the scan that runs it.
 pub(super) fn dead_snapshots(temporary_root: &Path) {
     SWEPT.call_once(|| sweep(temporary_root));
 }
@@ -37,7 +25,6 @@ fn sweep(temporary_root: &Path) {
         if pid == std::process::id() || crate::execution::is_running(pid) {
             continue;
         }
-        // Not followed: a link planted under this name is not a snapshot.
         let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
             continue;
         };
@@ -50,8 +37,6 @@ fn sweep(temporary_root: &Path) {
 #[cfg(not(unix))]
 fn sweep(_temporary_root: &Path) {}
 
-/// Whether `path` is the tree of a snapshot: the `tree` directory of a
-/// `rust-doctor-baseline-<pid>-<n>` root.
 pub(super) fn is_snapshot_tree(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name == "tree")
         && path
@@ -62,7 +47,6 @@ pub(super) fn is_snapshot_tree(path: &Path) -> bool {
             .is_some()
 }
 
-/// The process a snapshot directory's name says created it.
 fn owner(name: &str) -> Option<u32> {
     let (pid, sequence) = name.strip_prefix(PREFIX)?.split_once('-')?;
     sequence.parse::<u64>().ok()?;

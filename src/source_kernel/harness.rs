@@ -1,12 +1,3 @@
-//! The native source detectors run on one unit in process, for the
-//! regression seeds `tests/regression_seeds.rs` replays.
-//!
-//! A seed is one `.rs` file, hand-minimized from a confirmed false positive or
-//! a measured miss, and asking the binary about it would compile nothing the
-//! detectors read and cost a Cargo workspace per seed. This runs the registry
-//! the scan runs, every detector of it, on a unit whose dependencies are the
-//! crates the detectors know by name. Not a stable interface.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -18,8 +9,6 @@ use super::{
 };
 use crate::report::DiagnosticContext;
 
-/// Crates a detector names an item of, each a dependency of the unit under its
-/// own name.
 const KNOWN_CRATES: [&str; 9] = [
     "diesel",
     "futures",
@@ -32,14 +21,11 @@ const KNOWN_CRATES: [&str; 9] = [
     "tokio_postgres",
 ];
 
-/// One source file to run the detectors on, as the library of a crate that
-/// depends on every crate a detector knows.
 #[derive(Debug, Clone)]
 pub struct CaseUnit {
     pub source: String,
 }
 
-/// One finding of one detector, positioned in the unit, one-based.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detected {
     pub rule: &'static str,
@@ -51,9 +37,6 @@ pub struct Detected {
     pub context: Option<DiagnosticContext>,
 }
 
-/// Every finding the registered detectors report on `case`, in the order the
-/// scan publishes them. A unit that does not parse is refused with the number
-/// of errors, since a seed that does not parse proves nothing about a rule.
 pub fn run_detectors(case: &CaseUnit) -> Result<Vec<Detected>, String> {
     let parse = SourceFile::parse(&case.source, Edition::Edition2024);
     if !parse.errors().is_empty() {

@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` section S: staged scans judge the index from a
-// private tree under TMPDIR, the repository pass included (US-003), and refuse
-// an index they cannot read.
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,8 +10,6 @@ const CREDENTIAL = "rust_doctor::repo::hardcoded_credential";
 const SECRET_FILE = "rust_doctor::repo::tracked_secret_file";
 const TODO = "clippy::todo";
 
-// S01: `mini` with a harmless `creds.rs` committed, then a staged access key
-// in `src/leak.rs` and a force-added `.env` holding a token.
 function s01() {
   return gitScenario("s01")
     .template("mini")
@@ -35,8 +30,6 @@ function repoFindings(report: Report): [number, number] {
 }
 
 describe("staged secrets", () => {
-  // Every row sees two credentials (`src/leak.rs`, `.env`) and one tracked
-  // secret file; a files or full scope also keeps the pre-existing todo.
   test.each([
     ["S01", ["--scope", "files", "--staged"], 1],
     ["S01b", ["--scope", "lines", "--staged"], 0],
@@ -80,8 +73,6 @@ describe("what the index holds", () => {
     expect(lines).toContain("No staged Rust change to judge.");
   });
 
-  // Each row's own repository: `d.rs` and `r.rs` committed with a todo each,
-  // then `d.rs` removed and `r.rs` moved to `r2.rs` in the index.
   test.each([
     ["H04", ["--scope", "files", "--staged"], ["src/lib.rs", "src/r2.rs"]],
     ["H04b", ["--scope", "lines", "--staged"], ["src/lib.rs"]],
@@ -92,9 +83,6 @@ describe("what the index holds", () => {
     expect(report.scope?.files).toEqual([...files]);
   });
 
-  // Release 1 changed the catalog's D[0,2,1,1,0]: the credential is now seen
-  // on both sides of a staged comparison (US-002, US-003), so it is
-  // pre-existing.
   test("H04c a staged deletion is fixed and a staged rename pairs across files", async () => {
     const repo = await h04("H04c");
     const { run, report } = await scan(repo.path, ["--scope", "baseline", "--staged"], { sandbox: repo.sandbox });
@@ -115,8 +103,6 @@ function h04(id: string) {
 }
 
 describe("a conflicted index", () => {
-  // `main` and `side` change the same line, and the merge stops on it with
-  // three unmerged entries for `src/lib.rs`.
   async function f01() {
     const repo = await gitScenario("f01")
       .template("mini").commit("base")
@@ -155,8 +141,6 @@ describe("a conflicted index", () => {
 });
 
 describe("GIT_INDEX_FILE and GIT_DIR", () => {
-  // NEWFN in the working tree, staged only in an alternate index outside the
-  // repository: the default index still matches HEAD.
   async function f02() {
     const repo = await gitScenario("f02").template("mini").commit("base").unstaged({ "src/lib.rs": LIB + NEW_FN }).build();
     const alternate = join(repo.sandbox.dir, "alternate-index");
@@ -206,9 +190,6 @@ describe("GIT_INDEX_FILE and GIT_DIR", () => {
     expect(sites(report)).toEqual(["src/lib.rs:12"]);
   });
 
-  // The form a git hook runs under: cwd at the repository root and a
-  // relative GIT_INDEX_FILE. The working tree is back at HEAD, so only the
-  // index holds NEWFN.
   test("F02f a relative GIT_INDEX_FILE resolves against the hook's cwd", async () => {
     const repo = await gitScenario("f02f")
       .template("mini").commit("base")
@@ -227,8 +208,6 @@ describe("GIT_INDEX_FILE and GIT_DIR", () => {
 });
 
 describe("an index another git process holds", () => {
-  // A stat change the index has not recorded, and `index.lock` taken: no git
-  // command can write the index while the lock stands.
   async function i01() {
     const repo = await gitScenario("i01").template("mini").commit("base").build();
     const later = new Date(Date.now() + 5_000);
@@ -256,9 +235,6 @@ describe("an index another git process holds", () => {
 });
 
 describe("an unusable TMPDIR", () => {
-  // The snapshot tree must live outside the repository it copies. A TMPDIR
-  // that cannot hold it is skipped for the next private candidate, so these
-  // rows fail only once HOME offers none either (US-018).
   test.each([
     ["H01", "inside", ["--scope", "baseline", "--base", "HEAD"]],
     ["H01b", "inside", ["--scope", "lines", "--staged"]],

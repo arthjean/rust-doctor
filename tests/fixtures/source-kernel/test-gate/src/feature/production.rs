@@ -1,5 +1,5 @@
-//! Declared under `#[cfg(not(test))]`, which is shipped code. The body is the
-//! one `src/shared.rs` carries.
+
+
 
 pub fn produced() -> usize {
     let mut count = 1;

@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.9: the GitHub Actions recommendation,
-// the agent menu and the prompt it hands over. Agents are the recording fakes
-// of the `agents` profile, or a probe agent written for the row; the prompt
-// is read from what the agent or the fake clipboard received, or from the
-// byte log when the report prints it.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -32,7 +27,6 @@ function open(ws: TuiWorkspace, env: Record<string, string> = fakeEnv(ws.sandbox
   return openReport(ws.path, { sandbox: ws.sandbox, env });
 }
 
-// From a `todo-git` landing to the recommendation the handoff opens on.
 async function toRecommendation(session: TmuxSession): Promise<string> {
   await session.waitForPane(MENU_HINT, 15_000);
   session.sendKeys("Down", "Down");
@@ -41,7 +35,6 @@ async function toRecommendation(session: TmuxSession): Promise<string> {
   return session.waitForPane(RECOMMENDATION);
 }
 
-// From a landing without the CI entry straight to the agent menu.
 async function toHandoff(session: TmuxSession): Promise<string> {
   await session.waitForPane(MENU_HINT, 15_000);
   session.sendKeys("Down");
@@ -50,12 +43,10 @@ async function toHandoff(session: TmuxSession): Promise<string> {
   return session.waitForPane(HANDOFF);
 }
 
-// What stderr said once the scan's one-line-per-phase progress is set aside.
 function said(stderr: string): string {
   return stderr.split("\n").filter((line) => !/^(Running native passes|Compiling dependencies)\.\.\.$|^Linting \S+ \(\d+\/\d+\)$/.test(line)).join("\n");
 }
 
-// The prompt the report printed between its two rulers.
 function printedPrompt(session: TmuxSession): string {
   const parts = logText(session).split(`${RULER}\n`);
   expect(parts.length).toBeGreaterThanOrEqual(3);
@@ -358,8 +349,6 @@ describe.skipIf(!requireTmux())("interactive report handoff", () => {
   });
 
   test("HO-17 a prompt over 12 KiB is refused, and a clean scan then exits 2", async () => {
-    // One module at a path of about 800 bytes holding thirty `todo!()`: the
-    // 24 sites the prompt lists cannot fit in 12 KiB.
     const workspace = join(scratchDir("long-sites"), "long-sites");
     const dirs = ["a", "b", "c", "d"].map((letter) => letter.repeat(200));
     const module = join(...dirs, "m.rs");

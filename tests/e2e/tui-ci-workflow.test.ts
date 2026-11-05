@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.8: the GitHub Actions screens. Every
-// scenario that can write reads `git status --porcelain --untracked-files=all`
-// of its copy, and a browser is only ever the recording `xdg-open` fake.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +16,6 @@ function open(ws: TuiWorkspace, env: Record<string, string> = {}): TmuxSession {
   return openReport(ws.path, { sandbox: ws.sandbox, env: { ...fakeEnv(ws.sandbox, "all"), ...env } });
 }
 
-// From the landing to the CI setup screen.
 async function toSetup(session: TmuxSession): Promise<string> {
   await session.waitForPane(MENU_HINT, 15_000);
   session.sendKeys("Down");
@@ -188,8 +184,6 @@ describe.skipIf(!requireTmux())("interactive report CI screens", () => {
     }
   });
 
-  // tui/BUG-10 is that the entry is offered at all here; once it is offered,
-  // the install writes nothing and says why without leaving the screen.
   test("CI-09 a repository without a commit writes nothing and says there is no default branch", async () => {
     await installFails(await tuiWorkspace("todo-nocommit"), "no default branch found");
   });

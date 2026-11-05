@@ -1,12 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Admission proofs of the EP-024 packs.
-//!
-//! Every pack owns a single fixture carrying its positives, its idiomatic
-//! negatives and its negatives neutralized by `#[allow]`. The oracle freezes
-//! the verdict observed on the normative toolchain: identifier, category, tier,
-//! path, line and occurrence count.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,9 +17,7 @@ const PACKS: [(&str, &str); 4] = [
 ];
 
 fn pack_root(pack: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/score-credibility/packs")
-        .join(pack)
+    support::fixture_dir(&format!("score-credibility/packs/{pack}"))
 }
 
 fn oracle(pack: &str) -> Value {
@@ -36,23 +27,10 @@ fn oracle(pack: &str) -> Value {
     .expect("pack oracle should be valid JSON")
 }
 
-/// Scan of a pack fixture, with the duplication rules switched off.
-///
-/// A pack is written as a positive and its negative twin: the same function
-/// twice, once in the form the lint reports and once in the form it must leave
-/// alone. That makes a pack duplicated code by construction, so
-/// `duplicate_function_body` and its near twin would report the method rather
-/// than a defect, on every pack, forever. They are proven on their own fixture
-/// and measured on the pinned corpus; here they would only stand between the
-/// oracle and what it freezes.
-///
-/// The packs prove every catalogued lint reaches the report, so the opt-in
-/// ones are switched on here the way a user would switch them on.
 fn pack_request(root: impl Into<PathBuf>) -> InspectRequest {
     pack_request_without(root, None)
 }
 
-/// `pack_request` with `off` switched off instead of left at its level.
 fn pack_request_without(root: impl Into<PathBuf>, off: Option<&str>) -> InspectRequest {
     let request = rust_doctor::catalog()
         .iter()
@@ -79,13 +57,11 @@ fn report(request: InspectRequest) -> Value {
     judged(inspect(request))
 }
 
-/// A report that must be complete, as JSON.
 fn judged(report: InspectReport) -> Value {
     assert_eq!(report.status, Status::Complete, "{:?}", report.errors);
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// Catalogued diagnostics of the report, in published order.
 fn curated(report: &Value) -> Vec<&Value> {
     report["diagnostics"]
         .as_array()
@@ -141,9 +117,6 @@ fn tiers(report: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// US-073, US-074, US-075 AC-1: every lint of the pack produces exactly one
-/// catalogued diagnostic, with its identifier, its category, its tier and its
-/// help.
 #[test]
 fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     for (pack, story) in PACKS {
@@ -198,9 +171,6 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
     }
 }
 
-/// Source of a pack's negatives: `src/negatives.rs`, plus the files of its
-/// `negatives` module when the pack is too large for one file to stay under
-/// the size bound `oversized_unit` enforces.
 fn negatives_source(pack: &str) -> String {
     let root = pack_root(pack).join("src");
     let mut source =
@@ -215,8 +185,6 @@ fn negatives_source(pack: &str) -> String {
     source
 }
 
-/// US-073, US-074, US-075 AC-2 and AC-4: no negative form, idiomatic or
-/// neutralized by `#[allow]`, produces a diagnostic.
 #[test]
 fn no_negative_form_of_any_pack_produces_a_diagnostic() {
     for (pack, _) in PACKS {
@@ -238,8 +206,6 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
         }
         assert_eq!(kinds["idiomatic"], kinds["allow"], "{pack}");
 
-        // The positives all live in `src/lib.rs`: no diagnostic can therefore
-        // come from the negatives files.
         let report = report(pack_request(pack_root(pack)));
         assert!(
             curated(&report).iter().all(|diagnostic| !diagnostic["path"]
@@ -250,12 +216,6 @@ fn no_negative_form_of_any_pack_produces_a_diagnostic() {
     }
 }
 
-/// Isolated copy of a pack fixture, one per pack and per test.
-///
-/// Every policy changes the Clippy arguments, so every scan invalidates the
-/// fingerprint of the build directory. Running them all in the shared fixture
-/// would put them in competition with the other tests of the binary, which scan
-/// the same fixture at the same moment.
 fn isolated_pack(pack: &str, test: &str) -> PathBuf {
     fn copy(source: &Path, destination: &Path) {
         fs::create_dir_all(destination).unwrap();
@@ -285,8 +245,6 @@ fn isolated_pack(pack: &str, test: &str) -> PathBuf {
     destination
 }
 
-/// US-073 AC-5, US-074 and US-075: a rule set to `off` disappears from the
-/// Clippy command and from every diagnostic, without moving the others.
 #[test]
 fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     for (pack, _) in PACKS {
@@ -328,17 +286,6 @@ fn a_rule_switched_off_leaves_the_command_and_the_findings() {
     }
 }
 
-/// US-073 AC-3, settled one step earlier than it used to be: a test file in the
-/// Cargo sense reaches the report through no lint at all.
-///
-/// The exemption was the interesting question while the scan compiled test
-/// targets, and it was not a property of the lint: it was governed by the
-/// `clippy.toml` of the scanned workspace, which Clippy looks for by walking up
-/// the parent directories. The fixture still pins the four options and
-/// `tests/exemptions.rs` still carries one usage per lint, two of them exempt
-/// and two of them not. The scope decides before any of that: the scan compiles
-/// Cargo's default targets, so the whole file stays out of the report whatever
-/// the options say, and the oracle records the empty verdict.
 #[test]
 fn no_cargo_test_target_reaches_the_report() {
     let oracle = oracle("panic");
@@ -371,8 +318,6 @@ fn no_cargo_test_target_reaches_the_report() {
         assert!(usages.contains(&marker), "the fixture lost {marker}");
         verdicts.insert(exempt);
     }
-    // Both verdicts are represented, so the emptiness below cannot be read as
-    // the fixture only holding lints Clippy would have exempted anyway.
     assert_eq!(verdicts, BTreeSet::from([false, true]));
 
     let report = report(pack_request(pack_root("panic")));
@@ -387,8 +332,6 @@ fn no_cargo_test_target_reaches_the_report() {
     );
 }
 
-/// US-074 AC-3 and EP-024: the five dimensions vary, and the dimension of a
-/// triggered pack drops strictly below 100.
 #[test]
 fn each_pack_moves_its_own_dimension_below_one_hundred() {
     for (pack, _) in PACKS {
@@ -420,8 +363,6 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
             );
         }
     }
-    // The performance pack is the one that proves the Performance dimension,
-    // which stayed frozen at 100 while `CATEGORIES` did not admit it.
     let performance = report(pack_request(pack_root("performance")));
     assert!(
         performance["audit"]["score"]["dimensions"]["performance"]
@@ -431,9 +372,6 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
     );
 }
 
-/// US-075 AC-3 and AC-5: a workspace with no asynchronous runtime stays silent
-/// on the lints that do not apply to it, and the repository itself produces no
-/// diagnostic of the concurrency pack.
 #[test]
 fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
     let pack_codes: BTreeSet<_> = oracle("concurrency")["positive"]
@@ -443,8 +381,6 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
         .map(|case| case["code"].as_str().unwrap().to_owned())
         .collect();
 
-    // The panic pack fixture contains neither `async`, nor a lock, nor I/O: no
-    // lint of the concurrency pack applies to it.
     let synchronous = report(pack_request(pack_root("panic")));
     assert!(
         curated(&synchronous).iter().all(|diagnostic| !pack_codes
@@ -461,11 +397,6 @@ fn the_concurrency_pack_stays_silent_where_it_does_not_apply() {
     assert!(observed.is_empty(), "self-scan produced {observed:?}");
 }
 
-/// The binary's JSON report for `root`, under its own target directory.
-///
-/// The structure pass runs under a budget it cannot exceed: a default scan of
-/// this repository spends most of its ten wall-clock seconds there in a test
-/// build, and a loaded runner would return it partial (`support::self_scan`).
 fn cli_report(root: &Path, arguments: &[&str]) -> Value {
     let output = support::rust_doctor()
         .arg(root)
@@ -488,9 +419,6 @@ fn command_of(report: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// EP-005 US-027: the two rules the corpus adjudicated wrong on all forty
-/// reviewed sites each stay out of a default scan, of this repository as of
-/// the pack that triggers them, and a `--rule` switch reports one as before.
 #[test]
 fn the_opt_in_rules_report_only_when_switched_on() {
     const OPT_IN: [&str; 2] = ["clippy::indexing_slicing", "clippy::string_slice"];
@@ -528,14 +456,6 @@ fn the_opt_in_rules_report_only_when_switched_on() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// US-002: a catalogued rule the toolchain denies by default is switched off
-/// like any other.
-///
-/// The scan passes `-A clippy::all` before its `-W` flags, so dropping the `-W`
-/// of a deny-by-default lint leaves it allowed rather than restoring Clippy's
-/// refusal. `docs/correctness-group-2026-09.md` measured it on the pinned and
-/// minimum toolchains; this replays it through `inspect` on the pack that
-/// triggers the lint.
 #[test]
 fn a_deny_by_default_rule_switched_off_leaves_the_command_and_fails_nothing() {
     const RULE: &str = "clippy::eq_op";
@@ -576,12 +496,6 @@ fn a_deny_by_default_rule_switched_off_leaves_the_command_and_fails_nothing() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// US-003: the certain bug plain `cargo clippy` refuses lowers the score here.
-///
-/// The same trigger in an integration test target reaches nothing: the scan
-/// compiles Cargo's default targets, so a test target is never linted and
-/// weighs nothing, which is what `no_cargo_test_target_reaches_the_report`
-/// records for the panic pack.
 #[test]
 fn a_self_comparison_in_shipped_code_lowers_the_correctness_dimension() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -623,8 +537,6 @@ fn a_self_comparison_in_shipped_code_lowers_the_correctness_dimension() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// US-002: through the command line, switching the same rule off yields the
-/// gate's verdict, never the failed-scan exit code a restored refusal causes.
 #[test]
 fn the_cli_gates_a_workspace_whose_denied_lint_is_switched_off() {
     let root = isolated_pack("correctness", "cli-gate");
@@ -642,10 +554,6 @@ fn the_cli_gates_a_workspace_whose_denied_lint_is_switched_off() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// US-076: the local dependency health pack, end to end.
-///
-/// The scans run on a copy: `cargo clippy` creates or rewrites `Cargo.lock`, so
-/// scanning the fixture in place would destroy the resolved graph it freezes.
 #[test]
 fn the_dependency_pack_reaches_the_report_and_its_own_dimension() {
     fn resolution(case: &str) -> PathBuf {
@@ -721,9 +629,6 @@ fn the_dependency_pack_reaches_the_report_and_its_own_dimension() {
         fs::remove_dir_all(&root).unwrap();
     }
 
-    // A workspace clean on these criteria produces no diagnostic of the pack,
-    // and an unusable resolution makes the pack abstain without breaking the
-    // scan.
     let clean = resolution("clean");
     let report = report(InspectRequest::new(&clean));
     assert!(

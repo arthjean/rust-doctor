@@ -1,23 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![cfg(target_os = "linux")]
 
-//! Proofs of EP-001 of the security audit remediation: a scan with every
-//! Clippy rule off, `rules explain` and `ci install` start no program the
-//! scanned tree selects.
-//!
-//! One fixture carries every way a tree selected a program before the fix:
-//! three git filter drivers (one in `.git/config`, one through
-//! `include.path`, one whose name holds `=`), a `.cargo/config.toml`
-//! `[alias] clippy` that builds and runs the tree, a `rust-toolchain.toml`
-//! whose `path` (`/proc/self/cwd/tc`) follows the working directory into the
-//! tree, and a tracked git directory layout. Every program the fixture names
-//! leaves a marker under a directory outside the tree, so "nothing ran" is an
-//! empty directory, and a control run of plain git or Cargo proves each one
-//! fires when it is reached.
-//!
-//! Linux only: `/proc/self/cwd` is what makes the path toolchain land in the
-//! tree wherever it sits, and the markers are shell scripts.
-
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -33,7 +16,6 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 const BY_PATH: &str = "the workspace selects its toolchain by path; set RUSTUP_TOOLCHAIN to a toolchain name to scan it without Clippy";
 
-/// The eight scope runs of the epic: four scopes, each also judging the index.
 const SCOPES: [(&str, bool); 8] = [
     ("files", false),
     ("files", true),
@@ -60,8 +42,6 @@ const EVERYTHING: Features = Features {
     embedded: true,
 };
 
-/// A clone under `root`, and beside it the markers its programs leave and the
-/// programs its git configuration names.
 struct Tree {
     root: PathBuf,
     clone: PathBuf,
@@ -93,9 +73,6 @@ fn write(path: &Path, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
-/// Git for building fixtures: no configuration of the machine running the
-/// suite, and fixed identities and dates, so two fixtures with one content
-/// hold the same commits.
 fn git(directory: &Path, arguments: &[&str]) -> Output {
     Command::new("git")
         .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"])
@@ -125,8 +102,6 @@ fn git_ok(directory: &Path, arguments: &[&str]) {
     );
 }
 
-/// A git directory layout, `HEAD`, `objects/`, `refs/` and an index naming
-/// `planted.env`, written into `directory` as ordinary files.
 fn embedded_layout(root: &Path, directory: &Path, worktree: bool) {
     let donor = root.join("donor");
     fs::create_dir_all(&donor).unwrap();
@@ -150,10 +125,6 @@ fn embedded_layout(root: &Path, directory: &Path, worktree: bool) {
     write(&directory.join("planted-tree/.keep"), "");
 }
 
-/// The fixture: a crate on `main`, a `feature` branch one commit ahead, a
-/// staged change and an unstaged one, and every program `features` asks for.
-/// The drivers are configured once the history is written, so building the
-/// fixture runs none of them.
 fn tree(features: Features) -> Tree {
     let root = support::fresh_workspace("untrusted-tree", &NEXT);
     let clone = root.join("clone");
@@ -230,8 +201,6 @@ fn tree(features: Features) -> Tree {
     Tree { root, clone }
 }
 
-/// The installed toolchain this repository resolves to, the name a pinned
-/// scan runs under, or `None` without rustup.
 fn installed_toolchain() -> Option<String> {
     static FOUND: OnceLock<Option<String>> = OnceLock::new();
     FOUND
@@ -252,7 +221,6 @@ fn installed_toolchain() -> Option<String> {
         .clone()
 }
 
-/// `--rule <id>=off` for every catalogued Clippy rule.
 fn clippy_off() -> &'static [String] {
     static ARGUMENTS: OnceLock<Vec<String>> = OnceLock::new();
     ARGUMENTS.get_or_init(|| {
@@ -268,12 +236,9 @@ fn clippy_off() -> &'static [String] {
     })
 }
 
-/// How the scanned binary's `RUSTUP_TOOLCHAIN` is set.
 #[derive(Clone, Copy)]
 enum Pin {
-    /// The installed toolchain's name, as a rustup-proxied caller exports it.
     Named,
-    /// Removed, as a caller outside any rustup proxy runs.
     Removed,
 }
 
@@ -291,7 +256,6 @@ fn command(path: &Path, pin: Pin) -> Command {
     command
 }
 
-/// A `--json` scan of `path` with every Clippy rule off.
 fn scan(path: &Path, arguments: &[&str], pin: Pin) -> (Output, Value) {
     let output = command(path, pin)
         .arg(path)
@@ -332,9 +296,6 @@ fn diagnostic_paths(report: &Value, code: &str) -> Vec<String> {
         .collect()
 }
 
-/// US-002: the three drivers fire under plain git, and none of them under
-/// any of the eight scope runs, whose reports equal those of the same tree
-/// without the drivers.
 #[test]
 fn no_configured_filter_driver_runs_under_any_scope() {
     let driven = tree(Features {
@@ -351,7 +312,6 @@ fn no_configured_filter_driver_runs_under_any_scope() {
         assert_eq!(report, reference, "{arguments:?}: the drivers changed the report");
     }
 
-    // The control: plain git runs each driver, so the fixture is live.
     git(&driven.clone, &["diff", "main"]);
     git(
         &driven.clone,
@@ -366,8 +326,6 @@ fn no_configured_filter_driver_runs_under_any_scope() {
     }
 }
 
-/// US-003: a crate directory that is also a git directory layout is judged
-/// on the files it holds, never on the repository its tracked files fake.
 #[test]
 fn an_embedded_git_directory_never_answers_for_the_clone() {
     let embedded = |worktree: bool| {
@@ -385,23 +343,18 @@ fn an_embedded_git_directory_never_answers_for_the_clone() {
     };
     let (clone, tool) = embedded(false);
 
-    // Discovery from the clone refuses the layout as its one candidate.
     let (_, report) = scan(&clone, &[], Pin::Named);
     assert_eq!(report["errors"][0]["code"], "no-manifest", "{report}");
 
-    // Named directly, the crate is judged on its own files: git refuses the
-    // fabricated repository and the pass walks what is there.
     let (output, report) = scan(&tool, &[], Pin::Named);
     assert_scanned(&output, &report, "the embedded crate");
     assert_eq!(diagnostic_paths(&report, "rust_doctor::repo::tracked_secret_file"), [".env"]);
     assert!(!report.to_string().contains("planted"), "{report}");
 
-    // `core.worktree` in the embedded config changes nothing.
     let (_, worktree) = embedded(true);
     let (_, moved) = scan(&worktree, &[], Pin::Named);
     assert_eq!(moved, report);
 
-    // With no clone above it, the layout alone is walked the same way.
     let alone = support::fresh_workspace("untrusted-tree", &NEXT).join("tool");
     support::copy_tree(&tool, &alone);
     let (output, alone) = scan(&alone, &[], Pin::Named);
@@ -410,8 +363,6 @@ fn an_embedded_git_directory_never_answers_for_the_clone() {
     assert!(!alone.to_string().contains("planted"), "{alone}");
 }
 
-/// US-004: a Clippy-off scan probes no version, so a workspace alias of
-/// `clippy` never builds the tree, and the report says "not probed".
 #[test]
 fn a_clippy_off_scan_probes_no_toolchain_version() {
     let tree = tree(Features {
@@ -425,7 +376,6 @@ fn a_clippy_off_scan_probes_no_toolchain_version() {
         assert_eq!(report["toolchain"][tool], Value::Null, "{tool}");
     }
 
-    // The linear report prints no version line and no placeholder for it.
     let linear = command(&tree.clone, Pin::Named)
         .arg(&tree.clone)
         .arg("--yes")
@@ -438,8 +388,6 @@ fn a_clippy_off_scan_probes_no_toolchain_version() {
         assert!(!text.contains(absent), "{absent:?} in {text}");
     }
 
-    // A baseline scan run twice reuses the base side the first stored, with
-    // the versions it never probed hashed as empty fields.
     let baseline = || {
         let output = command(&tree.clone, Pin::Named)
             .arg(&tree.clone)
@@ -456,7 +404,6 @@ fn a_clippy_off_scan_probes_no_toolchain_version() {
     }
     tree.assert_no_marker("a Clippy-off baseline scan");
 
-    // The control: Cargo itself runs the alias, which builds the tree.
     Command::new("cargo")
         .args(["clippy", "--version"])
         .current_dir(&tree.clone)
@@ -466,9 +413,6 @@ fn a_clippy_off_scan_probes_no_toolchain_version() {
     assert_eq!(tree.markers(), ["alias-build"]);
 }
 
-/// US-005: a path toolchain never runs under a Clippy-off scan. Without an
-/// inherited name the scan is refused before metadata starts; with one, it
-/// runs under that name.
 #[test]
 fn a_path_toolchain_never_runs_under_a_clippy_off_scan() {
     let Some(_) = installed_toolchain() else {
@@ -488,7 +432,6 @@ fn a_path_toolchain_never_runs_under_a_clippy_off_scan() {
     assert_scanned(&output, &report, "a pinned scan");
     tree.assert_no_marker("a pinned Clippy-off scan");
 
-    // The control: the proxy runs the tree's cargo when nothing pins it.
     Command::new("cargo")
         .arg("--version")
         .current_dir(&tree.clone)
@@ -498,8 +441,6 @@ fn a_path_toolchain_never_runs_under_a_clippy_off_scan() {
     assert_eq!(tree.markers(), ["path-cargo"]);
 }
 
-/// US-005: without rustup on `PATH` no proxy reads a toolchain file, and
-/// metadata runs unpinned as it always did.
 #[test]
 fn without_rustup_metadata_runs_unpinned() {
     let tree = tree(Features::default());
@@ -520,8 +461,6 @@ fn without_rustup_metadata_runs_unpinned() {
     assert_scanned(&output, &report, "a scan without rustup");
 }
 
-/// `rules explain` and `ci install --dry-run` on `path`, through `harness`
-/// when one is given, so every Cargo they start is logged.
 fn explain_and_install(path: &Path, harness: Option<&support::ProcessHarness>) -> [Output; 2] {
     let run = |before: &[&str], after: &[&str]| {
         let mut command = command(path, Pin::Removed);
@@ -551,9 +490,6 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
-/// US-006: both commands find the workspace root from the manifests alone,
-/// so the path toolchain never runs, no Cargo starts, and a member path
-/// answers for its workspace.
 #[test]
 fn explain_and_ci_install_start_no_toolchain_process() {
     let toolchain_file = tree(Features {
@@ -566,8 +502,6 @@ fn explain_and_ci_install_start_no_toolchain_process() {
     let reference = explain_and_install(&plain.clone, None).map(|output| stdout(&output));
     assert_eq!(fixed, reference);
 
-    // Under the fake Cargo harness, neither command starts Cargo at all,
-    // while a scan through the same harness is seen asking for metadata.
     let harness = support::ProcessHarness::install(&plain.root);
     for output in explain_and_install(&plain.clone, Some(&harness)) {
         stdout(&output);
@@ -579,7 +513,6 @@ fn explain_and_ci_install_start_no_toolchain_process() {
     scanned.args(clippy_off()).output().unwrap();
     assert!(harness.events().contains(&"metadata".to_owned()), "{:?}", harness.events());
 
-    // A member path answers for the directory that declares `[workspace]`.
     let workspace = tree(Features::default());
     let manifest = fs::read_to_string(workspace.clone.join("Cargo.toml")).unwrap();
     fs::write(
@@ -599,21 +532,16 @@ fn explain_and_ci_install_start_no_toolchain_process() {
     assert_eq!(member, root);
 }
 
-/// EP-001's definition of done: the one fixture carrying every way a tree
-/// selected a program leaves no marker across the eight scope runs, unpinned
-/// or pinned, nor under `rules explain` and `ci install --dry-run`.
 #[test]
 fn the_epic_fixture_leaves_no_marker() {
     let tree = tree(EVERYTHING);
     for (scope, staged) in SCOPES {
         let arguments = scope_arguments(scope, staged);
-        // Unpinned, the path toolchain is refused before metadata starts.
         let (output, _) = scan(&tree.clone, &arguments, Pin::Removed);
         tree.assert_no_marker(&format!("{arguments:?} unpinned"));
         if installed_toolchain().is_some() {
             assert_eq!(output.status.code(), Some(2), "{arguments:?} unpinned");
         }
-        // Pinned, the scan runs every git call its scope makes.
         let (output, report) = scan(&tree.clone, &arguments, Pin::Named);
         tree.assert_no_marker(&format!("{arguments:?} pinned"));
         if installed_toolchain().is_some() {

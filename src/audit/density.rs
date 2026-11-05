@@ -1,17 +1,3 @@
-//! The core-v6 penalty: how much of a workspace a dimension's findings cover, and what that
-//! coverage is worth out of a hundred.
-//!
-//! A dimension carries a density rather than a count: its distinct scored sites, weighted by
-//! severity and by the tier of the rule that raised them, discounted by the rate the pinned
-//! corpus adjudicated that rule wrong, over a denominator the producer chooses. Per-site
-//! producers divide by production kilolines, so duplicating a workspace changes nothing;
-//! workspace-scoped ones divide by one, because a missing lockfile is not less serious in a
-//! large repository. The density then decays exponentially, which is what makes a repair
-//! visible at every scale instead of only under twenty findings.
-//!
-//! It lives beside the block rather than inside it so that every file of the module stays under
-//! the thousand lines `oversized_unit` reports.
-
 use std::collections::BTreeSet;
 
 use crate::policy::{Producer, RuleTier};
@@ -23,16 +9,6 @@ use super::{
 };
 
 impl RuleAggregate {
-    /// What this rule adds to its dimension's density before the denominator:
-    /// its severity-weighted sites, weighed by its tier and discounted by the
-    /// rate the corpus measured it wrong.
-    ///
-    /// Only a measured rule is discounted here. The ranking reads an unmeasured
-    /// rule at the middle because no measurement is not evidence of
-    /// correctness; the score charges it whole because a workspace's value
-    /// must not depend on which rules the corpus happened to adjudicate, and
-    /// a discount that appears with the first adjudicated site can only lower
-    /// a charge, never raise one.
     pub(super) fn charged(&self) -> f64 {
         self.charge(self.numerator)
     }
@@ -45,9 +21,6 @@ impl RuleAggregate {
         weighted as f64 * kept as f64 / BASIS_POINTS as f64
     }
 
-    /// What this rule adds to its dimension's density: its charge over production kilolines
-    /// for a rule counted against the code, and for one counted against the workspace, what
-    /// the workspace itself carries whole plus what its members claim averaged over them.
     fn density(&self, scale: Scale) -> f64 {
         match self.scope {
             DensityScope::PerKiloline => self.charged() / scale.divisor(self.scope),
@@ -59,27 +32,10 @@ impl RuleAggregate {
     }
 }
 
-/// Smallest denominator a per-site density is ever divided by, in kilolines.
-///
-/// It protects the small crate: a 120-line workspace with three findings has a raw density of
-/// 25 per kiloline, which decays to nothing in every dimension, and the reader is told their
-/// crate is broken for holding three findings. Two kilolines is the size below which the
-/// denominator stops shrinking, so a small project is scored on what it holds rather than on
-/// how little of it there is.
 pub(super) const KILOLINE_FLOOR: f64 = 2.0;
 
-/// Lines in a kiloline. The denominator is a density per thousand lines, not per line, because
-/// a per-line rate is a number no reader can hold.
 const LINES_PER_KILOLINE: f64 = 1000.0;
 
-/// What one distinct scored site of this severity adds to its dimension's numerator.
-///
-/// `Info` weighs zero and stays authoritative: it is the level a producer publishes a fact at
-/// when the workspace cannot act on it, a `println!` in a binary target or a duplicate major
-/// no manifest of the workspace requires, so the finding is shown, tallied and never charged.
-/// `Unknown` has no weight at all: a severity the catalog could not resolve is not a small
-/// penalty, it is the absence of a measurement, and `aggregate_rules` drops the authoritative
-/// flag over it rather than charging a guess.
 pub(super) const fn severity_weight(severity: Severity) -> Option<u64> {
     match severity {
         Severity::Error => Some(2),
@@ -89,12 +45,6 @@ pub(super) const fn severity_weight(severity: Severity) -> Option<u64> {
     }
 }
 
-/// What a site of a rule of this tier weighs against a site of a `P3` rule.
-///
-/// The tier used to act only as a ceiling, so under it a site of `await_holding_lock` cost the
-/// same density as a site of `useless_vec`: every catalogued rule ships at `Warn`, which made the
-/// severity weight a constant and left nothing in the density to say which rules matter. Each
-/// tier doubles the one below it, and a rule the catalog does not hold weighs as a `P3`.
 pub(super) const fn tier_weight(tier: Option<RuleTier>) -> u64 {
     match tier {
         Some(RuleTier::P0) => 8,
@@ -104,19 +54,9 @@ pub(super) const fn tier_weight(tier: Option<RuleTier>) -> u64 {
     }
 }
 
-/// What a producer's findings are counted against.
-///
-/// The split is read off the catalog's own `producer` field, so a rule joins one side or the
-/// other by being catalogued rather than by being listed a second time here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DensityScope {
-    /// One finding per site in the source the producer read: `clippy`, the source kernel and
-    /// the structural pass. Divided by production kilolines.
     PerKiloline,
-    /// One finding about the workspace or one of its manifests: `cargo-health` and the
-    /// repository pass. A fact no member claims is divided by one, so a large workspace does not
-    /// dilute a fact that is true of it once; one a member claims is averaged over the members,
-    /// so a workspace answers for its members' manifests as their mean rather than their sum.
     Workspace,
 }
 
@@ -129,10 +69,6 @@ impl DensityScope {
     }
 }
 
-/// The denominators one scan divides its densities by.
-///
-/// One scan has one scale, computed from the line count the audit block publishes, so every
-/// pass over the same rules divides by the same thing whatever it removed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Scale {
     kilolines: f64,
@@ -140,7 +76,6 @@ pub(super) struct Scale {
 }
 
 impl Scale {
-    /// `members` is never read below one: a member scored on its own is its own workspace.
     pub(super) fn of(production_lines: usize, members: usize) -> Self {
         Self {
             kilolines: (production_lines as f64 / LINES_PER_KILOLINE).max(KILOLINE_FLOOR),
@@ -148,14 +83,10 @@ impl Scale {
         }
     }
 
-    /// What a finding a member claims is averaged over, on a rule counted against the
-    /// workspace.
     pub(super) const fn members(self) -> f64 {
         self.members
     }
 
-    /// What a finding of this scope is divided by. Never zero, and never below one, so a
-    /// density is finite for any finite numerator.
     pub(super) fn divisor(self, scope: DensityScope) -> f64 {
         match scope {
             DensityScope::PerKiloline => self.kilolines,
@@ -164,17 +95,6 @@ impl Scale {
     }
 }
 
-/// The density that costs a dimension 63 points, in weighted sites per denominator.
-///
-/// It is the whole calibration: a dimension sitting exactly at its λ scores 37, twice its λ
-/// scores 14, and half of it scores 61. Maintainability is the tightest at three, security and
-/// performance sit at four, dependencies at six; reliability is the loosest at ten, because the
-/// correctness lints fire densely on code nobody would call broken. Security is four and
-/// dependencies six because the tier enters the weight and those two dimensions hold no `P3`
-/// rule: a `P1` security site weighs four and a `P2` dependency site two, so one unpinned git
-/// dependency and one direct duplicate major score exactly what they scored when every site
-/// weighed one. No λ may be zero, which is what `no_lambda_is_zero` holds: a zero λ divides by
-/// nothing and takes every density to infinity.
 pub(super) const fn lambda(dimension: ScoreDimension) -> f64 {
     match dimension {
         ScoreDimension::Security => 4.0,
@@ -185,35 +105,16 @@ pub(super) const fn lambda(dimension: ScoreDimension) -> f64 {
     }
 }
 
-/// `100 · exp(−D / λ)`, before any rounding.
-///
-/// This is the one place the curve is written down. The published score rounds it to a whole
-/// point per dimension, and the repair ranking reads it unrounded, because on a large workspace
-/// one repaired site is worth a hundredth of a point and rounding first collapses the order into
-/// ties.
-///
-/// A finite density over a non-zero λ cannot reach `NaN`: `exp` of a finite negative is in
-/// `(0, 1]`, and `exp` of `-inf` is `0`. The clamp is what makes that a guarantee rather than an
-/// argument.
 pub(super) fn decayed(density: f64, dimension: ScoreDimension) -> f64 {
     let value = 100.0 * (-density / lambda(dimension)).exp();
     value.clamp(0.0, 100.0)
 }
 
-/// The dimension score the report publishes: the curve rounded to a whole point.
 pub(super) fn dimension_score(density: f64, dimension: ScoreDimension) -> u8 {
     let rounded = decayed(density, dimension).round();
-    // `decayed` is clamped to `0..=100` and `round` keeps it there, so the conversion is total.
-    // It is still written as a fallible one rather than an `as`, since a silent truncation is
-    // exactly the defect this block exists to report on.
     u8::try_from(rounded as i64).unwrap_or(100)
 }
 
-/// Millionths of a point, the unit a contribution is held in.
-///
-/// Contributions are only ever compared against one another, never published, and whole points
-/// cannot separate them: on a large workspace repairing one site is worth a hundredth of a
-/// point, so a whole-point contribution would rank every rule equal at zero.
 const CONTRIBUTION_SCALE: f64 = 1_000_000.0;
 
 pub(super) fn calculate_dimensions(
@@ -230,13 +131,6 @@ pub(super) fn calculate_dimensions(
     })
 }
 
-/// What one dimension carries over the rules a scoring pass kept: how dense its findings are,
-/// and the worst tier among them.
-///
-/// The published dimensions and the repair ranking both read this. They part company one step
-/// later, at the rounding: the report shows whole points, and the ranking cannot, because on a
-/// large workspace one repaired site is worth a hundredth of a point and rounding first
-/// collapses every rule into a tie at zero.
 struct DimensionState {
     density: f64,
     worst_tier: Option<RuleTier>,
@@ -265,17 +159,6 @@ impl DimensionState {
     }
 }
 
-/// The weighted score before any dimension is rounded and before any tier ceiling is applied,
-/// which is what a contribution is the difference of.
-///
-/// The ceilings are deliberately left out. They are a statement about the worst tier a dimension
-/// carries, not about how dense it is, and they pin a dimension exactly when it is healthy: a
-/// single `P2` rule holds reliability at 75 for every density under 2.9 sites per kiloline. Read
-/// through the ceiling, every repair in that dimension recovers nothing, every contribution is
-/// zero, `rank_repairs` filters the whole dimension out and the report tells a reader with real
-/// findings that there is nothing worth fixing. What the ranking needs is the density relief a
-/// repair buys, so that is what it measures. The promise the report makes is unaffected:
-/// `projected_after_top_three` rescores through `ScoredState`, ceilings included.
 fn uncapped_score(rules: &[RuleAggregate], removed: &BTreeSet<String>, scale: Scale) -> f64 {
     let numerator: f64 = ScoreDimension::ALL
         .into_iter()
@@ -287,13 +170,6 @@ fn uncapped_score(rules: &[RuleAggregate], removed: &BTreeSet<String>, scale: Sc
     numerator / 13.0
 }
 
-/// The weighted score before rounding but after every ceiling, in millionths of a point.
-///
-/// This is what the projection climbs: the marginal gain of repairing one more rule, read
-/// through the same ceilings the published value takes. Under a ceiling the uncapped relief of
-/// a rule says how dense its dimension is and nothing about the points the reader would get
-/// back, which is why a ranking read from `uncapped_score` alone named three `P3` rules on a
-/// workspace one `P1` finding held at 65 and promised the 65 it already had.
 pub(super) fn capped_score_micro(
     rules: &[RuleAggregate],
     removed: &BTreeSet<String>,
@@ -324,11 +200,6 @@ pub(super) fn capped_score_micro(
     }
 }
 
-/// What removing each rule's sites recovers, in the order the rules are held.
-///
-/// One pass per rule over the same five dimensions: the whole set has to be rescored without it,
-/// because under core-v3 a rule's cost is not a property of the rule. A rule that cannot be
-/// scored recovers nothing by construction, and is skipped rather than rescored.
 pub(super) fn contributions(rules: &[RuleAggregate], scale: Scale) -> Vec<u64> {
     let base = uncapped_score(rules, &BTreeSet::new(), scale);
     rules
@@ -339,8 +210,6 @@ pub(super) fn contributions(rules: &[RuleAggregate], scale: Scale) -> Vec<u64> {
             }
             let removed = BTreeSet::from([rule.id.clone()]);
             let recovered = uncapped_score(rules, &removed, scale) - base;
-            // Removing findings can only raise the score, so a negative here is floating-point
-            // noise around zero and not a rule worth repairing.
             let scaled = (recovered * CONTRIBUTION_SCALE).round();
             if scaled.is_finite() && scaled > 0.0 {
                 scaled as u64
@@ -356,7 +225,6 @@ pub(super) fn contributions(rules: &[RuleAggregate], scale: Scale) -> Vec<u64> {
 mod tests {
     use super::*;
 
-    /// λ is the density costing 63 points, and a dimension sitting at it scores 37.
     #[test]
     fn a_dimension_at_its_lambda_scores_thirty_seven() {
         for dimension in ScoreDimension::ALL {
@@ -365,7 +233,6 @@ mod tests {
         }
     }
 
-    /// A zero λ divides by nothing and takes every density to infinity.
     #[test]
     fn no_lambda_is_zero() {
         for dimension in ScoreDimension::ALL {
@@ -374,7 +241,6 @@ mod tests {
         }
     }
 
-    /// The curve never rises with density, and it moves at every density rather than saturating.
     #[test]
     fn a_denser_dimension_never_scores_higher() {
         for dimension in ScoreDimension::ALL {
@@ -387,12 +253,9 @@ mod tests {
                 density += 0.05;
             }
         }
-        // Strictly less wherever the two round differently, which is the whole point of the
-        // curve: the step function it replaced answered the same number for 21 sites and 246.
         assert!(dimension_score(1.0, ScoreDimension::Reliability) > dimension_score(4.0, ScoreDimension::Reliability));
     }
 
-    /// A density no arithmetic can survive still lands inside the published range.
     #[test]
     fn an_absurd_density_stays_inside_the_published_range() {
         for density in [1e9, f64::MAX, f64::INFINITY] {
@@ -402,8 +265,6 @@ mod tests {
         }
     }
 
-    /// The floor protects the small crate: a 120-line workspace is divided by two kilolines,
-    /// not by 0.12, so three findings are three findings rather than a catastrophe.
     #[test]
     fn a_small_workspace_is_divided_by_the_floor() {
         let small = Scale::of(120, 1);
@@ -414,7 +275,6 @@ mod tests {
         assert!(Scale::of(20_000, 1).divisor(DensityScope::PerKiloline) > small.divisor(DensityScope::PerKiloline));
     }
 
-    /// The split is a total function of the catalog's own producer field.
     #[test]
     fn every_producer_names_its_denominator() {
         for (producer, scope) in [
@@ -428,8 +288,6 @@ mod tests {
         }
     }
 
-    /// An error site weighs twice a warning, an info site is shown and charged nothing, and an
-    /// unresolved severity weighs nothing at all.
     #[test]
     fn severity_weighs_a_site_or_refuses_to() {
         assert_eq!(severity_weight(Severity::Error), Some(2));
@@ -438,7 +296,6 @@ mod tests {
         assert_eq!(severity_weight(Severity::Unknown), None);
     }
 
-    /// Each tier doubles the one below, and a rule outside the catalog weighs as the lowest.
     #[test]
     fn every_tier_doubles_the_one_below_it() {
         assert_eq!(tier_weight(Some(RuleTier::P0)), 8);

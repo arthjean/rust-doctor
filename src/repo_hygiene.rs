@@ -1,16 +1,3 @@
-//! Repository hygiene: the pass that opens the repository, not only its Rust
-//! files.
-//!
-//! In a repository, enumeration goes through `git ls-files`, because the
-//! question asked is literally "is this file tracked", and because git
-//! excludes `target/` and every ignored path by construction. Outside one,
-//! nothing is tracked and nothing is ignored, so the files the workspace holds
-//! are what it would ship: the pass walks them, skipping build directories, and
-//! judges them by the same rules, leaving silent the two that ask git what it
-//! ignores. It used to read nothing there, and the same code scored 88 as a
-//! tarball and 65 as a clone. Git being absent, or an enumeration too large to
-//! trust, degrades the report with a bounded error at stage `repo`.
-
 use std::fs;
 use std::path::Path;
 
@@ -40,37 +27,24 @@ pub(crate) use credentials::{
     mask_credentials, masked, open_body_end,
 };
 
-/// The stage every git call of this pass reports at, and the one `report.rs`
-/// stamps a `RepoError` with.
 const STAGE: &str = "repo";
 
-/// Enumeration stops here rather than hanging on a monorepo, mirroring the
-/// source kernel's own unit limit in spirit.
 const MAX_TRACKED_PATHS: usize = 50_000;
 
-/// Byte bound on the `git ls-files` output, and on any single file the
-/// credential scan reads, mirroring the source-kernel file limit.
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Same bound as the manifest readers in `cargo_health` for the
-/// `.cargo/config.toml` re-read that resolves a custom target directory.
 const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RepoFinding {
     pub(crate) definition: &'static RuleDefinition,
     pub(crate) message: String,
-    /// Workspace-relative, already normalized for publication.
     pub(crate) path: String,
-    /// Present only when a line carries the finding; a finding about the file
-    /// itself has none.
     pub(crate) span: Option<SourceSpan>,
     pub(crate) context: Option<DiagnosticContext>,
 }
 
-/// Bounded error of the pass: a closed code and a frozen message, with no
-/// path, no environment variable and no escape sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RepoError {
     pub(crate) code: &'static str,
@@ -83,27 +57,15 @@ pub(crate) struct RepoScan {
     pub(crate) errors: Vec<RepoError>,
 }
 
-/// What `git check-ignore` answered for the build directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IgnoreProbe {
     Ignored,
     NotIgnored,
-    /// The probe could not answer: git failed, the path leaves the repository,
-    /// or the exit code was not one of the two documented ones. Silence, not
-    /// an error: the enumeration already proved git works here.
     Unavailable,
 }
 
-/// The lockfile `ignored_lockfile` asks git about, at the workspace root.
 const LOCKFILE: &str = "Cargo.lock";
 
-/// `binary` says whether a workspace member produces a binary, the only kind
-/// of workspace whose lockfile has to be committed.
-///
-/// `view` is how git sees a snapshot, the base side of a baseline or the tree
-/// a staged scan wrote: every git call then runs with the snapshot's index and
-/// the snapshot as work tree, and the files read are the snapshot's, so the
-/// pass judges the commit or the index the scan names.
 pub(crate) fn inspect(
     workspace_root: &Path,
     view: Option<&GitView>,
@@ -111,9 +73,6 @@ pub(crate) fn inspect(
     binary: bool,
     deadline: Option<RunDeadline>,
 ) -> RepoScan {
-    // A lockfile git ignores is in no commit, so a snapshot never holds one:
-    // whether a build wrote it is read from the working tree on both sides,
-    // and only whether git ignores it is asked of the commit.
     let lockfile_present = match view {
         None => workspace_root.join(".git").exists() && workspace_root.join(LOCKFILE).is_file(),
         Some(view) => {
@@ -129,16 +88,12 @@ pub(crate) fn inspect(
         plan,
         (binary, lockfile_present),
         |call| match view {
-            // Git reads a missing index as an empty one, which would list
-            // nothing and answer for a snapshot that was never read.
             Some(view) if !view.index.is_file() => Err(call.failure.error(call.stage)),
             Some(view) => {
                 run_git_with_index(Path::new("git"), workspace_root, call, &view.index, deadline)
             }
             None => run_git(Path::new("git"), workspace_root, call, deadline),
         },
-        // A directory is asked with its trailing slash first, a file never:
-        // `Cargo.lock/` matches a directory-only pattern the file escapes.
         |path| match path.strip_suffix('/') {
             Some(directory) => probe_ignore(workspace_root, view, directory, deadline),
             None => ask_git_check_ignore(workspace_root, view, path, deadline),
@@ -146,9 +101,6 @@ pub(crate) fn inspect(
     )
 }
 
-/// `(binary, lockfile_present)`: whether a member produces a binary, and
-/// whether the workspace is the root of the work tree git answers about and
-/// a lockfile sits there.
 fn inspect_with(
     workspace_root: &Path,
     view: Option<&GitView>,
@@ -187,8 +139,6 @@ fn inspect_with(
     for path in &paths {
         inspect_tracked(workspace_root, path, in_repository, &active, &mut scan);
     }
-    // What git ignores has no answer outside a repository, and nothing there
-    // can be committed by mistake.
     if !in_repository {
         return scan;
     }
@@ -214,8 +164,6 @@ fn inspect_with(
     scan
 }
 
-/// The rules that judge one tracked path, or one present path outside a
-/// repository: its name, its text, and whether it is a workflow GitHub runs.
 fn inspect_tracked(
     workspace_root: &Path,
     path: &str,
@@ -240,9 +188,6 @@ fn inspect_tracked(
             },
             path: published,
             span: None,
-            // As `scan_credentials` marks a credential: a certificate under
-            // `examples/` is the demonstration, and charging it a P1 capped
-            // the corpus's smol at 65 over a public certificate.
             context: path_context(path),
         });
     }
@@ -254,14 +199,6 @@ fn inspect_tracked(
     }
 }
 
-/// Everything git tracks, or the reason the pass abstains.
-///
-/// An absent workspace repository is a fact the criteria accept in silence,
-/// which is why the error is an `Option`: a broken git invocation degrades the
-/// same way, because the two exits are indistinguishable from here. Through a
-/// view no failure is silent: the snapshot was written from a repository, so a
-/// git that cannot list it read nothing, and an empty side would report every
-/// repository finding of the other as introduced or fixed.
 fn enumerate_tracked(
     workspace_root: &Path,
     view: Option<&GitView>,
@@ -298,10 +235,6 @@ fn enumerate_tracked(
     })
 }
 
-/// Splits the NUL-separated `git ls-files -z` output into workspace-relative
-/// paths, keeping only what a hostile output cannot abuse: UTF-8, relative,
-/// no parent traversal. The boolean reports whether the path bound cut the
-/// enumeration short.
 fn tracked_paths(output: &[u8]) -> (Vec<String>, bool) {
     let mut paths = Vec::new();
     for entry in output.split(|byte| *byte == 0) {
@@ -321,11 +254,6 @@ fn tracked_paths(output: &[u8]) -> (Vec<String>, bool) {
     (paths, false)
 }
 
-/// Every regular file under `root`, workspace-relative, for a workspace git
-/// does not hold: sorted, symlinks not followed, build directories skipped,
-/// under the same bound and the same path rules as git's answer. A build
-/// directory is the configured one at the root, or any directory carrying
-/// the `CACHEDIR.TAG` Cargo writes into each target directory.
 fn present_paths(root: &Path) -> (Vec<String>, bool) {
     let build = build_directory(root).unwrap_or_else(|| "target".to_owned());
     let mut paths = Vec::new();
@@ -369,7 +297,6 @@ fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// Closed list of names that mark a tracked file as secret-bearing.
 fn is_secret_file_name(name: &str) -> bool {
     if name == ".env" {
         return true;
@@ -383,16 +310,11 @@ fn is_secret_file_name(name: &str) -> bool {
         || name == "credentials.json"
 }
 
-/// A path segment that marks the file as test material: a certificate under
-/// `tests/` is the fixture, not the leak.
 fn is_test_material(path: &str) -> bool {
     path.split('/')
         .any(|segment| matches!(segment, "tests" | "fixtures" | "testdata"))
 }
 
-/// Non-production context of a repository path, decided from its segments
-/// because no Cargo target carries these findings. When in doubt the path is
-/// unmarked and the finding counts, matching `DiagnosticContext`'s own rule.
 fn path_context(path: &str) -> Option<DiagnosticContext> {
     path.split('/').find_map(|segment| match segment {
         "tests" | "fixtures" | "testdata" => Some(DiagnosticContext::Tests),
@@ -403,8 +325,6 @@ fn path_context(path: &str) -> Option<DiagnosticContext> {
 }
 
 fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
-    // The enumeration validated the path, so the join cannot leave the
-    // workspace; a symlink still could, so only regular files are read.
     let Some(source) = read_bounded(&workspace_root.join(path), MAX_FILE_BYTES) else {
         return;
     };
@@ -423,7 +343,6 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
         let (column_start, column_end) = (columns(range.0), columns(range.1));
         scan.findings.push(RepoFinding {
             definition: &REPO_HARDCODED_CREDENTIAL,
-            // The pattern name is published, the matched value never is.
             message: format!("string literal matching the {name} credential pattern"),
             path: published.clone(),
             span: Some(SourceSpan {
@@ -437,12 +356,6 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
     }
 }
 
-/// A lockfile git tracks is committed whatever the ignore files say; one that
-/// exists, is untracked and is ignored will never be. Without a definite
-/// answer from git the rule abstains, and so it does for a workspace nested in
-/// a larger repository: there the ignore file is the enclosing repository's,
-/// and an ignored nested lockfile is its choice, a fixture or an example whose
-/// lockfile a test run generates.
 fn ignored_lockfile(
     lockfile_present: bool,
     tracked: &[String],
@@ -460,8 +373,6 @@ fn ignored_lockfile(
         })
 }
 
-/// A regular file's text, when it is UTF-8 and at most `limit` bytes. A
-/// symlink is never followed: it could leave the workspace.
 fn read_bounded(file: &Path, limit: u64) -> Option<String> {
     let metadata = fs::symlink_metadata(file).ok()?;
     if !metadata.is_file() || metadata.len() > limit {
@@ -470,10 +381,6 @@ fn read_bounded(file: &Path, limit: u64) -> Option<String> {
     String::from_utf8(fs::read(file).ok()?).ok()
 }
 
-/// The directory Cargo builds into, workspace-relative: `target` unless the
-/// committed `.cargo/config.toml` sets `build.target-dir`. An absolute or
-/// escaping directory leaves the repository's ignore question unanswerable,
-/// so it yields nothing.
 fn build_directory(workspace_root: &Path) -> Option<String> {
     #[derive(Deserialize)]
     struct CargoConfig {
@@ -509,17 +416,6 @@ fn probe_ignore(
     directory: &str,
     deadline: Option<RunDeadline>,
 ) -> IgnoreProbe {
-    // The trailing slash makes a directory-only pattern like `target/` match
-    // even before a first build creates the directory; the anchored and bare
-    // spellings match it too.
-    //
-    // Git refuses that spelling outright when the directory is a symbolic link
-    // to a build directory elsewhere, a common way to move build output off a
-    // small disk: it exits 128 with "is beyond a symbolic link" and answers
-    // nothing. The bare spelling still answers, and it has to be asked, because
-    // that workspace is exactly one where the build path is unignored and its
-    // link shows up as untracked. Abstaining there would hide the rule's own
-    // case from the user most exposed to it.
     match ask_git_check_ignore(workspace_root, view, &format!("{directory}/"), deadline) {
         IgnoreProbe::Unavailable => ask_git_check_ignore(workspace_root, view, directory, deadline),
         answered => answered,
@@ -558,18 +454,6 @@ mod tests {
         stdout
     }
 
-    /// A build directory moved elsewhere behind a symbolic link still gets an
-    /// answer.
-    ///
-    /// `git check-ignore -- target/` exits 128 with "is beyond a symbolic link"
-    /// on such a workspace and answers nothing, which used to make the rule
-    /// abstain on exactly the layout where the build path is unignored and its
-    /// link is sitting untracked. This repository is one of those workspaces,
-    /// so the rule was blind to its own case here.
-    // The layout under test is a POSIX symbolic link, which is what `git
-    // check-ignore` refuses to look beyond. Windows has its own link kinds and
-    // its own answer, so the case is stated where it exists rather than
-    // approximated where it does not.
     #[cfg(unix)]
     #[test]
     fn a_symlinked_build_directory_is_probed_rather_than_abstained_on() {
@@ -593,8 +477,6 @@ mod tests {
         };
         git(&["init", "--quiet"]);
 
-        // Ignored through the directory-only spelling, and the link resolves
-        // outside the workspace exactly as a moved build directory does.
         fs::write(workspace.join(".gitignore"), "/target/\n").expect("gitignore should write");
         symlink(&elsewhere, workspace.join("target")).expect("the symlink should be created");
         assert_eq!(
@@ -603,17 +485,12 @@ mod tests {
             "a directory-only pattern does not cover the link that stands in for it"
         );
 
-        // The same workspace, with the spelling that does cover a link.
         fs::write(workspace.join(".gitignore"), "/target\n").expect("gitignore should write");
         assert_eq!(probe_ignore(&workspace, None, "target", None), IgnoreProbe::Ignored);
 
         fs::remove_dir_all(&scratch).expect("the scratch tree should be removable");
     }
 
-    /// Outside git the pass judges what the workspace holds, so the same code
-    /// scores the same as a clone and as a bare tree: a secret file, a token a
-    /// build step can read, nothing under a build directory, and no answer to
-    /// what git ignores.
     #[test]
     fn a_workspace_outside_git_is_judged_on_the_files_it_holds() {
         let workspace = std::env::temp_dir().join(format!("rust-doctor-outside-git-{}", std::process::id()));
@@ -669,8 +546,6 @@ mod tests {
         fs::remove_dir_all(&workspace).expect("the scratch tree should be removable");
     }
 
-    /// US-043: a binary's ignored lockfile is reported on git's own answer
-    /// alone. An undetermined ignore status, or no git at all, abstains.
     #[test]
     fn an_ignored_lockfile_abstains_without_an_answer_from_git() {
         let workspace = std::env::temp_dir().join(format!("rust-doctor-ignored-lockfile-{}", std::process::id()));
@@ -754,7 +629,6 @@ mod tests {
         assert_eq!(scan.errors.len(), 1);
         assert_eq!(scan.errors[0].code, "repo-enumeration-truncated");
         assert!(scan.errors[0].message.contains("50000"));
-        // The retained prefix still reports: the tracked .env sits inside it.
         assert_eq!(scan.findings.len(), 1);
         assert_eq!(
             scan.findings[0].definition.id,

@@ -312,7 +312,6 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
     assert_eq!(finding["package"], "cargo-health-offline-registry");
     assert_eq!(finding["path"], "Cargo.toml");
     assert!(finding["target"].is_null());
-    // US-002: anchored at the dependency key in the member manifest.
     assert_eq!(
         finding["span"],
         serde_json::json!({"line_start": 7, "column_start": 1, "line_end": 7, "column_end": 23})
@@ -327,9 +326,6 @@ fn offline_registry_cli_and_renderers_share_the_normative_finding() {
         support::expected_clippy_command(&report["policy"])
     );
 
-    // `--verbose` lists every group: the default rendering shows only one, and
-    // the ordering follows the contribution, now weighted by the occurrence
-    // count.
     let terminal = inspect_with(
         &fixture,
         false,

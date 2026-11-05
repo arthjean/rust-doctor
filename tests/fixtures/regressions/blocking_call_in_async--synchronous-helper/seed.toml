@@ -1,0 +1,4 @@
+rule = "rust_doctor::source::blocking_call_in_async"
+weakness = "helper-call"
+source = "audit Z2-N03, fixed by US-017"
+verdict = "fires"

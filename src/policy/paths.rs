@@ -1,10 +1,3 @@
-//! The part of a policy that depends on where a finding is: the paths
-//! `rust-doctor.toml` ignores, and the levels it sets under one path.
-//!
-//! Both are read from the configuration file only. A level the request set
-//! with `--rule` or `--category` is the reader's answer for this run, so no
-//! file overrides it, under any path.
-
 use std::collections::BTreeMap;
 
 use serde::Serialize;
@@ -18,7 +11,6 @@ pub(crate) struct PathPolicy {
     pub(crate) overrides: Vec<PathOverride>,
 }
 
-/// One `[[overrides]]` table: the levels it sets, and where.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PathOverride {
     pub(crate) paths: Vec<PathGlob>,
@@ -26,7 +18,6 @@ pub(crate) struct PathOverride {
     pub(crate) categories: BTreeMap<String, RuleLevel>,
 }
 
-/// One `[[overrides]]` table as the report publishes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PathOverrideReport {
     pub paths: Vec<String>,
@@ -39,8 +30,6 @@ impl PathPolicy {
         self.ignore.iter().any(|glob| glob.matches(path))
     }
 
-    /// The level the last override covering `path` sets for this rule, its
-    /// rule selector before its category selector.
     pub(crate) fn level(&self, definition: &RuleDefinition, path: &str) -> Option<RuleLevel> {
         self.overrides.iter().rev().find_map(|table| {
             table

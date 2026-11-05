@@ -1,4 +1,4 @@
-//! Shell command strings the rule reads in every spelling `Command` offers.
+
 
 use std::process::Command;
 

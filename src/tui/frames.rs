@@ -1,11 +1,3 @@
-//! Every frame the report paints, and the actions each screen offers.
-//!
-//! It carries an `impl App` of its own rather than sitting in `tui.rs` beside
-//! the state machine, because the two answer different questions and together
-//! they put the block over the five hundred lines `oversized_unit` reports an
-//! impl at: this half is what a state looks like, `input.rs` is what a key
-//! does to it.
-
 use super::screens::{Action, ScoreVariant, ViewerState};
 use super::text::{self, Line};
 use super::{
@@ -86,8 +78,6 @@ impl App<'_> {
                 incomplete: incomplete_message(self.session.report),
             },
         );
-        // Nothing is offered while the score is still counting up: the reader
-        // is watching a number, not reading a menu.
         if !self.show_actions {
             return title;
         }
@@ -128,9 +118,6 @@ impl App<'_> {
         )
     }
 
-    /// What the landing offers, in order. No width and no labels: building a
-    /// wrapped justification paragraph on the path that only needs to know
-    /// which entry the cursor is on is work thrown away on every keystroke.
     pub(super) fn landing_actions(&self) -> Vec<LandingAction> {
         let mut actions = Vec::new();
         if !self.rows.is_empty() {
@@ -159,9 +146,6 @@ impl App<'_> {
         }
     }
 
-    /// The landing with its cursor on `action`, or on its first entry when the
-    /// landing no longer offers it. Every way back to the landing states which
-    /// entry it means, so a menu can never point past what it shows.
     pub(super) fn landing_on(&self, action: LandingAction) -> View {
         self.landing_where(|kind| kind == action)
     }
@@ -192,6 +176,4 @@ impl App<'_> {
         ));
         actions
     }
-
-    // --------------------------------------------------------------- input
 }

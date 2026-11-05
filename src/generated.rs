@@ -1,14 +1,3 @@
-//! The files a repository declares generated or vendored, which no producer's
-//! finding may grade.
-//!
-//! Two sources answer, and a path either names is excluded. The repository's
-//! own `.gitattributes`, read through `git check-attr` over what git tracks: a
-//! `linguist-generated` or `linguist-vendored` path whose value is `set` or
-//! `true`. And the generator header the structure pass always recognized,
-//! applied to every Rust file the walk read. Outside git, or when git fails,
-//! only the header answers: a missing declaration is not an error, since most
-//! repositories never write one.
-
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::Path;
@@ -16,16 +5,12 @@ use std::path::Path;
 use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, git_arguments, run_git, run_git_with_input};
 
-/// The stage a failed call would report at. Nothing is published from it: any
-/// failure here leaves the header test alone.
 const STAGE: &str = "generated";
 
-/// The `git ls-files` bound the repository pass already reads under.
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
 const ATTRIBUTES: [&str; 2] = ["linguist-generated", "linguist-vendored"];
 
-/// Workspace-relative paths `.gitattributes` marks generated or vendored.
 pub(crate) fn declared(workspace_root: &Path, deadline: Option<RunDeadline>) -> BTreeSet<String> {
     declared_with(workspace_root, |call, input| match input {
         None => run_git(Path::new("git"), workspace_root, call, deadline),
@@ -67,8 +52,6 @@ fn call(arguments: Vec<OsString>) -> GitCall {
     }
 }
 
-/// Reads `check-attr -z` output, `<path> NUL <attribute> NUL <value> NUL` per
-/// answer, keeping the paths one of the attributes is `set` or `true` on.
 fn parse(output: &[u8]) -> BTreeSet<String> {
     let fields: Vec<&[u8]> = output.split(|byte| *byte == 0).collect();
     let (answers, _) = fields.as_chunks::<3>();
@@ -82,13 +65,6 @@ fn parse(output: &[u8]) -> BTreeSet<String> {
         .collect()
 }
 
-/// Does a recognized generator header open this file?
-///
-/// The conventions are the ones generators actually write: the `@generated`
-/// marker Meta and prost use, the `DO NOT EDIT` banner protoc and bindgen
-/// write, and the "Automatically generated" sentence of older tools. Only the
-/// opening lines are read: a file that merely documents these markers, as this
-/// one does, is not carrying them as a header.
 pub(crate) fn has_generator_header(source: &str) -> bool {
     source.lines().take(10).any(|line| {
         line.contains("@generated")

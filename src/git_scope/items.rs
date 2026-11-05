@@ -1,19 +1,9 @@
-//! The function a finding sits in, for the contextual scope.
-//!
-//! A rule with an item reach reports a site its cause need not touch: the
-//! guard's `let` above an added `.await`, a blocking call under an `async`
-//! keyword the change wrote. Such a finding belongs to the change when the
-//! innermost `fn` around it changed. The lines of a nested `fn` or of a closure
-//! body that does not hold the finding are not that function's: an edit there
-//! is someone else's code.
-
 use ra_ap_syntax::ast::{self, AstNode};
 use ra_ap_syntax::{Edition, SourceFile, SyntaxNode};
 
 use super::lines::FileChanges;
 use crate::source_text::{as_compiled, line_starts};
 
-/// The lines of one function, less the nested bodies that are not its own.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct ItemLines {
     first: usize,
@@ -22,8 +12,6 @@ pub(super) struct ItemLines {
 }
 
 impl ItemLines {
-    /// Whether a change landed in the function: a changed line, or a point
-    /// where lines were deleted between two of its own lines.
     pub(super) fn holds(&self, changes: &FileChanges) -> bool {
         let own = |line: usize| {
             (self.first..=self.last).contains(&line)
@@ -43,9 +31,6 @@ impl ItemLines {
     }
 }
 
-/// The innermost function holding `line`, or `None` when the source does not
-/// parse cleanly or no function holds it: the caller then judges the finding
-/// on its own line, as a lines scope would.
 pub(super) fn enclosing_fn(source: &str, line: usize) -> Option<ItemLines> {
     let source = as_compiled(source.to_owned());
     let parse = SourceFile::parse(&source, Edition::Edition2024);
@@ -120,10 +105,8 @@ fn elsewhere() {
         assert_eq!((item.first, item.last), (1, 11));
         assert!(item.holds(&changes(vec![(10, 10)], vec![])));
         assert!(item.holds(&changes(vec![], vec![2])));
-        // A nested function and a closure body are not `outer`'s own code.
         assert!(!item.holds(&changes(vec![(5, 5)], vec![])));
         assert!(!item.holds(&changes(vec![(8, 8)], vec![])));
-        // Another function of the same file, and a deletion at its edge.
         assert!(!item.holds(&changes(vec![(14, 14)], vec![])));
         assert!(!item.holds(&changes(vec![], vec![11])));
 
@@ -132,9 +115,6 @@ fn elsewhere() {
         assert_eq!(enclosing_fn(SOURCE, 12), None);
     }
 
-    /// A CRLF checkout once left every function holding a string literal that
-    /// spans lines unparseable here, so a contextual scope judged its finding
-    /// on its own line.
     #[test]
     fn a_crlf_source_holds_the_same_function_as_its_lf_twin() {
         let lf = "fn banner() -> &'static str {\n    let text = \"first\nsecond\";\n    text\n}\n";

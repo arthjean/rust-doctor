@@ -1,16 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! The source rule families Clippy cannot express, scanned through the
-//! `inspect` a user runs: a blocking call inside async code, SQL text
-//! assembled from a runtime value, a shell command line built from one, the
-//! tokio calls that panic, an unchecked HTTP status, a secret that falls back
-//! to a literal, and the web controls switched off. The fixture stubs the
-//! crates it calls (`tokio`, `tokio-macros`, `futures`, `reqwest`, `sqlx`,
-//! `diesel`, `rusqlite`, `postgres`, `tokio-postgres`, `sea-orm`,
-//! `tower-http`, `actix-cors`, `cookie`, `jsonwebtoken`) with their surface
-//! and none of their behavior, so the scan compiles offline and the detectors
-//! see the paths real code writes.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,8 +9,6 @@ use serde_json::{Value, json};
 const BLOCKING: &str = "rust_doctor::source::blocking_call_in_async";
 const SQL: &str = "rust_doctor::source::sql_built_from_format";
 const SHELL: &str = "rust_doctor::source::dynamic_shell_command";
-/// Every native source rule this fixture holds a positive and a negative for,
-/// with the fewest silences its oracle must record.
 const SERVICE_RULES: [(&str, usize); 8] = [
     ("rust_doctor::source::block_in_place_on_current_thread", 3),
     ("rust_doctor::source::block_on_in_async", 2),
@@ -94,9 +81,6 @@ fn both_families_report_exactly_their_positive_sites() {
     }
 }
 
-/// A blocking call a test makes is reported, and carries the context that
-/// keeps it from weighing: in a test target by Cargo's target kind, and in a
-/// `#[cfg(test)]` module of a shipped file by the attribute.
 #[test]
 fn a_blocking_call_in_test_code_carries_the_test_context() {
     let report = inspect(InspectRequest::new(fixture()));
@@ -153,8 +137,6 @@ fn both_rules_publish_their_category_tier_and_the_fix() {
     }
 }
 
-/// US-017: the call in async code to a synchronous helper carries the finding,
-/// and its message names the helper and the blocking call it reaches.
 #[test]
 fn a_helper_finding_names_the_helper_and_what_it_reaches() {
     let report = inspect(InspectRequest::new(fixture()));
@@ -177,11 +159,6 @@ fn a_helper_finding_names_the_helper_and_what_it_reaches() {
     );
 }
 
-/// A rule is published as not evaluated when the workspace resolves a crate
-/// it was never validated on, and reports nothing there: the fixture writes a
-/// current-thread `block_in_place` against a tokio 0.2 stub, outside the
-/// rule's `>=1, <2`. The two not-evaluated reasons never cost the score its
-/// authority, since they say the rule had nothing to judge.
 #[test]
 fn a_crate_outside_the_validated_range_closes_the_rule_and_reports_nothing() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/source-kernel/version-gate");

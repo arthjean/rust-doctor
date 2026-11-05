@@ -1,4 +1,4 @@
-//! The surface of rusqlite the fixture calls, with none of its behavior.
+
 
 pub struct Connection;
 pub struct Statement;

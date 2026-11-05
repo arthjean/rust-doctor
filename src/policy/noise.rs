@@ -1,74 +1,16 @@
-//! What a rule costs on healthy public code, as the pinned corpus adjudicated
-//! it.
-//!
-//! It sits beside the catalog rather than inside `RuleDefinition` because it is
-//! not a property of the rule: it is a dated observation over ten public
-//! repositories, and it changes when the corpus is re-adjudicated while the
-//! rule does not. `tests/corpus.json` is where it is established and the tests
-//! below hold the two in agreement.
-//!
-//! It is published at all because a measurement that lives only in a test file
-//! cannot change what the tool recommends. The rule that fires the most is not
-//! the rule worth fixing first, and until this table existed the report had no
-//! way to tell the difference.
-//!
-//! What the table carries is the sample, not the rate. The rate the ranking
-//! reads is derived from it through `SMOOTHING`, so the shipped discount and
-//! the pseudo-counts it was computed with can never disagree: there is one
-//! place holding the counts the corpus adjudicated, and one formula reading
-//! them.
-
 use super::by_id;
 
 const BASIS_POINTS: u64 = 10_000;
 
-/// Pseudo-counts every shipped rate is read through: one imagined false
-/// positive over two imagined sites, which is the mean of the Beta(1,1)
-/// posterior and therefore the uniform prior over the unit interval.
-///
-/// The raw share of false positives is the wrong key to rank by, in two
-/// directions at once. A rule adjudicated wrong on the single site the corpus
-/// ever showed it is not the same claim as one adjudicated wrong on forty, and
-/// the raw rate states both as 10000 basis points; a rule the corpus never
-/// adjudicated at all has no rate, and reading the absence as zero noise makes
-/// measuring a rule an act that can only ever lower its rank. The posterior
-/// mean answers both: it pulls a small sample toward the middle in proportion
-/// to how small it is, and it lands an unmeasured rule at exactly the middle,
-/// which is the same formula at no observations.
-///
-/// The Wilson lower bound was the other candidate and is the same inversion in
-/// the other direction: it is negatively biased everywhere and structurally
-/// punishes what nobody has measured. An empirical-Bayes prior fitted to the
-/// corpus was rejected as a product decision this table does not take, since
-/// the healthy and agent populations pool at rates far enough apart that
-/// fitting one means choosing which population the shipped discount mirrors.
 pub(crate) const SMOOTHING: Smoothing = Smoothing {
     false_positives: 1,
     sites: 2,
 };
 
-/// What the ranking retains for a rule the corpus never adjudicated, which is
-/// `SMOOTHING` read at no observations rather than a second number chosen to
-/// look like it.
 pub(crate) const UNMEASURED_NOISE_BASIS_POINTS: u16 = SMOOTHING.rate(0, 0);
 
-/// The smoothed rate past which a rule is more often wrong than right on
-/// healthy code: it is withheld from the projection whatever it would recover,
-/// and its tier caps no dimension, while its sites are still charged at the
-/// discount.
-///
-/// It is strictly above the middle so that an unmeasured rule, which sits
-/// exactly there, is ranked and not withheld. The threshold used to be an
-/// expected repair value rounding to zero millionths of a point, which no
-/// rule ever reached: one site of `indexing_slicing` on five million lines
-/// still carried a value, and the report recommended fixing `print_stderr`,
-/// adjudicated wrong on every site it showed, in the entry point of a binary.
-/// Under core-v5 a withheld rule still capped: one correct `process::exit` in
-/// a signal path held reliability at 75 on a rule the corpus judged wrong on
-/// every site it showed.
 pub(crate) const WITHHOLD_NOISE_BASIS_POINTS: u16 = 5_000;
 
-/// The pseudo-counts, and the one place that reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Smoothing {
     pub(crate) false_positives: u64,
@@ -76,13 +18,6 @@ pub(crate) struct Smoothing {
 }
 
 impl Smoothing {
-    /// The smoothed rate of a sample, in basis points, rounded half away from
-    /// zero.
-    ///
-    /// Integer arithmetic throughout: the doubled numerator plus the
-    /// denominator over twice the denominator is the half-away-from-zero
-    /// rounding of a ratio of non-negative integers, and it answers the same
-    /// on every platform, which a floating-point round never promises.
     pub(crate) const fn rate(&self, false_positives: u64, reviewed: u64) -> u16 {
         let numerator = (false_positives + self.false_positives) * BASIS_POINTS;
         let denominator = reviewed + self.sites;
@@ -90,8 +25,6 @@ impl Smoothing {
     }
 }
 
-/// One rule the pinned corpus adjudicated on healthy code: the sites it looked
-/// at, and how many of them the rule was wrong about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CorpusMeasurement {
     id: &'static str,
@@ -108,19 +41,15 @@ impl CorpusMeasurement {
         }
     }
 
-    /// What the ranking discounts this rule by, derived rather than stored.
     pub(crate) const fn noise_basis_points(&self) -> u16 {
         SMOOTHING.rate(self.false_positives, self.reviewed)
     }
 
-    /// How many sites the rate rests on, which is what separates a measurement
-    /// from an anecdote and is published for that reason.
     pub(crate) const fn reviewed(&self) -> u64 {
         self.reviewed
     }
 }
 
-/// The sample the pinned corpus adjudicated per rule, sorted by id.
 pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
     CorpusMeasurement::new("clippy::exit", 5, 5),
     CorpusMeasurement::new("clippy::expect_used", 4, 5),
@@ -150,12 +79,6 @@ pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
     CorpusMeasurement::new("rust_doctor::structure::unreferenced_feature", 5, 5),
 ];
 
-/// What the corpus measured for this rule, or `None` when it never adjudicated
-/// it.
-///
-/// An absent measurement is not a rate of zero and not a rate of ten thousand:
-/// the ranking reads the absence itself and retains
-/// `UNMEASURED_NOISE_BASIS_POINTS`, so measuring a rule can move it either way.
 pub(crate) fn corpus_measurement(id: &str) -> Option<&'static CorpusMeasurement> {
     by_id(&CORPUS_NOISE, id, |measurement| measurement.id)
 }
@@ -167,7 +90,6 @@ mod tests {
     use super::*;
     use crate::policy::find;
 
-    /// The record, read as the bytes the repository ships.
     fn corpus() -> serde_json::Value {
         let corpus = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus.json"),
@@ -176,7 +98,6 @@ mod tests {
         serde_json::from_str(&corpus).expect("the published corpus should parse")
     }
 
-    /// The sample every measured rule of the record was adjudicated on.
     fn adjudicated(corpus: &serde_json::Value) -> BTreeMap<String, (u64, u64)> {
         corpus["precision"]
             .as_array()
@@ -195,20 +116,6 @@ mod tests {
             .collect()
     }
 
-    /// The rate the score ranks by is the rate the corpus adjudicated.
-    ///
-    /// `CORPUS_NOISE` is a hand-written copy of what `tests/corpus.json`
-    /// measures, and a copy that drifts is worse than no copy: the report would
-    /// rank on a number nobody measured while every published artifact still
-    /// showed the real one. This test is the only thing holding the two
-    /// together, since the rate reaches the score without passing through the
-    /// report.
-    ///
-    /// It compares the sample rather than the rate, because the sample is what
-    /// the record and the table both hold: the discount is derived from it by
-    /// `SMOOTHING` on both sides, so a table copied correctly and read through
-    /// a moved constant fails in `the_smoothing_is_the_one_the_record_was_generated_under`
-    /// instead of here.
     #[test]
     fn the_noise_the_score_ranks_by_matches_the_adjudicated_rate() {
         let corpus = corpus();
@@ -242,14 +149,6 @@ mod tests {
         );
     }
 
-    /// Every shipped discount is the smoothed rate of its own sample.
-    ///
-    /// The record publishes the raw share of false positives and keeps
-    /// publishing it: it is the measurement, and a measurement is not a
-    /// ranking key. What the table adds is the pseudo-counts, and this
-    /// recomputes them from the record's counts rather than from the table's
-    /// own arithmetic, so a rule whose sample moved without its discount
-    /// following fails here naming both.
     #[test]
     fn every_shipped_rate_is_the_smoothed_rate_of_its_sample() {
         let corpus = corpus();
@@ -266,12 +165,8 @@ mod tests {
             );
         }
 
-        // The two ends of the resolution the smoothing exists to produce: forty
-        // sites all wrong is not the same claim as one site wrong, and the raw
-        // rate states both as ten thousand.
         assert_eq!(SMOOTHING.rate(40, 40), 9762);
         assert_eq!(SMOOTHING.rate(1, 1), 6667);
-        // And one site right is not proof: the raw rate states it as zero.
         assert_eq!(SMOOTHING.rate(0, 1), 3333);
         assert_eq!(SMOOTHING.rate(0, 5), 1429);
         assert_eq!(
@@ -282,11 +177,6 @@ mod tests {
         assert_eq!(corpus_measurement("clippy::todo"), None);
     }
 
-    /// A withheld rule caps nothing, so withholding a `P0` or `P1` rule is a
-    /// decision about what a defect is worth, not a measurement: it takes the
-    /// ceiling off the two tiers that exist to hold a workspace down whatever
-    /// its density. A re-adjudication that pushes one over the threshold fails
-    /// here, naming it, rather than silently uncapping it.
     #[test]
     fn no_p0_or_p1_rule_is_withheld() {
         let withheld: Vec<(&str, u16)> = CORPUS_NOISE
@@ -306,22 +196,12 @@ mod tests {
         );
     }
 
-    /// An unmeasured rule is ranked at the middle, and the middle is the same
-    /// formula at no observations rather than a constant beside it.
     #[test]
     fn an_unmeasured_rule_reads_the_prior_itself() {
         assert_eq!(UNMEASURED_NOISE_BASIS_POINTS, 5000);
         assert_eq!(UNMEASURED_NOISE_BASIS_POINTS, SMOOTHING.rate(0, 0));
     }
 
-    /// The record was generated under the smoothing the binary ships.
-    ///
-    /// Recorded beside the toolchain and the λ table for the reason both of
-    /// those are: the toolchain decides which diagnostics exist, λ decides what
-    /// they cost, and the pseudo-counts decide what a measured rate is worth to
-    /// the ranking. A constant moved without regenerating the record fails
-    /// here, naming both values, in the shape of
-    /// `src/audit/tests/lambda_freeze.rs`.
     #[test]
     fn the_smoothing_is_the_one_the_record_was_generated_under() {
         let corpus = corpus();

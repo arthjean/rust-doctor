@@ -1,8 +1,8 @@
-//! Trigger and silence of `clippy::type_complexity`.
-//!
-//! `routes` writes the whole nested type in its signature, which is the form
-//! the lint reports. `named_routes` carries the same shape behind the alias
-//! the lint's help asks for, and stays quiet.
+
+
+
+
+
 
 use std::collections::HashMap;
 

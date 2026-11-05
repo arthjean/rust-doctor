@@ -1,7 +1,3 @@
-// What the action screens of the interactive report need beyond tui-support.ts:
-// a fixture whose findings include info, a read-only workflows directory,
-// agents written for one test, a session whose stderr goes to a file, and the
-// byte log read as text.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BIN, defaultTarget, doctorArgs, scratchDir, toolchainBin, type EnvOverrides, type Sandbox } from "./e2e-helpers";
@@ -9,8 +5,6 @@ import { pathProfile, type Profile } from "./fakes";
 import { TmuxSession } from "./tmux-helpers";
 import { tuiWorkspace, type TuiWorkspace } from "./tui-support";
 
-// A binary whose only findings are three `println!` sites, which the report
-// grades as info, beside the two warnings a lockless binary gets.
 export function infoBinary(): string {
   const workspace = join(scratchDir("info-binary"), "info-binary");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -21,9 +15,6 @@ export function infoBinary(): string {
 
 export const IS_ROOT = process.getuid?.() === 0;
 
-// `todo-rogh` of the catalog: `todo-git` whose `.github/workflows` cannot be
-// written. The caller restores the mode in `finally`, or the run's scratch
-// root cannot be removed.
 export async function readOnlyWorkflows(): Promise<TuiWorkspace & { restore(): void }> {
   const ws = await tuiWorkspace("todo-git");
   const dir = join(ws.path, ".github/workflows");
@@ -32,9 +23,6 @@ export async function readOnlyWorkflows(): Promise<TuiWorkspace & { restore(): v
   return { ...ws, restore: () => chmodSync(dir, 0o755) };
 }
 
-// A PATH whose agents are the shell scripts given here, in front of a fakes.ts
-// profile, for a test that needs an agent to report its terminals, fail or
-// run long. Each script records into `$RD_AGENT_LOG/<name>.*`.
 export function agentPath(scripts: Record<string, string>, profile: Profile | readonly string[] = "none"): string {
   const dir = join(scratchDir("agents"), "bin");
   mkdirSync(dir, { recursive: true });
@@ -44,8 +32,6 @@ export function agentPath(scripts: Record<string, string>, profile: Profile | re
   return `${dir}:${profile === "none" ? toolchainBin() : pathProfile(profile)}`;
 }
 
-// An agent that records whether stdin, stdout and stderr are terminals and
-// its pid, prints one line, optionally sleeps, and exits with `code`.
 export function probeAgent(name: string, options: { code?: number; sleep?: number } = {}): string {
   return [
     "#!/bin/sh",
@@ -72,8 +58,6 @@ export function agentRecord(box: Sandbox, name: string, field: "pid" | "cwd" | "
   return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
-// The report on `workspace` with its stderr in a file, so the pane holds
-// only what stdout wrote and the test reads stderr whole.
 export function reportWithStderrFile(
   ws: { path: string; sandbox: Sandbox },
   options: { width?: number; height?: number; env?: EnvOverrides; args?: string[] } = {},
@@ -89,8 +73,6 @@ export function reportWithStderrFile(
   return { session, stderr: () => (existsSync(path) ? readFileSync(path, "utf8") : "") };
 }
 
-// The byte log as a terminal would show it line by line: the line discipline
-// turns every newline into CR LF.
 export function logText(session: TmuxSession): string {
   return session.byteLog().replace(/\r\n/g, "\n");
 }
@@ -121,7 +103,6 @@ export function alive(pid: number): boolean {
   }
 }
 
-// Every live process whose command line mentions `needle`.
 export function processesMentioning(needle: string): number[] {
   const pids: number[] = [];
   for (const name of readdirSync("/proc")) {
@@ -133,8 +114,6 @@ export function processesMentioning(needle: string): number[] {
   return pids;
 }
 
-// The byte log once tmux's `pipe-pane` has flushed it: a pane that just died
-// can still have its last bytes on the way to the file.
 export async function settledLog(session: TmuxSession, quietMs = 150, timeoutMs = 3_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let last = session.byteLog();

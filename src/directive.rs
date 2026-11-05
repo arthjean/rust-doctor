@@ -1,14 +1,3 @@
-//! Site-level suppression directives for the native rules: where they are
-//! written, and what they say.
-//!
-//! A directive is one line comment, `// rust-doctor: allow(<id>, ...) -- <why>`
-//! in Rust and `# rust-doctor: allow(<id>) -- <why>` in a manifest. It is read
-//! from comment tokens only, the Rust ones from the tree the walk already
-//! parsed and the TOML ones by a scanner that knows where a string ends, so the
-//! same text inside a string literal is never a directive. What a directive
-//! suppresses, and whether it may, is the report's to decide: this module only
-//! finds them.
-
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -17,27 +6,19 @@ use ra_ap_syntax::{AstNode, SourceFile, SyntaxKind};
 
 use crate::source_text::line_starts;
 
-/// What any file the directive scanner reads may weigh, the manifest readers'
-/// own bound.
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 const MARKER: &str = "rust-doctor:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Directive {
-    /// Workspace-relative.
     pub(crate) path: String,
-    /// One-based line of the comment.
     pub(crate) line: usize,
     pub(crate) rules: Vec<String>,
-    /// Whether a non-empty reason follows `--`.
     pub(crate) has_reason: bool,
-    /// In a manifest, the key the next line declares, which is how a
-    /// dependency finding with no line of its own is found.
     pub(crate) key: Option<String>,
 }
 
-/// Every directive of one parsed Rust file.
 pub(crate) fn in_rust(path: &str, source: &str, tree: &SourceFile) -> Vec<Directive> {
     if !source.contains(MARKER) {
         return Vec::new();
@@ -49,7 +30,6 @@ pub(crate) fn in_rust(path: &str, source: &str, tree: &SourceFile) -> Vec<Direct
         .filter(|token| token.kind() == SyntaxKind::COMMENT)
         .filter_map(|token| {
             let body = token.text().strip_prefix("//")?;
-            // `///` and `//!` are documentation, never a directive.
             if body.starts_with('/') || body.starts_with('!') {
                 return None;
             }
@@ -59,8 +39,6 @@ pub(crate) fn in_rust(path: &str, source: &str, tree: &SourceFile) -> Vec<Direct
         .collect()
 }
 
-/// Every directive of one TOML file, read from disk under the manifest bound.
-/// A file that cannot be read holds none: the pass that judges it reports why.
 pub(crate) fn in_toml_file(path: &str, file: &Path) -> Vec<Directive> {
     let Ok(handle) = File::open(file) else {
         return Vec::new();
@@ -85,16 +63,12 @@ fn in_toml(path: &str, source: &str) -> Vec<Directive> {
     toml_comments(source)
         .into_iter()
         .filter_map(|(line, body)| {
-            // `line` is one-based, so it indexes the line below the comment.
             let key = lines.get(line).and_then(|below| declared_key(below));
             directive(path, line, body, key)
         })
         .collect()
 }
 
-/// The key a manifest line declares, unquoted: `name` in `name = ...` and in
-/// `name.workspace = true`, and the last segment of a `[dependencies.name]`
-/// header. A crate name holds no dot, so the segment it sits in is certain.
 fn declared_key(line: &str) -> Option<String> {
     let line = line.trim();
     let key = match line.strip_prefix('[') {
@@ -105,8 +79,6 @@ fn declared_key(line: &str) -> Option<String> {
     (!key.is_empty()).then(|| key.to_owned())
 }
 
-/// The comments of a TOML document, with their one-based line, found by
-/// tracking the four string forms so a `#` inside a string is not one.
 fn toml_comments(source: &str) -> Vec<(usize, &str)> {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum State {
@@ -146,7 +118,6 @@ fn toml_comments(source: &str) -> Vec<(usize, &str)> {
             (State::Code, b'\'') if rest.starts_with(b"'''") => (state, step) = (State::MultiLiteral, 3),
             (State::Code, b'\'') => state = State::Literal,
             (State::Basic | State::MultiBasic, b'\\') => {
-                // An escaped newline still ends a line of the document.
                 if rest.get(1) == Some(&b'\n') {
                     line += 1;
                 }
@@ -162,9 +133,6 @@ fn toml_comments(source: &str) -> Vec<(usize, &str)> {
     comments
 }
 
-/// Reads the text of one comment, after its opening characters, as a
-/// directive. Anything that does not open on the marker and `allow(` is an
-/// ordinary comment.
 fn directive(path: &str, line: usize, body: &str, key: Option<String>) -> Option<Directive> {
     let rest = body.trim_start().strip_prefix(MARKER)?.trim_start();
     let rest = rest.strip_prefix("allow(")?;

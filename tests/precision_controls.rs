@@ -1,13 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Proofs of EP-004: an ignored path, a per-path override, a suppression
-//! directive with a reason, a file declared generated, and a scan narrowed to
-//! one member, each visible in the report.
-//!
-//! Every proof starts at the binary a user runs, on a fixture under
-//! `tests/fixtures/precision-controls/`, so the wire shape asserted here is
-//! the one `--json` publishes.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,9 +12,7 @@ mod support;
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/precision-controls")
-        .join(name)
+    support::fixture_dir(&format!("precision-controls/{name}"))
         .canonicalize()
         .unwrap()
 }
@@ -45,7 +35,6 @@ fn json(root: &Path, arguments: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).expect("stdout should hold the JSON report alone")
 }
 
-/// `(rule, path, line, severity)` of every finding.
 fn findings(report: &Value) -> Vec<(String, String, u64, String)> {
     report["diagnostics"]
         .as_array()
@@ -67,8 +56,6 @@ fn finding(rule: &str, path: &str, line: u64, severity: &str) -> (String, String
     (rule.to_owned(), path.to_owned(), line, severity.to_owned())
 }
 
-/// A copy of a fixture in a scratch directory, optionally made a git
-/// repository whose index tracks every file.
 fn workspace(name: &str) -> PathBuf {
     let root = support::temporary_target("precision-controls", &NEXT_WORKSPACE);
     support::copy_tree(&fixture(name), &root);
@@ -80,8 +67,6 @@ fn an_ignored_path_leaves_the_report_and_an_override_sets_a_level_under_its_path
     let root = fixture("paths");
     let report = json(&root, &[]);
     assert_eq!(report["status"], "complete");
-    // `src/raised.rs` is raised to error, `src/quiet/**` switches its category
-    // off, and nothing under `src/ignored` is left.
     assert_eq!(
         findings(&report),
         [
@@ -89,9 +74,6 @@ fn an_ignored_path_leaves_the_report_and_an_override_sets_a_level_under_its_path
             finding("clippy::todo", "src/raised.rs", 2, "error"),
         ]
     );
-    // Clippy still compiled the ignored file, so its `todo!` was produced and
-    // then counted out. The walk never read it, so its shell command was never
-    // a finding at all, and its lines are not in the denominator.
     assert_eq!(report["scan"]["ignored"], 1);
     assert_eq!(report["audit"]["production_lines"], 13);
     assert_eq!(report["policy"]["ignore"], serde_json::json!(["src/ignored"]));
@@ -99,8 +81,6 @@ fn an_ignored_path_leaves_the_report_and_an_override_sets_a_level_under_its_path
     assert_eq!(report["policy"]["overrides"][0]["rules"]["clippy::todo"], "error");
     assert_eq!(report["policy"]["overrides"][1]["categories"]["correctness"], "off");
 
-    // A level the request sets is the reader's answer for the run, under
-    // every path.
     let requested = json(&root, &["--rule", "clippy::todo=warn"]);
     assert_eq!(
         findings(&requested),
@@ -167,7 +147,6 @@ fn a_directive_with_a_reason_suppresses_one_native_site_and_every_other_says_why
             )
         })
         .collect();
-    // The directive written in a string literal on line 2 is not one.
     assert_eq!(
         suppressions,
         [
@@ -189,9 +168,6 @@ fn a_directive_with_a_reason_suppresses_one_native_site_and_every_other_says_why
         report["suppressions"][4]["hint"],
         "rust_doctor::source::dynamic_shell_command"
     );
-    // The applied directives took their finding out of the report; the one
-    // without a reason, the one naming a Clippy lint, and the lint table
-    // entry's twin in the manifest all left theirs in.
     assert_eq!(
         findings(&report),
         [
@@ -209,7 +185,6 @@ fn a_directive_with_a_reason_suppresses_one_native_site_and_every_other_says_why
 
     let terminal = command(&root, &[]).output().unwrap();
     let text = String::from_utf8_lossy(&terminal.stdout);
-    // One line, which the eighty-column report may wrap.
     let summary = text.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         summary.contains(
@@ -227,8 +202,6 @@ fn a_file_declared_generated_or_headed_as_one_grades_nothing() {
     support::git_output(&root, &["add", "--all"]);
     let report = json(&root, &[]);
     assert_eq!(report["status"], "complete");
-    // `set` and `true` exclude; `false` and `unset` keep; the generator header
-    // excludes a Clippy finding as it always excluded a structural one.
     assert_eq!(
         findings(&report),
         [
@@ -237,33 +210,20 @@ fn a_file_declared_generated_or_headed_as_one_grades_nothing() {
             finding("clippy::todo", "src/lib.rs", 8, "warning"),
         ]
     );
-    // Two `todo!` in declared files, one in the headed file, and the lint
-    // table entry of the manifest marked generated.
     assert_eq!(report["scan"]["excluded_generated"], 4);
     assert!(report["errors"].as_array().unwrap().is_empty());
-    // Nor are their lines in the denominator, as an ignored file's are not:
-    // only the three kept files are measured, so generated code cannot dilute
-    // the density it would grade.
     assert_eq!(report["audit"]["production_lines"], 15);
 
-    // The base side is a snapshot outside git, and still reads the
-    // declaration: nothing a declared file holds reads as fixed.
     support::git_output(
         &root,
         &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "base"],
     );
     let baseline = json(&root, &["--scope", "baseline", "--base", "HEAD"]);
     assert_eq!(baseline["status"], "complete", "{}", baseline["errors"]);
-    // The three kept `todo!` are on both sides, and no declared file's finding
-    // was dropped from one side only. The fixture has no `.gitignore`, so the
-    // unignored build directory is the fourth, and it pairs too: the
-    // repository pass judges the base side through a git view of its
-    // snapshot, so a commit that changed nothing introduces nothing.
     assert_eq!(baseline["delta"]["summary"]["fixed"], 0);
     assert_eq!(baseline["delta"]["summary"]["pre_existing"], 4);
     assert_eq!(baseline["delta"]["summary"]["introduced"], 0);
 
-    // Outside git only the header answers, and no error says git is missing.
     let outside = workspace("generated");
     let output = command(&outside, &["--json"])
         .env("GIT_CEILING_DIRECTORIES", outside.parent().unwrap())
@@ -324,7 +284,6 @@ fn one_member_is_scanned_and_scored_alone_and_every_member_gets_a_score() {
     assert_eq!(alpha["audit"]["packages"].as_array().unwrap().len(), 1);
     assert_eq!(alpha["audit"]["packages"][0]["name"], "alpha");
     assert_eq!(alpha["audit"]["production_lines"], 3);
-    // The repository is no member: its rules are named, not silently dropped.
     let repository_rules: Vec<&Value> = alpha["policy"]["rules"]
         .as_array()
         .unwrap()
@@ -365,8 +324,6 @@ fn one_member_is_scanned_and_scored_alone_and_every_member_gets_a_score() {
 
 #[test]
 fn a_manifest_directive_above_a_dependency_key_suppresses_the_finding_it_names() {
-    // A dependency finding publishes no line, so the directive reaches it
-    // through the key declared on the line below.
     let root = workspace("suppressed");
     fs::create_dir_all(root.join("helper/src")).unwrap();
     fs::write(

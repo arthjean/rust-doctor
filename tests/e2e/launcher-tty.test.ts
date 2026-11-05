@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 3, item 5: the terminal passes
-// through the launcher. Under tmux the interactive report opens as it does
-// from the binary, follows a resize at the next key, leaves on `q` with the
-// scan's code, and a Ctrl-C typed during the scan ends it as the terminal's
-// signal should; off a terminal the linear report prints.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";

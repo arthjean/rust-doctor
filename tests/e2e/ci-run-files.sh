@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Runs e2e files one at a time, each in its own bun process with its own tmux
-# server directory, so terminal state and processes cannot leak between files.
-# A failing file gets one retry after its tmux servers are reset; a file that
-# passes only on retry is reported as a warning, so a flaky file stays
-# visible instead of passing quietly. Bun's own --retry counts a retried pass
-# as a plain pass, which is why it is not used here. Ported from pf's
-# tests/e2e/ci-run-files.sh.
 set -uo pipefail
 
 if [ "$#" -eq 0 ]; then

@@ -1,4 +1,4 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::undocumented_unsafe_blocks))]
 
 use std::env;
 use std::path::Path;
@@ -6,30 +6,21 @@ use std::path::Path;
 use rust_doctor::{InspectRequest, RuleLevel, Status, inspect};
 use serde_json::Value;
 
-/// Cargo's artifact cache is what this test measures against, so it must not
-/// share one. `inspect` shells out to `cargo clippy`, and a fixture already
-/// compiled under an inherited `CARGO_TARGET_DIR` replays with no warning at
-/// all: the representative diagnostics simply are not there, and the failure
-/// reads as a regression in the report rather than as a cache hit. Every other
-/// test that runs Cargo pins the directory the same way.
-///
-/// This binary carries one test, so the variable is set for the process rather
-/// than guarded per call.
+mod support;
+
 fn isolate_target_directory() {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/policy-kernel-target");
-    // Single test, single thread: nothing else reads the environment here.
     unsafe { env::set_var("CARGO_TARGET_DIR", &target) };
 }
 
 #[test]
 fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() {
     isolate_target_directory();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let oracle: Value = serde_json::from_str(include_str!("fixtures/policy-gate/oracle.json"))
         .expect("policy oracle should be valid JSON");
-    let report = inspect(InspectRequest::new(
-        root.join("tests/fixtures/kernel-contract/precision-matrix"),
-    ));
+    let report = inspect(InspectRequest::new(support::fixture_dir(
+        "kernel-contract/precision-matrix",
+    )));
 
     assert_eq!(report.status, Status::Complete);
     let command = report
@@ -37,8 +28,6 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
         .command
         .as_ref()
         .expect("complete scan should expose its command");
-    // The catalog is the only source of the published list: the command must
-    // carry every active Clippy rule of the policy, in published order.
     let policy = report
         .policy
         .as_ref()
@@ -65,13 +54,6 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
     )
     .chain(["-W".to_owned(), "warnings".to_owned()])
     .collect();
-    // Seven base arguments since the scope is Cargo's default targets and
-    // `--keep-going` lints past a broken member, then the
-    // two that silence everything Clippy warns about by default, then one `-W`
-    // per active Clippy rule of the policy, then the `-W warnings` that keeps
-    // an inherited `-D warnings` from failing the build. The count is derived from the
-    // published policy, never frozen, so that widening the catalog does not
-    // require editing this test.
     assert_eq!(
         expected.len(),
         11 + 2 * policy
@@ -82,12 +64,6 @@ fn default_policy_expands_the_clippy_command_and_preserves_representative_ids() 
     );
     assert_eq!(command, &expected);
 
-    // A single historical argument was removed, and it is named here rather
-    // than erased from the oracle: `--all-targets` compiled tests, benches,
-    // examples and build scripts, from which 69.9% of the pack findings came.
-    // The scope is now Cargo's default targets. The test therefore proves two
-    // things: all the rest of the historical command survives in order, and
-    // that removal is deliberate rather than a drift.
     const WITHDRAWN: &str = "--all-targets";
     assert!(!command.iter().any(|argument| argument == WITHDRAWN));
 

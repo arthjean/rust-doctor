@@ -1,15 +1,3 @@
-//! What the interactive report draws, derived once from the inspection.
-//!
-//! A [`Row`] is React Doctor's `DiagnosticRow`: one catalogued rule, its worst
-//! site and everywhere else it fired. [`Entry`] interleaves the category
-//! headers the list column shows, and [`Layout`] is the transposition of
-//! `resolve-report-layout.ts`, so the same terminal geometry picks the same
-//! split, stacked or compact arrangement it does.
-//!
-//! The score block's own geometry is not here: it is
-//! [`rust_doctor::score_block`], shared with the linear report so a score reads
-//! the same in both.
-
 use std::path::Path;
 
 use rust_doctor::presentation::{
@@ -49,7 +37,6 @@ const REPORT_MIN_COLUMN_WIDTH_CHARS: usize = 20;
 pub const REPORT_SPLIT_MARGIN_COLUMNS: usize = 1;
 pub const REPORT_SPLIT_PADDING_COLUMNS: usize = 1;
 
-/// One catalogued rule and every site it fired on.
 #[derive(Debug, Clone)]
 pub struct Row {
     pub rule_id: String,
@@ -60,19 +47,11 @@ pub struct Row {
     pub location: String,
     pub message: String,
     pub help: Option<String>,
-    /// The toolchain's replacement for the framed site, when it wrote one.
     pub suggestion: Option<String>,
     pub rule_url: String,
-    /// The site the detail pane frames: the first one carrying a span.
     pub frame: Option<GroupLocation>,
-    /// Every distinct `path:line` the rule reached, in report order, a site
-    /// of a test, bench, example or build script carrying why it weighs
-    /// nothing.
     pub sites: Vec<String>,
-    /// What the framed site belongs to when it is not production code.
     pub context: Option<&'static str>,
-    /// A compiler note: published, weighing nothing, and listed after every
-    /// scored row under its own heading, whatever category it falls in.
     pub note: bool,
 }
 
@@ -84,7 +63,6 @@ impl Row {
 
 #[derive(Debug, Clone)]
 pub enum Entry {
-    /// The label over the rows that follow: a category, or the compiler notes.
     Header(&'static str),
     Item { row_index: usize },
 }
@@ -151,10 +129,6 @@ pub fn format_site(location: &GroupLocation) -> String {
     }
 }
 
-/// Groups the rows under their category header, categories in the order the
-/// audit publishes them and rows in the order the report ranked them. Compiler
-/// notes close the list under their own heading: labeling a category with it
-/// would also call an uncatalogued compile error, which weighs, not scored.
 pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
     const ORDER: [AuditCategoryName; 6] = [
         AuditCategoryName::Security,
@@ -184,8 +158,6 @@ pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
     entries
 }
 
-/// What the report calls the workspace: the package name when there is exactly
-/// one, and the directory otherwise.
 pub fn project_name(report: &InspectReport, workspace_root: &Path) -> String {
     if let Some(project) = report.project.as_ref()
         && let [package] = project.packages.as_slice()
@@ -217,20 +189,10 @@ pub struct Layout {
     pub list_height: usize,
     pub detail_height: usize,
     pub shows_viewer_score_header: bool,
-    /// Room the score block may occupy. In a split it is the left column; in
-    /// every other arrangement it is the terminal itself, since the block
-    /// carries its own indent and its own guard column.
     pub score_header_width: usize,
-    /// The widest a row may be. `width` is the content box, two columns in from
-    /// the edge; this is the hard bound, the terminal minus the guard column
-    /// every frame has to leave free.
     pub frame_width: usize,
 }
 
-/// Direct transposition of `resolveReportLayout`. The two thresholds it turns
-/// on are the ones that matter: a terminal at least 120 columns by 22 rows gets
-/// the list and the detail side by side, and anything under 23 rows drops the
-/// detail pane rather than squeezing both into nothing.
 pub fn resolve_layout(columns: usize, rows: usize, entry_count: usize) -> Layout {
     let width = columns
         .saturating_sub(HORIZONTAL_PADDING_COLUMNS)
@@ -362,8 +324,6 @@ pub const fn score_color(label: ScoreLabel) -> Color {
     }
 }
 
-/// What the reader loses by leaving a category unfixed. `Other` has none: a
-/// diagnostic with no catalogued category has no promise attached to it.
 pub const fn category_impact(category: AuditCategoryName) -> Option<&'static str> {
     match category {
         AuditCategoryName::Security => Some(
@@ -404,12 +364,8 @@ mod tests {
         assert_eq!(layout.width, 158);
         assert_eq!(layout.detail_column_width, 94);
         assert_eq!(layout.list_column_width, 61);
-        // The split body is exactly the detail height, and the score header
-        // plus its margin plus the list fills the same column.
         assert_eq!(layout.detail_height, 44);
         assert_eq!(layout.list_height, 44 - 4 - 1);
-        // A split puts the score block inside the left column; anywhere else it
-        // owns the terminal, guard column included.
         assert_eq!(layout.score_header_width, 61);
         assert_eq!(resolve_layout(100, 40, 30).score_header_width, 100);
     }
@@ -431,9 +387,6 @@ mod tests {
         assert!(tiny.list_height >= REPORT_MIN_LIST_ROWS);
     }
 
-    /// The score block indents itself by the columns it declares, so the
-    /// report's own padding has to be that same number or the block sits at a
-    /// different offset than its geometry assumes.
     #[test]
     fn the_report_padding_is_the_indent_the_score_block_counts() {
         assert_eq!(HORIZONTAL_PADDING_COLUMNS, score_block::INDENT_COLUMNS);
@@ -466,8 +419,6 @@ mod tests {
         );
     }
 
-    /// US-004 AC-5: the notes close the list under their label, and an
-    /// uncatalogued compile error, which weighs, keeps the `Other` header.
     #[test]
     fn compiler_notes_close_the_list_and_an_uncatalogued_error_is_not_one() {
         let mut note = row("unused_imports", AuditCategoryName::Other);

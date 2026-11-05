@@ -1,25 +1,8 @@
-//! Styled text primitives for the interactive report.
-//!
-//! Ink builds a line out of `<Text>` nodes that each carry their own color,
-//! bold and dim flags, and lays them out in display columns. This is the same
-//! model: a [`Span`] is one `<Text>`, a [`Line`] is one rendered row.
-//!
-//! Every span sanitizes on construction, so a rule message, a path or a help
-//! string coming out of Clippy can never smuggle an escape sequence into a
-//! frame. That matters more here than in the linear renderer: a stray sequence
-//! would desynchronize the cursor rewind and corrupt every frame after it.
-//!
-//! Sanitizing and measuring are the library's, not this module's
-//! ([`rust_doctor::terminal_text`]). A second sanitizer is a second set of
-//! escape forms to get wrong, and the two this crate carried had already
-//! drifted apart on string sequences.
-
 use rust_doctor::terminal_text::{display_width, sanitize};
 use std::fmt::Write as _;
 
 use unicode_width::UnicodeWidthChar;
 
-/// The eight colors Ink's report actually uses.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Color {
     #[default]
@@ -125,8 +108,6 @@ impl Span {
         Self::new(text, Style::DIM)
     }
 
-    /// A span a capable terminal turns into a click target. The visible
-    /// characters stay exactly `text`.
     pub fn linked(text: impl AsRef<str>, style: Style, url: &str) -> Self {
         Self {
             link: Some(sanitize(url)),
@@ -134,8 +115,6 @@ impl Span {
         }
     }
 
-    /// A span whose text is already sanitized, which is the case for every
-    /// slice cut out of another span.
     fn raw(text: String, style: Style, link: Option<String>) -> Self {
         Self { text, style, link }
     }
@@ -182,8 +161,6 @@ impl Line {
         self.spans.iter().all(|span| span.text.is_empty())
     }
 
-    /// Ink's `wrap="truncate-end"`: cut at the box edge and mark the cut with
-    /// an ellipsis.
     pub fn truncate_end(self, width: usize) -> Self {
         if self.width() <= width {
             return self;
@@ -211,9 +188,6 @@ impl Line {
                 spans.push(Span::raw(kept, span.style, span.link.clone()));
             }
         }
-        // The ellipsis continues the text it replaces, so it carries the style
-        // of the last span that survived the cut. A line cut before its first
-        // span has no such style and the mark stays plain.
         let style = spans.last().map_or(Style::PLAIN, |span| span.style);
         spans.push(Span::raw("…".to_owned(), style, None));
         Self { spans }
@@ -228,8 +202,6 @@ impl Line {
         Self { spans }
     }
 
-    /// Pads to `width` so the next column of a split row starts at a fixed
-    /// offset whatever the content measured.
     pub fn padded_to(mut self, width: usize) -> Self {
         let padding = width.saturating_sub(self.width());
         if padding > 0 {
@@ -268,9 +240,6 @@ impl Line {
     }
 }
 
-/// Word-wraps a styled paragraph, Ink's `wrap="wrap"`. Styles survive the
-/// break, which is what lets a cyan `Impact` label share a line with the plain
-/// sentence that follows it.
 pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Line> {
     if width == 0 {
         return vec![Line::blank()];
@@ -279,8 +248,6 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Line> {
     let mut pending_space = false;
     for span in spans {
         for (index, word) in span.text.split(' ').enumerate() {
-            // The separator survives an empty word, so a run of spaces still
-            // separates the words around it by exactly one column.
             pending_space |= index > 0;
             if word.is_empty() {
                 continue;
@@ -291,15 +258,6 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Line> {
     wrapping.finish()
 }
 
-/// The line under construction, and the lines already closed.
-///
-/// The four variables this replaced were mutated by five branches of a nested
-/// loop, which is what made `wrap_spans` the crate's own worst
-/// cognitive-complexity hotspot: what a reader had to hold was not the
-/// algorithm but where each of them could next change. Here the line is one
-/// value, `close` and `push` are the only two things that happen to it, and
-/// `remaining` cannot go negative in a crate that builds with
-/// `overflow-checks`.
 struct Wrapping {
     lines: Vec<Line>,
     current: Line,
@@ -321,12 +279,10 @@ impl Wrapping {
         self.used == 0
     }
 
-    /// Columns left on the line under construction.
     const fn remaining(&self) -> usize {
         self.width.saturating_sub(self.used)
     }
 
-    /// Would this many columns, plus a separator, run past the edge?
     const fn overflows(&self, columns: usize, separator: usize) -> bool {
         self.used.saturating_add(separator).saturating_add(columns) > self.width
     }
@@ -342,8 +298,6 @@ impl Wrapping {
         self.current.push(Span::raw(text, style, link));
     }
 
-    /// Places one word, breaking the line before it and, if it is wider than
-    /// the box on its own, inside it.
     fn place(&mut self, word: &str, span: &Span, pending_space: &mut bool) {
         let mut remainder = word;
         loop {
@@ -354,8 +308,6 @@ impl Wrapping {
                 *pending_space = false;
             }
             if *pending_space && !self.is_empty() {
-                // The separator carries the style around it and never a link:
-                // a space is not part of what the link points at.
                 self.push(" ".to_owned(), span.style, None);
             }
             *pending_space = false;
@@ -363,8 +315,6 @@ impl Wrapping {
                 self.push(remainder.to_owned(), span.style, span.link.clone());
                 return;
             }
-            // A word wider than the box, a long path or URL: it is cut on a
-            // column boundary rather than pushed past the edge.
             let (head, tail) = split_at_width(remainder, self.remaining());
             self.push(head, span.style, span.link.clone());
             self.close();
@@ -383,11 +333,6 @@ impl Wrapping {
     }
 }
 
-/// The longest head of `content` that fits `width` columns, and the rest.
-///
-/// The head holds at least one character, however wide: an empty head leaves
-/// the remainder as it was, and `place` then wrapped a double-width character
-/// on a one-column pane forever.
 fn split_at_width(content: &str, width: usize) -> (String, &str) {
     let mut used = 0usize;
     for (offset, character) in content.char_indices() {
@@ -416,9 +361,6 @@ mod tests {
         assert!(!Line::of(hostile).render(true, true).contains("[2J"));
     }
 
-    /// The forms a hand-written sanitizer gets wrong: a string sequence closed
-    /// by `ESC \` rather than `BEL`, and a device control string whose
-    /// introducer is not `[` or `]`. Both must vanish whole, payload included.
     #[test]
     fn a_span_drops_string_sequences_whole_whatever_closes_them() {
         let osc = Span::plain("head\u{1b}]8;;https://example.com\u{1b}\\tail");
@@ -438,8 +380,6 @@ mod tests {
         assert_eq!(visible(&line.truncate_end(0)), "");
     }
 
-    /// The ellipsis continues what survived the cut, never what was dropped:
-    /// a mark painted in the color of absent text reads as content.
     #[test]
     fn the_ellipsis_carries_the_style_of_the_last_span_that_survived() {
         let line = Line::blank()
@@ -449,8 +389,6 @@ mod tests {
         assert!(rendered.contains("\u{1b}[36m…\u{1b}[0m"), "{rendered:?}");
         assert!(!rendered.contains("\u{1b}[31m"));
 
-        // Cut before the first span keeps a plain mark rather than inventing a
-        // style.
         let plain = Line::text("wide", Style::color(Color::Red)).truncate_end(1);
         assert_eq!(plain.render(true, false), "…");
     }
@@ -482,8 +420,6 @@ mod tests {
         wrapping.finish().iter().map(visible).collect()
     }
 
-    /// Self-scan audit US-005: a character wider than the pane still moves
-    /// the wrap forward, one character per line.
     #[test]
     fn a_character_wider_than_the_pane_takes_a_line_of_its_own() {
         let started = std::time::Instant::now();
@@ -498,8 +434,6 @@ mod tests {
         }
     }
 
-    /// Self-scan audit US-006: the detail pane's wrap returns on every line
-    /// of the non-ASCII table, at widths 1 to 4.
     #[test]
     fn wrapping_returns_on_every_line_of_the_non_ascii_table() {
         for line in crate::boundary_table::lines() {

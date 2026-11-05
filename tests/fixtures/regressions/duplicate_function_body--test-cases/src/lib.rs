@@ -1,5 +1,5 @@
-//! Two test cases written to look alike: each drives the same scaffold with
-//! its own inputs, which is how a suite is meant to read.
+
+
 
 #[test]
 fn sums_above_the_limit() {

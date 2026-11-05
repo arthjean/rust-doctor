@@ -1,11 +1,3 @@
-//! What a key does, and the effects a chosen action runs.
-//!
-//! It carries an `impl App` of its own for the reason `frames.rs` does: one
-//! impl block holding both halves reaches the five hundred lines
-//! `oversized_unit` reports at, and the halves are separable. Every menu still
-//! answers to one `screens::input`, so no screen here carries an upper bound
-//! of its own.
-
 use console::Key;
 
 use super::model::{Entry, Row};
@@ -91,9 +83,6 @@ impl App<'_> {
         };
         match screens::input(key, selected, RECOMMENDATION_ACTIONS.len()) {
             MenuInput::Selected(INSTALL_ACTION) => {
-                // A write that failed keeps the reader on the screen that
-                // offered it: the agent handoff has nowhere to show a notice,
-                // so moving on would swallow the reason.
                 match self.install_workflow() {
                     Some(notice) => self.set_ci_notice(notice),
                     None => self.view = View::Handoff { selected: 0 },
@@ -116,8 +105,6 @@ impl App<'_> {
                 self.view = self.landing_on(LandingAction::AddToCi);
             }
             MenuInput::Selected(INSTALL_ACTION) => match self.install_workflow() {
-                // The workflow is written and the caller says so on a screen
-                // this report no longer owns.
                 None => return Flow::Exit(Outcome::Quit),
                 Some(notice) => self.set_ci_notice(notice),
             },
@@ -147,8 +134,6 @@ impl App<'_> {
         }
         match key {
             Key::Escape => {
-                // Coming back from the issues, the menu lands on what to do
-                // next rather than on the review the reader just left.
                 self.copy_feedback = None;
                 self.view = self.landing_where(|kind| kind != LandingAction::Review);
             }
@@ -185,8 +170,6 @@ impl App<'_> {
         self.selected_entry = next;
         self.copy_feedback = None;
         self.mark_read();
-        // The viewport follows the selection by exactly one rule, the one the
-        // frame reapplies when the terminal has been resized under it.
         self.offset = visible_start(self.entries.len(), self.offset, next, height);
     }
 
@@ -249,8 +232,6 @@ impl App<'_> {
         });
     }
 
-    /// Writes the workflow, answering with what the reader has to be told.
-    /// Nothing to say means it landed.
     pub(super) fn install_workflow(&mut self) -> Option<Notice> {
         match crate::ci::install_default(self.session.workspace_root) {
             Ok(path) => {

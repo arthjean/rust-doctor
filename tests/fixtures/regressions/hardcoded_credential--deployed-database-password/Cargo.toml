@@ -1,9 +1,3 @@
-# rule: rust_doctor::repo::hardcoded_credential
-# weakness: placeholder-credential
-# source: US-019, a password a deployment reaches
-# verdict: fires
-# split: @@
-
 [package]
 name = "seed-hardcoded-credential-deployed-database-password"
 version = "0.1.0"

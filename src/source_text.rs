@@ -1,20 +1,5 @@
-//! Span arithmetic and syntax-text helpers shared by every producer.
-//!
-//! Four producers publish a span: the source kernel from a syntax node, the
-//! structural pass from a node too, `cargo_health` and the structural manifest
-//! rules from a byte offset the TOML parser hands them. They all need the same
-//! two answers, which line and which column an offset falls on, and they must
-//! agree, because the report renders them side by side and `delta` matches on
-//! them. One implementation is what keeps them agreeing.
-//!
-//! It lives outside `source_kernel` because two of its readers, `repo_hygiene`
-//! and `cargo_health`, parse no Rust source at all: they would otherwise depend
-//! on the walk for a span type and two functions of arithmetic.
-
 use ra_ap_syntax::{SyntaxNode, TextRange};
 
-/// Position of a finding in a file, one-based, columns counted in Unicode
-/// scalar values and the end exclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct SourceSpan {
     pub(crate) line_start: usize,
@@ -23,16 +8,6 @@ pub(crate) struct SourceSpan {
     pub(crate) column_end: usize,
 }
 
-/// The text rustc compiles from a file: a leading byte order mark dropped and
-/// each CRLF pair turned into LF in one pass, as the Reference's input format
-/// reads a source file before lexing. A lone CR stays.
-///
-/// `ra_ap_syntax` parses the text it is handed. The raw text of a CRLF
-/// checkout, Git for Windows' default, held a bare `\r` in every string
-/// literal spanning lines, so the parser reported an error there that rustc
-/// never sees, and the walk withheld the file. Lines keep their numbers and
-/// columns their count: each dropped CR ends a line, and rustc does not count
-/// the mark either.
 pub(crate) fn as_compiled(mut source: String) -> String {
     if source.starts_with('\u{feff}') {
         source.replace_range(..'\u{feff}'.len_utf8(), "");
@@ -43,7 +18,6 @@ pub(crate) fn as_compiled(mut source: String) -> String {
     source
 }
 
-/// Byte offset of every line start, the index `source_position` bisects.
 pub(crate) fn line_starts(source: &str) -> Vec<usize> {
     std::iter::once(0)
         .chain(
@@ -55,13 +29,10 @@ pub(crate) fn line_starts(source: &str) -> Vec<usize> {
         .collect()
 }
 
-/// Span of a syntax node's range.
 pub(crate) fn source_span(range: TextRange, line_starts: &[usize], source: &str) -> SourceSpan {
     byte_range_span(range.start().into()..range.end().into(), line_starts, source)
 }
 
-/// Span of a byte range, for a reader whose offsets come from outside the
-/// syntax tree, the spanned manifest parser for instance.
 pub(crate) fn byte_range_span(
     range: std::ops::Range<usize>,
     line_starts: &[usize],
@@ -89,8 +60,6 @@ fn source_position(offset: usize, line_starts: &[usize], source: &str) -> (usize
     (line_index + 1, column)
 }
 
-/// Text of a node with every trivia token dropped, so an attribute written
-/// across three lines compares equal to the same attribute written on one.
 pub(crate) fn compact(node: &SyntaxNode) -> String {
     node.descendants_with_tokens()
         .filter_map(|element| element.into_token())
@@ -99,9 +68,6 @@ pub(crate) fn compact(node: &SyntaxNode) -> String {
         .collect()
 }
 
-/// Does `range` touch any range the parser rejected? An empty error range, the
-/// position a token was expected at, counts when it falls anywhere on `range`,
-/// bounds included; a non-empty one has to overlap it strictly.
 pub(crate) fn intersects_errors(range: TextRange, errors: &[TextRange]) -> bool {
     errors.iter().any(|error| {
         if error.is_empty() {
@@ -132,8 +98,6 @@ mod tests {
         assert_eq!(span.column_end, source[..end].chars().count() + 1);
     }
 
-    /// The two entry points index the same way, so a span read from a syntax
-    /// node and a span read from a byte offset can never disagree on a line.
     #[test]
     fn node_ranges_and_byte_ranges_resolve_to_the_same_position() {
         let source = "one\ntwo\nthree\n";
@@ -143,9 +107,6 @@ mod tests {
         assert_eq!(source_span(range, &starts, source).line_start, 2);
     }
 
-    /// An offset past the end of the source clamps instead of panicking: the
-    /// manifest parser and the syntax tree do not always agree on the length of
-    /// a file the walk truncated.
     #[test]
     fn an_offset_past_the_end_clamps_to_the_last_position() {
         let source = "one\ntwo";
@@ -162,7 +123,6 @@ mod tests {
         assert!(intersects_errors(range, &[empty_at(10)]));
         assert!(intersects_errors(range, &[empty_at(20)]));
         assert!(!intersects_errors(range, &[empty_at(21)]));
-        // A range that merely touches the bound does not overlap it.
         assert!(!intersects_errors(
             range,
             &[TextRange::new(0.into(), 10.into())]

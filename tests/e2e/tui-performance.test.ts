@@ -1,11 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.13: how fast the interactive report
-// shows, repaints and idles, against the timings of section 1.5 with 50
-// percent headroom. Every workspace is warmed first, so a budget measures the
-// report and not a compile, and the rows run one after another: bun runs a
-// file's tests serially, and nothing here is concurrent. A runner slower than
-// the machine the timings came from declares itself through
-// RUST_DOCTOR_BENCHMARK_ALLOWANCE, as the Rust benchmark does; it stretches
-// the clocks only, never a byte or frame count.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { runDoctor, type Sandbox } from "./e2e-helpers";
@@ -26,7 +18,6 @@ async function repo(): Promise<Opened> {
   return { path: clone.path, sandbox: clone.sandbox, target: clone.target("tui") };
 }
 
-// A workspace scanned once, so the session that follows finds its build warm.
 async function warmed(kind: TuiKind | "repo"): Promise<Opened> {
   const ws: Opened = kind === "repo" ? await repo() : await tuiWorkspace(kind);
   const run = await runDoctor([ws.path, "--yes", "--json"], { sandbox: ws.sandbox, target: ws.target, timeoutMs: 300_000 });
@@ -43,22 +34,16 @@ function session(ws: Opened, color: boolean, size = { width: 100, height: 40 }):
   });
 }
 
-// The landing's own marker: the menu hint, or `q quit` on a landing with no
-// action.
 function landed(pane: string): boolean {
   return pane.includes(MENU_HINT) || /^q quit$/m.test(pane);
 }
 
-// User and system ticks the process has used so far.
 function cpuTicks(pid: number): number {
   const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
   const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
   return Number(fields[11]) + Number(fields[12]);
 }
 
-// Section 1.5: the hint, then a pane quiet for 0.4 s, in seconds. Since
-// US-009 `denied` and `partial` publish no score, so like `no-rust` they draw
-// no count-up even in color.
 const TIMINGS: Array<[string, TuiKind | "repo", boolean, number, number]> = [
   ["no-rust", "no-rust", false, 0.12, 0.53],
   ["todo without color", "todo", false, 0.11, 0.5],
@@ -157,7 +142,6 @@ describe.skipIf(!requireTmux())("interactive report performance", () => {
       await Bun.sleep(3_000);
       const used = cpuTicks(pid) - before;
       console.log(`PERF-05 ${used} ticks over 3 s`);
-      // A blocking read uses none; one tick absorbs a boundary of the clock.
       expect(used).toBeLessThanOrEqual(1);
     } finally {
       report.kill();

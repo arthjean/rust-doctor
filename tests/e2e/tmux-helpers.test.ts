@@ -1,6 +1,3 @@
-// The tmux driver, proven on a shell before any interactive-report test uses
-// it: size, keys, the three captures, the waits and their errors, resize, the
-// byte log, the exit status, the sealed environment and the kill.
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,9 +11,6 @@ afterEach(() => {
   session = undefined;
 });
 
-// Returns once the shell shows its prompt. `create` returns once the program
-// starts, not once it reads: a line typed before the prompt is echoed by the
-// terminal first, and the prompt then lands on the line the command prints.
 async function shell(width = 60, height = 12): Promise<TmuxSession> {
   session = TmuxSession.create(["sh"], { width, height, env: { PS1: "$ " } });
   await session.waitForPane(/^\$/m);
@@ -75,8 +69,6 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
   test("the pane stays after its program exits and reports the status", async () => {
     session = TmuxSession.create(["sh", "-c", "echo bye; exit 7"], { width: 40, height: 6 });
     expect(await session.waitForExit()).toBe(7);
-    // tmux writes its "Pane is dead" line at the bottom and scrolls the
-    // program's output up: read a dead pane with its history.
     expect(session.capturePane({ history: true })).toContain("bye");
   });
 
@@ -85,9 +77,6 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
     process.env.CLAUDECODE = "1";
     try {
       const box = sandbox("tmux-env");
-      // Written to a file rather than read off the screen: the pane wraps a
-      // line as long as the scratch root, which RUST_DOCTOR_E2E_ROOT can make
-      // any length.
       session = TmuxSession.create(["sh", "-c", "{ env | sort; pwd; } > seen.txt"], { width: 120, height: 30, sandbox: box });
       expect(await session.waitForExit()).toBe(0);
       const seen = readFileSync(join(box.dir, "seen.txt"), "utf8");
@@ -135,8 +124,6 @@ describe("TUI file gate", () => {
   });
 });
 
-// A child that ended under a parent that never waits stays a zombie: the
-// subshell exits, and the `sh` that started it has become a `sleep`.
 async function zombie(script: string): Promise<{ pid: number; parent: ReturnType<typeof Bun.spawn> }> {
   const parent = Bun.spawn(["sh", "-c", `${script} & echo $!; exec sleep 5`], { stdout: "pipe" });
   const reader = parent.stdout.getReader();

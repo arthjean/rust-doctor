@@ -13,30 +13,12 @@ use crate::workspace_path;
 #[cfg(test)]
 mod tests;
 
-/// Lines of context the frame carries above the reported one.
 const FRAME_CONTEXT_LINES: usize = 2;
 const FRAME_MAX_LINES: usize = 5;
 const FRAME_MAX_COLUMNS: usize = 160;
 
-/// Bytes of one line the frame keeps.
-///
-/// A hundred and sixty columns need at most six hundred and forty bytes of
-/// characters, and the rest of this budget absorbs the escape sequences that
-/// occupy no column at all. A line cut here loses its tail and nothing else:
-/// an introducer that was kept still swallows everything after it, so a cut can
-/// never expose the inside of a sequence as text.
 const LINE_MAX_BYTES: usize = 8 * 1024;
 
-/// Bytes the reader scans looking for the reported line.
-///
-/// This is a scan budget, not a window, and the difference is the whole reason
-/// the reader walks lines. A cap on the bytes decoded left every finding past
-/// the first kilobytes of a file unframeable however short its own line was,
-/// and cut a character in half often enough to report a valid file as invalid
-/// UTF-8. Reaching this bound costs the frame nothing unless the reported line
-/// itself lies beyond it, which is why it sits at the size past which a file
-/// has stopped being source a person reads rather than at a size chosen to keep
-/// a frame small.
 const SCAN_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -76,12 +58,6 @@ pub struct CodeFrameUnavailable {
 }
 
 impl CodeFrame {
-    /// Digits the widest line number of the frame needs.
-    ///
-    /// Both reports lay their gutter out from this rather than each guessing a
-    /// width. A guess holds until a frame carries a line number wider than it,
-    /// and then the caret row and the source row stop agreeing on where the
-    /// text begins, in one report and not the other.
     pub fn gutter_width(&self) -> usize {
         self.lines
             .iter()
@@ -103,9 +79,6 @@ fn read_code_frame(
     location: &GroupLocation,
     before_open: impl FnOnce(),
 ) -> Result<CodeFrame, CodeFrameUnavailable> {
-    // The path is decoded once. Failing here is the only case that answers with
-    // no location at all, since a path this rejected is one the report should
-    // not echo back.
     let Some(relative_source) = workspace_path::decode_normalized_relative(&location.path) else {
         return Err(unavailable(
             None,
@@ -125,17 +98,10 @@ fn read_code_frame(
     if canonical_source == canonical_root || !canonical_source.starts_with(&canonical_root) {
         return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
-    // Opening a path that is not a regular file is not merely useless: opening
-    // a named pipe blocks in the call itself, before any check on the handle
-    // could reject it. The check below the open is the one that decides; this
-    // one only keeps a tree carrying a pipe from stopping the report.
     if !fs::symlink_metadata(&canonical_source).is_ok_and(|metadata| metadata.is_file()) {
         return Err(fail(CodeFrameUnavailableReason::Unavailable));
     }
 
-    // Canonicalization alone has a replacement race. Open the checked path, then
-    // verify that the live path still resolves inside the workspace and
-    // identifies the same file as the handle.
     before_open();
     let file =
         File::open(&canonical_source).map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
@@ -163,12 +129,6 @@ fn read_code_frame(
         .ok_or_else(|| fail(CodeFrameUnavailableReason::Unavailable))
 }
 
-/// First line the frame shows.
-///
-/// The window runs from here for `FRAME_MAX_LINES`, which always covers the
-/// reported line since only `FRAME_CONTEXT_LINES` of it sit above: anchoring
-/// above the line and reading forward is what leaves the reader with no case
-/// where it has to walk back to a line it already passed.
 fn window_start(location: &GroupLocation) -> usize {
     location
         .span
@@ -178,21 +138,6 @@ fn window_start(location: &GroupLocation) -> usize {
         .max(1)
 }
 
-/// Reads the lines the frame is built from, one line at a time.
-///
-/// Walking lines is what makes the reported line as reachable at the end of a
-/// file as at its top, and decoding only the lines that are kept is what keeps
-/// a character straddling a bound from making a valid file look like it is not
-/// UTF-8. Both were bugs of the byte prefix this replaced.
-///
-/// The budget is a parameter rather than the constant read directly, so that
-/// the one branch answering what happens when it runs out mid-line is reachable
-/// from a test without an eight megabyte fixture.
-///
-/// It also answers what the lines above the window leave open where it
-/// starts: a PEM private key whose body lines no credential pattern matches
-/// on their own, or a fallback call whose literal opens the first line. Only
-/// the lines walked past can say so.
 fn read_window(
     file: File,
     start: usize,
@@ -211,9 +156,6 @@ fn read_window(
         if read == 0 {
             break;
         }
-        // A line the scan budget cut short is not a line of the file. Dropping
-        // it answers `Unavailable` for a reported line that far out rather than
-        // rendering a fragment as if it were the source.
         if raw.last() != Some(&b'\n') && reader.get_ref().limit() == 0 {
             break;
         }
@@ -228,11 +170,6 @@ fn read_window(
     Ok((window, carry))
 }
 
-/// One kept line, stripped of its terminator, bounded and decoded.
-///
-/// The NUL check covers what is kept rather than the whole file, which is the
-/// same guarantee it always carried: nothing outside the window is ever
-/// rendered, so nothing outside it can leak.
 fn retain_line(raw: &[u8]) -> Result<String, CodeFrameUnavailableReason> {
     let line = raw.strip_suffix(b"\n").unwrap_or(raw);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -246,12 +183,6 @@ fn retain_line(raw: &[u8]) -> Result<String, CodeFrameUnavailableReason> {
         .ok_or(CodeFrameUnavailableReason::InvalidUtf8)
 }
 
-/// Where a kept line is cut: at `LINE_MAX_BYTES`, walked back to a character
-/// boundary so that a cut is never mistaken for a decoding failure.
-///
-/// A character is at most four bytes, so a boundary is at most three bytes
-/// back. Not finding one there means the bytes are not UTF-8, which is the
-/// caller's answer rather than a silently emptied line.
 fn bounded_end(line: &[u8]) -> Option<usize> {
     if line.len() <= LINE_MAX_BYTES {
         return Some(line.len());
@@ -296,13 +227,6 @@ fn frame_from_window(
     })
 }
 
-/// The caret under the reported line.
-///
-/// It never leaves the text the frame rendered. A span that ends on a later
-/// line has no end column on this one, so it runs to the end of what is shown
-/// rather than borrowing a column from a line the reader cannot see, and a
-/// span pointing past a line the sanitizer cut stops where the cut did rather
-/// than at the frame's own edge.
 fn marker_for(span: &DiagnosticSpan, sanitized: &SanitizedLine) -> CodeFrameMarker {
     let start = sanitized.source_column(span.column_start);
     let end = if span.line_end > span.line_start {
@@ -321,20 +245,11 @@ fn marker_for(span: &DiagnosticSpan, sanitized: &SanitizedLine) -> CodeFrameMark
     }
 }
 
-/// A source line with every credential the repository pass matches replaced.
-///
-/// The frame is the one place rust-doctor reads source text for display, so
-/// masking here covers the linear report and the viewer at once. It masks
-/// every line of the frame, not only the reported one: the lines around a
-/// finding, and the frame of any other rule's finding beside a key, would
-/// otherwise print it in full.
 struct RedactedLine {
     text: String,
     edits: Vec<ColumnEdit>,
 }
 
-/// One replacement, in characters of the source line: `[start, end)` became
-/// `width` characters.
 struct ColumnEdit {
     start: usize,
     end: usize,
@@ -342,8 +257,6 @@ struct ColumnEdit {
 }
 
 impl RedactedLine {
-    /// The span with its columns moved onto the masked text, so the caret
-    /// under a credential covers what replaced it.
     fn span(&self, span: &DiagnosticSpan) -> DiagnosticSpan {
         DiagnosticSpan {
             column_start: self.column(span.column_start),
@@ -374,27 +287,17 @@ impl RedactedLine {
     }
 }
 
-/// What a line leaves open for the lines below it, which none of them shows
-/// on its own.
 #[derive(Debug, Default, Clone, Copy)]
 struct Carry {
-    /// A PEM private key header opened a body that has not ended.
     key_body: bool,
-    /// A fallback call ended the line before its literal argument.
     fallback: bool,
 }
 
-/// Masks the credentials of one line: what the credential patterns match, and
-/// every fallback literal `secret_env_fallback` could report. A line inside a
-/// PEM private key, which a header in or above this frame opened, is masked
-/// whole: its body is the key, and no pattern of the rule matches a base64
-/// line on its own.
 fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
     let mut text = String::with_capacity(source.len());
     let mut edits = Vec::new();
     let mut copied = 0usize;
     if carry.key_body {
-        // The body runs to the footer, and a body line can carry it.
         let body_end = crate::repo_hygiene::open_body_end(source);
         if body_end > 0 || source.is_empty() {
             text.push_str(REDACTED);
@@ -415,8 +318,6 @@ fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
     ranges.extend(fallback_literals(source, &mut carry.fallback));
     ranges.sort_unstable();
     for (start, end) in ranges {
-        // Two ranges overlap only when a fallback literal holds a credential
-        // pattern, and the first already masked both.
         let start = start.max(copied);
         if end <= start {
             continue;
@@ -440,8 +341,6 @@ fn redact_line(source: &str, carry: &mut Carry) -> RedactedLine {
     RedactedLine { text, edits }
 }
 
-/// Whether a PEM private key is open after `line`: an `-----END ` line closes
-/// it, and a private key header whose footer is not on its own line opens one.
 fn track_private_key(line: &str, open: &mut bool) {
     if *open && line.contains("-----END ") {
         *open = false;
@@ -451,19 +350,8 @@ fn track_private_key(line: &str, open: &mut bool) {
     }
 }
 
-/// The methods whose literal argument `secret_env_fallback` reads as the
-/// fallback of a secret.
 const FALLBACK_CALLS: [&str; 2] = ["unwrap_or(", "unwrap_or_else("];
 
-/// The literals a line passes as an `unwrap_or` or `unwrap_or_else` fallback,
-/// as byte ranges of their text, when they are as long as the rule requires.
-///
-/// The rule reports the call, and the literal beside it is the secret, which
-/// no credential pattern knows the shape of. Whether the variable is named
-/// like a secret takes the whole expression to tell, so the frame masks every
-/// fallback literal of that length rather than miss one. A call ending its
-/// line before the literal leaves `open` set, and the literal opening the next
-/// line is its argument.
 fn fallback_literals(line: &str, open: &mut bool) -> Vec<(usize, usize)> {
     let mut arguments: Vec<usize> = Vec::new();
     if std::mem::take(open) {
@@ -486,8 +374,6 @@ fn fallback_literals(line: &str, open: &mut bool) -> Vec<(usize, usize)> {
     ranges
 }
 
-/// Where the value of a fallback argument starts: past blanks, a closure head
-/// (`move`, `|_|`, `||`), an opening brace and a `String::from(`.
 fn skip_fallback_head(line: &str, mut at: usize) -> usize {
     loop {
         let Some(rest) = line.get(at..) else {
@@ -514,8 +400,6 @@ fn skip_fallback_head(line: &str, mut at: usize) -> usize {
     }
 }
 
-/// The text of the string literal opening at `at`, plain or raw. A literal
-/// the line does not close runs to its end.
 fn string_literal(line: &str, at: usize) -> Option<(usize, usize)> {
     let rest = line.get(at..)?;
     let hashes = rest.strip_prefix('r').map_or(0, |raw| raw.len().saturating_sub(raw.trim_start_matches('#').len()));
@@ -581,9 +465,6 @@ fn sanitize_line(source: &str) -> SanitizedLine {
         } else {
             format!("\\u{{{:X}}}", character as u32)
         };
-        // Every token above is at least one character wide, so overflowing the
-        // frame closes the output for the rest of the line rather than skipping
-        // one token and letting a narrower one behind it back in.
         source_width = source_width.saturating_add(token.len());
         if accepting_output && source_width <= FRAME_MAX_COLUMNS {
             output.push_str(&token);
@@ -601,20 +482,12 @@ fn sanitize_line(source: &str) -> SanitizedLine {
     }
 }
 
-/// Records the column a source character starts at.
-///
-/// The map is one longer than the line, so every character and the position
-/// after the last one have a slot. Writing through the slot rather than through
-/// an index is what makes that a property of the code instead of a proof spread
-/// across this function and the two sequence skippers it calls.
 fn set_column(columns: &mut [usize], index: usize, width: usize) {
     if let Some(slot) = columns.get_mut(index) {
         *slot = width;
     }
 }
 
-/// The same for the run a skipped escape sequence covers, which all start where
-/// the sequence did because none of them occupies a column of its own.
 fn fill_columns(columns: &mut [usize], from: usize, to: usize, width: usize) {
     let last = to.min(columns.len().saturating_sub(1));
     if let Some(covered) = columns.get_mut(from..=last) {

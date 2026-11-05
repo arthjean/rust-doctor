@@ -1,19 +1,3 @@
-//! A blocking call made from async code.
-//!
-//! An async executor runs many tasks on few threads, and a task that blocks
-//! its thread stalls every task queued behind it. Clippy has no general lint
-//! for it (rust-clippy#10794): the defect is a call to a synchronous API from
-//! a place the executor polls, which is a question about where the call sits
-//! rather than about its types.
-//!
-//! The list of blocking items is closed and names the ones services actually
-//! reach for. The rule reads the call where it is written, and follows one
-//! kind of call further: a synchronous `fn` of the same file that the call
-//! names unambiguously, the way services hide `std::fs` behind a
-//! `load_config()`. That helper's body is searched, and the helpers it calls
-//! in turn, `HELPER_DEPTH` deep, and the finding sits on the call in async code
-//! and names what the helper reaches.
-
 use std::borrow::Cow;
 
 use ra_ap_syntax::ast::{self, HasName};
@@ -97,11 +81,8 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
 
 const MESSAGE: &str = "A blocking call runs inside async code and stalls the executor thread.";
 
-/// Helpers followed from one call in async code, the called one included.
 const HELPER_DEPTH: usize = 4;
 
-/// Functions and associated functions of `std` that block, the two methods
-/// of `Command` included for their path form, `Command::output(&mut cmd)`.
 static BLOCKING_FUNCTIONS: [(&[&str], &str); 12] = [
     (&["thread"], "sleep"),
     (&["fs"], "read"),
@@ -122,11 +103,8 @@ static COMMAND: Item = Item {
     segments: &["process", "Command"],
 };
 
-/// The methods of `std::process::Command` that wait for the child.
 const WAITING_METHODS: [&str; 2] = ["output", "status"];
 
-/// Calls whose closure argument runs off the executor: the two Tokio hands a
-/// blocking call to, and a thread spawned for it.
 const OFFLOADING_CALLS: [&str; 3] = ["block_in_place", "spawn", "spawn_blocking"];
 
 fn blocking_call(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
@@ -139,7 +117,6 @@ fn blocking_call(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> 
     if blocking_item(context, &path).is_some() {
         return report(context, call.syntax(), range, MESSAGE.into());
     }
-    // A helper is named by one segment, or by `Self::` and one more.
     if path.qualifier().and_then(|qualifier| qualifier.qualifier()).is_some() || !in_async_code(call.syntax()) {
         return None;
     }
@@ -161,8 +138,6 @@ fn blocking_method(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection
     through_helper(context, call.syntax(), range, &helper)
 }
 
-/// The blocking item a call path names, written the way the message prints
-/// it: `std::fs::read`.
 fn blocking_item(context: &Context<'_>, path: &ast::Path) -> Option<String> {
     let resolved = context.item_path(path)?;
     let blocking = match resolved.split_first()? {
@@ -176,8 +151,6 @@ fn blocking_item(context: &Context<'_>, path: &ast::Path) -> Option<String> {
     blocking.then(|| resolved.join("::"))
 }
 
-/// `cmd.output()` or `cmd.status()` on a `std::process::Command`, named the
-/// way the message prints it.
 fn waiting_method(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<String> {
     let name = call.name_ref()?;
     if !WAITING_METHODS.contains(&name.text().as_str()) {
@@ -197,7 +170,6 @@ fn waiting_method(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<S
         })
 }
 
-/// What `self.f()` calls: the one method `f` of the enclosing `impl`.
 fn self_method(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<ast::Fn> {
     if !on_self(call) {
         return None;
@@ -205,7 +177,6 @@ fn self_method(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<ast:
     context.impl_function(call.syntax(), call.name_ref()?.text().as_str())
 }
 
-/// Is this method called on `self`?
 fn on_self(call: &ast::MethodCallExpr) -> bool {
     let Some(ast::Expr::PathExpr(receiver)) = call.receiver().map(strip_wrappers) else {
         return false;
@@ -219,8 +190,6 @@ fn on_self(call: &ast::MethodCallExpr) -> bool {
     })
 }
 
-/// The finding for a call in async code to a synchronous helper whose body,
-/// or a helper's it calls in turn, blocks.
 fn through_helper(
     context: &Context<'_>,
     call: &SyntaxNode,
@@ -243,11 +212,6 @@ fn through_helper(
     )
 }
 
-/// The first blocking call `helper` makes, directly or through the
-/// synchronous helpers it calls, `depth` helpers deep. A helper already on
-/// the way is not entered twice, so recursion ends without a finding. Nested
-/// `fn` items, `async` blocks and closures, and closures handed off the
-/// executor are skipped: none of them runs when the helper does.
 fn hidden_blocking(
     context: &Context<'_>,
     helper: &ast::Fn,
@@ -290,7 +254,6 @@ fn hidden_blocking(
         .find_map(|next| hidden_blocking(context, next, depth - 1, visited))
 }
 
-/// Code inside a helper's body that does not run when the helper does.
 fn skipped(node: &SyntaxNode) -> bool {
     ast::Fn::can_cast(node.kind())
         || ast::BlockExpr::cast(node.clone()).is_some_and(|block| block.async_token().is_some())
@@ -310,11 +273,6 @@ fn report(
     Some(Detection { message, range })
 }
 
-/// Is this call polled by an executor? The nearest enclosing boundary
-/// answers: an `async fn`, an `async` block or an `async` closure says yes, a
-/// synchronous function says no, and a synchronous closure handed to one of
-/// the offloading calls runs on another thread, so it says no as well. Any
-/// other closure runs where it is called and is looked through.
 pub(in crate::source_kernel) fn in_async_code(call: &SyntaxNode) -> bool {
     for ancestor in call.ancestors().skip(1) {
         if let Some(function) = ast::Fn::cast(ancestor.clone()) {
@@ -337,8 +295,6 @@ pub(in crate::source_kernel) fn in_async_code(call: &SyntaxNode) -> bool {
     false
 }
 
-/// Is this closure an argument of `spawn_blocking`, `block_in_place` or a
-/// `spawn`, whichever way the call is written?
 fn offloaded(closure: &ast::ClosureExpr) -> bool {
     let Some(call) = closure.syntax().parent().and_then(|list| list.parent()) else {
         return false;
@@ -354,9 +310,6 @@ fn offloaded(closure: &ast::ClosureExpr) -> bool {
     } else {
         ast::MethodCallExpr::cast(call).and_then(|call| call.name_ref())
     };
-    // `block_in_place` hands the executor to another worker, which a
-    // current-thread runtime does not have: there the closure is still on the
-    // executor, when it does not panic first.
     name.is_some_and(|name| {
         OFFLOADING_CALLS.contains(&name.text().as_str())
             && !(name.text() == "block_in_place"

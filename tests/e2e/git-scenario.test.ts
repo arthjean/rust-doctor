@@ -1,15 +1,9 @@
-// The git scenario builder, proven before any scope test relies on it: stable
-// hashes, refused orderings, every helper's git state, and credentials that
-// exist only at runtime.
 import { describe, expect, test } from "bun:test";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { runDoctor, sandbox } from "./e2e-helpers";
 import { credential, gitScenario, NEW_FN, restoreFrom, waitForSnapshot } from "./git-scenario";
 
-// The hash `tasks/e2e-catalog/scopes.md` recorded for the `mini` template's
-// first commit: the template reproduces the catalog's bytes, so a test can
-// assert `comparison_base` literally.
 const MINI_BASE_SHA = "af441c9b9f96faa3f098b61e401b7475f31e56d7";
 
 describe("git scenario builder", () => {

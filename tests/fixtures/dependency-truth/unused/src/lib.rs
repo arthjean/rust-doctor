@@ -1,4 +1,4 @@
-//! Every reference form US-005 collects, one dependency it must not credit.
+
 
 use used_via_use::VALUE;
 extern crate used_extern;

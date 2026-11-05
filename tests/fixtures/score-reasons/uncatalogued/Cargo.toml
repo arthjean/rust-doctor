@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# A lint the catalog does not describe, enabled by the workspace itself.
+
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

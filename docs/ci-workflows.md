@@ -10,14 +10,14 @@
 
 Every program a `release.yml` job starts is bound by content, since those jobs
 publish with this repository's OIDC identity. Each non-local `uses:` names a
-40-hex commit followed by `# <ref>`, the tag or branch that commit was read
-from, the publish job installs one exact npm and one exact Node, and
-`scripts/binstall-proof.sh` runs one cargo-binstall it checks by SHA-256.
+bare 40-hex commit, the publish job installs one exact npm and one exact Node,
+and `scripts/binstall-proof.sh` runs one cargo-binstall it checks by SHA-256.
 `release_yml_binds_every_program_by_commit_or_exact_version` in
-`tests/docs_contract.rs` fails on a tag, a branch, a pin without its comment or
-a version range. To move a pin, read the commit the ref names now
-(`gh api repos/<owner>/<action>/commits/<ref> --jq .sha`), review the upstream
-diff from the old commit, and replace the commit and its comment together.
+`tests/docs_contract.rs` fails on a tag, a branch, text after a commit or a
+version range: a `# <ref>` beside a commit could name a tag it is not. To move
+a pin, list the upstream tags and their commits
+(`gh api repos/<owner>/<action>/tags --jq '.[] | "\(.name) \(.commit.sha)"'`),
+review the diff between the pinned commit and the new one, and replace it.
 
 Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not

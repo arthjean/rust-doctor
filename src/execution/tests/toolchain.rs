@@ -1,6 +1,3 @@
-//! Tests of what the run asks of the installed toolchain before it lints, and
-//! of what a baseline comparison keeps between two runs.
-
 use std::fs;
 use std::process::Command;
 
@@ -9,8 +6,6 @@ use crate::audit::ScoreReason;
 use crate::git_scope::ScopeReport;
 use crate::report::{NotEvaluated, from_execution_scoped};
 
-/// A `clippy-driver` whose lint table lacks `clippy::todo`, which is what an
-/// older toolchain that never shipped a catalogued lint looks like.
 #[cfg(unix)]
 fn driver_without_todo() -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -127,9 +122,6 @@ fn git(root: &Path, arguments: &[&str]) {
     assert!(status.success(), "git {arguments:?}");
 }
 
-/// A repository whose one dependency comes from a registry, served from a
-/// directory source outside the repository so that no test reaches the
-/// network and the dependency's path never moves, as `$CARGO_HOME` does not.
 fn registry_repository() -> PathBuf {
     let root = crate::test_scratch::scratch("execution", "baseline-fresh");
     let vendor = root.join("vendor/tinydep");
@@ -180,8 +172,6 @@ fn registry_repository() -> PathBuf {
     repository
 }
 
-/// Every registry dependency the base side compiled, and whether Cargo found
-/// it fresh.
 fn baseline_registry_freshness(repository: &Path) -> Vec<bool> {
     let prepared = prepare(repository, &RunOptions::default(), true, false).unwrap();
     let target =
@@ -248,8 +238,6 @@ fn a_target_directory_that_cannot_be_created_falls_back_to_the_snapshot() {
     assert_eq!(crate::baseline::persistent_target(&file, "baseline"), None);
 }
 
-/// A committed target directory cannot steer the base side's build: a link
-/// at any component under it is refused, and the snapshot's target serves.
 #[cfg(unix)]
 #[test]
 fn a_symlinked_target_component_falls_back_to_the_snapshot() {
@@ -270,8 +258,6 @@ fn a_symlinked_target_component_falls_back_to_the_snapshot() {
     }
 }
 
-/// The write probe is created where nothing sits: a link planted at its
-/// PID-named path leaves the file it points at as it was.
 #[cfg(unix)]
 #[test]
 fn a_link_at_the_probe_path_is_never_written_through() {
@@ -288,8 +274,6 @@ fn a_link_at_the_probe_path_is_never_written_through() {
     assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), modified);
 }
 
-/// A Clippy pass the deadline ends while Cargo waits on the build directory's
-/// lock says so: the other Cargo, or rust-analyzer, is what to stop.
 #[cfg(unix)]
 #[test]
 fn a_deadline_spent_waiting_on_the_build_lock_names_the_lock() {
@@ -330,16 +314,6 @@ fn a_deadline_spent_waiting_on_the_build_lock_names_the_lock() {
     );
 }
 
-/// Clippy failing to start ends the run where it always did, whatever the
-/// native passes running beside it found: one `execution` error, the
-/// toolchain kept, nothing scanned.
-///
-/// The probes ask the installed toolchain, and the run that follows them is
-/// handed a `cargo` without its execute bit, so the Clippy spawn cannot start.
-/// A wrapper that took its own execute bit away on the second version probe
-/// used to stand in for both, counting probes with `mkdir`: the uutils
-/// `mkdir` Ubuntu 26.04 ships lets two concurrent calls on one path both
-/// succeed, so neither probe took the bit away and Clippy started.
 #[cfg(unix)]
 #[test]
 fn a_clippy_that_cannot_start_returns_early_with_its_stage_error() {
