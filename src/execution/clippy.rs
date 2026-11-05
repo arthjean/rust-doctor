@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use cargo_metadata::Metadata;
 
-use super::lockfile::LockfileGuard;
+use super::lockfile::{LockfileGuard, Turn};
 use super::members::Members;
 use super::containment;
 use super::messages::{self, ScanExecution};
@@ -137,6 +137,7 @@ pub(super) fn run(
     metadata: &Metadata,
     target_dir: Option<&Path>,
     known: Option<KnownLints>,
+    turn: &Turn,
 ) -> Result<ScanExecution, InternalError> {
     let workspace_root = metadata.workspace_root.as_std_path();
     let selected = context.options.packages.as_ref();
@@ -192,7 +193,7 @@ pub(super) fn run(
     let spawned = Instant::now();
     let mut last_dependency = None;
     // Dropped when this function returns, however the pass ended.
-    let _lockfile = LockfileGuard::capture(workspace_root);
+    let _lockfile = LockfileGuard::capture(workspace_root, turn);
     let finished = process::run(command, context.options.deadline, |stdout| {
         messages::collect_observed(std::io::BufReader::new(stdout), &mut |message| {
             members.observe(message, &mut linted, context.options.progress.as_ref());

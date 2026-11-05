@@ -511,6 +511,10 @@ impl ExecutionContext<'_> {
         // Every pass below is contained: one that panics is dropped and named
         // at its stage, and the others' findings stay.
         let panicked = containment::Panicked::default();
+        // Taken before the manifest passes read `Cargo.lock` and released once
+        // Clippy has put it back, so another scan of this workspace neither
+        // reads nor undoes the lockfile this one's Cargo writes.
+        let turn = lockfile::Turn::take(metadata.workspace_root.as_std_path(), self.options.deadline);
         // The manifest-level passes read files nothing else writes before
         // Clippy, so they run on a thread of their own beside the walk.
         let ((mut cargo_health, repo), walked) = thread::scope(|scope| {
@@ -539,9 +543,11 @@ impl ExecutionContext<'_> {
         // report sorts what both produced, so the output is the serial one.
         let (clippy, natives) = thread::scope(|scope| {
             let clippy = self.active(Producer::Clippy).then(|| {
-                let (metadata, panicked) = (&metadata, &panicked);
+                let (metadata, panicked, turn) = (&metadata, &panicked, &turn);
                 scope.spawn(move || {
-                    panicked.contain(containment::CLIPPY, || clippy::run(self, metadata, target_dir, lints))
+                    panicked.contain(containment::CLIPPY, || {
+                        clippy::run(self, metadata, target_dir, lints, turn)
+                    })
                 })
             });
             // A walk that panicked left no units, and judging none would
@@ -557,6 +563,7 @@ impl ExecutionContext<'_> {
             });
             (clippy, natives)
         });
+        drop(turn);
         let (source, structure, deadline_skipped) = natives.unwrap_or_default();
         let scan = match clippy {
             Some(Some(Ok(mut scan))) => {
