@@ -274,7 +274,7 @@ jobs:
   # and none of them pays for a second release build.
   build-release:
     name: Release build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -307,7 +307,7 @@ jobs:
   e2e-shard:
     name: E2E (shard ${{ matrix.shard }})
     needs: build-release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -341,8 +341,8 @@ jobs:
       - name: Install tmux and strace
         run: sudo apt-get update && sudo apt-get install -y tmux strace
 
-      # Hosted Ubuntu 24.04 refuses unprivileged user namespaces, which the
-      # network-namespace scenarios use to prove the scan offline
+      # Hosted Ubuntu has refused unprivileged user namespaces since 24.04, and
+      # the network-namespace scenarios use them to prove the scan offline
       # (actions/runner-images#10443).
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -410,7 +410,7 @@ jobs:
     name: e2e
     needs: e2e-shard
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Require every shard

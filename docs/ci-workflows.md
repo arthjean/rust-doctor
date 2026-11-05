@@ -85,3 +85,9 @@ than tracking `stable`, and is the default of `action.yml` and of
 catalogued rules are its own, and `tests/corpus.json` records the exact Clippy
 version its measurement was taken under.
 
+Runner images are pinned where the image is part of the result: the release
+links the Linux binaries on `ubuntu-22.04`, whose glibc is the oldest they run
+on, and the end-to-end and corpus jobs name `ubuntu-26.04`, whose setup they
+depend on. Jobs that only build and test take `ubuntu-latest`, and meet a new
+Ubuntu first.
+
