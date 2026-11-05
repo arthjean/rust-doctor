@@ -110,8 +110,21 @@ Cargo changed; one Cargo left alone is not written, so its modification time
 survives. `--locked` refuses a missing lockfile and `--offline` resolves
 differently, which is why the file is restored rather than protected. A
 removal that fails is one stderr line naming the file, never a report field.
-The race is accepted: a lockfile another process creates during the scan is
-removed with it.
+
+Restoring is sound only for a scan alone with the workspace. Two that
+overlapped undid each other: one took the lockfile the other's Cargo had just
+written for the workspace's own and wrote it back, and one whose Cargo opened
+it just after the other removed it failed with `failed to open: ./Cargo.lock`,
+which is how `audit_contract` disagreed with itself on CI. So each scan takes a
+turn before the manifest passes read the lockfile and holds it until Clippy has
+put it back: an exclusive lock, waited on until `--max-duration` passes or a
+signal stops the run. On Unix it locks the workspace directory itself, so two
+spellings of one workspace share an inode and nothing is left behind; Windows
+locks no directory, so it locks a file named after the canonical path in the
+per-user temporary directory, which stays. A scan that misses its turn leaves
+the lockfile alone, and one that cannot lock runs unguarded, as before.
+`tests/concurrent_scans.rs` sweeps forty overlapping pairs across a warm scan,
+and every sweep left a lockfile behind before turns.
 
 `--max-duration` arms `execution/process.rs`'s watchdog, and every child the
 run starts goes through it: the version probes, `cargo metadata`, every git
