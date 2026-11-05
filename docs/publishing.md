@@ -44,6 +44,32 @@ checks the note exists, tag or not, so the candidate build is what catches a
 version bumped without one; only a tag creates the release, and a re-run edits
 the existing one so a partial release finishes rather than needing a new tag.
 
+The release also carries the five binaries, as the archives `cargo binstall
+rust-doctor` installs instead of compiling (issue #41).
+`scripts/pack-github-release.sh` packs `rust-doctor-<target>.tar.gz`
+reproducibly from the artifacts npm ships, and `[package.metadata.binstall]` in
+`Cargo.toml` points binstall at them. Pointing it at the npm tarballs instead
+worked when measured and was rejected: binstall reads the table from the
+manifest crates.io serves, so it fixed no published version, it cannot verify a
+tarball npm hosts since it looks for a signature beside the archive, and it
+serves binstall alone where a release archive serves every installer. Signing
+with minisign, the one scheme binstall checks, was rejected too: a stored key
+breaks the no-secret rule below, and an ephemeral one means publishing a
+manifest the tag does not hold. Immutable releases close the same hole, an
+archive replaced after the fact, on GitHub's side and for every downloader: the
+release is created as a draft, given its archives, then published, after which
+its tag and archives cannot change and `gh release verify-asset` checks GitHub's
+attestation of them. `disabled-strategies` drops QuickInstall, so binstall
+installs a binary this workflow built or compiles one. `scripts/binstall-proof.sh`
+runs binstall itself twice per tag: in the `archives` job against the archives
+served on 127.0.0.1, before either registry publishes, and in the `binstall` job
+against crates.io and the published release. `tests/binstall_contract.rs` holds
+the matrix, the packing table, the launcher and `Cargo.toml` to the same five
+targets. 0.9.0 predates all of it: its archives were packed from its npm
+tarballs and attached afterwards, binstall finds them under its default names,
+and that release stays mutable, since immutability covers only the releases
+published after it was turned on.
+
 The job stores no secret. Each of the six packages names this repository's
 `release.yml` as its trusted publisher on npmjs.com, and the registry
 authenticates the run by its OIDC identity, which is why the job installs npm

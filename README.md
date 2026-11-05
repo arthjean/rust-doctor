@@ -23,6 +23,12 @@ Run this at your workspace root to get an audit.
 npx rust-doctor@latest
 ```
 
+Or install the prebuilt binary with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), which downloads the archive attached to the GitHub Release instead of compiling:
+
+```bash
+cargo binstall rust-doctor
+```
+
 Or build it from crates.io:
 
 ```bash

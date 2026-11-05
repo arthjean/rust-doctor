@@ -3,6 +3,8 @@ name: Release
 # Builds the five platform binaries the Node launcher declares in
 # npm/rust-doctor/lib/launcher.js and publishes them to npm, so that
 # `npx rust-doctor@latest` resolves to the binary for the machine that ran it.
+# The same five binaries ship as archives on the GitHub Release, which is what
+# `cargo binstall rust-doctor` installs instead of compiling.
 #
 # A tag publishes; anything else stops at a dry run, so the candidate stays
 # validated between releases. The same tag publishes both channels, npm and
@@ -152,6 +154,40 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The archives `cargo binstall rust-doctor` installs, packed from the five
+  # binaries npm ships and proven through cargo-binstall itself before anything
+  # is published: the proof serves them on 127.0.0.1 and resolves this commit's
+  # `[package.metadata.binstall]` against them for every target, then installs
+  # the Linux one and runs it. Both registries need this job, so a tag whose
+  # archives binstall cannot read publishes nothing anywhere.
+  archives:
+    name: Release archives
+    needs: [build, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: rust-doctor-*
+          path: artifacts
+
+      - name: Pack the archives
+        run: bash scripts/pack-github-release.sh artifacts github-release
+
+      - name: Resolve every target through cargo-binstall
+        run: bash scripts/binstall-proof.sh local github-release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: github-release-archives
+          path: github-release
+          if-no-files-found: error
+          retention-days: 7
+
   # The launcher contract, proven against a real install rather than asserted.
   # pack-local.mjs refuses any platform but linux-x64, so this covers one of the
   # five packages end to end, on the only platform this runner can both build
@@ -201,7 +237,7 @@ jobs:
   # safe: it publishes the remainder instead of burning the version.
   publish:
     name: Publish to npm
-    needs: [build, build-windows, launcher]
+    needs: [build, build-windows, launcher, archives]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -326,7 +362,7 @@ jobs:
 
   crates:
     name: Publish to crates.io
-    needs: [build, build-windows, launcher, crates-verify]
+    needs: [build, build-windows, launcher, archives, crates-verify]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -409,9 +445,16 @@ jobs:
   # It runs after both registries, because a release page announcing a version
   # npm or crates.io refused is a claim with nothing behind it. Re-running edits
   # the existing release instead of failing, so a partial run finishes.
+  #
+  # The repository has immutable releases on: once published, a release's tag
+  # and archives can never change, and GitHub signs an attestation of them that
+  # `gh release verify-asset` checks. So the release is created as a draft,
+  # given its five archives, and only then published. A re-run finds either
+  # the draft, which it completes, or the published release, whose archives it
+  # never replaces and whose note it still edits, which immutability allows.
   github-release:
     name: GitHub Release
-    needs: [publish, crates]
+    needs: [publish, crates, archives]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -420,6 +463,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: github-release-archives
+          path: github-release
 
       - name: Resolve the release version
         id: version
@@ -434,7 +482,7 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish the release note
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -448,15 +496,70 @@ jobs:
             echo "$notes is missing or empty; write the release note before tagging" >&2
             exit 1
           fi
+          shopt -s nullglob
+          archives=(github-release/*.tar.gz)
+          expected="$(bash scripts/pack-github-release.sh --targets | wc -l)"
+          if [ "${#archives[@]}" -ne "$expected" ]; then
+            echo "expected $expected archives, found ${#archives[@]}" >&2
+            exit 1
+          fi
           if [ "$RELEASING" != "true" ]; then
-            echo "v$VERSION would be released from $notes"
+            echo "v$VERSION would be released from $notes with ${archives[*]}"
             exit 0
           fi
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            gh release edit "v$VERSION" --title "v$VERSION" --notes-file "$notes" --latest
+          tag="v$VERSION"
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" = "false" ]; then
+              # Published, so immutable: an archive it already carries is never
+              # replaced, and uploading one it lacks fails, which is the answer.
+              present="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+              for archive in "${archives[@]}"; do
+                if ! grep -qxF "$(basename "$archive")" <<<"$present"; then
+                  gh release upload "$tag" "$archive"
+                fi
+              done
+              gh release edit "$tag" --title "$tag" --notes-file "$notes" --latest
+              exit 0
+            fi
+            gh release upload "$tag" "${archives[@]}" --clobber
+            gh release edit "$tag" --title "$tag" --notes-file "$notes"
           else
-            gh release create "v$VERSION" --title "v$VERSION" --notes-file "$notes" --latest --verify-tag
+            gh release create "$tag" --draft --verify-tag --title "$tag" \
+              --notes-file "$notes" "${archives[@]}"
           fi
+          gh release edit "$tag" --draft=false --latest
+
+  # What a user runs, once everything is out: `cargo binstall rust-doctor` for
+  # the version this tag released, every target resolved from crates.io and the
+  # GitHub Release with none compiled, the Linux one installed and run. The
+  # crates.io index can trail an upload by a minute or two, so a failure is
+  # retried before it counts. Only a tag has a release to resolve.
+  binstall:
+    name: cargo-binstall proof
+    needs: [github-release]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install the release through cargo-binstall
+        env:
+          # Read-only. binstall asks the GitHub API whether an archive exists,
+          # and an anonymous request shares its rate limit with every job on
+          # the runner's address.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if bash scripts/binstall-proof.sh registry; then
+              exit 0
+            fi
+            echo "attempt $attempt failed, retrying in 30 seconds" >&2
+            sleep 30
+          done
+          exit 1
 
   # What the run shipped, or would have shipped.
   summary:
@@ -481,11 +584,11 @@ jobs:
               echo
               echo 'Published to crates.io: the `rust-doctor` crate, from this same commit.'
               echo
-              echo 'Published to GitHub: the release note under .github/releases/.'
+              echo 'Published to GitHub: the release note under .github/releases/ and the five archives `cargo binstall` installs.'
             else
               echo '## Release candidate'
               echo
-              echo 'Built and validated through `npm publish --dry-run` and `cargo publish --dry-run`. Only a tag publishes.'
+              echo 'Built and validated through `npm publish --dry-run`, `cargo publish --dry-run` and a cargo-binstall resolution of the five archives. Only a tag publishes.'
             fi
             echo
             echo '| Artifact | Size |'
