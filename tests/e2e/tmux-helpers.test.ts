@@ -14,14 +14,18 @@ afterEach(() => {
   session = undefined;
 });
 
-function shell(width = 60, height = 12): TmuxSession {
+// Returns once the shell shows its prompt. `create` returns once the program
+// starts, not once it reads: a line typed before the prompt is echoed by the
+// terminal first, and the prompt then lands on the line the command prints.
+async function shell(width = 60, height = 12): Promise<TmuxSession> {
   session = TmuxSession.create(["sh"], { width, height, env: { PS1: "$ " } });
+  await session.waitForPane(/^\$/m);
   return session;
 }
 
 describe.skipIf(!requireTmux())("tmux driver", () => {
   test("the pane has the size it was created with, and resizes", async () => {
-    const pane = shell(50, 12);
+    const pane = await shell(50, 12);
     expect(pane.size()).toEqual({ cols: 50, rows: 12 });
     pane.sendLiteral("stty size");
     pane.sendKeys("Enter");
@@ -34,7 +38,7 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
   });
 
   test("captures plain, with escapes and with history", async () => {
-    const pane = shell(60, 8);
+    const pane = await shell(60, 8);
     pane.sendLiteral("printf '\\033[31mred\\033[0m\\n'; i=1; while [ $i -le 40 ]; do echo line-$i; i=$((i+1)); done");
     pane.sendKeys("Enter");
     await pane.waitForPane("line-40");
@@ -45,7 +49,7 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
   });
 
   test("a wait that times out names the last pane", async () => {
-    const pane = shell();
+    const pane = await shell();
     pane.sendLiteral("echo visible-text");
     pane.sendKeys("Enter");
     await pane.waitForPane("visible-text");
@@ -53,7 +57,7 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
   });
 
   test("waitForStable returns once the pane stops changing", async () => {
-    const pane = shell();
+    const pane = await shell();
     pane.sendLiteral("for i in 1 2 3 4 5; do echo tick-$i; sleep 0.1; done");
     pane.sendKeys("Enter");
     const stable = await pane.waitForStable(300);
@@ -61,7 +65,7 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
   });
 
   test("the byte log holds every byte the program wrote, escapes included", async () => {
-    const pane = shell();
+    const pane = await shell();
     pane.sendLiteral("printf '\\033[?25l\\033[?25h'; echo logged");
     pane.sendKeys("Enter");
     await pane.waitForPane(/^logged$/m);
@@ -98,8 +102,8 @@ describe.skipIf(!requireTmux())("tmux driver", () => {
     }
   });
 
-  test("kill is idempotent and ends the server", () => {
-    const pane = shell();
+  test("kill is idempotent and ends the server", async () => {
+    const pane = await shell();
     pane.kill();
     pane.kill();
     expect(() => pane.size()).toThrow();
